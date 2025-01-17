@@ -1,0 +1,72 @@
+/*!
+ * @package:      Oradio3
+ * @author url:   https://stichtingoradio.nl
+ * @author email: info at pbfvolleybal dot nl
+ * @copyright:    Stichting Oradio, All rights reserved.
+ * @license:      GNU General Public License version 3; https://www.gnu.org/licenses/gpl-3.0.html
+ */
+
+/*
+ * Oradio style choices
+ */
+
+/* Define placeholder color: dark-grey */
+:root {
+	--ph-color: #707070;
+}
+
+/* Define default placeholder color */
+::placeholder,
+.placeholder {
+	color: var(--ph-color);
+}
+
+/* Hide element */
+.hide {
+	display: none;
+}
+
+/* Create some space on the left */
+.oradio-container {
+	margin-left: 1em;
+}
+
+/* Center the header */
+.oradio-header {
+	text-align: center;
+}
+
+/* Allow space on right for icon */
+.oradio-input {
+	width: 75%;
+}
+
+/* Improve icon visibility and position */
+.oradio-eye {
+	font-size: 1.5rem;
+	vertical-align: middle;
+}
+
+/*
+ * Tweak Pure for readability
+ */
+
+/* Labels need less space */
+.pure-form-aligned .pure-control-group label {
+	width: 5em;
+}
+
+/* Adjust button location in line with labels */
+.pure-form-aligned .pure-controls {
+	margin: 1.5em 0 0 6em;
+}
+@media only screen and (max-width : 480px) {
+	.pure-form-aligned .pure-controls {
+		margin: 1.5em 0 0 0;
+	}
+}
+
+/* Put password visibility icon next to input */
+.pure-form-aligned input {
+	display: inline-block !important;
+}
