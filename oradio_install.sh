@@ -93,7 +93,7 @@ done
 ########## Install latest OS packages ##########
 # Update the OS to the latest greatest
 # NOTE: You may be tempted to skip, but better not...
-#sudo apt-get update && sudo apt-get -y full-upgrade
+sudo apt-get update && sudo apt-get -y full-upgrade
 
 # Het kan zijn dat een upgrade de kernel heeft bijgewerkt. Dan is een reboot noodzakelijk.
 # TODO:
