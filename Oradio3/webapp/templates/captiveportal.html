@@ -1,0 +1,223 @@
+<!DOCTYPE html>
+<html lang="nl">
+	<head>
+		<meta charset="UTF-8" />
+		<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+
+<!-- From OpenNDS splash page -->
+		<meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+		<meta http-equiv="Pragma" content="no-cache">
+		<meta http-equiv="Expires" content="0">
+
+		<link rel="stylesheet" href="../static/css/fontawesome.min.css" />
+		<link rel="stylesheet" href="../static/css/regular.min.css" />
+		<link rel="stylesheet" href="../static/css/pure.min.css" />
+		<link rel="stylesheet" href="../static/css/oradio3-wifi.css" />
+
+		<title>Configuration</title>
+	</head>
+	<body>
+		{% include "menu.html" %}
+
+		<h2 class="oradio-header">Verbind met WiFi-netwerk</h2>
+
+		<div class="oradio-container">
+
+			<form class="pure-form pure-form-aligned">
+				<fieldset>
+
+					<div class="pure-controls">
+						<p id="active" class="hide">
+							<!-- Will be filled by Javascript submitCredentials() -->
+						</p>
+					</div>
+
+					<div class="pure-control-group">
+						<label for="SSIDs">Netwerk</label>
+						<select id="SSIDs" class="oradio-input placeholder" onchange="networkSelected()"></select>
+					</div>
+
+					<div id="cg-password" class="pure-control-group hide">
+						<label for="password">Wachtwoord</label>
+						<input id="password" class="oradio-input" type="password" placeholder="Voer WiFi-wachtwoord in" />
+						<span class="password-toggle-icon oradio-eye"><i class="fa-regular fa-eye"></i></span>
+					</div>
+
+					<div id="cg-submit" class="pure-controls hide">
+						<button type="submit" class="pure-button pure-button-primary" onclick="submitCredentials()">Submit</button>
+					</div>
+
+					<div id="notification" class="pure-controls">
+						<!-- Will be filled by Javascript submitCredentials() -->
+					</div>
+
+				</fieldset>
+			</form>
+
+		</div>
+
+	</body>
+
+	<script>
+
+		var active = "{{ ssid }}";	// Provided by Oradio web server
+		if (active == "\{\{ ssid \}\}")
+		{
+			// For testing page without being served through Oradio web server
+			var active = "Apple";
+			var active = "None";
+		}
+//console.log("active=", active);
+
+		var list = "{{ list }}";	// Provided by Oradio web server
+		if (list != "\{\{ list \}\}")
+			var networks = JSON.parse(decodeHtml(list));
+		else
+			// For testing page without being served through Oradio web server
+			var networks = [
+				{"ssid": "Apple", "security": true},
+				{"ssid": "Banana", "security": false},
+				{"ssid": "Lemon", "security": true},
+				{"ssid": "Orange", "security": false},
+			];
+//console.log("list=", list);
+
+		// Decode HTML characters 
+		function decodeHtml(html)
+		{
+			var txt = document.createElement("textarea");
+			txt.innerHTML = html;
+			return txt.value;
+		}
+
+		// Change form to reflect selected network
+		function networkSelected()
+		{
+			// Remove style attribute
+			document.getElementById('SSIDs').classList.remove("placeholder");
+
+			// Get selected network info
+			const network = networks[document.getElementById("SSIDs").value];
+
+			// Customize password placeholder
+			document.getElementById("password").placeholder = "Geef wachtwoord van '" + network.ssid + "'";
+
+			// Show password input if network requires one, and submit button
+			if (network.security)
+				document.getElementById("cg-password").classList.remove("hide");
+			else
+				document.getElementById("cg-password").classList.add("hide");
+			document.getElementById("cg-submit").classList.remove("hide");
+
+			// Clear notification
+			document.getElementById('notification').innerHTML = "";
+		}
+
+		// Initialize page layout
+		if ((active != "None") && (active != "OradioAP"))
+		{
+			// Show which wifi network the Oradio is currently connected to
+			document.getElementById("active").innerHTML = "De Oradio is verbonden met WiFi-netwerk <b>" + active + "</b>";
+
+			// Show active network connection
+			document.getElementById("active").classList.remove("hide");
+		}
+
+		// Create selector with available networks
+		var sel = document.getElementById('SSIDs');
+
+		// Add HTML placeholder element for no network selected yet
+		var opt = document.createElement('option');				// Create HTML element
+		opt.innerHTML = "Selecteer uw WiFi-netwerk";			// Set user prompt
+		opt.selected = true;									// Set selected
+		opt.hidden = true;										// Do not show option in drop down list. Safari/iOS - does not respect this :-(
+		opt.disabled = true;									// Work-around for Safari/iOS: visible but not selectable
+		sel.appendChild(opt);									// Add option to select element
+
+		// Add select option for each available network
+		for(var i = 0; i < networks.length; i++)
+		{
+			// Ignore network currently connected to
+			if (networks[i].ssid != active)
+			{
+				var opt = document.createElement('option');		// Create HTML element
+				opt.innerHTML = networks[i].ssid;				// Set user prompt
+				opt.value = i;									// Set index in networks
+
+				opt.style = "color: #000";						// Show prompt in black, not dark-grey (placeholder)
+				sel.appendChild(opt);							// Add option to select element
+			}
+		}
+
+		// Toggle password visibility
+		const passwordField = document.getElementById("password");
+		const togglePassword = document.querySelector(".password-toggle-icon i");
+
+		togglePassword.addEventListener("click", function ()
+		{
+			if (passwordField.type === "password")
+			{
+				passwordField.type = "text";
+				togglePassword.classList.remove("fa-eye");
+				togglePassword.classList.add("fa-eye-slash");
+			}
+			else
+			{
+				passwordField.type = "password";
+				togglePassword.classList.remove("fa-eye-slash");
+				togglePassword.classList.add("fa-eye");
+			}
+		});
+
+		// Function to submit the network and password
+		async function submitCredentials()
+		{
+			event.preventDefault();
+
+			// Get notification element
+			const notification = document.getElementById('notification');
+
+			// Get selected network info
+			const network = networks[document.getElementById("SSIDs").value];
+
+			// Get password
+			const pswd = document.getElementById("password").value;
+
+			// Show password input if network requires one, and submit button
+			if (network.security && (pswd.length == 0))
+			{
+				notification.innerHTML = "<p style=\"color: #ff0000;\">Wifi-netwerk '" + network.ssid + "' heeft een netwerk nodig.</p>";
+				return;
+			}
+
+
+			// Send credentials to server
+			try
+			{
+				const response = await fetch('/connect2network', {
+					method: 'POST',
+					headers: {
+						'Content-Type': 'application/json'
+					},
+					body: JSON.stringify({ "ssid": network.ssid, "pswd": pswd })
+				});
+
+				if (response.ok)
+				{
+					notification.innerHTML = "<p>De huidige verbinding wordt verbroken.</p><p>Oradio probeert te verbinden met '" + network.ssid + "'</p>";
+				}
+				else
+				{
+					const errorData = await response.json();
+					notification.textContent = "<p style=\"color: #ff0000;\">Error: "+ errorData + "</p>";
+				}
+			}
+			catch (error)
+			{
+				notification.innerHTML = "<p style=\"color: #ff0000;\">Er is een fout opgetreden bij het indienen van de netwerkreferenties.</p>";
+			}
+		}
+
+	</script>
+
+</html>
