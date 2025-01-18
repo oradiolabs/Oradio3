@@ -50,7 +50,7 @@ def extra_long_press_aan(process):
         wifi_utils.wifi_remove(active)
 
     # Start captive portal: access point + web service
-    return(long_press_aan(process))
+    return long_press_aan(process)
 
 def any_press_uit(process):
     '''
@@ -63,16 +63,16 @@ def any_press_uit(process):
 
     # If access point active: remove it
     if active == ACCESS_POINT_NAME:
-        print(f"any_press_uit: access point found. Remove it")
+        print("any_press_uit: access point found. Remove it")
         wifi_utils.wifi_remove(active)
 
     # If web service is running: Stop it
     if process:
-        print(f"any_press_uit: web service found. Stop it")
+        print("any_press_uit: web service found. Stop it")
         web_service.web_service_stop(process)
 
     # Return None indicates web service stopped
-    return(None)
+    return None 
 
 # Entry point for stand-alone operation
 if __name__ == '__main__':
@@ -81,6 +81,8 @@ if __name__ == '__main__':
     import importlib.util
     system_monitoring = importlib.util.find_spec("system_monitoring")
 
+    '''
+    TODO: Move to oradio_utils to determine what to do: logging only, monitoring, ...
     # If monitoring is available then use it
     if system_monitoring:
         import logging.config
@@ -96,6 +98,7 @@ if __name__ == '__main__':
 
         # No system checks
         sys_monitor.timer_off()
+    '''
 
     # Initialize
     message_listener = None
@@ -107,7 +110,7 @@ if __name__ == '__main__':
         If so, read the command from queue and display it
         :param command_queue = the queue to check for
         '''
-        oradio_utils.logging("info", f"Thread listening to server messages is running")
+        oradio_utils.logging("info", "Thread listening to server messages is running")
         while True:
             # Wait for message
             command = command_queue.get(block=True, timeout=None)
@@ -183,6 +186,9 @@ if __name__ == '__main__':
             case _:
                 print("\nPlease input a valid number\n")
 
+    '''
+    TODO: put check in oradio_utils
     # If monitoring: Stop monitoring
     if system_monitoring:
         sys_monitor.stop()
+    '''

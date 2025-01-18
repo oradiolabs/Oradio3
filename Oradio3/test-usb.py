@@ -1,5 +1,4 @@
 import os, json
-from time import time, sleep
 
 '''
 Simulate usb drive with wifi settings in root
@@ -15,19 +14,15 @@ def check_usb_wifi_settings():
     '''
     oradio_utils.logging("info", "Look for wifi credentials on USB drive")
 
-    # Check if wifi settings file exists in USB drive root 
+    # Check if wifi settings file exists in USB drive root
     if not usb_utils.check_usb_present(USB_ORADIO) or not os.path.isfile(USB_WIFI_FILE):
         oradio_utils.logging("info", f"Oradio USB drive not found or {USB_WIFI_FILE} not found on USB drive")
         return
 
-    # Opening JSON file
-    f = open(USB_WIFI_FILE)
-
-    # returns JSON object as a dictionary
-    data = json.load(f)
-
-    # Closing file
-    f.close()
+    # Opening JSON file for reading
+    with open(USB_WIFI_FILE, "r") as f:
+        # returns JSON object as a dictionary
+        data = json.load(f)
 
     # Initialize
     ssid = None
@@ -76,6 +71,8 @@ if __name__ == '__main__':
     import importlib.util
     system_monitoring = importlib.util.find_spec("system_monitoring")
 
+    '''
+    TODO: Move to oradio_utils to determine what to do: logging only, monitoring, ...
     # If monitoring is available then use it
     if system_monitoring:
         import logging.config
@@ -91,6 +88,7 @@ if __name__ == '__main__':
 
         # No system checks
         sys_monitor.timer_off()
+    '''
 
     # Initialize
     usb_monitor = None
@@ -130,6 +128,9 @@ if __name__ == '__main__':
             case _:
                 print("\nPlease input a valid number\n")
 
+    '''
+    TODO: put check in oradio_utils
     # If monitoring: Stop monitoring
     if system_monitoring:
         sys_monitor.stop()
+    '''

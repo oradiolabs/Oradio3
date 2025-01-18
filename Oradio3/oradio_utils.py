@@ -1,3 +1,6 @@
+import inspect      # logging
+import subprocess   # run_shell_script
+
 # Simplified logging function - remove logging and monitoring, only print formatted log message
 def logging(level, log_text):
     '''
@@ -6,7 +9,6 @@ def logging(level, log_text):
     :param log_text (str) - logging message
     '''
     # check whether rpi is throttled or running normal
-    import inspect
     inspect_info = inspect.stack()
     module_info  = inspect.stack()[1]
     mod_name     = inspect.getmodule(module_info[0]).__name__
@@ -14,7 +16,7 @@ def logging(level, log_text):
     func_name    = inspect.getframeinfo(frame_info)[2]
 
     # Build logging text
-    logging_text = '{mnm:s} - {fnm:s} : {txt:s}'.format(mnm=mod_name, fnm=func_name, txt=log_text)
+    logging_text = f'{mod_name:s} - {func_name:s} : {log_text:s}'
 
     RED_TXT     = "\x1b[31;20m"
     YELLOW_TXT  = "\033[93m"
@@ -27,17 +29,16 @@ def logging(level, log_text):
     if level == 'warning':
         logging_text = YELLOW_TXT+logging_text+END_TXT
     if level == 'error':
-        logging_text = RED_TXT+logging_text+END_TXT            
+        logging_text = RED_TXT+logging_text+END_TXT
 
     # Output logging text
     print(logging_text, flush=True)
 
 # Tweaked: return result
-import subprocess
 def run_shell_script(script):
     logging("info", f"Runnning shell script: {script}")
     process = subprocess.run(script, shell = True, capture_output = True, encoding = 'utf-8')
     if process.returncode != 0:
         logging("error", f"shell script error: {process.stderr}")
-        return(False)
-    return(True)
+        return False
+    return True

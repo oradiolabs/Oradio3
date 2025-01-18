@@ -210,6 +210,8 @@ if __name__ == '__main__':
     import importlib.util
     system_monitoring = importlib.util.find_spec("system_monitoring")
 
+    '''
+    TODO: Move to oradio_utils to determine what to do: logging only, monitoring, ...
     # If monitoring is available then use it
     if system_monitoring:
         import logging.config
@@ -225,6 +227,7 @@ if __name__ == '__main__':
 
         # No system checks
         sys_monitor.timer_off()
+    '''
 
     def check_for_new_command_from_web_server(command_queue):
         '''
@@ -299,6 +302,9 @@ if __name__ == '__main__':
             case _:
                 print("\nPlease input a valid number\n")
 
+    '''
+    TODO: put check in oradio_utils
     # If monitoring: Stop monitoring
     if system_monitoring:
         sys_monitor.stop()
+    '''
