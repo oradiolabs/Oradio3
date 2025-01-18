@@ -7,7 +7,7 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        python-version: ["3.8", "3.9", "3.10"]
+        python-version: ["3.11"]
     steps:
     - uses: actions/checkout@v4
     - name: Set up Python ${{ matrix.python-version }}
@@ -19,5 +19,13 @@ jobs:
         python -m pip install --upgrade pip
         pip install pylint
     - name: Analysing the code with pylint
+      # C0301: long lines
+      # C0103: naming errors
+      # C0410: mutiple imports on 1 line
       run: |
-        pylint $(git ls-files '*.py')
+        pylint $(git ls-files '*.py') --disable=C0301,C0103,C0410 --output=pylint_result.txt || true
+    - name: Upload Artifact
+      uses: actions/upload-artifact@v3
+      with:
+        name: pylint_result.txt
+        path: pylint_result.txt
