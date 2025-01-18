@@ -54,26 +54,13 @@ api_app.mount("/static", StaticFiles(directory=web_path+"/static"), name="static
 # Initialize templates with custom filters and globals
 templates = Jinja2Templates(directory=web_path+"/templates")
 
-# Handle default browser request for /favicon.ico
-@api_app.get("/favicon.ico", include_in_schema=False)
-async def favicon():
-    return FileResponse(os.path.dirname(__file__) + '/static/favicon.ico')
+#### PLAYLISTS ####################
+
+#### SPOTIFY ####################
 
 #### CAPTIVE PORTAL ####################
 
-#TODO: Er moeten vergelijkbare endpoints komen voor Android (/generate_204) ... en Windows (/ncsi.txt) ? Nog anderen? Check https://captivebehavior.wballiance.com/
-
-#@api_app.get("/google.com", response_class=HTMLResponse)
-# Android method to check for a Captive Portal
 @api_app.get("/generate_204{full_path:path}", response_class=HTMLResponse)
-# Do we need to redirect? Or does it work without?
-#async def redirect(request: Request):
-#    logger.debug('Respond with redirect')
-#    logger.debug('Called from: ' + request.url.path)
-#    return RedirectResponse(url = '/redirected')
-#
-#@api_app.get("/redirected", response_class=HTMLResponse)
-# Apple method to check for a Captive Portal
 @api_app.get("/hotspot-detect.html", response_class=HTMLResponse)
 async def captiveportal(request: Request):
     logger.debug('Respond with login page. Called from: ' + request.url.path)
@@ -124,13 +111,20 @@ async def connect2network(credentials: credentials, request: Request):
         oradio_utils.logging("error", str(ex_err))
         return{"status": "error", "error": "Failed to send network credentials to parent process"}
 
+#### FAVICON ####################
+
+# Handle default browser request for /favicon.ico
+@api_app.get("/favicon.ico", include_in_schema=False)
+async def favicon():
+    return FileResponse(os.path.dirname(__file__) + '/static/favicon.ico')
+
 #### CATCH ALL ####################
 
-@api_app.route("/{full_path:path}")
+@api_app.api_route("/{full_path:path}")
 async def catch_all(request: Request, full_path: str):
-    logger.debug('Respond with catch-all page. full_path: ' + full_path)
+    logger.debug(f"Respond with catch-all page. full_path: {full_path}")
 
-    # Pass timeout_reset to parent process
+    # Pass timeout_reset request to parent process
     api_command = {}
     api_command["command_type"] = COMMAND_WIFI_TYPE
     api_command["command"]      = COMMAND_WIFI_TIMEOUT_RESET
