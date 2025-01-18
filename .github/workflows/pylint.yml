@@ -9,7 +9,7 @@ jobs:
       matrix:
         python-version: ["3.11"]
     steps:
-    - uses: actions/checkout@v3
+    - uses: actions/checkout@v4
     - name: Set up Python ${{ matrix.python-version }}
       uses: actions/setup-python@v3
       with:
@@ -23,6 +23,6 @@ jobs:
         pylint $(git ls-files '*.py') --ignore-long-lines --output=pylint_result.txt || true
     - name: Upload Artifact
       uses: actions/upload-artifact@v3
-        with:
-          name: pylint_result.txt
-          path: pylint_result.txt
+      with:
+        name: pylint_result.txt
+        path: pylint_result.txt
