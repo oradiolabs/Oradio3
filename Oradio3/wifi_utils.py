@@ -218,7 +218,6 @@ def wifi_remove(connection):
     else:
         oradio_utils.logging("success", f"Wifi '{connection}' removed")
 
-    
     # Return status, so caller can recover if need be
     return status
 
