@@ -151,7 +151,7 @@ def web_service_start(*args, **kwargs):
     # Set port redirection for all network requests to reach the web service
     script = f"sudo bash -c 'iptables -t nat -I PREROUTING -p tcp --dport 80 -j REDIRECT --to-port {WEB_SERVICE_PORT}'"
     if not oradio_utils.run_shell_script(script):
-        oradio_utils.logging("error", f"Failed to configure iptables port redirection")
+        oradio_utils.logging("error", "Failed to configure iptables port redirection")
     else:
         oradio_utils.logging("success", f"Redirection to port {WEB_SERVICE_PORT} configured")
 
