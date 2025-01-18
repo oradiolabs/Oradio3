@@ -175,9 +175,7 @@ def web_service_active(process):
     True if process is not None and instance of web service and process is alive
     :param process ==> identfies the process to stop
     '''
-    if process and isinstance(process, web_service) and process.is_alive():
-        return(True)
-    return(False)
+    return process and isinstance(process, web_service) and process.is_alive():
 
 def web_service_stop(process):
     '''
@@ -199,7 +197,7 @@ def web_service_stop(process):
         oradio_utils.logging("success", "Port redirection removed")
 
     # Web service is gone
-    return(None)
+    return None
 
 # Entry point for stand-alone operation
 if __name__ == '__main__':
