@@ -20,4 +20,9 @@ jobs:
         pip install pylint
     - name: Analysing the code with pylint
       run: |
-        pylint $(git ls-files '*.py') --ignore-long-lines --output=lint.txt || true
+        pylint $(git ls-files '*.py') --ignore-long-lines --output=pylint_result.txt || true
+    - name: Upload Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: pylint_result.txt
+          path: pylint_result.txt
