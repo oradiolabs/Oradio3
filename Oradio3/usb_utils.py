@@ -102,6 +102,8 @@ if __name__ == '__main__':
     import importlib.util
     system_monitoring = importlib.util.find_spec("system_monitoring")
 
+    '''
+    TODO: Move to oradio_utils to determine what to do: logging only, monitoring, ...
     # If monitoring is available then use it
     if system_monitoring:
         import logging.config
@@ -117,6 +119,7 @@ if __name__ == '__main__':
 
         # No system checks
         sys_monitor.timer_off()
+    '''
 
     # Initialize
     usb_monitor = None
@@ -164,8 +167,8 @@ if __name__ == '__main__':
                 usb_monitor_stop(usb_monitor)
                 break
             case 1:
-                label = input("Enter USB drive name to check if present: ")
-                oradio_utils.logging("info", f"USB drive '{label}' present: {check_usb_present(label)}")
+                name = input("Enter USB drive name to check if present: ")
+                oradio_utils.logging("info", f"USB drive '{name}' present: {check_usb_present(name)}")
             case 2:
                 usb_monitor = usb_monitor_start(usb_monitor, usb_inserted, usb_removed)
                 oradio_utils.logging("info", "==> insert or remove a USB drive to test detection")
@@ -174,6 +177,9 @@ if __name__ == '__main__':
             case _:
                 print("\nPlease input a valid number\n")
 
+    '''
+    TODO: put check in oradio_utils
     # If monitoring: Stop monitoring
     if system_monitoring:
         sys_monitor.stop()
+    '''
