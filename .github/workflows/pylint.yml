@@ -22,7 +22,7 @@ jobs:
       run: |
         pylint $(git ls-files '*.py') --ignore-long-lines --output=pylint_result.txt || true
     - name: Upload Artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v3
         with:
           name: pylint_result.txt
           path: pylint_result.txt
