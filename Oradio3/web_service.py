@@ -175,7 +175,7 @@ def web_service_active(process):
     True if process is not None and instance of web service and process is alive
     :param process ==> identfies the process to stop
     '''
-    return process and isinstance(process, web_service) and process.is_alive():
+    return process and isinstance(process, web_service) and process.is_alive()
 
 def web_service_stop(process):
     '''
