@@ -1,0 +1,30 @@
+{
+	"buttons":
+	{
+		"button_parameters":
+		{
+			"short_time":	 50,			
+			"long_time":	 5000,
+			"keep_long_time":10000
+		}
+	},
+	"hw_pcb":
+	{
+		"pcb_version" : "hw_version_7_00"
+	},
+	"system_sound":
+	{
+		"sound" :
+		{
+			"switch_sound":		"SwitchSound4_3.mp3",
+			"click_sound":		"VolumeClickV1.mp3",
+			"tune_startup": 	"Start_up_2.mp3",
+			"tune_switch_off":	"Switch_off_tuneV1.mp3",
+			"tune_PL1":			"Preset1.mp3",
+			"tune_PL2":			"Preset2.mp3",
+			"tune_PL3":			"Preset3.mp3"
+		},
+		"system_sound_directory":	"/home/pi/Oradio_new/module_test/system_digital_IO/sound/"
+	}
+			
+}

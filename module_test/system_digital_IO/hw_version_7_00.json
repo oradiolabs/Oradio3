@@ -1,0 +1,89 @@
+{
+	"hw_version_7_00":	
+	{
+		"buttons": {
+			"button_1":
+			{
+				"name":			"PL1_button",
+				"pin":			11,
+				"active": 		"High",
+				"bouncetime":	5,
+				"led": 			"led_LEFT",
+				"sound":		"switch_sound",
+				"tune":			"tune_PL1"
+			},
+		   "button_2":
+		   {
+		   		"name":			"PL2_button",
+		   		"pin":			5,
+				"active": 		"High",
+				"bouncetime":	5,
+				"led": 			"led_MIDDLE",
+				"sound":		"switch_sound",
+				"tune":			"tune_PL2"					
+		   },
+		   "button_3":
+		   {
+		   		"name":			"PL3_button",
+		   		"pin":			10,
+				"active": 		"High",
+				"bouncetime":	5,
+				"led": 			"led_RIGHT",
+				"sound":		"switch_sound",
+				"tune":			"tune_PL2"					
+		   },	   
+		   "button_4":
+		   {
+		   		"name":			"On_button",
+		   		"pin":			9,
+				"active": 		"High",
+				"bouncetime":	5,
+				"led": 			"led_ON",
+				"sound":		"switch_sound",
+				"tune":			"tune_startup"				
+		   },
+		   "button_5":
+		   {
+		   		"name":			"Off_button",
+		   		"pin":			6,
+				"active": 		"High",
+				"bouncetime":	5,
+				"led": 			"led_OFF",
+				"sound":		"switch_sound",
+				"tune":			"tune_switch_off"					
+		   }
+		},
+		"volume_button":
+		{
+			"name": "Volume_button",
+			"sound": "click_sound"
+		},
+	   "leds":
+	   {
+			"led_1": {
+				"name": "led_ON",
+				"pin": 15
+			},
+			"led_2": {
+				"name": "led_OFF",
+				"pin": 23
+			},
+			"led_3": {
+				"name": "led_LEFT",
+				"pin": 24
+			},
+			"led_4": {
+				"name": "led_MIDDLE",
+				"pin": 25
+			},
+			"led_5": {
+				"name": "led_RIGHT",
+				"pin": 7
+			},
+			"led_6": {
+				"name" : "led_POWER",
+				"pin" : 14
+			}
+		}
+	}
+}
