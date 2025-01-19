@@ -1,8 +1,24 @@
 #!/bin/bash
+#
+#  ####   #####     ##    #####      #     ####
+# #    #  #    #   #  #   #    #     #    #    #
+# #    #  #    #  #    #  #    #     #    #    #
+# #    #  #####   ######  #    #     #    #    #
+# #    #  #   #   #    #  #    #     #    #    #
+#  ####   #    #  #    #  #####      #     ####
+#
+# Created on January 19, 2025
+# @author:        Henk Stevens & Olaf Mastenbroek & Onno Janssen
+# @copyright:     Oradio Stichting
+# @license:       GNU General Public License (GPL)
+# @organization:  Oradio Stichting
+# @version:       1
+# @email:         oradioinfo@stichtingoradio.nl
+# @status:        Development
 
-# The script uses bash constructs, so make sure the script is running in the bash shell
-if [ ! "$BASH_VERSION" ]; then
-	echo "Please use bash to run this script ($0), or just execute it directly" 1>&2
+# The script uses bash constructs and changes the environment
+if [ ! "$BASH_VERSION" ] || [ ! "$0" == "-bash" ]; then
+	echo "Use 'source $0' to run this script" 1>&2
 	exit 1
 fi
 
@@ -14,21 +30,18 @@ NC='\033[0m'
 
 ########## Setup usb automount ##########
 # The shell script doing the heavy lifting
-sudo cp $(dirname "$0")/usb/usb-mount.sh /usr/local/bin/
+sudo cp $PWD/install_modules/usb/usb-mount.sh /usr/local/bin/
 sudo chmod +x /usr/local/bin/usb-mount.sh
 # The script, in turn, is called by a systemd unit file. The "@" filename syntax allows passing the device name as an argument.
-sudo cp $(dirname "$0")/usb/usb-mount@.service /etc/systemd/system/
+sudo cp $PWD/install_modules/usb/usb-mount@.service /etc/systemd/system/
 # Restart the daemon to activate
 sudo systemctl daemon-reload
 # udev rules start and stop the systemd unit service on hotplug/unplug
-sudo cp $(dirname "$0")/usb/99-local.rules /etc/udev/rules.d/
+sudo cp $PWD/install_modules/usb/99-local.rules /etc/udev/rules.d/
 # Reload to activate
 sudo udevadm control --reload-rules
 
-########## Get packages and python modules for USB services ##########
-# Install pip
-sudo apt-get install pip -y
 # Install python modules
-sudo pip install usb-monitor --break-system-packages
+python -m pip install usb-monitor
 
 echo -e "${GREEN}USB functionalty loaded and configured. System automounts USB drives on '/media'.${NC}"

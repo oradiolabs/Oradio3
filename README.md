@@ -11,4 +11,6 @@ Installation
 - ssh into the raspberry Pi
 - #> sudo apt-get install git -y
 - #> git clone https://github.com/oradiolabs/Oradio3.git .  <== Note the dot. If you get an error then check with ls -al and remove any and all files (rm -rf .* *)
-- #> bash ./oradio_install.sh
+- #> source ./oradio_install.sh    <== Note the 'source' command. Required as the scripts changes environment settings
+
+NOTE: If you open a new shell, e.g. via SSH, make sure to run 'source ~/.venv'. Otherwise the python modules cannot be found.

@@ -1,8 +1,24 @@
 #!/bin/bash
+#
+#  ####   #####     ##    #####      #     ####
+# #    #  #    #   #  #   #    #     #    #    #
+# #    #  #    #  #    #  #    #     #    #    #
+# #    #  #####   ######  #    #     #    #    #
+# #    #  #   #   #    #  #    #     #    #    #
+#  ####   #    #  #    #  #####      #     ####
+#
+# Created on January 19, 2025
+# @author:        Henk Stevens & Olaf Mastenbroek & Onno Janssen
+# @copyright:     Oradio Stichting
+# @license:       GNU General Public License (GPL)
+# @organization:  Oradio Stichting
+# @version:       1
+# @email:         oradioinfo@stichtingoradio.nl
+# @status:        Development
 
-# The script uses bash constructs, so make sure the script is running in the bash shell
-if [ ! "$BASH_VERSION" ]; then
-	echo "Please use bash to run this script ($0), or just execute it directly" 1>&2
+# The script uses bash constructs and changes the environment
+if [ ! "$BASH_VERSION" ] || [ ! "$0" == "-bash" ]; then
+	echo "Use 'source $0' to run this script" 1>&2
 	exit 1
 fi
 
@@ -12,14 +28,19 @@ YELLOW='\033[1;93m'
 GREEN='\033[1;32m'
 NC='\033[0m'
 
+# Available modules to install
+MODULES_MANDATORY="network support"
+MODULES_OPTIONAL="webinterface usb"
+
+# Function to pretty-print the list of modules
 show_modules() {
 	# Build nice looking list of modules
 
 	# Initialize first modules line
-	mods="#    Available modules: "
+	mods="#    Modules: "
 
 	# Iterate through modules
-	for i in ${MODULES}; do
+	for i in $@; do
 
 		# Get expeted modules line length
 		n=$((${#mods} + ${#i}))
@@ -60,25 +81,32 @@ show_modules() {
 	echo "$mods"
 }
 
-# Available modules to install
-MODULES="network usb"
-
 # Process the input arguments
 for i in $@; do
-	if `echo $MODULES | grep -q -c -w "$i"`; then
+	if `echo $MODULES_OPTIONAL | grep -q -c -w "$i"`; then
 		install="$install $i"
 	else
 		# Output help "header"
 		echo
 		echo "###############################################################################"
+		echo "#                                                                             #"
 		echo "# This script does a (modular) Oradio installation and configuration          #"
+		echo "#                                                                             #"
 		echo "# Syntax: oradio_install module1 module2 module3                              #"
 
 		# Output nice looking list of modules
-		show_modules
+		show_modules $MODULES_OPTIONAL
 
 		# Output help "footer"
-		echo "# NOTE: No arguments is the same as listing all avaialble modules             #"
+		echo "# No arguments is the same as listing all available modules                   #"
+
+		# Output help "footer"
+		echo "#                                                                             #"
+		echo "# NOTE: Modules always installed:                                             #"
+
+		# Output nice looking list of modules
+		show_modules $MODULES_MANDATORY
+
 		echo "###############################################################################"
 		echo
 
@@ -106,16 +134,24 @@ echo -e "${GREEN}OS is up to date${NC}"
 
 # If no modules given as argument then process all modules
 if [ ${#install} -eq 0 ]; then
-	install=$MODULES
+	install=$MODULES_OPTIONAL
 fi
 
 ########## Install modules ##########
-# Iterate through modules to install
-for i in ${MODULES}; do
+
+# Iterate through MANDATORY modules to install
+for i in $MODULES_MANDATORY; do
+	echo "Installing module '$i'"
+	source install_modules/$i.sh
+done
+
+# Iterate through OPTIONAL modules to install
+for i in $MODULES_OPTIONAL; do
 	if `echo $install | grep -q -c -w "$i"`; then
-		bash install_modules/$i.sh
+		echo "Installing module '$i'"
+		source install_modules/$i.sh
 	else
-		echo -e "${YELLOW}Skipping installing '${i}'${NC}"
+		echo -e "${YELLOW}Skipping installing '$i'${NC}"
 	fi
 done
 
@@ -128,7 +164,7 @@ echo -e "# ${GREEN}Oradio installation and configuration done.${NC}             
 echo    "# 1) 'cd Oradio3' and run 'python test-<module>.py' to test specific modules  #"
 
 # Output nice looking list of modules
-show_modules
+show_modules $MODULES_OPTIONAL
 
 # Output wrap-up "footer"
 echo    "# 2) Reboot to start Oradio.                                                  #"
