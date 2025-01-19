@@ -1,7 +1,7 @@
 '''
 Simulate button presses as used by Oradio
 '''
-from multiprocessing import Queue
+from multiprocessing import Process, Queue
 from threading import Thread
 
 import oradio_utils
@@ -72,7 +72,7 @@ def any_press_uit(process):
         web_service.web_service_stop(process)
 
     # Return None indicates web service stopped
-    return None 
+    return None
 
 # Entry point for stand-alone operation
 if __name__ == '__main__':
@@ -160,7 +160,7 @@ if __name__ == '__main__':
             case 0:
                 # Simulate an-press UIT action
                 any_press_uit(web_service_process)
-                # Stop thread listening to server messages
+                # Stop listening to server messages
                 if message_listener:
                     message_listener.kill()
                 break
@@ -168,19 +168,22 @@ if __name__ == '__main__':
                 # Simulate long-press AAN action
                 web_service_process = long_press_aan(web_service_process)
                 print(f"Verify:\n1. web server should be active, is {web_service.web_service_active(web_service_process)}\n2. wifi connection should be active, is: {wifi_utils.get_wifi_connection()}")
-                # Start separate thread to monitor the queue
+                # Start listening to server messages
                 if not message_listener:
-                    message_listener = Thread(target=check_for_new_command_from_web_server, args=(command_queue, web_service_process,), daemon=True).start() # start the thread
+                    message_listener = Process(target=check_for_new_command_from_web_server, args=(command_queue, web_service_process))
+                    message_listener.start()
             case 2:
                 # Simulate extra-long-press AAN action
                 web_service_process = extra_long_press_aan(web_service_process)
                 print(f"Verify:\n1. web server should be active, is {web_service.web_service_active(web_service_process)}\n2. wifi connection should be {ACCESS_POINT_NAME}, is: {wifi_utils.get_wifi_connection()}")
+                # Start listening to server messages
                 if not message_listener:
-                    message_listener = Thread(target=check_for_new_command_from_web_server, args=(command_queue, web_service_process,), daemon=True).start() # start the thread
+                    message_listener = Process(target=check_for_new_command_from_web_server, args=(command_queue, web_service_process))
+                    message_listener.start()
             case 3:
                 # Simulate an-press UIT action
                 web_service_process = any_press_uit(web_service_process)
-                # Stop thread listening to server messages
+                # Stop listening to server messages
                 if message_listener:
                     message_listener.kill()
             case _:
