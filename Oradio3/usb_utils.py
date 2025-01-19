@@ -25,7 +25,6 @@ Created on Januari 17, 2025
 import os, subprocess
 from time import time, sleep
 from usbmonitor import USBMonitor
-from usbmonitor.attributes import ID_MODEL, ID_MODEL_ID, ID_VENDOR_ID
 
 ##### oradio modules ####################
 import oradio_utils
@@ -103,7 +102,6 @@ if __name__ == '__main__':
     system_monitoring = importlib.util.find_spec("system_monitoring")
 
     '''
-    TODO: Move to oradio_utils to determine what to do: logging only, monitoring, ...
     # If monitoring is available then use it
     if system_monitoring:
         import logging.config
@@ -129,18 +127,14 @@ if __name__ == '__main__':
         Placeholder for module testing
         Handle functionality for when a USB drive is inserted
         '''
-        oradio_utils.logging("info", "USB drive inserted")
-        #print("device_id=", device_id)
-        #print("device_info=", device_info)
+        oradio_utils.logging("info", f"USB drive inserted. device_id={device_id}, device_info={device_info}")
 
     def usb_removed(device_id, device_info):
         '''
         Placeholder for module testing
         Handle functionality for when a USB drive is removed
         '''
-        oradio_utils.logging("info", "USB drive removed")
-        #print("device_id=", device_id)
-        #print("device_info=", device_info)
+        oradio_utils.logging("info", f"USB drive removed. device_id={device_id}, device_info={device_info}")
 
     # Show menu with test options
     input_selection = ("Select a function, input the number.\n"
@@ -167,8 +161,8 @@ if __name__ == '__main__':
                 usb_monitor_stop(usb_monitor)
                 break
             case 1:
-                name = input("Enter USB drive name to check if present: ")
-                oradio_utils.logging("info", f"USB drive '{name}' present: {check_usb_present(name)}")
+                label = input("Enter USB drive name to check if present: ")
+                oradio_utils.logging("info", f"USB drive '{label}' present: {check_usb_present(label)}")
             case 2:
                 usb_monitor = usb_monitor_start(usb_monitor, usb_inserted, usb_removed)
                 oradio_utils.logging("info", "==> insert or remove a USB drive to test detection")

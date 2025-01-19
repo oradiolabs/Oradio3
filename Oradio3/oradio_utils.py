@@ -16,7 +16,7 @@ def logging(level, log_text):
     func_name    = inspect.getframeinfo(frame_info)[2]
 
     # Build logging text
-    logging_text = f'{mod_name:s} - {func_name:s} : {log_text:s}'
+    logging_text = f"{mod_name:s} - {func_name:s} : {log_text:s}"
 
     RED_TXT     = "\x1b[31;20m"
     YELLOW_TXT  = "\033[93m"
