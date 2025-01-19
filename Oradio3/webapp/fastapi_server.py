@@ -25,7 +25,7 @@ Created on December 23, 2024
 import os, sys, json
 from pydantic import BaseModel
 from fastapi import FastAPI, Request
-from fastapi.responses import HTMLResponse, RedirectResponse, FileResponse
+from fastapi.responses import HTMLResponse, FileResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
@@ -54,16 +54,32 @@ api_app.mount("/static", StaticFiles(directory=web_path+"/static"), name="static
 # Initialize templates with custom filters and globals
 templates = Jinja2Templates(directory=web_path+"/templates")
 
+#### FAVICON ####################
+
+# Handle default browser request for /favicon.ico
+@api_app.get("/favicon.ico", include_in_schema=False)
+async def favicon():
+    return FileResponse(os.path.dirname(__file__) + '/static/favicon.ico')
+
 #### PLAYLISTS ####################
 
-#### SPOTIFY ####################
+#### CATCH ALL / CAPTIVE PORTAL ####################
 
-#### CAPTIVE PORTAL ####################
-
-@api_app.get("/generate_204{full_path:path}", response_class=HTMLResponse)
-@api_app.get("/hotspot-detect.html", response_class=HTMLResponse)
+# Any unknown path will return the home page
+# The home page will detect if accessing via the access point:
+# I yes, it will present the option to select the network
+# If not, it will present the network home page
+@api_app.get("/{full_path:path}")
 async def captiveportal(request: Request):
     logger.debug('Respond with login page. Called from: ' + request.url.path)
+
+    # Pass timeout_reset to parent process
+    api_command = {}
+    api_command["command_type"] = COMMAND_WIFI_TYPE
+    api_command["command"]      = COMMAND_WIFI_TIMEOUT_RESET
+
+    # Access the shared queue from the app's state
+    api_app.state.command_queue.put(api_command)
 
     # Get list of avaialble wifi networks
     list = wifi_utils.get_wifi_networks()
@@ -82,7 +98,6 @@ class credentials(BaseModel):
 # POST endpoint to connect to wifi network
 @api_app.post("/connect2network")
 async def connect2network(credentials: credentials, request: Request):
-
     logger.debug('Send credentials to parent process')
 
     # Send network credentials to parent process for setting up a connection after closing down the captive portal
@@ -111,33 +126,8 @@ async def connect2network(credentials: credentials, request: Request):
         oradio_utils.logging("error", str(ex_err))
         return{"status": "error", "error": "Failed to send network credentials to parent process"}
 
-#### FAVICON ####################
-
-# Handle default browser request for /favicon.ico
-@api_app.get("/favicon.ico", include_in_schema=False)
-async def favicon():
-    return FileResponse(os.path.dirname(__file__) + '/static/favicon.ico')
-
-#### CATCH ALL ####################
-
-@api_app.api_route("/{full_path:path}")
-async def catch_all(request: Request, full_path: str):
-    logger.debug(f"Respond with catch-all page. full_path: {full_path}")
-
-    # Pass timeout_reset request to parent process
-    api_command = {}
-    api_command["command_type"] = COMMAND_WIFI_TYPE
-    api_command["command"]      = COMMAND_WIFI_TIMEOUT_RESET
-
-    # Access the shared queue from the app's state
-    api_app.state.command_queue.put(api_command)
-
-    # Respond with catch all page
-    return templates.TemplateResponse(request=request, name="placeholder.html")
-
 # Entry point for stand-alone operation
 if __name__ == "__main__":
     import uvicorn
 
-    from oradio_const import *
     uvicorn.run(api_app, host=WEB_SERVICE_HOST, port=WEB_SERVICE_PORT, log_level="trace")
