@@ -1,8 +1,24 @@
 #!/bin/bash
+#
+#  ####   #####     ##    #####      #     ####
+# #    #  #    #   #  #   #    #     #    #    #
+# #    #  #    #  #    #  #    #     #    #    #
+# #    #  #####   ######  #    #     #    #    #
+# #    #  #   #   #    #  #    #     #    #    #
+#  ####   #    #  #    #  #####      #     ####
+#
+# Created on January 19, 2025
+# @author:        Henk Stevens & Olaf Mastenbroek & Onno Janssen
+# @copyright:     Oradio Stichting
+# @license:       GNU General Public License (GPL)
+# @organization:  Oradio Stichting
+# @version:       1
+# @email:         oradioinfo@stichtingoradio.nl
+# @status:        Development
 
-# The script uses bash constructs, so make sure the script is running in the bash shell
-if [ ! "$BASH_VERSION" ]; then
-	echo "Please use bash to run this script ($0), or just execute it directly" 1>&2
+# The script uses bash constructs and changes the environment
+if [ ! "$BASH_VERSION" ] || [ ! "$0" == "-bash" ]; then
+	echo "Use 'source $0' to run this script" 1>&2
 	exit 1
 fi
 
@@ -14,25 +30,22 @@ NC='\033[0m'
 
 # Define network domain name
 DOMAIN="oradio"
+COUNTRY="NL"
+
+########## Activate wireless interface ##########
+# Set wifi country, implicitly activating wifi
+sudo raspi-config nonint do_wifi_country ${COUNTRY}
 
 ########## Set domain name ##########
 # change hostname to reflect the device
 sudo hostnamectl set-hostname ${DOMAIN}
 # change hosts mapping to reflect the device
 sudo sed -i "s/^127.0.1.1.*/127.0.1.1\t${DOMAIN}/g" /etc/hosts
+# Set user prompt to reflect new hostname
+export PS1="\e[01;32m\u@$DOMAIN\e[00m:\e[01;34m\w \$\e[00m "
 # Allow mDNS on wired and wireless interfaces
 sudo sed -i "s/^#allow-interfaces=.*/allow-interfaces=eth0,wlan0/g" /etc/avahi/avahi-daemon.conf
 # Activate changes
 sudo systemctl restart NetworkManager.service
 
-########## Activate wireless interface ##########
-# Set wifi country, implicitly activating wifi
-sudo raspi-config nonint do_wifi_country NL
-
-########## Get packages and python modules for wifi services ##########
-# Install iptables and pip
-sudo apt-get install iptables pip -y
-# Install python modules
-sudo pip install pydantic fastapi nmcli JinJa2 uvicorn --break-system-packages
-
-echo -e "${GREEN}Networking functionalty loaded and configured. Oradio has domain name '${DOMAIN}'${NC}"
+echo -e "${GREEN}Oradio wifi is enabled and has domain name '${DOMAIN}'${NC}"
