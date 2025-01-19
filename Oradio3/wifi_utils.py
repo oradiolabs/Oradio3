@@ -24,7 +24,6 @@ Created on December 23, 2024
         https://superfastpython.com/multiprocessing-in-python/
 '''
 import nmcli
-from multiprocessing import Process, Event, Queue
 
 ##### oradio modules ####################
 import oradio_utils

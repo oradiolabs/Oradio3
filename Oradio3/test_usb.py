@@ -53,7 +53,7 @@ def usb_inserted(device_id, device_info):
     '''
     Handle functionality for when a USB drive is inserted
     '''
-    oradio_utils.logging("info", "USB drive inserted")
+    oradio_utils.logging("info", f"USB drive inserted. device_id={device_id}, device_info={device_info}")
 
     # Check for wifi settings USB drive root. Use if exists
     check_usb_wifi_settings()
@@ -62,7 +62,7 @@ def usb_removed(device_id, device_info):
     '''
     Handle functionality for when a USB drive is removed
     '''
-    oradio_utils.logging("info", "USB drive removed")
+    oradio_utils.logging("info", f"USB drive removed. device_id={device_id}, device_info={device_info}")
 
 # Entry point for stand-alone operation
 if __name__ == '__main__':

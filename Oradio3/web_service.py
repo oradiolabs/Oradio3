@@ -35,7 +35,6 @@ sys.path.append("webapp")
 
 ##### oradio modules ####################
 import oradio_utils
-import wifi_utils
 from oradio_const import *
 from fastapi_server import api_app
 
@@ -190,7 +189,7 @@ def web_service_stop(process):
     process.join()
 
     # Remove port redirection
-    script = f"sudo bash -c 'iptables -t nat -F'"
+    script = "sudo bash -c 'iptables -t nat -F'"
     if not oradio_utils.run_shell_script(script):
         oradio_utils.logging("error", "Failed to remove port redirection")
     else:
@@ -236,7 +235,7 @@ if __name__ == '__main__':
         while True:
             command = command_queue.get(block=True, timeout=None)
             oradio_utils.logging("info", f"QUEUE-msg received, command ={command}")
-    
+
     # Create message queue for web service to pass messages
     command_queue = Queue()
 
