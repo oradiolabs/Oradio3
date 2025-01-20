@@ -34,11 +34,10 @@ def logging(level, log_text):
     # Output logging text
     print(logging_text, flush=True)
 
-# Tweaked: return result
 def run_shell_script(script):
     logging("info", f"Runnning shell script: {script}")
     process = subprocess.run(script, shell = True, capture_output = True, encoding = 'utf-8')
     if process.returncode != 0:
         logging("error", f"shell script error: {process.stderr}")
-        return False
-    return True
+        return False, process.stderr
+    return True, process.stdout
