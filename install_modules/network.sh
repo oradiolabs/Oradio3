@@ -37,10 +37,8 @@ COUNTRY="NL"
 sudo raspi-config nonint do_wifi_country ${COUNTRY}
 
 ########## Set domain name ##########
-# change hostname to reflect the device
-sudo hostnamectl set-hostname ${DOMAIN}
-# change hosts mapping to reflect the device
-sudo sed -i "s/^127.0.1.1.*/127.0.1.1\t${DOMAIN}/g" /etc/hosts
+# change hostname and hosts mapping to reflect the domain
+sudo bash -c 'hostnamectl set-hostname ${DOMAIN} && sed -i "s/^127.0.1.1.*/127.0.1.1\t${DOMAIN}/g" /etc/hosts'
 # Set user prompt to reflect new hostname
 export PS1="\e[01;32m\u@$DOMAIN\e[00m:\e[01;34m\w \$\e[00m "
 # Allow mDNS on wired and wireless interfaces
