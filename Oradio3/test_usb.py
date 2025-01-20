@@ -1,104 +1,96 @@
-import os, json
+"""
 
-'''
-Simulate usb drive with wifi settings in root
-'''
+  ####   #####     ##    #####      #     ####
+ #    #  #    #   #  #   #    #     #    #    #
+ #    #  #    #  #    #  #    #     #    #    #
+ #    #  #####   ######  #    #     #    #    #
+ #    #  #   #   #    #  #    #     #    #    #
+  ####   #    #  #    #  #####      #     ####
+
+
+Created on Januari 17, 2025
+@author:        Henk Stevens & Olaf Mastenbroek & Onno Janssen
+@copyright:     Copyright 2024, Oradio Stichting
+@license:       GNU General Public License (GPL)
+@organization:  Oradio Stichting
+@version:       1
+@email:         oradioinfo@stichtingoradio.nl
+@status:        Development
+@summary: Class for wifi connectivity services
+    :Note
+    :Install
+    :Documentation
+"""
+
+"""
+Placeholder for oradio_control: Instantiate USB handler, process messages from USB handler
+"""
 import oradio_utils
-import wifi_utils, usb_utils
+import wifi_utils
+from usb_utils import oradio_usb
 from oradio_const import *
 
-def check_usb_wifi_settings():
-    '''
-    Check if wifi settings are available on the USB drive root folder
-    If exists, then try to connect using the wifi crendtials from the file
-    '''
-    oradio_utils.logging("info", "Look for wifi credentials on USB drive")
-
-    # Check if wifi settings file exists in USB drive root
-    if not usb_utils.check_usb_present(USB_ORADIO) or not os.path.isfile(USB_WIFI_FILE):
-        oradio_utils.logging("info", f"Oradio USB drive not found or {USB_WIFI_FILE} not found on USB drive")
-        return
-
-    # Opening JSON file for reading
-    with open(USB_WIFI_FILE, "r") as f:
-        # returns JSON object as a dictionary
-        data = json.load(f)
-
-    # Initialize
-    ssid = None
-    pswd = None
-
-    # Get credentials
-    if 'SSID' in data.keys():
-        ssid = data['SSID']
-    else:
-        oradio_utils.logging("error", f"SSID not found in {USB_WIFI_FILE}")
-
-    if 'PASSWORD' in data.keys():
-        pswd = data['PASSWORD']
-    else:
-        oradio_utils.logging("error", f"PASSWORD not found in {USB_WIFI_FILE}")
-
+def connect2wifi(ssid, pswd):
+    """
+    Use credentials to connect to the wifi network
+    """
     # Test if currently connected to ssid
     if not ssid == wifi_utils.get_wifi_connection():
         # Currently not connected to ssid, try to connected
-        if wifi_utils.wifi_autoconnect(ssid, pswd):
-            oradio_utils.logging("success", f"Connected to '{ssid}'")
-        else:
-            oradio_utils.logging("error", f"Failed to connect to '{ssid}'")
+        return wifi_utils.wifi_autoconnect(ssid, pswd)
     else:
         oradio_utils.logging("info", f"Already connected to '{ssid}'")
-
-def usb_inserted(device_id, device_info):
-    '''
-    Handle functionality for when a USB drive is inserted
-    '''
-    oradio_utils.logging("info", f"USB drive inserted. device_id={device_id}, device_info={device_info}")
-
-    # Check for wifi settings USB drive root. Use if exists
-    check_usb_wifi_settings()
-
-def usb_removed(device_id, device_info):
-    '''
-    Handle functionality for when a USB drive is removed
-    '''
-    oradio_utils.logging("info", f"USB drive removed. device_id={device_id}, device_info={device_info}")
+        # Connected to ssid
+        return True
 
 # Entry point for stand-alone operation
 if __name__ == '__main__':
 
-    # Check if monitoring is available, i.e. running in Oradio context
-    import importlib.util
-    system_monitoring = importlib.util.find_spec("system_monitoring")
-
-    '''
-    TODO: Move to oradio_utils to determine what to do: logging only, monitoring, ...
-    # If monitoring is available then use it
-    if system_monitoring:
-        import logging.config
-        from system_monitoring import system_monitor
-        from oradio_data_collector import oradio_data_collector
-        from settings import get_config
-
-        # Initialize logging and monitoring
-        logging.config.fileConfig(ORADIO_LOGGING_CONFIG)
-        status, oradio_config = get_config()
-        data_collector = oradio_data_collector()
-        sys_monitor = system_monitor(oradio_config, data_collector)
-
-        # No system checks
-        sys_monitor.timer_off()
-    '''
+    # import when running stand-alone
+    from multiprocessing import Process, Queue
 
     # Initialize
-    usb_monitor = None
+    usb_handler = None
+    message_queue = Queue()
+
+    def check_messages(message_queue):
+        """
+        Check if a new message is put into the queue
+        If so, read the message from queue and display it
+        :param message_queue = the queue to check for
+        """
+        while True:
+            message = message_queue.get(block=True, timeout=None)
+            oradio_utils.logging("info", f"QUEUE-msg received, message ={message}")
+            if message["command_type"] == COMMAND_USB_TYPE:
+                command_type = message["command_type"]
+                oradio_utils.logging("info", f"USB command type = '{command_type}'")
+                if message["command"] == COMMAND_USB_STATE_CHANGED:
+                    command = message["command"]
+                    oradio_utils.logging("info", f"USB command = '{command}'")
+                    usb_state = message["usb_state"]
+                    oradio_utils.logging("info", f"USB state = '{usb_state}'")
+                    if message["usb_label"] == USB_ORADIO:
+                        if message["usb_wifi"]:
+                            ssid = message["usb_wifi"]["SSID"]
+                            pswd = message["usb_wifi"]["PASSWORD"]
+                            oradio_utils.logging("info", f"Wifi info found: ssid = '{ssid}', password = '{pswd}'")
+                            connect2wifi(pswd, pswd)
+                    else:
+                        oradio_utils.logging("warning", "USB is not a valid Oradio USB drive: it should be ignored")
+                if message["command"] == COMMAND_USB_ERROR_TIMEOUT:
+                    oradio_utils.logging("error", "USB service encountered an error. Try to fix by removing the USB drive and inserting it again")
+
+    # Start  process to monitor the message queue
+    message_listener = Process(target=check_messages, args=(message_queue,))
+    message_listener.start()
 
     # Show menu with test options
     input_selection = ("Select a function, input the number.\n"
                        " 0-quit\n"
-                       " 1-simulate Oradio power on\n"
-                       " 2-test USB drive insert | remove\n"
-                       " 3-stop USB monitoring\n"
+                       " 1-instantiate USB handler\n"
+                       " 2-manually test wifi connect\n"
+                       " 3-stop USB handler\n"
                        "select: "
                        )
 
@@ -116,21 +108,29 @@ if __name__ == '__main__':
         match function_nr:
             case 0:
                 # Be a good citizen: stop if active
-                usb_utils.usb_monitor_stop(usb_monitor)
+                if usb_handler:
+                    usb_handler.usb_monitor_stop()
                 break
             case 1:
-                check_usb_wifi_settings()
+                if not usb_handler:
+                    usb_handler = oradio_usb(message_queue)
+                else:
+                    oradio_utils.logging("warning", "USB monitor not running")
             case 2:
-                usb_monitor = usb_utils.usb_monitor_start(usb_monitor, usb_inserted, usb_removed)
-                oradio_utils.logging("info", "==> insert or remove a USB drive to test detection")
+                ssid = input("Enter SSID of the network to connect with: ")
+                pswd = input("Enter password for the network to connect with: ")
+                if ssid and pswd:
+                    connect2wifi(ssid, pswd)
+                else:
+                    oradio_utils.logging("warning", "No SSID and/or password given")
             case 3:
-                usb_monitor = usb_utils.usb_monitor_stop(usb_monitor)
+                if usb_handler:
+                    usb_handler.usb_monitor_stop()
+                else:
+                    oradio_utils.logging("warning", "USB monitor not running")
             case _:
                 print("\nPlease input a valid number\n")
 
-    '''
-    TODO: put check in oradio_utils
-    # If monitoring: Stop monitoring
-    if system_monitoring:
-        sys_monitor.stop()
-    '''
+    # Stop listening to messages
+    if message_listener:
+        message_listener.kill()

@@ -35,15 +35,12 @@ COMMAND_WIFI_CONNECT       = "connect"
 COMMAND_WIFI_TIMEOUT_RESET = "timeout_reset"
 
 ################## USB #############################
-# System is configured to automount USB drives to /media/sd[a..][1..9]
-# As the Oradio has only 1 single USB port, the drive will be available on /media/sda1
-USB_BASE   = "sda1"
-USB_DEVICE = "/dev/" + USB_BASE
-USB_MOUNT  = "/media/" + USB_BASE
-# Wait for USB to be mounted
-USB_POLL_TIMEOUT  = 5
-USB_POLL_INTERVAL = 0.25
-# File name in USB root with wifi credentials
-USB_WIFI_FILE = USB_MOUNT +"/Wifi_invoer.json"
-# USB drive must have this label for 'Oradio' operation
+# USB drive label for 'Oradio' operation
 USB_ORADIO = "ORADIO"
+# USB states
+USB_READY  = "USB drive present"
+USB_ABSENT = "USB drive absent"
+# USB messages
+COMMAND_USB_TYPE          = "USB message"
+COMMAND_USB_STATE_CHANGED = "USB state changed"
+COMMAND_USB_ERROR_TIMEOUT = "USB did not mount in the expected time"
