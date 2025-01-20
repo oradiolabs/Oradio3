@@ -33,7 +33,9 @@ NC='\033[0m'
 sudo apt-get install python3-pip -y
 # Prepare python virtual environment
 python3 -m venv ~/.venv
-# Activate the python virutal environment
+# Activate the python virtual environment in current environemnt
 source ~/.venv/bin/activate
+# Activate python virtual environment when logging in: add if not yet present
+sudo grep -qxF 'source ~/.venv/bin/activate' ~/.bashrc || echo 'source ~/.venv/bin/activate' >> ~/.bashrc
 
 echo -e "${GREEN}Support installed and configured.${NC}"
