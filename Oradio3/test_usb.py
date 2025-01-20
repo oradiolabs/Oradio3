@@ -27,7 +27,7 @@ Placeholder for oradio_control: Instantiate USB handler, process messages from U
 """
 import oradio_utils
 import wifi_utils
-from usb_utils import oradio_usb
+from usb_service import oradio_usb
 from oradio_const import *
 
 def connect2wifi(ssid, pswd):

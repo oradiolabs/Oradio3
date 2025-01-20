@@ -256,7 +256,7 @@ if __name__ == '__main__':
     from multiprocessing import Process, Queue
 
     # Initialize
-    usb_service = None
+    usb_handler = None
     message_queue = Queue()
 
     def check_messages(message_queue):
@@ -301,41 +301,41 @@ if __name__ == '__main__':
             case 0:
                 break
             case 1:
-                if not usb_service:
-                    usb_service = oradio_usb(message_queue)
+                if not usb_handler:
+                    usb_handler = oradio_usb(message_queue)
             case 2:
-                if usb_service:
-                    usb_service.usb_inserted(None, None)
+                if usb_handler:
+                    usb_handler.usb_inserted(None, None)
                 else:
                     oradio_utils.logging("warning", "USB monitor not running")
             case 3:
-                if usb_service:
-                    usb_service.usb_removed(None, None)
+                if usb_handler:
+                    usb_handler.usb_removed(None, None)
                 else:
                     oradio_utils.logging("warning", "USB monitor not running")
             case 4:
-                if usb_service:
-                    usb_service.send_usb_info()
+                if usb_handler:
+                    usb_handler.send_usb_info()
                 else:
                     oradio_utils.logging("warning", "USB monitor not running")
             case 5:
-                if usb_service:
-                    usb_service.send_usb_error()
+                if usb_handler:
+                    usb_handler.send_usb_error()
                 else:
                     oradio_utils.logging("warning", "USB monitor not running")
             case 6:
-                if usb_service:
-                    usb_service.get_usb_label()
+                if usb_handler:
+                    usb_handler.get_usb_label()
                 else:
                     oradio_utils.logging("warning", "USB monitor not running")
             case 7:
-                if usb_service:
-                    usb_service.get_usb_wifi_info()
+                if usb_handler:
+                    usb_handler.get_usb_wifi_info()
                 else:
                     oradio_utils.logging("warning", "USB monitor not running")
             case 8:
-                if usb_service:
-                    usb_service.usb_monitor_stop()
+                if usb_handler:
+                    usb_handler.usb_monitor_stop()
                 else:
                     oradio_utils.logging("warning", "USB monitor not running")
             case _:
