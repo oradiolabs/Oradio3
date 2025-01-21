@@ -11,7 +11,7 @@ jobs:
     steps:
     - uses: actions/checkout@v4
     - name: Set up Python ${{ matrix.python-version }}
-      uses: actions/setup-python@v3
+      uses: actions/setup-python@v4
       with:
         python-version: ${{ matrix.python-version }}
     - name: Install dependencies
@@ -24,8 +24,8 @@ jobs:
       # C0410: mutiple imports on 1 line
       run: |
         pylint $(git ls-files '*.py') --disable=C0301,C0103,C0410 --output=pylint_result.txt || true
-    - name: Upload Artifact
-      uses: actions/upload-artifact@v3
+    - name: Upload pylint result
+      uses: actions/upload-artifact@v4
       with:
         name: pylint_result.txt
         path: pylint_result.txt
