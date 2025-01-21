@@ -26,22 +26,8 @@ Created on Januari 17, 2025
 Placeholder for oradio_control: Instantiate USB handler, process messages from USB handler
 """
 import oradio_utils
-import wifi_utils
 from usb_service import oradio_usb
 from oradio_const import *
-
-def connect2wifi(ssid, pswd):
-    """
-    Use credentials to connect to the wifi network
-    """
-    # Test if currently connected to ssid
-    if not ssid == wifi_utils.get_wifi_connection():
-        # Currently not connected to ssid, try to connected
-        return wifi_utils.wifi_autoconnect(ssid, pswd)
-    else:
-        oradio_utils.logging("info", f"Already connected to '{ssid}'")
-        # Connected to ssid
-        return True
 
 # Entry point for stand-alone operation
 if __name__ == '__main__':
@@ -60,26 +46,36 @@ if __name__ == '__main__':
         :param message_queue = the queue to check for
         """
         while True:
+            # Wait for message
             message = message_queue.get(block=True, timeout=None)
+
+            # Show message received
             oradio_utils.logging("info", f"QUEUE-msg received, message ={message}")
-            if message["command_type"] == COMMAND_USB_TYPE:
-                command_type = message["command_type"]
-                oradio_utils.logging("info", f"USB command type = '{command_type}'")
-                if message["command"] == COMMAND_USB_STATE_CHANGED:
-                    command = message["command"]
-                    oradio_utils.logging("info", f"USB command = '{command}'")
-                    usb_state = message["usb_state"]
-                    oradio_utils.logging("info", f"USB state = '{usb_state}'")
-                    if message["usb_label"] == USB_ORADIO:
-                        if message["usb_wifi"]:
-                            ssid = message["usb_wifi"]["SSID"]
-                            pswd = message["usb_wifi"]["PASSWORD"]
-                            oradio_utils.logging("info", f"Wifi info found: ssid = '{ssid}', password = '{pswd}'")
-                            connect2wifi(pswd, pswd)
-                    else:
-                        oradio_utils.logging("warning", "USB is not a valid Oradio USB drive: it should be ignored")
-                if message["command"] == COMMAND_USB_ERROR_TIMEOUT:
-                    oradio_utils.logging("error", "USB service encountered an error. Try to fix by removing the USB drive and inserting it again")
+
+            # Show message type
+            msg_type = message["type"]
+            oradio_utils.logging("info", f"USB type = '{msg_type}'")
+
+            # Parse USB message
+            if msg_type == MESSAGE_USB_TYPE:
+
+                # Show USB state
+                usb_state = message["state"]
+                oradio_utils.logging("info", f"USB state = '{usb_state}'")
+
+                # Error state has additional info
+                if usb_state == STATE_USB_ERROR:
+
+                    # Show error message
+                    usb_error = message["error"]
+                    oradio_utils.logging("warning", f"USB error: '{usb_error}'")
+
+                    # Label error has label found
+                    if usb_error == MESSAGE_USB_ERROR_LABEL:
+
+                        # Show label
+                        usb_label = message["label"]
+                        oradio_utils.logging("warning", f"USB drive has invalid label: '{usb_label}'")
 
     # Start  process to monitor the message queue
     message_listener = Process(target=check_messages, args=(message_queue,))
@@ -89,7 +85,6 @@ if __name__ == '__main__':
     input_selection = ("Select a function, input the number.\n"
                        " 0-quit\n"
                        " 1-instantiate USB handler\n"
-                       " 2-manually test wifi connect\n"
                        " 3-stop USB handler\n"
                        "select: "
                        )
@@ -117,13 +112,6 @@ if __name__ == '__main__':
                 else:
                     oradio_utils.logging("warning", "USB monitor not running")
             case 2:
-                ssid = input("Enter SSID of the network to connect with: ")
-                pswd = input("Enter password for the network to connect with: ")
-                if ssid and pswd:
-                    connect2wifi(ssid, pswd)
-                else:
-                    oradio_utils.logging("warning", "No SSID and/or password given")
-            case 3:
                 if usb_handler:
                     usb_handler.usb_monitor_stop()
                 else:

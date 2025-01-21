@@ -27,7 +27,7 @@ from time import time, sleep
 from usbmonitor import USBMonitor
 
 ##### oradio modules ####################
-import oradio_utils
+import oradio_utils, wifi_utils
 ##### GLOBAL constants ####################
 from oradio_const import *
 
@@ -35,9 +35,6 @@ from oradio_const import *
 # System is configured to automount USB drives to /media/sd[a..][1..9]
 # As the Oradio has only 1 single USB port, the drive will be available on /media/sda1
 USB_DEVICE = "/dev/sda1"
-USB_MOUNT  = "/media/sda1"
-# File name in USB root with wifi credentials
-USB_WIFI_FILE = USB_MOUNT +"/Wifi_invoer.json"
 # Wait for USB to be mounted
 USB_POLL_TIMEOUT  = 10
 USB_POLL_INTERVAL = 0.25
@@ -57,22 +54,22 @@ class oradio_usb():
         Report to parent process
         """
         # Initialize
-        self.state     = USB_ABSENT
-        self.msg_q     = queue
-        self.label     = None
-        self.wifi_info = None
+        self.state = STATE_USB_ABSENT
+        self.msg_q = queue
+        self.label = None
+        self.error = None
 
         # Check if USB is mounted
         if os.path.isdir(USB_MOUNT):
             # Set USB state
-            self.state = USB_READY
+            self.state = STATE_USB_PRESENT
             # Get USB label
             self.get_usb_label()
-            # Get wifi credentials
-            self.get_usb_wifi_info()
+            # Handle wifi credentials
+            self.handle_usb_wifi_info()
         else:
             # Set USB state
-            self.state = USB_ABSENT
+            self.state = STATE_USB_ABSENT
 
         # Create monitor
         self.monitor = USBMonitor()
@@ -80,47 +77,41 @@ class oradio_usb():
         self.monitor.start_monitoring(on_connect=self.usb_inserted, on_disconnect=self.usb_removed)
 
         # Send initial state and info message
-        self.send_usb_info()
+        self.send_usb_message()
 
-        # Log progress
+        # Log status
         oradio_utils.logging("info", "oradio_usb initialized")
 
-    def send_usb_info(self):
+    def send_usb_message(self, *args, **kwargs):
         """
-        Send USB state and info message
+        Send USB message, depending on the state
         """
+        # Check if state, label or error parameters provided to override
+        state = kwargs.get('state', self.state)
+        label = kwargs.get('label', self.label)
+        error = kwargs.get('error', self.error)
+
         # Create message
         message = {}
-        message["command_type"] = COMMAND_USB_TYPE
-        message["command"]      = COMMAND_USB_STATE_CHANGED
-        message["usb_state"]    = self.state
-        message["usb_label"]    = self.label
-        message["usb_wifi"]     = self.wifi_info
+        message["type"]  = MESSAGE_USB_TYPE
+        message["state"] = state
+
+        # Additional info
+        if state == STATE_USB_ERROR:
+            message["error"] = error
+            if error == MESSAGE_USB_ERROR_LABEL:
+                message["label"] = label
 
         # Put message in queue
         self.msg_q.put(message)
 
-        # Log progress
-        oradio_utils.logging("info", "usb info message sent")
-
-    def send_usb_error(self):
-        """
-        Send USB timeout error
-        """
-        # Create message
-        message = {}
-        message["command_type"] = COMMAND_USB_TYPE
-        message["command"]      = COMMAND_USB_ERROR_TIMEOUT
-
-        # Put message in queue
-        self.msg_q.put(message)
-
-        # Log progress
-        oradio_utils.logging("info", "usb error message sent")
+        # Log status
+        oradio_utils.logging("info", f"usb message sent: {message}")
 
     def get_usb_label(self):
         """
-        Get USB drive label 
+        Get USB drive label
+        Set error state if label does not match oradio label
         """
         # Get USB label
         self.label = None
@@ -129,63 +120,67 @@ class oradio_usb():
         if result:
             # Remove leading and trailing white spaces, including \n
             self.label = label.strip()
-            # Empty label = No label
-            if len(self.label) == 0:
-                self.label = None
 
-        # Log progress
-        oradio_utils.logging("info", f"USB label: {self.label}")
+        # Only accept USB drives with oradio label
+        if self.label != LABEL_USB_ORADIO:
+            self.state = STATE_USB_ERROR
+            self.error = MESSAGE_USB_ERROR_LABEL
 
-        # Return for processing
-        return self.label
+        # Log status
+        oradio_utils.logging("info", f"USB label: '{self.label}'")
 
-    def get_usb_wifi_info(self):
+    def handle_usb_wifi_info(self):
         """
         Check if wifi settings are available on the USB drive root folder
-        If exists, then try to connect using the wifi crendtials from the file
+        If exists, then try to connect using the wifi credentials from the file
         """
-        # Check if wifi settings file exists in USB drive root
-        if not os.path.isfile(USB_WIFI_FILE):
-            oradio_utils.logging("info", f"'{USB_WIFI_FILE}' not found")
-            return
+        # Initialize
+        ssid = None
+        pswd = None
 
-        # Read JSON file
-        with open(USB_WIFI_FILE, "r") as f:
-            # returns JSON object as a dictionary
-            data = json.load(f)
+        # Skip if USB drive is absent or has error
+        if self.state == STATE_USB_PRESENT:
 
-        # Check if the SSID key is present
-        if 'SSID' in data.keys():
-            ssid = data['SSID']
+            # Check if wifi settings file exists in USB drive root
+            if not os.path.isfile(USB_WIFI_FILE):
+                oradio_utils.logging("info", f"'{USB_WIFI_FILE}' not found")
+                return
+
+            # Read JSON file
+            with open(USB_WIFI_FILE, "r") as f:
+                # returns JSON object as a dictionary
+                data = json.load(f)
+
+            # Check if the SSID and PASSWORD keys are present
+            if 'SSID' in data.keys() and 'PASSWORD' in data.keys():
+                ssid = data['SSID']
+                pswd = data['PASSWORD']
+            else:
+                oradio_utils.logging("error", f"SSID and/or PASSWORD not found in '{USB_WIFI_FILE}'")
+
+            # Log status
+            oradio_utils.logging("info", f"USB Wifi info found: ssid={ssid}, password={pswd}")
+
+            # Test if Oradio is currently connected to ssid
+            if not ssid == wifi_utils.get_wifi_connection():
+                # Currently not connected to ssid, try to connected
+                if wifi_utils.wifi_autoconnect(ssid, pswd):
+                    oradio_utils.logging("success", f"Connected to '{ssid}'")
+                else:
+                    oradio_utils.logging("error", f"Failed to connect to '{ssid}'")
+            else:
+                oradio_utils.logging("info", f"Already connected to '{ssid}'")
+
         else:
-            ssid = None
-            oradio_utils.logging("error", f"SSID not found in '{USB_WIFI_FILE}'")
-
-        # Check if the PASSWORD key is present
-        if 'PASSWORD' in data.keys():
-            pswd = data['PASSWORD']
-        else:
-            pswd = None
-            oradio_utils.logging("error", f"PASSWORD not found in '{USB_WIFI_FILE}'")
-
-        # Register wifi info
-        self.wifi_info = {"SSID": ssid, "PASSWORD": pswd}
-
-        # Log progress
-        oradio_utils.logging("info", f"USB Wifi info: {self.wifi_info}")
-
-        # Return for processing
-        return self.wifi_info
+            # Log status
+            oradio_utils.logging("info", f"USB state: '{self.state}' ==> Ignore '{USB_WIFI_FILE}'")
 
     def usb_inserted(self, device_id, device_info):
         """
         Wait for USB drive to be mounted
-        Register USB drive inserted, get USB label, check for any wifi credentials
-        Send state changed message
+        Register USB drive inserted, check USB label, handle any wifi credentials
+        Send state message
         """
-        if self.state == USB_READY:
-            oradio_utils.logging("error", "Panic! the USB state cannot be ready as this function is only called when the USB drive is inserted")
-
         # The 'inserted' event goes to OS and here at the same time.
         # Therefore we poll (with timeout) for the OS to mount the USB drive
         timeout = time() + USB_POLL_TIMEOUT
@@ -193,52 +188,50 @@ class oradio_usb():
             # Check if USB drive is available
             if os.path.isdir(USB_MOUNT):
                 # Set USB state
-                self.state = USB_READY
+                self.state = STATE_USB_PRESENT
                 # Get USB label
                 self.get_usb_label()
                 # Get wifi credentials
-                self.get_usb_wifi_info()
+                self.handle_usb_wifi_info()
                 # send message
-                self.send_usb_info()
+                self.send_usb_message()
+                # Log status
+                oradio_utils.logging("info", "USB inserted")
                 # All done
                 return
             # Wait before next poll
             sleep(USB_POLL_INTERVAL)
 
-        oradio_utils.logging("error", "Timeout: failed to mount USB drive")
 
-        # Set USB state
-        self.state = USB_ABSENT
+        # Set USB error state and error message
+        self.state = STATE_USB_ERROR
+        self.error = MESSAGE_USB_ERROR_TIMEOUT
 
         # send message
-        self.send_usb_error()
+        self.send_usb_message()
 
-        # Log progress
-        oradio_utils.logging("info", "USB inserted")
+        # Log status
+        oradio_utils.logging("error", "Timeout: failed to mount USB drive")
 
     def usb_removed(self, device_id, device_info):
         """
         Register USB drive removed
-        Send state changed message
+        Send state message
         """
-        if self.state == USB_ABSENT:
-            oradio_utils.logging("warning", "The USB state should not be absent as this function is only called when the USB drive is removed. No corrective action required.")
-
         # Set state and info
-        self.state     = USB_ABSENT
-        self.label     = None
-        self.wifi_info = None
+        self.state = STATE_USB_ABSENT
+        self.label = None
+        self.error = None
 
         # send message
-        self.send_usb_info()
+        self.send_usb_message()
 
-        # Log progress
+        # Log status
         oradio_utils.logging("info", "USB removed")
 
     def usb_monitor_stop(self):
         """
         Stop the monitor daemon
-        :param monitor ==> identfies the monitor daemon
         """
         # Only stop if active
         if not self.monitor:
@@ -246,7 +239,7 @@ class oradio_usb():
         else:
             self.monitor.stop_monitoring()
 
-        # Log progress
+        # Log status
         oradio_utils.logging("info", "USB monitor stopped")
 
 # Entry point for stand-alone operation
@@ -279,11 +272,10 @@ if __name__ == '__main__':
                        " 1-Start USB monitor\n"
                        " 2-Trigger USB inserted\n"
                        " 3-Trigger USB removed\n"
-                       " 4-Send USB info\n"
-                       " 5-Send USB error\n"
-                       " 6-Get USB label\n"
-                       " 7-Get USB wifi info\n"
-                       " 8-stop USB monitoring\n"
+                       " 4-Send USB message\n"
+                       " 5-Get USB label\n"
+                       " 6-Get USB wifi info\n"
+                       " 7-stop USB monitoring\n"
                        "select: "
                        )
 
@@ -314,26 +306,24 @@ if __name__ == '__main__':
                 else:
                     oradio_utils.logging("warning", "USB monitor not running")
             case 4:
-                if usb_handler:
-                    usb_handler.send_usb_info()
+                state = input("Enter state (present | absent | error | other): ")
+                label = input("Enter label (oradio | other): ")
+                error = input("Enter error (label | timeout | other): ")
+                if state and error and label and usb_handler:
+                    usb_handler.send_usb_message(state=state, label=label, error=error)
                 else:
-                    oradio_utils.logging("warning", "USB monitor not running")
+                    oradio_utils.logging("warning", "state, label and/or error not provided, or USB monitor not running")
             case 5:
-                if usb_handler:
-                    usb_handler.send_usb_error()
-                else:
-                    oradio_utils.logging("warning", "USB monitor not running")
-            case 6:
                 if usb_handler:
                     usb_handler.get_usb_label()
                 else:
                     oradio_utils.logging("warning", "USB monitor not running")
-            case 7:
+            case 6:
                 if usb_handler:
-                    usb_handler.get_usb_wifi_info()
+                    usb_handler.handle_usb_wifi_info()
                 else:
                     oradio_utils.logging("warning", "USB monitor not running")
-            case 8:
+            case 7:
                 if usb_handler:
                     usb_handler.usb_monitor_stop()
                 else:

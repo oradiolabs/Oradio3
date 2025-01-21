@@ -35,12 +35,17 @@ COMMAND_WIFI_CONNECT       = "connect"
 COMMAND_WIFI_TIMEOUT_RESET = "timeout_reset"
 
 ################## USB #############################
+# Path where the USB drive is mounted
+USB_MOUNT  = "/media/sda1"
+# File name in USB root with wifi credentials
+USB_WIFI_FILE = USB_MOUNT +"/Wifi_invoer.json"
 # USB drive label for 'Oradio' operation
-USB_ORADIO = "ORADIO"
+LABEL_USB_ORADIO = "ORADIO"
 # USB states
-USB_READY  = "USB drive present"
-USB_ABSENT = "USB drive absent"
+STATE_USB_PRESENT = "USB drive present"
+STATE_USB_ABSENT  = "USB drive absent"
+STATE_USB_ERROR   = "USB drive error"
 # USB messages
-COMMAND_USB_TYPE          = "USB message"
-COMMAND_USB_STATE_CHANGED = "USB state changed"
-COMMAND_USB_ERROR_TIMEOUT = "USB did not mount in the expected time"
+MESSAGE_USB_TYPE          = "USB message"
+MESSAGE_USB_ERROR_LABEL   = "USB label is invalid"
+MESSAGE_USB_ERROR_TIMEOUT = "USB did not mount in the expected time"
