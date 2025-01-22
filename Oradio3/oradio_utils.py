@@ -3,11 +3,11 @@ import subprocess   # run_shell_script
 
 # Simplified logging function - remove logging and monitoring, only print formatted log message
 def logging(level, log_text):
-    '''
+    """
     Simplified logging of log message
     :param level (str) - level of logging [ 'warning' | 'error' | 'info']
     :param log_text (str) - logging message
-    '''
+    """
     # check whether rpi is throttled or running normal
     inspect_info = inspect.stack()
     module_info  = inspect.stack()[1]
@@ -35,6 +35,11 @@ def logging(level, log_text):
     print(logging_text, flush=True)
 
 def run_shell_script(script):
+    """
+    Simplified shell command execution
+    :param script (str) - shell command to execute
+    Returns exit status and output of running the script
+    """
     logging("info", f"Runnning shell script: {script}")
     process = subprocess.run(script, shell = True, capture_output = True, encoding = 'utf-8')
     if process.returncode != 0:
