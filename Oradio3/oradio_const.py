@@ -18,21 +18,32 @@ Created on December 23, 2024
 @status:        Development
 @summary:       Defines for oradio scripts
 '''
-################## NETWORKING #############################
+################## WIFI UTILS #############################
 # Access point
 ACCESS_POINT_NAME = "OradioAP"
-ACCESS_POINT_SSID = "OradioAP"
-ACCESS_POINT_HOST = "108.156.60.1"  # wsj.com
-# Web service
-WEB_SERVICE_HOST    = "0.0.0.0"
-WEB_SERVICE_PORT    = 8000
-WEB_SERVICE_TIMEOUT = 600 # 10 minutes
+# Wifi states
+STATE_WIFI_IDLE           = "Wifi is not connected"
+STATE_WIFI_INFRASTRUCTURE = "Connected to infrastructure"
+STATE_WIFI_ACCESS_POINT   = "Configured as access point"
+
+################## WEB SERVICE #############################
 # CPU allocation as subset from number of cores = {0, 1, 2, 3}
-WEB_SERVICE_CPU_MASK = {1, 2}     # CPU's allowed for the web server process
-# Messages
-COMMAND_WIFI_TYPE          = "wifi"
-COMMAND_WIFI_CONNECT       = "connect"
-COMMAND_WIFI_TIMEOUT_RESET = "timeout_reset"
+CPU_MASK_WEB_SERVICE = {1, 2}     # CPU's allowed for the web service process
+# Web server address
+WEB_SERVER_HOST = "0.0.0.0"
+WEB_SERVER_PORT = 8000
+# Web service states
+STATE_WEB_SERVICE_IDLE   = "web service is idle"
+STATE_WEB_SERVICE_ACTIVE = "web service is running"
+# Web server messages from server to service
+MESSAGE_WEB_SERVER_TYPE          = "web service message"
+MESSAGE_WEB_SERVER_CONNECT_WIFI  = "connect to wifi"
+MESSAGE_WEB_SERVER_RESET_TIMEOUT = "reset web service timeout"
+# Web service messages from service to parent
+MESSAGE_WEB_SERVICE_TYPE         = "web service message"
+MESSAGE_WEB_SERVICE_CONNECT_OK   = "wifi is connected"
+MESSAGE_WEB_SERVICE_CONNECT_FAIL = "wifi not connected"
+MESSAGE_WEB_SERVICE_ACCESS_POINT = "wifi is access point"
 
 ################## USB #############################
 # Path where the USB drive is mounted
