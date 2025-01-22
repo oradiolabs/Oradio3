@@ -191,12 +191,12 @@ class web_service(Process):
 
                 # Unexpected 'command' message
                 else:
-                    oradio_utils.logging("error", f"Unsupported message command = '{msg_cmd}'")
+                    oradio_utils.logging("error", f"Unsupported 'command' message: '{msg_cmd}'")
 
 
             # Unexpected 'type' message
             else:
-                oradio_utils.logging("error", f"Unsupported message type = '{msg_type}'")
+                oradio_utils.logging("error", f"Unsupported 'type' message: '{msg_type}'")
 
     def run(self):
         """
@@ -381,11 +381,11 @@ if __name__ == '__main__':
 
                 # Unexpected 'data' message
                 else:
-                    oradio_utils.logging("error", f"Unsupported message data = '{msg_data}'")
+                    oradio_utils.logging("error", f"Unsupported 'data' message: '{msg_data}'")
 
             # Unexpected 'type' message
             else:
-                oradio_utils.logging("error", f"Unsupported message type = '{msg_type}'")
+                oradio_utils.logging("error", f"Unsupported 'type' message: '{msg_type}'")
 
     # Initialize
     message_queue = Queue()
