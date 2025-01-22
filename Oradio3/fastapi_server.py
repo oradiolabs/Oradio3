@@ -57,8 +57,8 @@ async def middleware(request: Request, call_next):
 
     # User interaction, so pass timeout reset to parent process
     message = {}
-    message["type"] = MESSAGE_WEB_SERVICE_TYPE
-    message["command"] = MESSAGE_WEB_SERVICE_RESET_TIMEOUT
+    message["type"] = MESSAGE_WEB_SERVER_TYPE
+    message["command"] = MESSAGE_WEB_SERVER_RESET_TIMEOUT
 
     # Access the shared queue from the app's state
     api_app.state.message_queue.put(message)
@@ -81,21 +81,29 @@ async def favicon():
 @api_app.get("/{full_path:path}")
 async def captiveportal(request: Request):
     """
-    Any unknown path will return the home page
-    The home page will detect if accessing via the access point:
-    If yes, it will present the option to select the network
-    If not, it will present the network home page
+    Any unknown path will return:
+      captive portal if wifi is an access point, or
+      home page if wifi connected to a network
     """
-    oradio_utils.logging("info", "Send captive portal page")
+    if wifi_utils.get_wifi_connection() == ACCESS_POINT_NAME:
+        oradio_utils.logging("info", "Send captive portal page")
 
-    # Get list of avaialble wifi networks
-    list = wifi_utils.get_wifi_networks()
+        # Get list of available wifi networks
+        list = wifi_utils.get_wifi_networks()
 
-    # Get active wifi connection
-    ssid = wifi_utils.get_wifi_connection()
+        # Set captive portal page and context
+        page = "captiveportal.html"
+        context = {"list": json.dumps(list)}
 
-    # Return page for user to select wifi network, provide password and submit to connect
-    return templates.TemplateResponse(request=request, name="captiveportal.html", context={"ssid": ssid, "list": json.dumps(list)})
+    else:
+        oradio_utils.logging("info", "Send home page")
+
+        # Set home page and context
+        page = "home.html"
+        context = {}
+
+    # Return page and context
+    return templates.TemplateResponse(request=request, name=page, context=context)
 
 # Model for wifi network credentials
 class credentials(BaseModel):
@@ -112,8 +120,8 @@ async def connect2network(credentials: credentials, request: Request):
     """
     # Prepare message
     message = {}
-    message["type"] = MESSAGE_WEB_SERVICE_TYPE
-    message["command"] = MESSAGE_WEB_SERVICE_CONNECT
+    message["type"] = MESSAGE_WEB_SERVER_TYPE
+    message["command"] = MESSAGE_WEB_SERVER_CONNECT_WIFI
     message["ssid"] = credentials.ssid
     message["pswd"] = credentials.pswd
 

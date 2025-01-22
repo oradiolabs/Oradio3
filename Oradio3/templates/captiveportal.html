@@ -12,7 +12,7 @@
 		<link rel="stylesheet" href="../static/css/fontawesome.min.css" />
 		<link rel="stylesheet" href="../static/css/regular.min.css" />
 		<link rel="stylesheet" href="../static/css/pure.min.css" />
-		<link rel="stylesheet" href="../static/css/oradio3-wifi.css" />
+		<link rel="stylesheet" href="../static/css/oradio3.css" />
 
 		<title>Oradio</title>
 	</head>
@@ -21,77 +21,41 @@
 
 		<div class="oradio-container">
 
-			<!-- Only show when page is loaded via the Oradio access point -->
-			<div id="captiveportal">
-
-				<div class="pure-controls">
-					<h3 class="oradio-header">Verbind met WiFi-netwerk</h3>
-				</div>
-
-				<form class="pure-form pure-form-aligned">
-					<fieldset>
-
-						<div class="pure-control-group">
-							<label for="SSIDs">Netwerk</label>
-							<select id="SSIDs" class="oradio-input placeholder" onchange="networkSelected()"></select>
-						</div>
-
-						<div id="cg-password" class="pure-control-group hide">
-							<label for="password">Wachtwoord</label>
-							<input id="password" class="oradio-input" type="password" placeholder="Voer WiFi-wachtwoord in" />
-							<span class="password-toggle-icon oradio-eye"><i class="fa-regular fa-eye"></i></span>
-						</div>
-
-						<div id="cg-submit" class="pure-controls hide">
-							<button type="submit" class="pure-button pure-button-primary" onclick="submitCredentials()">Submit</button>
-						</div>
-
-						<div id="notification" class="pure-controls">
-							<!-- Will be filled by Javascript submitCredentials() -->
-						</div>
-
-
-					</fieldset>
-				</form>
-
+			<div class="pure-controls">
+				<h3 class="oradio-header">Verbind met WiFi-netwerk</h3>
 			</div>
 
-			<!-- Only show when page is loaded via a wifi network -->
-			<div id="home">
+			<form class="pure-form pure-form-aligned">
+				<fieldset>
 
-				<div class="pure-controls">
-					<p id="active" class="hide">
+					<div class="pure-control-group">
+						<label for="SSIDs">Netwerk</label>
+						<select id="SSIDs" class="oradio-input placeholder" onchange="networkSelected()"></select>
+					</div>
+
+					<div id="cg-password" class="pure-control-group hide">
+						<label for="password">Wachtwoord</label>
+						<input id="password" class="oradio-input" type="password" placeholder="Voer WiFi-wachtwoord in" />
+						<span class="password-toggle-icon oradio-eye"><i class="fa-regular fa-eye"></i></span>
+					</div>
+
+					<div id="cg-submit" class="pure-controls hide">
+						<button type="submit" class="pure-button pure-button-primary" onclick="submitCredentials()">Submit</button>
+					</div>
+
+					<div id="notification" class="pure-controls">
 						<!-- Will be filled by Javascript submitCredentials() -->
-					</p>
-				</div>
+					</div>
 
-				<!--TODO: Hier de naam tonen worden die via instellingen ingesteld is -->
-				<h3>Welkom op de Oradio pagina!</h3>
-				<p>Hier heeft u de volgende mogelijkheden:</p>
-				<ul>
-					<li>De Oradio <a href="/controls">op afstand bedienen</a></li>
-					<li>De 1-2-3 knoppen <a href="/playlists">instellen welke speellijst afgespeeld wordt</a></li>
-					<li>De Oradio <a href="/status">instellingen inzien en veranderen</a></li>
-				</ul>
 
-				<p>Mocht u vragen hebben, neem dan aub <a href="https://stichtingoradio.nl" target="_blank">contact</a> op.</p>
-
-			</div>
+				</fieldset>
+			</form>
 
 		</div>
 
 	</body>
 
 	<script>
-
-		var active = "{{ ssid }}";	// Provided by Oradio web server
-		if (active == "\{\{ ssid \}\}")
-		{
-			// For testing page without being served through Oradio web server
-			var active = "Apple";
-			var active = "None";
-		}
-//console.log("active=", active);
 
 		var list = "{{ list }}";	// Provided by Oradio web server
 		if (list != "\{\{ list \}\}")
@@ -137,21 +101,6 @@
 			document.getElementById('notification').innerHTML = "";
 		}
 
-		// Initialize page layout
-		if ((active != "None") && (active != "OradioAP"))
-		{
-			// Show active network connection
-			document.getElementById("captiveportal").classList.add("hide");
-
-			// Show which wifi network the Oradio is currently connected to
-			document.getElementById("active").innerHTML = "De Oradio is verbonden met WiFi-netwerk <b>" + active + "</b>";
-		}
-		else
-		{
-			// Show active network connection
-			document.getElementById("home").classList.add("hide");
-		}
-
 		// Create selector with available networks
 		var sel = document.getElementById('SSIDs');
 
@@ -166,16 +115,12 @@
 		// Add select option for each available network
 		for(var i = 0; i < networks.length; i++)
 		{
-			// Ignore network currently connected to
-			if (networks[i].ssid != active)
-			{
-				var opt = document.createElement('option');		// Create HTML element
-				opt.innerHTML = networks[i].ssid;				// Set user prompt
-				opt.value = i;									// Set index in networks
+			var opt = document.createElement('option');		// Create HTML element
+			opt.innerHTML = networks[i].ssid;				// Set user prompt
+			opt.value = i;									// Set index in networks
 
-				opt.style = "color: #000";						// Show prompt in black, not dark-grey (placeholder)
-				sel.appendChild(opt);							// Add option to select element
-			}
+			opt.style = "color: #000";						// Show prompt in black, not dark-grey (placeholder)
+			sel.appendChild(opt);							// Add option to select element
 		}
 
 		// Toggle password visibility
