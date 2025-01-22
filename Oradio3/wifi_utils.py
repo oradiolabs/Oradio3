@@ -1,4 +1,4 @@
-'''
+"""
 
   ####   #####     ##    #####      #     ####
  #    #  #    #   #  #   #    #     #    #    #
@@ -22,18 +22,22 @@ Created on December 23, 2024
     :Documentation
         https://pypi.org/project/nmcli/
         https://superfastpython.com/multiprocessing-in-python/
-'''
+"""
 import nmcli
 
 ##### oradio modules ####################
 import oradio_utils
+##### GLOBAL constants ####################
 from oradio_const import *
+##### LOCAL constants ####################
+ACCESS_POINT_HOST = "108.156.60.1"  # wsj.com
+ACCESS_POINT_SSID = "OradioAP"
 
 def get_wifi_networks():
-    '''
+    """
     Get all available wifi networks, except Oradio access points
     :return networks ==> list of network ssid + if password required, sorted by strongest signal first
-    '''
+    """
     # initialize
     networks = []
 
@@ -52,10 +56,10 @@ def get_wifi_networks():
     return networks
 
 def get_wifi_connection():
-    '''
+    """
     Get active wifi connection
     :return connection ==> network ID | None
-    '''
+    """
     # initialize
     network = None
 
@@ -79,14 +83,11 @@ def get_wifi_connection():
     return network
 
 def wifi_create(network, password):
-    '''
+    """
     Create wifi network
     :param network ==> Identifier of wifi network to create
     :param password ==> Password of wifi network to create
-    '''
-    # initialize
-    status = True
-
+    """
     # Check if password meets minimum length criterium
     if len(password) >= 8:
 
@@ -101,22 +102,24 @@ def wifi_create(network, password):
             nmcli.connection.add("wifi", options, "*", network, False)
         except Exception as ex_err:
             oradio_utils.logging("error", f"Failed to configure wifi network '{network}', error = {ex_err}")
-            status = False
+            # Return fail, so caller can try to recover
+            return False
         else:
             oradio_utils.logging("success", f"Configured wifi network '{network}'")
 
     else:
         oradio_utils.logging("error", f"Failed to configure wifi network '{network}', error = Password needs to be 8 characters or more")
-        status = False
+        # Return fail, so caller can try to recover
+        return False
 
-    # Return status, so caller can recover if need be
-    return status
+    # Return success
+    return True
 
 def get_wifi_connections():
-    '''
+    """
     Get defined connections from NetworkManager
     :return connections ==> list of network ids defined in NetworkManager
-    '''
+    """
     #Initialize
     connections = []
 
@@ -136,35 +139,30 @@ def get_wifi_connections():
     return connections
 
 def wifi_connect(connection):
-    '''
+    """
     Connect to wifi network
     :param connection ==> Identifier of wifi network to connect to
-    '''
-    # initialize
-    status = True
-
+    """
     # Connect to wifi network
     try:
         # nmcli.connection.up(name: str, wait: int = None) -> None # Default timeout is 90 seconds
         nmcli.connection.up(connection)
     except Exception as ex_err:
         oradio_utils.logging("error", f"Failed to connect to '{connection}', error = {ex_err}")
-        status = False
+        # Return fail, so caller can try to recover
+        return False
     else:
         oradio_utils.logging("success", f"Wifi connected to '{connection}'")
 
-    # Return status, so caller can recover if need be
-    return status
+    # Return success
+    return True
 
 def wifi_disconnect(*args, **kwargs):
-    '''
+    """
     Disconnect from provided connection, or if no connection given, from active connection
     :param connection (optional) ==> identfies the network to disconnect from
     Do not remove the network from NetworkManager, so the Oradio will automatically reconnect when starting up in range of an already configured wifi network
-    '''
-    # initialize
-    status = True
-
+    """
     # Get active connection
     active = get_wifi_connection()
 
@@ -181,27 +179,28 @@ def wifi_disconnect(*args, **kwargs):
                 nmcli.connection.down(active)
             except Exception as ex_err:
                 oradio_utils.logging("error", f"Failed to disconnect from '{active}', error = {ex_err}")
-                status = False
+                # Return fail, so caller can try to recover
+                return False
             else:
                 oradio_utils.logging("success", f"Wifi disconnected from '{active}'")
     else:
         oradio_utils.logging("warning", "No active network to disconnect from")
 
-    # Return status, so caller can recover if need be
-    return status
+    # Return success
+    return True
 
 def wifi_remove(connection):
-    '''
+    """
     Remove wifi network from NetworkManager
     NOTE: the NetworkManager will disconnect if 'connection' is the active connection
     :param connection ==> NetworkManager connection identfier
-    '''
-    # initialize
-    status = True
-
-    # First disconnect
-    if not wifi_disconnect():
-        return False
+    """
+    # If the current connection si the one to remove then first disconnect
+    if connection == get_wifi_connection():
+        if not wifi_disconnect():
+            oradio_utils.logging("error", f"Failed to disconnect '{connection}'")
+            # Return fail, so caller can try to recover
+            return False
 
     # Delete the connection
     try:
@@ -213,31 +212,37 @@ def wifi_remove(connection):
             oradio_utils.logging("warning", f"Wifi {connection} did not exist, so it is succesfully 'removed'")
         else:
             oradio_utils.logging("error", f"Failed to remove '{connection}', error = {ex_err}")
-            status = False
+            # Return fail, so caller can try to recover
+            return False
     else:
         oradio_utils.logging("success", f"Wifi '{connection}' removed")
 
-    # Return status, so caller can recover if need be
-    return status
+    # Return success
+    return True
 
 def wifi_autoconnect(network, password):
-    '''
+    """
     Create and connect to wifi network, setting to autoconnect
     :param network ==> Identifier of wifi network to create and connect to
     :param password ==> Password of wifi network to create
-    '''
-    # initialize
-    status = True
+    """
+    # Remove network credentials, if any
+    if network in get_wifi_connections():
+        if not wifi_remove(network):
+            # Return fail, so caller can try to recover
+            return False
 
     # Create network configuration
     if not wifi_create(network, password):
-        status = False
+        # Return fail, so caller can try to recover
+        return False
 
     # Connect to network
     elif not wifi_connect(network):
         # Failed to connect: Remove network
         wifi_remove(network)
-        status = False
+        # Return fail, so caller can try to recover
+        return False
 
     else:
         # Set to autoconnect
@@ -248,19 +253,39 @@ def wifi_autoconnect(network, password):
             oradio_utils.logging("error", f"Failed to modify autoconnect '{network}', error = {ex_err}")
             # Failed to modify: Remove network
             wifi_remove(network)
-            status = False
+            # Return fail, so caller can try to recover
+            return False
         else:
             oradio_utils.logging("success", f"Wifi will autoconnect to '{network}'")
 
-    # Return status, so caller can recover if need be
-    return status
+    # Return success
+    return True
+
+def get_wifi_status():
+    """
+    return wifi status: idle | access point | infrastructure
+    """
+    # Get active wifi connection, if any
+    active = get_wifi_connection()
+
+    # No connection: idle
+    if not active:
+        return STATE_WIFI_IDLE
+
+    # Connection to access point
+    elif active == ACCESS_POINT_NAME:
+        return STATE_WIFI_ACCESS_POINT
+
+    # Connection to wifi network
+    elif active != ACCESS_POINT_NAME:
+        return STATE_WIFI_INFRASTRUCTURE
 
 def access_point_start():
-    '''
+    """
     Create the access point if not yet known
     Activate the access point if not yet active
     Leave with running access point
-    '''
+    """
     # Check if access point is already active
     if get_wifi_connection() != ACCESS_POINT_NAME:
 
@@ -269,8 +294,10 @@ def access_point_start():
 
             # Configure redirection (overwrite)
             cmd = "sudo bash -c 'echo \"address=/#/"+ACCESS_POINT_HOST+"\" > /etc/NetworkManager/dnsmasq-shared.d/redirect.conf'"
-            if not oradio_utils.run_shell_script(cmd):
+            result, error = oradio_utils.run_shell_script(cmd)
+            if not result:
                 oradio_utils.logging("error", f"Error during <{cmd}> to configure IP address redirection, error ={error}")
+                # Return fail, so caller can try to recover
                 return False
             else:
                 oradio_utils.logging("success", f"Redirection to host '{ACCESS_POINT_HOST}' configured")
@@ -287,6 +314,7 @@ def access_point_start():
                 nmcli.connection.add("wifi", options, "*", ACCESS_POINT_NAME, False)
             except Exception as ex_err:
                 oradio_utils.logging("error", f"Failed to add access point '{ACCESS_POINT_NAME}' with SSID = {ACCESS_POINT_SSID}, error = {ex_err}")
+                # Return fail, so caller can try to recover
                 return False
 
         # Connect to the access point
@@ -295,6 +323,7 @@ def access_point_start():
             nmcli.connection.up(ACCESS_POINT_NAME)
         except Exception as ex_err:
             oradio_utils.logging("error", f"Failed to activate access point '{ACCESS_POINT_NAME}' with SSID = {ACCESS_POINT_SSID}, error = {ex_err}")
+            # Return fail, so caller can try to recover
             return False
         else:
             oradio_utils.logging("success", f"Access point '{ACCESS_POINT_NAME}' with SSID = {ACCESS_POINT_SSID} is active")
@@ -302,55 +331,34 @@ def access_point_start():
     else:
         oradio_utils.logging("warning", f"Access point '{ACCESS_POINT_NAME}' already active")
 
-    # Return status, so caller can recover if need be
+    # Return success
     return True
 
 def access_point_stop():
-    '''
+    """
     Stop access point
-    '''
-    # initialize
-    status = True
+    """
+    # Check if access point is already active
+    if get_wifi_connection() == ACCESS_POINT_NAME:
 
-    # Remove the access point
-    status = wifi_remove(ACCESS_POINT_NAME)
+        # Remove the access point
+        status = wifi_remove(ACCESS_POINT_NAME)
 
-    # Remove address redirection
-    cmd = "sudo rm -rf /etc/NetworkManager/dnsmasq-shared.d/redirect.conf"
-    if not oradio_utils.run_shell_script(cmd):
-        oradio_utils.logging("error", f"Error during <{cmd}> to remove IP address redirection, error ={error}")
-        status = False
-    else:
-        oradio_utils.logging("success", "IP address redirection removed")
+        # Remove address redirection
+        cmd = "sudo rm -rf /etc/NetworkManager/dnsmasq-shared.d/redirect.conf"
+        result, error = oradio_utils.run_shell_script(cmd)
+        if not result:
+            oradio_utils.logging("error", f"Error during <{cmd}> to remove IP address redirection, error ={error}")
+            # Return fail, so caller can try to recover
+            return False
+        else:
+            oradio_utils.logging("success", "IP address redirection removed")
 
-    # Return status, so caller can recover if need be
-    return status
+    # Return success
+    return True
 
 # Entry point for stand-alone operation
 if __name__ == '__main__':
-
-    # Check if monitoring is available, i.e. running in Oradio context
-    import importlib.util
-    system_monitoring = importlib.util.find_spec("system_monitoring")
-
-    '''
-    TODO: Move to oradio_utils to determine what to do: logging only, monitoring, ...
-    # If monitoring is available then use it
-    if system_monitoring:
-        import logging.config
-        from system_monitoring import system_monitor
-        from oradio_data_collector import oradio_data_collector
-        from settings import get_config
-
-        # Initialize logging and monitoring
-        logging.config.fileConfig(ORADIO_LOGGING_CONFIG)
-        status, oradio_config = get_config()
-        data_collector = oradio_data_collector()
-        sys_monitor = system_monitor(oradio_config, data_collector)
-
-        # No system checks
-        sys_monitor.timer_off()
-    '''
 
     # Show menu with test options
     input_selection = ("Select a function, input the number.\n"
@@ -363,8 +371,9 @@ if __name__ == '__main__':
                        " 6-disconnect from active wifi network\n"
                        " 7-remove registered wifi network\n"
                        " 8-create, connect and set autoconnect\n"
-                       " 9-start access point\n"
-                       " 10-stop access point\n"
+                       " 9-get wifi status\n"
+                       "10-start access point\n"
+                       "11-stop access point\n"
                        "select: "
                        )
 
@@ -417,15 +426,10 @@ if __name__ == '__main__':
                 else:
                     oradio_utils.logging("warning", "No SSID and/or password given")
             case 9:
-                oradio_utils.logging("info", f"access_point_start() returned {access_point_start()}")
+                oradio_utils.logging("info", f"Wifi status: {get_wifi_status()}")
             case 10:
+                oradio_utils.logging("info", f"access_point_start() returned {access_point_start()}")
+            case 11:
                 oradio_utils.logging("info", f"access_point_stop() returned {access_point_stop()}")
             case _:
                 print("\nPlease input a valid number\n")
-
-    '''
-    TODO: put check in oradio_utils
-    # If monitoring: Stop monitoring
-    if system_monitoring:
-        sys_monitor.stop()
-    '''
