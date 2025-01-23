@@ -49,14 +49,15 @@ MESSAGE_WEB_SERVICE_ACCESS_POINT = "wifi is access point"
 # Path where the USB drive is mounted
 USB_MOUNT  = "/media/sda1"
 # File name in USB root with wifi credentials
-USB_WIFI_FILE = USB_MOUNT +"/Wifi_invoer.json"
+USB_WIFI_FILE = USB_MOUNT +"/wifi_invoer.json"
 # USB drive label for 'Oradio' operation
 LABEL_USB_ORADIO = "ORADIO"
 # USB states
 STATE_USB_PRESENT = "USB drive present"
 STATE_USB_ABSENT  = "USB drive absent"
-STATE_USB_ERROR   = "USB drive error"
 # USB messages
 MESSAGE_USB_TYPE          = "USB message"
 MESSAGE_USB_ERROR_LABEL   = "USB label is invalid"
+MESSAGE_USB_ERROR_FILE    = "USB file format error"
+MESSAGE_USB_ERROR_CONNECT = "USB wifi failed to connect"
 MESSAGE_USB_ERROR_TIMEOUT = "USB did not mount in the expected time"
