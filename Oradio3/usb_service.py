@@ -353,10 +353,9 @@ if __name__ == '__main__':
                        " 1-Start USB monitor\n"
                        " 2-Trigger USB inserted\n"
                        " 3-Trigger USB removed\n"
-                       " 4-Send USB message\n"
-                       " 5-Get USB label\n"
-                       " 6-Get USB wifi info\n"
-                       " 7-stop USB monitoring\n"
+                       " 4-Get USB label\n"
+                       " 5-Get USB wifi info\n"
+                       " 6-stop USB monitoring\n"
                        "select: "
                        )
 
@@ -387,23 +386,16 @@ if __name__ == '__main__':
                 else:
                     oradio_utils.logging("warning", "USB monitor not running")
             case 4:
-                state = input("Enter state (present | absent | error | other): ")
-                error = input("Enter error (label | timeout | other): ")
-                if state and error and usb_service:
-                    usb_service.send_usb_message(state=state, label=label, error=error)
-                else:
-                    oradio_utils.logging("warning", "state, label and/or error not provided, or USB monitor not running")
-            case 5:
                 if usb_service:
                     usb_service.get_usb_label()
                 else:
                     oradio_utils.logging("warning", "USB monitor not running")
-            case 6:
+            case 5:
                 if usb_service:
                     usb_service.handle_usb_wifi_info()
                 else:
                     oradio_utils.logging("warning", "USB monitor not running")
-            case 7:
+            case 6:
                 usb_service.usb_monitor_stop()
             case _:
                 print("\nPlease input a valid number\n")
