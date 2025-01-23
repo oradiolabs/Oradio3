@@ -30,7 +30,7 @@ NC='\033[0m'
 
 # Available modules to install
 MODULES_MANDATORY="network support"
-MODULES_OPTIONAL="webinterface usb"
+MODULES_OPTIONAL="webservice usb"
 
 # Function to pretty-print the list of modules
 show_modules() {

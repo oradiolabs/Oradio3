@@ -141,7 +141,6 @@ if __name__ == "__main__":
     # functions: logger.info(str), logger.debug(str), logger.error(str), etc.
 
     # Initialize
-    usb_handler = None
     message_queue = Queue()
 
     def check_messages(message_queue):
