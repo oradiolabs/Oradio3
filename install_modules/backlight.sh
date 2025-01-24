@@ -27,13 +27,37 @@ SCRIPT_DIR=$( cd -- "$( dirname -- "${BASH_SOURCE[0]}" )" &> /dev/null && pwd )
 source $SCRIPT_DIR/constants.sh
 
 # Notify entering module installation script
-echo "Load and configure web-interface and captive portal functionalty"
+echo "Install and configure backlight"
 
-########## Get packages and python modules for web-interface ##########
-# Install iptables
-sudo apt-get install iptables -y
+########## Activate i2c interface ##########
+# https://www.raspberrypi.com/documentation/computers/configuration.html#i2c-nonint
+sudo raspi-config nonint do_i2c 0		# 0: enable
+
+########## Setup modules ##########
+# Load i2c modules at boot: Modules do not use parameters, so use /etc/modules over /etc/modprobe.d/
+MODULES="/etc/modules"
+
+echo "Checking i2c modules..."
+I2C=(
+	"i2c-dev"
+	"i2c-bcm2835"
+)
+
+# Check required modules. If missing add to $MODULES and start now
+for ((i = 0; i < ${#I2C[@]}; i++)); do
+	module="${I2C[$i]}"
+	if ! grep -qx "$module" $MODULES; then
+		echo ">Adding module '"$module"'"
+		# Add to $MODULES file
+		echo $module | sudo tee -a $MODULES >/dev/null
+		# Start now
+		sudo modprobe $module
+	fi
+done
+echo "i2c modules loaded"
+
 # Install python modules
-python -m pip install pydantic fastapi nmcli JinJa2 uvicorn
+python -m pip install smbus2 rpi-lgpio
 
 # Notify leaving module installation script
-echo -e "${GREEN}web-interface and captive portal functionalty loaded and configured${NC}"
+echo -e "${GREEN}Backlight installed and configured${NC}"

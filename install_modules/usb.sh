@@ -22,11 +22,12 @@ if [ ! "$BASH_VERSION" ] || [ ! "$0" == "-bash" ]; then
 	exit 1
 fi
 
-# Color definitions
-RED='\033[1;31m'
-YELLOW='\033[1;93m'
-GREEN='\033[1;32m'
-NC='\033[0m'
+# In case the script is executed stand-alone
+SCRIPT_DIR=$( cd -- "$( dirname -- "${BASH_SOURCE[0]}" )" &> /dev/null && pwd )
+source $SCRIPT_DIR/constants.sh
+
+# Notify entering module installation script
+echo "Load and configure USB functionalty"
 
 ########## Setup usb automount ##########
 # The shell script doing the heavy lifting
@@ -46,4 +47,5 @@ sudo udevadm control --reload-rules
 # Install python modules
 python -m pip install usb-monitor
 
+# Notify leaving module installation script
 echo -e "${GREEN}USB functionalty loaded and configured. System automounts USB drives on '/media'.${NC}"

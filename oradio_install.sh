@@ -22,15 +22,12 @@ if [ ! "$BASH_VERSION" ] || [ ! "$0" == "-bash" ]; then
 	exit 1
 fi
 
-# Color definitions
-RED='\033[1;31m'
-YELLOW='\033[1;93m'
-GREEN='\033[1;32m'
-NC='\033[0m'
+# In case the script is executed stand-alone
+source $PWD/install_modules/constants.sh
 
-# Available modules to install
-MODULES_MANDATORY="network support"
-MODULES_OPTIONAL="webservice usb"
+# Available modules to install. ORDER IS IMPORTANT!
+MODULES_MANDATORY="bootconfig pythonenv backlight network"
+MODULES_OPTIONAL="usb webservice"
 
 # Function to pretty-print the list of modules
 show_modules() {
@@ -140,16 +137,30 @@ fi
 ########## Install modules ##########
 
 # Iterate through MANDATORY modules to install
-for i in $MODULES_MANDATORY; do
-	echo "Installing module '$i'"
-	source install_modules/$i.sh
+for module in $MODULES_MANDATORY; do
+	echo "Installing module '$module'"
+	source install_modules/$module.sh
+	# Module can signal a reboot is required to activate the changes
+	if [ $REBOOT_REQUIRED == $TRUE ]; then
+		echo -e "${YELLOW}Module '$module' needs reboot to activate${NC}"
+#TODO: Do not return to command prompt, but reboot and automatically restart this install script, same as after apt-get upgrade
+		# Running as source, so 'return' goes back to the command prompt
+		return 1
+	fi
 done
 
 # Iterate through OPTIONAL modules to install
-for i in $MODULES_OPTIONAL; do
-	if `echo $install | grep -q -c -w "$i"`; then
-		echo "Installing module '$i'"
-		source install_modules/$i.sh
+for module in $MODULES_OPTIONAL; do
+	if `echo $install | grep -q -c -w "$module"`; then
+		echo "Installing module '$module'"
+		source install_modules/$module.sh
+		# Module can signal a reboot is required to activate the changes
+		if [ $REBOOT_REQUIRED == $TRUE ]; then
+			echo -e "${YELLOW}Moduel '$module' needs reboot to activate${NC}"
+#TODO: Do not return to command prompt, but reboot and automatically restart this install script, same as after apt-get upgrade
+			# Running as source, so 'return' goes back to the command prompt
+			return 1
+		fi
 	else
 		echo -e "${YELLOW}Skipping installing '$i'${NC}"
 	fi

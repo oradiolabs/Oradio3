@@ -16,26 +16,17 @@
 # @email:         oradioinfo@stichtingoradio.nl
 # @status:        Development
 
-# The script uses bash constructs and changes the environment
-if [ ! "$BASH_VERSION" ] || [ ! "$0" == "-bash" ]; then
-	echo "Use 'source $0' to run this script" 1>&2
-	exit 1
-fi
-
 # Color definitions
 RED='\033[1;31m'
 YELLOW='\033[1;93m'
 GREEN='\033[1;32m'
 NC='\033[0m'
 
-########## Get pip package for installing python modules ##########
-# Install pip
-sudo apt-get install python3-pip -y
-# Prepare python virtual environment
-python3 -m venv ~/.venv
-# Activate the python virtual environment in current environemnt
-source ~/.venv/bin/activate
-# Activate python virtual environment when logging in: add if not yet present
-sudo grep -qxF 'source ~/.venv/bin/activate' ~/.bashrc || echo 'source ~/.venv/bin/activate' >> ~/.bashrc
+# Readability
+OK=0
+ERROR=1
+TRUE="Yes"
+FALSE="No"
 
-echo -e "${GREEN}Support installed and configured.${NC}"
+# Start assuming no reboot is needed
+REBOOT_REQUIRED=$FALSE

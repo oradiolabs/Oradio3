@@ -27,13 +27,17 @@ SCRIPT_DIR=$( cd -- "$( dirname -- "${BASH_SOURCE[0]}" )" &> /dev/null && pwd )
 source $SCRIPT_DIR/constants.sh
 
 # Notify entering module installation script
-echo "Load and configure web-interface and captive portal functionalty"
+echo "Installing pip and configure virtual environment"
 
-########## Get packages and python modules for web-interface ##########
-# Install iptables
-sudo apt-get install iptables -y
-# Install python modules
-python -m pip install pydantic fastapi nmcli JinJa2 uvicorn
+########## Setup python pip and virtual environment ##########
+# Install pip
+sudo apt-get install python3-pip -y
+# Prepare python virtual environment
+python3 -m venv ~/.venv
+# Activate the python virtual environment in current environemnt
+source ~/.venv/bin/activate
+# Activate python virtual environment when logging in: add if not yet present
+sudo grep -qxF 'source ~/.venv/bin/activate' ~/.bashrc || echo 'source ~/.venv/bin/activate' >> ~/.bashrc
 
 # Notify leaving module installation script
-echo -e "${GREEN}web-interface and captive portal functionalty loaded and configured${NC}"
+echo -e "${GREEN}Python pip installed and virtual environment configured.${NC}"
