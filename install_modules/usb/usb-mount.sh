@@ -1,6 +1,6 @@
 #!/bin/bash
 
-# This script is called from our systemd unit file to mount or unmount a USB drive.
+# This script is called from our systemd unit file to mount or unmount a USB partition.
 
 usage()
 {
@@ -12,71 +12,75 @@ if [[ $# -ne 2 ]]; then
 	usage
 fi
 
-ACTION=$1
-DEVBASE=$2
-DEVICE="/dev/${DEVBASE}"
+ACTION=$1						# add | remove
+DEVBASE=$2						# sd[a-z][1-9]
+VALIDLABEL="ORADIO"				# Partition will not be mounted if label does not match VALIDLABEL
+PARTITION="/dev/${DEVBASE}"		# Location of the USB partition to mount
+MOUNT_POINT="/media/oradio"		# Path where the USB partition will be mounted
+MONITOR="/media/usb_ready"		# Flag used in usb_service.py to signal mount/unmout is completed
 
-# See if this drive is already mounted, and if so where
-MOUNT_POINT=$(/bin/mount | /bin/grep ${DEVICE} | /usr/bin/awk '{ print $3 }')
-
-# Mount the USB drive
+# Mount the USB partition
 do_mount()
 {
 	# Skip if already mounted. Should not happen, therefore the warning
-	if [[ -n ${MOUNT_POINT} ]]; then
-		echo "Warning: ${DEVICE} is already mounted at ${MOUNT_POINT}"
+	if test -f $MOUNT_POINT; then
+		echo "Warning: ${PARTITION} is already mounted at ${MOUNT_POINT}"
 		exit 1
 	fi
 
-	# Get info for this drive: $ID_FS_TYPE. sed's to avoid space issues
-	eval $(/sbin/blkid -o udev ${DEVICE} | sed 's/=/="/' | sed 's/$/"/')
+	# Get LABEL for this partition. sed's to avoid space issues
+	LABEL=$(/sbin/blkid -o udev ${PARTITION} | grep 'LABEL.*' | sed -n 's/.*=\(.*\).*/\1/p' | sort -u)
 
-	# Figure out mount point to use
-	MOUNT_POINT="/media/${DEVBASE}"
+	# Skip if partition label is not 
+	if [ "$LABEL" != $VALIDLABEL ]; then
+		echo "Warning: Label of '${PARTITION}' does not match '${LABEL}'"
+		exit 1
+	fi
 
-	echo "Mount point for ${DEVICE}: ${MOUNT_POINT}"
-
+	# Create mount point
 	/bin/mkdir -p ${MOUNT_POINT}
 
-	# Global mount options
-	OPTS="rw,relatime"
-
 	# File system type specific mount options
-	if [[ ${ID_FS_TYPE} == "vfat" ]]; then
-		OPTS+=",users,gid=100,umask=000,shortname=mixed,utf8=1,flush"
-	fi
+	OPTS="rw,relatime,users,gid=100,umask=000,shortname=mixed,utf8=1,flush"
 
-	if ! /bin/mount -o ${OPTS} ${DEVICE} ${MOUNT_POINT}; then
-		echo "Error mounting ${DEVICE} (status = $?)"
+	# Try to mount the partition
+	if ! /bin/mount -o ${OPTS} ${PARTITION} ${MOUNT_POINT}; then
+		echo "Error: Mounting ${PARTITION} (status = $?)"
+
+		# Cleanup mount point
 		/bin/rmdir ${MOUNT_POINT}
+
 		exit 1
 	fi
 
-	echo "**** Mounted ${DEVICE} at ${MOUNT_POINT} ****"
+	# Mount succesful: Create the flag triggering the Python watchdog 
+	/bin/touch ${MONITOR}
+
+	echo "**** Mounted '${PARTITION}' at '${MOUNT_POINT}' ****"
 }
 
-# Unmount the USB drive
+# Unmount the USB partition
 do_unmount()
 {
 	# Skip if not mounted. Should not happen, therefore the warning
-	if [[ -z ${MOUNT_POINT} ]]; then
-		echo "Warning: ${DEVICE} is not mounted"
-	else
-		/bin/umount -l ${DEVICE}
-		echo "**** Unmounted ${DEVICE} ****"
+	if [ -z ${MOUNT_POINT} ]; then
+		echo "Warning: ${PARTITION} is not mounted"
+		exit 1
 	fi
 
-	# Delete all empty dirs in /media that aren't being used as mount points.
-	# This is kind of overkill, but if the drive was unmounted prior to removal
-	# we no longer know its mount point, and we don't want to leave it orphaned...
-	for f in /media/* ; do
-		if [[ -n $(/usr/bin/find "$f" -maxdepth 0 -type d -empty) ]]; then
-			if ! /bin/grep -q " $f " /etc/mtab; then
-				echo "**** Removing mount point $f"
-				/bin/rmdir "$f"
-			fi
-		fi
-	done
+	# Try to unmount the partition
+	if ! /bin/umount -l ${PARTITION}; then
+		echo "Error: Unmounting ${PARTITION} (status = $?)"
+		exit 1
+	fi
+
+	# Delete mount point
+	/bin/rmdir ${MOUNT_POINT}
+
+	# Delete the flag triggering the Python watchdog 
+	/bin/rm ${MONITOR}
+
+	echo "**** Unmounted ${PARTITION} ****"
 }
 
 case "${ACTION}" in

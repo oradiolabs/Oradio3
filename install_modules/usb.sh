@@ -45,7 +45,7 @@ sudo cp $PWD/install_modules/usb/99-local.rules /etc/udev/rules.d/
 sudo udevadm control --reload-rules
 
 # Install python modules
-python -m pip install usb-monitor
+python -m pip install watchdog
 
 # Notify leaving module installation script
 echo -e "${GREEN}USB functionalty loaded and configured. System automounts USB drives on '/media'.${NC}"
