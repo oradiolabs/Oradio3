@@ -16,7 +16,7 @@ Created on December 23, 2024
 @version:       2
 @email:         oradioinfo@stichtingoradio.nl
 @status:        Development
-@summary: Class for web interface and Captive Portal
+@summary: Class for web interface and Captive Portal server
     :Note
     :Install
     :Documentation
@@ -30,9 +30,12 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
 ##### oradio modules ####################
-import oradio_utils, wifi_utils
+import oradio_utils
+from wifi_service import get_wifi_networks, get_wifi_connection
+
 ##### GLOBAL constants ####################
 from oradio_const import *
+
 ##### LOCAL constants ####################
 
 # Get the web server app
@@ -82,14 +85,14 @@ async def favicon():
 async def captiveportal(request: Request):
     """
     Any unknown path will return:
-      captive portal if wifi is an access point, or
-      home page if wifi connected to a network
+      captive portal if WiFi is an access point, or
+      home page if WiFi connected to a network
     """
-    if wifi_utils.get_wifi_connection() == ACCESS_POINT_NAME:
+    if get_wifi_connection() == ACCESS_POINT_SSID:
         oradio_utils.logging("info", "Send captive portal page")
 
-        # Get list of available wifi networks
-        list = wifi_utils.get_wifi_networks()
+        # Get list of available WiFi networks
+        list = get_wifi_networks()
 
         # Set captive portal page and context
         page = "captiveportal.html"
@@ -105,12 +108,12 @@ async def captiveportal(request: Request):
     # Return page and context
     return templates.TemplateResponse(request=request, name=page, context=context)
 
-# Model for wifi network credentials
+# Model for WiFi network credentials
 class credentials(BaseModel):
     ssid: str = None
     pswd: str = None
 
-# POST endpoint to connect to wifi network
+# POST endpoint to connect to WiFi network
 @api_app.post("/connect2network")
 async def connect2network(credentials: credentials, request: Request):
     """

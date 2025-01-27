@@ -31,10 +31,13 @@ from threading import Thread
 from multiprocessing import Process, Queue, Event
 
 ##### oradio modules ####################
-import oradio_utils, wifi_utils
+import oradio_utils
 from fastapi_server import api_app
+from wifi_service import wifi_service, get_wifi_connection
+
 ##### GLOBAL constants ####################
 from oradio_const import *
+
 ##### LOCAL constants ####################
 WEB_SERVICE_TIMEOUT = 600 # 10 minutes
 
@@ -156,38 +159,12 @@ class web_service(Process):
                 # Handle 'connect wifi' command
                 elif msg_cmd == MESSAGE_WEB_SERVER_CONNECT_WIFI:
 
-                    # Save active network connection
-                    active = wifi_utils.get_wifi_connection()
-
-                    # If access point is active: remove it
-                    wifi_utils.access_point_stop()
-
-                    # Prepare message
-                    parent_msg = {}
-                    parent_msg["type"] = MESSAGE_WEB_SERVICE_TYPE
-
                     # Get wifi credentials
                     ssid = server_msg["ssid"]
                     pswd = server_msg["pswd"]
 
-                    # Try to connect to wifi network
-                    if wifi_utils.wifi_autoconnect(ssid, pswd):
-                        oradio_utils.logging("success", f"Connected to '{ssid}'")
-
-                        # Add 'success' message to be sent to parent
-                        parent_msg["data"] = MESSAGE_WEB_SERVICE_CONNECT_OK
-                    else:
-                        oradio_utils.logging("error", f"Failed to connected to '{ssid}'")
-
-                        # If access point was active: restart it
-                        if active == ACCESS_POINT_NAME:
-                            wifi_utils.access_point_start()
-
-                        # Add 'fail' message to be sent to parent
-                        parent_msg["data"] = MESSAGE_WEB_SERVICE_CONNECT_FAIL
-
-                    # Send status message to parent
-                    parent_q.put(parent_msg)
+                    # Connect to the WiFi network
+                    oradio_wifi_service.wifi_connect(ssid, pswd)
 
                 # Unexpected 'command' message
                 else:
@@ -256,8 +233,8 @@ class web_service(Process):
         else:
             oradio_utils.logging("success", "Port redirection removed")
 
-        # If access point active: remove it
-        wifi_utils.access_point_stop()
+        # Remove access point
+        oradio_wifi_service.access_point_stop()
 
         # Stop listening to server messages
         self.listener.kill()
@@ -288,10 +265,6 @@ def web_service_start(process, parent_q, *args, **kwargs):
     # Set IP redirect and start web service if it is not active
     if not process or process.get_status() == STATE_WEB_SERVICE_IDLE:
 
-        # Assign process for scheduling to specific CPUs
-        os.sched_setaffinity(0, CPU_MASK_WEB_SERVICE)  # 0 = calling process
-        oradio_utils.logging("info", f"Web service CPU affinity mask is set to {os.sched_getaffinity(0)}")
-
         # Create and start the web service
         process = web_service(timeout, parent_q)
         process.start()
@@ -305,18 +278,12 @@ def web_service_start(process, parent_q, *args, **kwargs):
 
     # If requested ensure access point is active
     if force_ap:
+        oradio_utils.logging("info", f"Force access point")
 
         # Ensure access point is up and running
-        wifi_utils.access_point_start()
-
-        # Send message to parent
-        msg = {}
-        msg["type"] = MESSAGE_WEB_SERVICE_TYPE
-        msg["data"] = MESSAGE_WEB_SERVICE_ACCESS_POINT
-        parent_q.put(msg)
-
+        oradio_wifi_service.access_point_start()
     else:
-        oradio_utils.logging("info", f"Web server is available on wifi connection '{wifi_utils.get_wifi_connection()}'")
+        oradio_utils.logging("info", f"Web server is available on wifi connection '{get_wifi_connection()}'")
 
     # Return web service process
     return process
@@ -340,55 +307,27 @@ def web_service_stop(process):
 # Entry point for stand-alone operation
 if __name__ == '__main__':
 
-    def check_messages(message_queue):
+    # import when running stand-alone
+    from multiprocessing import Process, Queue
+
+    def check_messages(queue):
         """
         Check if a new message is put into the queue
         If so, read the message from queue and display it
-        :param message_queue = the queue to check for
+        :param queue = the queue to check for
         """
-        oradio_utils.logging("info", f"Listening for web service messages")
+        oradio_utils.logging("info", "Listening for messages")
 
-        # Running in thread until killed
         while True:
-
-            # Wait for web service message
-            message = message_queue.get(block=True, timeout=None)
-
+            # Wait for WiFi message
+            message = queue.get(block=True, timeout=None)
             # Show message received
-            oradio_utils.logging("info", f"Message received from web service: '{message}'")
-
-            # Show message type
-            msg_type = message["type"]
-            oradio_utils.logging("info", f"web service type = '{msg_type}'")
-
-            # Parse web service message
-            if msg_type == MESSAGE_WEB_SERVICE_TYPE:
-
-                # Show message data
-                msg_data = message["data"]
-                oradio_utils.logging("info", f"web service data = '{msg_data}'")
-
-                # Get current wifi connection
-                active = wifi_utils.get_wifi_connection()
-
-                # Parse web service data
-                if msg_data == MESSAGE_WEB_SERVICE_CONNECT_OK:
-                    oradio_utils.logging("info", f"Web service available on wifi network: '{active}'")
-                elif msg_data == MESSAGE_WEB_SERVICE_CONNECT_FAIL:
-                    oradio_utils.logging("info", f"Web service failed to connect to new wifi network. The web service is available on wifi network: '{active}'")
-                elif msg_data == MESSAGE_WEB_SERVICE_ACCESS_POINT:
-                    oradio_utils.logging("info", f"Web service available to access point: '{active}'")
-
-                # Unexpected 'data' message
-                else:
-                    oradio_utils.logging("error", f"Unsupported 'data' message: '{msg_data}'")
-
-            # Unexpected 'type' message
-            else:
-                oradio_utils.logging("error", f"Unsupported 'type' message: '{msg_type}'")
+            oradio_utils.logging("info", f"Message received: '{message}'")
 
     # Initialize
     message_queue = Queue()
+    oradio_web_service = None
+    oradio_wifi_service = wifi_service(message_queue)
 
     # Start  process to monitor the message queue
     message_listener = Process(target=check_messages, args=(message_queue,))
@@ -404,9 +343,6 @@ if __name__ == '__main__':
                        "select: "
                        )
 
-    # Initialize web service process
-    web_service_process = None
-
     # User command loop
     while True:
 
@@ -419,34 +355,34 @@ if __name__ == '__main__':
         # Execute selected function
         match function_nr:
             case 0:
-                web_service_stop(web_service_process)
+                web_service_stop(oradio_web_service)
                 break
             case 1:
                 # Ask for timeout if process not yet running
-                if not web_service_process:
+                if not oradio_web_service:
                     timeout = input(f"Enter seconds after which the web service will timeout. Leave empty to use system default {WEB_SERVICE_TIMEOUT}: ")
                 # Start web service, using timeout if set
                 if timeout:
-                    web_service_process = web_service_start(web_service_process, message_queue, timeout=timeout)
+                    oradio_web_service = web_service_start(oradio_web_service, message_queue, timeout=timeout)
                 else:
-                    web_service_process = web_service_start(web_service_process, message_queue)
+                    oradio_web_service = web_service_start(oradio_web_service, message_queue)
             case 2:
                 # Ask for timeout if process not yet running
-                if not web_service_process:
+                if not oradio_web_service:
                     timeout = input(f"Enter seconds after which the web service will timeout. Leave empty to use system default {WEB_SERVICE_TIMEOUT}: ")
                 # Start web service, using timeout if set
                 if timeout:
-                    web_service_process = web_service_start(web_service_process, message_queue, timeout=timeout, force_ap=True)
+                    oradio_web_service = web_service_start(oradio_web_service, message_queue, timeout=timeout, force_ap=True)
                 else:
-                    web_service_process = web_service_start(web_service_process, message_queue, force_ap=True)
+                    oradio_web_service = web_service_start(oradio_web_service, message_queue, force_ap=True)
             case 3:
                 # Reset Oradio web service timeout if web service is running
-                if web_service_process:
-                    web_service_process.reset_timeout()
+                if oradio_web_service:
+                    oradio_web_service.reset_timeout()
                 else:
                     oradio_utils.logging("warning", "Web service is not running: cannot reset the timeout")
-            case 3:
-                web_service_process = web_service_stop(web_service_process)
+            case 4:
+                oradio_web_service = web_service_stop(oradio_web_service)
             case _:
                 print("\nPlease input a valid number\n")
 
