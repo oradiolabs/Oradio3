@@ -51,12 +51,12 @@ class USBMonitor(PatternMatchingEventHandler):
 
     def on_created(self, event): # when file is created
         # do something, eg. call your function to process the image
-        print(f"on_created: Got event for file {event.src_path}")
+        oradio_utils.logging("info", f"{event.src_path} created")
         self.service.usb_inserted()
 
     def on_deleted(self, event): # when file is deleted
         # do something, eg. call your function to process the image
-        print(f"on_deleted: Got event for file {event.src_path}")
+        oradio_utils.logging("info", f"{event.src_path} deleted")
         self.service.usb_removed()
 
 class usb_service():

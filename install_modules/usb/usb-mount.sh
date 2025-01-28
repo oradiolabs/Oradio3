@@ -16,8 +16,8 @@ ACTION=$1						# add | remove
 DEVBASE=$2						# sd[a-z][1-9]
 VALIDLABEL="ORADIO"				# Partition will not be mounted if label does not match VALIDLABEL
 PARTITION="/dev/${DEVBASE}"		# Location of the USB partition to mount
-MOUNT_POINT="/media/oradio"		# Path where the USB partition will be mounted
-MONITOR="/media/usb_ready"		# Flag used in usb_service.py to signal mount/unmout is completed
+MOUNT_POINT="/media/oradio"
+MONITOR="/media/usb_ready"
 
 # Mount the USB partition
 do_mount()
