@@ -34,7 +34,11 @@ echo "Load and configure USB functionalty"
 sudo cp $PWD/install_modules/usb/usb-mount.sh /usr/local/bin/
 sudo chmod +x /usr/local/bin/usb-mount.sh
 # Initialize: mount USB drive if present
-sudo bash $PWD/install_modules/usb/usb-mount.sh add sda1
+for filename in /dev/sda[1-9]; do
+	if [ -b "$filename" ]; then
+		sudo bash $PWD/install_modules/usb/usb-mount.sh add $(basename $filename)
+	fi
+done
 # The script, in turn, is called by a systemd unit file. The "@" filename syntax allows passing the device name as an argument.
 sudo cp $PWD/install_modules/usb/usb-mount@.service /etc/systemd/system/
 # Restart the daemon to activate

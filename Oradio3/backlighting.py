@@ -1,9 +1,39 @@
+"""
+
+  ####   #####     ##    #####      #     ####
+ #    #  #    #   #  #   #    #     #    #    #
+ #    #  #    #  #    #  #    #     #    #    #
+ #    #  #####   ######  #    #     #    #    #
+ #    #  #   #   #    #  #    #     #    #    #
+  ####   #    #  #    #  #####      #     ####
+
+
+Created on Januari 17, 2025
+@author:        Henk Stevens & Olaf Mastenbroek & Onno Janssen
+@copyright:     Copyright 2024, Oradio Stichting
+@license:       GNU General Public License (GPL)
+@organization:  Oradio Stichting
+@version:       1
+@email:         oradioinfo@stichtingoradio.nl
+@status:        Development
+@summary: Class for USB detect, insert, and remove services
+    :Note
+    :Install
+    :Documentation
+"""
 import smbus2
 import time
 
-
 class backlighting:
+    """
+    Controls the Oradio backlight
+    The auto_adjust function works independently
+    It is intended to be used as a system service
+    """
     def __init__(self):
+        """
+        Initializes Oradio backlight register settings
+        """
         self.TSL2591_ADDR = 0x29
         self.ENABLE_REG = 0x00
         self.CONTROL_REG = 0x01
@@ -60,6 +90,7 @@ class backlighting:
         self.bus.write_byte_data(self.MCP4725_ADDR, high_byte, low_byte)
 
     def interpolate_backlight(self, lux):
+        """ Calculate backlight setting based on light sensor value """
         if lux < self.lux_min:
             return 4095
         elif lux >= self.lux_max:
@@ -72,8 +103,8 @@ class backlighting:
             return int(self.backlight_mid + scale * (self.backlight_max - self.backlight_mid))
 
     def auto_adjust(self):
+        """ Autonomous backlight control """
         self.initialize_sensor()
-#        time.sleep(3)
         self.write_dac(self.backlight_min)
         self.running = True  # Set the running flag to True
 
@@ -93,14 +124,13 @@ class backlighting:
                 self.steps_remaining -= 1
             time.sleep(0.5)
 
-
     def off(self):
-        """Stop the auto_adjust loop and turn the backlight off."""
+        """ Stop the auto_adjust loop and turn the backlight off """
         self.running = False
         self.write_dac(4095)  # Set backlight to max (off)
 
     def maximum(self):
-        """Stop the auto_adjust loop and turn the backlight off."""
+        """ Stop the auto_adjust loop and turn the backlight on """
         self.running = False
         self.write_dac(self.backlight_max)  # Set backlight to max (off)
 
