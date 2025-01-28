@@ -19,14 +19,18 @@
 # The script uses bash constructs and changes the environment
 if [ ! "$BASH_VERSION" ] || [ ! "$0" == "-bash" ]; then
 	echo "Use 'source $0' to run this script" 1>&2
-	exit 1
+	return 1
 fi
 
-# In case the script is executed stand-alone
+# Load shared constants
+if [ ! -f $PWD/install_modules/constants.sh ]; then
+	echo "constants.sh not found"
+	return 1
+fi
 source $PWD/install_modules/constants.sh
 
 # Available modules to install. ORDER IS IMPORTANT!
-MODULES_MANDATORY="bootconfig pythonenv backlight network"
+MODULES_MANDATORY="bootconfig pythonenv backlighting network"
 MODULES_OPTIONAL="usb webservice"
 
 # Function to pretty-print the list of modules

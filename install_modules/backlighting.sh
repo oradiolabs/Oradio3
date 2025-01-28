@@ -19,15 +19,21 @@
 # The script uses bash constructs and changes the environment
 if [ ! "$BASH_VERSION" ] || [ ! "$0" == "-bash" ]; then
 	echo "Use 'source $0' to run this script" 1>&2
-	exit 1
+	return 1
 fi
 
 # In case the script is executed stand-alone
 SCRIPT_DIR=$( cd -- "$( dirname -- "${BASH_SOURCE[0]}" )" &> /dev/null && pwd )
+
+# Load shared constants
+if [ ! -f $SCRIPT_DIR/constants.sh ]; then
+	echo "constants.sh not found"
+	return 1
+fi
 source $SCRIPT_DIR/constants.sh
 
 # Notify entering module installation script
-echo "Install and configure backlight"
+echo "Install and configure backlighting"
 
 ########## Activate i2c interface ##########
 # https://www.raspberrypi.com/documentation/computers/configuration.html#i2c-nonint
@@ -56,8 +62,22 @@ for ((i = 0; i < ${#I2C[@]}; i++)); do
 done
 echo "i2c modules loaded"
 
+
+########## Configure and install service ##########
+# Configure the backlighting service
+replace=`echo $ORADIO_PATH_PYTHON | sed 's/\//\\\\\//g'`
+sed -i "s/SCRIPT_PATH/$replace/g" $ORADIO_PATH_INSTALL_MODULES/backlighting/backlighting.service
+# Install the backlighting service
+sudo cp $ORADIO_PATH_INSTALL_MODULES/backlighting/backlighting.service /etc/systemd/system/
+# Set backlighting system to start at boot
+sudo systemctl enable backlighting.service
+# Start backlighting system now
+sudo systemctl start backlighting.service
+# To be safe, rerun all generators, reload all unit files, and recreate the entire dependency tree
+sudo systemctl daemon-reload
+
 # Install python modules
 python -m pip install smbus2 rpi-lgpio
 
 # Notify leaving module installation script
-echo -e "${GREEN}Backlight installed and configured${NC}"
+echo -e "${GREEN}Backlightng installed and configured${NC}"
