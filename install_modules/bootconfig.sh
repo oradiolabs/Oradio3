@@ -48,8 +48,7 @@ for option in $DEACTIVATE; do
 		REBOOT_REQUIRED=$TRUE
 	else
 		if ! grep -qx "^#.*$option" $CONFIG; then
-			echo -e "${RED}Fatal error: Missing option '$option' in $CONFIG${NC}"
-			return $ERROR
+			echo -e "${YELLOW}Missing option '$option' in $CONFIG${NC}"
 		fi
 	fi
 done
