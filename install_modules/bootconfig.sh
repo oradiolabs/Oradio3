@@ -33,15 +33,31 @@ echo "Configuring boot options"
 # Explaining options: https://www.raspberrypi.com/documentation/computers/config_txt.html
 # In short: The Oradio is a RPI 3, headless, with own audio, and no over-clocking to keep it cool
 CONFIG="/boot/firmware/config.txt"
-ACTIVATE="dtparam=i2c_arm=on dtparam=i2s=on auto_initramfs=1 arm_64bit=1"
-DEACTIVATE="dtparam=audio=on camera_auto_detect=1 display_auto_detect=1 \
-			dtoverlay=vc4-kms-v3d max_framebuffers=2 disable_fw_kms_setup=1 \
-			disable_overscan=1 arm_boost=1 otg_mode=1 dtoverlay=dwc2,dr_mode=host"
-
+# Options to deactivate
+DEACTIVATE=(
+	"dtparam=audio=on"
+	"camera_auto_detect=1"
+	"display_auto_detect=1"
+	"dtoverlay=vc4-kms-v3d"
+	"max_framebuffers=2"
+	"disable_fw_kms_setup=1"
+	"disable_overscan=1"
+	"arm_boost=1"
+	"otg_mode=1"
+	"dtoverlay=dwc2,dr_mode=host"
+)
+# Options to activate
+ACTIVATE=(
+	"dtparam=i2c_arm=on"
+	"dtparam=i2s=on"
+	"auto_initramfs=1"
+	"arm_64bit=1"
+)
 ########## Deactivate unneccesary ##########
 # Check not needed options, deactivate if enabled
 echo "Checking unneccesary boot options..."
-for option in $DEACTIVATE; do
+for ((i = 0; i < ${#DEACTIVATE[@]}; i++)); do
+	option="${DEACTIVATE[$i]}"
 	if grep -qx "^$option" $CONFIG; then
 		echo ">Deactivating option '$option'"
 		sudo sed -i "s/^$option$/#$option/g" $CONFIG
@@ -57,8 +73,9 @@ echo "Unneccesary boot options deactivated"
 ########## Activate required ##########
 # Check required options, activate if disabled
 echo "Checking required boot options..."
-for option in $ACTIVATE; do
-	if grep -qx "#.*$option"  $CONFIG; then
+for ((i = 0; i < ${#ACTIVATE[@]}; i++)); do
+	option="${ACTIVATE[$i]}"
+	if grep -qx "#.*$option" $CONFIG; then
 		echo ">Activating option '$option'"
 		sudo sed -i "s/^#.*$option$/$option/g" $CONFIG
 		REBOOT_REQUIRED=$TRUE
@@ -72,10 +89,10 @@ for option in $ACTIVATE; do
 done
 echo "Required boot options activated"
 
-########## Backlight ##########
-echo "Checking backlight options..."
-BACKLIGHT=(
-	"#### Oradio backlight options ####"
+########## Backlighting ##########
+echo "Checking backlighting options..."
+BACKLIGHTING=(
+	"#### Oradio backlighting options ####"
 	"# gpio pinning LEDs all leds off - only backlighting"
 	"gpio=23=op,dl"
 	"gpio=24=op,dh"
@@ -90,8 +107,8 @@ BACKLIGHT=(
 )
 
 # Check required options, add if missing
-for ((i = 0; i < ${#BACKLIGHT[@]}; i++)); do
-	option="${BACKLIGHT[$i]}"
+for ((i = 0; i < ${#BACKLIGHTING[@]}; i++)); do
+	option="${BACKLIGHTING[$i]}"
 	if ! grep -qx "^$option$" $CONFIG; then
 		echo ">Adding option '"$option"'"
 		if [ "${option%"${option#?}"}" == "#" ]; then 
@@ -102,7 +119,7 @@ for ((i = 0; i < ${#BACKLIGHT[@]}; i++)); do
 		REBOOT_REQUIRED=$TRUE
 	fi
 done
-echo "Backlight options added"
+echo "Backlighting options added"
 
 ########## Audio ##########
 echo "Checking audio options..."

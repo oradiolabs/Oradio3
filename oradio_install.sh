@@ -30,8 +30,8 @@ fi
 source $PWD/install_modules/constants.sh
 
 # Available modules to install. ORDER IS IMPORTANT!
-MODULES_MANDATORY="bootconfig pythonenv backlighting network"
-MODULES_OPTIONAL="usb webservice"
+MODULES_MANDATORY="bootconfig pythonenv network"
+MODULES_OPTIONAL=" backlighting audio volume usb webservice"
 
 # Function to pretty-print the list of modules
 show_modules() {
