@@ -20,7 +20,7 @@ The script will install and configure required packages and services
 Activating some changes requires rebooting, so when the script informs a reboot is required:
 - #> sudo reboot
 - When the Raspberry Pi has restarted ssh into the raspberry Pi
-- #> cd Python
+- #> cd Oradio3
 - #> source ./oradio_install.sh    <== Note the 'source' command. Required as the scripts changes environment settings
 
 When the script is finished it asks you to reboot. This will start the Oradio3 application
