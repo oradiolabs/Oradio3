@@ -5,8 +5,8 @@ After=network.target
 [Service]
 # Using specifiers: https://www.freedesktop.org/software/systemd/man/latest/systemd.unit.html#Specifiers
 # script path will be replaced by install script ../backlighting.sh
-ExecStart=/usr/bin/python3 /home/pi/Oradio3/Oradio3/backlighting.py
-WorkingDirectory=/home/pi/Oradio3/Oradio3
+ExecStart=/usr/bin/python3 SCRIPT_PATH/backlighting.py
+WorkingDirectory=SCRIPT_PATH
 User=%u
 Group=%g
 Restart=always

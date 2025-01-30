@@ -16,8 +16,8 @@ ACTION=$1						# add | remove
 DEVBASE=$2						# sd[a-z][1-9]
 VALIDLABEL="ORADIO"				# Partition will not be mounted if label does not match VALIDLABEL
 PARTITION="/dev/${DEVBASE}"		# Location of the USB partition to mount
-MOUNT_POINT="/media/oradio"
-MONITOR="/media/usb_ready"
+MOUNT_POINT="USB_MOUNT_POINT"	# Location where USB is mounted
+MONITOR="USB_MONITOR"			# File used to monitor if USB is mounted/unmounted
 
 # Mount the USB partition
 do_mount()

@@ -37,42 +37,38 @@ echo "Install and configure backlighting"
 
 ########## Activate i2c interface ##########
 # https://www.raspberrypi.com/documentation/computers/configuration.html#i2c-nonint
-sudo raspi-config nonint do_i2c 0		# 0: enable
+sudo raspi-config nonint do_i2c 0	# 0: enable
 
 ########## Setup modules ##########
-# Load i2c modules at boot: Modules do not use parameters, so use /etc/modules over /etc/modprobe.d/
-MODULES="/etc/modules"
+sudo cp $MODULES/backlighting/modules /etc/modules
 
-echo "Checking i2c modules..."
-I2C=(
+# Start modules now
+I2C_MODULES=(
 	"i2c-dev"
 	"i2c-bcm2835"
 )
-
-# Check required modules. If missing add to $MODULES and start now
-for ((i = 0; i < ${#I2C[@]}; i++)); do
-	module="${I2C[$i]}"
-	if ! grep -qx "$module" $MODULES; then
-		echo ">Adding module '"$module"'"
-		# Add to $MODULES file
-		echo $module | sudo tee -a $MODULES >/dev/null
-		# Start now
-		sudo modprobe $module
-	fi
+echo "Start i2c modules..."
+for ((backlighting_i = 0; backlighting_i < ${#I2C[@]}; backlighting_i++)); do
+	module="${I2C[$backlighting_i]}"
+	sudo modprobe $module
 done
-echo "i2c modules loaded"
 
+echo "i2c modules loaded and started"
 
 ########## Configure and install service ##########
 # Configure the backlighting service
-replace=`echo $ORADIO_PATH_PYTHON | sed 's/\//\\\\\//g'`
-sed -i "s/SCRIPT_PATH/$replace/g" $ORADIO_PATH_INSTALL_MODULES/backlighting/backlighting.service
+replace=`echo $PYTHON | sed 's/\//\\\\\//g'`
+sudo cat $MODULES/backlighting/backlighting.service.template | sed "s/SCRIPT_PATH/$replace/g" > $MODULES/backlighting/backlighting.service
+
 # Install the backlighting service
-sudo cp $ORADIO_PATH_INSTALL_MODULES/backlighting/backlighting.service /etc/systemd/system/
+sudo cp $MODULES/backlighting/backlighting.service /etc/systemd/system/
+
 # Set backlighting system to start at boot
 sudo systemctl enable backlighting.service
+
 # Start backlighting system now
 sudo systemctl start backlighting.service
+
 # To be safe, rerun all generators, reload all unit files, and recreate the entire dependency tree
 sudo systemctl daemon-reload
 

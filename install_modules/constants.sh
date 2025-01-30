@@ -25,8 +25,6 @@ NC='\033[0m'
 # Readability
 OK=0
 ERROR=1
-TRUE="Yes"
-FALSE="No"
 
 # Network domain name
 NETWORK_DOMAIN="oradio"
@@ -35,12 +33,10 @@ NETWORK_DOMAIN="oradio"
 WIFI_COUNTRY="NL"
 
 # Locations
-ORADIO_PATH_ROOT="$HOME/Oradio3"
-ORADIO_PATH_INSTALL_MODULES="$ORADIO_PATH_ROOT/install_modules"
-ORADIO_PATH_PYTHON="$ORADIO_PATH_ROOT/Oradio3"
-ORADIO_PATH_USB_MOUNT_POINT="/media/oradio"
-ORADIO_PATH_USB_MONITOR="/media/usb_ready"
-ORADIO_PATH_USB_MUSIC="/media/oradio/muziek"
-
-# Start assuming no reboot is needed
-REBOOT_REQUIRED=$FALSE
+ROOT="$HOME/Oradio3"
+MODULES="$ROOT/install_modules"
+PYTHON="$ROOT/Python"
+USB_MOUNT_POINT="/media/oradio"
+USB_MONITOR="/media/usb_ready"
+USB_MUSIC="/media/oradio/Muziek"
+USB_SYSTEM="/media/oradio/Systeem"

@@ -35,17 +35,19 @@ source $SCRIPT_DIR/constants.sh
 # Notify entering module installation script
 echo "Load and configure USB functionalty"
 
-########## Setup usb automount ##########
 # Configure the USB mount script
-replace=`echo '"'$ORADIO_PATH_USB_MOUNT_POINT'"' | sed 's/\//\\\\\//g'`
-sed -i "s/^MOUNT_POINT=.*/MOUNT_POINT=$replace/g" $ORADIO_PATH_INSTALL_MODULES/usb/usb-mount.sh
-replace=`echo '"'$ORADIO_PATH_USB_MONITOR'"' | sed 's/\//\\\\\//g'`
-sed -i "s/^MONITOR=.*/MONITOR=$replace/g" $ORADIO_PATH_INSTALL_MODULES/usb/usb-mount.sh
+cp $MODULES/usb/usb-mount.sh.template $MODULES/usb/usb-mount.sh
+replace=`echo $USB_MOUNT_POINT | sed 's/\//\\\\\//g'`
+sed -i "s/USB_MOUNT_POINT/$replace/g" $MODULES/usb/usb-mount.sh
+replace=`echo $USB_MONITOR | sed 's/\//\\\\\//g'`
+sed -i "s/USB_MONITOR/$replace/g" $MODULES/usb/usb-mount.sh
+
 # Install the USB mount script
-sudo cp $ORADIO_PATH_INSTALL_MODULES/usb/usb-mount.sh /usr/local/bin/usb-mount.sh
+sudo cp $MODULES/usb/usb-mount.sh /usr/local/bin/usb-mount.sh
 sudo chmod +x /usr/local/bin/usb-mount.sh
+
 # Mount USB if present but not mounted
-if [ ! -f $ORADIO_PATH_USB_MONITOR ]; then
+if [ ! -f $USB_MONITOR ]; then
 	# Mount USB partition if present
 	for filename in /dev/sda[1-9]; do
 		if [ -b "$filename" ]; then
@@ -53,12 +55,16 @@ if [ ! -f $ORADIO_PATH_USB_MONITOR ]; then
 		fi
 	done
 fi
+
 # The script is called by a systemd unit file. The "@" filename syntax allows passing the device name as an argument
-sudo cp $ORADIO_PATH_INSTALL_MODULES/usb/usb-mount@.service /etc/systemd/system/
+sudo cp $MODULES/usb/usb-mount@.service /etc/systemd/system/
+
 # To be safe, rerun all generators, reload all unit files, and recreate the entire dependency tree
 sudo systemctl daemon-reload
+
 # udev rules start and stop the systemd unit service on hotplug/unplug
-sudo cp $ORADIO_PATH_INSTALL_MODULES/usb/99-local.rules /etc/udev/rules.d/
+sudo cp $MODULES/usb/99-local.rules /etc/udev/rules.d/
+
 # Reload to activate
 sudo udevadm control --reload-rules
 
