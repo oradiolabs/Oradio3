@@ -1,3 +1,5 @@
+#!/usr/bin/env python3
+
 import inspect      # logging
 import subprocess   # run_shell_script
 

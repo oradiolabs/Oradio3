@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 """
 
   ####   #####     ##    #####      #     ####
@@ -37,7 +38,6 @@ from wifi_service import wifi_service
 from oradio_const import *
 
 ##### LOCAL constants ####################
-MONITOR = "usb_ready"
 
 # MONITOR is used to signal mounting/unmounting is complete
 class USBMonitor(PatternMatchingEventHandler):
@@ -90,7 +90,7 @@ class usb_service():
 
         # Set observer to handle USB inserted/removed events
         self.observer = Observer()
-        event_handler = USBMonitor(self, patterns=[MONITOR])
+        event_handler = USBMonitor(self, patterns=[USB_MONITOR])
         self.observer.schedule(event_handler, path = USB_MOUNT_PATH)
         self.observer.start()
 

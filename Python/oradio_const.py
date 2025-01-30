@@ -1,4 +1,5 @@
-'''
+#!/usr/bin/env python3
+"""
 
   ####   #####     ##    #####      #     ####
  #    #  #    #   #  #   #    #     #    #    #
@@ -17,7 +18,7 @@ Created on December 23, 2024
 @email:         oradioinfo@stichtingoradio.nl
 @status:        Development
 @summary:       Defines for oradio scripts
-'''
+"""
 ################## WIFI UTILS #############################
 # Access point
 ACCESS_POINT_SSID = "OradioAP"
@@ -47,9 +48,13 @@ MESSAGE_WEB_SERVER_RESET_TIMEOUT = "reset web service timeout"
 MESSAGE_WEB_SERVICE_TYPE = "web service message"
 
 ################## USB #############################
-# Path where the USB drive is mounted
+# Paths
 USB_MOUNT_PATH  = "/media"
 USB_MOUNT_POINT = USB_MOUNT_PATH + "/oradio"
+USB_MUSIC       = USB_MOUNT_POINT + "/Muziek"
+USB_SYSTEM      = USB_MOUNT_POINT + "/Systeem"
+# Name of file used to monitor if USB is mounted or not
+USB_MONITOR = "usb_ready"
 # File name in USB root with WiFi credentials
 USB_WIFI_FILE = USB_MOUNT_POINT + "/wifi_invoer.json"
 # USB states
@@ -58,3 +63,6 @@ STATE_USB_ABSENT  = "USB drive absent"
 # USB messages
 MESSAGE_USB_TYPE       = "USB message"
 MESSAGE_USB_ERROR_FILE = "USB file format error"
+
+################## AUDIO #############################
+PRESET_FILE_PATH = USB_SYSTEM + "/presets.json"
