@@ -33,41 +33,13 @@ fi
 source $SCRIPT_DIR/constants.sh
 
 # Notify entering module installation script
-echo "Install and configure audio"
+echo "Install and configure volume"
 
 # Install audio packages
-sudo apt-get install mpd mpc -y
+sudo apt-get install libasound2-dev -y
 
-# Install the audio configuration
-sudo cp $MODULES/audio/asound.conf /etc/asound.conf
-
-# Configure mpd music library location
-replace=`echo $USB_MUSIC | sed 's/\//\\\\\//g'`
-sudo cat $MODULES/audio/mpd.conf.template | sed "s/USB_MUSIC/$replace/g" > $MODULES/audio/mpd.conf
-sudo cp $MODULES/audio/mpd.conf /etc/mpd.conf
-
-# Install the backlighting service
-sudo cp $MODULES/backlighting/backlighting.service /etc/systemd/system/
-
-# Set mpd system to start at boot
-sudo systemctl enable mpd.service
-
-# Start mpd system now
-sudo systemctl start mpd.service
-
-# To be safe, rerun all generators, reload all unit files, and recreate the entire dependency tree
-sudo systemctl daemon-reload
-
-# Fail if USB is missing or system directory  does not exist
-if [ ! -d $USB_SYSTEM ]; then
-	echo -e "${RED}$USB_SYSTEM is missing: Failed to install the presets${NC}"
-	return $ERROR
-else
-	sudo cp $MODULES/audio/presets.json $USB_SYSTEM/presets.json
-fi
-
-# Install python modules
-python -m pip install python-mpd2
+# Install python modules. On --use-pep517 see https://github.com/pypa/pip/issues/8559
+python -m pip install pyalsaaudio --use-pep517
 
 # Notify leaving module installation script
-echo -e "${GREEN}Audio installed and configured${NC}"
+echo -e "${GREEN}Volume installed and configured${NC}"
