@@ -38,7 +38,7 @@ echo "Configuring boot options"
 # Copy Oradio boot options and signal If boot configuration 
 if ! sudo diff $MODULES/config/config.txt /boot/firmware/config.txt; then
 	sudo cp $MODULES/config/config.txt /boot/firmware/config.txt
-	echo -e "${YELLOW}Boot options changed: Reboot to activate${NC}"
+	echo -e "${YELLOW}*** Hello $USER, you must reboot your machine ***${NC}"
 	return $ERROR
 fi
 
