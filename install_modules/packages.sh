@@ -36,14 +36,21 @@ source $SCRIPT_DIR/constants.sh
 echo "Upgrade packages"
 
 # Update the OS packages to the latest greatest
-sudo apt-get update && sudo apt-get -y full-upgrade
+sudo apt-get update && sudo apt-get -fy full-upgrade
 
 # Het kan zijn dat een upgrade de kernel heeft bijgewerkt. Dan is een reboot noodzakelijk.
 # TODO:
 # 1. Detecteren of een reboot nodig is
 # 2. Script uitbreiden dat het automatisch herstart bij reboot
 # 3. Script uitbreiden dat code voor 2. opgeruimd wordt
-echo -e "${YELLOW}'packages' does not yet detect if reboot is needed to activate the changes${NC}"
+# Inform user if reboot is required
+if [ -f /var/run/reboot-required ]
+then
+	echo -e "${YELLOW}*** Hello $USER, you must reboot your machine ***${NC}"
+	return $ERROR
+else
+	echo -e "${YELLOW}'packages' does not reliably detect if reboot is needed to activate the changes${NC}"
+fi
 
 # Notify leaving module installation script
 echo -e "${GREEN}Packages are up to date${NC}"
