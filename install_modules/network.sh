@@ -49,5 +49,8 @@ sudo sed -i "s/^#allow-interfaces=.*/allow-interfaces=eth0,wlan0/g" /etc/avahi/a
 # Activate changes
 sudo systemctl restart NetworkManager.service
 
+# Install python modules
+python -m pip install nmcli
+
 # Notify leaving module installation script
 echo -e "${GREEN}Wifi is enabled and network domain name is set to '${NETWORK_DOMAIN}'${NC}"

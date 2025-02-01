@@ -39,7 +39,7 @@ echo "Load and configure web-interface and captive portal functionalty"
 # Install iptables
 sudo apt-get install iptables -y
 # Install python modules
-python -m pip install pydantic fastapi nmcli JinJa2 uvicorn
+python -m pip install pydantic fastapi JinJa2 uvicorn
 
 # Notify leaving module installation script
 echo -e "${GREEN}web-interface and captive portal functionalty loaded and configured${NC}"
