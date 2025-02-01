@@ -25,14 +25,14 @@ Created on December 23, 2024
 """
 import os, sys, json
 from pydantic import BaseModel
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, BackgroundTasks, Request
 from fastapi.responses import HTMLResponse, FileResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
 ##### oradio modules ####################
 import oradio_utils
-from wifi_service import get_wifi_networks, get_wifi_connection
+from wifi_service import wifi_service
 
 ##### GLOBAL constants ####################
 from oradio_const import *
@@ -59,13 +59,8 @@ async def middleware(request: Request, call_next):
     """
     oradio_utils.logging("info", "Send timeout reset message")
 
-    # User interaction, so pass timeout reset to parent process
-    message = {}
-    message["type"] = MESSAGE_WEB_SERVER_TYPE
-    message["command"] = MESSAGE_WEB_SERVER_RESET_TIMEOUT
-
-    # Access the shared queue from the app's state
-    api_app.state.message_queue.put(message)
+    # User interaction: Set event flag to signal timeout counter reset
+    api_app.state.event_reset.set()
 
     # Continue processing requests
     response = await call_next(request)
@@ -89,11 +84,14 @@ async def captiveportal(request: Request):
       captive portal if WiFi is an access point, or
       home page if WiFi connected to a network
     """
-    if get_wifi_connection() == ACCESS_POINT_SSID:
+    # Get access to wifi functions
+    wifi = wifi_service(api_app.state.message_queue)
+
+    if wifi.get_wifi_connection() == ACCESS_POINT_SSID:
         oradio_utils.logging("info", "Send captive portal page")
 
         # Get list of available WiFi networks
-        list = get_wifi_networks()
+        list = wifi.get_wifi_networks()
 
         # Set captive portal page and context
         page = "captiveportal.html"
@@ -102,8 +100,8 @@ async def captiveportal(request: Request):
     else:
         oradio_utils.logging("info", "Send home page")
 
-        # Set home page and context
-        page = "home.html"
+        # Set playlist page and context
+        page = "playlists.html"
         context = {}
 
     # Return page and context
@@ -115,22 +113,26 @@ class credentials(BaseModel):
     pswd: str = None
 
 # POST endpoint to connect to WiFi network
-@api_app.post("/connect2network")
-async def connect2network(credentials: credentials, request: Request):
+@api_app.post("/wifi_connect")
+async def wifi_connect_task(credentials: credentials, background_tasks: BackgroundTasks):
     """
-    Handle POST with network credentials
-    Try to connect to the network with the given ssid and password
-    Send message if connected or not
+    Handle POST with WiFi network credentials
+    Handle connecting in background task, so the POST gets a response
+    https://fastapi.tiangolo.com/tutorial/background-tasks/#using-backgroundtasks
     """
-    # Prepare message
-    message = {}
-    message["type"] = MESSAGE_WEB_SERVER_TYPE
-    message["command"] = MESSAGE_WEB_SERVER_CONNECT_WIFI
-    message["ssid"] = credentials.ssid
-    message["pswd"] = credentials.pswd
+    # Connect after completing return
+    background_tasks.add_task(wifi_connect_task, credentials)
 
-    # Send message using the queue from the app's state
-    api_app.state.message_queue.put(message)
+def wifi_connect_task(credentials: credentials):
+    """
+    Executes as background task
+    """
+    oradio_utils.logging("warning", f"trying to connect to ssid={credentials.ssid}, pswd={credentials.pswd}")
+    # Get access to wifi functions
+    wifi = wifi_service(api_app.state.message_queue)
+
+    # Try to connect is handled is separate thread
+    wifi.wifi_connect(credentials.ssid, credentials.pswd)
 
 # Entry point for stand-alone operation
 if __name__ == "__main__":
