@@ -17,8 +17,6 @@
 		<title>Oradio</title>
 	</head>
 	<body>
-		{% include "menu.html" %}
-
 		<div class="oradio-container">
 
 			<div class="pure-controls">
@@ -168,13 +166,15 @@
 			// Send credentials to server
 			try
 			{
-				const response = await fetch('/connect2network', {
+				const response = await fetch('/wifi_connect', {
 					method: 'POST',
 					headers: {
 						'Content-Type': 'application/json'
 					},
 					body: JSON.stringify({ "ssid": network.ssid, "pswd": pswd })
 				});
+
+console.log("response=", response);
 
 				if (response.ok)
 				{
