@@ -20,9 +20,9 @@ def logging(level, log_text):
     # Build logging text
     logging_text = f"{mod_name:s} - {func_name:s} : {log_text:s}"
 
-    RED_TXT     = "\x1b[31;20m"
+    RED_TXT     = "\033[91m"
+    GREEN_TXT   = "\033[92m"
     YELLOW_TXT  = "\033[93m"
-    GREEN_TXT   = "\x1b[32m"
     END_TXT     = "\x1b[0m"
 
     # add colors to logging text
