@@ -39,6 +39,8 @@ echo "Load and configure USB functionalty"
 cp $MODULES/usb/usb-mount.sh.template $MODULES/usb/usb-mount.sh
 replace=`echo $USB_MOUNT_POINT | sed 's/\//\\\\\//g'`
 sed -i "s/USB_MOUNT_POINT/$replace/g" $MODULES/usb/usb-mount.sh
+replace=`echo $USB_LOGGING | sed 's/\//\\\\\//g'`
+sed -i "s/USB_LOGGING/$replace/g" $MODULES/usb/usb-mount.sh
 replace=`echo $USB_MONITOR | sed 's/\//\\\\\//g'`
 sed -i "s/USB_MONITOR/$replace/g" $MODULES/usb/usb-mount.sh
 
