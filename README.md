@@ -11,6 +11,7 @@ Installation
 - Connect the Raspberry Pi to your network with internet access
 - Start the Raspberry pi with the SD card
 - When the Raspberry Pi has started ssh into the raspberry Pi
+- #> sudo apt-get update
 - #> sudo apt-get install git -y
 - #> git clone https://github.com/oradiolabs/Oradio3.git
 - #> cd Oradio3
