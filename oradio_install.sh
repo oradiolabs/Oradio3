@@ -117,6 +117,9 @@ if [ "$(lsb_release -a | grep "Description:" | cut -d$'\t' -f2)" != "$BOOKWORM64
 	return $ERROR
 fi
 
+# Create logging directory
+mkdir -p ORADIO_LOGGING
+
 ########## Install modules ##########
 
 # Iterate through MANDATORY modules to install
