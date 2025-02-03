@@ -18,7 +18,7 @@ MONITOR="USB_MONITOR"			# File used to monitor if USB is mounted/unmounted
 
 # Create log file if it does not yet exist
 if [ ! -f $LOGFILE ]; then
-	mkdir -p "$(dirname "$LOGFILE")" && touch "$LOGFILE"
+	/usr/bin/mkdir -p "$(dirname "$LOGFILE")" && touch "$LOGFILE"
 fi
 echo "Check '$LOGFILE' for success, warning and error messages"
 
