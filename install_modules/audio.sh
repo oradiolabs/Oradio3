@@ -46,9 +46,6 @@ replace=`echo $USB_MUSIC | sed 's/\//\\\\\//g'`
 sudo cat $MODULES/audio/mpd.conf.template | sed "s/USB_MUSIC/$replace/g" > $MODULES/audio/mpd.conf
 sudo cp $MODULES/audio/mpd.conf /etc/mpd.conf
 
-# Install the backlighting service
-sudo cp $MODULES/backlighting/backlighting.service /etc/systemd/system/
-
 # Set mpd system to start at boot
 sudo systemctl enable mpd.service
 
