@@ -45,5 +45,9 @@ source ~/.venv/bin/activate
 # Activate python virtual environment when logging in: add if not yet present
 sudo grep -qxF 'source ~/.venv/bin/activate' ~/.bashrc || echo 'source ~/.venv/bin/activate' >> ~/.bashrc
 
+# Install generic python modules
+python -m pip install vcgencmd concurrent_log_handler
+
+
 # Notify leaving module installation script
 echo -e "${GREEN}Python pip installed and virtual environment configured.${NC}"

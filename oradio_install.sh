@@ -118,7 +118,8 @@ if [ "$(lsb_release -a | grep "Description:" | cut -d$'\t' -f2)" != "$BOOKWORM64
 fi
 
 # Create logging directory
-mkdir -p ORADIO_LOGGING
+echo $LOGGING
+mkdir -p $LOGGING
 
 ########## Install modules ##########
 
