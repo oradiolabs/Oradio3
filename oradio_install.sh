@@ -40,6 +40,7 @@ ORADIO_MODULES=(
 	"volume"
 	"backlighting"
 	"webservice"
+	"autostart"
 )
 
 # Function to pretty-print the list of modules
