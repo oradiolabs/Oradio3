@@ -37,8 +37,10 @@ echo "Configure Oradio autostart on boot"
 
 ########## Configure and install service ##########
 # Configure the autostart service
+cp $MODULES/autostart/autostart.service.template $MODULES/autostart/autostart.service
 replace=`echo $PYTHON | sed 's/\//\\\\\//g'`
-sudo cat $MODULES/autostart/autostart.service.template | sed "s/SCRIPT_PATH/$replace/g" > $MODULES/autostart/autostart.service
+sudo sed -i "s/SCRIPT_PATH/$replace/g" $MODULES/autostart/autostart.service
+sudo sed -i "s/USER/$USER/g" $MODULES/autostart/autostart.service
 
 # Install the autostart service
 sudo cp $MODULES/autostart/autostart.service /etc/systemd/system/
