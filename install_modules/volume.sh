@@ -38,6 +38,9 @@ echo "Install and configure volume"
 # Install audio packages
 sudo apt-get install libasound2-dev -y
 
+# Set volume to normal level
+amixer -c 0 cset name='Digital Playback Volume' 90
+
 # Install python modules. On --use-pep517 see https://github.com/pypa/pip/issues/8559
 python -m pip install pyalsaaudio --use-pep517
 
