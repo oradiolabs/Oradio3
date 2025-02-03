@@ -38,6 +38,9 @@ echo "Upgrade packages"
 # Update the OS packages to the latest greatest
 sudo apt-get update && sudo apt-get -fy full-upgrade
 
+# Cleanup obsolete packages
+sudo apt-get autoremove -y
+
 # Het kan zijn dat een upgrade de kernel heeft bijgewerkt. Dan is een reboot noodzakelijk.
 # TODO:
 # 1. Detecteren of een reboot nodig is
