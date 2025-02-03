@@ -32,7 +32,7 @@ do_mount()
 	fi
 
 	# Skip if already mounted. Should not happen, therefore the warning
-	if test -d $MOUNT_POINT; then
+	if /usr/bin/mountpoint $MOUNT_POINT > /dev/null; then
 		echo "$(date): Warning: ${PARTITION} is already mounted at ${MOUNT_POINT}" >> $LOGFILE
 		exit 1
 	fi
@@ -55,10 +55,8 @@ do_mount()
 	# Try to mount the partition
 	if ! /bin/mount -o $OPTS $PARTITION $MOUNT_POINT; then
 		echo "$(date): Error: Mounting '$PARTITION' (status = $?)" >> $LOGFILE
-
 		# Cleanup mount point
-		/bin/rmdir $MOUNT_POINT
-
+		/bin/rm -f $MOUNT_POINT
 		exit 1
 	fi
 
@@ -84,10 +82,10 @@ do_unmount()
 	fi
 
 	# Delete mount point
-	/bin/rmdir $MOUNT_POINT
+	/bin/rmdir -f $MOUNT_POINT
 
 	# Delete the flag triggering the Python watchdog 
-	/bin/rm $MONITOR
+	/bin/rm -f $MONITOR
 
 	echo "$(date): Success: Unmounted '$PARTITION'" >> $LOGFILE
 }

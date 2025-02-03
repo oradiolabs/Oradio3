@@ -37,6 +37,7 @@ echo "Load and configure USB functionalty"
 
 # Clean USB logging info
 sudo rm -f $USB_LOGGING
+sudo touch $USB_LOGGING
 
 # Configure the USB mount script
 cp $MODULES/usb/usb-mount.sh.template $MODULES/usb/usb-mount.sh
@@ -62,11 +63,7 @@ if [ ! -f $USB_MONITOR ]; then
 fi
 
 # Check for USB mount errors and/or warnings
-if [ -f $USB_LOGGING ]; then
-	cat $USB_LOGGING | grep "Error\|Warning"
-else
-	echo -e "${YELLOW}'$USB_LOGGING not found${NC}"
-fi
+cat $USB_LOGGING | grep "Error\|Warning"
 
 # The script is called by a systemd unit file. The "@" filename syntax allows passing the device name as an argument
 sudo cp $MODULES/usb/usb-mount@.service /etc/systemd/system/
