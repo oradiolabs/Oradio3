@@ -79,7 +79,7 @@ class PlaySystemSound:
 
             command = ["aplay", "-D", self.audio_device, sound_file]
             subprocess.run(command, check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-            oradio_utils.logging("error", f"System sound played successfully: {sound_file}")
+            oradio_utils.logging("info", f"System sound played successfully: {sound_file}")
 
         except subprocess.CalledProcessError as e:
             oradio_utils.logging("error", f"Error playing sound: {e}")
