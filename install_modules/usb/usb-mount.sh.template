@@ -22,15 +22,15 @@ if [ ! -f $LOGFILE ]; then
 fi
 echo "Check '$LOGFILE' for success, warning and error messages"
 
-# Skip if device not found
-if [ ! -b $PARTITION ]; then
-	echo "$(date): Warning: ${PARTITION} not found" >> $LOGFILE
-	exit 1
-fi
-
 # Mount the USB partition
 do_mount()
 {
+	# Skip if device not found
+	if [ ! -b $PARTITION ]; then
+		echo "$(date): Warning: ${PARTITION} not found" >> $LOGFILE
+		exit 1
+	fi
+
 	# Skip if already mounted. Should not happen, therefore the warning
 	if test -d $MOUNT_POINT; then
 		echo "$(date): Warning: ${PARTITION} is already mounted at ${MOUNT_POINT}" >> $LOGFILE
