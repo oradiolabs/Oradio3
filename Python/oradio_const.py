@@ -62,3 +62,14 @@ MESSAGE_USB_ERROR_FILE = "USB file format error"
 
 ################## AUDIO #############################
 PRESET_FILE_PATH = USB_SYSTEM + "/presets.json"
+
+################## VOLUME #############################
+# Raw volume units
+VOLUME_MINIMUM = 70
+VOLUME_MAXIMUM = 180
+# Volume messages
+MESSAGE_TYPE_VOLUME   = "Vol Control message"
+MESSAGE_STATE_CHANGED = "Volume changed"
+
+################## SYSTEM SOUNDS #############################
+SOUND_FILES_DIR = "/home/pi/Oradio3/system_sounds"
