@@ -82,7 +82,7 @@ do_unmount()
 	fi
 
 	# Delete mount point
-	/bin/rmdir -f $MOUNT_POINT
+	/bin/rmdir $MOUNT_POINT
 
 	# Delete the flag triggering the Python watchdog 
 	/bin/rm -f $MONITOR
