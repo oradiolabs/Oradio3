@@ -9,93 +9,139 @@
   ####   #    #  #    #  #####      #     ####
 
 
-Created on December 23, 2024
+Created on Januari 27, 2025
 @author:        Henk Stevens & Olaf Mastenbroek & Onno Janssen
 @copyright:     Copyright 2024, Oradio Stichting
 @license:       GNU General Public License (GPL)
 @organization:  Oradio Stichting
-@version:       1
+@version:       2
 @email:         oradioinfo@stichtingoradio.nl
 @status:        Development
-@summary:       Thread running volume control
+@summary: Oradio Volume control
 """
 import time
 import alsaaudio
 import smbus2
-from threading import Thread
+import threading
+from queue import Queue
 
-# Constants and settings
-MCP3021_ADDRESS = 0x4D   # I2C address of MCP3021
-VolMin = 80              # Minimum volume (raw units)
-VolMax = 180             # Maximum volume (raw units)
-adc_UpdateTolerance = 5  # Sensitivity for volume change
-VolumeOnThreshold = 10   # ADC change to transition to play when stopped
+##### oradio modules ####################
+import oradio_utils
 
-# I2C bus for MCP3021 ADC
-bus = smbus2.SMBus(1)
+##### GLOBAL constants ####################
+from oradio_const import *
 
-# Initialize ALSA mixer
-try:
-    mixer = alsaaudio.Mixer("Digital")
-except alsaaudio.ALSAAudioError as e:
-    print(f"Error initializing ALSA mixer: {e}")
-    exit(1)
+##### LOCAL constants ####################
+MCP3021_ADDRESS = 0x4D      # I2C address of MCP3021 ADC
+ADC_UPDATE_TOLERANCE = 5    # Sensitivity for volume change
+POLLING_MIN_INTERVAL = 0.05
+POLLING_MAX_INTERVAL = 0.3
+ALSA_MIXER_DIGITAL = "Digital"
 
-# Read ADC value
-def read_adc():
-    try:
-        data = bus.read_i2c_block_data(MCP3021_ADDRESS, 0, 2)
-        adc_value = ((data[0] & 0x3F) << 6) | (data[1] >> 2)
-        return adc_value
-    except OSError as e:
-        print(f"I2C read error: {e}")
-        return None
+class VolumeControl:
+    def __init__(self, queue=None):
+        """ Start volume control thread """
+        self.queue = queue
+        self.running = True
 
-# Scale ADC value to raw volume range (VolMin to VolMax)
-def scale_adc_to_volume(adc_value, adc_max=1023, vol_min=VolMin, vol_max=VolMax):
-    scaled_value = ((adc_value / adc_max) * (vol_max - vol_min)) + vol_min
-    return int(scaled_value)
+        # Initialize ALSA Mixer
+        try:
+            self.mixer = alsaaudio.Mixer(ALSA_MIXER_DIGITAL)
+        except alsaaudio.ALSAAudioError as e:
+            oradio_utils.logging("error", f"Error initializing ALSA mixer: {e}")
+            raise
 
-# Set volume using ALSA
-def set_volume(volume_raw):
-    try:
-        mixer.setvolume(volume_raw, units=alsaaudio.VOLUME_UNITS_RAW)
-#        print(f"Volume set to: {volume_raw} (raw units)")
-    except alsaaudio.ALSAAudioError as e:
-        print(f"Error setting volume: {e}")
+        # Initialize I2C Bus
+        self.bus = smbus2.SMBus(1)
 
-# Monitor ADC and adjust volume
-def monitor_adc(state_machine):
-    previous_adc_value = read_adc() or 0
-    polling_interval = 0.2
+        # Start the monitoring thread
+        self.thread = threading.Thread(target=self.volume_adc, daemon=True)
+        self.thread.start()
 
-    # Perform initial ADC volume adjustment
-    initial_adc_value = read_adc()
-    if initial_adc_value is not None:
-        initial_volume = scale_adc_to_volume(initial_adc_value)
-        set_volume(initial_volume)
-        print(f"Initial volume set to: {initial_volume}")
+    def read_adc(self):
+        """ Reads the ADC value from the MCP3021 sensor via I2C. """
+        try:
+            data = self.bus.read_i2c_block_data(MCP3021_ADDRESS, 0, 2)
+            adc_value = ((data[0] & 0x3F) << 6) | (data[1] >> 2)
+            return adc_value
+        except OSError as e:
+            oradio_utils.logging("error", f"I2C read error: {e}")
+            return None
 
-    while True:
-        adc_value = read_adc()
-        if adc_value is not None:
-            # Scale ADC value to raw volume range
-            volume = scale_adc_to_volume(adc_value)
-            # Check if the volume change exceeds the threshold and transition state if needed
-            if (abs(adc_value - previous_adc_value) > VolumeOnThreshold) and state_machine.state == "StateStop":
-                state_machine.transition("StatePlay")
-                previous_adc_value = adc_value
-            # Update the volume if it changes more than the tolerance
-            elif abs(adc_value - previous_adc_value) > adc_UpdateTolerance:
-                previous_adc_value = adc_value
-                set_volume(volume)
-                polling_interval = 0.05
+    def scale_adc_to_volume(self, adc_value, adc_max=1023, vol_min=VOLUME_MINIMUM, vol_max=VOLUME_MAXIMUM):
+        """ Scales the ADC value to the raw volume range. """
+        return int(((adc_value / adc_max) * (vol_max - vol_min)) + vol_min)
+
+    def set_volume(self, volume_raw):
+        """ Sets the volume using the ALSA mixer. """
+        try:
+            self.mixer.setvolume(volume_raw, units=alsaaudio.VOLUME_UNITS_RAW)
+            oradio_utils.logging("info", f"Volume set to: {volume_raw}")
+#            print(f"Volume set to: {volume_raw}")  # Print for testing
+        except alsaaudio.ALSAAudioError as e:
+            oradio_utils.logging("error", f"Error setting volume: {e}")
+
+    def send_message(self, message_type, state):
+        """ Sends a message to the specified queue. """
+        if self.queue:
+            try:
+                message = {"type": message_type, "state": state}
+                self.queue.put(message)
+                oradio_utils.logging("info", f"Message sent to queue: {message}")
+            except Exception as e:
+                oradio_utils.logging("error", f"Error sending message to queue: {e}")
+
+    def volume_adc(self):
+        """ Monitors the ADC for changes and adjusts the volume accordingly. """
+        previous_adc_value = self.read_adc() or 0
+        polling_interval = POLLING_MAX_INTERVAL
+
+        # Initial volume adjustment
+        initial_adc_value = self.read_adc()
+        if initial_adc_value is not None:
+            initial_volume = self.scale_adc_to_volume(initial_adc_value)
+            self.set_volume(initial_volume)
+            oradio_utils.logging("info", f"Initial volume set to: {initial_volume}")
+
+        while self.running:
+            adc_value = self.read_adc()
+            if adc_value is not None:
+                volume = self.scale_adc_to_volume(adc_value)
+
+                if abs(adc_value - previous_adc_value) > ADC_UPDATE_TOLERANCE:
+                    previous_adc_value = adc_value
+                    self.set_volume(volume)
+#                   print(f"ADC Value: {adc_value}, Volume: {volume}")  # Print for testing
+
+                    if polling_interval >= POLLING_MAX_INTERVAL:
+                        self.send_message(MESSAGE_TYPE_VOLUME, MESSAGE_STATE_CHANGED)
+                    
+                    polling_interval = POLLING_MIN_INTERVAL
+                else:
+                    polling_interval = min(polling_interval + 0.01, POLLING_MAX_INTERVAL)
             else:
-                polling_interval = min(polling_interval + 0.01, 0.3)
-        time.sleep(polling_interval)
+                oradio_utils.logging("warning", "ADC read failed. Retrying...")
 
-# Start monitoring in a separate thread
-def start_monitoring(state_machine):
-    thread = Thread(target=monitor_adc, args=(state_machine,))
-    thread.daemon = True  # Ensure thread exits when the main program does
-    thread.start()
+            time.sleep(polling_interval)
+
+    def stop(self):
+        """ Stops the monitoring thread gracefully. """
+        self.running = False
+        self.thread.join()
+
+# Test section
+if __name__ == "__main__":
+    print("\nStarting VolumeControl test...\n")
+    print("Turn the volume knob and observe ADC values and volume settings.")
+    print("Press Ctrl+C to exit.\n")
+
+    queue = Queue()
+    volume_control = VolumeControl(queue)
+
+    try:
+        while True:
+            time.sleep(1)  # Keep the script running
+    except KeyboardInterrupt:
+        print("\nStopping VolumeControl...")
+        volume_control.stop()
+        print("Test finished.")
