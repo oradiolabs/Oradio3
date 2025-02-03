@@ -4,15 +4,21 @@ import inspect      # logging
 import subprocess   # run_shell_script
 
 # Simplified logging function - remove logging and monitoring, only print formatted log message
+import queue
+import threading
+
+# Create a thread-safe queue for logging messages
+log_queue = queue.Queue()
+
 def logging(level, log_text):
     """
-    Simplified logging of log message
+    Asynchronous logging of log message in a separate thread while keeping print order correct.
     :param level (str) - level of logging [ 'warning' | 'error' | 'info']
     :param log_text (str) - logging message
     """
-    # check whether rpi is throttled or running normal
+    # Get caller information
     inspect_info = inspect.stack()
-    module_info  = inspect.stack()[1]
+    module_info  = inspect_info[1]
     mod_name     = inspect.getmodule(module_info[0]).__name__
     frame_info   = inspect_info[1][0]
     func_name    = inspect.getframeinfo(frame_info)[2]
@@ -25,16 +31,30 @@ def logging(level, log_text):
     YELLOW_TXT  = "\033[93m"
     END_TXT     = "\x1b[0m"
 
-    # add colors to logging text
+    # Add colors to logging text
     if level == 'success':
-        logging_text = GREEN_TXT+logging_text+END_TXT
-    if level == 'warning':
-        logging_text = YELLOW_TXT+logging_text+END_TXT
-    if level == 'error':
-        logging_text = RED_TXT+logging_text+END_TXT
+        logging_text = GREEN_TXT + logging_text + END_TXT
+    elif level == 'warning':
+        logging_text = YELLOW_TXT + logging_text + END_TXT
+    elif level == 'error':
+        logging_text = RED_TXT + logging_text + END_TXT
 
-    # Output logging text
-    print(logging_text, flush=True)
+    # Queue the log message
+    log_queue.put(logging_text)
+
+# Log processor to print messages in correct order
+def process_logs():
+    while True:
+        try:
+            log_message = log_queue.get(block=True)
+            print(log_message, flush=True)
+            log_queue.task_done()
+        except queue.Empty:
+            continue
+
+# Start a background thread to process the log queue
+log_thread = threading.Thread(target=process_logs, daemon=True)
+log_thread.start()
 
 def run_shell_script(script):
     """
