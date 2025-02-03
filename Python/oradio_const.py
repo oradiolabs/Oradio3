@@ -19,6 +19,10 @@ Created on December 23, 2024
 @status:        Development
 @summary:       Defines for oradio scripts
 """
+################## SYSTEM #############################
+ORADIO_DIR     = "/home/pi/Oradio3"
+ORADIO_LOGGING = ORADIO_DIR + "/logging"
+
 ################## WIFI UTILS #############################
 # Access point
 ACCESS_POINT_SSID = "OradioAP"
@@ -70,6 +74,3 @@ VOLUME_MAXIMUM = 180
 # Volume messages
 MESSAGE_TYPE_VOLUME   = "Vol Control message"
 MESSAGE_STATE_CHANGED = "Volume changed"
-
-################## SYSTEM SOUNDS #############################
-SOUND_FILES_DIR = "/home/pi/Oradio3/system_sounds"
