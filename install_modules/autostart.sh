@@ -46,9 +46,6 @@ sudo cp $MODULES/autostart/autostart.service /etc/systemd/system/
 # Set autostart system to start at boot
 sudo systemctl enable autostart.service
 
-# Start Oradio now
-#sudo systemctl start autostart.service
-
 # To be safe, rerun all generators, reload all unit files, and recreate the entire dependency tree
 sudo systemctl daemon-reload
 
