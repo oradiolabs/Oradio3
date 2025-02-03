@@ -60,7 +60,11 @@ if [ ! -d $USB_SYSTEM ]; then
 	echo -e "${RED}$USB_SYSTEM is missing: Failed to install the presets${NC}"
 	return $ERROR
 else
+	# Install the default presets for buttons 1, 2 and 3
 	sudo cp $MODULES/audio/presets.json $USB_SYSTEM/presets.json
+
+	# Update the database
+	sudo mpc update
 fi
 
 # Install python modules
