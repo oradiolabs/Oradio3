@@ -1,0 +1,11 @@
+[Unit]
+Description=Autostart Oradio
+After=multi-user.target
+
+[Service]
+# Script path will be replaced by install script ../autostart.sh
+ExecStart=/usr/bin/python3 SCRIPT_PATH/oradio_control.py &
+RemainAfterExit=true
+
+[Install]
+WantedBy=multi-user.target
