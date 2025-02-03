@@ -35,6 +35,9 @@ source $SCRIPT_DIR/constants.sh
 # Notify entering module installation script
 echo "Load and configure USB functionalty"
 
+# Clean USB logging info
+sudo rm -f $USB_LOGGING
+
 # Configure the USB mount script
 cp $MODULES/usb/usb-mount.sh.template $MODULES/usb/usb-mount.sh
 replace=`echo $USB_MOUNT_POINT | sed 's/\//\\\\\//g'`
@@ -56,6 +59,13 @@ if [ ! -f $USB_MONITOR ]; then
 			sudo bash /usr/local/bin/usb-mount.sh add $(basename $filename)
 		fi
 	done
+fi
+
+# Check for USB mount errors and/or warnings
+if [ -f $USB_LOGGING ]; then
+	cat $USB_LOGGING | grep "Error\|Warning"
+else
+	echo -e "${YELLOW}'$USB_LOGGING not found${NC}"
 fi
 
 # The script is called by a systemd unit file. The "@" filename syntax allows passing the device name as an argument
