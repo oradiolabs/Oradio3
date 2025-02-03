@@ -76,4 +76,4 @@ sudo systemctl daemon-reload
 python -m pip install smbus2 rpi-lgpio
 
 # Notify leaving module installation script
-echo -e "${GREEN}Backlightng installed and configured${NC}"
+echo -e "${GREEN}Backlighting installed and configured${NC}"
