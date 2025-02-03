@@ -138,13 +138,7 @@ done
 echo
 echo    "###############################################################################"
 echo -e "# ${GREEN}Oradio installation and configuration done.${NC}                                 #"
-echo    "# 1) 'cd Oradio3' and run 'python [test_]<module>.py' to test a module        #"
-echo    "#    Available modules:                                                       #"
-
-# Output nice looking list of modules
-show_modules
-
-# Output wrap-up "footer"
+echo    "# 1) 'cd Python' and run 'python [test_]<module>.py' to test stand-alone      #"
 echo    "# 2) Reboot to start Oradio.                                                  #"
 echo    "###############################################################################"
 echo
