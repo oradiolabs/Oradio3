@@ -20,46 +20,69 @@ Created on Februari 3, 2025
 @summary: test program for Spotify Connect
     :Note
     :Install
+        - pip3 install pydantic
     :Documentation
         - https://github.com/librespot-org/librespot/wiki/Events
 """
 
 import os
 import json
+import socket
 
-# Non-blocking Events
-#file_ptr = open(ORADIO_LIBRESPOT_CMD_FILE,"w").close() # clear contents of file
+#### Oradio modules ####
+from oradio_utils import json_schema_to_pydantic
+from oradio_const import *
 
-librespot_cmd = {}
-librespot_cmd['player_event']   = "None"
-librespot_cmd['track_id']       = "None"
-librespot_cmd['old_track_id']   = "None"
-librespot_cmd['track_duration'] = "None"
-librespot_cmd['position_ms']    = "None"
+# Load the JSON schema file
+with open("/home/pi/Oradio3/Python/schemas.json") as f:
+    schemas = json.load(f)
+# Dynamically create Pydantic models
+models = {name: json_schema_to_pydantic(name, schema) for name, schema in schemas.items()}
 
+# create Messages model
+Messages = models["Messages"]
+#create an instance for this model
+msg = Messages(type="none", state="none", error="none", data=[])
+
+message = msg.model_dump()
+message["type"] = MESSAGE_SPOTIFY_TYPE
+
+librespot_event_data = [{'player_event': 'None'},{'track_id':'None'},{'old_track_id':'None'},{'track_duration':'None'},{'position_ms':'None'}]
+message["data"] =librespot_event_data
 environment= os.environ
+event_data = {}
+if "PLAYER_EVENT" in environment:
+    if environment['PLAYER_EVENT'] == 'changed':
+        event_data['player_event']   = environment['PLAYER_EVENT']
+        event_data['track_id']       = environment['TRACK_ID']
+        event_data['old_track_id']   = environment['OLD_TRACK_ID']
+    elif environment['PLAYER_EVENT'] == 'started':
+        event_data['player_event']   = environment['PLAYER_EVENT']
+        event_data['track_id']       = environment['TRACK_ID']
+    elif environment['PLAYER_EVENT'] == 'stopped':
+        event_data['player_event']   = environment['PLAYER_EVENT']
+        event_data['track_id']       = environment['TRACK_ID']
+    elif environment['PLAYER_EVENT'] == 'playing':
+        event_data['player_event']   = environment['PLAYER_EVENT']
+        event_data['track_id']       = environment['TRACK_ID']
+        event_data['position_ms'] = environment['POSITION_MS']
+    elif environment['PLAYER_EVENT'] == 'paused':
+        event_data['player_event']   = environment['PLAYER_EVENT']
+        event_data['track_id']       = environment['TRACK_ID']
+        event_data['position_ms']    = environment['POSITION_MS']
+    elif environment['PLAYER_EVENT'] == 'preloading':
+        event_data['track_id']       = environment['TRACK_ID']
+    elif environment['PLAYER_EVENT'] == 'volume_set':
+        event_data['volume']         = environment['VOLUME']
+    elif environment['PLAYER_EVENT'] == 'volume_changed':
+        event_data['volume']         = environment['VOLUME']
+    message["data"] =event_data
+    print("HENK: ",message)
+    
+serialized_dict = json.dumps(message).encode('utf-8')
 
-if environment['PLAYER_EVENT'] == 'changed':
-    librespot_cmd['player_event']   = environment['PLAYER_EVENT']
-    librespot_cmd['track_id']       = environment['TRACK_ID']
-    librespot_cmd['old_track_id']   = environment['OLD_TRACK_ID']
-elif environment['PLAYER_EVENT'] == 'started':
-    librespot_cmd['player_event']   = environment['PLAYER_EVENT']
-    librespot_cmd['track_id']       = environment['TRACK_ID']
-elif environment['PLAYER_EVENT'] == 'stopped':
-    librespot_cmd['player_event']   = environment['PLAYER_EVENT']
-    librespot_cmd['track_id']       = environment['TRACK_ID']
-elif environment['PLAYER_EVENT'] == 'playing':
-    librespot_cmd['player_event']   = environment['PLAYER_EVENT']
-    librespot_cmd['track_id']       = environment['TRACK_ID']
-    librespot_cmd['position_ms'] = environment['POSITION_MS']
-elif environment['PLAYER_EVENT'] == 'paused':
-    librespot_cmd['player_event']   = environment['PLAYER_EVENT']
-    librespot_cmd['track_id']       = environment['TRACK_ID']
-    librespot_cmd['position_ms']    = environment['POSITION_MS']
-elif environment['PLAYER_EVENT'] == 'preloading':
-    librespot_cmd['track_id']       = environment['TRACK_ID']
-elif environment['PLAYER_EVENT'] == 'volume_set':
-    librespot_cmd['volume']         = environment['VOLUME']
-
-print("librespot_event_handler, command = ", librespot_cmd)
+# Client
+client_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+client_socket.connect(("localhost", SPOTIFY_EVENT_SOCKET_PORT))
+client_socket.sendall(serialized_dict)
+client_socket.close()

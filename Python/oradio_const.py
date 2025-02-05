@@ -73,3 +73,7 @@ MESSAGE_STATE_CHANGED = "Volume changed"
 
 ################## SYSTEM SOUNDS #############################
 SOUND_FILES_DIR = "/home/pi/Oradio3/system_sounds"
+
+############# SPOTIFY ##########################################
+MESSAGE_SPOTIFY_TYPE        = "Spotify message"
+SPOTIFY_EVENT_SOCKET_PORT   = 8010

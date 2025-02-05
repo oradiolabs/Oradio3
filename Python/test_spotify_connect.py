@@ -27,12 +27,19 @@ Created on Februari 1, 2025
 """
 import subprocess
 from subprocess import Popen, PIPE, CalledProcessError
+import socket
 #### Oradio modules  #####
 import oradio_utils
+from oradio_const import *
 
 if __name__ == "__main__":
     YELLOW_TXT  = "\033[93m"
     END_TXT     = "\x1b[0m"    
+    
+    ## stop a running Oradio_controls as it may interfere with this test ##
+    print("kill Oradio_controls, to prevent interferences with this test module ")
+    script = "sudo pkill -9 -f oradio_control.py"
+#    oradio_utils.run_shell_script(script)
     
     def discover_oradio_speaker():
         '''
@@ -44,15 +51,33 @@ if __name__ == "__main__":
             with subprocess.Popen(script, stdout=PIPE, bufsize=1, universal_newlines=True) as process:
                 for line in process.stdout:
                     print(line, end='')  # Outputs the line immediately
-                    if "OradioLuidspreker" in line:
-                        oradio_utils.logging("success","OradioLuidspreker discovered")
+                    if "Oradio-luidspreker" in line:
+                        oradio_utils.logging("success","Oradio-luidspreker discovered")
                 if process.returncode != 0:
                     raise CalledProcessError(process.returncode, script)
         except KeyboardInterrupt:
             process.terminate()
         return()
     
-    def play_spotify_on_speaker():    
+    def play_spotify_on_speaker(): 
+        '''
+        Play a playlist via the spotify connect app
+        '''   
+        print("Open a Spotify app and connect to a sound device called Oradio-luidspreker ")
+        print("Check if spotify events are there")
+        print("Increase volume on Spotify App")
+        server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        server_socket.bind(("localhost", SPOTIFY_EVENT_SOCKET_PORT))
+        server_socket.listen(1)        
+        print(YELLOW_TXT+"Socket open and listening. Stop test with CTRL+C"+END_TXT)
+        try:
+            while(True):
+                client_socket, address = server_socket.accept()
+                data = client_socket.recv(1024)
+                print(data)
+        except KeyboardInterrupt:
+            client_socket.close()
+            server_socket.close()
     
     # Show menu with test options
     input_selection = ("Select a function, input the number.\n"

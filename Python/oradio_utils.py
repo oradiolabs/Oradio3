@@ -1,5 +1,8 @@
 #!/usr/bin/env python3
 
+from pydantic import BaseModel, create_model
+from typing import Dict, Any, Optional
+
 import inspect      # logging
 import subprocess   # run_shell_script
 
@@ -68,3 +71,38 @@ def run_shell_script(script):
         logging("error", f"shell script error: {process.stderr}")
         return False, process.stderr
     return True, process.stdout
+
+
+def json_schema_to_pydantic(name: str, schema: Dict[str,Any]) -> BaseModel:
+    '''
+    Dynamic Model generation based on a JSON schema
+    '''
+    if "properties" not in schema:  # Skip first entry
+        return None    
+    fields ={}
+    required_fields = set(schema.get("required", []))  # Get required fields from schema
+    
+    for prop, details in schema["properties"].items():
+        field_type = str  # Default type
+        if details["type"] == "integer":
+            field_type = int
+        elif details["type"] == "boolean":
+            field_type = bool
+        elif details["type"] == "number":
+            field_type = float
+        elif details["type"] == "array":
+            field_type = list
+        if "required" in schema and prop in schema["required"]:
+            fields[prop] = (field_type, ...)
+        else:
+            fields[prop] = (field_type, None)
+
+        # Handle optional fields (not in "required")
+        if prop not in required_fields:
+            fields[prop] = (Optional[field_type], None)  # Mark as Optional
+        else:
+            fields[prop] = (field_type, ...)  # Required fields
+                
+    return create_model(name, **fields)
+
+

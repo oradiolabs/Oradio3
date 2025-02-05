@@ -1,0 +1,21 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "Messages": {
+    "type": "object",
+    "properties": {
+      "type":	{ "type": "string" },
+      "state":	{ "type": "string" },
+      "error":	{ "type": "string" },
+	  "data":	{ "type": "array" }
+    },
+    "required": ["type", "state", "error"]
+  },
+  "NextSchema": {
+    "type": "object",
+    "properties": {
+      "type": { "type": "string" }
+    },
+    "required": ["type"]
+  }
+  
+}

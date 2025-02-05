@@ -35,23 +35,35 @@ source $SCRIPT_DIR/constants.sh
 # Notify entering module installation script
 echo "Load and configure spotify connect functionalty"
 
+# Install python modules
+# backlighting (module smbus2) required for standalone test 
+source $SCRIPT_DIR/backlighting.sh
+
 ########## Get packages and python modules for spotify connect ##########
 echo "install git"
 sudo apt install -y git
+
 ######### librespot() ####################################################
 echo "install raspotify which also install the librespot"
 sudo apt-get -y install curl && curl -sL https://dtcooper.github.io/raspotify/install.sh | sh
 echo "==> stop/disable raspotify service, we only need librespot"
 sudo systemctl stop raspotify
 sudo systemctl disable raspotify
+
 echo "install the latest version librespot from github repo"
 python -m pip install git+https://github.com/kokarare1212/librespot-python
+
 echo "install avahi-browse tool"
 sudo apt install avahi-utils
+
+echo "install pydantic"
+sudo python -m pip install pydantic
 
 echo "copy the librespot service to /etc/systemd/system"
 sudo cp $MODULES/spotify_connect/librespot.service /etc/systemd/system
 
+# take care that librespot_event_handler.py has execute rights
+chmod +x /home/pi/Oradio3/Python/librespot_event_handler.py
 if systemctl is-active -q avahi-daemon.service;
 then
 	echo "avahi-daemon.service is active"
