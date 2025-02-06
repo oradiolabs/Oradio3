@@ -57,8 +57,15 @@ echo "install avahi-browse tool"
 sudo apt install avahi-utils
 
 echo "install pydantic"
-sudo python -m pip install pydantic
+sudo python -m pip install --break-system-packages pydantic
 
+# also install pydantic in non-venv environment
+echo "deactivate current virtual machine"
+read -p "Press enter to continue"
+deactivate
+sudo python -m pip install --break-system-packages pydantic
+echo "activate virtual machine again"
+source /home/pi/.venv/bin/activate
 echo "copy the librespot service to /etc/systemd/system"
 sudo cp $MODULES/spotify_connect/librespot.service /etc/systemd/system
 
