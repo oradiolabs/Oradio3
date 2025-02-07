@@ -35,21 +35,24 @@ source $SCRIPT_DIR/constants.sh
 # Notify entering module installation script
 echo "Load and configure USB functionalty"
 
-# Clean USB logging info
-sudo rm -f $USB_LOGGING
-sudo touch $USB_LOGGING
+# Get absolute path to USB logfile
+USB_LOGFILE=$(realpath "$SCRIPT_DIR/../$LOG_DIR/")$USB_LOGFILE
 
 # Configure the USB mount script
-cp $MODULES/usb/usb-mount.sh.template $MODULES/usb/usb-mount.sh
+cp $SCRIPT_DIR/usb/usb-mount.sh.template $SCRIPT_DIR/usb/usb-mount.sh
 replace=`echo $USB_MOUNT_POINT | sed 's/\//\\\\\//g'`
-sed -i "s/USB_MOUNT_POINT/$replace/g" $MODULES/usb/usb-mount.sh
-replace=`echo $USB_LOGGING | sed 's/\//\\\\\//g'`
-sed -i "s/USB_LOGGING/$replace/g" $MODULES/usb/usb-mount.sh
+sed -i "s/PLACEHOLDER_MOUNT_POINT/$replace/g" $SCRIPT_DIR/usb/usb-mount.sh
 replace=`echo $USB_MONITOR | sed 's/\//\\\\\//g'`
-sed -i "s/USB_MONITOR/$replace/g" $MODULES/usb/usb-mount.sh
+sed -i "s/PLACEHOLDER_MONITOR/$replace/g" $SCRIPT_DIR/usb/usb-mount.sh
+
+# Get absolute path to USB logfile
+replace=`echo $USB_LOGFILE | sed 's/\//\\\\\//g'`
+sed -i "s/PLACEHOLDER_LOGFILE/$replace/g" $SCRIPT_DIR/usb/usb-mount.sh
+sed -i "s/PLACEHOLDER_USER/$(id -un)/g" $SCRIPT_DIR/usb/usb-mount.sh
+sed -i "s/PLACEHOLDER_GROUP/$(id -gn)/g" $SCRIPT_DIR/usb/usb-mount.sh
 
 # Install the USB mount script
-sudo cp $MODULES/usb/usb-mount.sh /usr/local/bin/usb-mount.sh
+sudo cp $SCRIPT_DIR/usb/usb-mount.sh /usr/local/bin/usb-mount.sh
 sudo chmod +x /usr/local/bin/usb-mount.sh
 
 # Mount USB if present but not mounted
@@ -63,16 +66,18 @@ if [ ! -f $USB_MONITOR ]; then
 fi
 
 # Check for USB mount errors and/or warnings
-cat $USB_LOGGING | grep "Error\|Warning"
+if [ -f $USB_LOGFILE ]; then
+	cat $USB_LOGFILE | grep "Error\|Warning"
+fi
 
 # The script is called by a systemd unit file. The "@" filename syntax allows passing the device name as an argument
-sudo cp $MODULES/usb/usb-mount@.service /etc/systemd/system/
+sudo cp $SCRIPT_DIR/usb/usb-mount@.service /etc/systemd/system/
 
 # To be safe, rerun all generators, reload all unit files, and recreate the entire dependency tree
 sudo systemctl daemon-reload
 
 # udev rules start and stop the systemd unit service on hotplug/unplug
-sudo cp $MODULES/usb/99-local.rules /etc/udev/rules.d/
+sudo cp $SCRIPT_DIR/usb/99-local.rules /etc/udev/rules.d/
 
 # Reload to activate
 sudo udevadm control --reload-rules

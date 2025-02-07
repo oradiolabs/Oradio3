@@ -3,12 +3,11 @@ Description=Backlighting Control for Oradio
 After=network.target
 
 [Service]
-# Using specifiers: https://www.freedesktop.org/software/systemd/man/latest/systemd.unit.html#Specifiers
-# Script path will be replaced by install script ../backlighting.sh
-ExecStart=/usr/bin/python3 SCRIPT_PATH/backlighting.py
-WorkingDirectory=SCRIPT_PATH
-User=%u
-Group=%g
+# Placeholders will be modified by ../backlighting.sh script
+User=PLACEHOLDER_USER
+Group=PLACEHOLDER_GROUP
+ExecStart=/usr/bin/python3 PLACEHOLDER_PATH/backlighting.py
+WorkingDirectory=PLACEHOLDER_PATH
 Restart=always
 RestartSec=5
 

@@ -36,8 +36,8 @@ source $SCRIPT_DIR/constants.sh
 echo "Configuring boot options"
 
 # Copy Oradio boot options and signal If boot configuration 
-if ! sudo diff $MODULES/config/config.txt /boot/firmware/config.txt; then
-	sudo cp $MODULES/config/config.txt /boot/firmware/config.txt
+if ! sudo diff $SCRIPT_DIR/config/config.txt /boot/firmware/config.txt; then
+	sudo cp $SCRIPT_DIR/config/config.txt /boot/firmware/config.txt
 	echo -e "${YELLOW}*** Hello $USER, you must reboot your machine ***${NC}"
 	return $ERROR
 fi

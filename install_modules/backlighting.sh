@@ -40,7 +40,7 @@ echo "Install and configure backlighting"
 sudo raspi-config nonint do_i2c 0	# 0: enable
 
 ########## Setup modules ##########
-sudo cp $MODULES/backlighting/modules /etc/modules
+sudo cp $SCRIPT_DIR/backlighting/modules /etc/modules
 
 # Start modules now
 I2C_MODULES=(
@@ -57,11 +57,14 @@ echo "i2c modules loaded and started"
 
 ########## Configure and install service ##########
 # Configure the backlighting service
-replace=`echo $PYTHON | sed 's/\//\\\\\//g'`
-sudo cat $MODULES/backlighting/backlighting.service.template | sed "s/SCRIPT_PATH/$replace/g" > $MODULES/backlighting/backlighting.service
+cp $SCRIPT_DIR/backlighting/backlighting.service.template $SCRIPT_DIR/backlighting/backlighting.service
+sed -i "s/PLACEHOLDER_USER/$(id -un)/g" $SCRIPT_DIR/backlighting/backlighting.service
+sed -i "s/PLACEHOLDER_GROUP/$(id -gn)/g" $SCRIPT_DIR/backlighting/backlighting.service
+replace=`echo $(realpath "$SCRIPT_DIR/../Python") | sed 's/\//\\\\\//g'`
+sed -i "s/PLACEHOLDER_PATH/$replace/g" $SCRIPT_DIR/backlighting/backlighting.service
 
 # Install the backlighting service
-sudo cp $MODULES/backlighting/backlighting.service /etc/systemd/system/
+sudo cp $SCRIPT_DIR/backlighting/backlighting.service /etc/systemd/system/
 
 # Set backlighting system to start at boot
 sudo systemctl enable backlighting.service

@@ -37,13 +37,14 @@ echo "Configure Oradio autostart on boot"
 
 ########## Configure and install service ##########
 # Configure the autostart service
-cp $MODULES/autostart/autostart.service.template $MODULES/autostart/autostart.service
-replace=`echo $PYTHON | sed 's/\//\\\\\//g'`
-sudo sed -i "s/SCRIPT_PATH/$replace/g" $MODULES/autostart/autostart.service
-sudo sed -i "s/USER/$USER/g" $MODULES/autostart/autostart.service
+cp $SCRIPT_DIR/autostart/autostart.service.template $SCRIPT_DIR/autostart/autostart.service
+sed -i "s/PLACEHOLDER_USER/$(id -un)/g" $SCRIPT_DIR/autostart/autostart.service
+sed -i "s/PLACEHOLDER_GROUP/$(id -gn)/g" $SCRIPT_DIR/autostart/autostart.service
+replace=`echo $(realpath "$SCRIPT_DIR/../Python") | sed 's/\//\\\\\//g'`
+sed -i "s/PLACEHOLDER_PATH/$replace/g" $SCRIPT_DIR/autostart/autostart.service
 
 # Install the autostart service
-sudo cp $MODULES/autostart/autostart.service /etc/systemd/system/
+sudo cp $SCRIPT_DIR/autostart/autostart.service /etc/systemd/system/
 
 # Set autostart system to start at boot
 sudo systemctl enable autostart.service

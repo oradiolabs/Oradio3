@@ -33,12 +33,11 @@ NETWORK_DOMAIN="oradio"
 WIFI_COUNTRY="NL"
 
 # Locations
-ROOT="$HOME/Oradio3"
-MODULES="$ROOT/install_modules"
-PYTHON="$ROOT/Python"
-LOGGING="$ROOT/logging"
+LOG_DIR="logging"
+
 USB_MOUNT_POINT="/media/oradio"
 USB_MONITOR="/media/usb_ready"
-USB_MUSIC="/media/oradio/Muziek"
-USB_SYSTEM="/media/oradio/Systeem"
-USB_LOGGING="$LOGGING/oradio_usb.log"
+USB_LOGFILE="/oradio_usb.log"
+
+USB_MUSIC=$USB_MOUNT_POINT"/Muziek"
+USB_SYSTEM=$USB_MOUNT_POINT"/Systeem"

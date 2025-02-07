@@ -23,11 +23,11 @@ if [ ! "$BASH_VERSION" ] || [ ! "$0" == "-bash" ]; then
 fi
 
 # Load shared constants
-if [ ! -f $PWD/install_modules/constants.sh ]; then
+if [ ! -f install_modules/constants.sh ]; then
 	echo "constants.sh not found"
 	return 1
 fi
-source $PWD/install_modules/constants.sh
+source install_modules/constants.sh
 
 # Modules to install. ORDER IS IMPORTANT!
 ORADIO_MODULES=(
@@ -118,9 +118,11 @@ if [ "$(lsb_release -a | grep "Description:" | cut -d$'\t' -f2)" != "$BOOKWORM64
 	return $ERROR
 fi
 
-# Create logging directory
-echo $LOGGING
-mkdir -p $LOGGING
+# Ensure logging directory exists
+if [ ! -d $LOG_DIR ]; then
+	# Create logging directory
+	mkdir -p $LOG_DIR
+fi
 
 ########## Install modules ##########
 

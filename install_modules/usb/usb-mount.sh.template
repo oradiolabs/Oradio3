@@ -12,13 +12,18 @@ ACTION=$1						# add | remove
 DEVBASE=$2						# sd[a-z][1-9]
 VALIDLABEL="ORADIO"				# Partition will not be mounted if label does not match VALIDLABEL
 PARTITION="/dev/${DEVBASE}"		# Location of the USB partition to mount
-MOUNT_POINT="USB_MOUNT_POINT"	# Location where USB is mounted
-LOGFILE="USB_LOGGING"			# Location for log info
-MONITOR="USB_MONITOR"			# File used to monitor if USB is mounted/unmounted
+
+# Placeholders will be modified by ../usb.sh script
+MOUNT_POINT="PLACEHOLDER_MOUNT_POINT"	# Location where USB is mounted
+LOGFILE="PLACEHOLDER_LOGFILE"			# Location log info
+MONITOR="PLACEHOLDER_MONITOR"			# File used to monitor if USB is mounted/unmounted
+USER="PLACEHOLDER_USER"					# Logfile user
+GROUP="PLACEHOLDER_GROUP"				# Logfile group
 
 # Create log file if it does not yet exist
 if [ ! -f $LOGFILE ]; then
 	/usr/bin/mkdir -p "$(dirname "$LOGFILE")" && touch "$LOGFILE"
+	/usr/bin/chown $USER:$GROUP $LOGFILE
 fi
 echo "Check '$LOGFILE' for success, warning and error messages"
 

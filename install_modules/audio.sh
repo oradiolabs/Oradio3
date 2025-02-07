@@ -39,12 +39,12 @@ echo "Install and configure audio"
 sudo apt-get install mpd mpc -y
 
 # Install the audio configuration
-sudo cp $MODULES/audio/asound.conf /etc/asound.conf
+sudo cp $SCRIPT_DIR/audio/asound.conf /etc/asound.conf
 
 # Configure mpd music library location
 replace=`echo $USB_MUSIC | sed 's/\//\\\\\//g'`
-sudo cat $MODULES/audio/mpd.conf.template | sed "s/USB_MUSIC/$replace/g" > $MODULES/audio/mpd.conf
-sudo cp $MODULES/audio/mpd.conf /etc/mpd.conf
+sudo cat $SCRIPT_DIR/audio/mpd.conf.template | sed "s/USB_MUSIC/$replace/g" > $SCRIPT_DIR/audio/mpd.conf
+sudo cp $SCRIPT_DIR/audio/mpd.conf /etc/mpd.conf
 
 # Set mpd system to start at boot
 sudo systemctl enable mpd.service
@@ -61,7 +61,7 @@ if [ ! -d $USB_SYSTEM ]; then
 	return $ERROR
 else
 	# Install the default presets for buttons 1, 2 and 3
-	sudo cp $MODULES/audio/presets.json $USB_SYSTEM/presets.json
+	sudo cp $SCRIPT_DIR/audio/presets.json $USB_SYSTEM/presets.json
 
 	# Update the database
 	sudo mpc update
