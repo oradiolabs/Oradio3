@@ -19,9 +19,13 @@ Created on December 23, 2024
 @status:        Development
 @summary:       Defines for oradio scripts
 """
+
 ################## SYSTEM #############################
-ORADIO_DIR     = "/home/pi/Oradio3"
-ORADIO_LOGGING = ORADIO_DIR + "/logging"
+import os, sys
+# Make Oradio file locations relative
+ORADIO_DIR      = sys.path[0]
+ORADIO_LOG_DIR  = os.path.realpath(ORADIO_DIR + "/../logging")
+SOUND_FILES_DIR = os.path.realpath(ORADIO_DIR + "/../system_sounds")
 
 ################## WIFI UTILS #############################
 # Access point
