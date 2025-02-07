@@ -24,6 +24,8 @@ Created on Januari 17, 2025
         https://docs.python.org/3/howto/logging.html
         https://pypi.org/project/concurrent-log-handler/
 """
+import subprocess
+from subprocess import run
 import inspect
 from vcgencmd import Vcgencmd
 import logging as python_logging
@@ -38,7 +40,7 @@ from oradio_const import *
 
 ##### LOCAL constants ####################
 ORADIO_LOGGER         = 'oradio'
-ORADIO_LOGGING_FILE   = ORADIO_LOGGING + '/oradio.log'
+ORADIO_LOGGING_FILE   = ORADIO_LOG_DIR + '/oradio.log'
 ORADIO_LOGGING_LEVEL  = python_logging.DEBUG
 ORADIO_LOGGING_CONFIG = 'config/oradio_logging.conf'
 
@@ -48,7 +50,7 @@ sys_monitor = None
 rms_monitor = None
 
 # Add 'logging.success()'. Level same as for info
-DEBUG_SUCCESS_NUM = python_logging.INFO
+DEBUG_SUCCESS_NUM = python_logging.INFO+5
 python_logging.addLevelName(DEBUG_SUCCESS_NUM, "SUCCESS")
 def success(self, message, *args, **kws):
     if self.isEnabledFor(DEBUG_SUCCESS_NUM):
@@ -67,6 +69,7 @@ log_config.fileConfig(ORADIO_LOGGING_CONFIG)
 # convert all configured loggers to use a background thread
 setup_logging_queues()
 
+#OMJ: Als throttled dan niet naar SD kaart schrijven. Maar wat dan wel?
 def get_throttled_state_rpi():
     """
     Get the state of the throttled flags available in vcgencmd module
@@ -126,9 +129,6 @@ def logging(level, log_text):
     YELLOW_TXT = "\033[93m"
     END_TXT    = "\x1b[0m"
 
-    if level == 'success':
-        logging_text = GREEN_TXT + logging_text + END_TXT
-
     # do not write files in case of a rpi being throttled, could cause a SDram crash
     if not rpi_throttled:
         if level == 'debug':
@@ -155,6 +155,19 @@ def logging(level, log_text):
 #            sys_monitor.set_warning(logging_text)
             pass
 
+def run_shell_script(script):
+    """
+    Simplified shell command execution
+    :param script (str) - shell command to execute
+    Returns exit status and output of running the script
+    """
+    logging("info", f"Runnning shell script: {script}")
+    process = subprocess.run(script, shell = True, capture_output = True, encoding = 'utf-8')
+    if process.returncode != 0:
+        logging("error", f"shell script error: {process.stderr}")
+        return False, process.stderr
+    return True, process.stdout
+
 # Entry point for stand-alone operation
 if __name__ == '__main__':
 
@@ -169,6 +182,8 @@ if __name__ == '__main__':
                        " 2-Test log level INFO\n"
                        " 3-Test log level WARNING\n"
                        " 4-Test log level ERROR\n"
+                       " 5-Run shell script('ls')\n"
+                       " 6-Run shell script('xxx')\n"
                        "select: "
                        )
 
@@ -217,9 +232,16 @@ if __name__ == '__main__':
                 logging('success', 'This is a success message')
                 logging('warning', 'This is a warning message')
                 logging('error', 'This is a error message')
+            case 5:
+                print(f"Logging level: {python_logging.getLevelName(oradio_log.level)}")
+                result, error = run_shell_script("ls")
+                print(f"Expect ok: result={result}, error={ error}")
+            case 6:
+                print(f"Logging level: {python_logging.getLevelName(oradio_log.level)}")
+                result, error = run_shell_script("xxx")
+                print(f"Expect fail: result={result}, error={ error}")
             case _:
                 print("\nPlease input a valid number\n")
 
         # Allow log messages to be printed before showing menu again
         sleep(0.5)
-
