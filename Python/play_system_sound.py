@@ -25,6 +25,7 @@ import random
 
 ##### oradio modules ####################
 import oradio_utils
+from volume_control import VolumeControl
 
 ##### GLOBAL constants ####################
 from oradio_const import *
@@ -42,7 +43,10 @@ SOUND_FILES = {
     "Click":   f"{SOUND_FILES_DIR}/click.wav",
     # Announcements
     "Spotify":      f"{SOUND_FILES_DIR}/Spotify_melding.wav",
+    "NoInternet":   f"{SOUND_FILES_DIR}/NoInternet_melding.wav",
+    "NoUSB":        f"{SOUND_FILES_DIR}/NoUSB_melding.wav",
     "WebInterface": f"{SOUND_FILES_DIR}/WebInterface_melding.wav",
+    "OradioAP":     f"{SOUND_FILES_DIR}/OradioAP_melding.wav",
 }
 
 class PlaySystemSound:
@@ -89,6 +93,9 @@ class PlaySystemSound:
 # ------------------ TEST SECTION ------------------
 if __name__ == "__main__":
     print("\nStarting System Sound Player Standalone Test...\n")
+    
+    # Initialize the volume_control, works stand alone
+    volume_control = VolumeControl()
 
     # Instantiate sound player
     sound_player = PlaySystemSound()

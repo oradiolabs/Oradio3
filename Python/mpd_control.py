@@ -22,12 +22,13 @@ import time
 import threading
 import json
 from mpd import MPDClient
-
+import subprocess
 ##### oradio modules ####################
 import oradio_utils
-
+from play_system_sound import PlaySystemSound
 ##### GLOBAL constants ####################
 from oradio_const import *
+from internet_checker import is_internet_available
 
 class MPDControl:
     """
@@ -40,9 +41,15 @@ class MPDControl:
         self.client = None
         self.mpd_lock = threading.Lock()
 
+        # Event for cancelling MPD database update
+        self.mpd_update_cancel_event = threading.Event()
+
         # Start MPD connection maintenance thread
         self.connection_thread = threading.Thread(target=self._maintain_connection, daemon=True)
         self.connection_thread.start()
+        
+        # Store the PlaySystemSound instance for later use.
+        self.sound_player = PlaySystemSound()
 
     def _connect(self):
         """Connects to the MPD server."""
@@ -82,13 +89,13 @@ class MPDControl:
             if not self._is_connected():
                 oradio_utils.logging("error", "Reconnecting MPD client...")
                 self.client = self._connect()
-                
+#                 
+
     def play_preset(self, preset):
         """
-        Plays a preset playlist using the global PRESET_FILE_PATH
-        Presets as in Json file : "Preset1", "Preset2", "Preset3"
+        Plays a preset playlist using the global PRESET_FILE_PATH.
+        Presets as in Json file: "Preset1", "Preset2", "Preset3"
         """
-        
         self._ensure_client()
         playlist_name = self.get_playlist_name(preset, PRESET_FILE_PATH)
 
@@ -99,8 +106,16 @@ class MPDControl:
         with self.mpd_lock:
             try:
                 self.client.clear()
-                if playlist_name.startswith("WebRadio"): # play Webradio if Prest starts with Webradio
-                    self.client.load(playlist_name)
+                if playlist_name.startswith("WebRadio"):
+                    # For WebRadio presets, check if internet is available.
+                    internet_status = is_internet_available()
+                    if internet_status:
+                        self.client.load(playlist_name)
+                    else:
+                        oradio_utils.logging("warning", "Internet not available; cannot play WebRadio preset.")
+                        time.sleep(2)
+                        self.sound_player.play("NoInternet")
+                        return  # Prevent further execution if there's no internet
                 else:
                     self.client.add(playlist_name)
 
@@ -113,7 +128,6 @@ class MPDControl:
 
             except Exception as e:
                 oradio_utils.logging("error", f"Error playing preset {preset}: {e}")
-
 
     def play(self):
         """Plays the current track."""
@@ -159,20 +173,53 @@ class MPDControl:
             except Exception as e:
                 oradio_utils.logging("error", f"Error sending next command: {e}")
 
+
     def update_mpd_database(self):
-        """Updates the MPD database."""
+        """Updates the MPD database with a timeout."""
         self._ensure_client()
-#        with self.mpd_lock:   # No lock needed, as seperate track and MPD can handle this in parralel
+        # Reset cancellation event at the start of the update
+        self.mpd_update_cancel_event.clear()
+        timeout_seconds = 60  # timeout to stop updating
+        start_time = time.time()
+        
         try:
             oradio_utils.logging("info", "Starting MPD database update...")
             job_id = self.client.update()
+            # job_id = self.client.rescan()  # Alternative if desired
             oradio_utils.logging("info", f"Database update job ID: {job_id}")
 
             while True:
+                # Check for cancellation before each iteration
+                if self.mpd_update_cancel_event.is_set():
+                    oradio_utils.logging("info", "MPD database update canceled.")
+                    break
+
+                # Check for timeout
+                elapsed = time.time() - start_time
+                if elapsed > timeout_seconds:
+                    oradio_utils.logging("warning", f"MPD database update timed out after {timeout_seconds} seconds.")
+                    break
+
                 status = self.client.status()
                 if "updating_db" in status:
                     oradio_utils.logging("info", f"Updating... Job ID: {status['updating_db']}")
-                    time.sleep(3)
+                    # Sleep in short increments to allow for prompt cancellation and timeout checks
+                    for _ in range(30):  # 30 * 0.1 = 3 seconds
+                        if self.mpd_update_cancel_event.is_set():
+                            oradio_utils.logging("info", "MPD database update canceled during sleep.")
+                            break
+                        # Check timeout during sleep increments as well
+                        if time.time() - start_time > timeout_seconds:
+                            oradio_utils.logging("warning", f"MPD database update timed out during sleep after {timeout_seconds} seconds.")
+                            break
+                        time.sleep(0.2)
+                    # If cancellation was requested during the sleep, break out of the loop
+                    if self.mpd_update_cancel_event.is_set():
+                        break
+                    # Final check for timeout after sleep loop
+                    if time.time() - start_time > timeout_seconds:
+                        oradio_utils.logging("warning", f"MPD database update timed out after {timeout_seconds} seconds.")
+                        break
                 else:
                     oradio_utils.logging("info", "MPD database update completed.")
                     break
@@ -185,6 +232,28 @@ class MPDControl:
         update_thread.start()
         oradio_utils.logging("info", "MPD database update thread started.")
         return update_thread
+
+    def cancel_update(self):
+        """Cancels the ongoing MPD database update."""
+        self.mpd_update_cancel_event.set()
+        oradio_utils.logging("info", "MPD database update cancellation requested.")
+ 
+    def restart_mpd_service(self):
+        """Restarts the MPD service using systemctl."""
+        try:
+            # Run the systemctl command to restart the mpd service.
+            # Note: This command may require elevated privileges.
+            subprocess.run(
+                ["sudo", "systemctl", "restart", "mpd"],
+                capture_output=True,
+                text=True,
+                check=True
+            )
+            oradio_utils.logging("info", "MPD service restarted successfully.")
+        except subprocess.CalledProcessError as e:
+            oradio_utils.logging("error", f"Error restarting MPD service: {e.stderr}")
+        
+        
 
     @staticmethod  # just a simple function
     def get_playlist_name(preset_key, filepath):
@@ -209,8 +278,6 @@ class MPDControl:
 # Entry point for stand-alone operation
 if __name__ == '__main__':
     
-    import random
-    
     print("\nStarting MPD Control Standalone Test...\n")
     
     # Instantiate MPDControl
@@ -227,12 +294,13 @@ if __name__ == '__main__':
                        " 6 - Play Preset 2\n"
                        " 7 - Play Preset 3\n"
                        " 8 - Update Database\n"
-                       " 9 - Stress Test\n"
+                       " 9 - Cancel Database Update\n"
+                       "10 - Stress Test\n"
+                       "11 - Restart MPD Service\n"
                        "Select: ")
 
     # User command loop
     while True:
-        # Get user input
         try:
             function_nr = int(input(input_selection))
         except ValueError:
@@ -247,7 +315,7 @@ if __name__ == '__main__':
                 print("\nExecuting: Play\n")
                 mpd.play()
             case 2:
-                print("\nExecuting: Pause\n")
+                print("\nExecuting: Stop\n")
                 mpd.stop()
             case 3:
                 print("\nExecuting: Pause\n")
@@ -268,6 +336,9 @@ if __name__ == '__main__':
                 print("\nExecuting: Update MPD Database\n")
                 mpd.start_update_mpd_database_thread()
             case 9:
+                print("\nExecuting: Cancel MPD Database Update\n")
+                mpd.cancel_update()
+            case 10:
                 print("\nExecuting: Stress Test\n")
                 
                 def stress_test(mpd_instance, duration=10):
@@ -295,6 +366,10 @@ if __name__ == '__main__':
                     print("\nStress test completed.\n")
 
                 stress_test(mpd)
+
+            case 11:
+                print("\nExecuting: Restart MPD Service\n")
+                mpd.restart_mpd_service()
 
             case _:
                 print("\nInvalid selection. Please enter a valid number.\n")
