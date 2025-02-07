@@ -3,9 +3,11 @@ Description=Autostart Oradio
 After=multi-user.target
 
 [Service]
-# user and script path will be replaced by install script ../autostart.sh
-ExecStart=/home/USER/.venv/bin/python3 SCRIPT_PATH/oradio_control.py &
-WorkingDirectory=SCRIPT_PATH
+# Placeholders will be modified by ../autostart.sh script
+User=PLACEHOLDER_USER
+Group=PLACEHOLDER_GROUP
+ExecStart=/home/PLACEHOLDER_USER/.venv/bin/python3 PLACEHOLDER_PATH/oradio_control.py &
+WorkingDirectory=PLACEHOLDER_PATH
 RemainAfterExit=true
 
 [Install]

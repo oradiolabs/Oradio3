@@ -30,7 +30,6 @@ import oradio_utils
 from oradio_const import *
 
 ##### LOCAL constants ####################
-SOUND_FILES_DIR = ORADIO_DIR + "/system_sounds"
 SOUND_FILES = {
     # Sounds
     "StartUp": f"{SOUND_FILES_DIR}/StartUp.wav",
