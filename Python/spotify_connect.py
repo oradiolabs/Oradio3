@@ -32,6 +32,28 @@ import socket
 import oradio_utils
 from oradio_const import *
 
+class SpotifyConnect():
+    def __init__(self):
+        # setup an observer listening to socket for incoming messages
+
+
+# Load the JSON schema file
+with open("/home/pi/Oradio3/Python/schemas.json") as f:
+    schemas = json.load(f)
+# Dynamically create Pydantic models
+models = {name: json_schema_to_pydantic(name, schema) for name, schema in schemas.items()}
+
+# create Messages model
+Messages = models["Messages"]
+#create an instance for this model
+msg = Messages(type="none", state="none", error="none", data=[])
+
+message = msg.model_dump()
+message["type"] = MESSAGE_SPOTIFY_TYPE
+
+serialized_dict = json.dumps(message).encode('utf-8')
+
+
 if __name__ == "__main__":
     YELLOW_TXT  = "\033[93m"
     END_TXT     = "\x1b[0m"    
@@ -91,6 +113,9 @@ if __name__ == "__main__":
                        )
  
     # User command loop
+    
+    $ mpv --no-video --demuxer=rawaudio --demuxer-rawaudio-format=s16le --demuxer-rawaudio-rate=44100 --demuxer-rawaudio-channels=2 /spotify/librespot-pipe
+
     while True:
 
         # Get user input

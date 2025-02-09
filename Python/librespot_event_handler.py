@@ -33,22 +33,11 @@ import socket
 from oradio_utils import json_schema_to_pydantic
 from oradio_const import *
 
-# Load the JSON schema file
-with open("/home/pi/Oradio3/Python/schemas.json") as f:
-    schemas = json.load(f)
-# Dynamically create Pydantic models
-models = {name: json_schema_to_pydantic(name, schema) for name, schema in schemas.items()}
-
-# create Messages model
-Messages = models["Messages"]
-#create an instance for this model
-msg = Messages(type="none", state="none", error="none", data=[])
-
-message = msg.model_dump()
-message["type"] = MESSAGE_SPOTIFY_TYPE
-
-librespot_event_data = [{'player_event': 'None'},{'track_id':'None'},{'old_track_id':'None'},{'track_duration':'None'},{'position_ms':'None'}]
-message["data"] =librespot_event_data
+librespot_event_data = [{'player_event': 'None'},
+                        {'track_id':'None'},
+                        {'old_track_id':'None'},
+                        {'track_duration':'None'},
+                        {'position_ms':'None'}]
 environment= os.environ
 event_data = {}
 if "PLAYER_EVENT" in environment:
@@ -76,10 +65,9 @@ if "PLAYER_EVENT" in environment:
         event_data['volume']         = environment['VOLUME']
     elif environment['PLAYER_EVENT'] == 'volume_changed':
         event_data['volume']         = environment['VOLUME']
-    message["data"] =event_data
-    print("HENK: ",message)
+    librespot_event_data=event_data
     
-serialized_dict = json.dumps(message).encode('utf-8')
+serialized_dict = json.dumps(librespot_event_data).encode('utf-8')
 
 # Client
 client_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)

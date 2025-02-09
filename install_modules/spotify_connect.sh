@@ -68,7 +68,20 @@ echo "activate virtual machine again"
 source /home/pi/.venv/bin/activate
 echo "copy the librespot service to /etc/systemd/system"
 sudo cp $MODULES/spotify_connect/librespot.service /etc/systemd/system
-
+echo "copy the configuration file mpv.conf to /etc/mpv
+sudo cp $MODULES/spotify_connect/mpv.conf /etc/mpv/mpv.conf
+echo "create a audio pipe between librespot and mpv player
+SPOTIFY_DIR="/home/pi/spotify"
+SPOTIFY_FIFO="/home/pi/spotify/librespot-fifo"
+if ! [ -d "$SPOTIFY_DIR" ];
+then
+	mkdir $SPOTIFY_DIR
+fi
+if ! [[] -e "$SPOTIFY_FIFO" ];
+then
+	mkfifo $SPOTIFY_FIFO
+	chmod 666 $SPOTIFY_FIFO
+fi
 # take care that librespot_event_handler.py has execute rights
 chmod +x /home/pi/Oradio3/Python/librespot_event_handler.py
 if systemctl is-active -q avahi-daemon.service;

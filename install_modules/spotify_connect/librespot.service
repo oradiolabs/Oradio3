@@ -15,7 +15,8 @@ Environment="LIBRESPOT_NAME=Oradio-luidspreker"
 Environment="LIBRESPOT_VERBOSE="
 Environment="LIBRESPOT_ONEVENT=/home/pi/Oradio3/Python/librespot_event_handler.py"
 Environment="LIBRESPOT_DEVICE_TYPE=speaker"
-ExecStart=/usr/bin/librespot
+ExecStart=/usr/bin/librespot  --bitrate 320 --backend pipe --device /home/pi/spotify/librespot-pipe
+
 Restart=always
 User=pi
 Group=pi
