@@ -61,7 +61,7 @@ sudo python -m pip install --break-system-packages pydantic
 
 # also install pydantic in non-venv environment
 echo "deactivate current virtual machine"
-read -p "Press enter to continue"
+
 deactivate
 sudo python -m pip install --break-system-packages pydantic
 echo "activate virtual machine again"
