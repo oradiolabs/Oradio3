@@ -35,11 +35,12 @@ ORADIO_MODULES=(
 	"packages"
 	"python"
 	"network"
-	"usb"
-	"audio"
-	"volume"
-	"backlighting"
-	"webservice"
+	"logging"		# Depends on python
+	"usb_service"	# Depends on network and python
+	"audio"			# Depends on usb_service and python
+	"volume"		# Depends on audio and python
+	"backlighting"	# Depends on python
+	"web_service"	# Depends on network and python
 	"autostart"
 )
 
@@ -129,7 +130,6 @@ fi
 # Iterate through MANDATORY modules to install
 for ((main_i = 0; main_i < ${#ORADIO_MODULES[@]}; main_i++)); do
 	module="${ORADIO_MODULES[$main_i]}"
-	echo "Installing module '$module'"
 	source install_modules/$module.sh
 	# Module can signal a reboot is required to activate the changes
 	if [ $? -eq $ERROR ]; then
