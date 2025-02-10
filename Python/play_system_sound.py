@@ -24,7 +24,7 @@ import time
 import random
 
 ##### oradio modules ####################
-import oradio_utils
+from oradio_logging import oradio_log
 
 ##### GLOBAL constants ####################
 from oradio_const import *
@@ -71,19 +71,19 @@ class PlaySystemSound:
         try:
             sound_file = SOUND_FILES.get(sound_key)
             if not sound_file:
-                oradio_utils.logging("error", f"Invalid sound key: {sound_key}")
+                oradio_log.error(f"Invalid sound key: {sound_key}")
                 return
 
             if not os.path.exists(sound_file):
-                oradio_utils.logging("error", f"Sound file does not exist: {sound_file}")
+                oradio_log.error(f"Sound file does not exist: {sound_file}")
                 return
 
             command = ["aplay", "-D", self.audio_device, sound_file]
             subprocess.run(command, check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-            oradio_utils.logging("info", f"System sound played successfully: {sound_file}")
+            oradio_log.debug(f"System sound played successfully: {sound_file}")
 
         except subprocess.CalledProcessError as e:
-            oradio_utils.logging("error", f"Error playing sound: {e}")
+            oradio_log.error(f"Error playing sound: {e}")
 
 # ------------------ TEST SECTION ------------------
 if __name__ == "__main__":

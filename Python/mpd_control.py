@@ -24,7 +24,7 @@ import json
 from mpd import MPDClient
 
 ##### oradio modules ####################
-import oradio_utils
+from oradio_logging import oradio_log
 
 ##### GLOBAL constants ####################
 from oradio_const import *
@@ -51,10 +51,10 @@ class MPDControl:
         client.idletimeout = None
         try:
             client.connect(self.host, self.port)
-            oradio_utils.logging("info", "Connected to MPD server.")
+            oradio_log.debug("Connected to MPD server.")
             return client
         except Exception as e:
-            oradio_utils.logging("error", f"Failed to connect to MPD server: {e}")
+            oradio_log.error(f"Failed to connect to MPD server: {e}")
             return None
 
     def _is_connected(self):
@@ -72,7 +72,7 @@ class MPDControl:
         while True:
             with self.mpd_lock:
                 if not self._is_connected():
-                    oradio_utils.logging("error", "MPD connection lost. Reconnecting...")
+                    oradio_log.error("MPD connection lost. Reconnecting...")
                     self.client = self._connect()
             time.sleep(10)
 
@@ -80,7 +80,7 @@ class MPDControl:
         """Ensures an active MPD client before sending commands."""
         with self.mpd_lock:
             if not self._is_connected():
-                oradio_utils.logging("error", "Reconnecting MPD client...")
+                oradio_log.error("Reconnecting MPD client...")
                 self.client = self._connect()
                 
     def play_preset(self, preset):
@@ -93,7 +93,7 @@ class MPDControl:
         playlist_name = self.get_playlist_name(preset, PRESET_FILE_PATH)
 
         if not playlist_name:
-            oradio_utils.logging("error", f"No playlist found for preset {preset}")
+            oradio_log.error(f"No playlist found for preset {preset}")
             return
 
         with self.mpd_lock:
@@ -109,10 +109,10 @@ class MPDControl:
                 self.client.repeat(1)
                 self.client.play()
 
-                oradio_utils.logging("info", f"Playing playlist: {playlist_name}")
+                oradio_log.debug(f"Playing playlist: {playlist_name}")
 
             except Exception as e:
-                oradio_utils.logging("error", f"Error playing preset {preset}: {e}")
+                oradio_log.error(f"Error playing preset {preset}: {e}")
 
 
     def play(self):
@@ -121,9 +121,9 @@ class MPDControl:
         with self.mpd_lock:
             try:
                 self.client.play()
-                oradio_utils.logging("info", "MPD play")
+                oradio_log.debug("MPD play")
             except Exception as e:
-                oradio_utils.logging("error", f"Error sending play command: {e}")
+                oradio_log.error(f"Error sending play command: {e}")
 
     def pause(self):
         """Pauses playback."""
@@ -131,9 +131,9 @@ class MPDControl:
         with self.mpd_lock:
             try:
                 self.client.pause(1)
-                oradio_utils.logging("info", "MPD pause")
+                oradio_log.debug("MPD pause")
             except Exception as e:
-                oradio_utils.logging("error", f"Error sending pause command: {e}")
+                oradio_log.error(f"Error sending pause command: {e}")
 
     def stop(self):
         """Stops playback."""
@@ -141,9 +141,9 @@ class MPDControl:
         with self.mpd_lock:
             try:
                 self.client.stop()
-                oradio_utils.logging("info", "MPD stop")
+                oradio_log.debug("MPD stop")
             except Exception as e:
-                oradio_utils.logging("error", f"Error sending stop command: {e}")
+                oradio_log.error(f"Error sending stop command: {e}")
 
     def next(self):
         """Skips to the next track only if MPD is currently playing."""
@@ -153,37 +153,37 @@ class MPDControl:
                 status = self.client.status()
                 if status.get("state") == "play":
                     self.client.next()
-                    oradio_utils.logging("info", "MPD next")
+                    oradio_log.debug("MPD next")
                 else:
-                    oradio_utils.logging("warning", "Cannot skip track: MPD is not playing.")
+                    oradio_log.warning("Cannot skip track: MPD is not playing.")
             except Exception as e:
-                oradio_utils.logging("error", f"Error sending next command: {e}")
+                oradio_log.error(f"Error sending next command: {e}")
 
     def update_mpd_database(self):
         """Updates the MPD database."""
         self._ensure_client()
 #        with self.mpd_lock:   # No lock needed, as seperate track and MPD can handle this in parralel
         try:
-            oradio_utils.logging("info", "Starting MPD database update...")
+            oradio_log.debug("Starting MPD database update...")
             job_id = self.client.update()
-            oradio_utils.logging("info", f"Database update job ID: {job_id}")
+            oradio_log.debug(f"Database update job ID: {job_id}")
 
             while True:
                 status = self.client.status()
                 if "updating_db" in status:
-                    oradio_utils.logging("info", f"Updating... Job ID: {status['updating_db']}")
+                    oradio_log.debug(f"Updating... Job ID: {status['updating_db']}")
                     time.sleep(3)
                 else:
-                    oradio_utils.logging("info", "MPD database update completed.")
+                    oradio_log.debug("MPD database update completed.")
                     break
         except Exception as e:
-            oradio_utils.logging("error", f"Error updating MPD database: {e}")
+            oradio_log.error(f"Error updating MPD database: {e}")
 
     def start_update_mpd_database_thread(self):
         """Starts the MPD database update in a separate thread."""
         update_thread = threading.Thread(target=self.update_mpd_database, daemon=True)
         update_thread.start()
-        oradio_utils.logging("info", "MPD database update thread started.")
+        oradio_log.debug("MPD database update thread started.")
         return update_thread
 
     @staticmethod  # just a simple function
@@ -199,12 +199,10 @@ class MPDControl:
             return presets.get(json_key, None)
 
         except FileNotFoundError:
-            oradio_utils.logging("error", f"Error: File not found at {filepath}")
+            oradio_log.error(f"Error: File not found at {filepath}")
         except json.JSONDecodeError:
-            oradio_utils.logging("error", "Error: Failed to decode JSON. Please check the file's format.")
+            oradio_log.error("Error: Failed to decode JSON. Please check the file's format.")
         return None
-
-
 
 # Entry point for stand-alone operation
 if __name__ == '__main__':

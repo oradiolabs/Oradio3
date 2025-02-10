@@ -22,7 +22,7 @@ Created on January 29, 2025
 import time
 import threading
 import RPi.GPIO as GPIO
-import oradio_utils
+from oradio_logging import oradio_log
 
 # Global constant for LED GPIO pins
 LEDS = {
@@ -49,22 +49,21 @@ class LEDControl:
             GPIO.setup(pin, GPIO.OUT, initial=GPIO.HIGH)
 
         self.blinking_leds = {}  # Dictionary to track blinking LEDs
-        oradio_utils.logging("info", "LEDControl initialized: All LEDs OFF")
+        oradio_log.debug("LEDControl initialized: All LEDs OFF")
 
     def turn_off_all_leds(self):
         """Turns off all LEDs."""
         for led in LEDS.values():
             GPIO.output(led, GPIO.HIGH)
-        oradio_utils.logging("info", "All LEDs turned off")
+        oradio_log.debug("All LEDs turned off")
 
     def turn_on_led(self, led_name):
         """Turns on a specific LED."""
         if led_name in LEDS:
             GPIO.output(LEDS[led_name], GPIO.LOW)
-            oradio_utils.logging("info", f"{led_name} turned on")
+            oradio_log.debug(f"{led_name} turned on")
         else:
-            oradio_utils.logging("error", f"Invalid LED name: {led_name}")
-
+            oradio_log.error(f"Invalid LED name: {led_name}")
 
     def turn_off_all_leds(self):
         """
@@ -78,7 +77,7 @@ class LEDControl:
         for led in LEDS.values():
             GPIO.output(led, GPIO.HIGH)
 
-        oradio_utils.logging("info", "All LEDs turned off and blinking stopped")
+        oradio_log.debug("All LEDs turned off and blinking stopped")
     
     def turn_on_led_with_delay(self, led_name, delay=3):
         """
@@ -89,17 +88,17 @@ class LEDControl:
             delay (float): Time in seconds before turning off the LED.
         """
         if led_name not in LEDS:
-            oradio_utils.logging("error", f"Invalid LED name: {led_name}")
+            oradio_log.error(f"Invalid LED name: {led_name}")
             return
 
         # Turn on the LED
         GPIO.output(LEDS[led_name], GPIO.LOW)
-        oradio_utils.logging("info", f"{led_name} turned on, will turn off after {delay} seconds")
+        oradio_log.debug(f"{led_name} turned on, will turn off after {delay} seconds")
 
         def delayed_off():
             time.sleep(delay)
             GPIO.output(LEDS[led_name], GPIO.HIGH)
-            oradio_utils.logging("info", f"{led_name} turned off after {delay} seconds")
+            oradio_log.debug(f"{led_name} turned off after {delay} seconds")
 
         # Start a separate thread to handle the delay without blocking execution
         threading.Thread(target=delayed_off, daemon=True).start()
@@ -115,14 +114,14 @@ class LEDControl:
             cycle_time (float or None): Blink interval in seconds.
         """
         if led_name not in LEDS:
-            oradio_utils.logging("error", f"Invalid LED name: {led_name}")
+            oradio_log.error(f"Invalid LED name: {led_name}")
             return
 
         if cycle_time is None or cycle_time == 0:
             # Stop blinking and ensure LED is turned off
             self.blinking_leds[led_name] = False
             GPIO.output(LEDS[led_name], GPIO.HIGH)  # Turn off LED
-            oradio_utils.logging("info", f"{led_name} blinking stopped and turned off")
+            oradio_log.debug(f"{led_name} blinking stopped and turned off")
             return
 
         # Stop any existing blinking thread for this LED
@@ -141,7 +140,7 @@ class LEDControl:
             GPIO.output(LEDS[led_name], GPIO.HIGH)
 
         threading.Thread(target=blink, daemon=True).start()
-        oradio_utils.logging("info", f"{led_name} blinking started with cycle time: {cycle_time}s")
+        oradio_log.debug(f"{led_name} blinking started with cycle time: {cycle_time}s")
 
     def cleanup(self):
         """Cleans up GPIO on program exit."""
@@ -149,7 +148,7 @@ class LEDControl:
             GPIO.output(led, GPIO.HIGH)  # Ensure all LEDs are off
         self.blinking_leds = {}  # Stop all blinking threads
         GPIO.cleanup()
-        oradio_utils.logging("info", "GPIO cleanup completed")
+        oradio_log.debug("GPIO cleanup completed")
 
 # Entry point for stand-alone operation
 if __name__ == '__main__':

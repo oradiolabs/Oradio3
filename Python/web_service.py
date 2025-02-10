@@ -32,7 +32,8 @@ from threading import Thread
 from multiprocessing import Process, Queue, Event
 
 ##### oradio modules ####################
-import oradio_utils
+from oradio_logging import oradio_log
+from oradio_utils import run_shell_script
 from fastapi_server import api_app
 from wifi_service import wifi_service
 
@@ -118,7 +119,7 @@ class web_service():
             message["error"] = self.error
 
         # Put message in queue
-        oradio_utils.logging("info", f"Send web service message: {message}")
+        oradio_log.debug(f"Send web service message: {message}")
         self.msg_q.put(message)
 
     def start(self, force_ap=False):
@@ -130,15 +131,15 @@ class web_service():
         # Web service is not running
         if not self.event_active.is_set():
 
-            oradio_utils.logging("info", "Configure port redirection")
+            oradio_log.debug("Configure port redirection")
             # Set port redirection for all network requests to reach the web service
             cmd = f"sudo bash -c 'iptables -t nat -A PREROUTING -p tcp --dport 80 -j REDIRECT --to-port {WEB_SERVER_PORT}'"
-            result, error = oradio_utils.run_shell_script(cmd)
+            result, error = run_shell_script(cmd)
             if not result:
-                oradio_utils.logging("error", f"Error during <{cmd}> to configure port redirection, error ={error}")
+                oradio_log.error(f"Error during <{cmd}> to configure port redirection, error ={error}")
 
             # Start web server
-            oradio_utils.logging("info", "Start FastAPI server")
+            oradio_log.debug("Start FastAPI server")
             config = uvicorn.Config(api_app, host=WEB_SERVER_HOST, port=WEB_SERVER_PORT, log_level="info")
             server = Server(config=config)
 
@@ -150,7 +151,7 @@ class web_service():
             Thread(target=self.run, args=(server,)).start()
 
         else:
-            oradio_utils.logging("info", "Reset timeout counter of running web service")
+            oradio_log.debug("Reset timeout counter of running web service")
             # web service is active, so starting == timeout counter reset
             self.reset_timeout()
 
@@ -191,7 +192,7 @@ class web_service():
         with server.run_in_thread():
 
             # Confirm starting the web server
-            oradio_utils.logging("info", f"Web service is running. Timeout = {self.timeout}")
+            oradio_log.info(f"Web service is running. Timeout = {self.timeout}")
 
             # Execute in a loop
             while True:
@@ -201,33 +202,33 @@ class web_service():
 
                 # Check for timeout
                 if time() - self.started > self.timeout:
-                    oradio_utils.logging("info", "Web service stopped by timeout")
+                    oradio_log.debug("Web service stopped by timeout")
                     break
 
                 # Check for reset event
                 if self.event_reset.is_set():
-                    oradio_utils.logging("info", "Reset web service timeout counter")
+                    oradio_log.debug("Reset web service timeout counter")
                     self.started = time()
                     self.event_reset.clear()
 
                 # Check for stop event
                 if self.event_stop.is_set():
-                    oradio_utils.logging("info", "Web service stopped by command")
+                    oradio_log.debug("Web service stopped by command")
                     self.event_stop.clear()
                     break
 
-                # Print remaining time before timeout is only for debugging, no need to log
-                print(f"Web server will timeout after {int(self.timeout - (time() - self.started))} seconds",flush=True)
+                # Print remaining time before timeout
+                oradio_log.debug(f"Web server will timeout after {int(self.timeout - (time() - self.started))} seconds")
 
         # Remove access point, keeping wifi connection if connected
         self.wifi.access_point_stop()
     
         # Remove port redirection
-        oradio_utils.logging("info", "Remove port redirection")
+        oradio_log.debug("Remove port redirection")
         cmd = f"sudo bash -c 'iptables -t nat -D PREROUTING -p tcp --dport 80 -j REDIRECT --to-port {WEB_SERVER_PORT}'"
-        result, error = oradio_utils.run_shell_script(cmd)
+        result, error = run_shell_script(cmd)
         if not result:
-            oradio_utils.logging("error", f"Error during <{cmd}> to remove iptables port redirection, error ={error}")
+            oradio_log.error(f"Error during <{cmd}> to remove iptables port redirection, error ={error}")
 
         # Pass stopped status to web service
         self.event_active.clear()
@@ -244,13 +245,13 @@ if __name__ == '__main__':
         If so, read the message from queue and display it
         :param queue = the queue to check for
         """
-        oradio_utils.logging("info", "Listening for messages")
+        print("Listening for messages\n")
 
         while True:
             # Wait for message
             message = queue.get(block=True, timeout=None)
             # Show message received
-            oradio_utils.logging("info", f"Message received: '{message}'")
+            print(f"\nMessage received: '{message}'\n")
 
     # Initialize
     message_queue = Queue()

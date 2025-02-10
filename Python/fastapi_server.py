@@ -31,7 +31,7 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
 ##### oradio modules ####################
-import oradio_utils
+from oradio_logging import oradio_log
 from wifi_service import wifi_service
 
 ##### GLOBAL constants ####################
@@ -57,7 +57,7 @@ async def middleware(request: Request, call_next):
     “A 'middleware' is a function that works with every request before it is processed
     by any specific path operation. And also with every response before returning it.”
     """
-    oradio_utils.logging("info", "Send timeout reset message")
+    oradio_log.debug("Send timeout reset message")
 
     # User interaction: Set event flag to signal timeout counter reset
     api_app.state.event_reset.set()
@@ -88,7 +88,7 @@ async def captiveportal(request: Request):
     wifi = wifi_service(api_app.state.message_queue)
 
     if wifi.get_wifi_connection() == ACCESS_POINT_SSID:
-        oradio_utils.logging("info", "Send captive portal page")
+        oradio_log.debug("Send captive portal page")
 
         # Get list of available WiFi networks
         list = wifi.get_wifi_networks()
@@ -98,7 +98,7 @@ async def captiveportal(request: Request):
         context = {"list": json.dumps(list)}
 
     else:
-        oradio_utils.logging("info", "Send home page")
+        oradio_log.debug("Send home page")
 
         # Set playlist page and context
         page = "playlists.html"
@@ -127,7 +127,7 @@ def wifi_connect_task(credentials: credentials):
     """
     Executes as background task
     """
-    oradio_utils.logging("warning", f"trying to connect to ssid={credentials.ssid}, pswd={credentials.pswd}")
+    oradio_log.warning(f"trying to connect to ssid={credentials.ssid}, pswd={credentials.pswd}")
     # Get access to wifi functions
     wifi = wifi_service(api_app.state.message_queue)
 
@@ -141,23 +141,22 @@ if __name__ == "__main__":
     import uvicorn
     from multiprocessing import Process, Queue
 
-    # Logging
-    import logging
-    logger = logging.getLogger('uvicorn.error')
-    # functions: logger.info(str), logger.debug(str), logger.error(str), etc.
-
-    # Initialize
-    message_queue = Queue()
-
-    def check_messages(message_queue):
+    def check_messages(queue):
         """
         Check if a new message is put into the queue
         If so, read the message from queue and display it
-        :param message_queue = the queue to check for
+        :param queue = the queue to check for
         """
+        print("Listening for messages\n")
+
         while True:
-            message = message_queue.get(block=True, timeout=None)
-            oradio_utils.logging("info", f"QUEUE-msg received, message ={message}")
+            # Wait for message
+            message = queue.get(block=True, timeout=None)
+            # Show message received
+            print(f"\nMessage received: '{message}'\n")
+
+    # Initialize
+    message_queue = Queue()
 
     # Start  process to monitor the message queue
     message_listener = Process(target=check_messages, args=(message_queue,))

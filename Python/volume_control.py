@@ -26,7 +26,7 @@ import threading
 from queue import Queue
 
 ##### oradio modules ####################
-import oradio_utils
+from oradio_logging import oradio_log
 
 ##### GLOBAL constants ####################
 from oradio_const import *
@@ -48,7 +48,7 @@ class VolumeControl:
         try:
             self.mixer = alsaaudio.Mixer(ALSA_MIXER_DIGITAL)
         except alsaaudio.ALSAAudioError as e:
-            oradio_utils.logging("error", f"Error initializing ALSA mixer: {e}")
+            oradio_log.error(f"Error initializing ALSA mixer: {e}")
             raise
 
         # Initialize I2C Bus
@@ -65,7 +65,7 @@ class VolumeControl:
             adc_value = ((data[0] & 0x3F) << 6) | (data[1] >> 2)
             return adc_value
         except OSError as e:
-            oradio_utils.logging("error", f"I2C read error: {e}")
+            oradio_log.error(f"I2C read error: {e}")
             return None
 
     def scale_adc_to_volume(self, adc_value, adc_max=1023, vol_min=VOLUME_MINIMUM, vol_max=VOLUME_MAXIMUM):
@@ -76,10 +76,10 @@ class VolumeControl:
         """ Sets the volume using the ALSA mixer. """
         try:
             self.mixer.setvolume(volume_raw, units=alsaaudio.VOLUME_UNITS_RAW)
-            oradio_utils.logging("info", f"Volume set to: {volume_raw}")
+            oradio_log.debug(f"Volume set to: {volume_raw}")
 #            print(f"Volume set to: {volume_raw}")  # Print for testing
         except alsaaudio.ALSAAudioError as e:
-            oradio_utils.logging("error", f"Error setting volume: {e}")
+            oradio_log.error(f"Error setting volume: {e}")
 
     def send_message(self, message_type, state):
         """ Sends a message to the specified queue. """
@@ -87,9 +87,9 @@ class VolumeControl:
             try:
                 message = {"type": message_type, "state": state}
                 self.queue.put(message)
-                oradio_utils.logging("info", f"Message sent to queue: {message}")
+                oradio_log.debug(f"Message sent to queue: {message}")
             except Exception as e:
-                oradio_utils.logging("error", f"Error sending message to queue: {e}")
+                oradio_log.error(f"Error sending message to queue: {e}")
 
     def volume_adc(self):
         """ Monitors the ADC for changes and adjusts the volume accordingly. """
@@ -101,7 +101,7 @@ class VolumeControl:
         if initial_adc_value is not None:
             initial_volume = self.scale_adc_to_volume(initial_adc_value)
             self.set_volume(initial_volume)
-            oradio_utils.logging("info", f"Initial volume set to: {initial_volume}")
+            oradio_log.debug(f"Initial volume set to: {initial_volume}")
 
         while self.running:
             adc_value = self.read_adc()
@@ -120,7 +120,7 @@ class VolumeControl:
                 else:
                     polling_interval = min(polling_interval + 0.01, POLLING_MAX_INTERVAL)
             else:
-                oradio_utils.logging("warning", "ADC read failed. Retrying...")
+                oradio_log.warning("ADC read failed. Retrying...")
 
             time.sleep(polling_interval)
 

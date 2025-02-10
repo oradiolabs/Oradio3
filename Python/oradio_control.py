@@ -1,7 +1,10 @@
-import oradio_utils
-print("Oradio is running!")
-oradio_utils.logging("debug", "Debug message in white")
-oradio_utils.logging("info", "Info message in white")
-oradio_utils.logging("success", "Success message in green")
-oradio_utils.logging("warning", "Warning message in yellow")
-oradio_utils.logging("error", "Error message in red")
+# Test the available logging levels
+from oradio_logging import oradio_log
+oradio_log.debug("Debug message in white")
+oradio_log.info("Info message in white")
+oradio_log.warning("Warning message in yellow")
+oradio_log.error("Error message in red")
+
+# Allow time for logging to do its thing
+from time import sleep
+sleep(3)
