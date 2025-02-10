@@ -28,27 +28,63 @@ Created on Februari 1, 2025
 import subprocess
 from subprocess import Popen, PIPE, CalledProcessError
 import socket
+import selectors
+
 #### Oradio modules  #####
 import oradio_utils
 from oradio_const import *
 
+
 class SpotifyConnect():
+
+    def accept_connection(self,sock):
+        conn, addr = sock.accept()
+        print(f"Connection from {addr}")
+        conn.setblocking(False)
+        self.sel.register(conn, selectors.EVENT_READ, self.read_message)
+    
+    def read_message(self,conn):
+        data = conn.recv(1024)
+        if data:
+            print(f"Received: {data.decode()}")
+        else:
+            print("Closing connection")
+            self.sel.unregister(conn)
+            conn.close()
+
+    def observer_loop(self):
+        print("Observer running...")
+        while True:
+            events = self.sel.select(timeout=None)
+            for key, _ in events:
+                callback = key.data
+                callback(key.fileobj)
+
     def __init__(self):
         # setup an observer listening to socket for incoming messages
+        self.sel = selectors.DefaultSelector()
         server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         server_socket.bind(("localhost", SPOTIFY_EVENT_SOCKET_PORT))
-        server_socket.listen(1)        
-        print(YELLOW_TXT+"Socket open and listening. Stop test with CTRL+C"+END_TXT)
-        try:
-            while(True):
-                client_socket, address = server_socket.accept()
-                data = client_socket.recv(1024)
-                print(data)
-        except KeyboardInterrupt:
-            client_socket.close()
-            server_socket.close()
+        server_socket.listen(5)
+        server_socket.setblocking(False)
+        oradio_utils.logging("info","Librespot event socket opened and listening")
 
-        
+        self.sel.register(server_socket, selectors.EVENT_READ, self.accept_connection)
+
+        # Run the observer in a separate thread
+        observer_thread = threading.Thread(target=self.observer_loop, daemon=True)
+        observer_thread.start()     
+           
+        print("Server Listening ........")
+        while True:
+            events = self.sel.select(timeout=None)
+            for key, _ in events:
+                callback = key.data
+                callback(key.fileobj)        
+
+
+
+'''        
 librespot --name "Raspberry Pi" --bitrate 320 --backend pipe --device /tmp/librespot-pipe --verbose
 
 # Load the JSON schema file
@@ -66,7 +102,7 @@ message = msg.model_dump()
 message["type"] = MESSAGE_SPOTIFY_TYPE
 
 serialized_dict = json.dumps(message).encode('utf-8')
-
+'''
 
 if __name__ == "__main__":
     YELLOW_TXT  = "\033[93m"
@@ -103,18 +139,20 @@ if __name__ == "__main__":
         print("Open a Spotify app and connect to a sound device called Oradio-luidspreker ")
         print("Check if spotify events are there")
         print("Increase volume on Spotify App")
-        server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        server_socket.bind(("localhost", SPOTIFY_EVENT_SOCKET_PORT))
-        server_socket.listen(1)        
-        print(YELLOW_TXT+"Socket open and listening. Stop test with CTRL+C"+END_TXT)
-        try:
-            while(True):
-                client_socket, address = server_socket.accept()
-                data = client_socket.recv(1024)
-                print(data)
-        except KeyboardInterrupt:
-            client_socket.close()
-            server_socket.close()
+        spot_con = SpotifyConnect()
+
+#        server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+#        server_socket.bind(("localhost", SPOTIFY_EVENT_SOCKET_PORT))
+#        server_socket.listen(1)        
+#        print(YELLOW_TXT+"Socket open and listening. Stop test with CTRL+C"+END_TXT)
+#        try:
+#            while(True):
+#                client_socket, address = server_socket.accept()
+#                data = client_socket.recv(1024)
+#                print(data)
+#        except KeyboardInterrupt:
+#            client_socket.close()
+#            server_socket.close()
     
     # Show menu with test options
     input_selection = ("Select a function, input the number.\n"
@@ -129,7 +167,7 @@ if __name__ == "__main__":
  
     # User command loop
     
-    $ mpv --no-video --demuxer=rawaudio --demuxer-rawaudio-format=s16le --demuxer-rawaudio-rate=44100 --demuxer-rawaudio-channels=2 /spotify/librespot-pipe
+#    $ mpv --no-video --demuxer=rawaudio --demuxer-rawaudio-format=s16le --demuxer-rawaudio-rate=44100 --demuxer-rawaudio-channels=2 /spotify/librespot-pipe
 
     while True:
 
