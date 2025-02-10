@@ -35,7 +35,21 @@ from oradio_const import *
 class SpotifyConnect():
     def __init__(self):
         # setup an observer listening to socket for incoming messages
+        server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        server_socket.bind(("localhost", SPOTIFY_EVENT_SOCKET_PORT))
+        server_socket.listen(1)        
+        print(YELLOW_TXT+"Socket open and listening. Stop test with CTRL+C"+END_TXT)
+        try:
+            while(True):
+                client_socket, address = server_socket.accept()
+                data = client_socket.recv(1024)
+                print(data)
+        except KeyboardInterrupt:
+            client_socket.close()
+            server_socket.close()
 
+        
+librespot --name "Raspberry Pi" --bitrate 320 --backend pipe --device /tmp/librespot-pipe --verbose
 
 # Load the JSON schema file
 with open("/home/pi/Oradio3/Python/schemas.json") as f:
@@ -81,6 +95,7 @@ if __name__ == "__main__":
             process.terminate()
         return()
     
+
     def play_spotify_on_speaker(): 
         '''
         Play a playlist via the spotify connect app
