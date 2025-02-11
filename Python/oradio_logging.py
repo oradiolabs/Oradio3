@@ -83,7 +83,7 @@ class RemoteMonitoringHandler(python_logging.Handler):
         if record.levelno == WARNING or record.levelno == ERROR:
             # Import here to avoid circular import
             from remote_monitoring import rms_service
-            rms_service().send_message(record.levelname, record.message, f"{record.filename}:{record.lineno}", record.levelno == ERROR)
+            rms_service().send_message(record.levelname, record.message, f"{record.filename}:{record.lineno}")
 
 # Configure Oradio logger
 oradio_log = python_logging.getLogger('oradio')
