@@ -24,8 +24,8 @@ Created on Januari 17, 2025
         https://docs.python.org/3/howto/logging.html
         https://pypi.org/project/concurrent-log-handler/
 """
-import requests
 import subprocess
+import urllib.request
 from subprocess import run
 from vcgencmd import Vcgencmd
 
@@ -43,11 +43,10 @@ def check_internet_connection():
     :return status  - True: connected to the internet
                     - False: not connected to the internet
     """
-#OMJ: Waarom werkt http://oradiolabs.nl niet?
     try:
-        requests.get('http://google.com', timeout = 1)
+        urllib.request.urlopen("http://google.com")
         return True
-    except:
+    except urllib.error.URLError:
         return False
 
 def get_throttled_state_rpi():
