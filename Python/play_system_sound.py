@@ -16,6 +16,9 @@ Created on Januari 30, 2025
 @email:         oradioinfo@stichtingoradio.nl
 @status:        Development
 @summary:       Oradio System Sound Player
+
+Logging update
+
 """
 import os
 import subprocess
@@ -24,14 +27,15 @@ import time
 import random
 
 ##### oradio modules ####################
-import oradio_utils
+from oradio_logging import oradio_log
 from volume_control import VolumeControl
 
 ##### GLOBAL constants ####################
 from oradio_const import *
+#SOUND_FILES_DIR in global constants
 
 ##### LOCAL constants ####################
-SOUND_FILES_DIR = ORADIO_DIR + "/system_sounds"
+
 SOUND_FILES = {
     # Sounds
     "StartUp": f"{SOUND_FILES_DIR}/StartUp.wav",
@@ -75,20 +79,22 @@ class PlaySystemSound:
         """
         try:
             sound_file = SOUND_FILES.get(sound_key)
+#             print(f"ORADIO_DIR is set to: {ORADIO_DIR}")
+#             print(f"Expected path: {SOUND_FILES['StartUp']}")
             if not sound_file:
-                oradio_utils.logging("error", f"Invalid sound key: {sound_key}")
+                oradio_log.error(f"Invalid sound key: {sound_key}")
                 return
 
             if not os.path.exists(sound_file):
-                oradio_utils.logging("error", f"Sound file does not exist: {sound_file}")
+                oradio_log.debug(f"Sound file does not exist: {sound_file}")
                 return
 
             command = ["aplay", "-D", self.audio_device, sound_file]
             subprocess.run(command, check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-            oradio_utils.logging("info", f"System sound played successfully: {sound_file}")
+            oradio_log.debug(f"System sound played successfully: {sound_file}")
 
         except subprocess.CalledProcessError as e:
-            oradio_utils.logging("error", f"Error playing sound: {e}")
+            oradio_log.error(f"Error playing sound: {e}")
 
 # ------------------ TEST SECTION ------------------
 if __name__ == "__main__":
