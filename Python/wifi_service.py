@@ -28,7 +28,7 @@ import nmcli
 from threading import Thread
 
 ##### oradio modules ####################
-from oradio_utils import run_shell_script
+from oradio_utils import check_internet_connection, run_shell_script
 from oradio_logging import oradio_log
 
 ##### GLOBAL constants ####################
@@ -486,7 +486,11 @@ class wifi_service():
             return STATE_WIFI_ACCESS_POINT
         # Connection to wifi network
         elif active != ACCESS_POINT_SSID:
-            return STATE_WIFI_INFRASTRUCTURE
+            # Connected: determine connection type
+            if check_internet_connection():
+                return STATE_WIFI_INFRASTRUCTURE
+            else:
+                return STATE_WIFI_LOCAL_NETWORK
 
 ''' Park until proven to be needed
     def wifi_nm_clean(self):

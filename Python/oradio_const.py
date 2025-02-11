@@ -33,6 +33,7 @@ ACCESS_POINT_SSID = "OradioAP"
 # wifi states
 STATE_WIFI_IDLE           = "Wifi is not connected"
 STATE_WIFI_INFRASTRUCTURE = "Connected to infrastructure"
+STATE_WIFI_LOCAL_NETWORK  = "Connected to local network"
 STATE_WIFI_ACCESS_POINT   = "Configured as access point"
 # wifi messages
 MESSAGE_WIFI_TYPE            = "Wifi message"
