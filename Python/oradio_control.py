@@ -33,6 +33,13 @@ from mpd_control import MPDControl
 from led_control import LEDControl
 from play_system_sound import PlaySystemSound
 from touch_buttons import TouchButtons
+from remote_monitoring import rms_service
+
+# Instantiate remote monitor
+remote_monitor = rms_service()
+
+# Send system info to Remote Monitoring Service
+remote_monitor.send_message(SYS_INFO)
 
 #--------- Spotify test part
 #----------Reservation------------
@@ -234,16 +241,17 @@ def process_messages(queue):
                 "Volume changed": on_volume_changed,
             },
             "USB message": {
-                "USB drive absent": on_usb_absent,
-                "USB drive present": on_usb_present,
+                STATE_USB_ABSENT: on_usb_absent,
+                STATE_USB_PRESENT: on_usb_present,
             },
             "Wifi message": {
-                "Connected to infrastructure": on_wifi_connected,
-                "Wifi is not connected": on_wifi_not_connected,
-                "Configured as access point": on_wifi_not_connected
+                STATE_WIFI_IDLE: on_wifi_not_connected,
+                STATE_WIFI_INFRASTRUCTURE: on_wifi_connected_to_internet,
+                STATE_WIFI_LOCAL_NETWORK: on_wifi_connected_to_local_network,
+                STATE_WIFI_ACCESS_POINT: on_wifi_not_connected
             },
             "web service message": {
-                "web service is idle": on_webservice_not_active,          
+                STATE_WEB_SERVICE_IDLE: on_webservice_not_active,          
             },
             "SPOTIFY_CONNECT": {
                 "ACTIVE": on_spotify_connect_active,
@@ -277,18 +285,25 @@ def on_volume_changed():
         state_machine.transition("StatePlay") # Switch Oradio in Play when Volume buttons is turned
 
 def on_usb_absent():
-
     usb_present_event.clear()  # Clear the event so wait() will block
     state_machine.transition("StateUSBAbsent")
     oradio_log.debug(f"USB absent acknowlegded")
-
 
 def on_usb_present():
     usb_present_event.set()  # Signal that USB is now present
     oradio_log.debug("USB present acknowledged")
     
-def on_wifi_connected():
-    global Wifi_Connected  # To track USB present
+def on_wifi_connected_to_internet():
+    global Wifi_Connected  # To track wifi
+    Wifi_Connected = True
+    # Send system info to Remote Monitoring Service
+    remote_monitor.send_message(SYS_INFO)
+    if state_machine.state == "StateWebServiceForceAP": # If waiting for connection, move to stop
+        state_machine.transition("StateStop")
+    oradio_log.debug(f"Wifi is connected acknowledged")
+
+def on_wifi_connected_to_local_network():
+    global Wifi_Connected  # To track wifi
     Wifi_Connected = True
     if state_machine.state == "StateWebServiceForceAP": # If waiting for connection, move to stop
         state_machine.transition("StateStop")
