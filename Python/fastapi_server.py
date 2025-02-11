@@ -127,7 +127,7 @@ def wifi_connect_task(credentials: credentials):
     """
     Executes as background task
     """
-    oradio_log.warning(f"trying to connect to ssid={credentials.ssid}, pswd={credentials.pswd}")
+    oradio_log.debug(f"trying to connect to ssid={credentials.ssid}, pswd={credentials.pswd}")
     # Get access to wifi functions
     wifi = wifi_service(api_app.state.message_queue)
 
