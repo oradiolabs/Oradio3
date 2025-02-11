@@ -25,6 +25,7 @@ import smbus2
 import threading
 from queue import Queue
 
+
 ##### oradio modules ####################
 from oradio_logging import oradio_log
 
@@ -120,7 +121,7 @@ class VolumeControl:
                 else:
                     polling_interval = min(polling_interval + 0.01, POLLING_MAX_INTERVAL)
             else:
-                oradio_log.warning("ADC read failed. Retrying...")
+                oradio_log.error("warning", "ADC read failed. Retrying...")
 
             time.sleep(polling_interval)
 

@@ -44,22 +44,34 @@ class LEDControl:
         """
         GPIO.setmode(GPIO.BCM)
 
-        # Configure LEDs as outputs
+        # Configure LEDs as outputs and turn them off (HIGH)
         for name, pin in LEDS.items():
             GPIO.setup(pin, GPIO.OUT, initial=GPIO.HIGH)
 
-        self.blinking_leds = {}  # Dictionary to track blinking LEDs
+        # Dictionary to track blinking flags for each LED
+        self.blinking_leds = {}
+        # Dictionary to track blinking thread objects for each LED
+        self.blinking_threads = {}
         oradio_log.debug("LEDControl initialized: All LEDs OFF")
 
-    def turn_off_all_leds(self):
-        """Turns off all LEDs."""
-        for led in LEDS.values():
-            GPIO.output(led, GPIO.HIGH)
-        oradio_log.debug("All LEDs turned off")
+    def turn_off_led(self, led_name):
+        """Turns off a specific LED and stops its blinking if active."""
+        if led_name not in LEDS:
+            oradio_utils.logging("error", f"Invalid LED name: {led_name}")
+            return
+        # Signal any blinking thread for this LED to stop
+        self.blinking_leds[led_name] = False
+        if led_name in self.blinking_threads:
+            t = self.blinking_threads[led_name]
+            t.join(timeout=0.5)
+            del self.blinking_threads[led_name]
+        GPIO.output(LEDS[led_name], GPIO.HIGH)
+        oradio_log.debug(f"{led_name} turned off")
 
     def turn_on_led(self, led_name):
-        """Turns on a specific LED."""
+        """Turns on a specific LED (stops blinking if active)."""
         if led_name in LEDS:
+            self.turn_off_led(led_name)  # Stop blinking if active
             GPIO.output(LEDS[led_name], GPIO.LOW)
             oradio_log.debug(f"{led_name} turned on")
         else:
@@ -69,14 +81,16 @@ class LEDControl:
         """
         Turns off all LEDs and stops any ongoing blinking.
         """
-        # Stop all blinking LEDs
-        for led_name in LEDS.keys():
-            self.blinking_leds[led_name] = False  # Stop blinking
-
-        # Ensure all LEDs are turned off
+        # Stop blinking for every LED
+        for led_name in list(LEDS.keys()):
+            self.blinking_leds[led_name] = False
+            if led_name in self.blinking_threads:
+                t = self.blinking_threads[led_name]
+                t.join(timeout=0.5)
+                del self.blinking_threads[led_name]
+        # Turn off all LEDs
         for led in LEDS.values():
             GPIO.output(led, GPIO.HIGH)
-
         oradio_log.debug("All LEDs turned off and blinking stopped")
     
     def turn_on_led_with_delay(self, led_name, delay=3):
@@ -91,7 +105,8 @@ class LEDControl:
             oradio_log.error(f"Invalid LED name: {led_name}")
             return
 
-        # Turn on the LED
+        # Stop any blinking for this LED and turn it on
+        self.turn_off_led(led_name)
         GPIO.output(LEDS[led_name], GPIO.LOW)
         oradio_log.debug(f"{led_name} turned on, will turn off after {delay} seconds")
 
@@ -100,9 +115,7 @@ class LEDControl:
             GPIO.output(LEDS[led_name], GPIO.HIGH)
             oradio_log.debug(f"{led_name} turned off after {delay} seconds")
 
-        # Start a separate thread to handle the delay without blocking execution
         threading.Thread(target=delayed_off, daemon=True).start()
-
 
     def control_blinking_led(self, led_name, cycle_time=None):
         """
@@ -114,39 +127,53 @@ class LEDControl:
             cycle_time (float or None): Blink interval in seconds.
         """
         if led_name not in LEDS:
-            oradio_log.error(f"Invalid LED name: {led_name}")
+            oradio_log.debug(f"Invalid LED name: {led_name}")
             return
 
+        # If no cycle time is provided, stop blinking
         if cycle_time is None or cycle_time == 0:
-            # Stop blinking and ensure LED is turned off
             self.blinking_leds[led_name] = False
-            GPIO.output(LEDS[led_name], GPIO.HIGH)  # Turn off LED
+            if led_name in self.blinking_threads:
+                t = self.blinking_threads[led_name]
+                t.join(timeout=0.5)
+                del self.blinking_threads[led_name]
+            GPIO.output(LEDS[led_name], GPIO.HIGH)
             oradio_log.debug(f"{led_name} blinking stopped and turned off")
             return
 
-        # Stop any existing blinking thread for this LED
+        # If a blinking thread is already running for this LED, stop it first.
+        if led_name in self.blinking_threads and self.blinking_threads[led_name].is_alive():
+            self.blinking_leds[led_name] = False
+            t = self.blinking_threads[led_name]
+            t.join(timeout=0.5)
+            del self.blinking_threads[led_name]
+
+        # Start a new blinking thread
         self.blinking_leds[led_name] = True
 
         def blink():
             while self.blinking_leds.get(led_name, False):
-                GPIO.output(LEDS[led_name], GPIO.LOW)  # Turn on LED
-                time.sleep(cycle_time / 2)  # ON duration
+                # Turn on LED
+                GPIO.output(LEDS[led_name], GPIO.LOW)
+                time.sleep(cycle_time / 2)
                 if not self.blinking_leds.get(led_name, False):
                     break
-                GPIO.output(LEDS[led_name], GPIO.HIGH)  # Turn off LED
-                time.sleep(cycle_time / 2)  # OFF duration
-
-            # Ensure LED is off after blinking stops
+                # Turn off LED
+                GPIO.output(LEDS[led_name], GPIO.HIGH)
+                time.sleep(cycle_time / 2)
+            # Ensure LED is off when finished
             GPIO.output(LEDS[led_name], GPIO.HIGH)
 
-        threading.Thread(target=blink, daemon=True).start()
+        t = threading.Thread(target=blink, daemon=True)
+        t.start()
+        self.blinking_threads[led_name] = t
         oradio_log.debug(f"{led_name} blinking started with cycle time: {cycle_time}s")
 
     def cleanup(self):
         """Cleans up GPIO on program exit."""
-        for led in LEDS.values():
-            GPIO.output(led, GPIO.HIGH)  # Ensure all LEDs are off
-        self.blinking_leds = {}  # Stop all blinking threads
+        self.turn_off_all_leds()
+        self.blinking_leds = {}
+        self.blinking_threads = {}
         GPIO.cleanup()
         oradio_log.debug("GPIO cleanup completed")
 

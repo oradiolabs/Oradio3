@@ -22,6 +22,7 @@ import time
 import threading
 import RPi.GPIO as GPIO
 
+
 ##### oradio modules ####################
 from oradio_logging import oradio_log
 from play_system_sound import PlaySystemSound
@@ -134,7 +135,7 @@ class TouchButtons:
             if button_name == "Play":
                 self.state_machine.transition("StateWebService")
             else:
-                oradio_log.debug(f"LONG press detected on button: {button_name} (no action)")
+                oradio_log.error(f"LONG press detected on button: {button_name} (no action)")
 
     def _extra_long_press_handler(self, button_name):
         """Handles extra-long press actions."""
@@ -142,7 +143,7 @@ class TouchButtons:
             if button_name == "Play":
                 self.state_machine.transition("StateWebServiceForceAP")
             else:
-                oradio_log.debug(f"EXTRA LONG press detected on button: {button_name} (no action)")
+                oradio_log.error(f"EXTRA LONG press detected on button: {button_name} (no action)")
 
     def cleanup(self):
         """Cleans up GPIO on exit."""
