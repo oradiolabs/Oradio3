@@ -80,13 +80,10 @@ class ThrottledFilter(python_logging.Filter):
 class RemoteMonitoringHandler(python_logging.Handler):
     """ Send error and warning messages to Oradio Remote Monitoring Service """
     def emit(self, record):
-        # Import here to avoid circular import
-        from oradio_utils import check_internet_connection
-        # Warning and error messages are only sent if connected to internet
-        if check_internet_connection() and (record.levelno == WARNING or record.levelno == ERROR):
+        if record.levelno == WARNING or record.levelno == ERROR:
             # Import here to avoid circular import
             from remote_monitoring import rms_service
-            rms_service().send_message(record.levelname, f"{record.filename}:{record.lineno}", record.message, True)
+            rms_service().send_message(record.levelname, record.message, f"{record.filename}:{record.lineno}", record.levelno == ERROR)
 
 # Configure Oradio logger
 oradio_log = python_logging.getLogger('oradio')
