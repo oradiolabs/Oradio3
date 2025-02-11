@@ -38,8 +38,10 @@ from concurrent_log_handler.queue import setup_logging_queues
 from oradio_const import *
 
 ##### LOCAL constants ####################
-ORADIO_LOGGER    = 'oradio'
-ORADIO_LOG_LEVEL = DEBUG
+ORADIO_LOGGER       = 'oradio'
+ORADIO_LOG_LEVEL    = DEBUG
+ORADIO_LOG_FILESIZE = 512 * 1024
+ORADIO_LOG_BACKUPS  = 2
 
 class ColorFormatter(python_logging.Formatter):
     """ Use colors to differentiate the different log level messages """
@@ -97,8 +99,8 @@ console_handler = python_logging.StreamHandler()
 console_handler.setFormatter(ColorFormatter())
 oradio_log.addHandler(console_handler)
 
-# Rotate log after reaching 512K, keep 2 old copies
-file_handler = ConcurrentRotatingFileHandler(ORADIO_LOG_FILE, 'a+', 512 * 1024, 2)
+# Rotate log after reaching file size, keep old copies
+file_handler = ConcurrentRotatingFileHandler(ORADIO_LOG_FILE, 'a+', ORADIO_LOG_FILESIZE, ORADIO_LOG_BACKUPS)
 file_handler.setFormatter(ColorFormatter())
 file_handler.addFilter(ThrottledFilter())      # Do not write to SD card when RPI is throttled
 oradio_log.addHandler(file_handler)
@@ -107,7 +109,7 @@ oradio_log.addHandler(file_handler)
 remote_handler = RemoteMonitoringHandler()
 oradio_log.addHandler(remote_handler)
 
-# convert all configured loggers to use a background thread
+# Convert loggers to use background thread
 setup_logging_queues()
 
 # Entry point for stand-alone operation
