@@ -65,11 +65,11 @@ if "PLAYER_EVENT" in environment:
     elif environment['PLAYER_EVENT'] == 'volume_changed':
         event_data['volume']         = environment['VOLUME']
     librespot_event_data=event_data
-
+print("liberspot event: ",librespot_event_data)
 serialized_dict = json.dumps(librespot_event_data).encode('utf-8')
 
 # Client
-#client_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-#client_socket.connect(("localhost", SPOTIFY_EVENT_SOCKET_PORT))
-#client_socket.sendall(serialized_dict)
-#client_socket.close()
+client_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+client_socket.connect(("localhost", SPOTIFY_EVENT_SOCKET_PORT))
+client_socket.sendall(serialized_dict)
+client_socket.close()
