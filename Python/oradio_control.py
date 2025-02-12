@@ -33,14 +33,16 @@ from mpd_control import MPDControl
 from led_control import LEDControl
 from play_system_sound import PlaySystemSound
 from touch_buttons import TouchButtons
-from remote_monitoring import rms_service, HEARTBEAT, SYS_INFO
+from remote_monitoring import rms_service
 
 from oradio_const import *
 # Instantiate remote monitor
 remote_monitor = rms_service()
 
 # Send system info to Remote Monitoring Service
-remote_monitor.send_message(SYS_INFO)
+remote_monitor.send_sys_info()
+# Send heartbeat every hour to Remote Monitoring Service
+remote_monitor.heartbeat_start()
 
 #--------- Spotify test part
 #----------Reservation------------
@@ -105,7 +107,7 @@ class StateMachine:
 
 
     def transition(self, new_state):
-        oradio_log.info(f"Transitioning from {self.state} to {new_state}")
+        oradio_log.debug(f"Transitioning from {self.state} to {new_state}")
         if self.state == new_state:
             if self.state == "StatePlay" or self.state == "StatePreset1" or self.state == "StatePreset2" or self.state == "StatePreset3":
                 threading.Thread(target=mpd.next).start()  # PLAY NEXT SONG
@@ -203,7 +205,7 @@ class StateMachine:
                 mpd.pause()
                 oradio_web_service.start(force_ap=True)
                 sound_player.play("OradioAP")
-                oradio_log.info(f"In WebServiceForceAP state, wait for next step")
+                oradio_log.debug(f"In WebServiceForceAP state, wait for next step")
                 Web_Service_Active = True
             #    mpd.play()
             #    self.play_SysSound("Play")
@@ -282,7 +284,6 @@ def process_messages(queue):
 # Define the actions
 
 def on_volume_changed():
-    oradio_log.debug(f"Vol Control change acknowlegded")
     if state_machine.state == "StateStop" or state_machine.state == "StateIdle":
         state_machine.transition("StatePlay") # Switch Oradio in Play when Volume buttons is turned
 
@@ -299,7 +300,7 @@ def on_wifi_connected_to_internet():
     global Wifi_Connected  # To track wifi
     Wifi_Connected = True
     # Send system info to Remote Monitoring Service
-    remote_monitor.send_message(SYS_INFO)
+    remote_monitor.send_sys_info()
     if state_machine.state == "StateWebServiceForceAP": # If waiting for connection, move to stop
         state_machine.transition("StateStop")
     oradio_log.debug(f"Wifi is connected acknowledged")
