@@ -40,6 +40,7 @@ ERROR     = 'ERROR'
 
 ##### LOCAL constants ####################
 RMS_SERVER_URL = 'https://oradiolabs.nl/rms/receive.php'
+HW_LOG_FILE = "/var/log/oradio_hw_version.log"
 
 # Get Oradio logger
 #oradio_log = getLogger('oradio')
@@ -61,8 +62,13 @@ def get_sw_version():
     return 'TODO: uit logging/oradio_sw_version.log lezen'
 
 def get_hw_version():
-    """ Get the Oradio software version """
-    return 'TODO: uit logging/oradio_hw_version.log lezen'
+    """ Read the contents of the HW serial number file """
+    if os.path.exists(HW_LOG_FILE):
+        with open(HW_LOG_FILE, "r") as f:
+            data = json.load(f)
+        return data["serial"]
+    else:
+        return f"HW version file '{HW_LOG_FILE}' does not exist"
 
 def get_python_version():
     """Get the current python version """
