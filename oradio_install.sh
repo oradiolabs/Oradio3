@@ -31,6 +31,7 @@ source install_modules/constants.sh
 
 # Modules to install. ORDER IS IMPORTANT!
 ORADIO_MODULES=(
+	"hw_version"
 	"config"
 	"packages"
 	"python"
