@@ -33,13 +33,15 @@ from mpd_control import MPDControl
 from led_control import LEDControl
 from play_system_sound import PlaySystemSound
 from touch_buttons import TouchButtons
-from remote_monitoring import rms_service, HEARTBEAT, SYS_INFO
+from remote_monitoring import rms_service, SYS_INFO
 
 # Instantiate remote monitor
 remote_monitor = rms_service()
 
 # Send system info to Remote Monitoring Service
-remote_monitor.send_message(SYS_INFO)
+remote_monitor.send_sys_info()
+# Send heartbeat every hour to Remote Monitoring Service
+remote_monitor.heartbeat_start()
 
 #--------- Spotify test part
 #----------Reservation------------
@@ -297,7 +299,7 @@ def on_wifi_connected_to_internet():
     global Wifi_Connected  # To track wifi
     Wifi_Connected = True
     # Send system info to Remote Monitoring Service
-    remote_monitor.send_message(SYS_INFO)
+    remote_monitor.send_sys_info()
     if state_machine.state == "StateWebServiceForceAP": # If waiting for connection, move to stop
         state_machine.transition("StateStop")
     oradio_log.debug(f"Wifi is connected acknowledged")

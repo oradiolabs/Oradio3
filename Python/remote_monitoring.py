@@ -132,6 +132,10 @@ class rms_service():
             self.heartbeat_timer.cancel()
             heartbeat_repeat_timer_is_running = False
 
+    def send_sys_info(self):
+        """ Wrapper to simplify oradio control """
+        self.send_message(SYS_INFO)
+        
     def send_message(self, msg_type, message = None, function = None):
         """
         Format message based on type
@@ -226,7 +230,7 @@ if __name__ == "__main__":
                 rms.heartbeat_start()
             case 2:
                 print("\nSend SYS_INFO test message to Remote Monitoring Service...\n")
-                rms.send_message(SYS_INFO)
+                rms.send_sys_info()
             case 3:
                 print("\nSend WARNING test message to Remote Monitoring Service...\n")
                 rms.send_message(WARNING, 'test warning message', 'filename:lineno')
