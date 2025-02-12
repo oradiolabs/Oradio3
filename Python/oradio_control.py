@@ -35,6 +35,11 @@ from play_system_sound import PlaySystemSound
 from touch_buttons import TouchButtons
 from remote_monitoring import rms_service
 
+##### GLOBAL constants ####################
+from oradio_const import *
+
+##### LOCAL constants ####################
+
 # Instantiate remote monitor
 remote_monitor = rms_service()
 
