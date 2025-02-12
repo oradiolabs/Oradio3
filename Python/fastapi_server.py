@@ -91,18 +91,29 @@ async def captiveportal(request: Request):
         oradio_log.debug("Send captive portal page")
 
         # Get list of available WiFi networks
-        list = wifi.get_wifi_networks()
+        networks = wifi.get_wifi_networks()
 
         # Set captive portal page and context
         page = "captiveportal.html"
-        context = {"list": json.dumps(list)}
+        context = {"networks": networks}
 
     else:
         oradio_log.debug("Send home page")
 
+        # Get info for playlist page
+#        presets = load_presets()
+        presets = {"preset1": None, "preset2": None, "preset3": None}
+#        folders = get_mpd_directories_simple()
+        folders = []
+        selected_preset_files = []
+
         # Set playlist page and context
         page = "playlists.html"
-        context = {}
+        context = {
+                    "presets": presets,
+                    "folders": folders,
+                    "selected_preset_files": selected_preset_files
+                }
 
     # Return page and context
     return templates.TemplateResponse(request=request, name=page, context=context)

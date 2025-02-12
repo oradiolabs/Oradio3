@@ -1,0 +1,34 @@
+/*!
+ * @package:      Oradio3
+ * @author url:   https://oradiolabs.nl
+ * @author email: info at oradiolabs dot nl
+ * @copyright:    Stichting Oradio, All rights reserved.
+ * @license:      GNU General Public License version 3; https://www.gnu.org/licenses/gpl-3.0.html
+ */
+
+/*
+ * Oradio captive portal style choices
+ */
+
+/* allow for 'eye' on the right */
+.pswd-input {
+	width: 90%;
+	padding: 10px;
+	margin-bottom: 20px;
+	border-radius: 5px;
+	border: 1px solid #ccc;
+	box-sizing: border-box;
+	font-size: 14px;
+	background-color: #1F2933;
+	color: rgb(234, 232, 221);
+}
+
+/* Improve icon visibility and position */
+.oradio-eye {
+	font-size: 1.5rem;
+	vertical-align: middle;
+}
+
+.notification {
+	line-height: 1.5; 
+}

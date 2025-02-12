@@ -413,8 +413,8 @@ class wifi_service():
             oradio_log.debug(f"Remove '{ACCESS_POINT_SSID}' from the list")
             for network in wifi_list:
                 # Add unique, ignore own Access Point
-                if network.ssid != ACCESS_POINT_SSID and not any(network.ssid in d['ssid'] for d in networks):
-                    networks.append({"ssid": network.ssid, "security": bool(network.security)})
+                if (network.ssid != ACCESS_POINT_SSID) and (len(network.ssid) != 0) and (network.ssid not in networks):
+                    networks.append(network.ssid)
 
         return networks
 

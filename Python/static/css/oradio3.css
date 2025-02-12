@@ -1,72 +1,100 @@
 /*!
  * @package:      Oradio3
- * @author url:   https://stichtingoradio.nl
- * @author email: info at pbfvolleybal dot nl
+ * @author url:   https://oradiolabs.nl
+ * @author email: info at oradiolabs dot nl
  * @copyright:    Stichting Oradio, All rights reserved.
  * @license:      GNU General Public License version 3; https://www.gnu.org/licenses/gpl-3.0.html
  */
 
 /*
- * Oradio style choices
+ * Oradio generic style choices
  */
 
-/* Define placeholder color: dark-grey */
-:root {
-	--ph-color: #707070;
+body {
+	font-family: 'Roboto', Helvetica, Arial, sans-serif;
+	margin: 0;
+	padding: 0;
+	background-color: #14213D;
+	color: rgb(234, 232, 221);
+	display: flex;
+	justify-content: center;
+	align-items: center;
+	min-height: 100vh;
 }
 
-/* Define default placeholder color */
-::placeholder,
-.placeholder {
-	color: var(--ph-color);
+.container {
+	max-width: 400px;
+	width: 100%;
+	height: 95vh;
+	padding: 20px;
+	background-color: #1F2933;
+	border-radius: 10px;
+	box-shadow: 0 4px 8px rgba(0, 0, 0, 0.2);
 }
 
-/* Hide element */
-.hide {
-	display: none;
-}
-
-/* Create some space on the left */
-.oradio-container {
-	margin-left: 1em;
-}
-
-/* Center the header */
-.oradio-header {
+h1 {
 	text-align: center;
+	margin-bottom: 20px;
 }
 
-/* Allow space on right for icon */
-.oradio-input {
-	width: 75%;
+label {
+	display: block;
+	margin-bottom: 8px;
+	font-weight: bold;
 }
 
-/* Improve icon visibility and position */
-.oradio-eye {
-	font-size: 1.5rem;
-	vertical-align: middle;
+select {
+	width: 100%;
+	padding: 10px;
+	margin-bottom: 20px;
+	border-radius: 5px;
+	border: 1px solid #ccc;
+	box-sizing: border-box;
+	font-size: 14px;
+	background-color: #1F2933;
+	color: rgb(234, 232, 221);
 }
 
-/*
- * Tweak Pure for readability
- */
-
-/* Labels need less space */
-.pure-form-aligned .pure-control-group label {
-	width: 5em;
+input {
+	width: 100%;
+	padding: 10px;
+	margin-bottom: 20px;
+	border-radius: 5px;
+	border: 1px solid #ccc;
+	box-sizing: border-box;
+	font-size: 14px;
+	background-color: #1F2933;
+	color: rgb(234, 232, 221);
 }
 
-/* Adjust button location in line with labels */
-.pure-form-aligned .pure-controls {
-	margin: 1.5em 0 0 6em;
+button {
+	width: 100%;
+	background-color: #1DB954;
+	color: #FFFFFF;
+	border: none;
+	border-radius: 5px;
+	padding: 10px;
+	font-size: 16px;
+	cursor: pointer;
+	transition: background-color 0.3s;
+	margin-bottom: 20px;
 }
-@media only screen and (max-width : 480px) {
-	.pure-form-aligned .pure-controls {
-		margin: 1.5em 0 0 0;
+
+button:hover {
+	background-color: #00FF7F;
+}
+
+ul {
+	list-style-type: none;
+	padding-left: 0;
+}
+
+li {
+	margin: 5px 0;
+}
+
+@media (max-width: 500px) {
+	.container {
+		padding: 15px;
 	}
-}
-
-/* Put password visibility icon next to input */
-.pure-form-aligned input {
-	display: inline-block !important;
 }
