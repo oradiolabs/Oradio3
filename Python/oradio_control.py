@@ -33,7 +33,7 @@ from mpd_control import MPDControl
 from led_control import LEDControl
 from play_system_sound import PlaySystemSound
 from touch_buttons import TouchButtons
-from remote_monitoring import rms_service
+from remote_monitoring import rms_service, HEARTBEAT, SYS_INFO
 
 # Instantiate remote monitor
 remote_monitor = rms_service()
