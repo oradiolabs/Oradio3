@@ -4,30 +4,66 @@
 		<meta charset="UTF-8" />
 		<meta name="viewport" content="width=device-width, initial-scale=1.0" />
 
-<!-- From OpenNDS splash page -->
-		<meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
-		<meta http-equiv="Pragma" content="no-cache">
-		<meta http-equiv="Expires" content="0">
 
 		<link rel="stylesheet" href="../static/css/fontawesome.min.css" />
 		<link rel="stylesheet" href="../static/css/regular.min.css" />
-		<link rel="stylesheet" href="../static/css/pure.min.css" />
 		<link rel="stylesheet" href="../static/css/oradio3.css" />
+		<link rel="stylesheet" href="../static/css/playlists.css" />
 
-		<title>Oradio</title>
+		<title>Oradio speellijsten</title>
 	</head>
 	<body>
+		<div class="container">
+			<h1>Voorkeur Speellijsten</h1>
 
-		<div class="oradio-container">
+			<!-- Set Preset Section -->
+			<form method="POST">
+				<label for="preset_name">Kies Voorkeur:</label>
+				<select name="preset_name" id="preset_name">
+					<option value="preset1">voorkeur1</option>
+					<option value="preset2">voorkeur2</option>
+					<option value="preset3">voorkeur3</option>
+				</select>
 
-			<!--TODO: Hier de naam tonen worden die via instellingen ingesteld is -->
-			<h3>Welkom op de Oradio pagina!</h3>
-			<p>Hier komen binnenkort de playlist opties</p>
+				<label for="folder_path">Voorkeur Playlist:</label>
+				<select name="folder_path" id="folder_path">
+				{% for folder in folders %}
+					<option value="{{ folder }}">{{ folder }}</option>
+				{% endfor %}
+				</select>
 
-			<p>Mocht u vragen hebben, neem dan aub <a href="https://stichtingoradio.nl" target="_blank">contact</a> op.</p>
+				<button type="submit" name="set_preset">Instellen</button>
+			</form>
+
+			<!-- Show Files in a Preset Section -->
+			<form method="POST">
+				<label for="preset_to_show">Toon muziek bestanden in voorkeur playlist:</label>
+				<select name="preset_to_show" id="preset_to_show">
+					<option value="preset1">voorkeur1 - {{ presets["preset1"] }}</option>
+					<option value="preset2">voorkeur2 - {{ presets["preset2"] }}</option>
+					<option value="preset3">voorkeur3 - {{ presets["preset3"] }}</option>
+				</select>
+				<button type="submit" name="show_files">Toon Bestanden</button>
+			</form>
+
+			{% if selected_preset_files %}
+			<div class="file-list">
+				<h2>Muziek Bestanden in Geselecteerde Playlist</h2>
+				<ul>
+				{% for file in selected_preset_files %}
+					<li>{{ file }}</li>
+				{% endfor %}
+				</ul>
+			</div>
+			{% endif %}
+
+			<p><strong>Huidige Voorkeuren:</strong></p>
+			<ul>
+				<li>voorkeur1: {{ presets["preset1"] }}</li>
+				<li>voorkeur2: {{ presets["preset2"] }}</li>
+				<li>voorkeur3: {{ presets["preset3"] }}</li>
+			</ul>
 
 		</div>
-
 	</body>
-
 </html>

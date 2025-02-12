@@ -1,0 +1,21 @@
+/*!
+ * @package:      Oradio3
+ * @author url:   https://oradiolabs.nl
+ * @author email: info at oradiolabs dot nl
+ * @copyright:    Stichting Oradio, All rights reserved.
+ * @license:      GNU General Public License version 3; https://www.gnu.org/licenses/gpl-3.0.html
+ */
+
+/*
+ * Oradio playlist style choices
+ */
+
+.file-list {
+	margin: 10px 0;
+	padding: 10px;
+	border-radius: 5px;
+	background-color: #14213D;
+	color: rgb(234, 232, 221);
+	max-height: 200px;
+	overflow-y: auto;
+}
