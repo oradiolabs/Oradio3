@@ -33,6 +33,14 @@ from mpd_control import MPDControl
 from led_control import LEDControl
 from play_system_sound import PlaySystemSound
 from touch_buttons import TouchButtons
+from remote_monitoring import rms_service, HEARTBEAT, SYS_INFO
+
+from oradio_const import *
+# Instantiate remote monitor
+remote_monitor = rms_service()
+
+# Send system info to Remote Monitoring Service
+remote_monitor.send_message(SYS_INFO)
 
 #--------- Spotify test part
 #----------Reservation------------
@@ -97,7 +105,7 @@ class StateMachine:
 
 
     def transition(self, new_state):
-        oradio_log.debug(f"Transitioning from {self.state} to {new_state}")
+        oradio_log.info(f"Transitioning from {self.state} to {new_state}")
         if self.state == new_state:
             if self.state == "StatePlay" or self.state == "StatePreset1" or self.state == "StatePreset2" or self.state == "StatePreset3":
                 threading.Thread(target=mpd.next).start()  # PLAY NEXT SONG
@@ -195,7 +203,7 @@ class StateMachine:
                 mpd.pause()
                 oradio_web_service.start(force_ap=True)
                 sound_player.play("OradioAP")
-                oradio_log.debug(f"In WebServiceForceAP state, wait for next step")
+                oradio_log.info(f"In WebServiceForceAP state, wait for next step")
                 Web_Service_Active = True
             #    mpd.play()
             #    self.play_SysSound("Play")
@@ -234,16 +242,17 @@ def process_messages(queue):
                 "Volume changed": on_volume_changed,
             },
             "USB message": {
-                "USB drive absent": on_usb_absent,
-                "USB drive present": on_usb_present,
+                STATE_USB_ABSENT: on_usb_absent,
+                STATE_USB_PRESENT: on_usb_present,
             },
             "Wifi message": {
-                "Connected to infrastructure": on_wifi_connected,
-                "Wifi is not connected": on_wifi_not_connected,
-                "Configured as access point": on_wifi_not_connected
+                STATE_WIFI_IDLE: on_wifi_not_connected,
+                STATE_WIFI_INFRASTRUCTURE: on_wifi_connected_to_internet,
+                STATE_WIFI_LOCAL_NETWORK: on_wifi_connected_to_local_network,
+                STATE_WIFI_ACCESS_POINT: on_wifi_not_connected
             },
             "web service message": {
-                "web service is idle": on_webservice_not_active,          
+                STATE_WEB_SERVICE_IDLE: on_webservice_not_active,          
             },
             "SPOTIFY_CONNECT": {
                 "ACTIVE": on_spotify_connect_active,
@@ -273,22 +282,30 @@ def process_messages(queue):
 # Define the actions
 
 def on_volume_changed():
+    oradio_log.debug(f"Vol Control change acknowlegded")
     if state_machine.state == "StateStop" or state_machine.state == "StateIdle":
         state_machine.transition("StatePlay") # Switch Oradio in Play when Volume buttons is turned
 
 def on_usb_absent():
-
     usb_present_event.clear()  # Clear the event so wait() will block
     state_machine.transition("StateUSBAbsent")
     oradio_log.debug(f"USB absent acknowlegded")
-
 
 def on_usb_present():
     usb_present_event.set()  # Signal that USB is now present
     oradio_log.debug("USB present acknowledged")
     
-def on_wifi_connected():
-    global Wifi_Connected  # To track USB present
+def on_wifi_connected_to_internet():
+    global Wifi_Connected  # To track wifi
+    Wifi_Connected = True
+    # Send system info to Remote Monitoring Service
+    remote_monitor.send_message(SYS_INFO)
+    if state_machine.state == "StateWebServiceForceAP": # If waiting for connection, move to stop
+        state_machine.transition("StateStop")
+    oradio_log.debug(f"Wifi is connected acknowledged")
+
+def on_wifi_connected_to_local_network():
+    global Wifi_Connected  # To track wifi
     Wifi_Connected = True
     if state_machine.state == "StateWebServiceForceAP": # If waiting for connection, move to stop
         state_machine.transition("StateStop")
