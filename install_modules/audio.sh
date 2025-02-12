@@ -57,14 +57,7 @@ sudo systemctl daemon-reload
 
 # Fail if USB is missing or system directory  does not exist
 if [ ! -d $USB_SYSTEM ]; then
-	echo -e "${RED}$USB_SYSTEM is missing: Failed to install the presets${NC}"
-	return $ERROR
-else
-	# Install the default presets for buttons 1, 2 and 3
-	sudo cp $SCRIPT_DIR/audio/presets.json $USB_SYSTEM/presets.json
-
-	# Update the database
-	sudo mpc update
+	echo -e "${YELLOW}$USB_SYSTEM is missing${NC}"
 fi
 
 # Install python modules
