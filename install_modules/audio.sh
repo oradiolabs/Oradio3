@@ -55,11 +55,6 @@ sudo systemctl start mpd.service
 # To be safe, rerun all generators, reload all unit files, and recreate the entire dependency tree
 sudo systemctl daemon-reload
 
-# Fail if USB is missing or system directory  does not exist
-if [ ! -d $USB_SYSTEM ]; then
-	echo -e "${YELLOW}$USB_SYSTEM is missing${NC}"
-fi
-
 # Install python modules
 python -m pip install python-mpd2
 
