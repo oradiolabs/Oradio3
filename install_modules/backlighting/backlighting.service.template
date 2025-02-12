@@ -6,8 +6,8 @@ After=network.target
 # Placeholders will be modified by ../backlighting.sh script
 User=PLACEHOLDER_USER
 Group=PLACEHOLDER_GROUP
-ExecStart=/usr/bin/python3 PLACEHOLDER_PATH/backlighting.py
 WorkingDirectory=PLACEHOLDER_PATH
+ExecStart=/usr/bin/python3 PLACEHOLDER_PATH/backlighting.py
 Restart=always
 RestartSec=5
 

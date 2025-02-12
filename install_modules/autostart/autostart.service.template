@@ -6,8 +6,8 @@ After=multi-user.target
 # Placeholders will be modified by ../autostart.sh script
 User=PLACEHOLDER_USER
 Group=PLACEHOLDER_GROUP
-ExecStart=/home/PLACEHOLDER_USER/.venv/bin/python3 PLACEHOLDER_PATH/oradio_control.py &
 WorkingDirectory=PLACEHOLDER_PATH
+ExecStart=/home/PLACEHOLDER_USER/.venv/bin/python3 PLACEHOLDER_PATH/oradio_control.py &
 RemainAfterExit=true
 
 [Install]
