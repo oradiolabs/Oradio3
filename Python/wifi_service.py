@@ -435,7 +435,6 @@ class wifi_service():
             oradio_log.error(f"Failed to get active connection, error = {ex_err}")
         else:
             # Inspect connections
-            oradio_log.debug("Get active connection ssid")
             for connection in connections:
                 # Ignore access point and only wifi connections with a device can be active
                 if connection.conn_type == "wifi" and connection.device != "--":
