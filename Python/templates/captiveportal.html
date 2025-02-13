@@ -88,7 +88,7 @@
 			notification.innerHTML = "";
 
 			// Get selected network info
-			var ssid = document.getElementById("SSIDs").value;
+			const ssid = document.getElementById("SSIDs").value;
 			if (ssid == "PLACEHOLDER")
 			{
 				notification.innerHTML = "<div style=\"color: #ff0000;\">Kies een wifi netwerk</div>";
@@ -96,7 +96,7 @@
 			}
 
 			// Get password
-			var pswd = document.getElementById("pswd").value;
+			const pswd = document.getElementById("pswd").value;
 			if (pswd.length <= 8)
 			{
 				notification.innerHTML = "<p style=\"color: #ff0000;\">Wachtwoord moet minimaal 8 karakters zijn</p>";
@@ -129,7 +129,6 @@
 				notification.innerHTML = "<p style=\"color: #ff0000;\">Er is een fout opgetreden bij het indienen van de netwerkreferenties.</p>";
 			}
 		}
-
 	</script>
 
 </html>

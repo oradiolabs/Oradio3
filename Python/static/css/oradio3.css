@@ -78,6 +78,7 @@ button {
 	cursor: pointer;
 	transition: background-color 0.3s;
 	margin-bottom: 20px;
+	align-items: center;
 }
 
 button:hover {
@@ -87,6 +88,7 @@ button:hover {
 ul {
 	list-style-type: none;
 	padding-left: 0;
+	margin-block-start: 0;
 }
 
 li {

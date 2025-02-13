@@ -14,56 +14,94 @@
 	</head>
 	<body>
 		<div class="container">
-			<h1>Voorkeur Speellijsten</h1>
 
-			<!-- Set Preset Section -->
+			<!-- Set presets -->
 			<form method="POST">
-				<label for="preset_name">Kies Voorkeur:</label>
-				<select name="preset_name" id="preset_name">
-					<option value="preset1">voorkeur1</option>
-					<option value="preset2">voorkeur2</option>
-					<option value="preset3">voorkeur3</option>
-				</select>
-
-				<label for="folder_path">Voorkeur Playlist:</label>
-				<select name="folder_path" id="folder_path">
-				{% for folder in folders %}
-					<option value="{{ folder }}">{{ folder }}</option>
+				<!-- identifier used by server: do not change or remove -->
+				<input type="hidden" name="set_presets" />
+				<div class="banner">Speellijst aan knop koppelen</div>
+				{% for item in presets %}
+					<div class="preset-grid">
+						<div class="preset-label">
+							Voorkeur {{ loop.index }}:
+						</div>
+						<div>
+							<select class="preset-select" name="preset{{ loop.index }}" id="preset{{ loop.index }}">
+							{% set index = ["preset", loop.index]|join %}
+							{% for folder in folders %}
+								{% if presets[index] == folder %}
+									<option selected value="{{ folder }}">{{ folder }}</option>
+								{% else %}
+									<option value="{{ folder }}">{{ folder }}</option>
+								{% endif %}
+							{% endfor %}
+							</select>
+						</div>
+					</div>
 				{% endfor %}
-				</select>
-
 				<button type="submit" name="set_preset">Instellen</button>
 			</form>
 
-			<!-- Show Files in a Preset Section -->
+			<!-- Show songs in a playlist -->
+			<div class="banner">Liedjes van speellijst tonen</div>
 			<form method="POST">
-				<label for="preset_to_show">Toon muziek bestanden in voorkeur playlist:</label>
-				<select name="preset_to_show" id="preset_to_show">
-					<option value="preset1">voorkeur1 - {{ presets["preset1"] }}</option>
-					<option value="preset2">voorkeur2 - {{ presets["preset2"] }}</option>
-					<option value="preset3">voorkeur3 - {{ presets["preset3"] }}</option>
+				<!-- identifier used by server: do not change or remove -->
+				<input type="hidden" name="show_songs" />
+				<select name="playlist" onchange="this.form.submit()">
+					<option selected disabled value="">-- Kies een speellijst --</option>
+					{% for folder in folders %}
+						{% if playlist == folder %}
+							<option selected value="{{ folder }}">{{ folder }}</option>
+						{% else %}
+							<option value="{{ folder }}">{{ folder }}</option>
+						{% endif %}
+					{% endfor %}
 				</select>
-				<button type="submit" name="show_files">Toon Bestanden</button>
 			</form>
-
-			{% if selected_preset_files %}
+			{% if songs %}
 			<div class="file-list">
-				<h2>Muziek Bestanden in Geselecteerde Playlist</h2>
 				<ul>
-				{% for file in selected_preset_files %}
-					<li>{{ file }}</li>
+				{% for song in songs %}
+					<li>{{ song }}</li>
 				{% endfor %}
 				</ul>
 			</div>
 			{% endif %}
 
-			<p><strong>Huidige Voorkeuren:</strong></p>
-			<ul>
-				<li>voorkeur1: {{ presets["preset1"] }}</li>
-				<li>voorkeur2: {{ presets["preset2"] }}</li>
-				<li>voorkeur3: {{ presets["preset3"] }}</li>
-			</ul>
+			<!-- Create, view, update, delete own playlists -->
+			<div class="banner">Eigen speellijst maken</div>
+			<form method="POST">
+				<!-- identifier used by server: do not change or remove -->
+				<input type="hidden" name="custom_playlists" />
+				<p>Hier komen de nodige input velden </p>
+				<button type="submit" name="custom_create">Eigen speellijst aanmaken</button>
+				<button type="submit" name="custom_update">Eigen speellijst bijwerken</button>
+				<button type="submit" name="custom_delete">Eigen speellijst verwijderen</button>
+			</form>
+
+			<!-- Search songs by artist or title -->
+			<div class="banner">Lied zoeken</div>
+<!-- search <expression> - Searches with a filter expression, e.g. mpc search '((artist == "Kraftwerk") AND (title == "Metall auf Metall"))'. -->
+			<form method="POST">
+				<!-- identifier used by server: do not change or remove -->
+				<input type="hidden" name="search_songs" />
+				<input type="text" name="pattern" required minlength="3" placeholder="Typ (deel van) naam van artiest of (deel van) titel" />
+				<button type="submit" name="search">Zoeken</button>
+				{% if search %}
+				<div class="file-list">
+					<ul>
+					{% for song in search %}
+						<li>{{ song }}</li>
+					{% endfor %}
+					</ul>
+				</div>
+				{% endif %}
+			</form>
 
 		</div>
 	</body>
+
+	<script>
+	</script>
+
 </html>

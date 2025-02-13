@@ -8,11 +8,39 @@
 
 /*
  * Oradio playlist style choices
+ * Colors: https://www.computerhope.com/htmcolor.htm
  */
 
-.file-list {
-	margin: 10px 0;
+div .banner {
+	width: 100%;
+	background-color: #804A00;
+	color: #FFFFFF;
+	border: none;
+	border-radius: 5px;
 	padding: 10px;
+	font-size: 16px;
+	margin-left: -10px;
+	margin-bottom: 20px;
+	text-align: center;
+}
+
+.preset-grid {
+	display: grid;
+	margin-bottom: 20px;
+	grid-template-columns: 0.5fr 1.5fr
+}
+.preset-label {
+	font-weight: bold;
+    align-self: center;
+}
+.preset-select {
+	margin-bottom: 0px;
+    align-self: center;
+}
+
+.file-list {
+	padding: 5px;
+	margin-bottom: 10px;
 	border-radius: 5px;
 	background-color: #14213D;
 	color: rgb(234, 232, 221);
