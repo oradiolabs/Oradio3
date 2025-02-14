@@ -4,11 +4,20 @@ from pydantic import BaseModel, create_model
 from typing import Dict, Any, Optional
 
 import inspect      # logging
-import subprocess   # run_shell_script
 
 # Simplified logging function - remove logging and monitoring, only print formatted log message
 import queue
 import threading
+import subprocess
+import urllib.request
+from subprocess import run
+from vcgencmd import Vcgencmd
+
+##### oradio modules ####################
+from oradio_logging import oradio_log
+
+##### GLOBAL constants ####################
+from oradio_const import *
 
 # Create a thread-safe queue for logging messages
 log_queue = queue.Queue()
@@ -105,4 +114,47 @@ def json_schema_to_pydantic(name: str, schema: Dict[str,Any]) -> BaseModel:
                 
     return create_model(name, **fields)
 
+def check_internet_connection():
+    """
+    Check if there is an internet connection ==> True | False
+    :return status  - True: connected to the internet
+                    - False: not connected to the internet
+    """
+    try:
+        urllib.request.urlopen("http://google.com")
+        return True
+    except urllib.error.URLError:
+        return False
+
+def get_throttled_state_rpi():
+    """
+    Get the state of the throttled flags available in vcgencmd module
+    :return flags = the full throttled state flags of the system in JSON format. 
+    This is a bit pattern - a bit being set indicates the following meanings:
+        Bit     Meaning
+        0     Under-voltage detected
+        1     Arm frequency capped
+        2     Currently throttled
+        3     Soft temperature limit active
+        16     Under-voltage has occurred
+        17     Arm frequency capping has occurred
+        18     Throttling has occurred
+        19     Soft temperature limit has occurred
+
+        A value of zero indicates that none of the above conditions is true.
+        The last four bits (3..0) are checked and when one of them are set the 
+        throttled_state is set to True
+    :return if one of bits is set ==> throttled_state = True, else False
+    """
+    vcgm = Vcgencmd()
+    throttled_state = vcgm.get_throttled()
+    flags = int( throttled_state.get('binary'),2) # convert binary string to integer
+    last_four_bits = flags & 0xF
+    if last_four_bits > 0:
+        # a new flag was set 
+        throttled_state = True
+    else:
+        throttled_state = False
+
+    return throttled_state, flags
 

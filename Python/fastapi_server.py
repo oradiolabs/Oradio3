@@ -23,21 +23,22 @@ Created on December 23, 2024
     :Documentation
         https://fastapi.tiangolo.com/
 """
-import os, sys, json
+import os, sys, json, subprocess, multipart
 from pydantic import BaseModel
 from fastapi import FastAPI, BackgroundTasks, Request
-from fastapi.responses import HTMLResponse, FileResponse
+from fastapi.responses import FileResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
 ##### oradio modules ####################
-import oradio_utils
+from oradio_logging import oradio_log
 from wifi_service import wifi_service
 
 ##### GLOBAL constants ####################
 from oradio_const import *
 
 ##### LOCAL constants ####################
+PRESETS_FILE = USB_SYSTEM + "/presets.json"
 
 # Get the web server app
 api_app = FastAPI()
@@ -57,7 +58,7 @@ async def middleware(request: Request, call_next):
     “A 'middleware' is a function that works with every request before it is processed
     by any specific path operation. And also with every response before returning it.”
     """
-    oradio_utils.logging("info", "Send timeout reset message")
+    oradio_log.debug("Send timeout reset message")
 
     # User interaction: Set event flag to signal timeout counter reset
     api_app.state.event_reset.set()
@@ -75,48 +76,188 @@ async def favicon():
 
 #### PLAYLISTS ####################
 
-#### CATCH ALL / CAPTIVE PORTAL ####################
+def load_presets():
+    """
+    Load the current presets from presets.json
+    Returns: {"preset1": ..., "preset2": ..., "preset3": ...}
+    """
+    if os.path.exists(PRESETS_FILE):
+        with open(PRESETS_FILE, "r") as f:
+            return json.load(f)
+    else:
+        oradio_log.error(f"Failed to open '{PRESETS_FILE}'")
+        return {"preset1": None, "preset2": None, "preset3": None}
 
-@api_app.get("/{full_path:path}")
+def store_presets(presets):
+    """
+    Write the presets from presets.json
+    """
+    with open(PRESETS_FILE, "w") as f:
+        json.dump({"preset1": presets[0], "preset2": presets[1], "preset3": presets[2]}, f, indent=4)
+
+#OMJ: moet dit geen functie van mpd_control zijn?
+def get_mpd_list(path = None):
+    """
+    List the names in the path:
+        if no path the available playlists
+        if path the songs in the playlist
+    Returns: List of names, without directory paths
+    """
+    # Start from mpd root
+    cmd = ["mpc", "ls"]
+
+    # Add level 
+    if path:
+        cmd.append(path)
+
+    # Get mpd info
+    process = subprocess.run(cmd, capture_output = True, text = True)
+    if process.returncode != 0:
+        oradio_log.error(f"shell script error: {process.stderr}")
+        return []
+
+    if not path:
+        # Parse string into list
+        return process.stdout.strip().split("\n")
+    else:
+        # Extract only the filenames from the full paths, without the extension
+        files = process.stdout.strip().split("\n")
+        return [os.path.splitext(os.path.basename(file))[0] for file in files]
+
+#OMJ: moet dit geen functie van mpd_control zijn?
+def get_mpd_search(pattern):
+    """
+    List songs with artist name containing pattern and songs with title containing pattern
+    Examples using https://mpd.readthedocs.io/en/latest/protocol.html#filters:
+      - mpc search '(artist contains "abb")' gets all songs with 'abb' in the artist attribute
+      - mpc search '(title contains "abb")' gets all songs with 'abb' in the title attribute
+    Returns: List of songs
+    """
+
+    # Build artist search command
+    cmd = 'mpc search \'(artist contains "' + pattern + '")\''
+
+    # Get mpd info
+    process = subprocess.run(cmd, shell = True, capture_output = True, text = True)
+    if process.returncode != 0:
+        oradio_log.error(f"shell script error: {process.stderr}")
+        return []
+    # Extract only the filenames from the full paths, without the extension
+    files = process.stdout.strip().split("\n")
+    search_artist = [os.path.splitext(os.path.basename(file))[0] for file in files]
+
+    # Build title search command
+    cmd = 'mpc search \'(title contains "' + pattern + '")\''
+    # Parse string into list
+
+    # Get mpd info
+    process = subprocess.run(cmd, shell = True, capture_output = True, text = True)
+    if process.returncode != 0:
+        oradio_log.error(f"shell script error: {process.stderr}")
+        return []
+    # Extract only the filenames from the full paths, without the extension
+    files = process.stdout.strip().split("\n")
+    search_title = [os.path.splitext(os.path.basename(file))[0] for file in files]
+
+    # Combine artist and title result, remove duplicates, sort alphabetically
+    return sorted(list(set(search_artist + search_title)))
+
+@api_app.route("/playlists", methods=["GET", "POST"])
+async def playlists(request: Request):
+    """
+    Page managing options to:
+      - Assign playlists to presets
+      - Show playlist songs
+      - Manage own playlists
+      - Search songs by artist and title tags
+    """
+    oradio_log.debug("Serving playlists page")
+
+    # Load presets and list available directories
+    presets = load_presets()
+    folders = get_mpd_list()
+
+    # Unknown playlist and thus empty song list
+    playlist = None
+    songs    = []
+
+    # Unknown search pattern thus empty search list
+    search_key = None
+    search_list = []
+
+    # Unknown action
+    action = ""
+
+    if request.method == "POST":
+        # Load form data
+        form_data = await request.form()
+        oradio_log.debug(f"form_data={form_data}")
+
+        # Get requested action
+        action = form_data.get('action')
+
+        # If the user clicked "Set Presets"
+        if action == "set_presets":
+            print("user clicked 'set presets'")
+            store_presets([form_data.get("preset1"), form_data.get("preset2"), form_data.get("preset3")])
+            presets = load_presets()
+
+        # If the user clicked "Show Songs"
+        if action == "show_songs":
+            print("user clicked 'show songs'")
+            # Get selected playlist
+            playlist = form_data.get("playlist")
+            # get preset songs
+            songs = get_mpd_list(playlist)
+
+        # If the user clicked "custom playlists"
+        if action == "custom_playlists":
+            print("user clicked 'custom_playlist'")
+
+        # If the user clicked "Search"
+        if action == "search_songs":
+            print("user clicked 'search songs'")
+            search_key = form_data.get('pattern')
+            search_list = get_mpd_search(search_key)
+
+    # Set playlists page and lists info as context
+    context = {
+                "anchor"      : action,
+                "presets"     : presets,
+                "folders"     : folders,
+                "playlist"    : playlist,
+                "songs"       : songs,
+                "search_key"  : search_key,
+                "search_list" : search_list
+            }
+
+    # Return playlists page and available networks as context
+    return templates.TemplateResponse(request=request, name="playlists.html", context=context)
+
+#### CAPTIVE PORTAL ####################
+
+@api_app.get("/captiveportal")
 async def captiveportal(request: Request):
-    """
-    Any unknown path will return:
-      captive portal if WiFi is an access point, or
-      home page if WiFi connected to a network
-    """
+    """ Return captive portal """
+    oradio_log.debug("Serving captive portal page")
+
     # Get access to wifi functions
     wifi = wifi_service(api_app.state.message_queue)
+    context = {"networks": wifi.get_wifi_networks()}
 
-    if wifi.get_wifi_connection() == ACCESS_POINT_SSID:
-        oradio_utils.logging("info", "Send captive portal page")
+    # Return active portal page and available networks as context
+    return templates.TemplateResponse(request=request, name="captiveportal.html", context=context)
 
-        # Get list of available WiFi networks
-        list = wifi.get_wifi_networks()
-
-        # Set captive portal page and context
-        page = "captiveportal.html"
-        context = {"list": json.dumps(list)}
-
-    else:
-        oradio_utils.logging("info", "Send home page")
-
-        # Set playlist page and context
-        page = "playlists.html"
-        context = {}
-
-    # Return page and context
-    return templates.TemplateResponse(request=request, name=page, context=context)
-
-# Model for WiFi network credentials
+# Model for wifi network credentials
 class credentials(BaseModel):
     ssid: str = None
     pswd: str = None
 
-# POST endpoint to connect to WiFi network
+# POST endpoint to connect to wifi network
 @api_app.post("/wifi_connect")
-async def wifi_connect_task(credentials: credentials, background_tasks: BackgroundTasks):
+async def wifi_connect(credentials: credentials, background_tasks: BackgroundTasks):
     """
-    Handle POST with WiFi network credentials
+    Handle POST with wifi network credentials
     Handle connecting in background task, so the POST gets a response
     https://fastapi.tiangolo.com/tutorial/background-tasks/#using-backgroundtasks
     """
@@ -127,12 +268,33 @@ def wifi_connect_task(credentials: credentials):
     """
     Executes as background task
     """
-    oradio_utils.logging("warning", f"trying to connect to ssid={credentials.ssid}, pswd={credentials.pswd}")
+    oradio_log.debug(f"trying to connect to ssid={credentials.ssid}, pswd={credentials.pswd}")
     # Get access to wifi functions
     wifi = wifi_service(api_app.state.message_queue)
 
     # Try to connect is handled is separate thread
     wifi.wifi_connect(credentials.ssid, credentials.pswd)
+
+#### CATCH ALL ####################
+
+@api_app.route("/{full_path:path}", methods=["GET", "POST"])
+async def catch_all(request: Request):
+    """
+    Any unknown path will return:
+      captive portal if wifi is an access point, or
+      playlists if wifi connected to a network
+    """
+    print("in catch all")
+    # Get access to wifi functions
+    wifi = wifi_service(api_app.state.message_queue)
+
+    # Access point is active, so serve captive portal
+    if wifi.get_wifi_connection() == ACCESS_POINT_SSID:
+        # Return captive portal
+        return await captiveportal(request)
+
+    # Default: serve playlists
+    return RedirectResponse(url='/playlists')
 
 # Entry point for stand-alone operation
 if __name__ == "__main__":
@@ -141,23 +303,22 @@ if __name__ == "__main__":
     import uvicorn
     from multiprocessing import Process, Queue
 
-    # Logging
-    import logging
-    logger = logging.getLogger('uvicorn.error')
-    # functions: logger.info(str), logger.debug(str), logger.error(str), etc.
-
-    # Initialize
-    message_queue = Queue()
-
-    def check_messages(message_queue):
+    def check_messages(queue):
         """
         Check if a new message is put into the queue
         If so, read the message from queue and display it
-        :param message_queue = the queue to check for
+        :param queue = the queue to check for
         """
+        print("Listening for messages\n")
+
         while True:
-            message = message_queue.get(block=True, timeout=None)
-            oradio_utils.logging("info", f"QUEUE-msg received, message ={message}")
+            # Wait for message
+            message = queue.get(block=True, timeout=None)
+            # Show message received
+            print(f"\nMessage received: '{message}'\n")
+
+    # Initialize
+    message_queue = Queue()
 
     # Start  process to monitor the message queue
     message_listener = Process(target=check_messages, args=(message_queue,))

@@ -32,22 +32,17 @@ if [ ! -f $SCRIPT_DIR/constants.sh ]; then
 fi
 source $SCRIPT_DIR/constants.sh
 
-# Notify entering module installation script
-echo "Installing pip and configure virtual environment"
+# Ensure logging directory exists
+if [ ! -d $LOG_DIR ]; then
+	# Create logging directory
+	mkdir -p $LOG_DIR
+fi
 
-########## Setup python pip and virtual environment ##########
-# Install pip
-sudo apt-get install python3-pip -y
-# Prepare python virtual environment
-python3 -m venv ~/.venv
-# Activate the python virtual environment in current environemnt
-source ~/.venv/bin/activate
-# Activate python virtual environment when logging in: add if not yet present
-sudo grep -qxF 'source ~/.venv/bin/activate' ~/.bashrc || echo 'source ~/.venv/bin/activate' >> ~/.bashrc
+# Notify entering module installation script
+echo "Installing logging modules"
 
 # Install generic python modules
-python -m pip install vcgencmd
-
+python -m pip install concurrent_log_handler requests
 
 # Notify leaving module installation script
-echo -e "${GREEN}Python pip installed and virtual environment configured.${NC}"
+echo -e "${GREEN}Logging modules installed.${NC}"

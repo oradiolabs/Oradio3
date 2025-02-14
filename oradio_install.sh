@@ -23,23 +23,27 @@ if [ ! "$BASH_VERSION" ] || [ ! "$0" == "-bash" ]; then
 fi
 
 # Load shared constants
-if [ ! -f $PWD/install_modules/constants.sh ]; then
+if [ ! -f install_modules/constants.sh ]; then
 	echo "constants.sh not found"
 	return 1
 fi
-source $PWD/install_modules/constants.sh
+source install_modules/constants.sh
 
 # Modules to install. ORDER IS IMPORTANT!
 ORADIO_MODULES=(
+	"hw_version"
 	"config"
 	"packages"
 	"python"
 	"network"
-	"usb"
-	"audio"
-	"volume"
-	"backlighting"
-	"webservice"
+	"logging"		# Depends on python
+	"usb_service"	# Depends on network and python
+	"audio"			# Depends on usb_service and python
+	"volume"		# Depends on audio and python
+	"backlighting"	# Depends on python
+	"web_service"	# Depends on network and python
+	"autostart"
+	"sw_version"
 )
 
 # Function to pretty-print the list of modules
@@ -117,12 +121,17 @@ if [ "$(lsb_release -a | grep "Description:" | cut -d$'\t' -f2)" != "$BOOKWORM64
 	return $ERROR
 fi
 
+# Ensure logging directory exists
+if [ ! -d $LOG_DIR ]; then
+	# Create logging directory
+	mkdir -p $LOG_DIR
+fi
+
 ########## Install modules ##########
 
 # Iterate through MANDATORY modules to install
 for ((main_i = 0; main_i < ${#ORADIO_MODULES[@]}; main_i++)); do
 	module="${ORADIO_MODULES[$main_i]}"
-	echo "Installing module '$module'"
 	source install_modules/$module.sh
 	# Module can signal a reboot is required to activate the changes
 	if [ $? -eq $ERROR ]; then
@@ -142,4 +151,3 @@ echo    "# 1) 'cd Python' and run 'python [test_]<module>.py' to test stand-alon
 echo    "# 2) Reboot to start Oradio.                                                  #"
 echo    "###############################################################################"
 echo
-

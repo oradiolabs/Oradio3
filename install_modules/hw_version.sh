@@ -7,7 +7,7 @@
 # #    #  #   #   #    #  #    #     #    #    #
 #  ####   #    #  #    #  #####      #     ####
 #
-# Created on January 19, 2025
+# Created on January 30, 2025
 # @author:        Henk Stevens & Olaf Mastenbroek & Onno Janssen
 # @copyright:     Oradio Stichting
 # @license:       GNU General Public License (GPL)
@@ -33,21 +33,23 @@ fi
 source $SCRIPT_DIR/constants.sh
 
 # Notify entering module installation script
-echo "Installing pip and configure virtual environment"
+echo "Configure Oradio hardware version log on boot"
 
-########## Setup python pip and virtual environment ##########
-# Install pip
-sudo apt-get install python3-pip -y
-# Prepare python virtual environment
-python3 -m venv ~/.venv
-# Activate the python virtual environment in current environemnt
-source ~/.venv/bin/activate
-# Activate python virtual environment when logging in: add if not yet present
-sudo grep -qxF 'source ~/.venv/bin/activate' ~/.bashrc || echo 'source ~/.venv/bin/activate' >> ~/.bashrc
+########## Configure and install service ##########
+# Configure the hw_version service
+cp $SCRIPT_DIR/hw_version/hw_version.service.template $SCRIPT_DIR/hw_version/hw_version.service
+sed -i "s/PLACEHOLDER_USER/$(id -un)/g" $SCRIPT_DIR/hw_version/hw_version.service
+replace=`echo $(realpath "$SCRIPT_DIR/../Python") | sed 's/\//\\\\\//g'`
+sed -i "s/PLACEHOLDER_PATH/$replace/g" $SCRIPT_DIR/hw_version/hw_version.service
 
-# Install generic python modules
-python -m pip install vcgencmd
+# Install the hw_version service
+sudo cp $SCRIPT_DIR/hw_version/hw_version.service /etc/systemd/system/
 
+# Set hw_version system to start at boot
+sudo systemctl enable hw_version.service
+
+# To be safe, rerun all generators, reload all unit files, and recreate the entire dependency tree
+sudo systemctl daemon-reload
 
 # Notify leaving module installation script
-echo -e "${GREEN}Python pip installed and virtual environment configured.${NC}"
+echo -e "${GREEN}Oradio hardware version log on boot configured${NC}"

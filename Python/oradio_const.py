@@ -19,6 +19,14 @@ Created on December 23, 2024
 @status:        Development
 @summary:       Defines for oradio scripts
 """
+
+################## SYSTEM #############################
+import os, sys
+# Make Oradio file locations relative
+ORADIO_DIR      = sys.path[0]
+ORADIO_LOG_FILE = os.path.abspath(ORADIO_DIR + '/../logging/oradio.log')   # Use absolute path to prevent file rotation trouble
+SOUND_FILES_DIR = os.path.realpath(ORADIO_DIR + "/../system_sounds")
+
 ################## WIFI UTILS #############################
 # Access point
 ACCESS_POINT_SSID = "OradioAP"

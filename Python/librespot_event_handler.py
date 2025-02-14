@@ -39,6 +39,7 @@ librespot_event_data = [{'player_event': 'None'},
                         {'position_ms':'None'}]
 environment= os.environ
 event_data = {}
+print("event handler called")
 if "PLAYER_EVENT" in environment:
     if environment['PLAYER_EVENT'] == 'changed':
         event_data['player_event']   = environment['PLAYER_EVENT']
