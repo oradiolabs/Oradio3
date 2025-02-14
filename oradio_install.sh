@@ -31,19 +31,19 @@ source install_modules/constants.sh
 
 # Modules to install. ORDER IS IMPORTANT!
 ORADIO_MODULES=(
-	"hw_version"
 	"config"
 	"packages"
-	"python"
+	"python"		# depends on packages
 	"network"
+	"hw_version"	# depends on python
 	"logging"		# Depends on python
 	"usb_service"	# Depends on network and python
 	"audio"			# Depends on usb_service and python
 	"volume"		# Depends on audio and python
 	"backlighting"	# Depends on python
 	"web_service"	# Depends on network and python
-	"autostart"
 	"sw_version"
+	"autostart"
 )
 
 # Function to pretty-print the list of modules
