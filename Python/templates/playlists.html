@@ -72,10 +72,12 @@
 				<!-- identifier used by server: do not change or remove -->
 				<input type="hidden" name="action" value="custom_playlists" />
 				<h1 id="custom_playlists">Eigen speellijst maken</h1>
-				<p>Hier komen de nodige input velden </p>
+				<p style="color: #ffef00; text-align: center;">Dit moet nog geïmplementeerd worden... Of niet?</p>
+<!--
 				<button type="submit" name="custom_create">Eigen speellijst aanmaken</button>
 				<button type="submit" name="custom_update">Eigen speellijst bijwerken</button>
 				<button type="submit" name="custom_delete">Eigen speellijst verwijderen</button>
+-->
 			</form>
 
 			<!-- Search songs by artist or title -->
@@ -88,12 +90,15 @@
 				{% else %}
 					<input type="text" name="pattern" required minlength="3" placeholder="Typ (deel van) naam van artiest of (deel van) titel" />
 				{% endif %}
+				<div id="notification" class="notification">
+					<!-- Will be filled by Javascript submitCredentials() -->
+				</div>
 				<button type="submit" name="search">Zoeken</button>
 				{% if search_list %}
 				<div class="file-list">
-					<ul>
+					<ul id="search">
 					{% for song in search_list %}
-						<li>{{ song }}</li>
+						<li id="{{ song["file"] }}">{{ song["artist"] }} - {{ song["title"] }}</li>
 					{% endfor %}
 					</ul>
 				</div>
@@ -105,5 +110,58 @@
 	<script>
 		// Show the element used to trigger a server action
 		location.hash = "#" + "{{ anchor }}";
+
+		// Get notification element
+		const notification = document.getElementById('notification');
+
+		// Clear old notification
+		notification.innerHTML = "";
+
+		// Notify if search key and list is empty
+		const key = "{{ search_key }}"
+		const list = "{{ search_list }}"
+		if ((key != "None") && (key.length > 0) && (list == "[]"))
+			notification.innerHTML = '<span style="color: #FFEF00;">Geen liedjes gevonden met \'{{ search_key }}\' in de naam van de artiest of in de titel. Gebruik een andere zoekopdracht.</span>';
+
+		// Catch user clicking a list item
+		if (ul = document.getElementById('search'))
+		{
+			ul.addEventListener('click', function(e)
+			{
+				if (e.target.tagName === 'LI')
+				{
+					event.preventDefault();
+
+					// Send song for clicked list item to server fro playback
+					submitSong(e.target.id)
+				}
+			});
+		}
+
+		// Function to submit the network and password
+		async function submitSong(song)
+		{
+			// Send song to play to server
+			try
+			{
+				const response = await fetch('/play_song', {
+					method: 'POST',
+					headers: {
+						'Content-Type': 'application/json'
+					},
+					body: JSON.stringify({ "song": song })
+				});
+
+				if (! response.ok)
+				{
+					const errorData = await response.json();
+					notification.textContent = "<p style=\"color: #ff0000;\">Error: "+ errorData + "</p>";
+				}
+			}
+			catch (error)
+			{
+				notification.innerHTML = "<p style=\"color: #ff0000;\">Er is een fout opgetreden bij het indienen van de netwerkreferenties.</p>";
+			}
+		}
 	</script>
 </html>

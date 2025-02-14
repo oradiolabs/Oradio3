@@ -126,41 +126,42 @@ def get_mpd_list(path = None):
 
 #OMJ: moet dit geen functie van mpd_control zijn?
 def get_mpd_search(pattern):
-    """
-    List songs with artist name containing pattern and songs with title containing pattern
-    Examples using https://mpd.readthedocs.io/en/latest/protocol.html#filters:
-      - mpc search '(artist contains "abb")' gets all songs with 'abb' in the artist attribute
-      - mpc search '(title contains "abb")' gets all songs with 'abb' in the title attribute
-    Returns: List of songs
-    """
+    # Build file search command
+    cmd = 'mpc search artist "' + pattern + '" | while IFS= read -r file; do echo "$(mpc --format \'%artist%\t%title%\' listall "$file")\t$file"; done'
 
-    # Build artist search command
-    cmd = 'mpc search \'(artist contains "' + pattern + '")\''
+    result = []
+    process = subprocess.run(cmd, shell = True, capture_output = True, text = True)
+    if process.returncode != 0:
+        print(f"shell script error: {process.stderr}")
+    else:
+        for item in process.stdout.strip().split("\n"):
+            if item:
+                fields = item.split("\t")
+                x = {}
+                x["artist"] = fields[0]
+                x["title"] = fields[1]
+                x["file"] = fields[2]
+                result.append(x)
+            else:
+                print(f"item is empty: {item}")
+                
+    return result
 
-    # Get mpd info
+#OMJ: moet dit geen functie van mpd_control zijn?
+#OMJ: willen we dat het nummer maar 1x speelt? Zo ja, wat moet er daarvoor gebeuren?
+#OMJ: als de Oradio uit staat speelt hij, dus AAN knop LED moet aan
+def play_mpd_song(song):
+    """
+    Stop the current playlist
+    Add the files matching the title as new playlist
+    Play the playlist (random and forever, as this is default behavior for Oradio)
+    """
+    # Stop current playback, add song, start play
+    cmd = f"mpc clear; mpc add \"{song}\"; mpc play"
     process = subprocess.run(cmd, shell = True, capture_output = True, text = True)
     if process.returncode != 0:
         oradio_log.error(f"shell script error: {process.stderr}")
-        return []
-    # Extract only the filenames from the full paths, without the extension
-    files = process.stdout.strip().split("\n")
-    search_artist = [os.path.splitext(os.path.basename(file))[0] for file in files]
-
-    # Build title search command
-    cmd = 'mpc search \'(title contains "' + pattern + '")\''
-    # Parse string into list
-
-    # Get mpd info
-    process = subprocess.run(cmd, shell = True, capture_output = True, text = True)
-    if process.returncode != 0:
-        oradio_log.error(f"shell script error: {process.stderr}")
-        return []
-    # Extract only the filenames from the full paths, without the extension
-    files = process.stdout.strip().split("\n")
-    search_title = [os.path.splitext(os.path.basename(file))[0] for file in files]
-
-    # Combine artist and title result, remove duplicates, sort alphabetically
-    return sorted(list(set(search_artist + search_title)))
+        return
 
 @api_app.route("/playlists", methods=["GET", "POST"])
 async def playlists(request: Request):
@@ -233,6 +234,21 @@ async def playlists(request: Request):
 
     # Return playlists page and available networks as context
     return templates.TemplateResponse(request=request, name="playlists.html", context=context)
+
+# Model for wifi network credentials
+class play(BaseModel):
+    song: str = None
+
+# POST endpoint to play song
+@api_app.post("/play_song")
+async def play_song(play: play):
+    """
+    Handle POST with wifi network credentials
+    Handle connecting in background task, so the POST gets a response
+    https://fastapi.tiangolo.com/tutorial/background-tasks/#using-backgroundtasks
+    """
+    oradio_log.debug(f"play song: {play.song}")
+    play_mpd_song(play.song)
 
 #### CAPTIVE PORTAL ####################
 

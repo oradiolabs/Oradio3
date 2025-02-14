@@ -107,6 +107,11 @@ li {
 	margin: 5px 0;
 }
 
+.notification {
+	line-height: 1.5;
+	margin-bottom: 10px;
+}
+
 @media (max-width: 500px) {
 	.container {
 		padding: 15px;
