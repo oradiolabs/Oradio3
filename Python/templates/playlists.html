@@ -4,7 +4,6 @@
 		<meta charset="UTF-8" />
 		<meta name="viewport" content="width=device-width, initial-scale=1.0" />
 
-
 		<link rel="stylesheet" href="../static/css/fontawesome.min.css" />
 		<link rel="stylesheet" href="../static/css/regular.min.css" />
 		<link rel="stylesheet" href="../static/css/oradio3.css" />
@@ -18,8 +17,8 @@
 			<!-- Set presets -->
 			<form method="POST">
 				<!-- identifier used by server: do not change or remove -->
-				<input type="hidden" name="set_presets" />
-				<div class="banner">Speellijst aan knop koppelen</div>
+				<input type="hidden" name="action" value="set_presets" />
+				<h1 id="set_presets">Speellijst aan knop koppelen</h1>
 				{% for item in presets %}
 					<div class="preset-grid">
 						<div class="preset-label">
@@ -43,10 +42,10 @@
 			</form>
 
 			<!-- Show songs in a playlist -->
-			<div class="banner">Liedjes van speellijst tonen</div>
 			<form method="POST">
 				<!-- identifier used by server: do not change or remove -->
-				<input type="hidden" name="show_songs" />
+				<input type="hidden" name="action" value="show_songs" />
+				<h1 id="show_songs">Liedjes van speellijst tonen</h1>
 				<select name="playlist" onchange="this.form.submit()">
 					<option selected disabled value="">-- Kies een speellijst --</option>
 					{% for folder in folders %}
@@ -69,10 +68,10 @@
 			{% endif %}
 
 			<!-- Create, view, update, delete own playlists -->
-			<div class="banner">Eigen speellijst maken</div>
 			<form method="POST">
 				<!-- identifier used by server: do not change or remove -->
-				<input type="hidden" name="custom_playlists" />
+				<input type="hidden" name="action" value="custom_playlists" />
+				<h1 id="custom_playlists">Eigen speellijst maken</h1>
 				<p>Hier komen de nodige input velden </p>
 				<button type="submit" name="custom_create">Eigen speellijst aanmaken</button>
 				<button type="submit" name="custom_update">Eigen speellijst bijwerken</button>
@@ -80,17 +79,20 @@
 			</form>
 
 			<!-- Search songs by artist or title -->
-			<div class="banner">Lied zoeken</div>
-<!-- search <expression> - Searches with a filter expression, e.g. mpc search '((artist == "Kraftwerk") AND (title == "Metall auf Metall"))'. -->
 			<form method="POST">
 				<!-- identifier used by server: do not change or remove -->
-				<input type="hidden" name="search_songs" />
-				<input type="text" name="pattern" required minlength="3" placeholder="Typ (deel van) naam van artiest of (deel van) titel" />
+				<input type="hidden" name="action" value="search_songs" />
+				<h1 id="search_songs">Lied zoeken</h1>
+				{% if search_key %}
+					<input type="text" name="pattern" required minlength="3" placeholder="Typ (deel van) naam van artiest of (deel van) titel" value="{{ search_key }}" />
+				{% else %}
+					<input type="text" name="pattern" required minlength="3" placeholder="Typ (deel van) naam van artiest of (deel van) titel" />
+				{% endif %}
 				<button type="submit" name="search">Zoeken</button>
-				{% if search %}
+				{% if search_list %}
 				<div class="file-list">
 					<ul>
-					{% for song in search %}
+					{% for song in search_list %}
 						<li>{{ song }}</li>
 					{% endfor %}
 					</ul>
@@ -100,8 +102,8 @@
 
 		</div>
 	</body>
-
 	<script>
+		// Show the element used to trigger a server action
+		location.hash = "#" + "{{ anchor }}";
 	</script>
-
 </html>

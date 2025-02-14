@@ -18,36 +18,32 @@
 	</head>
 	<body>
 		<div class="container">
-			<h1 >Verbind met WiFi-netwerk</h1>
 
-			<form>
-
+			<!-- Provide network credentials to connect to -->
+			<form method="POST">
+				<!-- identifier used by server: do not change or remove -->
+				<input type="hidden" name="action" value="connect_wifi" />
+				<h1 >Verbind Oradio met WiFi-netwerk</h1>
 				<label for="SSIDs">Netwerk:</label>
 				<select id="SSIDs" onchange="networkSelected()">
-					<option selected hidden disabled value="PLACEHOLDER">Selecteer uw WiFi-netwerk</option>
+					<option selected disabled value="PLACEHOLDER">Selecteer uw WiFi-netwerk</option>
 					{% for network in networks %}
 						<option value="{{ network }}">{{ network }}</option>
 					{% endfor %}
 				</select>
-
 				<div id="password">
 					<label for="pswd">Wachtwoord:</label>
 					<input id="pswd" class="pswd-input" type="password" placeholder="Voer WiFi-wachtwoord in" />
 					<span class="password-toggle-icon oradio-eye"><i class="fa-regular fa-eye"></i></span>
 				</div>
-
 				<button type="submit" id="submit" onclick="submitCredentials()">Instellen</button>
-
 				<div id="notification" class="notification">
 					<!-- Will be filled by Javascript submitCredentials() -->
 				</div>
-
 			</form>
 
 		</div>
-
 	</body>
-
 	<script>
 		// Change form to reflect selected network
 		function networkSelected()
@@ -130,5 +126,4 @@
 			}
 		}
 	</script>
-
 </html>

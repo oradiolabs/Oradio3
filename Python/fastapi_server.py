@@ -88,6 +88,13 @@ def load_presets():
         oradio_log.error(f"Failed to open '{PRESETS_FILE}'")
         return {"preset1": None, "preset2": None, "preset3": None}
 
+def store_presets(presets):
+    """
+    Write the presets from presets.json
+    """
+    with open(PRESETS_FILE, "w") as f:
+        json.dump({"preset1": presets[0], "preset2": presets[1], "preset3": presets[2]}, f, indent=4)
+
 #OMJ: moet dit geen functie van mpd_control zijn?
 def get_mpd_list(path = None):
     """
@@ -113,19 +120,19 @@ def get_mpd_list(path = None):
         # Parse string into list
         return process.stdout.strip().split("\n")
     else:
-        # Extract only the filenames from the full paths, without the mp3 extension
+        # Extract only the filenames from the full paths, without the extension
         files = process.stdout.strip().split("\n")
-        return [os.path.basename(file[:-4]) for file in files]
+        return [os.path.splitext(os.path.basename(file))[0] for file in files]
 
 #OMJ: moet dit geen functie van mpd_control zijn?
 def get_mpd_search(pattern):
     """
     List songs with artist name containing pattern and songs with title containing pattern
-    https://mpd.readthedocs.io/en/latest/protocol.html#filters
+    Examples using https://mpd.readthedocs.io/en/latest/protocol.html#filters:
+      - mpc search '(artist contains "abb")' gets all songs with 'abb' in the artist attribute
+      - mpc search '(title contains "abb")' gets all songs with 'abb' in the title attribute
     Returns: List of songs
     """
-# mpc search '(artist contains "abb")' toont alle songs waar abb in de naam van de artiest voorkomt
-# mpc search '(title contains "abb")' toont alle songs waar abb in de title voorkomt
 
     # Build artist search command
     cmd = 'mpc search \'(artist contains "' + pattern + '")\''
@@ -135,8 +142,9 @@ def get_mpd_search(pattern):
     if process.returncode != 0:
         oradio_log.error(f"shell script error: {process.stderr}")
         return []
-    search_artist = process.stdout.strip().split("\n")
-    print(f"search_artist={search_artist}")
+    # Extract only the filenames from the full paths, without the extension
+    files = process.stdout.strip().split("\n")
+    search_artist = [os.path.splitext(os.path.basename(file))[0] for file in files]
 
     # Build title search command
     cmd = 'mpc search \'(title contains "' + pattern + '")\''
@@ -147,17 +155,21 @@ def get_mpd_search(pattern):
     if process.returncode != 0:
         oradio_log.error(f"shell script error: {process.stderr}")
         return []
-    search_title = process.stdout.strip().split("\n")
-    print(f"search_title={search_title}")
+    # Extract only the filenames from the full paths, without the extension
+    files = process.stdout.strip().split("\n")
+    search_title = [os.path.splitext(os.path.basename(file))[0] for file in files]
 
-    return search_artist + search_title
+    # Combine artist and title result, remove duplicates, sort alphabetically
+    return sorted(list(set(search_artist + search_title)))
 
 @api_app.route("/playlists", methods=["GET", "POST"])
 async def playlists(request: Request):
     """
-    Main page to:
-      - Set a preset (preset1, preset2, preset3)
-      - Display file names in the folder of a selected preset
+    Page managing options to:
+      - Assign playlists to presets
+      - Show playlist songs
+      - Manage own playlists
+      - Search songs by artist and title tags
     """
     oradio_log.debug("Serving playlists page")
 
@@ -169,28 +181,29 @@ async def playlists(request: Request):
     playlist = None
     songs    = []
 
-    # unknown search pattern thus enpty search list
-    search = []
+    # Unknown search pattern thus empty search list
+    search_key = None
+    search_list = []
+
+    # Unknown action
+    action = ""
 
     if request.method == "POST":
         # Load form data
         form_data = await request.form()
         oradio_log.debug(f"form_data={form_data}")
-        '''
-        # If the user clicked "Set Preset"
-        if "set_preset" in request.form:
-            preset_name = request.form.get("preset_name")
-            folder_path = request.form.get("folder_path")
-            if preset_name and folder_path:
-                subprocess.run([DEF_PRESETS_SCRIPT, preset_name, folder_path])
-            return redirect(url_for("index"))
-        '''
+
+        # Get requested action
+        action = form_data.get('action')
+
         # If the user clicked "Set Presets"
-        if "set_presets" in form_data:
+        if action == "set_presets":
             print("user clicked 'set presets'")
+            store_presets([form_data.get("preset1"), form_data.get("preset2"), form_data.get("preset3")])
+            presets = load_presets()
 
         # If the user clicked "Show Songs"
-        if "show_songs" in form_data:
+        if action == "show_songs":
             print("user clicked 'show songs'")
             # Get selected playlist
             playlist = form_data.get("playlist")
@@ -198,22 +211,24 @@ async def playlists(request: Request):
             songs = get_mpd_list(playlist)
 
         # If the user clicked "custom playlists"
-        if "custom_playlists" in form_data:
+        if action == "custom_playlists":
             print("user clicked 'custom_playlist'")
 
         # If the user clicked "Search"
-        if "search_songs" in form_data:
+        if action == "search_songs":
             print("user clicked 'search songs'")
-            search = get_mpd_search(form_data.get("pattern"))
-            print(f"search={search}")
+            search_key = form_data.get('pattern')
+            search_list = get_mpd_search(search_key)
 
     # Set playlists page and lists info as context
     context = {
-                "presets" : presets,
-                "folders" : folders,
-                "playlist": playlist,
-                "songs"   : songs,
-                "search"  : search
+                "anchor"      : action,
+                "presets"     : presets,
+                "folders"     : folders,
+                "playlist"    : playlist,
+                "songs"       : songs,
+                "search_key"  : search_key,
+                "search_list" : search_list
             }
 
     # Return playlists page and available networks as context
@@ -263,18 +278,20 @@ def wifi_connect_task(credentials: credentials):
 #### CATCH ALL ####################
 
 @api_app.route("/{full_path:path}", methods=["GET", "POST"])
-async def index(request: Request):
+async def catch_all(request: Request):
     """
     Any unknown path will return:
       captive portal if wifi is an access point, or
       playlists if wifi connected to a network
     """
+    print("in catch all")
     # Get access to wifi functions
     wifi = wifi_service(api_app.state.message_queue)
 
     # Access point is active, so serve captive portal
     if wifi.get_wifi_connection() == ACCESS_POINT_SSID:
-        return RedirectResponse(url='/captiveportal')
+        # Return captive portal
+        return await captiveportal(request)
 
     # Default: serve playlists
     return RedirectResponse(url='/playlists')

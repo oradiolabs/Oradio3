@@ -8,6 +8,7 @@
 
 /*
  * Oradio generic style choices
+ * Colors: https://www.computerhope.com/htmcolor.htm
  */
 
 body {
@@ -25,16 +26,24 @@ body {
 .container {
 	max-width: 400px;
 	width: 100%;
-	height: 95vh;
 	padding: 20px;
-	background-color: #1F2933;
+	background-color:#1F2933;
 	border-radius: 10px;
 	box-shadow: 0 4px 8px rgba(0, 0, 0, 0.2);
 }
 
 h1 {
-	text-align: center;
+	width: 100%;
+	height: 20px;
+	background-color: #804A00;
+	color: #FFFFFF;
+	border: none;
+	border-radius: 5px;
+	padding: 10px;
+	font-size: 16px;
+	margin-left: -10px;
 	margin-bottom: 20px;
+	text-align: center;
 }
 
 label {
@@ -45,6 +54,7 @@ label {
 
 select {
 	width: 100%;
+	height: 40px;
 	padding: 10px;
 	margin-bottom: 20px;
 	border-radius: 5px;
@@ -57,6 +67,7 @@ select {
 
 input {
 	width: 100%;
+	height: 40px;
 	padding: 10px;
 	margin-bottom: 20px;
 	border-radius: 5px;
@@ -69,6 +80,7 @@ input {
 
 button {
 	width: 100%;
+	height: 40px;
 	background-color: #1DB954;
 	color: #FFFFFF;
 	border: none;
