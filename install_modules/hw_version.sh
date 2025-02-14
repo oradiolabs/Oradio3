@@ -37,19 +37,21 @@ echo "Configure Oradio hardware version log on boot"
 
 ########## Configure and install service ##########
 # Configure the hw_version service
-cp $SCRIPT_DIR/hw_version/hw_version.service.template $SCRIPT_DIR/hw_version/hw_version.service
-sed -i "s/PLACEHOLDER_USER/$(id -un)/g" $SCRIPT_DIR/hw_version/hw_version.service
-replace=`echo $(realpath "$SCRIPT_DIR/../Python") | sed 's/\//\\\\\//g'`
-sed -i "s/PLACEHOLDER_PATH/$replace/g" $SCRIPT_DIR/hw_version/hw_version.service
+if [ ! -f /etc/systemd/system/oradio_hw_version.log ]; then
+	cp $SCRIPT_DIR/hw_version/hw_version.service.template $SCRIPT_DIR/hw_version/hw_version.service
+	sed -i "s/PLACEHOLDER_USER/$(id -un)/g" $SCRIPT_DIR/hw_version/hw_version.service
+	replace=`echo $(realpath "$SCRIPT_DIR/../Python") | sed 's/\//\\\\\//g'`
+	sed -i "s/PLACEHOLDER_PATH/$replace/g" $SCRIPT_DIR/hw_version/hw_version.service
 
-# Install the hw_version service
-sudo cp $SCRIPT_DIR/hw_version/hw_version.service /etc/systemd/system/
+	# Install the hw_version service
+	sudo cp $SCRIPT_DIR/hw_version/hw_version.service /etc/systemd/system/
 
-# Set hw_version system to start at boot
-sudo systemctl enable hw_version.service
+	# Set hw_version system to start at boot
+	sudo systemctl enable hw_version.service
 
-# To be safe, rerun all generators, reload all unit files, and recreate the entire dependency tree
-sudo systemctl daemon-reload
+	# To be safe, rerun all generators, reload all unit files, and recreate the entire dependency tree
+	sudo systemctl daemon-reload
+fi
 
 # Notify leaving module installation script
 echo -e "${GREEN}Oradio hardware version log on boot configured${NC}"
