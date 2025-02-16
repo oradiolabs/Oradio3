@@ -59,6 +59,13 @@ sudo apt install avahi-utils
 echo "install pydantic"
 sudo python -m pip install --break-system-packages pydantic
 
+echo "install mpv and its libraries"
+sudo python -m pip install mpv
+sudo apt install mpv libmpv-dev python3-mpv
+
+echo "install playerctl"
+sudo apt install playerctl
+
 # also install pydantic in non-venv environment
 echo "deactivate current virtual machine"
 

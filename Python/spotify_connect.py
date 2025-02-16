@@ -45,6 +45,10 @@ import threading
 # Instead, you can use a single thread to manage multiple connections, which is more efficient in terms of resource usage.
 #################################################################################################################################
 
+import mpv
+import json
+import playerctl
+
 #### Oradio modules  #####
 import oradio_utils
 from oradio_const import *
@@ -75,9 +79,16 @@ class SpotifyConnect():
         we transformed it from a sequence of bytes into a string using the decode function.
         :param socket = socket pointer
         '''
-        data = conn.recv(1024) # max buffer size is 1024
-        if data:
-            oradio_utils.logging("info", "Data received from socket {sdat}".format(sdat = data.decode() ))            
+        rec_data = conn.recv(1024) # max buffer size is 1024
+        if rec_data:
+            librespot_data = json.loads(rec_data.decode())  #            
+            oradio_utils.logging("info", "Data received from socket {sdat}".format(sdat = librespot_data ))
+            librespot_event = librespot_data["player_event"]
+            print(librespot_event)
+            if librespot_event == "playing":
+                self.playerctl.play()
+            elif librespot_event == "stopped":
+                self.playerctl.stop()                
         else:
             # if recv() returns an empty bytes object, b'', 
             # that signals that the client closed the connection and the loop is terminated.            
@@ -106,6 +117,14 @@ class SpotifyConnect():
          setup an observer listening to socket for incoming messages
         '''
         self.callback=callback
+
+        self.mpv_player = mpv.MPV(config=True)
+        self.mpv_player.play('/home/pi/spotify/librespot-pipe')
+        oradio_utils.logging("info","mpv player started and waiting for playback")
+
+        self.playerctl = playerctl,Player(name="mpv")
+        oradio_utils.logging("info","instance for playerctl included")
+        
         self.sel = selectors.DefaultSelector()
         self.server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         self.server_socket.bind(("localhost", port))
@@ -120,7 +139,8 @@ class SpotifyConnect():
         # Run the observer in a separate thread
         observer_thread = threading.Thread(target=self.observer_loop, daemon=True)
         observer_thread.start()     
-           
+        
+         
         print("Server Listening ........")
 
     def shutdown_server(self):
@@ -157,7 +177,7 @@ serialized_dict = json.dumps(message).encode('utf-8')
 if __name__ == "__main__":
     import os
     import time
-    import imp
+    import importlib
     
     YELLOW_TXT  = "\033[93m"
     END_TXT     = "\x1b[0m"    
@@ -166,7 +186,7 @@ if __name__ == "__main__":
     print("kill Oradio_controls, to prevent interferences with this test module ")
     script = "sudo pkill -9 -f oradio_control.py"
 #    oradio_utils.run_shell_script(script)
-    
+ 
     def spotify_callback():
         pass
     
@@ -219,7 +239,7 @@ if __name__ == "__main__":
         os.environ['POSITION_MS']   = environment['POSITION_MS']
         os.environ['VOLUME']        = environment['VOLUME']
         import librespot_event_handler
-        imp.reload(librespot_event_handler) # will run de event handler
+        importlib.reload(librespot_event_handler) # will run de event handler
         return 
     
     def discover_oradio_speaker():
@@ -240,7 +260,13 @@ if __name__ == "__main__":
             process.terminate()
         return()
     
-
+    def monitor_librespot_events():
+        spot_con = SpotifyConnect(SPOTIFY_EVENT_SOCKET_PORT,spotify_callback)                    
+        time.sleep(1)
+        keyboard_input = input("Press any key to stop monitoring")        
+        return()
+    
+    
     def play_spotify_on_speaker(): 
         '''
         Play a playlist via the spotify connect app
@@ -301,7 +327,7 @@ if __name__ == "__main__":
     input_selection = ("Select a function, input the number.\n"
                        " 0-quit\n"
                        " 1-Check if Oradio Speaker can be discovered on local mDns \n"
-                       " 2-Play spotify on the Oradio Speaker\n"
+                       " 2-Monitor librespot events \n"
                        " 3-test event socket and queue\n"
                        " 4-xxxxx\n"
                        " 5-xxxxx\n"
@@ -327,7 +353,7 @@ if __name__ == "__main__":
             case 1:
                 discover_oradio_speaker()
             case 2:
-                play_spotify_on_speaker()
+                monitor_librespot_events()
             case 3:
                 test_event_socket_and_queue()
             case 4:
