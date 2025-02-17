@@ -43,7 +43,7 @@ sudo cp $SCRIPT_DIR/audio/asound.conf /etc/asound.conf
 
 # Configure mpd music library location
 replace=`echo $USB_MUSIC | sed 's/\//\\\\\//g'`
-sudo cat $SCRIPT_DIR/audio/mpd.conf.template | sed "s/USB_MUSIC/$replace/g" > $SCRIPT_DIR/audio/mpd.conf
+sudo cat $SCRIPT_DIR/audio/mpd.conf.template | sed "s/PLACEHOLDER_USB_MUSIC/$replace/g" > $SCRIPT_DIR/audio/mpd.conf
 sudo cp $SCRIPT_DIR/audio/mpd.conf /etc/mpd.conf
 
 # Set mpd system to start at boot
