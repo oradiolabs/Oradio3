@@ -102,7 +102,7 @@ bind_to_address			"localhost"
 # Setting "restore_paused" to "yes" puts MPD into pause mode instead
 # of starting playback after startup.
 #
-restore_paused "yes"
+#restore_paused "no"
 #
 # This setting enables MPD to create playlists in a format usable by other
 # music players.
@@ -419,11 +419,3 @@ decoder {
 filesystem_charset		"UTF-8"
 #
 ###############################################################################
-
-# Oradio audio output
-audio_output {
-    type            "alsa"
-    name            "MPD Output"
-    device          "MPD_in"      # The ALSA PCM device
-    mixer_type      "none"        # Disable software volume control
-}
