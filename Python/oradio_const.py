@@ -27,6 +27,8 @@ ORADIO_DIR      = sys.path[0]
 ORADIO_LOG_FILE = os.path.abspath(ORADIO_DIR + '/../logging/oradio.log')   # Use absolute path to prevent file rotation trouble
 SOUND_FILES_DIR = os.path.realpath(ORADIO_DIR + "/../system_sounds")
 
+JSON_SCHEMAS_FILE = os.path.realpath(ORADIO_DIR + "/schemas.json")
+
 ################## WIFI UTILS #############################
 # Access point
 ACCESS_POINT_SSID = "OradioAP"
@@ -85,3 +87,17 @@ SOUND_FILES_DIR = "/home/pi/Oradio3/system_sounds"
 ############# SPOTIFY ##########################################
 MESSAGE_SPOTIFY_TYPE        = "Spotify message"
 SPOTIFY_EVENT_SOCKET_PORT   = 8010
+MPV_PLAYERCTL_PLAY          = "play"
+MPV_PLAYERCTL_PAUSE         = "pause"
+MPV_PLAYERCTL_STOP          = "stop"
+PLAYERCTL_COMMAND_NOT_FOUND = "playerctl command not found"
+PLAYERCTL_COMMAND_ERROR     = "playerctl command failed"
+
+# SPOTIFY states
+SPOTIFY_CONNECT_PLAYING_EVENT       = "Spotify Connect playing event"
+SPOTIFY_CONNECT_PAUSED_EVENT        = "Spotify Connect paused event"
+SPOTIFY_CONNECT_STOPPED_EVENT       = "Spotify Connect stopped event"
+SPOTIFY_CONNECT_CONNECTED_EVENT     = "Spotify Connect connected event"
+SPOTIFY_CONNECT_DISCONNECTED_EVENT  = "Spotify Connect disconnected event"
+SPOTIFY_CONNECT_CLIENT_CHANGED_EVENT= "Spotify Connect client changed event"
+

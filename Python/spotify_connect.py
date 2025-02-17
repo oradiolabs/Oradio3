@@ -30,6 +30,7 @@ from subprocess import Popen, PIPE, CalledProcessError
 import socket
 import selectors
 import threading
+import pydantic
 #############################################################################################
 # The select method is for managing multiple socket connections simultaneously. 
 # It allows a program to monitor multiple file descriptors (like sockets) and 
@@ -47,7 +48,6 @@ import threading
 
 import mpv
 import json
-import playerctl
 
 #### Oradio modules  #####
 import oradio_utils
@@ -84,11 +84,25 @@ class SpotifyConnect():
             librespot_data = json.loads(rec_data.decode())  #            
             oradio_utils.logging("info", "Data received from socket {sdat}".format(sdat = librespot_data ))
             librespot_event = librespot_data["player_event"]
-            print(librespot_event)
-            if librespot_event == "playing":
-                self.playerctl.play()
-            elif librespot_event == "stopped":
-                self.playerctl.stop()                
+            message = self.queue_message
+            match librespot_event:        
+                case 'playing':
+                    message["state"] = SPOTIFY_CONNECT_PLAYING_EVENT
+                case 'paused':
+                    message["state"] = SPOTIFY_CONNECT_PAUSED_EVENT
+                case 'stopped':
+                    message["state"] = SPOTIFY_CONNECT_STOPPED_EVENT
+                case 'session_connected':
+                    message["state"] = SPOTIFY_CONNECT_CONNECTED_EVENT
+                case 'session_disconnected':
+                    message["state"] = SPOTIFY_CONNECT_DISCONNECTED_EVENT
+                case 'session_client_changed':
+                    message["state"] = SPOTIFY_CONNECT_CLIENT_CHANGED_EVENT
+                case _:
+                    message["state"] = None
+            if message["state"] != None:
+                message["error"] = None
+                self.msg_queue.put(message)
         else:
             # if recv() returns an empty bytes object, b'', 
             # that signals that the client closed the connection and the loop is terminated.            
@@ -112,18 +126,31 @@ class SpotifyConnect():
                 # the key holds the registered callback and socket
                 callback(key.fileobj)
 
-    def __init__(self,port,callback):
+    def __init__(self,port,callback, msg_queue):
         '''
          setup an observer listening to socket for incoming messages
         '''
-        self.callback=callback
-
+        self.callback   = callback
+        self.msg_queue  = msg_queue
+        
+        # create a message object based on json schema 
+        # Load the JSON schema file
+        with open(JSON_SCHEMAS_FILE) as f:
+            schemas = json.load(f)
+        # Dynamically create Pydantic models
+        models = {name: oradio_utils.json_schema_to_pydantic(name, schema) for name, schema in schemas.items()}
+        
+        # create Messages model
+        Messages = models["Messages"]
+        #create an instance for this model
+        msg = Messages(type="none", state="none", error="none", data=[])
+        
+        self.queue_message         = msg.model_dump()
+        self.queue_message["type"] = MESSAGE_SPOTIFY_TYPE
+        
         self.mpv_player = mpv.MPV(config=True)
         self.mpv_player.play('/home/pi/spotify/librespot-pipe')
         oradio_utils.logging("info","mpv player started and waiting for playback")
-
-        self.playerctl = playerctl,Player(name="mpv")
-        oradio_utils.logging("info","instance for playerctl included")
         
         self.sel = selectors.DefaultSelector()
         self.server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -153,7 +180,33 @@ class SpotifyConnect():
         self.server_socket.close()  # Close the socket
         print("Server closed.")
 
-
+    def playerctl_command(self,command):
+        '''
+        Send command to playerctl via subprocess
+        '''
+        commands_list = [MPV_PLAYERCTL_PLAY, MPV_PLAYERCTL_PAUSE, MPV_PLAYERCTL_STOP]
+        if command in command_list:
+                 
+            run_command = ['playerctl',command]
+            try:
+                status = subprocess.run(run_command,
+                                        capture_output=True,
+                                        text=True,
+                                        check=True  # Raises CalledProcessError if command fails
+                                        )
+                print("subprocess run status=",status)
+            except subprocess.CalledProcessError:
+                # Error: Playerctl command failed
+                status = PLAYERCTL_COMMAND_ERROR
+                oradio_utils.logging("error","fFailure-status={status)")
+            except Exception as err:
+                status = PLAYERCTL_COMMAND_ERROR
+                oradio_utils.logging("error","fError-status={status), error={err}")
+        else:
+            status = COMMAND_NOT_FOUND
+            oradio_utils.logging("warning","fcommand-status={status})")            
+        return (status)
+    
 '''        
 librespot --name "Raspberry Pi" --bitrate 320 --backend pipe --device /tmp/librespot-pipe --verbose
 
@@ -178,6 +231,7 @@ if __name__ == "__main__":
     import os
     import time
     import importlib
+    from multiprocessing import Queue    
     
     YELLOW_TXT  = "\033[93m"
     END_TXT     = "\x1b[0m"    
@@ -232,7 +286,6 @@ if __name__ == "__main__":
                 environment['VOLUME']='10'
             case _:
                 environment['PLAYER_EVENT']='EVENT_UNKNOWN'
-        print("env-event =",environment)
         os.environ['PLAYER_EVENT']  = environment['PLAYER_EVENT']
         os.environ['TRACK_ID']      = environment['TRACK_ID']
         os.environ['OLD_TRACK_ID']  = environment['OLD_TRACK_ID']                        
@@ -252,8 +305,8 @@ if __name__ == "__main__":
             with subprocess.Popen(script, stdout=PIPE, bufsize=1, universal_newlines=True) as process:
                 for line in process.stdout:
                     print(line, end='')  # Outputs the line immediately
-                    if "Oradio-luidspreker" in line:
-                        oradio_utils.logging("success","Oradio-luidspreker discovered")
+                    if "Oradio" in line:
+                        oradio_utils.logging("success","Oradio device discovered")
                 if process.returncode != 0:
                     raise CalledProcessError(process.returncode, script)
         except KeyboardInterrupt:
@@ -267,11 +320,11 @@ if __name__ == "__main__":
         return()
     
     
-    def play_spotify_on_speaker(): 
+    def simulate_as_oradio_control(): 
         '''
-        Play a playlist via the spotify connect app
+        simulate a oradio_control, using a playlist from Spotify
         '''   
-        print("Open a Spotify app and connect to a sound device called Oradio-luidspreker ")
+        print("Open a Spotify app and connect to a sound device called Oradio ")
         print("Check if spotify events are there")
         print("Increase volume on Spotify App")
 
@@ -289,11 +342,28 @@ if __name__ == "__main__":
 #            client_socket.close()
 #            server_socket.close()
 
+    def check_messages(queue):
+        """
+        Check if a new message is put into the queue
+        If so, read the message from queue and display it
+        :param queue = the queue to check for
+        """
+        oradio_utils.logging("info", "Listening for messages in queue")
+
+        while True:
+            # Wait for message
+            message = queue.get(block=True, timeout=None)
+            # Show message received
+            oradio_utils.logging("info", f"Message received in queue: '{message}'")
+            break
+        return(message)
+            
     def test_event_socket_and_queue():
         '''
         Test the event socket, its observer and the message queue for oradio_controls
         ''' 
-        spot_con = SpotifyConnect(SPOTIFY_EVENT_SOCKET_PORT,spotify_callback)                    
+        msg_queue = Queue()
+        spot_con = SpotifyConnect(SPOTIFY_EVENT_SOCKET_PORT,spotify_callback, msg_queue)                    
         time.sleep(1)
         # send a librespot event to the socket
         event_selection = ("select an event:\n"
@@ -304,6 +374,10 @@ if __name__ == "__main__":
                            "select an event:"
                            )
         while True:
+            # Clear all items
+            while not msg_queue.empty():
+                msg_queue.get()
+                
             try:
                 event_nr = int(input(event_selection))
             except:
@@ -314,13 +388,22 @@ if __name__ == "__main__":
                     spot_con.shutdown_server()
                     break
                 case 1:
-                    send_a_librespot_event('playing')
+                    event = 'playing'
                 case 2:
-                    send_a_librespot_event('stopped')
+                    event = 'stopped'                    
                 case 3:
-                    send_a_librespot_event('paused')
+                    event = 'paused'                    
                 case _:
                     print("invalid selection, try again")
+                    event = None
+            if event != None:
+                send_a_librespot_event(event)                    
+                time.sleep(1)
+                # wait for message in queue
+                message = check_messages(msg_queue)
+                if event in message['state']:
+                    oradio_utils.logging("success","Correct message event <{msg}> received in queue".format(msg=message['state']))
+                time.sleep(1)            
         return()
             
     # Show menu with test options
@@ -328,8 +411,8 @@ if __name__ == "__main__":
                        " 0-quit\n"
                        " 1-Check if Oradio Speaker can be discovered on local mDns \n"
                        " 2-Monitor librespot events \n"
-                       " 3-test event socket and queue\n"
-                       " 4-xxxxx\n"
+                       " 3-Test event socket and queue \n"
+                       " 4-Simulate as Oradio_controls \n"
                        " 5-xxxxx\n"
                        "select: "
                        )
@@ -357,7 +440,7 @@ if __name__ == "__main__":
             case 3:
                 test_event_socket_and_queue()
             case 4:
-                pass
+                simulate_as_oradio_control()
             case 5:
                 pass
             case _:

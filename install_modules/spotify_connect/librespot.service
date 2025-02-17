@@ -11,10 +11,10 @@ Environment="LIBRESPOT_DISABLE_AUDIO_CACHE="
 Environment="LIBRESPOT_AUTOPLAY=off"
 Environment="LIBRESPOT_SYSTEM_CACHE=/home/pi/Oradio3"
 Environment="LIBRESPOT_BACKEND=alsa"
-Environment="LIBRESPOT_NAME=Oradio-luidspreker"
+Environment="LIBRESPOT_NAME=Oradio"
 Environment="LIBRESPOT_VERBOSE="
 Environment="LIBRESPOT_ONEVENT=/home/pi/Oradio3/Python/librespot_event_handler.py"
-Environment="LIBRESPOT_DEVICE_TYPE=speaker"
+Environment="LIBRESPOT_DEVICE_TYPE=avr"
 ExecStart=/usr/bin/librespot  --bitrate 320 --backend pipe --device /home/pi/spotify/librespot-pipe
 
 Restart=always
