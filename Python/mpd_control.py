@@ -15,7 +15,7 @@ Created on January 10, 2025
 @version:       1
 @email:         oradioinfo@stichtingoradio.nl
 @status:        Development
-@summary: Oradio MPD control module
+@summary: Oradio MPD control module and playlist test scripts
 
 Logging Update
 """
@@ -30,7 +30,6 @@ from play_system_sound import PlaySystemSound
 ##### GLOBAL constants ####################
 from oradio_const import *
 #from internet_checker import is_internet_available
-
 
 class MPDControl:
     """
@@ -91,12 +90,11 @@ class MPDControl:
             if not self._is_connected():
                 oradio_log.debug("Reconnecting MPD client...")
                 self.client = self._connect()
-#                 
 
     def play_preset(self, preset):
         """
-        Plays a preset playlist using the global PRESET_FILE_PATH.
-        Presets as in Json file: "Preset1", "Preset2", "Preset3"
+        Plays a preset using the global PRESET_FILE_PATH.
+        Uses MPD's listplaylists to determine whether the preset is a stored playlist or a directory.
         """
         self._ensure_client()
         playlist_name = self.get_playlist_name(preset, PRESET_FILE_PATH)
@@ -108,18 +106,16 @@ class MPDControl:
         with self.mpd_lock:
             try:
                 self.client.clear()
-                if playlist_name.startswith("WebRadio"):
-                    # For WebRadio presets, check if internet is available.
-                  #  internet_status = is_internet_available()
-                    internet_status = True # not implemnted additional thread
-                    if internet_status:
-                        self.client.load(playlist_name)
-                    else:
-                        oradio_log.debug("Internet not available; cannot play WebRadio preset.")
-                        time.sleep(2)
-                        self.sound_player.play("NoInternet")
-                        return  # Prevent further execution if there's no internet
+
+                # Retrieve stored playlists from MPD.
+                stored_playlists = self.client.listplaylists()
+                stored_playlist_names = [pl.get("playlist") for pl in stored_playlists]
+
+                if playlist_name in stored_playlist_names:
+                    # If the preset is a stored playlist, load it.
+                    self.client.load(playlist_name)
                 else:
+                    # Otherwise, assume it's a directory and add it.
                     self.client.add(playlist_name)
 
                 self.client.shuffle()
@@ -127,7 +123,7 @@ class MPDControl:
                 self.client.repeat(1)
                 self.client.play()
 
-                oradio_log.debug(f"Playing playlist: {playlist_name}")
+                oradio_log.debug(f"Playing: {playlist_name}")
 
             except Exception as e:
                 oradio_log.debug(f"Error playing preset {preset}: {e}")
@@ -176,7 +172,6 @@ class MPDControl:
             except Exception as e:
                 oradio_log.error(f"Error sending next command: {e}")
 
-
     def update_mpd_database(self):
         """Updates the MPD database with a timeout."""
         self._ensure_client()
@@ -188,7 +183,6 @@ class MPDControl:
         try:
             oradio_log.debug("Starting MPD database update...")
             job_id = self.client.update()
-            # job_id = self.client.rescan()  # Alternative if desired
             oradio_log.debug(f"Database update job ID: {job_id}")
 
             while True:
@@ -207,19 +201,16 @@ class MPDControl:
                 if "updating_db" in status:
                     oradio_log.debug(f"Updating... Job ID: {status['updating_db']}")
                     # Sleep in short increments to allow for prompt cancellation and timeout checks
-                    for _ in range(30):  # 30 * 0.1 = 3 seconds
+                    for _ in range(30):
                         if self.mpd_update_cancel_event.is_set():
                             oradio_log.debug("MPD database update canceled during sleep.")
                             break
-                        # Check timeout during sleep increments as well
                         if time.time() - start_time > timeout_seconds:
                             oradio_log.debug(f"MPD database update timed out during sleep after {timeout_seconds} seconds.")
                             break
                         time.sleep(0.2)
-                    # If cancellation was requested during the sleep, break out of the loop
                     if self.mpd_update_cancel_event.is_set():
                         break
-                    # Final check for timeout after sleep loop
                     if time.time() - start_time > timeout_seconds:
                         oradio_log.warning(f"MPD database update timed out after {timeout_seconds} seconds.")
                         break
@@ -244,8 +235,6 @@ class MPDControl:
     def restart_mpd_service(self):
         """Restarts the MPD service using systemctl."""
         try:
-            # Run the systemctl command to restart the mpd service.
-            # Note: This command may require elevated privileges.
             subprocess.run(
                 ["sudo", "systemctl", "restart", "mpd"],
                 capture_output=True,
@@ -256,18 +245,14 @@ class MPDControl:
         except subprocess.CalledProcessError as e:
             oradio_log.error(f"Error restarting MPD service: {e.stderr}")
         
-        
-
-    @staticmethod  # just a simple function
+    @staticmethod
     def get_playlist_name(preset_key, filepath):
         """Retrieves the playlist name for a given preset key."""
         try:
             with open(filepath, 'r') as file:
                 presets = json.load(file)
 
-            # Convert preset key to lowercase to match JSON format (e.g., "Preset1" -> "preset1")
             json_key = preset_key.lower()
-
             return presets.get(json_key, None)
 
         except FileNotFoundError:
@@ -276,13 +261,8 @@ class MPDControl:
             oradio_log.error("Error: Failed to decode JSON. Please check the file's format.")
         return None
 
-
-
 # Entry point for stand-alone operation
-
 if __name__ == '__main__':
-
-
     print("\nStarting MPD Control Standalone Test...\n")
     
     # Instantiate MPDControl
@@ -290,30 +270,32 @@ if __name__ == '__main__':
     
     import random
 
-    # Show menu with test options
     input_selection = ("\nSelect a function, input the number:\n"
-                       " 0 - Quit\n"
-                       " 1 - Play\n"
-                       " 2 - Stop\n"
-                       " 3 - Pause\n"
-                       " 4 - Next Track\n"
-                       " 5 - Play Preset 1\n"
-                       " 6 - Play Preset 2\n"
-                       " 7 - Play Preset 3\n"
-                       " 8 - Update Database\n"
-                       " 9 - Cancel Database Update\n"
-                       "10 - Stress Test\n"
-                       "11 - Restart MPD Service\n"
+                       " 0  - Quit\n"
+                       " 1  - Play\n"
+                       " 2  - Stop\n"
+                       " 3  - Pause\n"
+                       " 4  - Next Track\n"
+                       " 5  - Play Preset 1\n"
+                       " 6  - Play Preset 2\n"
+                       " 7  - Play Preset 3\n"
+                       " 8  - Update Database\n"
+                       " 9  - Cancel Database Update\n"
+                       "10  - Stress Test\n"
+                       "11  - Restart MPD Service\n"
+                       "12  - List Available Stored Playlists\n"
+                       "13  - List Available Directories\n"
+                       "14  - Create and Store a New Playlist\n"
+                       "15  - Select a Stored Playlist to Play\n"
+                       "16  - Select an Available Directory to Play\n"
                        "Select: ")
 
-    # User command loop
     while True:
         try:
             function_nr = int(input(input_selection))
         except ValueError:
             function_nr = -1  # Invalid input
 
-        # Execute selected function
         match function_nr:
             case 0:
                 print("\nExiting test program...\n")
@@ -343,40 +325,180 @@ if __name__ == '__main__':
                 print("\nExecuting: Update MPD Database\n")
                 mpd.start_update_mpd_database_thread()
             case 9:
-                print("\nExecuting: Cancel MPD Database Update\n")
+                print("\nExecuting: Cancel Database Update\n")
                 mpd.cancel_update()
             case 10:
                 print("\nExecuting: Stress Test\n")
-                
                 def stress_test(mpd_instance, duration=10):
-                    """Stress test: Random MPD actions in parallel for a given duration."""
                     start_time = time.time()
                     commands = [mpd_instance.play, mpd_instance.pause, mpd_instance.next, mpd_instance.stop]
-
                     def random_action():
                         while time.time() - start_time < duration:
                             action = random.choice(commands)
                             action()
-                            time.sleep(random.uniform(0.1, 0.5))  # Random delay between commands
-
-                    # Launch multiple threads
+                            time.sleep(random.uniform(0.1, 0.5))
                     thread_list = [threading.Thread(target=random_action) for _ in range(5)]
-                    
-                    # Start all threads
                     for thread in thread_list:
                         thread.start()
-                    
-                    # Wait for all threads to complete
                     for thread in thread_list:
                         thread.join()
-
                     print("\nStress test completed.\n")
-
                 stress_test(mpd)
-
             case 11:
                 print("\nExecuting: Restart MPD Service\n")
                 mpd.restart_mpd_service()
-
+            case 12:
+                print("\nListing available stored playlists...\n")
+                mpd._ensure_client()
+                with mpd.mpd_lock:
+                    stored_playlists = mpd.client.listplaylists()
+                if not stored_playlists:
+                    print("No stored playlists found.")
+                else:
+                    for idx, pl in enumerate(stored_playlists, start=1):
+                        print(f"{idx}. {pl.get('playlist')}")
+                    try:
+                        selection = int(input("\nSelect a playlist by number: "))
+                        if 1 <= selection <= len(stored_playlists):
+                            playlist_name = stored_playlists[selection - 1].get('playlist')
+                            print(f"\nPlaying stored playlist: {playlist_name}\n")
+                            with mpd.mpd_lock:
+                                mpd.client.clear()
+                                mpd.client.load(playlist_name)
+                                mpd.client.shuffle()
+                                mpd.client.random(1)
+                                mpd.client.repeat(1)
+                                mpd.client.play()
+                        else:
+                            print("Invalid selection.")
+                    except ValueError:
+                        print("Invalid input, please enter a number.")
+            case 13:
+                print("\nListing available directories...\n")
+                mpd._ensure_client()
+                with mpd.mpd_lock:
+                    lsinfo = mpd.client.lsinfo("/")
+                directories = [entry["directory"] for entry in lsinfo if "directory" in entry]
+                if not directories:
+                    print("No directories found.")
+                else:
+                    for idx, d in enumerate(directories, start=1):
+                        print(f"{idx}. {d}")
+                    try:
+                        selection = int(input("\nSelect a directory by number: "))
+                        if 1 <= selection <= len(directories):
+                            directory_name = directories[selection - 1]
+                            print(f"\nPlaying directory: {directory_name}\n")
+                            with mpd.mpd_lock:
+                                mpd.client.clear()
+                                mpd.client.add(directory_name)
+                                mpd.client.shuffle()
+                                mpd.client.random(1)
+                                mpd.client.repeat(1)
+                                mpd.client.play()
+                        else:
+                            print("Invalid selection.")
+                    except ValueError:
+                        print("Invalid input, please enter a number.")
+            case 14:
+                print("\nCreating and storing a new playlist...\n")
+                mpd._ensure_client()
+                search_query = input("Enter search query (artist or song): ")
+                with mpd.mpd_lock:
+                    search_results = mpd.client.search("any", search_query)
+                if not search_results:
+                    print("No search results found for query:", search_query)
+                    continue
+                print("\nSearch results:")
+                for idx, song in enumerate(search_results, start=1):
+                    artist = song.get("artist", "Unknown Artist")
+                    title = song.get("title", song.get("file", "Unknown Title"))
+                    print(f"{idx}. {artist} - {title}")
+                selection_input = input("\nEnter song numbers to add (comma-separated): ")
+                try:
+                    selections = [int(num.strip()) for num in selection_input.split(",")]
+                except ValueError:
+                    print("Invalid input. Please enter numbers separated by commas.")
+                    continue
+                selected_songs = []
+                for num in selections:
+                    if 1 <= num <= len(search_results):
+                        selected_songs.append(search_results[num-1])
+                    else:
+                        print(f"Number {num} is out of range, ignoring.")
+                if not selected_songs:
+                    print("No valid songs selected.")
+                    continue
+                print("\nSelected songs:")
+                for idx, song in enumerate(selected_songs, start=1):
+                    artist = song.get("artist", "Unknown Artist")
+                    title = song.get("title", song.get("file", "Unknown Title"))
+                    print(f"{idx}. {artist} - {title}")
+                confirm = input("\nIs this selection OK? (y/n): ").lower()
+                if confirm != "y":
+                    print("Playlist creation canceled.")
+                    continue
+                playlist_name = input("Enter the name for the new playlist: ")
+                with mpd.mpd_lock:
+                    mpd.client.clear()
+                    for song in selected_songs:
+                        file_path = song.get("file")
+                        if file_path:
+                            mpd.client.add(file_path)
+                    mpd.client.save(playlist_name)
+                print(f"Playlist '{playlist_name}' stored successfully.")
+            case 15:
+                print("\nSelect a stored playlist to play...\n")
+                mpd._ensure_client()
+                with mpd.mpd_lock:
+                    stored_playlists = mpd.client.listplaylists()
+                if not stored_playlists:
+                    print("No stored playlists found.")
+                else:
+                    for idx, pl in enumerate(stored_playlists, start=1):
+                        print(f"{idx}. {pl.get('playlist')}")
+                    try:
+                        selection = int(input("\nSelect a playlist by number: "))
+                        if 1 <= selection <= len(stored_playlists):
+                            playlist_name = stored_playlists[selection - 1].get('playlist')
+                            print(f"\nPlaying stored playlist: {playlist_name}\n")
+                            with mpd.mpd_lock:
+                                mpd.client.clear()
+                                mpd.client.load(playlist_name)
+                                mpd.client.shuffle()
+                                mpd.client.random(1)
+                                mpd.client.repeat(1)
+                                mpd.client.play()
+                        else:
+                            print("Invalid selection.")
+                    except ValueError:
+                        print("Invalid input, please enter a number.")
+            case 16:
+                print("\nSelect an available directory to play...\n")
+                mpd._ensure_client()
+                with mpd.mpd_lock:
+                    lsinfo = mpd.client.lsinfo("/")
+                directories = [entry["directory"] for entry in lsinfo if "directory" in entry]
+                if not directories:
+                    print("No directories found.")
+                else:
+                    for idx, d in enumerate(directories, start=1):
+                        print(f"{idx}. {d}")
+                    try:
+                        selection = int(input("\nSelect a directory by number: "))
+                        if 1 <= selection <= len(directories):
+                            directory_name = directories[selection - 1]
+                            print(f"\nPlaying directory: {directory_name}\n")
+                            with mpd.mpd_lock:
+                                mpd.client.clear()
+                                mpd.client.add(directory_name)
+                                mpd.client.shuffle()
+                                mpd.client.random(1)
+                                mpd.client.repeat(1)
+                                mpd.client.play()
+                        else:
+                            print("Invalid selection.")
+                    except ValueError:
+                        print("Invalid input, please enter a number.")
             case _:
                 print("\nInvalid selection. Please enter a valid number.\n")
