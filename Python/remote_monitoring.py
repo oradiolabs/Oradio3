@@ -105,7 +105,7 @@ class rms_service():
     """
     Manage communication with Oradio Remote Monitoring Service (ORMS):
     - HEARTBEAT messages as sign of life
-    - SYS_INFO to identify the ORadio to ORMS
+    - SYS_INFO to identify the Oradio to ORMS
     - WARNING and ERROR log messages accompnied by the log file
     """
     def __init__(self):
