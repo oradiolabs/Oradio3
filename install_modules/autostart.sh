@@ -35,7 +35,6 @@ source $SCRIPT_DIR/constants.sh
 # Notify entering module installation script
 echo "Configure Oradio autostart on boot"
 
-########## Configure and install service ##########
 # Configure the autostart service
 cp $SCRIPT_DIR/autostart/autostart.service.template $SCRIPT_DIR/autostart/autostart.service
 sed -i "s/PLACEHOLDER_USER/$(id -un)/g" $SCRIPT_DIR/autostart/autostart.service

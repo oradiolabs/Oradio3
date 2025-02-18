@@ -55,7 +55,6 @@ done
 
 echo "i2c modules loaded and started"
 
-########## Configure and install service ##########
 # Configure the backlighting service
 cp $SCRIPT_DIR/backlighting/backlighting.service.template $SCRIPT_DIR/backlighting/backlighting.service
 sed -i "s/PLACEHOLDER_USER/$(id -un)/g" $SCRIPT_DIR/backlighting/backlighting.service

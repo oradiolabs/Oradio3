@@ -35,7 +35,6 @@ source $SCRIPT_DIR/constants.sh
 # Notify entering module installation script
 echo "Load and configure web-interface and captive portal functionalty"
 
-########## Get packages and python modules for web-interface ##########
 # Install iptables
 sudo apt-get install iptables -y
 # Install python modules

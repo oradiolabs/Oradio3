@@ -35,11 +35,10 @@ source $SCRIPT_DIR/constants.sh
 # Notify entering module installation script
 echo "Enable wifi and set network domain name to '${NETWORK_DOMAIN}'"
 
-########## Activate wireless interface ##########
+# Activate wireless interface
 # https://www.raspberrypi.com/documentation/computers/configuration.html#wlan-country-2
 sudo raspi-config nonint do_wifi_country $WIFI_COUNTRY		# Implicitly activates wifi
 
-########## Set network domain name ##########
 # change hostname and hosts mapping to reflect the network domain name
 sudo bash -c "hostnamectl set-hostname ${NETWORK_DOMAIN} && sed -i \"s/^127.0.1.1.*/127.0.1.1\t${NETWORK_DOMAIN}/g\" /etc/hosts"
 # Set user prompt to reflect new hostname
