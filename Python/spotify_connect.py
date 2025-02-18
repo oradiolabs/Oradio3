@@ -53,7 +53,6 @@ import json
 import oradio_utils
 from oradio_const import *
 
-
 class SpotifyConnect():
 
     def accept_connection(self,sock):
@@ -81,10 +80,10 @@ class SpotifyConnect():
         '''
         rec_data = conn.recv(1024) # max buffer size is 1024
         if rec_data:
-            librespot_data = json.loads(rec_data.decode())  #            
+            librespot_data = json.loads(rec_data.decode())  #
             oradio_utils.logging("info", "Data received from socket {sdat}".format(sdat = librespot_data ))
             librespot_event = librespot_data["player_event"]
-            message = self.queue_message
+            message = {}
             match librespot_event:        
                 case 'playing':
                     message["state"] = SPOTIFY_CONNECT_PLAYING_EVENT
@@ -101,8 +100,14 @@ class SpotifyConnect():
                 case _:
                     message["state"] = None
             if message["state"] != None:
-                message["error"] = None
-                self.msg_queue.put(message)
+                message["error"] = "None"
+                self.state = message["state"]
+                # construct the message based on the schema for Messages
+                self.queue_put_mesg["type"]     = MESSAGE_SPOTIFY_TYPE
+                self.queue_put_mesg["state"]    = self.state
+                self.queue_put_mesg["error"]    = message["error"]                            
+                self.queue_put_mesg["data"]     = []                            
+                self.msg_queue.put(self.queue_put_mesg)
         else:
             # if recv() returns an empty bytes object, b'', 
             # that signals that the client closed the connection and the loop is terminated.            
@@ -126,7 +131,7 @@ class SpotifyConnect():
                 # the key holds the registered callback and socket
                 callback(key.fileobj)
 
-    def __init__(self,port,callback, msg_queue):
+    def __init__(self,callback, msg_queue):
         '''
          setup an observer listening to socket for incoming messages
         '''
@@ -144,9 +149,10 @@ class SpotifyConnect():
         Messages = models["Messages"]
         #create an instance for this model
         msg = Messages(type="none", state="none", error="none", data=[])
-        
-        self.queue_message         = msg.model_dump()
-        self.queue_message["type"] = MESSAGE_SPOTIFY_TYPE
+
+        ## define the message model for the put message in the queue         
+        self.queue_put_mesg         = msg.model_dump()
+        self.queue_put_mesg["type"] = MESSAGE_SPOTIFY_TYPE
         
         self.mpv_player = mpv.MPV(config=True)
         self.mpv_player.play('/home/pi/spotify/librespot-pipe')
@@ -154,10 +160,10 @@ class SpotifyConnect():
         
         self.sel = selectors.DefaultSelector()
         self.server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        self.server_socket.bind(("localhost", port))
+        self.server_socket.bind(("localhost", SPOTIFY_EVENT_SOCKET_PORT))
         self.server_socket.listen(5)
         self.server_socket.setblocking(False)
-        oradio_utils.logging("info","event socket opened and listening on port {prt}".format(prt=port))
+        oradio_utils.logging("info","event socket opened and listening on port {prt}".format(prt=SPOTIFY_EVENT_SOCKET_PORT))
         
         self.stop_event = threading.Event() # used to stop the observer loop
         
@@ -167,8 +173,8 @@ class SpotifyConnect():
         observer_thread = threading.Thread(target=self.observer_loop, daemon=True)
         observer_thread.start()     
         
-         
-        print("Server Listening ........")
+        oradio_utils.logging("info","Server Listening to spotify events ........")
+        self.state = SPOTIFY_CONNECT_SERVERS_RUNNING
 
     def shutdown_server(self):
         '''
@@ -180,12 +186,19 @@ class SpotifyConnect():
         self.server_socket.close()  # Close the socket
         print("Server closed.")
 
+    def get_state(self):
+        '''
+        Return the actual state of the Spotify Connect servers and related events
+        :return self.state = current state
+        '''
+        return(self.state)
+    
     def playerctl_command(self,command):
         '''
         Send command to playerctl via subprocess
         '''
         commands_list = [MPV_PLAYERCTL_PLAY, MPV_PLAYERCTL_PAUSE, MPV_PLAYERCTL_STOP]
-        if command in command_list:
+        if command in commands_list:
                  
             run_command = ['playerctl',command]
             try:
@@ -209,22 +222,6 @@ class SpotifyConnect():
     
 '''        
 librespot --name "Raspberry Pi" --bitrate 320 --backend pipe --device /tmp/librespot-pipe --verbose
-
-# Load the JSON schema file
-with open("/home/pi/Oradio3/Python/schemas.json") as f:
-    schemas = json.load(f)
-# Dynamically create Pydantic models
-models = {name: json_schema_to_pydantic(name, schema) for name, schema in schemas.items()}
-
-# create Messages model
-Messages = models["Messages"]
-#create an instance for this model
-msg = Messages(type="none", state="none", error="none", data=[])
-
-message = msg.model_dump()
-message["type"] = MESSAGE_SPOTIFY_TYPE
-
-serialized_dict = json.dumps(message).encode('utf-8')
 '''
 
 if __name__ == "__main__":
@@ -240,7 +237,18 @@ if __name__ == "__main__":
     print("kill Oradio_controls, to prevent interferences with this test module ")
     script = "sudo pkill -9 -f oradio_control.py"
 #    oradio_utils.run_shell_script(script)
- 
+
+    def create_message_model():
+        # create a message object based on json schema 
+        # Load the JSON schema file
+        with open(JSON_SCHEMAS_FILE) as f:
+            schemas = json.load(f)
+        # Dynamically create Pydantic models
+        models = {name: oradio_utils.json_schema_to_pydantic(name, schema) for name, schema in schemas.items()}
+        # create Messages model
+        Messages = models["Messages"]
+        return(Messages)
+         
     def spotify_callback():
         pass
     
@@ -314,7 +322,15 @@ if __name__ == "__main__":
         return()
     
     def monitor_librespot_events():
-        spot_con = SpotifyConnect(SPOTIFY_EVENT_SOCKET_PORT,spotify_callback)                    
+        '''
+        Monitoring librespot events
+        '''
+        print(YELLOW_TXT+"==============================================================="+END_TXT)
+        print(YELLOW_TXT+"Open a Spotify app and connect to a sound device called Oradio"+END_TXT)
+        print(YELLOW_TXT+"Check if spotify events are logged, e.g. play, pause, volume"+END_TXT)
+        print(YELLOW_TXT+"==============================================================="+END_TXT)        
+        msg_queue = Queue()
+        spot_con = SpotifyConnect(spotify_callback, msg_queue)                    
         time.sleep(1)
         keyboard_input = input("Press any key to stop monitoring")        
         return()
@@ -324,11 +340,22 @@ if __name__ == "__main__":
         '''
         simulate a oradio_control, using a playlist from Spotify
         '''   
-        print("Open a Spotify app and connect to a sound device called Oradio ")
-        print("Check if spotify events are there")
-        print("Increase volume on Spotify App")
+        print(YELLOW_TXT+"==============================================================="+END_TXT)
+        print(YELLOW_TXT+"Open a Spotify app and connect to a sound device called Oradio"+END_TXT)
+        print(YELLOW_TXT+"Play a playlist"+END_TXT)
+        print(YELLOW_TXT+"==============================================================="+END_TXT)        
 
-        pass
+
+        msg_queue = Queue()
+        spot_con = SpotifyConnect(spotify_callback, msg_queue)
+        # initial mpv state is pause        
+        spot_con.playerctl_command(MPV_PLAYERCTL_PAUSE)
+        time.sleep(1)
+        msg_model = create_message_model()        
+        # wait for playing event
+        message = check_messages(msg_queue, msg_model)
+        print(message)
+        
 #        server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
 #        server_socket.bind(("localhost", SPOTIFY_EVENT_SOCKET_PORT))
 #        server_socket.listen(1)        
@@ -342,17 +369,22 @@ if __name__ == "__main__":
 #            client_socket.close()
 #            server_socket.close()
 
-    def check_messages(queue):
+    def check_messages(queue, msg_model):
         """
         Check if a new message is put into the queue
         If so, read the message from queue and display it
         :param queue = the queue to check for
+        :param msg_model = the json model used for get_msg
         """
         oradio_utils.logging("info", "Listening for messages in queue")
 
         while True:
             # Wait for message
-            message = queue.get(block=True, timeout=None)
+            get_msg = queue.get(block=True, timeout=None)
+            # port message into json schema
+            msg = msg_model(**get_msg)
+            message = msg.model_dump()
+            
             # Show message received
             oradio_utils.logging("info", f"Message received in queue: '{message}'")
             break
@@ -363,15 +395,16 @@ if __name__ == "__main__":
         Test the event socket, its observer and the message queue for oradio_controls
         ''' 
         msg_queue = Queue()
-        spot_con = SpotifyConnect(SPOTIFY_EVENT_SOCKET_PORT,spotify_callback, msg_queue)                    
+        spot_con = SpotifyConnect(spotify_callback, msg_queue)                    
         time.sleep(1)
+        msg_model = create_message_model()        
         # send a librespot event to the socket
-        event_selection = ("select an event:\n"
+        event_selection = (YELLOW_TXT+"select an event:\n"
                            "0-stop sending events\n"
                            "1-playing event \n"
                            "2-stopped event \n"
                            "3-paused event \n"
-                           "select an event:"
+                           "select an event:"+END_TXT
                            )
         while True:
             # Clear all items
@@ -400,7 +433,8 @@ if __name__ == "__main__":
                 send_a_librespot_event(event)                    
                 time.sleep(1)
                 # wait for message in queue
-                message = check_messages(msg_queue)
+                message = check_messages(msg_queue, msg_model)
+                print(message)
                 if event in message['state']:
                     oradio_utils.logging("success","Correct message event <{msg}> received in queue".format(msg=message['state']))
                 time.sleep(1)            

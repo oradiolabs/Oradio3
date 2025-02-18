@@ -87,17 +87,19 @@ SOUND_FILES_DIR = "/home/pi/Oradio3/system_sounds"
 ############# SPOTIFY ##########################################
 MESSAGE_SPOTIFY_TYPE        = "Spotify message"
 SPOTIFY_EVENT_SOCKET_PORT   = 8010
+
 MPV_PLAYERCTL_PLAY          = "play"
 MPV_PLAYERCTL_PAUSE         = "pause"
 MPV_PLAYERCTL_STOP          = "stop"
 PLAYERCTL_COMMAND_NOT_FOUND = "playerctl command not found"
 PLAYERCTL_COMMAND_ERROR     = "playerctl command failed"
 
-# SPOTIFY states
+# SPOTIFY events and states
 SPOTIFY_CONNECT_PLAYING_EVENT       = "Spotify Connect playing event"
 SPOTIFY_CONNECT_PAUSED_EVENT        = "Spotify Connect paused event"
 SPOTIFY_CONNECT_STOPPED_EVENT       = "Spotify Connect stopped event"
 SPOTIFY_CONNECT_CONNECTED_EVENT     = "Spotify Connect connected event"
 SPOTIFY_CONNECT_DISCONNECTED_EVENT  = "Spotify Connect disconnected event"
 SPOTIFY_CONNECT_CLIENT_CHANGED_EVENT= "Spotify Connect client changed event"
-
+SPOTIFY_CONNECT_SERVERS_RUNNING     = "Spotify Connect local servers running"
+SPOTIFY_CONNECT_SERVERS_NOT_RUNNING = "Spotify Connect local servers NOT running"
