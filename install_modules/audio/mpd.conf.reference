@@ -11,15 +11,14 @@
 # be disabled and audio files will only be accepted over ipc socket (using
 # file:// protocol) or streaming files over an accepted protocol.
 #
-music_directory		"/media/oradio/Muziek"
+music_directory		"/var/lib/mpd/music"
 #
 # This setting sets the MPD internal playlist directory. The purpose of this
 # directory is storage for playlists created by MPD. The server will use
 # playlist files not created by the server but only if they are in the MPD
 # format. This setting defaults to playlist saving being disabled.
 #
-#playlist_directory		"/var/lib/mpd/playlists"
-playlist_directory             "/media/oradio/Playlists"
+playlist_directory		"/var/lib/mpd/playlists"
 #
 # This setting sets the location of the MPD database. This file is used to
 # load the database at server start up and store the database while the
@@ -103,7 +102,7 @@ bind_to_address			"localhost"
 # Setting "restore_paused" to "yes" puts MPD into pause mode instead
 # of starting playback after startup.
 #
-restore_paused "yes"
+#restore_paused "no"
 #
 # This setting enables MPD to create playlists in a format usable by other
 # music players.
@@ -420,11 +419,3 @@ decoder {
 filesystem_charset		"UTF-8"
 #
 ###############################################################################
-
-# Oradio audio output
-audio_output {
-    type            "alsa"
-    name            "MPD Output"
-    device          "MPD_in"      # The ALSA PCM device
-    mixer_type      "none"        # Disable software volume control
-}
