@@ -22,22 +22,22 @@ Update stand alone tests 13, 14
 
 """
 import time
-import threading
 import json
-from mpd import MPDClient
+import threading
 import subprocess
+from mpd import MPDClient
+
 ##### oradio modules ####################
 from oradio_logging import oradio_log
 from play_system_sound import PlaySystemSound
+
 ##### GLOBAL constants ####################
 from oradio_const import *
-#from internet_checker import is_internet_available
 
 class MPDControl:
     """
     Class to manage MPD client connection and control playback safely.
     """
-
     def __init__(self, host="localhost", port=6600):
         self.host = host
         self.port = port
@@ -257,6 +257,139 @@ class MPDControl:
         except subprocess.CalledProcessError as e:
             oradio_log.error(f"Error restarting MPD service: {e.stderr}")
         
+    def get_lists(self):
+        """
+        Get available playlists and directories
+        Return case-insensitive sorted list
+        """
+        try:
+            # Connect if not connected
+            self._ensure_client()
+
+            # Initialize
+            lists = []
+
+            # Get playlists and directories; minimize lock to mpd interaction
+            with self.mpd_lock:
+                playlists = self.client.listplaylists()
+                directories = self.client.listfiles()
+
+            # Parse playlists for name only
+            for playlist in playlists:
+                lists.append(playlist["playlist"])
+
+            # Parse directories for name only
+            for directory in directories:
+                lists.append(directory["directory"])
+
+            # Sort alphabetically, ignore case
+            return sorted(lists, key=str.casefold)
+
+        except Exception as ex_err:
+            oradio_log.error(f"Error getting lists: {ex_err}")
+            return []
+
+    def get_songs(self, list):
+        """
+        List the songs in the list
+        Return [{file: ..., artist:..., title:...}, ...]
+        """
+        try:
+            # Connect if not connected
+            self._ensure_client()
+
+            # Get playlists and directories; minimize lock to mpd interaction
+            with self.mpd_lock:
+                playlists = self.client.listplaylists()
+                directories = self.client.listfiles()
+
+            # Initialize
+            songs = []
+            found = False
+
+            # Check playlists
+            for playlist in playlists:
+                if list == playlist['playlist']:
+                    # Get playlist song details; minimize lock to mpd interaction
+                    with self.mpd_lock:
+                        details = self.client.listplaylistinfo(list)
+                    for detail in details:
+                        songs = songs + [{'file': detail['file'], 'artist': detail.get('artist', 'Unknown artist'), 'title': detail.get('title', 'Unknown title')}]
+                    found = True
+
+            # Check directories
+            if not found:
+                for directory in directories:
+                    if list == directory['directory']:
+                        # Get directory song details; minimize lock to mpd interaction
+                        with self.mpd_lock:
+                            details = self.client.lsinfo(directory['directory'])
+                        for detail in details:
+                            songs = songs + [{'file': detail['file'], 'artist': detail.get('artist', 'Unknown artist'), 'title': detail.get('title', 'Unknown title')}]
+                        found = True
+
+            # No info
+            if not found:
+                oradio_log.error(f"Unknown list: '{list}'")
+
+            # For given list a list of songs with attributes file, artist, title. Sorted by artist, ignore case
+            return sorted(songs, key=lambda x: x['artist'].lower())
+
+        except Exception as ex_err:
+            oradio_log.error(f"Error getting songs for '{list}': {ex_err}")
+            return []
+
+    def search(self, pattern):
+        """
+        List the songs matching the pattern in artist or title attributes
+        Return [{file: ..., artist:..., title:...}, ...]
+        """
+        try:
+            # Connect if not connected
+            self._ensure_client()
+
+            # Search artists and titles; minimize lock to mpd interaction
+            with self.mpd_lock:
+                results = self.client.search('artist', pattern)
+                results = results + self.client.search('title', pattern)
+
+            # Initialize
+            songs = []
+
+            # Parse search results in expected format
+            for result in results:
+                songs = songs + [{'file': result['file'], 'artist': result.get('artist', 'Unknown artist'), 'title': result.get('title', 'Unknown title')}]
+
+            # For given list a list of songs with attributes file, artist, title. Sorted by artist, ignore case
+            return sorted(songs, key=lambda x: x['artist'].lower())
+
+        except Exception as ex_err:
+            oradio_log.error(f"Error searching for songs with pattern '{pattern}' in artist or title attribute: {ex_err}")
+            return []
+
+    def play_song(self, song):
+        """
+        Play song once
+        """
+        try:
+            # Connect if not connected
+            self._ensure_client()
+
+            # Get playlists and directories; minimize lock to mpd interaction
+            with self.mpd_lock:
+                playlists = self.client.listplaylists()
+                directories = self.client.listfiles()
+
+            # Play song once; minimize lock to mpd interaction
+            with self.mpd_lock:
+                self.client.clear()
+                self.client.add(song)
+                self.client.repeat(0)
+                self.client.play()
+
+        except Exception as ex_err:
+            oradio_log.error(f"Error playing song '{song}': {ex_err}")
+
     @staticmethod
     def get_playlist_name(preset_key, filepath):
         """Retrieves the playlist name for a given preset key."""
