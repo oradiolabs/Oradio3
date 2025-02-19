@@ -32,11 +32,19 @@ body {
 	box-shadow: 0 4px 8px rgba(0, 0, 0, 0.2);
 }
 
+.logo {
+	display: block;
+	margin: 0 auto 20px auto;
+	width:50%;
+	width: 100px;
+	height: 20px;
+}
+
 h1 {
 	width: 100%;
 	height: 20px;
-	background-color: #804A00;
-	color: #FFFFFF;
+	background-color: #D8C3A5;
+	color: #000000;
 	border: none;
 	border-radius: 5px;
 	padding: 10px;
@@ -108,8 +116,17 @@ li {
 }
 
 .notification {
+	text-align: center;
 	line-height: 1.5;
 	margin-bottom: 10px;
+}
+
+.warning {
+	color: #FFEF00;
+}
+
+.error {
+	color: #FF0000;
 }
 
 @media (max-width: 500px) {

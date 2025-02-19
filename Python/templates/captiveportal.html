@@ -19,6 +19,9 @@
 	<body>
 		<div class="container">
 
+			<!-- Show Oradio logo -->
+			<img src="../static/logo.png" class="logo" />
+
 			<!-- Provide network credentials to connect to -->
 			<form method="POST">
 				<!-- identifier used by server: do not change or remove -->
@@ -87,7 +90,7 @@
 			const ssid = document.getElementById("SSIDs").value;
 			if (ssid == "PLACEHOLDER")
 			{
-				notification.innerHTML = "<div style=\"color: #ff0000;\">Kies een wifi netwerk</div>";
+				notification.innerHTML = "<div class=\"error\">Kies een wifi netwerk</div>";
 				return;
 			}
 
@@ -95,7 +98,7 @@
 			const pswd = document.getElementById("pswd").value;
 			if (pswd.length <= 8)
 			{
-				notification.innerHTML = "<p style=\"color: #ff0000;\">Wachtwoord moet minimaal 8 karakters zijn</p>";
+				notification.innerHTML = "<p class=\"error\">Wachtwoord moet minimaal 8 karakters zijn</p>";
 				return;
 			}
 
@@ -117,12 +120,12 @@
 				else
 				{
 					const errorData = await response.json();
-					notification.textContent = "<p style=\"color: #ff0000;\">Error: "+ errorData + "</p>";
+					notification.textContent = "<p class=\"error\">Error: "+ errorData + "</p>";
 				}
 			}
 			catch (error)
 			{
-				notification.innerHTML = "<p style=\"color: #ff0000;\">Er is een fout opgetreden bij het indienen van de netwerkreferenties.</p>";
+				notification.innerHTML = "<p class=\"error\">Er is een fout opgetreden bij het indienen van de netwerkreferenties.</p>";
 			}
 		}
 	</script>

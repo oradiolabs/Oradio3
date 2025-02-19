@@ -36,6 +36,7 @@ STATE_WIFI_INFRASTRUCTURE = "Connected to infrastructure"
 STATE_WIFI_LOCAL_NETWORK  = "Connected to local network"
 STATE_WIFI_ACCESS_POINT   = "Configured as access point"
 # wifi messages
+#OMJ: 'Type' is eigenlijk 'source'
 MESSAGE_WIFI_TYPE            = "Wifi message"
 MESSAGE_WIFI_FAIL_CONNECT    = "Wifi failed to connect"
 MESSAGE_WIFI_FAIL_DISCONNECT = "Wifi failed to disconnect"
@@ -50,7 +51,9 @@ WEB_SERVER_PORT = 8000
 STATE_WEB_SERVICE_IDLE   = "web service is idle"
 STATE_WEB_SERVICE_ACTIVE = "web service is running"
 # Web service messages from service to parent
-MESSAGE_WEB_SERVICE_TYPE = "web service message"
+#OMJ: 'Type' is eigenlijk 'source'
+MESSAGE_WEB_SERVICE_TYPE         = "web service message"
+MESSAGE_WEB_SERVICE_PLAYING_SONG = "web service plays a song"
 
 ################## USB #############################
 # Paths
@@ -66,10 +69,12 @@ USB_WIFI_FILE = USB_MOUNT_POINT + "/wifi_invoer.json"
 STATE_USB_PRESENT = "USB drive present"
 STATE_USB_ABSENT  = "USB drive absent"
 # USB messages
+#OMJ: 'Type' is eigenlijk 'source'
 MESSAGE_USB_TYPE       = "USB message"
 MESSAGE_USB_ERROR_FILE = "USB file format error"
 
 ################## AUDIO #############################
+#OMJ: the constant is named path, but points to a file?
 PRESET_FILE_PATH = USB_SYSTEM + "/presets.json"
 
 ################## VOLUME #############################
@@ -77,6 +82,8 @@ PRESET_FILE_PATH = USB_SYSTEM + "/presets.json"
 VOLUME_MINIMUM = 70
 VOLUME_MAXIMUM = 180
 # Volume messages
+#OMJ: 'Type' is eigenlijk 'source'
 MESSAGE_TYPE_VOLUME   = "Vol Control message"
+#OMJ: is MESSAGE_VOLUME_CHANGED niet een betere constante?
 MESSAGE_STATE_CHANGED = "Volume changed"
 
