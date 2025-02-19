@@ -1,0 +1,40 @@
+<!DOCTYPE html>
+<html lang="nl">
+	<head>
+		<meta charset="UTF-8" />
+		<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+
+		<link rel="stylesheet" href="../static/css/fontawesome.min.css" />
+		<link rel="stylesheet" href="../static/css/regular.min.css" />
+		<link rel="stylesheet" href="../static/css/oradio3.css" />
+		<link rel="stylesheet" href="../static/css/status.css" />
+
+		<title>Oradio status</title>
+	</head>
+	<body>
+		{% include "menu.html" %}
+		<div class="container">
+
+			<!-- Show Oradio logo -->
+			<img src="../static/logo.png" class="logo" />
+
+			<table>
+				<tr>
+					<th>Parameter</th>
+					<th>Value</th>
+				</tr>
+				<tr>
+					<td>Oradio serial number</td>
+					<td>{{ serial }}</td>
+				</tr>
+				<tr>
+					<td>Wifi network SSID</td>
+					<td>{{ network }}</td>
+				</tr>
+			</table>
+
+		</div>
+	</body>
+	<script>
+	</script>
+</html>

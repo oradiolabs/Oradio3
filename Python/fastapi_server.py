@@ -191,6 +191,29 @@ async def play_song(play: play):
     oradio_log.debug(f"Send web service message: {message}")
     api_app.state.message_queue.put(message)
 
+#### STATUS ####################
+
+@api_app.get("/status")
+async def status(request: Request):
+    """ Return status """
+    oradio_log.debug("Serving status page")
+
+    # Get Oradio serial number
+    stream = os.popen('vcgencmd otp_dump | grep "28:" | cut -c 4-')
+    serial = stream.read().strip()
+
+    # Get wifi network Oradio is connected to
+    wifi = wifi_service(api_app.state.message_queue)
+    network = wifi.get_wifi_connection()
+
+    # Set playlists page and lists info as context
+    context = {
+                "serial"  : serial,
+                "network" : network
+            }
+
+    # Return playlists page and available networks as context
+    return templates.TemplateResponse(request=request, name="status.html", context=context)
 
 #### CAPTIVE PORTAL ####################
 
