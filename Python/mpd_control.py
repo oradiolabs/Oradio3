@@ -22,22 +22,22 @@ Update stand alone tests 13, 14
 
 """
 import time
-import threading
 import json
-from mpd import MPDClient
+import threading
 import subprocess
+from mpd import MPDClient
+
 ##### oradio modules ####################
 from oradio_logging import oradio_log
 from play_system_sound import PlaySystemSound
+
 ##### GLOBAL constants ####################
 from oradio_const import *
-#from internet_checker import is_internet_available
 
 class MPDControl:
     """
     Class to manage MPD client connection and control playback safely.
     """
-
     def __init__(self, host="localhost", port=6600):
         self.host = host
         self.port = port
@@ -78,23 +78,34 @@ class MPDControl:
         return False
 
 
+        
     def _maintain_connection(self):
         """Maintains a persistent connection to MPD, reconnecting as needed, and logging errors."""
         while True:
             with self.mpd_lock:
                 if not self._is_connected():
-                    oradio_log.error("MPD connection lost. Reconnecting...")
+                    oradio_log.warning("MPD connection lost. Reconnecting...")
                     self.client = self._connect()
+                    # Reset cached error on reconnection
+                    self.last_status_error = None
 
                 if self.client:
                     try:
                         status = self.client.status()
                         if "error" in status:
-                            oradio_log.error(f"MPD reported an error: {status['error']}")
+                            current_error = status.get("error", "")
+                            # Only log if the error has changed
+                            if current_error != self.last_status_error:
+                                oradio_log.error(f"MPD reported an error: {current_error}")
+                                self.last_status_error = current_error
+                        else:
+                            # Clear cached error when no error is present
+                            self.last_status_error = None
                     except Exception as e:
                         oradio_log.error(f"Error checking MPD status: {e}")
+                        self.last_status_error = str(e)
+            time.sleep(10)  # Check every 10 seconds        
 
-        time.sleep(10)  # Check every 10 seconds
 
     def _ensure_client(self):
         """Ensures an active MPD client before sending commands."""
@@ -256,6 +267,176 @@ class MPDControl:
             oradio_log.debug("MPD service restarted successfully.")
         except subprocess.CalledProcessError as e:
             oradio_log.error(f"Error restarting MPD service: {e.stderr}")
+        
+
+    def get_lists(self):
+        """
+        Get available playlists and directories
+        Return case-insensitive sorted list
+        """
+        try:
+            # Connect if not connected
+            self._ensure_client()
+
+            # Initialize
+            lists = []
+
+            # Get playlists and directories; minimize lock to mpd interaction
+            with self.mpd_lock:
+                playlists = self.client.listplaylists()
+                files = self.client.listfiles()
+
+            # Parse playlists for name only
+            for playlist in playlists:
+                lists.append(playlist["playlist"])
+
+            # Parse directories for name only; only include if "directory" key exists.
+            for entry in files:
+                if "directory" in entry:
+                    lists.append(entry["directory"])
+
+            # Sort alphabetically, ignore case
+            return sorted(lists, key=str.casefold)
+
+        except Exception as ex_err:
+            oradio_log.error(f"Error getting lists: {ex_err}")
+            return []
+
+
+
+
+    def get_songs(self, list):
+        """
+        List the songs in the list.
+        Return [{file: ..., artist:..., title:...}, ...]
+        """
+        try:
+            # Connect if not connected
+            self._ensure_client()
+
+            # Get playlists and directories; minimize lock to mpd interaction
+            with self.mpd_lock:
+                playlists = self.client.listplaylists()
+                directories = self.client.listfiles()
+
+            # Initialize
+            songs = []
+            found = False
+
+            # Check playlists
+            for playlist in playlists:
+                if list == playlist.get('playlist'):
+                    # Get playlist song details; minimize lock to mpd interaction
+                    with self.mpd_lock:
+                        details = self.client.listplaylistinfo(list)
+                    for detail in details:
+                        songs.append({
+                            'file': detail['file'],
+                            'artist': detail.get('artist', 'Unknown artist'),
+                            'title': detail.get('title', 'Unknown title')
+                        })
+                    found = True
+
+            # Check directories
+            if not found:
+                for entry in directories:
+                    # Only consider entries that are directories.
+                    if "directory" in entry and list == entry["directory"]:
+                        # Get directory song details; minimize lock to mpd interaction
+                        with self.mpd_lock:
+                            details = self.client.lsinfo(entry["directory"])
+                        for detail in details:
+                            songs.append({
+                                'file': detail['file'],
+                                'artist': detail.get('artist', 'Unknown artist'),
+                                'title': detail.get('title', 'Unknown title')
+                            })
+                        found = True
+
+            # Log error if list not found
+            if not found:
+                oradio_log.error(f"Unknown list: '{list}'")
+
+            # Sort songs by artist, ignoring case
+            return sorted(songs, key=lambda x: x['artist'].lower())
+
+        except Exception as ex_err:
+            oradio_log.error(f"Error getting songs for '{list}': {ex_err}")
+            return []
+    
+
+    def search(self, pattern):
+        """
+        List the songs matching the pattern in artist or title attributes
+        Return [{file: ..., artist:..., title:...}, ...]
+        """
+        try:
+            # Connect if not connected
+            self._ensure_client()
+
+            # Search artists and titles; minimize lock to mpd interaction
+            with self.mpd_lock:
+                results = self.client.search('artist', pattern)
+                results = results + self.client.search('title', pattern)
+
+            # Initialize
+            songs = []
+
+            # Parse search results in expected format
+            for result in results:
+                songs = songs + [{'file': result['file'], 'artist': result.get('artist', 'Unknown artist'), 'title': result.get('title', 'Unknown title')}]
+
+            # For given list a list of songs with attributes file, artist, title. Sorted by artist, ignore case
+            return sorted(songs, key=lambda x: x['artist'].lower())
+
+        except Exception as ex_err:
+            oradio_log.error(f"Error searching for songs with pattern '{pattern}' in artist or title attribute: {ex_err}")
+            return []
+
+
+
+
+    def play_song(self, song):
+        """
+        Play song once without clearing the current queue.
+        The song is appended to the queue and then moved immediately after the current song.
+        Playback starts at the inserted song, and after it finishes, the rest of the queue continues.
+        """
+        try:
+            # Ensure we are connected
+            self._ensure_client()
+
+            with self.mpd_lock:
+                status = self.client.status()
+                state = status.get("state", "stop")
+                if state == "play" and "song" in status:
+                    # Get current song index (as an integer)
+                    current_song_index = int(status.get("song"))
+                    
+                    # Append the new song; it will be added to the end of the playlist.
+                    self.client.add(song)
+                    
+                    # Get the full playlist; the new song should be at the end.
+                    playlist = self.client.playlistinfo()
+                    new_song_index = len(playlist) - 1
+                    
+                    # Calculate the target index: right after the current song.
+                    target_index = current_song_index + 1
+                    
+                    # If the new song isn't already at the desired position, move it.
+                    if new_song_index != target_index:
+                        self.client.move(new_song_index, target_index)
+                    
+                    # Start playing the song at the target index.
+                    self.client.play(target_index)
+                else:
+                    # If nothing is playing, add the song and start playback.
+                    self.client.add(song)
+                    self.client.play()
+
+        except Exception as ex_err:
+            oradio_log.error(f"Error playing song '{song}': {ex_err}")
+            
         
     @staticmethod
     def get_playlist_name(preset_key, filepath):
