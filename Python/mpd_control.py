@@ -276,11 +276,13 @@ class MPDControl:
 
             # Parse playlists for name only
             for playlist in playlists:
-                lists.append(playlist["playlist"])
+                if "playlist" in playlist:
+                    lists.append(playlist["playlist"])
 
             # Parse directories for name only
             for directory in directories:
-                lists.append(directory["directory"])
+                if "directory" in directory:
+                    lists.append(directory["directory"])
 
             # Sort alphabetically, ignore case
             return sorted(lists, key=str.casefold)
