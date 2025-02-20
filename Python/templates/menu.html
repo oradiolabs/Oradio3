@@ -21,11 +21,29 @@ nav a {
 nav a:hover {
 	background: #8E8D8A;
 }
+
+.waiting {
+	display: none;	/* On load, remove waiting indicator image center screen */
+	position: fixed;
+	margin: auto;
+}
 </style>
 
+<!-- Waiting indicator -->
+<img id="waiting", src="../static/waiting.gif" class="waiting" />
+
+<!-- Menu bar -->
 <nav>
-	<a href="/captiveportal"><img src="../static/wifi.png" /></a>
+	<a href="/captiveportal"><img src="../static/wifi.png" onclick="show_waiting()" /></a>
 	<a href="/playlists"><img src="../static/playlists.png" /></a>
 	<a href="/status"><img src="../static/status.png" /></a>
 	<!-- Add other menu items here if needed -->
 </nav>
+
+<script>
+// Dispaly waiting indicatot image center screen
+function show_waiting()
+{
+	document.getElementById('waiting').style.display = "block";
+};
+</script>
