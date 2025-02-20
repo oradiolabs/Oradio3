@@ -8,7 +8,7 @@ CTIME=$(date +%s)
 
 # Ensure directory for storing hwclock info does exists
 FILEDIR=$(/usr/bin/dirname "${CLOCKFILE}")
-if test -f "${FILEDIR}" ; then
+if test ! -f "${FILEDIR}" ; then
 	/usr/bin/mkdir -p "${FILEDIR}"
 fi
 
