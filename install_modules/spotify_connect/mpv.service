@@ -1,0 +1,13 @@
+Description=Mpv Media Player
+After=network.target
+
+[Service]
+ExecStart=/usr/bin/mpv /home/pi/spotify/librespot-pipe
+Restart=always
+User=pi
+Group=pi
+Environment="DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/1000/bus"
+
+[Install]
+WantedBy=default.target
+

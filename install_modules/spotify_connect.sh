@@ -61,10 +61,12 @@ sudo python -m pip install --break-system-packages pydantic
 
 echo "install mpv and its libraries"
 sudo python -m pip install mpv
-sudo apt install mpv libmpv-dev python3-mpv
+sudo apt install mpv libmpv-dev python3-mpv mpv-mpris
 
-echo "install playerctl"
-sudo apt install playerctl
+
+
+echo "install pydbus "
+sudo python -m pip install dbus-python
 
 # also install pydantic in non-venv environment
 echo "deactivate current virtual machine"
@@ -77,6 +79,9 @@ echo "copy the librespot service to /etc/systemd/system"
 sudo cp $MODULES/spotify_connect/librespot.service /etc/systemd/system
 echo "copy the configuration file mpv.conf to /etc/mpv
 sudo cp $MODULES/spotify_connect/mpv.conf /etc/mpv/mpv.conf
+sudo cp $MODULES/spotify_connect/mpv.service /etc/systemd/system
+sudo systemctl enable mpv.service
+sudo systemctl start mpv.service
 echo "create a audio pipe between librespot and mpv player
 SPOTIFY_DIR="/home/pi/spotify"
 SPOTIFY_FIFO="/home/pi/spotify/librespot-fifo"
