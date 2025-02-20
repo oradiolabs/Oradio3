@@ -40,6 +40,7 @@ from oradio_const import *
 ##### LOCAL constants ####################
 ORADIO_LOGGER       = 'oradio'
 ORADIO_LOG_LEVEL    = DEBUG
+ORADIO_LOG_FILE     = ORADIO_LOG_DIR + '/oradio.log'    # Use absolute path to prevent file rotation trouble
 ORADIO_LOG_FILESIZE = 512 * 1024
 ORADIO_LOG_BACKUPS  = 2
 
@@ -84,6 +85,9 @@ class RemoteMonitoringHandler(python_logging.Handler):
             # Import here to avoid circular import
             from remote_monitoring import rms_service
             rms_service().send_message(record.levelname, record.message, f"{record.filename}:{record.lineno}")
+
+# Ensure logging directory exists
+os.makedirs(ORADIO_LOG_DIR, exist_ok=True)
 
 # Configure Oradio logger
 oradio_log = python_logging.getLogger('oradio')

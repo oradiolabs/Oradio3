@@ -32,12 +32,6 @@ if [ ! -f $SCRIPT_DIR/constants.sh ]; then
 fi
 source $SCRIPT_DIR/constants.sh
 
-# Ensure logging directory exists
-if [ ! -d $LOG_DIR ]; then
-	# Create logging directory
-	mkdir -p $LOG_DIR
-fi
-
 # Notify entering module installation script
 echo "Installing logging modules"
 

@@ -20,9 +20,16 @@ MONITOR="PLACEHOLDER_MONITOR"			# File used to monitor if USB is mounted/unmount
 USER="PLACEHOLDER_USER"					# Logfile user
 GROUP="PLACEHOLDER_GROUP"				# Logfile group
 
+# Ensure directory for logfile does exists
+LOGDIR=$(/usr/bin/dirname "${LOGFILE}")
+if [ ! -f $LOGDIR ]; then
+	/usr/bin/mkdir -p "${LOGDIR}"
+	/usr/bin/chown $USER:$GROUP $LOGDIR
+fi
+
 # Create log file if it does not yet exist
 if [ ! -f $LOGFILE ]; then
-	/usr/bin/mkdir -p "$(dirname "$LOGFILE")" && touch "$LOGFILE"
+	/usr/bin/touch $LOGFILE
 	/usr/bin/chown $USER:$GROUP $LOGFILE
 fi
 echo "Check '$LOGFILE' for success, warning and error messages"
@@ -37,7 +44,7 @@ do_mount()
 	fi
 
 	# Skip if already mounted. Should not happen, therefore the warning
-	if /usr/bin/mountpoint $MOUNT_POINT > /dev/null; then
+	if /usr/bin/mountpoint $MOUNT_POINT > /dev/null 2>&1; then
 		echo "$(date): Warning: ${PARTITION} is already mounted at ${MOUNT_POINT}" >> $LOGFILE
 		exit 1
 	fi
