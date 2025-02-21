@@ -86,4 +86,4 @@ sudo udevadm control --reload-rules
 python -m pip install watchdog
 
 # Notify leaving module installation script
-echo -e "${GREEN}USB functionalty loaded and configured. System automounts USB drives on '/media'.${NC}"
+echo -e "${GREEN}USB functionalty loaded and configured. System automounts USB drives on '/media'${NC}"
