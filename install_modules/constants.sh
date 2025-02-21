@@ -25,9 +25,11 @@ NC='\033[0m'
 # Readability
 OK=0
 ERROR=1
+NO="No"
+YES="Yes"
 
 # Network domain name
-NETWORK_DOMAIN="oradio"
+HOSTNAME="oradio"
 
 # WiFi country setting
 WIFI_COUNTRY="NL"

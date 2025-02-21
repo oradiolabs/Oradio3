@@ -33,17 +33,17 @@ fi
 source $SCRIPT_DIR/constants.sh
 
 # Notify entering module installation script
-echo "Enable wifi and set network domain name to '${NETWORK_DOMAIN}'"
+echo "Enable wifi and set network domain to '${HOSTNAME}.local'"
 
 # Activate wireless interface
 # https://www.raspberrypi.com/documentation/computers/configuration.html#wlan-country-2
 sudo raspi-config nonint do_wifi_country $WIFI_COUNTRY		# Implicitly activates wifi
 
 # change hostname and hosts mapping to reflect the network domain name
-sudo bash -c "hostnamectl set-hostname ${NETWORK_DOMAIN} && sed -i \"s/^127.0.1.1.*/127.0.1.1\t${NETWORK_DOMAIN}/g\" /etc/hosts"
+sudo bash -c "hostnamectl set-hostname ${HOSTNAME} && sed -i \"s/^127.0.1.1.*/127.0.1.1\t${HOSTNAME}/g\" /etc/hosts"
 
 # Set user prompt to reflect new hostname
-export PS1=$VIRTUAL_ENV_PROMPT"\e[01;32m\u@$NETWORK_DOMAIN\e[00m:\e[01;34m\w \$\e[00m "
+export PS1=$VIRTUAL_ENV_PROMPT"\e[01;32m\u@$HOSTNAME\e[00m:\e[01;34m\w \$\e[00m "
 
 # Set Top Level Domain (TLD) to 'local', enabling access via http://oradio.local
 sudo sed -i "s/^.domain-name=.*/domain-name=local/g" /etc/avahi/avahi-daemon.conf
@@ -58,4 +58,4 @@ sudo systemctl restart NetworkManager.service
 python -m pip install nmcli
 
 # Notify leaving module installation script
-echo -e "${GREEN}Wifi is enabled and network domain name is set to '${NETWORK_DOMAIN}'${NC}"
+echo -e "${GREEN}Wifi is enabled and network domain is set to '${HOSTNAME}.local'${NC}"
