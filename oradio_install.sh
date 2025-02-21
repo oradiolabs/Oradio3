@@ -33,6 +33,7 @@ source install_modules/constants.sh
 ORADIO_MODULES=(
 	"config"
 	"packages"
+	"fakehwclock"
 	"python"		# depends on packages
 	"network"
 	"hw_version"	# depends on python
