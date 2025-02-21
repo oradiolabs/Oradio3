@@ -38,9 +38,8 @@ echo "Configuring boot options"
 # Copy Oradio boot options and signal If boot configuration 
 if ! sudo diff $SCRIPT_DIR/config/config.txt /boot/firmware/config.txt; then
 	sudo cp $SCRIPT_DIR/config/config.txt /boot/firmware/config.txt
-	echo -e "${YELLOW}*** Hello $USER, you must reboot your machine ***${NC}"
-	return $ERROR
+	echo -e "${YELLOW}A reboot is required to complete the installion${NC}"
+	REBOOT_REQUIRED=$YES
 fi
-
 # Notify leaving module installation script
 echo -e "${GREEN}Boot options configured${NC}"

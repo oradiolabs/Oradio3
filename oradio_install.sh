@@ -122,28 +122,29 @@ if [ "$(lsb_release -a | grep "Description:" | cut -d$'\t' -f2)" != "$BOOKWORM64
 	return $ERROR
 fi
 
+# Initialize to 'no reboot required'
+REBOOT_REQUIRED=$NO
+
 ########## Install modules ##########
 
 # Iterate through MANDATORY modules to install
 for ((main_i = 0; main_i < ${#ORADIO_MODULES[@]}; main_i++)); do
 	module="${ORADIO_MODULES[$main_i]}"
 	source install_modules/$module.sh
-	# Module can signal a reboot is required to activate the changes
-	if [ $? -eq $ERROR ]; then
-#TODO: Do not return to command prompt, but reboot and automatically restart this install script, same as after apt-get upgrade
-		# Running as source, so 'return' goes back to the command prompt
-		return $ERROR
-	fi
 done
-
-# Display usage
 
 # Output wrap-up "header"
 echo
 echo    "###############################################################################"
 echo -e "# ${GREEN}Oradio installation and configuration done.${NC}                                 #"
-echo    "# 1) 'cd Python' and run 'python [test_]<module>.py' to test stand-alone      #"
-echo    "# 2) Reboot to start Oradio.                                                  #"
+# Remind user if reboot is required to complete installation
+if [ $REBOOT_REQUIRED == $YES ]; then
+	echo -e "# ${YELLOW}Please reboot now to complete the installion${NC}                                #"
+# Everything is fine
+else
+	echo    "# 1) 'cd Python' and run 'python [test_]<module>.py' to test module           #"
+	echo    "# 2) Reboot to start Oradio.                                                  #"
+fi
 echo    "###############################################################################"
 echo
 
