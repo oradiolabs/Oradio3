@@ -37,6 +37,7 @@ echo "Load and configure web-interface and captive portal functionalty"
 
 # Install iptables
 sudo apt-get install iptables -y
+
 # Install python modules
 python -m pip install pydantic fastapi JinJa2 uvicorn python-multipart
 

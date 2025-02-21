@@ -39,4 +39,4 @@ echo "Installing logging modules"
 python -m pip install concurrent_log_handler requests
 
 # Notify leaving module installation script
-echo -e "${GREEN}Logging modules installed.${NC}"
+echo -e "${GREEN}Logging modules installed${NC}"
