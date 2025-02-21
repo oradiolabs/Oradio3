@@ -23,7 +23,7 @@ fi
 setclock() {
 	if test "${FTIME}" -ge "${CTIME}" ; then
 		echo "loading saved time ${FTIME} over ${CTIME}"
-		date @${FTIME}
+		date --date=@${FTIME}
 	else
 		echo "ignoring saved time ${FTIME} over ${CTIME}"
 	fi
