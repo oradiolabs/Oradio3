@@ -48,8 +48,7 @@ import selectors
 import threading
 import pydantic
 
-#from pydbus import SessionBus
-from dbus import SessionBus
+import dbus
 import json
 
 #### Oradio modules  #####
@@ -156,45 +155,63 @@ class SpotifyConnect():
         ## define the message model for the put message in the queue         
         self.queue_put_mesg         = msg.model_dump()
         self.queue_put_mesg["type"] = MESSAGE_SPOTIFY_TYPE
+
+        if oradio_utils.is_service_active("mpv"):
+            print(GREEN_TXT+"mpv.service is ACTIVE"+END_TXT)
+        else:
+            print(RED_TXT+"mpv.service is NOT running"+END_TXT)
+            return()        
         
-        # the mpv.service should be running
-        self.dbus=SessionBus()
-        time.sleep(10)
-        mpv_service_found = self.dbus.get_object("org.mpris.MediaPlayer2.mpv", "/org/mpris/MediaPlayer2")
+        self.bus = dbus.SessionBus()
+
+        mpv_service_found = self.bus.get_object(MPRIS_MPV_PLAYER, MPRIS_MEDIA_PLAYER)
         if mpv_service_found:
             self.state = SPOTIFY_CONNECT_MPV_SERVICE_IS_ACTIVE
-            self.player = self.dbus.get_object("org.mpris.MediaPlayer2.mpv", "/org/mpris/MediaPlayer2")            
+            self.player = self.bus.get_object(MPRIS_MPV_PLAYER, MPRIS_MEDIA_PLAYER)            
             oradio_utils.logging("info","mpv player initialized and started and waiting for playback")            
         else:
             self.state = SPOTIFY_CONNECT_MPV_SERVICE_NOT_ACTIVE
-        ## initialize a mpv player
-        #self.mpv_player = mpv.MPV(config=True)
-        #self.mpv_player.play('/home/pi/spotify/librespot-pipe')
-        #if self.mpv_player.idle_active:
-        #    print("MPV is idle (not playing any file).")
-        #else:
-        #    print("MPV is active.")
-#        run_command = 'mpv /home/pi/spotify/librespot-pipe'
-#        subprocess.Popen(run_command, shell=True)
+            oradio_utils.logging("error","mpv service NOT active")                
 
-        
         if self.state == SPOTIFY_CONNECT_MPV_SERVICE_IS_ACTIVE:
-            self.sel = selectors.DefaultSelector()
-            self.server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-            self.server_socket.bind(("localhost", SPOTIFY_EVENT_SOCKET_PORT))
-            self.server_socket.listen(5)
-            self.server_socket.setblocking(False)
-            oradio_utils.logging("info","event socket opened and listening on port {prt}".format(prt=SPOTIFY_EVENT_SOCKET_PORT))
-            
-            self.stop_event = threading.Event() # used to stop the observer loop
-            
-            self.sel.register(self.server_socket, selectors.EVENT_READ, self.accept_connection)
+            # Get the mpv MPRIS-player
+            mpris_players = [service for service in self.bus.list_names() if service.startswith("org.mpris.MediaPlayer2.")]
+            oradio_utils.logging("info","Available MPRIS Players: {players}".format(players=mpris_players))
     
-            # Run the observer in a separate thread
-            observer_thread = threading.Thread(target=self.observer_loop, daemon=True)
-            observer_thread.start()     
-            self.state = SPOTIFY_CONNECT_SERVERS_RUNNING
-            oradio_utils.logging("info","MPV active and socket server Listening to spotify events ........")
+           # Check if mpv is in the list
+            if MPRIS_MPV_PLAYER not in mpris_players:
+                oradio_utils.logging("error","mpv is NOT found in MPRIS players!")
+                self.state = SPOTIFY_CONNECT_MPV_MPRIS_PLAYER_NOT_FOUND                        
+            else:
+                oradio_utils.logging("info","mpv is found in MPRIS players!")
+                self.state = SPOTIFY_CONNECT_STATE_OK                       
+            # Get the mpv MPRIS2 interface
+            if self.state == SPOTIFY_CONNECT_STATE_OK:
+                player = self.bus.get_object(MPRIS_MPV_PLAYER,MPRIS_MEDIA_PLAYER)
+                # Access properties using org.freedesktop.DBus.Properties
+                props = dbus.Interface(player, MPRIS_DBUS_PROPERTIES)
+                playback_status = props.Get(MPRIS_MP2_PLAYER, "PlaybackStatus")
+                # setuo a player interface
+                self.player_iface = dbus.Interface(player, MPRIS_MP2_PLAYER)
+                oradio_utils.logging("info","instance for mpv player interface via dbus created!")        
+                
+                # setup a observer (selector) for socket listening to incoming messages
+                self.sel = selectors.DefaultSelector()
+                self.server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+                self.server_socket.bind(("localhost", SPOTIFY_EVENT_SOCKET_PORT))
+                self.server_socket.listen(5)
+                self.server_socket.setblocking(False)
+                oradio_utils.logging("info","event socket opened and listening on port {prt}".format(prt=SPOTIFY_EVENT_SOCKET_PORT))
+                
+                self.stop_event = threading.Event() # used to stop the observer loop
+                
+                self.sel.register(self.server_socket, selectors.EVENT_READ, self.accept_connection)
+        
+                # Run the observer in a separate thread
+                observer_thread = threading.Thread(target=self.observer_loop, daemon=True)
+                observer_thread.start()     
+                self.state = SPOTIFY_CONNECT_SERVERS_RUNNING
+                oradio_utils.logging("info","MPV active and socket server Listening to spotify events ........")
 
 
     def shutdown_server(self):
@@ -217,26 +234,28 @@ class SpotifyConnect():
     def playerctl_command(self,command):
         '''
         Send command to playerctl via subprocess
+        :param command = player command
+        :return self.state = state of mpv mpris player-control
         '''
         commands_list = [MPV_PLAYERCTL_PLAY, MPV_PLAYERCTL_PAUSE, MPV_PLAYERCTL_STOP]
         print("player-command =",command)
         if command in commands_list:
             print("player-command =",command)            
             if command == MPV_PLAYERCTL_PLAY:
-                self.player.Play()
+                self.player_iface.Play()
                 self.state = MPV_PLAYERCTL_PLAYING_STATE
             elif command == MPV_PLAYERCTL_PAUSE:
-                self.player.Pause()
+                self.player_iface.Pause()
                 self.state = MPV_PLAYERCTL_PAUSED_STATE
             elif command == MPV_PLAYERCTL_STOP:                
-                self.player.Stop()
+                self.player_iface.Stop()
                 self.state = MPV_PLAYERCTL_STOPPED_STATE
             else:
                 self.state = MPV_PLAYERCTL_COMMAND_NOT_FOUND
         else:
             status = MPV_PLAYERCTL_COMMAND_NOT_FOUND
             oradio_utils.logging("warning","command-status={sts}".format(sts=status))            
-        return (status)
+        return (self.state)
 
 if __name__ == "__main__":
     import os
@@ -244,8 +263,10 @@ if __name__ == "__main__":
     import importlib
     from multiprocessing import Queue    
     
+    RED_TXT     = "\033[91m"
+    GREEN_TXT   = "\033[92m"
     YELLOW_TXT  = "\033[93m"
-    END_TXT     = "\x1b[0m"    
+    END_TXT     = "\x1b[0m"
     
     ## stop a running Oradio_controls as it may interfere with this test ##
     print("kill Oradio_controls, to prevent interferences with this test module ")
@@ -484,37 +505,86 @@ if __name__ == "__main__":
                 time.sleep(1)            
         return()
 
-    def mpris_player_control_test():
-        from dbus import SessionBus
-        ## initialize a mpv player
-#        mpv_player = mpv.MPV(config=True)
-#        mpv_player.play('/home/pi/spotify/librespot-pipe')
-#        if mpv_player.idle_active:
-#            print("MPV is idle (not playing any file).")
-#        else:
-#            print("MPV is active.")
-        # Connect to the session bus
-        bus = SessionBus()
-        
-        # Get the mpv MPRIS2 interface
-        player = bus.get("org.mpris.MediaPlayer2.mpv", "/org/mpris/MediaPlayer2")
-        
-        # Print playback status
-        print("Playback Status:", player.PlaybackStatus)
-        
-        # Toggle play/pause
-        player.PlayPause()
-        
-        # Seek forward by 10 seconds
-        player.Seek(10 * 10**6)  # MPRIS uses microseconds
-        
-        # Get current metadata (like title, artist, etc.)
-        metadata = player.Metadata
-        print("Now Playing:", metadata.get("xesam:title", "Unknown"))
-        
-        # Stop playback
-        # player.Stop()
 
+    def get_playback_status(bus):
+        '''
+        Retrieve the playback status of mpv via MPRIS2
+        :param bus = the bus session to use
+        '''
+        try:
+            # Get mpv's MPRIS2 object
+            player = bus.get_object("org.mpris.MediaPlayer2.mpv", "/org/mpris/MediaPlayer2")
+    
+            # Get properties interface
+            props = dbus.Interface(player, "org.freedesktop.DBus.Properties")
+    
+            # Retrieve the PlaybackStatus property
+            playback_status = props.Get("org.mpris.MediaPlayer2.Player", "PlaybackStatus")
+            return str(playback_status)
+    
+        except dbus.exceptions.DBusException:
+            return "mpv not running or MPRIS not available"
+
+    def mpris_player_control_test():
+        '''
+        Check is the MPRIS player control is working
+        '''
+        if oradio_utils.is_service_active("mpv"):
+            print(GREEN_TXT+"mpv.service is ACTIVE"+END_TXT)
+        else:
+            print(RED_TXT+"mpv.service is NOT running"+END_TXT)
+            return()        
+        
+        bus = dbus.SessionBus()
+        # List available MPRIS players
+        mpris_players = [service for service in bus.list_names() if service.startswith("org.mpris.MediaPlayer2.")]
+        
+        print("Available MPRIS Players:", mpris_players)
+
+       # Check if mpv is in the list
+        if MPRIS_MPV_PLAYER not in mpris_players:
+            print(RED_TXT+"mpv is not found in MPRIS players!"+END_TXT)
+        else:
+            print(GREEN_TXT+"mpv is found in MPRIS players!"+END_TXT)
+        # Get the mpv MPRIS2 interface
+        player = bus.get_object(MPRIS_MPV_PLAYER, MPRIS_MEDIA_PLAYER)
+    
+        # Access properties using org.freedesktop.DBus.Properties
+        props = dbus.Interface(player, MPRIS_DBUS_PROPERTIES)
+        playback_status = props.Get(MPRIS_MP2_PLAYER, "PlaybackStatus")
+        print("Playback Status:", playback_status)
+    
+        # call PlayPause safely
+        player_iface = dbus.Interface(player, MPRIS_MP2_PLAYER)
+        ###### available methods ####################################################################
+        # PlayPause()   Toggles between play and pause.
+        # Play()        Starts playback (if paused or stopped).
+        # Pause()       Pauses playback.
+        # Stop()        Stops playback completely.
+        # Next()        Skips to the next track (if applicable).
+        # Previous()    Skips to the previous track (if applicable).
+        # Seek(offset)  Seeks forward/backward by offset microseconds.
+        # SetPosition(obj_path, position)    Moves playback to a specific position (in microseconds).
+        ############################################################################################
+
+        # check player ctl: Play
+        player_iface.Play()
+        print("Play command sent.")
+        status = get_playback_status(bus)
+        if "Playing" in status:
+            print(GREEN_TXT+"Correct Playback Status ="+END_TXT,status)
+        else:
+            print(RED_TXT+"Wrong Playback Status ="+END_TXT,status)            
+        # check player ctl: Pause
+        player_iface.Pause()        
+        print("Pause command sent.")
+        status = get_playback_status(bus)
+        if "Paused" in status:
+            print(GREEN_TXT+"Correct Playback Status ="+END_TXT,status)
+        else:
+            print(RED_TXT+"Wrong Playback Status ="+END_TXT,status)            
+        return
+# Run the test function
 
                 
     # Show menu with test options
@@ -523,8 +593,8 @@ if __name__ == "__main__":
                        " 1-Check if Oradio Speaker can be discovered on local mDns \n"
                        " 2-Monitor librespot events \n"
                        " 3-Test event socket and queue \n"
-                       " 4-Simulate as Oradio_controls \n"
-                       " 5-MPRIS player control test\n"
+                       " 4-MPRIS player control test\n"                       
+                       " 5-Simulate as Oradio_controls \n"
                        "select: "
                        )
  
@@ -551,8 +621,8 @@ if __name__ == "__main__":
             case 3:
                 test_event_socket_and_queue()
             case 4:
-                simulate_as_oradio_control()
-            case 5:
                 mpris_player_control_test()
+            case 5:
+                simulate_as_oradio_control()                
             case _:
                 print("\nPlease input a valid number\n")

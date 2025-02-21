@@ -100,6 +100,13 @@ MPV_PLAYERCTL_PAUSED_STATE  = "pauseed"
 MPV_PLAYERCTL_COMMAND_NOT_FOUND = "playerctl command not found"
 MPV_PLAYERCTL_COMMAND_ERROR     = "playerctl command failed"
 
+# MPRIS PLAYER ###
+MPRIS_MPV_PLAYER            = "org.mpris.MediaPlayer2.mpv"
+MPRIS_MEDIA_PLAYER          = "/org/mpris/MediaPlayer2"
+MPRIS_MP2_PLAYER            = "org.mpris.MediaPlayer2.Player"
+MPRIS_DBUS_PROPERTIES       = "org.freedesktop.DBus.Properties"
+MPRIS_MEDIA_PLAYER_SEARCH   = "org/mpris/MediaPlayer2."
+
 # SPOTIFY events and states
 SPOTIFY_CONNECT_PLAYING_EVENT           = "Spotify Connect playing event"
 SPOTIFY_CONNECT_PAUSED_EVENT            = "Spotify Connect paused event"
@@ -111,3 +118,6 @@ SPOTIFY_CONNECT_SERVERS_RUNNING         = "Spotify Connect local servers running
 SPOTIFY_CONNECT_SERVERS_NOT_RUNNING     = "Spotify Connect local servers NOT running"
 SPOTIFY_CONNECT_MPV_SERVICE_NOT_ACTIVE  = "Spotify Connect MPV service not active"
 SPOTIFY_CONNECT_MPV_SERVICE_IS_ACTIVE   = "Spotify Connect MPV service is active"
+SPOTIFY_CONNECT_MPV_MPRIS_PLAYER_NOT_FOUND = "Spotify Connect MPV MPRIS player not found"
+SPOTIFY_CONNECT_STATE_OK                   = "Spotify Connect State OK"
+

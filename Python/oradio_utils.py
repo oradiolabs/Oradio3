@@ -81,6 +81,25 @@ def run_shell_script(script):
         return False, process.stderr
     return True, process.stdout
 
+def is_service_active(service_name):
+    '''
+    Check if service is running
+    :param service_name = name of the service
+    :return True/False : True when active
+    '''
+    try:
+        # Run systemctl is-active command
+        result = subprocess.run(
+            ["systemctl", "is-active", service_name],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True
+        )
+        return result.stdout.strip() == "active"
+    except Exception as err:
+        print("Error checking service status: {error}".format(error=err))
+        return False
+
 
 def json_schema_to_pydantic(name: str, schema: Dict[str,Any]) -> BaseModel:
     '''
