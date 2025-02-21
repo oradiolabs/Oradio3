@@ -19,7 +19,6 @@ Created on January 10, 2025
 
 Monitors MPD error every 10 s 
 Update stand alone tests 13, 14
-
 """
 import time
 import json
@@ -77,8 +76,6 @@ class MPDControl:
             return False
         return False
 
-
-        
     def _maintain_connection(self):
         """Maintains a persistent connection to MPD, reconnecting as needed, and logging errors."""
         while True:
@@ -105,7 +102,6 @@ class MPDControl:
                         oradio_log.error(f"Error checking MPD status: {e}")
                         self.last_status_error = str(e)
             time.sleep(10)  # Check every 10 seconds        
-
 
     def _ensure_client(self):
         """Ensures an active MPD client before sending commands."""
@@ -267,7 +263,6 @@ class MPDControl:
             oradio_log.debug("MPD service restarted successfully.")
         except subprocess.CalledProcessError as e:
             oradio_log.error(f"Error restarting MPD service: {e.stderr}")
-        
 
     def get_lists(self):
         """
@@ -284,14 +279,14 @@ class MPDControl:
             # Get playlists and directories; minimize lock to mpd interaction
             with self.mpd_lock:
                 playlists = self.client.listplaylists()
-                files = self.client.listfiles()
+                directories = self.client.listfiles()
 
             # Parse playlists for name only
-            for playlist in playlists:
-                lists.append(playlist["playlist"])
+            for entry in playlists:
+                lists.append(entry["playlist"])
 
-            # Parse directories for name only; only include if "directory" key exists.
-            for entry in files:
+            # Parse directories for name only; only include if "directory" key exists
+            for entry in directories:
                 if "directory" in entry:
                     lists.append(entry["directory"])
 
@@ -301,9 +296,6 @@ class MPDControl:
         except Exception as ex_err:
             oradio_log.error(f"Error getting lists: {ex_err}")
             return []
-
-
-
 
     def get_songs(self, list):
         """
@@ -363,7 +355,6 @@ class MPDControl:
         except Exception as ex_err:
             oradio_log.error(f"Error getting songs for '{list}': {ex_err}")
             return []
-    
 
     def search(self, pattern):
         """
@@ -384,7 +375,11 @@ class MPDControl:
 
             # Parse search results in expected format
             for result in results:
-                songs = songs + [{'file': result['file'], 'artist': result.get('artist', 'Unknown artist'), 'title': result.get('title', 'Unknown title')}]
+                  songs.append({
+                      'file': result['file'],
+                      'artist': result.get('artist', 'Unknown artist'),
+                      'title': result.get('title', 'Unknown title')
+                  })
 
             # For given list a list of songs with attributes file, artist, title. Sorted by artist, ignore case
             return sorted(songs, key=lambda x: x['artist'].lower())
@@ -392,9 +387,6 @@ class MPDControl:
         except Exception as ex_err:
             oradio_log.error(f"Error searching for songs with pattern '{pattern}' in artist or title attribute: {ex_err}")
             return []
-
-
-
 
     def play_song(self, song):
         """
@@ -436,8 +428,7 @@ class MPDControl:
 
         except Exception as ex_err:
             oradio_log.error(f"Error playing song '{song}': {ex_err}")
-            
-        
+
     @staticmethod
     def get_playlist_name(preset_key, filepath):
         """Retrieves the playlist name for a given preset key."""

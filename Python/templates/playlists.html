@@ -12,7 +12,11 @@
 		<title>Oradio speellijsten</title>
 	</head>
 	<body>
+		{% include "menu.html" %}
 		<div class="container">
+
+			<!-- Show Oradio logo -->
+			<img src="../static/logo.png" class="logo" />
 
 			<!-- Set presets -->
 			<form method="POST">
@@ -25,7 +29,7 @@
 							Voorkeur {{ loop.index }}:
 						</div>
 						<div>
-							<select class="preset-select" name="preset{{ loop.index }}" id="preset{{ loop.index }}">
+							<select name="preset{{ loop.index }}" id="preset{{ loop.index }}" class="preset-select">
 							{% set index = ["preset", loop.index]|join %}
 							{% for folder in folders %}
 								{% if presets[index] == folder %}
@@ -38,7 +42,7 @@
 						</div>
 					</div>
 				{% endfor %}
-				<button type="submit" name="set_preset">Instellen</button>
+				<button type="submit">Instellen</button>
 			</form>
 
 			<!-- Show songs in a playlist -->
@@ -46,7 +50,7 @@
 				<!-- identifier used by server: do not change or remove -->
 				<input type="hidden" name="action" value="show_songs" />
 				<h1 id="show_songs">Liedjes van speellijst tonen</h1>
-				<select name="playlist" onchange="this.form.submit()">
+				<select name="playlist" id="playlist" onchange="this.form.submit()">
 					<option selected disabled value="">-- Kies een speellijst --</option>
 					{% for folder in folders %}
 						{% if playlist == folder %}
@@ -56,54 +60,44 @@
 						{% endif %}
 					{% endfor %}
 				</select>
+				<div id="playlist_notification" class="notification">
+					<!-- Will be filled by Javascript submitCredentials() -->
+				</div>
 			</form>
-			{% if songs %}
+			{% if playlist_songs %}
 			<div class="file-list">
-				<ul>
-				{% for song in songs %}
-					<li>{{ song }}</li>
+				<ul id="songs">
+				{% for song in playlist_songs %}
+					<li id="{{ song["file"] }}">{{ song["artist"] }} - {{ song["title"] }}</li>
 				{% endfor %}
 				</ul>
 			</div>
 			{% endif %}
 
-			<!-- Create, view, update, delete own playlists -->
-			<form method="POST">
-				<!-- identifier used by server: do not change or remove -->
-				<input type="hidden" name="action" value="custom_playlists" />
-				<h1 id="custom_playlists">Eigen speellijst maken</h1>
-				<p style="color: #ffef00; text-align: center;">Dit moet nog geïmplementeerd worden... Of niet?</p>
-<!--
-				<button type="submit" name="custom_create">Eigen speellijst aanmaken</button>
-				<button type="submit" name="custom_update">Eigen speellijst bijwerken</button>
-				<button type="submit" name="custom_delete">Eigen speellijst verwijderen</button>
--->
-			</form>
-
 			<!-- Search songs by artist or title -->
 			<form method="POST">
 				<!-- identifier used by server: do not change or remove -->
 				<input type="hidden" name="action" value="search_songs" />
-				<h1 id="search_songs">Lied zoeken</h1>
-				{% if search_key %}
-					<input type="text" name="pattern" required minlength="3" placeholder="Typ (deel van) naam van artiest of (deel van) titel" value="{{ search_key }}" />
+				<h1 id="search_songs">Liedje zoeken</h1>
+				{% if search %}
+					<input name="search" type="text" required minlength="3" placeholder="Typ (deel van) naam van artiest of (deel van) titel" value="{{ search }}" />
 				{% else %}
-					<input type="text" name="pattern" required minlength="3" placeholder="Typ (deel van) naam van artiest of (deel van) titel" />
+					<input name="search" type="text" required minlength="3" placeholder="Typ (deel van) naam van artiest of (deel van) titel" />
 				{% endif %}
-				<div id="notification" class="notification">
+				<div id="search_notification" class="notification">
 					<!-- Will be filled by Javascript submitCredentials() -->
 				</div>
-				<button type="submit" name="search">Zoeken</button>
-				{% if search_list %}
-				<div class="file-list">
-					<ul id="search">
-					{% for song in search_list %}
-						<li id="{{ song["file"] }}">{{ song["artist"] }} - {{ song["title"] }}</li>
-					{% endfor %}
-					</ul>
-				</div>
-				{% endif %}
+				<button type="submit">Zoeken</button>
 			</form>
+			{% if search_songs %}
+			<div class="file-list">
+				<ul id="songs">
+				{% for song in search_songs %}
+					<li id="{{ song["file"] }}">{{ song["artist"] }} - {{ song["title"] }}</li>
+				{% endfor %}
+				</ul>
+			</div>
+			{% endif %}
 
 		</div>
 	</body>
@@ -112,19 +106,27 @@
 		location.hash = "#" + "{{ anchor }}";
 
 		// Get notification element
-		const notification = document.getElementById('notification');
+		const playlist_notification = document.getElementById('playlist_notification');
+		const search_notification = document.getElementById('search_notification');
 
-		// Clear old notification
-		notification.innerHTML = "";
+		// Clear old notifications
+		playlist_notification.innerHTML = "";
+		search_notification.innerHTML = "";
 
-		// Notify if search key and list is empty
-		const key = "{{ search_key }}"
-		const list = "{{ search_list }}"
-		if ((key != "None") && (key.length > 0) && (list == "[]"))
-			notification.innerHTML = '<span style="color: #FFEF00;">Geen liedjes gevonden met \'{{ search_key }}\' in de naam van de artiest of in de titel. Gebruik een andere zoekopdracht.</span>';
+		// Notify if playlist and songs is empty
+		var playlist = "{{ playlist }}"
+		var playlist_songs = "{{ playlist_songs }}"
+		if ((playlist.length > 0) && (playlist_songs == "[]"))
+			playlist_notification.innerHTML = '<span class=\"warning\">Geen liedjes gevonden voor speellijst \'{{ playlist }}\'.</span>';
 
-		// Catch user clicking a list item
-		if (ul = document.getElementById('search'))
+		// Notify if search and list is empty
+		search = "{{ search }}"
+		search_songs = "{{ search_songs }}"
+		if ((search.length > 0) && (search_songs == "[]"))
+			search_notification.innerHTML = '<span class=\"warning\">Geen liedjes gevonden met \'{{ search }}\' in de naam van de artiest of in de titel. Gebruik een andere zoekopdracht.</span>';
+
+		// Catch user clicking a song
+		if (ul = document.getElementById('songs'))
 		{
 			ul.addEventListener('click', function(e)
 			{
@@ -132,7 +134,7 @@
 				{
 					event.preventDefault();
 
-					// Send song for clicked list item to server fro playback
+					// Send song to server for playback
 					submitSong(e.target.id)
 				}
 			});
@@ -155,12 +157,18 @@
 				if (! response.ok)
 				{
 					const errorData = await response.json();
-					notification.textContent = "<p style=\"color: #ff0000;\">Error: "+ errorData + "</p>";
+					if (playlist.length > 0)
+						playlist_notification.textContent = "<p class=\"error\">Error: "+ errorData + "</p>";
+					if (search.length > 0)
+						search_notification.textContent = "<p class=\"error\">Error: "+ errorData + "</p>";
 				}
 			}
 			catch (error)
 			{
-				notification.innerHTML = "<p style=\"color: #ff0000;\">Er is een fout opgetreden bij het indienen van de netwerkreferenties.</p>";
+				if (playlist.length > 0)
+					playlist_notification.innerHTML = "<p style=\"color: #ff0000;\">Er is een fout opgetreden bij het indienen van het te spelen liedje.</p>";
+				if (search.length > 0)
+					search_notification.innerHTML = "<p style=\"color: #ff0000;\">Er is een fout opgetreden bij het indienen van het te spelen liedje.</p>";
 			}
 		}
 	</script>

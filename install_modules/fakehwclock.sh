@@ -7,7 +7,7 @@
 # #    #  #   #   #    #  #    #     #    #    #
 #  ####   #    #  #    #  #####      #     ####
 #
-# Created on January 19, 2025
+# Created on January 30, 2025
 # @author:        Henk Stevens & Olaf Mastenbroek & Onno Janssen
 # @copyright:     Oradio Stichting
 # @license:       GNU General Public License (GPL)
@@ -33,12 +33,22 @@ fi
 source $SCRIPT_DIR/constants.sh
 
 # Notify entering module installation script
-echo "Load and configure web-interface and captive portal functionalty"
+echo "Configure fake hw clock"
 
-# Install iptables
-sudo apt-get install iptables -y
-# Install python modules
-python -m pip install pydantic fastapi JinJa2 uvicorn python-multipart
+# Install fake hw clock script
+sudo cp $SCRIPT_DIR/fakehwclock/fake-hwclock.sh /usr/bin/fake-hwclock.sh
+sudo chmod 0755 /usr/bin/fake-hwclock.sh
+
+# Install the fake hw clock services
+sudo cp $SCRIPT_DIR/fakehwclock/fake-hwclock.service /etc/systemd/system/
+sudo cp $SCRIPT_DIR/fakehwclock/fake-hwclock-tick.service /etc/systemd/system/
+sudo cp $SCRIPT_DIR/fakehwclock/fake-hwclock-tick.timer /etc/systemd/system/
+
+# Set fake hw clock service to start at boot
+sudo systemctl enable fake-hwclock.service
+
+# Start fake hw clock service
+sudo systemctl start fake-hwclock.service
 
 # Notify leaving module installation script
-echo -e "${GREEN}web-interface and captive portal functionalty loaded and configured${NC}"
+echo -e "${GREEN}Fake hw clock configured${NC}"

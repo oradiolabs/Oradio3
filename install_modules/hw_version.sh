@@ -35,7 +35,6 @@ source $SCRIPT_DIR/constants.sh
 # Notify entering module installation script
 echo "Configure Oradio hardware version log on boot"
 
-########## Configure and install service ##########
 # Configure the hw_version service
 if [ ! -f /etc/systemd/system/oradio_hw_version.log ]; then
 	cp $SCRIPT_DIR/hw_version/hw_version.service.template $SCRIPT_DIR/hw_version/hw_version.service

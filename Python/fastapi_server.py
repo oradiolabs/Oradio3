@@ -23,7 +23,11 @@ Created on December 23, 2024
     :Documentation
         https://fastapi.tiangolo.com/
 """
-import os, sys, json, subprocess, multipart
+import os
+import sys
+import json
+import multipart
+import subprocess
 from pydantic import BaseModel
 from fastapi import FastAPI, BackgroundTasks, Request
 from fastapi.responses import FileResponse, RedirectResponse
@@ -33,6 +37,7 @@ from fastapi.templating import Jinja2Templates
 ##### oradio modules ####################
 from oradio_logging import oradio_log
 from wifi_service import wifi_service
+from mpd_control import MPDControl
 
 ##### GLOBAL constants ####################
 from oradio_const import *
@@ -77,10 +82,7 @@ async def favicon():
 #### PLAYLISTS ####################
 
 def load_presets():
-    """
-    Load the current presets from presets.json
-    Returns: {"preset1": ..., "preset2": ..., "preset3": ...}
-    """
+    """ Load the current presets from presets.json in the USB Systeem folder """
     if os.path.exists(PRESETS_FILE):
         with open(PRESETS_FILE, "r") as f:
             return json.load(f)
@@ -89,79 +91,15 @@ def load_presets():
         return {"preset1": None, "preset2": None, "preset3": None}
 
 def store_presets(presets):
-    """
-    Write the presets from presets.json
-    """
-    with open(PRESETS_FILE, "w") as f:
-        json.dump({"preset1": presets[0], "preset2": presets[1], "preset3": presets[2]}, f, indent=4)
+    """ Write the presets to presets.json in the USB Systeem folder """
+    try:
+        with open(PRESETS_FILE, "w") as f:
+            json.dump({"preset1": presets[0], "preset2": presets[1], "preset3": presets[2]}, f, indent=4)
+    except IOError as ex_err:
+        oradio_log.error(f"Failed to write '{PRESETS_FILE}'. error: {ex_err}")
 
-#OMJ: moet dit geen functie van mpd_control zijn?
-def get_mpd_list(path = None):
-    """
-    List the names in the path:
-        if no path the available playlists
-        if path the songs in the playlist
-    Returns: List of names, without directory paths
-    """
-    # Start from mpd root
-    cmd = ["mpc", "ls"]
-
-    # Add level 
-    if path:
-        cmd.append(path)
-
-    # Get mpd info
-    process = subprocess.run(cmd, capture_output = True, text = True)
-    if process.returncode != 0:
-        oradio_log.error(f"shell script error: {process.stderr}")
-        return []
-
-    if not path:
-        # Parse string into list
-        return process.stdout.strip().split("\n")
-    else:
-        # Extract only the filenames from the full paths, without the extension
-        files = process.stdout.strip().split("\n")
-        return [os.path.splitext(os.path.basename(file))[0] for file in files]
-
-#OMJ: moet dit geen functie van mpd_control zijn?
-def get_mpd_search(pattern):
-    # Build file search command
-    cmd = 'mpc search artist "' + pattern + '" | while IFS= read -r file; do echo "$(mpc --format \'%artist%\t%title%\' listall "$file")\t$file"; done'
-
-    result = []
-    process = subprocess.run(cmd, shell = True, capture_output = True, text = True)
-    if process.returncode != 0:
-        print(f"shell script error: {process.stderr}")
-    else:
-        for item in process.stdout.strip().split("\n"):
-            if item:
-                fields = item.split("\t")
-                x = {}
-                x["artist"] = fields[0]
-                x["title"] = fields[1]
-                x["file"] = fields[2]
-                result.append(x)
-            else:
-                print(f"item is empty: {item}")
-                
-    return result
-
-#OMJ: moet dit geen functie van mpd_control zijn?
-#OMJ: willen we dat het nummer maar 1x speelt? Zo ja, wat moet er daarvoor gebeuren?
-#OMJ: als de Oradio uit staat speelt hij, dus AAN knop LED moet aan
-def play_mpd_song(song):
-    """
-    Stop the current playlist
-    Add the files matching the title as new playlist
-    Play the playlist (random and forever, as this is default behavior for Oradio)
-    """
-    # Stop current playback, add song, start play
-    cmd = f"mpc clear; mpc add \"{song}\"; mpc play"
-    process = subprocess.run(cmd, shell = True, capture_output = True, text = True)
-    if process.returncode != 0:
-        oradio_log.error(f"shell script error: {process.stderr}")
-        return
+# Get mpd functions
+mpdcontrol = MPDControl()
 
 @api_app.route("/playlists", methods=["GET", "POST"])
 async def playlists(request: Request):
@@ -176,15 +114,15 @@ async def playlists(request: Request):
 
     # Load presets and list available directories
     presets = load_presets()
-    folders = get_mpd_list()
+    folders = mpdcontrol.get_lists()
 
     # Unknown playlist and thus empty song list
-    playlist = None
-    songs    = []
+    playlist = ""
+    playlist_songs = []
 
-    # Unknown search pattern thus empty search list
-    search_key = None
-    search_list = []
+    # Unknown search pattern and thus empty song list
+    search = ""
+    search_songs = []
 
     # Unknown action
     action = ""
@@ -199,37 +137,30 @@ async def playlists(request: Request):
 
         # If the user clicked "Set Presets"
         if action == "set_presets":
-            print("user clicked 'set presets'")
             store_presets([form_data.get("preset1"), form_data.get("preset2"), form_data.get("preset3")])
             presets = load_presets()
 
         # If the user clicked "Show Songs"
         if action == "show_songs":
-            print("user clicked 'show songs'")
             # Get selected playlist
             playlist = form_data.get("playlist")
             # get preset songs
-            songs = get_mpd_list(playlist)
+            playlist_songs = mpdcontrol.get_songs(playlist)
 
-        # If the user clicked "custom playlists"
-        if action == "custom_playlists":
-            print("user clicked 'custom_playlist'")
-
-        # If the user clicked "Search"
+        # If the user clicked "Search songs"
         if action == "search_songs":
-            print("user clicked 'search songs'")
-            search_key = form_data.get('pattern')
-            search_list = get_mpd_search(search_key)
+            search = form_data.get('search')
+            search_songs = mpdcontrol.search(search)
 
     # Set playlists page and lists info as context
     context = {
-                "anchor"      : action,
-                "presets"     : presets,
-                "folders"     : folders,
-                "playlist"    : playlist,
-                "songs"       : songs,
-                "search_key"  : search_key,
-                "search_list" : search_list
+                "anchor"         : action,
+                "presets"        : presets,
+                "folders"        : folders,
+                "playlist"       : playlist,
+                "playlist_songs" : playlist_songs,
+                "search"         : search,
+                "search_songs"   : search_songs
             }
 
     # Return playlists page and available networks as context
@@ -248,7 +179,41 @@ async def play_song(play: play):
     https://fastapi.tiangolo.com/tutorial/background-tasks/#using-backgroundtasks
     """
     oradio_log.debug(f"play song: {play.song}")
-    play_mpd_song(play.song)
+    mpdcontrol.play_song(play.song)
+
+    # Create message
+    message = {}
+    message["type"]  = MESSAGE_WEB_SERVICE_TYPE
+#OMJ: Het type klopt niet? Het is geen web service state message, eeerder iets als info. Maar voor control is wel een state... 
+    message["state"] = MESSAGE_WEB_SERVICE_PLAYING_SONG
+
+    # Put message in queue
+    oradio_log.debug(f"Send web service message: {message}")
+    api_app.state.message_queue.put(message)
+
+#### STATUS ####################
+
+@api_app.get("/status")
+async def status(request: Request):
+    """ Return status """
+    oradio_log.debug("Serving status page")
+
+    # Get Oradio serial number
+    stream = os.popen('vcgencmd otp_dump | grep "28:" | cut -c 4-')
+    serial = stream.read().strip()
+
+    # Get wifi network Oradio is connected to
+    wifi = wifi_service(api_app.state.message_queue)
+    network = wifi.get_wifi_connection()
+
+    # Set playlists page and lists info as context
+    context = {
+                "serial"  : serial,
+                "network" : network
+            }
+
+    # Return playlists page and available networks as context
+    return templates.TemplateResponse(request=request, name="status.html", context=context)
 
 #### CAPTIVE PORTAL ####################
 

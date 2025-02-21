@@ -1,0 +1,27 @@
+/*!
+ * @package:      Oradio3
+ * @author url:   https://oradiolabs.nl
+ * @author email: info at oradiolabs dot nl
+ * @copyright:    Stichting Oradio, All rights reserved.
+ * @license:      GNU General Public License version 3; https://www.gnu.org/licenses/gpl-3.0.html
+ */
+
+/*
+ * Oradio status style choices
+ */
+
+table {
+	margin-bottom: 30px;
+}
+
+table, th, td {
+	border: 1px solid #8E8D8A;
+	border-collapse: collapse;
+}
+
+th, td {
+	text-align: left;
+	padding: 5px;
+	width: 300px;
+	
+}

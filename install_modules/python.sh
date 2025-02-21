@@ -35,7 +35,6 @@ source $SCRIPT_DIR/constants.sh
 # Notify entering module installation script
 echo "Installing pip and configure virtual environment"
 
-########## Setup python pip and virtual environment ##########
 # Install pip
 sudo apt-get install python3-pip -y
 # Prepare python virtual environment
@@ -47,7 +46,6 @@ sudo grep -qxF 'source ~/.venv/bin/activate' ~/.bashrc || echo 'source ~/.venv/b
 
 # Install generic python modules
 python -m pip install vcgencmd
-
 
 # Notify leaving module installation script
 echo -e "${GREEN}Python pip installed and virtual environment configured.${NC}"

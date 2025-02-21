@@ -41,7 +41,8 @@ from wifi_service import wifi_service
 from oradio_const import *
 
 ##### LOCAL constants ####################
-WEB_SERVICE_TIMEOUT = 600 # 10 minutes
+WEB_SERVICE_TIMEOUT  = 600  # 10 minutes
+DEBUG_ALIVE_INTERVAL = 60   # Only show debug message every 60 seconds
 
 class Server(uvicorn.Server):
     """
@@ -194,6 +195,9 @@ class web_service():
             # Confirm starting the web server
             oradio_log.info(f"Web service is running. Timeout = {self.timeout}")
 
+            # Only show 'web service is running' debug message every minute
+            countdown = 0
+
             # Execute in a loop
             while True:
 
@@ -210,6 +214,7 @@ class web_service():
                     oradio_log.debug("Reset web service timeout counter")
                     self.started = time()
                     self.event_reset.clear()
+                    countdown = 0
 
                 # Check for stop event
                 if self.event_stop.is_set():
@@ -217,8 +222,13 @@ class web_service():
                     self.event_stop.clear()
                     break
 
-                # Print remaining time before timeout
-                oradio_log.debug(f"Web server will timeout after {int(self.timeout - (time() - self.started))} seconds")
+                # Only show 'web service is running' debug message every minute
+                if countdown == 0:
+                    # Print remaining time before timeout
+                    oradio_log.debug(f"Web server will timeout after {int(self.timeout - (time() - self.started))} seconds")
+                    countdown = DEBUG_ALIVE_INTERVAL
+                else:
+                    countdown -= 1
 
         # Remove access point, keeping wifi connection if connected
         self.wifi.access_point_stop()
