@@ -19,7 +19,10 @@ Created on February 8, 2025
 @status:        Development
 @summary: Send log messages to remote monitoring service
 """
-import os, glob, requests, json
+import os
+import glob
+import json
+import requests
 from datetime import datetime
 from threading import Timer
 
@@ -169,7 +172,7 @@ class rms_service():
             elif msg_type == WARNING or msg_type == ERROR:
                 msg_data['message'] = json.dumps({'function': function, 'message': message})
                 # Send all log files in logging directory
-                self.send_files = ORADIO_LOG_DIR + "/*.log"
+                self.send_files = glob.glob(ORADIO_LOG_DIR + "/*.log")
 
             # Unexpected message type
             else:
