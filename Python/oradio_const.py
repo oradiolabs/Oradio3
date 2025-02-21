@@ -24,7 +24,7 @@ Created on December 23, 2024
 import os, sys
 # Make Oradio file locations relative
 ORADIO_DIR      = sys.path[0]
-ORADIO_LOG_FILE = os.path.abspath(ORADIO_DIR + '/../logging/oradio.log')   # Use absolute path to prevent file rotation trouble
+ORADIO_LOG_DIR  = os.path.abspath(ORADIO_DIR + '/../logging')
 SOUND_FILES_DIR = os.path.realpath(ORADIO_DIR + "/../system_sounds")
 
 ################## WIFI UTILS #############################

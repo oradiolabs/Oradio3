@@ -122,12 +122,6 @@ if [ "$(lsb_release -a | grep "Description:" | cut -d$'\t' -f2)" != "$BOOKWORM64
 	return $ERROR
 fi
 
-# Ensure logging directory exists
-if [ ! -d $LOG_DIR ]; then
-	# Create logging directory
-	mkdir -p $LOG_DIR
-fi
-
 ########## Install modules ##########
 
 # Iterate through MANDATORY modules to install

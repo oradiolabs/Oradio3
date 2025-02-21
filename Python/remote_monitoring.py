@@ -169,7 +169,7 @@ class rms_service():
             elif msg_type == WARNING or msg_type == ERROR:
                 msg_data['message'] = json.dumps({'function': function, 'message': message})
                 # Send all log files in logging directory
-                self.send_files = glob.glob(os.path.dirname(ORADIO_LOG_FILE) + "/*.log")
+                self.send_files = ORADIO_LOG_DIR + "/*.log"
 
             # Unexpected message type
             else:
