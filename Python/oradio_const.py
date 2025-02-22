@@ -100,7 +100,9 @@ MPV_PLAYERCTL_PAUSED_STATE  = "pauseed"
 MPV_PLAYERCTL_COMMAND_NOT_FOUND = "playerctl command not found"
 MPV_PLAYERCTL_COMMAND_ERROR     = "playerctl command failed"
 
-# MPRIS PLAYER ###
+# MPRIS Medaio Player identifier (D-Bus service names, according the  naming convention for the MPRIS2 specification. 
+# It is not a physical file or program, but a logical D-Bus service name 
+# that media players register under when they support MPRIS.
 MPRIS_MPV_PLAYER            = "org.mpris.MediaPlayer2.mpv"
 MPRIS_MEDIA_PLAYER          = "/org/mpris/MediaPlayer2"
 MPRIS_MP2_PLAYER            = "org.mpris.MediaPlayer2.Player"
@@ -119,5 +121,5 @@ SPOTIFY_CONNECT_SERVERS_NOT_RUNNING     = "Spotify Connect local servers NOT run
 SPOTIFY_CONNECT_MPV_SERVICE_NOT_ACTIVE  = "Spotify Connect MPV service not active"
 SPOTIFY_CONNECT_MPV_SERVICE_IS_ACTIVE   = "Spotify Connect MPV service is active"
 SPOTIFY_CONNECT_MPV_MPRIS_PLAYER_NOT_FOUND = "Spotify Connect MPV MPRIS player not found"
-SPOTIFY_CONNECT_STATE_OK                   = "Spotify Connect State OK"
+SPOTIFY_CONNECT_MPV_STATE_OK               = "Spotify Connect MPV State OK"
 
