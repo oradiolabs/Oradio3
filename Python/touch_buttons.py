@@ -155,13 +155,14 @@ if __name__ == "__main__":
     print("Press a button to see its corresponding LED blink for 0.1 seconds.")
     print("Press Ctrl+C to exit.\n")
 
-    try:
-        # Run touch button test mode (no state machine, only LED blinking)
-        touch_buttons = TouchButtons(test_mode=True)
+    # Run touch button test mode (no state machine, only LED blinking)
+    touch_buttons = TouchButtons(test_mode=True)
 
+    # Keep the script running to detect button presses
+    try:
         while True:
-            time.sleep(1)  # Keep the script running to detect button presses
+            time.sleep(1)
     except KeyboardInterrupt:
         print("\nExiting test mode...")
-    finally:
-        touch_buttons.cleanup()
+
+    touch_buttons.cleanup()

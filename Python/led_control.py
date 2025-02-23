@@ -57,7 +57,7 @@ class LEDControl:
     def turn_off_led(self, led_name):
         """Turns off a specific LED and stops its blinking if active."""
         if led_name not in LEDS:
-            oradio_utils.logging("error", f"Invalid LED name: {led_name}")
+            oradio_log.error(f"Invalid LED name: {led_name}")
             return
         # Signal any blinking thread for this LED to stop
         self.blinking_leds[led_name] = False

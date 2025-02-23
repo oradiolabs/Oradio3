@@ -126,7 +126,7 @@ class rms_service():
             self.heartbeat_timer.start()
             heartbeat_repeat_timer_is_running = True
         else:
-            oradio_warning("heartbeat repeat timer already active")
+            oradio_log.warning("heartbeat repeat timer already active")
 
     def heartbeat_stop(self):
         """ Stop the heartbeat repeat timer and mark as not active """

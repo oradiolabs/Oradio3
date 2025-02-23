@@ -53,13 +53,13 @@ class ColorFormatter(python_logging.Formatter):
     reset  = '\x1b[0m'
 
     # Format the log message: datetime - filename:lineno - level - message
-    format = "%(asctime)s - %(filename)s:%(lineno)d - %(levelname)s - %(message)s"
+    msg_format = "%(asctime)s - %(filename)s:%(lineno)d - %(levelname)s - %(message)s"
 
     FORMATS = {
-        DEBUG: grey + format + reset,
-        INFO: white + format + reset,
-        WARNING: yellow + format + reset,
-        ERROR: red + format + reset,
+        DEBUG: grey + msg_format + reset,
+        INFO: white + msg_format + reset,
+        WARNING: yellow + msg_format + reset,
+        ERROR: red + msg_format + reset,
     }
 
     # Color log messages
