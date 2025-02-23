@@ -17,10 +17,7 @@ Created on January 10, 2025
 @status:        Development
 @summary: Oradio MPD control module and playlist test scripts
 
-Play_song update, Such that a song started via webinterface is added to the MPD queue
-Is than immediate played and gemoved from queue after it is played
-
-Connect-reconnect level to info
+Update Play_song, did not play immediate when in MPD in pause
 """
 import time
 import json
@@ -404,7 +401,8 @@ class MPDControl:
             with self.mpd_lock:
                 status = self.client.status()
                 state = status.get("state", "stop")
-                if state == "play" and "song" in status:
+                # Now treat both "play" and "pause" states similarly.
+                if state in ("play", "pause") and "song" in status:
                     current_song_index = int(status.get("song"))
                     inserted_song_id = int(self.client.addid(song))
                     playlist = self.client.playlistinfo()
@@ -412,10 +410,13 @@ class MPDControl:
                     target_index = current_song_index + 1
                     if new_song_index != target_index:
                         self.client.move(new_song_index, target_index)
+                    # Force jump to the inserted song regardless of pause or play state.
                     self.client.play(target_index)
+                    oradio_log.debug(f"Started playback at index {target_index}")
                 else:
                     inserted_song_id = int(self.client.addid(song))
                     self.client.play()
+                    oradio_log.debug("Started playback as no song was currently playing")
             
             threading.Thread(
                 target=self._remove_song_when_finished,
@@ -428,36 +429,6 @@ class MPDControl:
             oradio_log.error(f"Error playing song '{song}': {ex_err}")
 
 
-#     def _remove_song_when_finished(self, inserted_song_id):
-#         """
-#         Polls MPD status until the song with inserted_song_id is finished,
-#         then removes it from the playlist.
-#         """
-#         try:
-#             oradio_log.debug(f"Monitoring song id {inserted_song_id} until finish")
-#             while True:
-#                 time.sleep(1)
-#                 with self.mpd_lock:
-#                     status = self.client.status()
-#                     current_song_id = int(status.get("songid", -1))
-#                     if current_song_id != inserted_song_id:
-#                         break
-#                     #ensures that the inserted song is removed in a timely manner
-#                     time_str = status.get("time", None)
-#                     if time_str:
-#                         try:
-#                             elapsed_str, duration_str = time_str.split(":")
-#                             elapsed = float(elapsed_str)
-#                             duration = float(duration_str)
-#                             if elapsed >= duration - 1:
-#                                 break
-#                         except Exception:
-#                             pass
-#             with self.mpd_lock:
-#                 self.client.deleteid(inserted_song_id)
-#             oradio_log.debug(f"Deleted song id {inserted_song_id}")
-#         except Exception as ex:
-#             oradio_log.error(f"Error removing song with id '{inserted_song_id}': {ex}")
     def _remove_song_when_finished(self, inserted_song_id):
         """
         Polls MPD status until the song with inserted_song_id is finished,
@@ -493,8 +464,6 @@ class MPDControl:
                     oradio_log.debug(f"Song id {inserted_song_id} already removed from the playlist")
         except Exception as ex:
             oradio_log.error(f"Error removing song with id '{inserted_song_id}': {ex}") 
- 
- 
  
             
     @staticmethod
