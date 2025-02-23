@@ -22,8 +22,8 @@ Created on Januari 17, 2025
     :Install
     :Documentation
 """
-import smbus2
 import time
+import smbus2
 
 class backlighting:
     """
@@ -61,30 +61,37 @@ class backlighting:
         self.running = False  # Flag to control the auto_adjust loop
 
     def write_register(self, register, value):
+        """ Write value to register """
         self.bus.write_byte_data(self.TSL2591_ADDR, self.COMMAND_BIT | register, value)
 
     def read_register(self, register):
+        """ Read value from register """
         return self.bus.read_byte_data(self.TSL2591_ADDR, self.COMMAND_BIT | register)
 
     def read_two_registers(self, register_low, register_high):
+        """ Read value from register ;ow-high pair """
         low = self.read_register(register_low)
         high = self.read_register(register_high)
         return (high << 8) | low
 
     def initialize_sensor(self):
+        """ Initialize light sensor """
         self.write_register(self.ENABLE_REG, self.ENABLE_POWER_ON | self.ENABLE_ALS)
         time.sleep(0.1)
         self.write_register(self.CONTROL_REG, self.GAIN_MEDIUM | self.INTEGRATION_TIME_300MS)
 
     def calculate_lux(self, raw_value):
+        """ Calculate lux level """
         GAIN_SCALE = 25
         INTEGRATION_TIME_SCALE = 300 / 100
         return raw_value / (GAIN_SCALE * INTEGRATION_TIME_SCALE)
 
     def read_visible_light(self):
+        """ Read light level """
         return self.read_two_registers(self.VISIBLE_LIGHT_LOW, self.VISIBLE_LIGHT_HIGH)
 
     def write_dac(self, value):
+        """ Write backlight light level """
         value = max(0, min(4095, value))
         high_byte = (value >> 8) & 0x0F
         low_byte = value & 0xFF
