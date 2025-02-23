@@ -1,8 +1,10 @@
 [Unit]
 Description=Autostart Oradio
 After=multi-user.target
-StartLimitInterval=55		# must be greater than RestartSec * StartLimitBurst otherwise the service will be restarted indefinitely
-StartLimitBurst=5			# Try max 5 times
+# must be greater than RestartSec * StartLimitBurst otherwise the service will be restarted indefinitely
+StartLimitInterval=55
+# Try max 5 times
+StartLimitBurst=5
 
 [Service]
 Type=simple
@@ -13,7 +15,8 @@ WorkingDirectory=PLACEHOLDER_PATH
 ExecStart=/home/PLACEHOLDER_USER/.venv/bin/python3 PLACEHOLDER_PATH/oradio_control.py
 RemainAfterExit=true
 Restart=always
-RestartSec=10				# Restart after 10 seconds
+# Restart after 10 seconds
+RestartSec=10
 
 [Install]
 WantedBy=multi-user.target
