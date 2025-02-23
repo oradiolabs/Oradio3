@@ -38,7 +38,7 @@ jobs:
       # C0103: naming errors
       # C0410: mutiple imports on 1 line
       run: |
-        pylint $(git ls-files '*.py') --disable=C0301,C0103,C0410 --output=pylint_result.txt || True
+        pylint $(git ls-files '*.py') --disable=C0301,C0103,C0410 --output=pylint_result.txt || true
     - name: Upload pylint result
       uses: actions/upload-artifact@v4
       with:
