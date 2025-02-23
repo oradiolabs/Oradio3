@@ -57,16 +57,14 @@ echo "install avahi-browse tool"
 sudo apt install avahi-utils
 
 echo "install pydantic"
-sudo python -m pip install --break-system-packages pydantic
+python -m pip install pydantic
 
 echo "install mpv and its libraries"
-sudo python -m pip install mpv
-sudo apt install mpv libmpv-dev python3-mpv mpv-mpris
+python -m pip install mpv
+sudo apt -y install mpv libmpv-dev python3-mpv mpv-mpris
 
-
-
-echo "install pydbus "
-sudo python -m pip install dbus-python
+echo "install dbus-python"
+python -m pip install dbus-python
 
 # also install pydantic in non-venv environment
 echo "deactivate current virtual machine"
@@ -77,22 +75,22 @@ echo "activate virtual machine again"
 source /home/pi/.venv/bin/activate
 echo "copy the librespot service to /etc/systemd/system"
 sudo cp $MODULES/spotify_connect/librespot.service /etc/systemd/system
-echo "copy the configuration file mpv.conf to /etc/mpv
+echo "copy the configuration file mpv.conf to /etc/mpv"
 sudo cp $MODULES/spotify_connect/mpv.conf /etc/mpv/mpv.conf
 sudo cp $MODULES/spotify_connect/mpv.service /etc/systemd/system
 sudo systemctl enable mpv.service
 sudo systemctl start mpv.service
-echo "create a audio pipe between librespot and mpv player
+echo "create a audio pipe between librespot and mpv player"
 SPOTIFY_DIR="/home/pi/spotify"
-SPOTIFY_FIFO="/home/pi/spotify/librespot-fifo"
+SPOTIFY_PIPE="/home/pi/spotify/librespot-pipe"
 if ! [ -d "$SPOTIFY_DIR" ];
 then
 	mkdir $SPOTIFY_DIR
 fi
-if ! [[] -e "$SPOTIFY_FIFO" ];
+if ! [[] -e "$SPOTIFY_PIPE" ];
 then
-	mkfifo $SPOTIFY_FIFO
-	chmod 666 $SPOTIFY_FIFO
+	mkfifo $SPOTIFY_PIPE
+	chmod 666 $SPOTIFY_PIPE
 fi
 # take care that librespot_event_handler.py has execute rights
 chmod +x /home/pi/Oradio3/Python/librespot_event_handler.py

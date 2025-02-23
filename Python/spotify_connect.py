@@ -206,7 +206,9 @@ class SpotifyConnect():
     def get_state(self):
         '''
         Return the actual state of the Spotify Connect servers and related events
-        :return self.state = current state
+        :return self.state = current state = [  MPV_PLAYERCTL_PLAYING_STATE |
+                                                MPV_PLAYERCTL_STOPPED_STATE |
+                                                MPV_PLAYERCTL_PAUSED_STATE]
         '''
         return(self.state)
     
@@ -261,11 +263,6 @@ def setup_dbus_interface_to_control_mpv_player():
         oradio_utils.logging("error","mpv.service is NOT running")
         status = SPOTIFY_CONNECT_MPV_SERVICE_NOT_ACTIVE
         return(status, bus, player_iface)        
-
-#    env = os.environ
-#    print(env)    
-#    from dbus import SessionBus
-#    bus = SessionBus()
 
     def get_mpris_players():
         bus = dbus.SessionBus()  # Refresh the session bus
@@ -384,13 +381,13 @@ if __name__ == "__main__":
         importlib.reload(librespot_event_handler) # will run de event handler
         return 
     
-    def discover_oradio_speaker():
+    def discover_oradio_sound_device():
         '''
         discovery of announced spotify-connect services with help of avahi-browse
         '''
-        print(YELLOW_TXT+"==============================================================="+END_TXT)
-        print(YELLOW_TXT+"Check if OradioLuidspreker is discovered and stop test with CTRL+C"+END_TXT)
-        print(YELLOW_TXT+"==============================================================="+END_TXT)        
+        print(YELLOW_TXT+"==================================================================="+END_TXT)
+        print(YELLOW_TXT+"Check if Oradio as sound device is discovered. Stop test with CTRL+C"+END_TXT)
+        print(YELLOW_TXT+"==================================================================="+END_TXT)        
 
         script = ["avahi-browse","-d","local","_spotify-connect._tcp"]
         try:
@@ -414,9 +411,11 @@ if __name__ == "__main__":
         print(YELLOW_TXT+"Check if spotify events are logged, e.g. play, pause, volume"+END_TXT)
         print(YELLOW_TXT+"==============================================================="+END_TXT)        
         msg_queue = Queue()
-        spot_con = SpotifyConnect(msg_queue)                    
+        spot_con = SpotifyConnect(msg_queue)
+        spot_con.playerctl_command(MPV_PLAYERCTL_PLAY  )                 
         time.sleep(1)
-        keyboard_input = input("Press any key to stop monitoring")        
+        keyboard_input = input("Press any key to stop monitoring")
+        spot_con.shutdown_server()                
         return()
     
     
@@ -467,6 +466,7 @@ if __name__ == "__main__":
                         print(YELLOW_TXT+"Press ENTER to simulate a button press of the OFF-button at the Oradio"+END_TXT)
                         print(YELLOW_TXT+"====================================================================="+END_TXT)
                         keyboard_input = input("Press Enter as OFF-button")
+                        
                         spot_con.playerctl_command(MPV_PLAYERCTL_PAUSE)                        
 #                    case spotify_state if spotify_state == SPOTIFY_CONNECT_CONNECTED_EVENT:
 #                        spot_con.playerctl_command(MPV_PLAYERCTL_PAUSE)                    
@@ -479,7 +479,7 @@ if __name__ == "__main__":
                         pass
             else:
                 oradio_utils.logging("info","Not a Spotify event message")
-
+        spot_con.shutdown_server()           
 
     def wait_for_queue_messages(queue, msg_model):
         """
@@ -549,7 +549,7 @@ if __name__ == "__main__":
                 print(message)
                 if event in message['state']:
                     oradio_utils.logging("success","Correct message event <{msg}> received in queue".format(msg=message['state']))
-                time.sleep(1)            
+                time.sleep(1)
         return()
 
 
@@ -626,11 +626,12 @@ if __name__ == "__main__":
     # Show menu with test options
     input_selection = ("Select a function, input the number.\n"
                        " 0-quit\n"
-                       " 1-Check if Oradio Speaker can be discovered on local mDns \n"
+                       " 1-Check if the Oradio sound device can be discovered on local mDNS \n"
                        " 2-Monitor librespot events \n"
                        " 3-Test event socket and queue \n"
                        " 4-MPRIS player control test\n"                       
                        " 5-Simulate as Oradio_controls \n"
+                       " 6-xxxx \n"
                        "select: "
                        )
  
@@ -651,7 +652,7 @@ if __name__ == "__main__":
             case 0:
                 break
             case 1:
-                discover_oradio_speaker()
+                discover_oradio_sound_device()
             case 2:
                 monitor_librespot_events()
             case 3:
@@ -659,6 +660,8 @@ if __name__ == "__main__":
             case 4:
                 mpris_player_control_test()
             case 5:
-                simulate_as_oradio_control()                
+                simulate_as_oradio_control()
+            case 6:
+                pass 
             case _:
                 print("\nPlease input a valid number\n")

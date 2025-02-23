@@ -31,19 +31,20 @@ source install_modules/constants.sh
 
 # Modules to install. ORDER IS IMPORTANT!
 ORADIO_MODULES=(
-	"hw_version"
 	"config"
 	"packages"
-	"python"
+	"fakehwclock"
+	"python"		# depends on packages
 	"network"
+	"hw_version"	# depends on python
 	"logging"		# Depends on python
 	"usb_service"	# Depends on network and python
 	"audio"			# Depends on usb_service and python
 	"volume"		# Depends on audio and python
 	"backlighting"	# Depends on python
 	"web_service"	# Depends on network and python
-	"autostart"
 	"sw_version"
+	"autostart"
 )
 
 # Function to pretty-print the list of modules
@@ -121,11 +122,8 @@ if [ "$(lsb_release -a | grep "Description:" | cut -d$'\t' -f2)" != "$BOOKWORM64
 	return $ERROR
 fi
 
-# Ensure logging directory exists
-if [ ! -d $LOG_DIR ]; then
-	# Create logging directory
-	mkdir -p $LOG_DIR
-fi
+# Initialize to 'no reboot required'
+REBOOT_REQUIRED=$NO
 
 ########## Install modules ##########
 
@@ -133,21 +131,19 @@ fi
 for ((main_i = 0; main_i < ${#ORADIO_MODULES[@]}; main_i++)); do
 	module="${ORADIO_MODULES[$main_i]}"
 	source install_modules/$module.sh
-	# Module can signal a reboot is required to activate the changes
-	if [ $? -eq $ERROR ]; then
-#TODO: Do not return to command prompt, but reboot and automatically restart this install script, same as after apt-get upgrade
-		# Running as source, so 'return' goes back to the command prompt
-		return $ERROR
-	fi
 done
-
-# Display usage
 
 # Output wrap-up "header"
 echo
 echo    "###############################################################################"
 echo -e "# ${GREEN}Oradio installation and configuration done.${NC}                                 #"
-echo    "# 1) 'cd Python' and run 'python [test_]<module>.py' to test stand-alone      #"
-echo    "# 2) Reboot to start Oradio.                                                  #"
+# Remind user if reboot is required to complete installation
+if [ $REBOOT_REQUIRED == $YES ]; then
+	echo -e "# ${YELLOW}Please reboot now to complete the installion${NC}                                #"
+# Everything is fine
+else
+	echo    "# 1) 'cd Python' and run 'python [test_]<module>.py' to test module           #"
+	echo    "# 2) Reboot to start Oradio.                                                  #"
+fi
 echo    "###############################################################################"
 echo

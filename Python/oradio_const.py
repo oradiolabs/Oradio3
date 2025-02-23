@@ -95,7 +95,7 @@ MPV_PLAYERCTL_STOP  = "stop"
 #MPV_PLAYER STATES ####
 MPV_PLAYERCTL_PLAYING_STATE = "playing"
 MPV_PLAYERCTL_STOPPED_STATE = "stopped"
-MPV_PLAYERCTL_PAUSED_STATE  = "pauseed"
+MPV_PLAYERCTL_PAUSED_STATE  = "paused"
 
 MPV_PLAYERCTL_COMMAND_NOT_FOUND = "playerctl command not found"
 MPV_PLAYERCTL_COMMAND_ERROR     = "playerctl command failed"
