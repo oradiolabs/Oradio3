@@ -28,6 +28,8 @@ jobs:
         pip install vcgencmd
         # usb_service
         pip install watchdog
+        # audio
+        pip install python-mpd2
         # volume
         sudo apt-get install libasound2-dev -y
         pip install pyalsaaudio --use-pep517
