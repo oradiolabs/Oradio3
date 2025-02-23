@@ -16,7 +16,7 @@ jobs:
         python-version: ${{ matrix.python-version }}
     - name: Install dependencies
       run: |
-        python -m pip install --upgrade pip 
+        python -m pip install --upgrade pip setuptools wheel
         pip install pylint
         # backlighting
         pip install smbus2 rpi-lgpio
@@ -28,11 +28,10 @@ jobs:
         pip install vcgencmd
         # usb_service
         pip install watchdog
-        # volume: problem compiling...
-        # pip install pyalsaaudio --use-pep517
+        # volume
+        pip install pyalsaaudio --use-pep517
         # web_service
         pip install pydantic fastapi JinJa2 uvicorn python-multipart
-        pip install
     - name: Analysing the code with pylint
       # C0301: long lines
       # C0103: naming errors
