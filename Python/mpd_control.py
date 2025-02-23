@@ -17,8 +17,7 @@ Created on January 10, 2025
 @status:        Development
 @summary: Oradio MPD control module and playlist test scripts
 
-Monitors MPD error every 10 s 
-Update stand alone tests 13, 14
+Update Play_song, did not play immediate when in MPD in pause
 """
 import time
 import json
@@ -60,7 +59,7 @@ class MPDControl:
         client.idletimeout = None
         try:
             client.connect(self.host, self.port)
-            oradio_log.debug("Connected to MPD server.")
+            oradio_log.info("Connected to MPD server.")
             return client
         except Exception as e:
             oradio_log.error(f"Failed to connect to MPD server: {e}")
@@ -81,7 +80,7 @@ class MPDControl:
         while True:
             with self.mpd_lock:
                 if not self._is_connected():
-                    oradio_log.warning("MPD connection lost. Reconnecting...")
+                    oradio_log.info("MPD connection lost. Reconnecting...")
                     self.client = self._connect()
                     # Reset cached error on reconnection
                     self.last_status_error = None
@@ -388,47 +387,85 @@ class MPDControl:
             oradio_log.error(f"Error searching for songs with pattern '{pattern}' in artist or title attribute: {ex_err}")
             return []
 
+
     def play_song(self, song):
         """
         Play song once without clearing the current queue.
-        The song is appended to the queue and then moved immediately after the current song.
-        Playback starts at the inserted song, and after it finishes, the rest of the queue continues.
+        The song is appended, moved immediately after the current song, and played.
+        Once it finishes, it is removed from the queue.
         """
         try:
-            # Ensure we are connected
+            oradio_log.debug(f"Attempting to play song: {song}")
             self._ensure_client()
-
+            
             with self.mpd_lock:
                 status = self.client.status()
                 state = status.get("state", "stop")
-                if state == "play" and "song" in status:
-                    # Get current song index (as an integer)
+                # Now treat both "play" and "pause" states similarly.
+                if state in ("play", "pause") and "song" in status:
                     current_song_index = int(status.get("song"))
-                    
-                    # Append the new song; it will be added to the end of the playlist.
-                    self.client.add(song)
-                    
-                    # Get the full playlist; the new song should be at the end.
+                    inserted_song_id = int(self.client.addid(song))
                     playlist = self.client.playlistinfo()
                     new_song_index = len(playlist) - 1
-                    
-                    # Calculate the target index: right after the current song.
                     target_index = current_song_index + 1
-                    
-                    # If the new song isn't already at the desired position, move it.
                     if new_song_index != target_index:
                         self.client.move(new_song_index, target_index)
-                    
-                    # Start playing the song at the target index.
+                    # Force jump to the inserted song regardless of pause or play state.
                     self.client.play(target_index)
+                    oradio_log.debug(f"Started playback at index {target_index}")
                 else:
-                    # If nothing is playing, add the song and start playback.
-                    self.client.add(song)
+                    inserted_song_id = int(self.client.addid(song))
                     self.client.play()
+                    oradio_log.debug("Started playback as no song was currently playing")
+            
+            threading.Thread(
+                target=self._remove_song_when_finished,
+                args=(inserted_song_id,),
+                daemon=True
+            ).start()
+            oradio_log.debug(f"Started monitoring removal for song id: {inserted_song_id}")
 
         except Exception as ex_err:
             oradio_log.error(f"Error playing song '{song}': {ex_err}")
 
+
+    def _remove_song_when_finished(self, inserted_song_id):
+        """
+        Polls MPD status until the song with inserted_song_id is finished,
+        then removes it from the playlist.
+        """
+        try:
+            oradio_log.debug(f"Monitoring song id {inserted_song_id} until finish")
+            while True:
+                time.sleep(1)
+                with self.mpd_lock:
+                    status = self.client.status()
+                    current_song_id = int(status.get("songid", -1))
+                    if current_song_id != inserted_song_id:
+                        break
+                    time_str = status.get("time", None)
+                    if time_str:
+                        try:
+                            elapsed_str, duration_str = time_str.split(":")
+                            elapsed = float(elapsed_str)
+                            duration = float(duration_str)
+                            if elapsed >= duration - 1:
+                                break
+                        except Exception:
+                            pass
+            with self.mpd_lock:
+                playlist = self.client.playlistinfo()
+                # Check if the inserted song is still in the playlist
+                still_present = any(int(song.get("id", -1)) == inserted_song_id for song in playlist)
+                if still_present:
+                    self.client.deleteid(inserted_song_id)
+                    oradio_log.debug(f"Deleted song id {inserted_song_id}")
+                else:
+                    oradio_log.debug(f"Song id {inserted_song_id} already removed from the playlist")
+        except Exception as ex:
+            oradio_log.error(f"Error removing song with id '{inserted_song_id}': {ex}") 
+ 
+            
     @staticmethod
     def get_playlist_name(preset_key, filepath):
         """Retrieves the playlist name for a given preset key."""
