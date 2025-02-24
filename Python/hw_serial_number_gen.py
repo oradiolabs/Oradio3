@@ -28,9 +28,9 @@ The script will:
 import os
 import json
 import sys
-import smbus2
 import subprocess
 from datetime import datetime
+import smbus2
 
 # Local Constants
 I2C_BUS = 1  # Typically 1 on modern Raspberry Pis
