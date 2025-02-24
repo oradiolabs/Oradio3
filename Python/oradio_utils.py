@@ -24,7 +24,6 @@ Created on Januari 17, 2025
         https://docs.python.org/3/howto/logging.html
         https://pypi.org/project/concurrent-log-handler/
 """
-import subprocess
 import urllib.request
 from subprocess import run
 from vcgencmd import Vcgencmd
