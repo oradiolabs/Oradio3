@@ -92,7 +92,7 @@ def test_backlighting():
                        " 5-Test sensor mode\n"
                        "select: "
                        )
- 
+
     # User command loop
     while True:
 
