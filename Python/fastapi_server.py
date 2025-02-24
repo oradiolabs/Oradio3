@@ -182,7 +182,7 @@ async def play_song(play: play):
     # Create message
     message = {}
     message["type"]  = MESSAGE_WEB_SERVICE_TYPE
-#OMJ: Het type klopt niet? Het is geen web service state message, eeerder iets als info. Maar voor control is wel een state... 
+#OMJ: Het type klopt niet? Het is geen web service state message, eerder iets als info. Maar voor control is wel een state...
     message["state"] = MESSAGE_WEB_SERVICE_PLAYING_SONG
 
     # Put message in queue
