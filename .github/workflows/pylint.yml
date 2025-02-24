@@ -41,7 +41,7 @@ jobs:
       # C0410: mutiple imports on 1 line
       # Prevent MPDClient no-member errors, as they are false positives
       run: |
-        pylint $(git ls-files '*.py') --disable=C0301,C0103,C0410 --generated-members=MPDClient.ping MPDClient.status --output=pylint_result.txt || true
+        pylint $(git ls-files '*.py') --disable=C0301,C0103,C0410 --generated-members=self.client.* --output=pylint_result.txt || true
     - name: Upload pylint result
       uses: actions/upload-artifact@v4
       with:
