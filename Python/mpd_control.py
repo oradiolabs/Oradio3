@@ -99,7 +99,7 @@ class MPDControl:
                             self.last_status_error = None
                     except Exception as ex_err:
                         oradio_log.error("Error checking MPD status: %s", ex_err)
-                        self.last_status_error = str(e)
+                        self.last_status_error = str(ex_err)
             time.sleep(10)  # Check every 10 seconds
 
     def _ensure_client(self):
