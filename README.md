@@ -11,17 +11,10 @@ Installation
 - Connect the Raspberry Pi to your network with internet access
 - Start the Raspberry pi with the SD card
 - When the Raspberry Pi has started ssh into the raspberry Pi
-- #> sudo apt-get update
-- #> sudo apt-get install git -y
-- #> git clone https://github.com/oradiolabs/Oradio3.git
-- #> cd Oradio3
-- #> source ./oradio_install.sh    <== Note the 'source' command. Required as the scripts changes environment settings
+- #> source <(curl https://oradiolabs.nl/Oradio3/install)
 
 The script will install and configure required packages and services
 Activating some changes requires rebooting, so when the script informs a reboot is required:
 - #> sudo reboot
-- When the Raspberry Pi has restarted ssh into the raspberry Pi
-- #> cd Oradio3
-- #> source ./oradio_install.sh    <== Note the 'source' command. Required as the scripts changes environment settings
 
-When the script is finished it asks you to reboot. This will start the Oradio3 application
+The reboot will finalize the installation and start the Oradio3 application
