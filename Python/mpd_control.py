@@ -173,7 +173,7 @@ class MPDControl:
             try:
                 self.client.stop()
                 oradio_log.debug("MPD stop")
-            except Exception as e:
+            except Exception as ex_err:
                 oradio_log.error("Error sending stop command: %s", ex_err)
 
     def next(self):
@@ -457,7 +457,7 @@ class MPDControl:
                 still_present = any(int(song.get("id", -1)) == inserted_song_id for song in playlist)
                 if still_present:
                     self.client.deleteid(inserted_song_id)
-                    oradio_log.debug(f"Deleted song id {inserted_song_id}")
+                    oradio_log.debug("Deleted song id %s", inserted_song_id)
                 else:
                     oradio_log.debug("Song id %s already removed from the playlist", inserted_song_id)
         except Exception as ex_err:
