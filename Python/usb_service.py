@@ -51,12 +51,12 @@ class USBMonitor(PatternMatchingEventHandler):
 
     def on_created(self, event): # when file is created
         # do something, eg. call your function to process the image
-        oradio_log.info(f"{event.src_path} created")
+        oradio_log.info("%s created", event.src_path)
         self.service.usb_inserted()
 
     def on_deleted(self, event): # when file is deleted
         # do something, eg. call your function to process the image
-        oradio_log.info(f"{event.src_path} deleted")
+        oradio_log.info("%s deleted", event.src_path)
         self.service.usb_removed()
 
 class usb_service():
@@ -111,7 +111,7 @@ class usb_service():
             message["error"] = self.error
 
         # Put message in queue
-        oradio_log.debug(f"Send USB service message: {message}")
+        oradio_log.debug("Send USB service message: %s", message)
         self.msg_q.put(message)
 
     def get_state(self):
@@ -130,7 +130,7 @@ class usb_service():
 
             # Check if wifi credentials file exists in USB drive root
             if not os.path.isfile(USB_WIFI_FILE):
-                oradio_log.debug(f"'{USB_WIFI_FILE}' not found")
+                oradio_log.debug("'%s' not found", USB_WIFI_FILE)
                 return
 
             # Read and parse JSON file
@@ -139,7 +139,7 @@ class usb_service():
                     # Get JSON object as a dictionary
                     data = json.load(f)
                 except:
-                    oradio_log.error(f"Error parsing '{USB_WIFI_FILE}'")
+                    oradio_log.error("Error parsing '%s'", USB_WIFI_FILE)
                     self.error = MESSAGE_USB_ERROR_FILE
                     return
 
@@ -148,25 +148,25 @@ class usb_service():
                 ssid = data['SSID']
                 pswd = data['PASSWORD']
             else:
-                oradio_log.error(f"SSID and/or PASSWORD not found in '{USB_WIFI_FILE}'")
+                oradio_log.error("SSID and/or PASSWORD not found in '%s'", USB_WIFI_FILE)
                 self.error = MESSAGE_USB_ERROR_FILE
                 return
 
             # Test if ssid and pswd not empty
             if len(ssid) == 0 or len(pswd) == 0:
-                oradio_log.error(f"SSID={ssid} and/or PASSWORD={pswd} cannot be empty")
+                oradio_log.error("SSID=%s and/or PASSWORD=%s cannot be empty", ssid, pswd)
                 self.error = MESSAGE_USB_ERROR_FILE
                 return
 
             # Log wifi credentials found
-            oradio_log.info(f"USB wifi credentials found: ssid={ssid}, password={pswd}")
+            oradio_log.info("USB wifi credentials found: ssid=%s, password=%s", ssid, pswd)
 
             # Connect to the wifi network
             wifi_service(self.msg_q).wifi_connect(ssid, pswd)
 
         else:
             # USB is absent
-            oradio_log.info(f"USB state '{self.state}': Ignore '{USB_WIFI_FILE}'")
+            oradio_log.info("USB state '%s': Ignore '%s'", self.state, USB_WIFI_FILE)
 
     def usb_inserted(self):
         """
@@ -279,7 +279,7 @@ if __name__ == '__main__':
                     print("\nUSB service already running\n")
             case 2:
                 if monitor:
-                    print("\Simulate 'USB inserted' event...\n")
+                    print("\nSimulate 'USB inserted' event...\n")
                     monitor.usb_inserted()
                 else:
                     print("\nUSB service not running\n")
@@ -292,7 +292,6 @@ if __name__ == '__main__':
             case 4:
                 if monitor:
                     print(f"\nUSB state: {monitor.get_state()}\n")
-                    
                 else:
                     print("\nUSB service not running\n")
             case 5:
