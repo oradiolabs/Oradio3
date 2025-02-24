@@ -84,24 +84,24 @@ class PlaySystemSound:
 #             print(f"ORADIO_DIR is set to: {ORADIO_DIR}")
 #             print(f"Expected path: {SOUND_FILES['StartUp']}")
             if not sound_file:
-                oradio_log.error(f"Invalid sound key: {sound_key}")
+                oradio_log.error("Invalid sound key: %s", sound_key)
                 return
 
             if not os.path.exists(sound_file):
-                oradio_log.debug(f"Sound file does not exist: {sound_file}")
+                oradio_log.debug("Sound file does not exist: %s", sound_file)
                 return
 
             command = ["aplay", "-D", self.audio_device, sound_file]
             subprocess.run(command, check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-            oradio_log.debug(f"System sound played successfully: {sound_file}")
+            oradio_log.debug("System sound played successfully: %s", sound_file)
 
-        except subprocess.CalledProcessError as e:
-            oradio_log.error(f"Error playing sound: {e}")
+        except subprocess.CalledProcessError as ex_err:
+            oradio_log.error("Error playing sound: %s", ex_err)
 
 # ------------------ TEST SECTION ------------------
 if __name__ == "__main__":
     print("\nStarting System Sound Player Standalone Test...\n")
-    
+
     # Initialize the volume_control, works stand alone
     volume_control = VolumeControl()
 
