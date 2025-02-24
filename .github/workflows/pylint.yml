@@ -39,8 +39,9 @@ jobs:
       # C0301: long lines
       # C0103: naming errors
       # C0410: mutiple imports on 1 line
+      # Prevent MPDClient no-member errors, as they are false positives
       run: |
-        pylint $(git ls-files '*.py') --disable=C0301,C0103,C0410 --output=pylint_result.txt || true
+        pylint $(git ls-files '*.py') --disable=C0301,C0103,C0410 --generated-members=MPDClient.* --output=pylint_result.txt || true
     - name: Upload pylint result
       uses: actions/upload-artifact@v4
       with:
