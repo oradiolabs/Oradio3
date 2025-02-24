@@ -21,8 +21,8 @@ Created on Januari 27, 2025
 """
 import time
 import threading
-import alsaaudio
 from queue import Queue
+import alsaaudio
 import smbus2
 
 
