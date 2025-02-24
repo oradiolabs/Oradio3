@@ -24,10 +24,8 @@ Created on December 23, 2024
         https://fastapi.tiangolo.com/
 """
 import os
-import sys
 import json
-import multipart
-import subprocess
+import multipart    # Used to get POST form data
 from pydantic import BaseModel
 from fastapi import FastAPI, BackgroundTasks, Request
 from fastapi.responses import FileResponse, RedirectResponse
@@ -74,9 +72,9 @@ async def middleware(request: Request, call_next):
 
 #### FAVICON ####################
 
-# Handle default browser request for /favicon.ico
 @api_app.get("/favicon.ico", include_in_schema=False)
 async def favicon():
+    """ Handle default browser request for /favicon.ico """
     return FileResponse(os.path.dirname(__file__) + '/static/favicon.ico')
 
 #### PLAYLISTS ####################
@@ -87,7 +85,7 @@ def load_presets():
         with open(PRESETS_FILE, "r") as f:
             return json.load(f)
     else:
-        oradio_log.error(f"Failed to open '{PRESETS_FILE}'")
+        oradio_log.error("Failed to open '%s'", PRESETS_FILE)
         return {"preset1": None, "preset2": None, "preset3": None}
 
 def store_presets(presets):
@@ -96,7 +94,7 @@ def store_presets(presets):
         with open(PRESETS_FILE, "w") as f:
             json.dump({"preset1": presets[0], "preset2": presets[1], "preset3": presets[2]}, f, indent=4)
     except IOError as ex_err:
-        oradio_log.error(f"Failed to write '{PRESETS_FILE}'. error: {ex_err}")
+        oradio_log.error("Failed to write '%s'. error: %s", PRESETS_FILE, ex_err)
 
 # Get mpd functions
 mpdcontrol = MPDControl()
@@ -130,7 +128,7 @@ async def playlists(request: Request):
     if request.method == "POST":
         # Load form data
         form_data = await request.form()
-        oradio_log.debug(f"form_data={form_data}")
+        oradio_log.debug("form_data=%s", form_data)
 
         # Get requested action
         action = form_data.get('action')
@@ -166,8 +164,8 @@ async def playlists(request: Request):
     # Return playlists page and available networks as context
     return templates.TemplateResponse(request=request, name="playlists.html", context=context)
 
-# Model for wifi network credentials
 class play(BaseModel):
+    """ Model for wifi network credentials """
     song: str = None
 
 # POST endpoint to play song
@@ -178,7 +176,7 @@ async def play_song(play: play):
     Handle connecting in background task, so the POST gets a response
     https://fastapi.tiangolo.com/tutorial/background-tasks/#using-backgroundtasks
     """
-    oradio_log.debug(f"play song: {play.song}")
+    oradio_log.debug("play song: '%s'", play.song)
     mpdcontrol.play_song(play.song)
 
     # Create message
@@ -188,7 +186,7 @@ async def play_song(play: play):
     message["state"] = MESSAGE_WEB_SERVICE_PLAYING_SONG
 
     # Put message in queue
-    oradio_log.debug(f"Send web service message: {message}")
+    oradio_log.debug("Send web service message: %s", message)
     api_app.state.message_queue.put(message)
 
 #### STATUS ####################
@@ -229,8 +227,9 @@ async def captiveportal(request: Request):
     # Return active portal page and available networks as context
     return templates.TemplateResponse(request=request, name="captiveportal.html", context=context)
 
-# Model for wifi network credentials
+
 class credentials(BaseModel):
+    """ # Model for wifi network credentials """
     ssid: str = None
     pswd: str = None
 
@@ -249,7 +248,7 @@ def wifi_connect_task(credentials: credentials):
     """
     Executes as background task
     """
-    oradio_log.debug(f"trying to connect to ssid={credentials.ssid}, pswd={credentials.pswd}")
+    oradio_log.debug("trying to connect to ssid=%s, pswd=%s", credentials.ssid, credentials.pswd)
     # Get access to wifi functions
     wifi = wifi_service(api_app.state.message_queue)
 
