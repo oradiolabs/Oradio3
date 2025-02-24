@@ -27,12 +27,12 @@ Created on Januari 17, 2025
 import os
 import logging as python_logging
 from logging import DEBUG, INFO, WARNING, ERROR
-import concurrent_log_handler   
+import concurrent_log_handler
 from concurrent_log_handler import ConcurrentRotatingFileHandler
 from concurrent_log_handler.queue import setup_logging_queues
 
 ##### oradio modules ####################
-""" Functionality needed from other modules is loaded when needed to avoid circular import errors """
+# Functionality needed from other modules is loaded when needed to avoid circular import errors
 
 ##### GLOBAL constants ####################
 from oradio_const import *
@@ -81,7 +81,7 @@ class ThrottledFilter(python_logging.Filter):
 class RemoteMonitoringHandler(python_logging.Handler):
     """ Send error and warning messages to Oradio Remote Monitoring Service """
     def emit(self, record):
-        if record.levelno == WARNING or record.levelno == ERROR:
+        if record.levelno in (WARNING, ERROR):
             # Import here to avoid circular import
             from remote_monitoring import rms_service
             rms_service().send_message(record.levelname, record.message, f"{record.filename}:{record.lineno}")

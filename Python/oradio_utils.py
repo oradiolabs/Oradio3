@@ -24,7 +24,6 @@ Created on Januari 17, 2025
         https://docs.python.org/3/howto/logging.html
         https://pypi.org/project/concurrent-log-handler/
 """
-import subprocess
 import urllib.request
 from subprocess import run
 from vcgencmd import Vcgencmd
@@ -74,7 +73,7 @@ def get_throttled_state_rpi():
     flags = int( throttled_state.get('binary'),2) # convert binary string to integer
     last_four_bits = flags & 0xF
     if last_four_bits > 0:
-        # a new flag was set 
+        # a new flag was set
         throttled_state = True
     else:
         throttled_state = False
@@ -87,10 +86,10 @@ def run_shell_script(script):
     :param script (str) - shell command to execute
     Returns exit status and output of running the script
     """
-    oradio_log.debug(f"Runnning shell script: {script}")
-    process = subprocess.run(script, shell = True, capture_output = True, encoding = 'utf-8')
+    oradio_log.debug("Runnning shell script: %s", script)
+    process = run(script, shell = True, capture_output = True, encoding = 'utf-8')
     if process.returncode != 0:
-        oradio_log.error(f"shell script error: {process.stderr}")
+        oradio_log.error("shell script error: %s", process.stderr)
         return False, process.stderr
     return True, process.stdout
 

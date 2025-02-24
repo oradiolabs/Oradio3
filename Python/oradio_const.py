@@ -86,4 +86,3 @@ VOLUME_MAXIMUM = 180
 MESSAGE_TYPE_VOLUME   = "Vol Control message"
 #OMJ: is MESSAGE_VOLUME_CHANGED niet een betere constante?
 MESSAGE_STATE_CHANGED = "Volume changed"
-
