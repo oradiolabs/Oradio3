@@ -22,9 +22,9 @@ Created on February 8, 2025
 import os
 import glob
 import json
-import requests
 from datetime import datetime
 from threading import Timer
+import requests
 
 ##### oradio modules ####################
 from oradio_logging import oradio_log
@@ -46,6 +46,8 @@ SW_LOG_FILE = "/var/log/oradio_sw_version.log"
 HW_LOG_FILE = "/var/log/oradio_hw_version.log"
 # HEARTBEAT repeat time
 HEARTBEAT_REPEAT_TIME = 60 * 60     # 1 hour in seconds
+# Timeout for ORMS POST request
+REQUEST_TIMEOUT = 30
 
 # Flag to ensure only 1 heartbeat repeat timer is active
 heartbeat_repeat_timer_is_running = False
@@ -84,7 +86,7 @@ def get_python_version():
     """Get the current python version """
     from platform import python_version
     version = python_version()
-    return(version)
+    return version
 
 def get_rpi_version():
     """ Get the Raspberry Pi version """
@@ -138,7 +140,7 @@ class rms_service():
     def send_sys_info(self):
         """ Wrapper to simplify oradio control """
         self.send_message(SYS_INFO)
-        
+
     def send_message(self, msg_type, message = None, function = None):
         """
         Format message based on type
@@ -169,7 +171,7 @@ class rms_service():
                                         })
 
             # Compile WARNING and ERROR message
-            elif msg_type == WARNING or msg_type == ERROR:
+            elif msg_type ib (WARNING, ERROR):
                 msg_data['message'] = json.dumps({'function': function, 'message': message})
                 # Send all log files in logging directory
                 self.send_files = glob.glob(ORADIO_LOG_DIR + "/*.log")
@@ -177,23 +179,29 @@ class rms_service():
             # Unexpected message type
             else:
                 # We cannot log as ERROR as this might cause a loop
-                oradio_log.info(f"\x1b[38;5;196mremote_monitoring ERROR: Unsupported message type: {msg_type}\x1b[0m")
+                oradio_log.info("\x1b[38;5;196mERROR: Unsupported message type: %s\x1b[0m", msg_type)
                 return
 
             if not self.send_files:
                 # Send message
-                response = requests.post(RMS_SERVER_URL, data=msg_data)
+                try:
+                    response = requests.post(RMS_SERVER_URL, data=msg_data, timeout=REQUEST_TIMEOUT)
+                except requests.Timeout:
+                    oradio_log.info("\x1b[38;5;196mERROR: Timeout posting message\x1b[0m")
             else:
                 # Send message + files
                 msg_files = {}
                 for file in self.send_files:
                     msg_files.update({file: open(file, "rb")})
-                response = requests.post(RMS_SERVER_URL, data=msg_data, files=msg_files)
+                try:
+                    response = requests.post(RMS_SERVER_URL, data=msg_data, files=msg_files)
+                except requests.Timeout:
+                    oradio_log.info("\x1b[38;5;196mERROR: Timeout posting file(s)\x1b[0m")
 
             # Check for errors
             if response.status_code != 200:
                 # We cannot log as ERROR as this might cause a loop
-                oradio_log.info(f"\x1b[38;5;196mremote_monitoring ERROR: Status code={response.status_code}, response.headers={response.headers}\x1b[0m")
+                oradio_log.info("\x1b[38;5;196mERROR: Status code=%s, response.headers=%s\x1b[0m", response.status_code, response.headers)
 
 if __name__ == "__main__":
 
