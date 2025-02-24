@@ -171,7 +171,7 @@ class rms_service():
                                         })
 
             # Compile WARNING and ERROR message
-            elif msg_type ib (WARNING, ERROR):
+            elif msg_type in (WARNING, ERROR):
                 msg_data['message'] = json.dumps({'function': function, 'message': message})
                 # Send all log files in logging directory
                 self.send_files = glob.glob(ORADIO_LOG_DIR + "/*.log")
