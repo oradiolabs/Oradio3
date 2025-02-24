@@ -26,10 +26,11 @@ Created on December 23, 2024
         https://captivebehavior.wballiance.com/
         https://superfastpython.com/multiprocessing-in-python/
 """
-import os, sys, uvicorn, contextlib
+import contextlib
 from time import sleep, time
 from threading import Thread
 from multiprocessing import Process, Queue, Event
+import uvicorn
 
 ##### oradio modules ####################
 from oradio_logging import oradio_log
@@ -120,7 +121,7 @@ class web_service():
             message["error"] = self.error
 
         # Put message in queue
-        oradio_log.debug(f"Send web service message: {message}")
+        oradio_log.debug("Send web service message: %s", message)
         self.msg_q.put(message)
 
     def start(self, force_ap=False):
@@ -137,7 +138,7 @@ class web_service():
             cmd = f"sudo bash -c 'iptables -t nat -A PREROUTING -p tcp --dport 80 -j REDIRECT --to-port {WEB_SERVER_PORT}'"
             result, error = run_shell_script(cmd)
             if not result:
-                oradio_log.error(f"Error during <{cmd}> to configure port redirection, error ={error}")
+                oradio_log.error("Error during <%s> to configure port redirection, error = %s", cmd, error)
 
             # Start web server
             oradio_log.debug("Start FastAPI server")
@@ -193,7 +194,7 @@ class web_service():
         with server.run_in_thread():
 
             # Confirm starting the web server
-            oradio_log.info(f"Web service is running. Timeout = {self.timeout}")
+            oradio_log.info("Web service is running. Timeout = %s", self.timeout)
 
             # Only show 'web service is running' debug message every minute
             countdown = 0
@@ -225,29 +226,26 @@ class web_service():
                 # Only show 'web service is running' debug message every minute
                 if countdown == 0:
                     # Print remaining time before timeout
-                    oradio_log.debug(f"Web server will timeout after {int(self.timeout - (time() - self.started))} seconds")
+                    oradio_log.debug("Web server will timeout after %s seconds", int(self.timeout - (time() - self.started)))
                     countdown = DEBUG_ALIVE_INTERVAL
                 else:
                     countdown -= 1
 
         # Remove access point, keeping wifi connection if connected
         self.wifi.access_point_stop()
-    
+
         # Remove port redirection
         oradio_log.debug("Remove port redirection")
         cmd = f"sudo bash -c 'iptables -t nat -D PREROUTING -p tcp --dport 80 -j REDIRECT --to-port {WEB_SERVER_PORT}'"
         result, error = run_shell_script(cmd)
         if not result:
-            oradio_log.error(f"Error during <{cmd}> to remove iptables port redirection, error ={error}")
+            oradio_log.error("Error during <%s> to remove iptables port redirection, error = %s", cmd, error)
 
         # Pass stopped status to web service
         self.event_active.clear()
 
 # Entry point for stand-alone operation
 if __name__ == '__main__':
-
-    # import when running stand-alone
-    from multiprocessing import Process, Queue
 
     def check_messages(queue):
         """
