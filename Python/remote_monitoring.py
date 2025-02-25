@@ -119,7 +119,6 @@ class rms_service():
         """
         self.serial     = get_serial()
         self.send_files = None
-        self.heartbeat_start()
 
     def heartbeat_start(self):
         """ If not yet active: start the heartbeat repeat timer and mark as active """
