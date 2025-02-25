@@ -35,10 +35,6 @@ source $SCRIPT_DIR/constants.sh
 # Notify entering module installation script
 echo "Load and configure spotify connect functionalty"
 
-# Install python modules
-# backlighting (module smbus2) required for standalone test 
-source $SCRIPT_DIR/backlighting.sh
-
 ########## Get packages and python modules for spotify connect ##########
 echo "install git"
 sudo apt install -y git

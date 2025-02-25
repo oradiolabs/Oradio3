@@ -1,17 +1,35 @@
 #!/usr/bin/env python3
+"""
 
-from pydantic import BaseModel, create_model
-from typing import Dict, Any, Optional
+  ####   #####     ##    #####      #     ####
+ #    #  #    #   #  #   #    #     #    #    #
+ #    #  #    #  #    #  #    #     #    #    #
+ #    #  #####   ######  #    #     #    #    #
+ #    #  #   #   #    #  #    #     #    #    #
+  ####   #    #  #    #  #####      #     ####
 
-import inspect      # logging
 
-# Simplified logging function - remove logging and monitoring, only print formatted log message
-import queue
-import threading
-import subprocess
+Created on Januari 17, 2025
+@author:        Henk Stevens & Olaf Mastenbroek & Onno Janssen
+@copyright:     Copyright 2024, Oradio Stichting
+@license:       GNU General Public License (GPL)
+@organization:  Oradio Stichting
+@version:       1
+@email:         oradioinfo@stichtingoradio.nl
+@status:        Development
+@summary: Class for USB detect, insert, and remove services
+    :Note
+    :Install
+    :Documentation
+        https://docs.python.org/3/howto/logging.html
+        https://pypi.org/project/concurrent-log-handler/
+"""
 import urllib.request
-from subprocess import run
+import subprocess
 from vcgencmd import Vcgencmd
+from pydantic import BaseModel, EmailStr, Field, create_model
+from typing import Dict, Any, Optional
+import json
 
 ##### oradio modules ####################
 from oradio_logging import oradio_log
@@ -19,68 +37,7 @@ from oradio_logging import oradio_log
 ##### GLOBAL constants ####################
 from oradio_const import *
 
-# Create a thread-safe queue for logging messages
-log_queue = queue.Queue()
-
-def logging(level, log_text):
-    """
-    Asynchronous logging of log message in a separate thread while keeping print order correct.
-    :param level (str) - level of logging [ 'warning' | 'error' | 'info']
-    :param log_text (str) - logging message
-    """
-    # Get caller information
-    inspect_info = inspect.stack()
-    module_info  = inspect_info[1]
-    mod_name     = inspect.getmodule(module_info[0]).__name__
-    frame_info   = inspect_info[1][0]
-    func_name    = inspect.getframeinfo(frame_info)[2]
-
-    # Build logging text
-    logging_text = f"{mod_name:s} - {func_name:s} : {log_text:s}"
-
-    RED_TXT     = "\033[91m"
-    GREEN_TXT   = "\033[92m"
-    YELLOW_TXT  = "\033[93m"
-    END_TXT     = "\x1b[0m"
-
-    # Add colors to logging text
-    if level == 'success':
-        logging_text = GREEN_TXT + logging_text + END_TXT
-    elif level == 'warning':
-        logging_text = YELLOW_TXT + logging_text + END_TXT
-    elif level == 'error':
-        logging_text = RED_TXT + logging_text + END_TXT
-
-    # Queue the log message
-    log_queue.put(logging_text)
-
-# Log processor to print messages in correct order
-def process_logs():
-    while True:
-        try:
-            log_message = log_queue.get(block=True)
-            print(log_message, flush=True)
-            log_queue.task_done()
-        except queue.Empty:
-            continue
-
-# Start a background thread to process the log queue
-log_thread = threading.Thread(target=process_logs, daemon=True)
-log_thread.start()
-
-def run_shell_script(script):
-    """
-    Simplified shell command execution
-    :param script (str) - shell command to execute
-    Returns exit status and output of running the script
-    """
-    logging("info", f"Runnning shell script: {script}")
-    process = subprocess.run(script, shell = True, capture_output = True, encoding = 'utf-8')
-    if process.returncode != 0:
-        logging("error", f"shell script error: {process.stderr}")
-        return False, process.stderr
-    return True, process.stdout
-
+##### LOCAL constants ####################
 def is_service_active(service_name):
     '''
     Check if service is running
@@ -90,14 +47,14 @@ def is_service_active(service_name):
     try:
         # Run systemctl is-active command
         result = subprocess.run(
-            ["systemctl", "is-active", service_name],
+            ["sudo","systemctl", "is-active", service_name],
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
             text=True
         )
         return result.stdout.strip() == "active"
     except Exception as err:
-        print("Error checking service status: {error}".format(error=err))
+        oradio_log.error(f"Error checking {service_name} service, error-status=: {err}")
         return False
 
 
@@ -132,6 +89,27 @@ def json_schema_to_pydantic(name: str, schema: Dict[str,Any]) -> BaseModel:
             fields[prop] = (field_type, ...)  # Required fields
                 
     return create_model(name, **fields)
+
+def create_json_model(model_name):
+    '''
+    Create a object based model derived from the json schema
+    :param model_name [str] = name of model in schema
+    :return model 
+    :return status = 
+    '''
+    # Load the JSON schema file
+    with open(JSON_SCHEMAS_FILE) as f:
+        schemas = json.load(f)
+    if model_name not in schemas:
+        status = MODEL_NAME_NOT_FOUND
+        Messages = None
+    else:
+        status = MODEL_NAME_FOUND
+        # Dynamically create Pydantic models
+        models = {name: json_schema_to_pydantic(name, schema) for name, schema in schemas.items()}
+        # create Messages model
+        Messages = models[model_name]
+    return(status, Messages)
 
 def check_internet_connection():
     """
@@ -170,10 +148,61 @@ def get_throttled_state_rpi():
     flags = int( throttled_state.get('binary'),2) # convert binary string to integer
     last_four_bits = flags & 0xF
     if last_four_bits > 0:
-        # a new flag was set 
+        # a new flag was set
         throttled_state = True
     else:
         throttled_state = False
 
     return throttled_state, flags
 
+def run_shell_script(script):
+    """
+    Simplified shell command execution
+    :param script (str) - shell command to execute
+    Returns exit status and output of running the script
+    """
+    oradio_log.debug("Runnning shell script: %s", script)
+    process = run(script, shell = True, capture_output = True, encoding = 'utf-8')
+    if process.returncode != 0:
+        oradio_log.error("shell script error: %s", process.stderr)
+        return False, process.stderr
+    return True, process.stdout
+
+# Entry point for stand-alone operation
+if __name__ == '__main__':
+
+    # Show menu with test options
+    input_selection = ("Select a function, input the number.\n"
+                       " 0-quit\n"
+                       " 1-Show internet connection status\n"
+                       " 2-Show throttled status\n"
+                       " 3-Run shell script('ls')\n"
+                       " 4-Run shell script('xxx')\n"
+                       "select: "
+                       )
+
+    # User command loop
+    while True:
+        # Get user input
+        try:
+            function_nr = int(input(input_selection))
+        except:
+            function_nr = -1
+
+        # Execute selected function
+        match function_nr:
+            case 0:
+                print("\nExiting test program...\n")
+                break
+            case 1:
+                print(f"\nConnected to internet: {check_internet_connection()}\n")
+            case 2:
+                print(f"\nthrottled: {get_throttled_state_rpi()}\n")
+            case 3:
+                result, output = run_shell_script("ls")
+                print(f"\nExpect ok: result={result}, output={output}")
+            case 4:
+                result, error = run_shell_script("xxx")
+                print(f"\nExpect fail: result={result}, error={error}")
+            case _:
+                print("\nPlease input a valid number\n")

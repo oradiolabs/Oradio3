@@ -40,6 +40,7 @@ from oradio_const import *
 ##### LOCAL constants ####################
 ORADIO_LOGGER       = 'oradio'
 ORADIO_LOG_LEVEL    = DEBUG
+ORADIO_LOG_FILE     = ORADIO_LOG_DIR + '/oradio.log'    # Use absolute path to prevent file rotation trouble
 ORADIO_LOG_FILESIZE = 512 * 1024
 ORADIO_LOG_BACKUPS  = 2
 

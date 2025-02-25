@@ -32,12 +32,6 @@ if [ ! -f $SCRIPT_DIR/constants.sh ]; then
 fi
 source $SCRIPT_DIR/constants.sh
 
-# Ensure logging directory exists
-if [ ! -d $LOG_DIR ]; then
-	# Create logging directory
-	mkdir -p $LOG_DIR
-fi
-
 # Notify entering module installation script
 echo "Installing logging modules"
 
@@ -45,4 +39,4 @@ echo "Installing logging modules"
 python -m pip install concurrent_log_handler requests
 
 # Notify leaving module installation script
-echo -e "${GREEN}Logging modules installed.${NC}"
+echo -e "${GREEN}Logging modules installed${NC}"
