@@ -21,4 +21,4 @@ Activating some changes requires rebooting, so when the script informs a reboot 
 
     sudo reboot
 
-The reboot will finalize the installation and start the Oradio3 application
+The reboot will finalize the installation and start the Oradio3 application.
