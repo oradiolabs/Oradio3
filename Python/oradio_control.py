@@ -115,11 +115,11 @@ class StateMachine:
 
 
     def transition(self, new_state):
-        oradio_log.debug(f"Transitioning from {self.state} to {new_state}")
+        oradio_log.debug("Transitioning from %s to %s", self.state, new_state)
         if self.state == new_state:
             if self.state == "StatePlay" or self.state == "StatePreset1" or self.state == "StatePreset2" or self.state == "StatePreset3":
                 threading.Thread(target=mpd.next).start()  # PLAY NEXT SONG
-                oradio_log.debug(f"Next song")
+                oradio_log.debug("Next song")
                 return  # Do not continue with change of state
         if spotify_connected_active.is_set(): # if Spotify connect is active 
             if new_state == "StatePlay":
@@ -129,7 +129,7 @@ class StateMachine:
         if usb_present_event.is_set():
             self.state = new_state # go to new state            
         else:
-            oradio_log.warning(f"Transitioning from {self.state} to {new_state} blocked as USB is not present")
+            oradio_log.warning("Transitioning from %s to %s blocked as USB is not present", self.state, new_state)
             if self.state != "StateUSBAbsent":
                 self.state = "StateUSBAbsent"
         threading.Thread(target=self.run_state_method).start()
@@ -191,30 +191,30 @@ class StateMachine:
                 
             elif self.state == "StateStartUp":
                 leds.control_blinking_led("LEDStop", 1)
-                oradio_log.debug(f"Starting-up")
+                oradio_log.debug("Starting-up")
 
                 mpd.pause()  # just to make sure in case of restart
                 mpd.start_update_mpd_database_thread()  # Update the MPD database in seperate thread            
                 time.sleep(3)  #  START uo time reservation just take some margin in start-up
 
                 sound_player.play("StartUp")
-                oradio_log.debug(f"Starting-up Completed")
+                oradio_log.debug("Starting-up Completed")
                 
                 self.transition("StateIdle")
                 
             elif self.state == "StateIdle":   # Wait for next button/ command
                 mpd.pause() # Stop the Mpd just to make sure
-                oradio_log.debug(f"In Idle state, wait for next step")
+                oradio_log.debug("In Idle state, wait for next step")
         
             elif self.state == "StateWebService":  # Triggered by LONG PRESS
                 leds.control_blinking_led("LEDPlay", 0.7)
                 mpd.pause()
                 oradio_web_service.start()
                 if wifi_connected_event.is_set(): # if connected to wifi web_service will start
-                    oradio_log.debug(f"In WebService State, wait for next step")
+                    oradio_log.debug("In WebService State, wait for next step")
                     sound_player.play("WebInterface")
                 else:
-                    oradio_log.debug(f"Long Press resulted in OradioAP as not connecetd to wifi")
+                    oradio_log.debug("Long Press resulted in OradioAP as not connecetd to wifi")
                     sound_player.play("OradioAP")
                 Web_Service_Active = True
                 time.sleep(4)
@@ -228,7 +228,7 @@ class StateMachine:
                 mpd.pause()
                 oradio_web_service.start(force_ap=True)
                 sound_player.play("OradioAP")
-                oradio_log.debug(f"In WebServiceForceAP state, wait for next step")
+                oradio_log.debug("In WebServiceForceAP state, wait for next step")
                 Web_Service_Active = True
             #    mpd.play()
             #    self.play_SysSound("Play")
@@ -241,18 +241,18 @@ class StateMachine:
     def wait_for_usb_present(self):
         """Waits for the USB to be present, cancels ongoing MPD updates, and restarts MPD if needed."""
         self.state = "StateWaitForUSBPresent"
-        oradio_log.debug(f"Waiting for USB to be present...")
+        oradio_log.debug("Waiting for USB to be present...")
         # Cancel any ongoing MPD database update before waiting
         mpd.cancel_update()  
         # Wait for the USB event to be set
         usb_present_event.wait()  # Blocks until the USB is inserted
-        oradio_log.debug(f"USB is now present, checking MPD state...")
+        oradio_log.debug("USB is now present, checking MPD state...")
         # Restart MPD service to ensure a fresh start
     #    mpd.restart_mpd_service()  # seems not needed when the delay is used
         # Ensure MPD is ready before starting an update
         time.sleep(0.2)  # Small delay to allow MPD to recover and before start mpd update
         # Start MPD database update in a separate thread
-        oradio_log.debug(f"Starting MPD database update...")
+        oradio_log.debug("Starting MPD database update...")
         mpd.start_update_mpd_database_thread()
         
     def update_usb_event(self):
@@ -313,29 +313,29 @@ def process_messages(queue):
         error = message.get("error", None)
 
         if command_type not in handlers:
-            oradio_log.debug(f"Unhandled message type: {message}")
+            oradio_log.debug("Unhandled message type: %s", message)
             return
 
         # Process the normal state message, if a handler exists.
         if state in handlers[command_type]:
             handlers[command_type][state]()
         else:
-            oradio_log.debug(f"Unhandled state '{state}' for message type '{command_type}'.")
+            oradio_log.debug("Unhandled state '%s' for message type '%s'.",state, command_type)
 
         # If an error is provided, handle it as if it were another state.
         if error is not None:
             if error in handlers[command_type]:
                 handlers[command_type][error]()
             else:
-                oradio_log.debug(f"Unhandled error '{error}' for message type '{command_type}'.")
+                oradio_log.debug("Unhandled error '%s' for message type '%s'.", error, command_type)
 
     try:
         while True:
             message = queue.get()  # Blocks until a message is available
-            oradio_log.debug(f"Received message in Queue: {message}")
+            oradio_log.debug("Received message in Queue: %s", message)
             handle_message(message)
     except Exception as e:
-        oradio_log.error(f"Unexpected error in process_messages: {e}")
+        oradio_log.error("Unexpected error in process_messages: %s", e)
 
 
 
@@ -348,7 +348,7 @@ def on_volume_changed():
 def on_usb_absent():
     usb_present_event.clear()  # Clear the event so wait() will block
     state_machine.transition("StateUSBAbsent")
-    oradio_log.debug(f"USB absent acknowlegded")
+    oradio_log.debug("USB absent acknowlegded")
 
 def on_usb_present():
     usb_present_event.set()  # Signal that USB is now present
@@ -362,61 +362,61 @@ def on_wifi_connected_to_internet():
     if state_machine.state == "StateWebServiceForceAP" or state_machine.state == "StateWebService": # If connection made, move to stop
         sound_player.play("WifiConnected")
         state_machine.transition("StateStop")
-    oradio_log.debug(f"Wifi is connected acknowledged")
+    oradio_log.debug("Wifi is connected acknowledged")
 
 def on_wifi_connected_to_local_network():
     wifi_connected_event.set()
     if state_machine.state == "StateWebServiceForceAP" or state_machine.state == "StateWebService": # If waiting for connection, move to stop
         sound_player.play("WifiConnected")
         state_machine.transition("StateStop")
-    oradio_log.debug(f"Wifi is connected acknowledged")
+    oradio_log.debug("Wifi is connected acknowledged")
 
 def on_wifi_not_connected():
     wifi_connected_event.clear()
 #     if state_machine.state == "StateWebServiceForceAP" or state_machine.state == "StateWebService":
 #         sound_player.play("WifiNotConnected")
-    oradio_log.debug(f"Wifi is NOT connected acknowledged")
+    oradio_log.debug("Wifi is NOT connected acknowledged")
 
 def on_wifi_error():
     wifi_connected_event.clear()
     if state_machine.state == "StateWebServiceForceAP" or state_machine.state == "StateWebService":
         sound_player.play("WifiNotConnected")
-    oradio_log.debug(f"Wifi failed to connect acknowledged")
+    oradio_log.debug("Wifi failed to connect acknowledged")
 
 
 def on_webservice_active():
     global Web_Service_Active
     Web_Service_Active = True
-    oradio_log.debug(f"WebService active is acknowledged")
+    oradio_log.debug("WebService active is acknowledged")
 
 def on_webservice_not_active():
     Web_Service_Active = False
-    oradio_log.debug(f"WebService NOT active is acknowledged")
+    oradio_log.debug("WebService NOT active is acknowledged")
     
 def on_webservice_playing_song():
     if state_machine.state == "StateStop": # if webservice put songs in queue and plays it
         state_machine.transition("StatePlay")   #  and if player is switched of, switch it on, otherwise keep state
-    oradio_log.debug(f"WebService playing song acknowledged")
+    oradio_log.debug("WebService playing song acknowledged")
     
     
 def on_spotify_connect_active():
     spotify_connected_active.set() # Signal that spotify_connected is active
-    oradio_log.debug(f"Spotify active is acknowledged")
+    oradio_log.debug("Spotify active is acknowledged")
     
 def on_spotify_connect_inactive():
     spotify_connected_active.clear() # Signal that spotify_connected is inactive
-    oradio_log.debug(f"Spotify inactive is acknowledged")
+    oradio_log.debug("Spotify inactive is acknowledged")
 
 # Both can switch the Oradio remotely, which is not in line with "in Control"
 def on_spotify_connect_playing():
 #     if  state_machine.state!="StateSpotifyConnect":
 #         state_machine.transition("StateSpotifyConnect")
-    oradio_log.debug(f"Spotify playingis acknowledged")
+    oradio_log.debug("Spotify playingis acknowledged")
     
 def on_spotify_connect_paused():
 #     if  state_machine.state!="StateStop":
 #         state_machine.transition("StateStop")
-    oradio_log.debug(f"Spotify paused is acknowledged")
+    oradio_log.debug("Spotify paused is acknowledged")
     
 #------------------------------------------------------------------------
 
@@ -433,7 +433,7 @@ oradio_usb_service = usb_service(shared_queue)
 # Check status usb
 state_machine.update_usb_event()
 if not usb_present_event.is_set(): # no USb present
-    oradio_log.warning(f"USB is Absent")
+    oradio_log.warning("USB is Absent")
     state_machine.transition("StateUSBAbsent")   # Go to StateUSBAbsent
 else:
     state_machine.transition("StateStartUp") #Statemachine in start up mode
@@ -466,7 +466,7 @@ def main():
     except KeyboardInterrupt:
         oradio_log.debug("KeyboardInterrupt detected. Exiting...")
     except Exception as e:
-        oradio_log.error(f"Unhandled exception: {e}")
+        oradio_log.error("Unhandled exception: %s", e)
         oradio_log.error(traceback.format_exc())
         sys.exit(1)  # Ensure systemd restarts the service
     finally:
