@@ -69,7 +69,7 @@ def get_sw_version():
     if os.path.exists(SW_LOG_FILE):
         with open(SW_LOG_FILE, "r") as f:
             data = json.load(f)
-        return data["serial"]
+        return data["serial"] + " (git tag: " + data["git-tag"] + ")"
     else:
         return f"SW version file '{SW_LOG_FILE}' does not exist"
 
@@ -119,6 +119,7 @@ class rms_service():
         """
         self.serial     = get_serial()
         self.send_files = None
+        self.heartbeat_start()
 
     def heartbeat_start(self):
         """ If not yet active: start the heartbeat repeat timer and mark as active """

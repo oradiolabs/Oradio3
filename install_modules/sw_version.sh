@@ -37,7 +37,8 @@ echo "Configure Oradio software version log"
 
 # Generate new sw version info
 sudo bash -c 'echo "{" > /var/log/oradio_sw_version.log'
-sudo bash -c 'echo "   \"serial\": \""$(date +"%Y-%m-%d-%H-%M-%S")"\"" >> /var/log/oradio_sw_version.log'
+sudo bash -c 'echo "   \"serial\": \""$(date +"%Y-%m-%d-%H-%M-%S")"\"," >> /var/log/oradio_sw_version.log'
+sudo bash -c 'echo "   \"git-tag\": \""$(GIT_DIR=../$SCRIPTDIR/.git git describe --tags)"\"" >> /var/log/oradio_sw_version.log'
 sudo bash -c 'echo "}" >> /var/log/oradio_sw_version.log'
 
 # Notify leaving module installation script
