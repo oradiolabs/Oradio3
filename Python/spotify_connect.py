@@ -269,7 +269,7 @@ class SpotifyConnect():
         except dbus.exceptions.DBusException:
             return "mpv not running or MPRIS not available"    
     
-    def playerctl_command(self,command):
+    def playerctl_commandX(self,command):
         '''
         Send command to playerctl via mpris player interface
         :param command = player command = [ MPV_PLAYERCTL_PLAY, 
@@ -280,20 +280,101 @@ class SpotifyConnect():
                                                                   MPV_PLAYERCTL_PAUSED_STATE]
         '''
         commands_list = [MPV_PLAYERCTL_PLAY, MPV_PLAYERCTL_PAUSE, MPV_PLAYERCTL_STOP]
+
+
+        """Check if mpv is available on D-Bus."""
+        bus_list_names = self.bus.list_names()
+        print("bus list names =", bus_list_names)
+
         playback_status = self.get_playback_status()
         oradio_log.info(f"player-command = {command}, Playback-status = {playback_status}")
         if command in commands_list:
             if command == MPV_PLAYERCTL_PLAY:
-                self.player_iface.Play()
-                self.state = MPV_PLAYERCTL_PLAYING_STATE
+                if playback_status != MPV_PLAYERCTL_PLAYING_STATE:
+                    time.sleep(0.5)
+                    # Get Player interface
+                    player_iface = dbus.Interface(player, "org.mpris.MediaPlayer2.Player")                                                      
+                    player_iface.Play()
+                    self.state = MPV_PLAYERCTL_PLAYING_STATE
             elif command == MPV_PLAYERCTL_PAUSE:
-                self.player_iface.Pause()
-                self.state = MPV_PLAYERCTL_PAUSED_STATE
+                if playback_status != MPV_PLAYERCTL_PAUSED_STATE:  
+                    time.sleep(0.5)
+                    # Get Player interface
+                    player_iface = dbus.Interface(player, "org.mpris.MediaPlayer2.Player")                                                      
+                    player_iface.PlayPause()
+                    self.state = MPV_PLAYERCTL_PAUSED_STATE
             elif command == MPV_PLAYERCTL_STOP:                
-                #self.player_iface.Stop()
-                #self.state = MPV_PLAYERCTL_STOPPED_STATE
-                self.player_iface.Stop()
-                self.state = MPV_PLAYERCTL_PAUSED_STATE
+                if playback_status != MPV_PLAYERCTL_STOPPED_STATE:
+                    self.player_iface.Stop()
+                    self.state = MPV_PLAYERCTL_PAUSED_STATE
+            else:
+                self.state = MPV_PLAYERCTL_COMMAND_NOT_FOUND
+        else:
+            status = MPV_PLAYERCTL_COMMAND_NOT_FOUND
+            oradio_log("warning","command-status={sts}".format(sts=status))            
+        return (self.state)
+
+    def playerctl_command(self,command):
+        '''
+        
+        echo '{ "command": ["get_property", "pause"] }' | socat - /tmp/mpv-socket
+        echo '{ "command": ["set_property", "pause", true] }' | socat - /tmp/mpv-socket
+        echo '{ "command": ["set_property", "pause", false] }' | socat - /tmp/mpv-socket
+                
+        Send command to playerctl via mpris player interface
+        :param command = player command = [ MPV_PLAYERCTL_PLAY, 
+                                            MPV_PLAYERCTL_PAUSE, 
+                                            MPV_PLAYERCTL_STOP]
+        :return self.state = state of mpv mpris player-control = [MPV_PLAYERCTL_PLAYING_STATE | 
+                                                                  MPV_PLAYERCTL_STOPPED_STATE |
+                                                                  MPV_PLAYERCTL_PAUSED_STATE]
+        '''
+        
+        commands_list = [MPV_PLAYERCTL_PLAY, MPV_PLAYERCTL_PAUSE, MPV_PLAYERCTL_STOP]
+
+
+        MPV_SOCKET = "/tmp/mpv-socket"
+        
+        def send_mpv_command(command):
+            try:
+                with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as sock:
+                    sock.connect(MPV_SOCKET)
+                    sock.sendall(json.dumps(command).encode() + b"\n")
+                    response = sock.recv(1024).decode()
+                    return json.loads(response)
+            except Exception as e:
+                print("Error:", e)
+
+
+        pause_property = send_mpv_command({"command": ["get_property", "pause"]})
+        pause_status = pause_property['data']
+        if pause_status == False:
+            playback_status = "Playing"
+        else:
+            playback_status = "Paused"             
+ 
+        # return true/false 
+        # Pause mpv
+        send_mpv_command({"command": ["set_property", "pause", True]})
+        
+        # Play mpv
+        send_mpv_command({"command": ["set_property", "pause", False]})
+        
+        # Get pause status
+        oradio_log.info(f"player-command = {command}, Playback-status = {playback_status}")
+        if command in commands_list:
+            if command == MPV_PLAYERCTL_PLAY:
+                if playback_status == "Paused":
+                    send_mpv_command({"command": ["set_property", "pause", False]})
+                    self.state = MPV_PLAYERCTL_PLAYING_STATE
+            elif command == MPV_PLAYERCTL_PAUSE:
+                if playback_status == "Playing":  
+                    send_mpv_command({"command": ["set_property", "pause", True]})                    
+                    self.state = MPV_PLAYERCTL_PAUSED_STATE
+            elif command == MPV_PLAYERCTL_STOP:                
+                if playback_status == "Playing":
+                    self.state = MPV_PLAYERCTL_PAUSED_STATE
+                    send_mpv_command({"command": ["set_property", "pause", True]})                    
             else:
                 self.state = MPV_PLAYERCTL_COMMAND_NOT_FOUND
         else:
@@ -434,7 +515,7 @@ if __name__ == "__main__":
         print(YELLOW_TXT+"==============================================================="+END_TXT)        
         msg_queue = Queue()
         spot_con = SpotifyConnect(msg_queue)
-        spot_con.playerctl_command(MPV_PLAYERCTL_PLAY  )                 
+        #spot_con.playerctl_command(MPV_PLAYERCTL_PLAY  )                 
         time.sleep(1)
         keyboard_input = input("Press any key to stop monitoring")
         spot_con.shutdown_server()     
@@ -476,23 +557,29 @@ if __name__ == "__main__":
                         print(YELLOW_TXT+"======================================================================"+END_TXT)
                         print(YELLOW_TXT+"Press ENTER to simulate a button press of the ON-button at the Oradio"+END_TXT)
                         print(YELLOW_TXT+"====================================================================="+END_TXT)
-                        time.sleep(1)
+                        time.sleep(2)
                         keyboard_input = input("Press Enter as ON-button")
-                        spot_con.playerctl_command(MPV_PLAYERCTL_PLAY)                                
+                        spot_con.playerctl_command(MPV_PLAYERCTL_PLAY)
+                    case spotify_state if spotify_state == SPOTIFY_CONNECT_CONNECTED_EVENT:
+                        print(YELLOW_TXT+"======================================================================"+END_TXT)
+                        print(YELLOW_TXT+"Press ENTER to simulate a button press of the ON-button at the Oradio"+END_TXT)
+                        print(YELLOW_TXT+"====================================================================="+END_TXT)
+                        time.sleep(2)
+                        keyboard_input = input("Press Enter as ON-button")
+                        spot_con.playerctl_command(MPV_PLAYERCTL_PLAY)                                                           
                     case spotify_state if spotify_state == SPOTIFY_CONNECT_STOPPED_EVENT:
                         print(YELLOW_TXT+"======================================================================"+END_TXT)
                         print(YELLOW_TXT+"Press ENTER to simulate a button press of the OFF-button at the Oradio"+END_TXT)
                         print(YELLOW_TXT+"====================================================================="+END_TXT)
-                        time.sleep(1)                        
+                        time.sleep(2)                        
                         keyboard_input = input("Press Enter as OFF-button")
                         spot_con.playerctl_command(MPV_PLAYERCTL_STOP)                                           
                     case spotify_state if spotify_state == SPOTIFY_CONNECT_PAUSED_EVENT:
                         print(YELLOW_TXT+"======================================================================"+END_TXT)
                         print(YELLOW_TXT+"Press ENTER to simulate a button press of the OFF-button at the Oradio"+END_TXT)
                         print(YELLOW_TXT+"====================================================================="+END_TXT)
-                        time.sleep(1)                        
+                        time.sleep(2)                        
                         keyboard_input = input("Press Enter as OFF-button")
-                        
                         spot_con.playerctl_command(MPV_PLAYERCTL_PAUSE)                        
 #                    case spotify_state if spotify_state == SPOTIFY_CONNECT_CONNECTED_EVENT:
 #                        spot_con.playerctl_command(MPV_PLAYERCTL_PAUSE)                    
