@@ -33,18 +33,18 @@ source install_modules/constants.sh
 ORADIO_MODULES=(
 	"config"
 	"packages"
-	"fakehwclock"
-	"python"		# depends on packages
-	"network"
-	"hw_version"	# depends on python
-	"logging"		# Depends on python
-	"usb_service"	# Depends on network and python
-	"audio"			# Depends on usb_service and python
-	"volume"		# Depends on audio and python
-	"backlighting"	# Depends on python
-	"web_service"	# Depends on network and python
+	"python"		# Requires on packages
+	"network"		# Requires on python
+	"i2c"			# Requires on python
+	"hw_version"	# Requires on python and i2c
+	"backlighting"	# Requires on python and i2c
+	"logging"		# Requires on python
+	"usb_service"	# Requires on network and python
+	"audio"			# Requires on usb_service and python
+	"volume"		# Requires on audio and python
+	"web_service"	# Requires on network and python
 	"sw_version"
-	"autostart"
+	"autostart"		# Must be last
 )
 
 # Function to pretty-print the list of modules
