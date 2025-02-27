@@ -35,20 +35,23 @@ source $SCRIPT_DIR/constants.sh
 # Notify entering module installation script
 echo "Installing pip and configure virtual environment"
 
-# Install pip
-sudo apt-get install python3-pip -y
+# Install packages if not yet installed
+dpkg --verify python3-pip >/dev/null 2>&1 || sudo apt-get install -y python3-pip
 
-# Prepare python virtual environment
-python3 -m venv ~/.venv
+# Configure Python virtual environment
+if [ -v $VIRTUAL_ENV ]; then
+	# Prepare python virtual environment
+	python3 -m venv ~/.venv
 
-# Activate the python virtual environment in current environemnt
-source ~/.venv/bin/activate
+	# Activate the python virtual environment in current environemnt
+	source ~/.venv/bin/activate
 
-# Activate python virtual environment when logging in: add if not yet present
-sudo grep -qxF 'source ~/.venv/bin/activate' ~/.bashrc || echo 'source ~/.venv/bin/activate' >> ~/.bashrc
+	# Activate python virtual environment when logging in: add if not yet present
+	sudo grep -qxF 'source ~/.venv/bin/activate' ~/.bashrc || echo 'source ~/.venv/bin/activate' >> ~/.bashrc
+fi
 
-# Install generic python modules
-python -m pip install vcgencmd
+# Install generic python modules or upgrade if need be
+pip install vcgencmd --upgrade
 
 # Notify leaving module installation script
 echo -e "${GREEN}Python pip installed and virtual environment configured${NC}"

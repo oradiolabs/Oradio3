@@ -35,14 +35,20 @@ source $SCRIPT_DIR/constants.sh
 # Notify entering module installation script
 echo "Install and configure volume"
 
-# Install audio packages
-sudo apt-get install libasound2-dev -y
+# Install packages if not yet installed
+dpkg --verify libasound2-dev >/dev/null 2>&1 || sudo apt-get install -y libasound2-dev
 
 # Set volume to normal level
 amixer -c 0 cset name='Digital Playback Volume' 90
 
+# Check for Python environment
+if [ -v $VIRTUAL_ENV ]; then
+	echo -e "${RED}Python not configured.${NC}"
+	return 1
+fi
+
 # Install python modules. On --use-pep517 see https://github.com/pypa/pip/issues/8559
-python -m pip install pyalsaaudio --use-pep517
+pip install pyalsaaudio --use-pep517 --upgrade
 
 # Notify leaving module installation script
 echo -e "${GREEN}Volume installed and configured${NC}"

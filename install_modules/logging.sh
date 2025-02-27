@@ -35,8 +35,14 @@ source $SCRIPT_DIR/constants.sh
 # Notify entering module installation script
 echo "Installing logging modules"
 
-# Install generic python modules
-python -m pip install concurrent_log_handler requests
+# Check for Python environment
+if [ -v $VIRTUAL_ENV ]; then
+	echo -e "${RED}Python not configured.${NC}"
+	return 1
+fi
+
+# Install python modules or upgrade if need be
+pip install concurrent_log_handler requests --upgrade
 
 # Notify leaving module installation script
 echo -e "${GREEN}Logging modules installed${NC}"

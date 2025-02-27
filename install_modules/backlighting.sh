@@ -35,47 +35,30 @@ source $SCRIPT_DIR/constants.sh
 # Notify entering module installation script
 echo "Install and configure backlighting"
 
-########## Activate i2c interface ##########
-# https://www.raspberrypi.com/documentation/computers/configuration.html#i2c-nonint
-sudo raspi-config nonint do_i2c 0	# 0: enable
-
-########## Setup modules ##########
-sudo cp $SCRIPT_DIR/backlighting/modules /etc/modules
-
-# Start modules now
-I2C_MODULES=(
-	"i2c-dev"
-	"i2c-bcm2835"
-)
-echo "Start i2c modules..."
-for ((backlighting_i = 0; backlighting_i < ${#I2C[@]}; backlighting_i++)); do
-	module="${I2C[$backlighting_i]}"
-	sudo modprobe $module
-done
-
-echo "i2c modules loaded and started"
-
 # Configure the backlighting service
-cp $SCRIPT_DIR/backlighting/backlighting.service.template $SCRIPT_DIR/backlighting/backlighting.service
-sed -i "s/PLACEHOLDER_USER/$(id -un)/g" $SCRIPT_DIR/backlighting/backlighting.service
-sed -i "s/PLACEHOLDER_GROUP/$(id -gn)/g" $SCRIPT_DIR/backlighting/backlighting.service
+SRC=$SCRIPT_DIR/backlighting/backlighting.service
+DST=/etc/systemd/system/backlighting.service
+cp $SRC.template $SRC
+sed -i "s/PLACEHOLDER_USER/$(id -un)/g" $SRC
+sed -i "s/PLACEHOLDER_GROUP/$(id -gn)/g" $SRC
 replace=`echo $(realpath "$SCRIPT_DIR/../Python") | sed 's/\//\\\\\//g'`
-sed -i "s/PLACEHOLDER_PATH/$replace/g" $SCRIPT_DIR/backlighting/backlighting.service
+sed -i "s/PLACEHOLDER_PATH/$replace/g" $SRC
 
-# Install the backlighting service
-sudo cp $SCRIPT_DIR/backlighting/backlighting.service /etc/systemd/system/
+if ! sudo diff $SRC $DST >/dev/null 2>&1; then
 
-# Set backlighting system to start at boot
-sudo systemctl enable backlighting.service
+	# Install the backlighting service
+	sudo cp $SRC $DST
 
-# Start backlighting system now
-sudo systemctl start backlighting.service
+	# Set backlighting system to start at boot
+	sudo systemctl enable backlighting.service
 
-# To be safe, rerun all generators, reload all unit files, and recreate the entire dependency tree
-sudo systemctl daemon-reload
+	# Start backlighting system now
+	sudo systemctl start backlighting.service
 
-# Install python modules
-python -m pip install smbus2 rpi-lgpio
+	# To be safe, rerun all generators, reload all unit files, and recreate the entire dependency tree
+	sudo systemctl daemon-reload
+
+fi
 
 # Notify leaving module installation script
 echo -e "${GREEN}Backlighting installed and configured${NC}"
