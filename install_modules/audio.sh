@@ -35,33 +35,45 @@ source $SCRIPT_DIR/constants.sh
 # Notify entering module installation script
 echo "Install and configure audio"
 
-# Install audio packages
-sudo apt-get install mpd mpc -y
+# Install packages if not yet installed
+dpkg --verify mpd >/dev/null 2>&1 || sudo apt-get install -y mpd
+dpkg --verify mpc >/dev/null 2>&1 || sudo apt-get install -y mpc
 
 # Install the audio configuration
 sudo cp $SCRIPT_DIR/audio/asound.conf /etc/asound.conf
 
 # Configure mpd music library location
-cp $SCRIPT_DIR/audio/mpd.conf.template $SCRIPT_DIR/audio/mpd.conf
+SRC=$SCRIPT_DIR/audio/mpd.conf
+DST=/etc/mpd.conf
+cp $SRC.template $SRC
 replace=`echo $USB_MUSIC | sed 's/\//\\\\\//g'`
-sed -i "s/PLACEHOLDER_USB_MUSIC/$replace/g" $SCRIPT_DIR/audio/mpd.conf
+sed -i "s/PLACEHOLDER_USB_MUSIC/$replace/g" $SRC
 replace=`echo $USB_PLAYLISTS | sed 's/\//\\\\\//g'`
-sed -i "s/PLACEHOLDER_USB_PLAYLISTS/$replace/g" $SCRIPT_DIR/audio/mpd.conf
+sed -i "s/PLACEHOLDER_USB_PLAYLISTS/$replace/g" $SRC
 
-# Install the mpd configuration
-sudo cp $SCRIPT_DIR/audio/mpd.conf /etc/mpd.conf
+if ! sudo diff $SRC $DST >/dev/null 2>&1; then
 
-# Set mpd system to start at boot
-sudo systemctl enable mpd.service
+	# Install the mpd configuration
+	sudo cp $SRC $DST
 
-# Start mpd system now
-sudo systemctl start mpd.service
+	# Set mpd system to start at boot
+	sudo systemctl enable mpd.service
 
-# To be safe, rerun all generators, reload all unit files, and recreate the entire dependency tree
-sudo systemctl daemon-reload
+	# Start mpd system now
+	sudo systemctl start mpd.service
 
-# Install python modules
-python -m pip install python-mpd2
+	# To be safe, rerun all generators, reload all unit files, and recreate the entire dependency tree
+	sudo systemctl daemon-reload
+fi
+
+# Check for Python environment
+if [ -v $VIRTUAL_ENV ]; then
+	echo -e "${RED}Python not configured.${NC}"
+	return 1
+fi
+
+# Install python modules or upgrade if need be
+pip install --upgrade python-mpd2
 
 # Notify leaving module installation script
 echo -e "${GREEN}Audio installed and configured${NC}"

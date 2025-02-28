@@ -33,13 +33,19 @@ fi
 source $SCRIPT_DIR/constants.sh
 
 # Notify entering module installation script
-echo "Load and configure web-interface and captive portal functionalty"
+echo "Load and configure web-interface and captive portal functionality"
 
-# Install iptables
-sudo apt-get install iptables -y
+# Install packages if not yet installed
+dpkg --verify iptables >/dev/null 2>&1 || sudo apt-get install -y iptables
 
-# Install python modules
-python -m pip install pydantic fastapi JinJa2 uvicorn python-multipart
+# Check for Python environment
+if [ -v $VIRTUAL_ENV ]; then
+	echo -e "${RED}Python not configured.${NC}"
+	return 1
+fi
+
+# Install python modules or upgrade if need be
+pip install --upgrade pydantic fastapi JinJa2 uvicorn python-multipart
 
 # Notify leaving module installation script
 echo -e "${GREEN}web-interface and captive portal functionalty loaded and configured${NC}"
