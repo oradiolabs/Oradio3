@@ -60,7 +60,7 @@ if [ -v $VIRTUAL_ENV ]; then
 fi
 
 # Install python modules or upgrade if need be
-pip install smbus2 rpi-lgpio --upgrade
+pip install --upgrade smbus2 rpi-lgpio
 
 # Notify leaving module installation script
 echo -e "${GREEN}i2c installed and configured${NC}"

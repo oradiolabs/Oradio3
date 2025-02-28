@@ -66,7 +66,7 @@ if [ -v $VIRTUAL_ENV ]; then
 fi
 
 # Install generic python modules or upgrade if need be
-pip install nmcli --upgrade
+pip install --upgrade nmcli
 
 # Notify leaving module installation script
 echo -e "${GREEN}Wifi is enabled and network domain is set to '${HOSTNAME}.local'${NC}"

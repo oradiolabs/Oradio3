@@ -48,7 +48,7 @@ if [ -v $VIRTUAL_ENV ]; then
 fi
 
 # Install python modules. On --use-pep517 see https://github.com/pypa/pip/issues/8559
-pip install pyalsaaudio --use-pep517 --upgrade
+pip install --upgrade pyalsaaudio --use-pep517
 
 # Notify leaving module installation script
 echo -e "${GREEN}Volume installed and configured${NC}"

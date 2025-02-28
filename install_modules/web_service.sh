@@ -45,7 +45,7 @@ if [ -v $VIRTUAL_ENV ]; then
 fi
 
 # Install python modules or upgrade if need be
-pip install pydantic fastapi JinJa2 uvicorn python-multipart --upgrade
+pip install --upgrade pydantic fastapi JinJa2 uvicorn python-multipart
 
 # Notify leaving module installation script
 echo -e "${GREEN}web-interface and captive portal functionalty loaded and configured${NC}"

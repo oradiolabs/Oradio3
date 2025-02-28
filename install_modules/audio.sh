@@ -73,7 +73,7 @@ if [ -v $VIRTUAL_ENV ]; then
 fi
 
 # Install python modules or upgrade if need be
-pip install python-mpd2 --upgrade
+pip install --upgrade python-mpd2
 
 # Notify leaving module installation script
 echo -e "${GREEN}Audio installed and configured${NC}"

@@ -51,7 +51,7 @@ if [ -v $VIRTUAL_ENV ]; then
 fi
 
 # Install generic python modules or upgrade if need be
-pip install vcgencmd --upgrade
+pip install --upgrade vcgencmd
 
 # Notify leaving module installation script
 echo -e "${GREEN}Python pip installed and virtual environment configured${NC}"

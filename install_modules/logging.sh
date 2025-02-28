@@ -42,7 +42,7 @@ if [ -v $VIRTUAL_ENV ]; then
 fi
 
 # Install python modules or upgrade if need be
-pip install concurrent_log_handler requests --upgrade
+pip install --upgrade concurrent_log_handler requests
 
 # Notify leaving module installation script
 echo -e "${GREEN}Logging modules installed${NC}"

@@ -94,7 +94,7 @@ if [ -v $VIRTUAL_ENV ]; then
 fi
 
 # Install python modules or upgrade if need be
-pip install watchdog --upgrade
+pip install --upgrade watchdog
 
 # Notify leaving module installation script
 echo -e "${GREEN}USB functionalty loaded and configured. System automounts USB drives on '/media'${NC}"
