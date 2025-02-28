@@ -47,7 +47,6 @@ I2C_MODULES=(
 	"i2c-dev"
 	"i2c-bcm2835"
 )
-echo "Start i2c modules..."
 for ((i2c_i = 0; i2c_i < ${#I2C[@]}; i2c_i++)); do
 	module="${I2C[$i2c_i]}"
 	sudo modprobe $module
