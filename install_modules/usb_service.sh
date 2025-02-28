@@ -72,6 +72,9 @@ if [ -f $USB_LOGFILE ]; then
 	cat $USB_LOGFILE | grep "Error\|Warning"
 fi
 
+# Configure the USB service
+SRC=$SCRIPT_DIR/usb/usb-mount@.service
+DST=/etc/systemd/system/usb-mount@.service
 if ! sudo diff $SRC $DST >/dev/null 2>&1; then
 
 	# The script is called by a systemd unit file. The "@" filename syntax allows passing the device name as an argument

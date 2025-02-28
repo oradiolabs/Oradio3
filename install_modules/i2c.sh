@@ -40,7 +40,7 @@ echo "Install and configure i2c"
 sudo raspi-config nonint do_i2c 0	# 0: enable
 
 # Setup modules
-sudo cp $SCRIPT_DIR/backlighting/modules /etc/modules
+sudo cp $SCRIPT_DIR/i2c/modules /etc/modules
 
 # Start modules now
 I2C_MODULES=(
