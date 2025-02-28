@@ -44,10 +44,10 @@ if [ -v $gittag ]; then
 fi
 
 # Generate new sw version info
-echo "{" > oradio_sw_version.log
-echo "   \"serial\": \""$(date +"%Y-%m-%d-%H-%M-%S")"\"," >> oradio_sw_version.log
-echo "   \"git-tag\": \"$gittag\"" >> oradio_sw_version.log
-echo "}" >> oradio_sw_version.log
+echo "{" > $SCRIPT_DIR/oradio_sw_version.log
+echo "   \"serial\": \""$(date +"%Y-%m-%d-%H-%M-%S")"\"," >> $SCRIPT_DIR/oradio_sw_version.log
+echo "   \"git-tag\": \"$gittag\"" >> $SCRIPT_DIR/oradio_sw_version.log
+echo "}" >> $SCRIPT_DIR/oradio_sw_version.log
 
 # Install sw version
 sudo cp $SCRIPT_DIR/oradio_sw_version.log /var/log/oradio_sw_version.log
