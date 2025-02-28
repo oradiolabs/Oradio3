@@ -33,7 +33,7 @@ fi
 source $SCRIPT_DIR/constants.sh
 
 # Notify entering module installation script
-echo "Load and configure web-interface and captive portal functionalty"
+echo "Load and configure web-interface and captive portal functionality"
 
 # Install packages if not yet installed
 dpkg --verify iptables >/dev/null 2>&1 || sudo apt-get install -y iptables
