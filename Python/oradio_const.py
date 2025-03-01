@@ -91,9 +91,10 @@ MESSAGE_STATE_CHANGED = "Volume changed"
 ################## SYSTEM SOUNDS #############################
 SOUND_FILES_DIR = "/home/pi/Oradio3/system_sounds"
 
-############# SPOTIFY ##########################################
+############# SPOTIFY CONFIG #####################################
 MESSAGE_SPOTIFY_TYPE        = "Spotify message"
 SPOTIFY_EVENT_SOCKET_PORT   = 8010
+MPV_SOCKET = "/home/pi/spotify/mpv-socket"
 
 # MPV_PLAYER COMMANDS ####
 MPV_PLAYERCTL_PLAY  = "play"
@@ -117,6 +118,13 @@ MPRIS_DBUS_PROPERTIES       = "org.freedesktop.DBus.Properties"
 MPRIS_MEDIA_PLAYER_SEARCH   = "org/mpris/MediaPlayer2."
 
 # SPOTIFY events and states
+SPOTIFY_APP_STATUS_PLAYING      = "Playing"
+SPOTIFY_APP_STATUS_STOPPED      = "Stopped"
+SPOTIFY_APP_STATUS_PAUSED       = "Paused"
+SPOTIFY_APP_STATUS_DISCONNECTED = "Disconnected"
+SPOTIFY_APP_STATUS_CONNECTED    = "Connected"
+SPOTIFY_APP_STATUS_CLIENT_CHANGED = "Client changed"
+
 SPOTIFY_CONNECT_PLAYING_EVENT           = "Spotify Connect playing event"
 SPOTIFY_CONNECT_PAUSED_EVENT            = "Spotify Connect paused event"
 SPOTIFY_CONNECT_STOPPED_EVENT           = "Spotify Connect stopped event"

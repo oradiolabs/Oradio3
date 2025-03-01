@@ -50,6 +50,8 @@ import socket
 import selectors
 import threading
 import pydantic
+import os
+import select
 
 import dbus
 import json
@@ -84,7 +86,8 @@ class SpotifyConnect():
         we transformed it from a sequence of bytes into a string using the decode function.
         :param socket = socket pointer
         '''
-        rec_data = conn.recv(1024) # max buffer size is 1024
+        #rec_data = conn.recv(1024) # max buffer size is 1024
+        rec_data = conn.recv(1024) # max buffer size is 1024        
         if rec_data:
             librespot_data = json.loads(rec_data.decode())  #
             oradio_log.info("Data received from socket {sdat}".format(sdat = librespot_data ))
@@ -93,16 +96,22 @@ class SpotifyConnect():
             match librespot_event:        
                 case 'playing':
                     message["state"] = SPOTIFY_CONNECT_PLAYING_EVENT
+                    self.spotify_app_status = SPOTIFY_APP_STATUS_PLAYING                   
                 case 'paused':
                     message["state"] = SPOTIFY_CONNECT_PAUSED_EVENT
+                    self.spotify_app_status = SPOTIFY_APP_STATUS_PAUSED                    
                 case 'stopped':
                     message["state"] = SPOTIFY_CONNECT_STOPPED_EVENT
+                    self.spotify_app_status = SPOTIFY_APP_STATUS_STOPPED
                 case 'session_connected':
                     message["state"] = SPOTIFY_CONNECT_CONNECTED_EVENT
+                    self.spotify_app_status = SPOTIFY_APP_STATUS_CONNECTED                    
                 case 'session_disconnected':
                     message["state"] = SPOTIFY_CONNECT_DISCONNECTED_EVENT
+                    self.spotify_app_status = SPOTIFY_APP_STATUS_DISCONNECTED
                 case 'session_client_changed':
                     message["state"] = SPOTIFY_CONNECT_CLIENT_CHANGED_EVENT
+                    self.spotify_app_status = SPOTIFY_APP_STATUS_CLIENT_CHANGED             
                 case _:
                     message["state"] = None
             if message["state"] != None:
@@ -204,6 +213,7 @@ class SpotifyConnect():
         # Get the mpv MPRIS2 interface
         mpv_player = self.bus.get_object(MPRIS_MPV_PLAYER, MPRIS_MEDIA_PLAYER)
 
+        self.spotify_app_status = SPOTIFY_APP_STATUS_DISCONNECTED
         
         if self.state == SPOTIFY_CONNECT_MPV_STATE_OK:
             status, player_iface = setup_dbus_interface_to_control_mpv_player(mpv_player)
@@ -269,7 +279,9 @@ class SpotifyConnect():
         except dbus.exceptions.DBusException:
             return "mpv not running or MPRIS not available"    
     
-    def playerctl_commandX(self,command):
+    import subprocess
+
+    def playerctl_command(self,command):
         '''
         Send command to playerctl via mpris player interface
         :param command = player command = [ MPV_PLAYERCTL_PLAY, 
@@ -280,61 +292,57 @@ class SpotifyConnect():
                                                                   MPV_PLAYERCTL_PAUSED_STATE]
         '''
         commands_list = [MPV_PLAYERCTL_PLAY, MPV_PLAYERCTL_PAUSE, MPV_PLAYERCTL_STOP]
-
-
         """Check if mpv is available on D-Bus."""
         bus_list_names = self.bus.list_names()
         print("bus list names =", bus_list_names)
-
+        player = self.bus.get_object("org.mpris.MediaPlayer2.mpv", "/org/mpris/MediaPlayer2")
         playback_status = self.get_playback_status()
-        oradio_log.info(f"player-command = {command}, Playback-status = {playback_status}")
+
+        oradio_log.info(f"player-command = {command}, mpv-playback-status = {playback_status}, spotify_app_status={self.spotify_app_status} ")
         if command in commands_list:
             if command == MPV_PLAYERCTL_PLAY:
-                if playback_status != MPV_PLAYERCTL_PLAYING_STATE:
-                    time.sleep(0.5)
+                    # always try to play,  if already in playing mode, it will be rejected
                     # Get Player interface
                     player_iface = dbus.Interface(player, "org.mpris.MediaPlayer2.Player")                                                      
                     player_iface.Play()
                     self.state = MPV_PLAYERCTL_PLAYING_STATE
             elif command == MPV_PLAYERCTL_PAUSE:
-                if playback_status != MPV_PLAYERCTL_PAUSED_STATE:  
-                    time.sleep(0.5)
-                    # Get Player interface
+                if self.spotify_app_status != SPOTIFY_APP_STATUS_PAUSED:
+                    # do not send mpv command as mpv was killed by librespot, so no sound
                     player_iface = dbus.Interface(player, "org.mpris.MediaPlayer2.Player")                                                      
-                    player_iface.PlayPause()
-                    self.state = MPV_PLAYERCTL_PAUSED_STATE
+                    player_iface.Pause()
+                    self.state = MPV_PLAYERCTL_PAUSED_STATE                
             elif command == MPV_PLAYERCTL_STOP:                
-                if playback_status != MPV_PLAYERCTL_STOPPED_STATE:
-                    self.player_iface.Stop()
-                    self.state = MPV_PLAYERCTL_PAUSED_STATE
+                if self.spotify_app_status != SPOTIFY_APP_STATUS_STOPPED:
+                    # do not send mpv command as mpv was killed by librespot, so no sound
+                    player_iface = dbus.Interface(player, "org.mpris.MediaPlayer2.Player")                                                      
+                    player_iface.Stop()
+                    self.state = MPV_PLAYERCTL_STOPPED_STATE                    
             else:
                 self.state = MPV_PLAYERCTL_COMMAND_NOT_FOUND
         else:
             status = MPV_PLAYERCTL_COMMAND_NOT_FOUND
-            oradio_log("warning","command-status={sts}".format(sts=status))            
+            oradio_log.warning(f"command-status={status}")            
         return (self.state)
 
-    def playerctl_command(self,command):
+
+    def mpv_playerctl_command(self,command):
         '''
-        
-        echo '{ "command": ["get_property", "pause"] }' | socat - /tmp/mpv-socket
-        echo '{ "command": ["set_property", "pause", true] }' | socat - /tmp/mpv-socket
-        echo '{ "command": ["set_property", "pause", false] }' | socat - /tmp/mpv-socket
-                
-        Send command to playerctl via mpris player interface
+        Send command to mpv remote player interface via socket interface
         :param command = player command = [ MPV_PLAYERCTL_PLAY, 
                                             MPV_PLAYERCTL_PAUSE, 
                                             MPV_PLAYERCTL_STOP]
         :return self.state = state of mpv mpris player-control = [MPV_PLAYERCTL_PLAYING_STATE | 
                                                                   MPV_PLAYERCTL_STOPPED_STATE |
                                                                   MPV_PLAYERCTL_PAUSED_STATE]
+        Possible remote API interface commands for MPV
+            echo '{ "command": ["get_property", "pause"] }' | socat - /tmp/mpv-socket
+            echo '{ "command": ["set_property", "pause", true] }' | socat - /tmp/mpv-socket
+            echo '{ "command": ["set_property", "pause", false] }' | socat - /tmp/mpv-socket
         '''
-        
         commands_list = [MPV_PLAYERCTL_PLAY, MPV_PLAYERCTL_PAUSE, MPV_PLAYERCTL_STOP]
 
-
-        MPV_SOCKET = "/tmp/mpv-socket"
-        
+        # use the mpv socket interface to remotely control the playback
         def send_mpv_command(command):
             try:
                 with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as sock:
@@ -342,44 +350,37 @@ class SpotifyConnect():
                     sock.sendall(json.dumps(command).encode() + b"\n")
                     response = sock.recv(1024).decode()
                     return json.loads(response)
-            except Exception as e:
-                print("Error:", e)
+            except Exception as err:
+                oradio_log.error(f"Error upon sending remote control command to MPV API-socket {err}")
 
-
+        # Get pause status
         pause_property = send_mpv_command({"command": ["get_property", "pause"]})
         pause_status = pause_property['data']
         if pause_status == False:
             playback_status = "Playing"
         else:
             playback_status = "Paused"             
- 
-        # return true/false 
-        # Pause mpv
-        send_mpv_command({"command": ["set_property", "pause", True]})
-        
-        # Play mpv
-        send_mpv_command({"command": ["set_property", "pause", False]})
-        
-        # Get pause status
-        oradio_log.info(f"player-command = {command}, Playback-status = {playback_status}")
+
+        oradio_log.info(f"player-command = {command}, mpv-playback-status = {playback_status}, spotify_app_status={self.spotify_app_status} ")
         if command in commands_list:
             if command == MPV_PLAYERCTL_PLAY:
-                if playback_status == "Paused":
+                    # always try to change to play. If it is already in play, it will be neglected
                     send_mpv_command({"command": ["set_property", "pause", False]})
                     self.state = MPV_PLAYERCTL_PLAYING_STATE
             elif command == MPV_PLAYERCTL_PAUSE:
-                if playback_status == "Playing":  
+                if self.spotify_app_status != SPOTIFY_APP_STATUS_PAUSED:
+                    # do not send mpv command as mpv was killed by librespot, so no sound
                     send_mpv_command({"command": ["set_property", "pause", True]})                    
                     self.state = MPV_PLAYERCTL_PAUSED_STATE
             elif command == MPV_PLAYERCTL_STOP:                
-                if playback_status == "Playing":
-                    self.state = MPV_PLAYERCTL_PAUSED_STATE
+                if self.spotify_app_status != SPOTIFY_APP_STATUS_STOPPED:
+                    self.state = MPV_PLAYERCTL_STOPPED_STATE
                     send_mpv_command({"command": ["set_property", "pause", True]})                    
             else:
                 self.state = MPV_PLAYERCTL_COMMAND_NOT_FOUND
         else:
             status = MPV_PLAYERCTL_COMMAND_NOT_FOUND
-            oradio_log("warning","command-status={sts}".format(sts=status))            
+            oradio_log.warning(f"command-status={status}")           
         return (self.state)
 
 def setup_dbus_interface_to_control_mpv_player(player):
@@ -411,7 +412,6 @@ def setup_dbus_interface_to_control_mpv_player(player):
     player_iface = dbus.Interface(player, MPRIS_MP2_PLAYER)
     
     return (status, player_iface)
-
 
 if __name__ == "__main__":
     import os
@@ -521,7 +521,49 @@ if __name__ == "__main__":
         spot_con.shutdown_server()     
         time.sleep(1)           
         return()
-    
+
+    def playback_control_without_spotify_app(): 
+        '''
+        Playback control of playlist when spotify has started playback and then app is closed
+        '''   
+        print(YELLOW_TXT+"==============================================================="+END_TXT)
+        print(YELLOW_TXT+"Open a Spotify app and connect to a sound device called Oradio"+END_TXT)
+        print(YELLOW_TXT+"Play a playlist"+END_TXT)
+        print(YELLOW_TXT+"Close the App"+END_TXT)
+        print(YELLOW_TXT+"Use play/pause to control the playback"+END_TXT)
+        print(YELLOW_TXT+"==============================================================="+END_TXT)        
+
+        msg_queue = Queue()
+        spot_con = SpotifyConnect( msg_queue)
+        if spot_con.get_state() != SPOTIFY_CONNECT_MPV_STATE_OK:
+            oradio_log.error("Spotify Connect Servers not running")
+            return()
+        
+        event_selection = (YELLOW_TXT+"select an optiont:\n"
+                           "0-stop playback test\n"
+                           "1-play \n"
+                           "2-pause \n"
+                           "select an event:"+END_TXT
+                           )
+        loop = "run"
+        while loop == "run":
+            try:
+                event_nr = int(input(event_selection))
+            except:
+                event_nr = -1
+            match event_nr:
+                case 0:
+                    loop = 'stop'
+                case 1:
+                    spot_con.playerctl_command(MPV_PLAYERCTL_PLAY)                    
+                case 2:
+                    spot_con.playerctl_command(MPV_PLAYERCTL_PAUSE)                    
+                case _:
+                    print("invalid selection, try again")
+                    event = None
+        spot_con.shutdown_server()
+        time.sleep(1)           
+   
     
     def simulate_as_oradio_control(): 
         '''
@@ -530,6 +572,7 @@ if __name__ == "__main__":
         print(YELLOW_TXT+"==============================================================="+END_TXT)
         print(YELLOW_TXT+"Open a Spotify app and connect to a sound device called Oradio"+END_TXT)
         print(YELLOW_TXT+"Play a playlist"+END_TXT)
+        print(YELLOW_TXT+"Stop test with CTRL+C"+END_TXT)        
         print(YELLOW_TXT+"==============================================================="+END_TXT)        
 
         msg_queue = Queue()
@@ -548,6 +591,7 @@ if __name__ == "__main__":
             if (message["type"] == MESSAGE_SPOTIFY_TYPE and 
                 message["error"] == "None"):
                 spotify_state = message["state"]
+                print("Message = ", message)
                 match spotify_state:
                     ### In Python's structural pattern matching (match-case), 
                     ### unquoted names in a case statement are treated as variables, not constants.
@@ -555,40 +599,23 @@ if __name__ == "__main__":
                     ### The if condition ensures it is compared to SPOTIFY_CONNECT_XXXXXX_EVENT.
                     case spotify_state if spotify_state == SPOTIFY_CONNECT_PLAYING_EVENT:
                         print(YELLOW_TXT+"======================================================================"+END_TXT)
-                        print(YELLOW_TXT+"Press ENTER to simulate a button press of the ON-button at the Oradio"+END_TXT)
+                        print(YELLOW_TXT+"Press ENTER to simulate a button press at the Oradio to start playback"+END_TXT)
                         print(YELLOW_TXT+"====================================================================="+END_TXT)
-                        time.sleep(2)
-                        keyboard_input = input("Press Enter as ON-button")
+                        time.sleep(3)
+                        keyboard_input = input("Press Enter")
                         spot_con.playerctl_command(MPV_PLAYERCTL_PLAY)
                     case spotify_state if spotify_state == SPOTIFY_CONNECT_CONNECTED_EVENT:
-                        print(YELLOW_TXT+"======================================================================"+END_TXT)
-                        print(YELLOW_TXT+"Press ENTER to simulate a button press of the ON-button at the Oradio"+END_TXT)
-                        print(YELLOW_TXT+"====================================================================="+END_TXT)
-                        time.sleep(2)
-                        keyboard_input = input("Press Enter as ON-button")
-                        spot_con.playerctl_command(MPV_PLAYERCTL_PLAY)                                                           
+                        spot_con.playerctl_command(MPV_PLAYERCTL_PLAY)                        
                     case spotify_state if spotify_state == SPOTIFY_CONNECT_STOPPED_EVENT:
-                        print(YELLOW_TXT+"======================================================================"+END_TXT)
-                        print(YELLOW_TXT+"Press ENTER to simulate a button press of the OFF-button at the Oradio"+END_TXT)
-                        print(YELLOW_TXT+"====================================================================="+END_TXT)
-                        time.sleep(2)                        
-                        keyboard_input = input("Press Enter as OFF-button")
-                        spot_con.playerctl_command(MPV_PLAYERCTL_STOP)                                           
+                        spot_con.playerctl_command(MPV_PLAYERCTL_STOP)                        
                     case spotify_state if spotify_state == SPOTIFY_CONNECT_PAUSED_EVENT:
-                        print(YELLOW_TXT+"======================================================================"+END_TXT)
-                        print(YELLOW_TXT+"Press ENTER to simulate a button press of the OFF-button at the Oradio"+END_TXT)
-                        print(YELLOW_TXT+"====================================================================="+END_TXT)
-                        time.sleep(2)                        
-                        keyboard_input = input("Press Enter as OFF-button")
                         spot_con.playerctl_command(MPV_PLAYERCTL_PAUSE)                        
-#                    case spotify_state if spotify_state == SPOTIFY_CONNECT_CONNECTED_EVENT:
-#                        spot_con.playerctl_command(MPV_PLAYERCTL_PAUSE)                    
-#                    case spotify_state if spotify_state == SPOTIFY_CONNECT_DISCONNECTED_EVENT:
-#                        spot_con.playerctl_command(MPV_PLAYERCTL_PAUSE)                    
-#                    case spotify_state if spotify_state == SPOTIFY_CONNECT_CLIENT_CHANGED_EVENT:
-#                        spot_con.playerctl_command(MPV_PLAYERCTL_PAUSE)                    
+                    case spotify_state if spotify_state == SPOTIFY_CONNECT_DISCONNECTED_EVENT:
+                        spot_con.playerctl_command(MPV_PLAYERCTL_STOP)                        
+                    case spotify_state if spotify_state == SPOTIFY_CONNECT_CLIENT_CHANGED_EVENT:
+                        spot_con.playerctl_command(MPV_PLAYERCTL_PAUSE)                        
                     case _:
-#                        spot_con.playerctl_command(MPV_PLAYERCTL_PAUSE)
+                        # do nothing
                         pass
             else:
                 oradio_log.info("Not a Spotify event message")
@@ -727,7 +754,7 @@ if __name__ == "__main__":
                        " 3-Test event socket and queue \n"
                        " 4-MPRIS player control test\n"                       
                        " 5-Simulate as Oradio_controls \n"
-                       " 6-xxxx \n"
+                       " 6-Playback control without Spotify App \n"
                        "select: "
                        )
  
@@ -758,6 +785,6 @@ if __name__ == "__main__":
             case 5:
                 simulate_as_oradio_control()
             case 6:
-                pass 
+                playback_control_without_spotify_app()
             case _:
                 print("\nPlease input a valid number\n")
