@@ -252,7 +252,7 @@ if __name__ == '__main__':
 
     def check_server_status():
         """ Check if a process is listening on WEB_SERVER_HOST:WEB_SERVER_PORT """
-        result = subprocess.run(['wget', '-q', f"{WEB_SERVER_HOST}:{WEB_SERVER_PORT}"], stdout=subprocess.DEVNULL)
+        result = subprocess.run(['wget', '-q', '--spider', f"{WEB_SERVER_HOST}:{WEB_SERVER_PORT}"], stdout=subprocess.DEVNULL)
         if not result.returncode:
             return "Web service is active"
         else:
