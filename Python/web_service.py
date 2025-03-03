@@ -247,6 +247,17 @@ class web_service():
 # Entry point for stand-alone operation
 if __name__ == '__main__':
 
+    # import when running stand-alone
+    import subprocess
+
+    def check_server_status():
+        """ Check if a process is listening on WEB_SERVER_HOST:WEB_SERVER_PORT """
+        result = subprocess.run(['wget', '-q', f"{WEB_SERVER_HOST}:{WEB_SERVER_PORT}"], stdout=subprocess.DEVNULL)
+        if not result.returncode:
+            return "Web service is active"
+        else:
+            return "No active web service found"
+
     def check_messages(queue):
         """
         Check if a new message is put into the queue
@@ -272,10 +283,11 @@ if __name__ == '__main__':
     # Show menu with test options
     input_selection = ("Select a function, input the number.\n"
                        " 0-quit\n"
-                       " 1-start web service (long-press-AAN)\n"
-                       " 2-start web service (extra-long-press-AAN)\n"
-                       " 3-restart web service timeout\n"
-                       " 4-stop web service (any-press-UIT)\n"
+                       " 1-Show web service state\n"
+                       " 2-start web service (long-press-AAN)\n"
+                       " 3-start web service (extra-long-press-AAN)\n"
+                       " 4-restart web service timeout\n"
+                       " 5-stop web service (any-press-UIT)\n"
                        "select: "
                        )
 
@@ -296,15 +308,18 @@ if __name__ == '__main__':
                 print("\nExiting test program...\n")
                 break
             case 1:
+                print(f"\nMY web service state: {oradio_web_service.get_state()}")
+                print(f"ANY web service state: {check_server_status()}\n")
+            case 2:
                 print("\nStarting the web service...\n")
                 oradio_web_service.start()
-            case 2:
+            case 3:
                 print("\nForcing access point...\n")
                 oradio_web_service.start(force_ap=True)
-            case 3:
+            case 4:
                 print("\nResetting timeout counter...\n")
                 oradio_web_service.reset_timeout()
-            case 4:
+            case 5:
                 print("\nStopping the web service...\n")
                 oradio_web_service.stop()
             case _:
