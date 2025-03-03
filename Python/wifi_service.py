@@ -519,6 +519,17 @@ if __name__ == '__main__':
     # import when running stand-alone
     from multiprocessing import Process, Queue
 
+    def remove_network_from_NM(network):
+        """ Remove given network from NetworkManager """
+        try:
+            oradio_log.debug("Remove '%s' from NetworkManager", network)
+            # nmcli.connection.delete(name: str, wait: int = None) -> None # Default timeout is 10 seconds
+            nmcli.connection.delete(network)
+        except Exception as ex_err:
+            oradio_log.error("Failed to remove '%s' from NetworkManager, error = %s", network, ex_err)
+            return False
+        return True
+
     def check_messages(queue):
         """
         Check if a new message is put into the queue
@@ -547,11 +558,12 @@ if __name__ == '__main__':
                        " 1-get wifi state\n"
                        " 2-list on air wifi networks\n"
                        " 3-list wifi networks in NetworkManager\n"
-                       " 4-get active wifi connection\n"
-                       " 5-connect to wifi network\n"
-                       " 6-disconnect from wifi network\n"
-                       " 7-start access point\n"
-                       " 8-stop access point\n"
+                       " 4-remove network from NetworkManager\n"
+                       " 5-get active wifi connection\n"
+                       " 6-connect to wifi network\n"
+                       " 7-disconnect from wifi network\n"
+                       " 8-start access point\n"
+                       " 9-stop access point\n"
                        "select: "
                        )
 
@@ -576,8 +588,14 @@ if __name__ == '__main__':
             case 3:
                 print(f"\nDefined wifi connections: {wifi.get_wifi_nm_connections()}\n")
             case 4:
-                print(f"\nActive wifi connection: {wifi.get_wifi_connection()}\n")
+                network = input("Enter network to remove from NetworkManager: ")
+                if network:
+                    print(f"\nRemoved {network} from NetworkManager: {remove_network_from_NM(network)}\n")
+                else:
+                    print("\nNo network given\n")
             case 5:
+                print(f"\nActive wifi connection: {wifi.get_wifi_connection()}\n")
+            case 6:
                 ssid = input("Enter SSID of the network to add: ")
                 pswd = input("Enter password for the network to add: ")
                 if ssid and pswd:
@@ -585,14 +603,14 @@ if __name__ == '__main__':
                     print(f"\nConnecting to ssid: '{ssid}', password: '{pswd}'. Check messages for result\n")
                 else:
                     print("\nNo SSID and/or password given\n")
-            case 6:
-                print(f"\nwifi_disconnect() returned '{wifi.wifi_disconnect()}'\n")
             case 7:
+                print(f"\nwifi_disconnect() returned '{wifi.wifi_disconnect()}'\n")
+            case 8:
                 if wifi.access_point_start():
                     print("\nSetting up access point. Check messages for result\n")
                 else:
                     print("\nFailed to setup access point\n")
-            case 8:
+            case 9:
                 if wifi.access_point_stop():
                     print("\nWiFi access point stopped\n")
                 else:
