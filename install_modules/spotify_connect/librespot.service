@@ -1,0 +1,25 @@
+[Unit]
+Description=Librespot
+After=network.target
+
+[Service]
+Environment="LIBRESPOT_ZEROCONF_PORT=45305"
+Environment="LIBRESPOT_INITIAL_VOLUME=40"
+Environment="LIBRESPOT_DEVICE=SpotCon_in"
+Environment="LIBRESPOT_ENABLE_VOLUME_NORMALISATION=on"
+Environment="LIBRESPOT_DISABLE_AUDIO_CACHE="
+Environment="LIBRESPOT_AUTOPLAY=off"
+Environment="LIBRESPOT_SYSTEM_CACHE=/home/pi/Oradio3"
+Environment="LIBRESPOT_BACKEND=alsa"
+Environment="LIBRESPOT_NAME=Oradio"
+Environment="LIBRESPOT_VERBOSE="
+Environment="LIBRESPOT_ONEVENT=/home/pi/Oradio3/Python/librespot_event_handler.py"
+Environment="LIBRESPOT_DEVICE_TYPE=avr"
+ExecStart=/usr/bin/librespot  --bitrate 320 --backend pipe --device /home/pi/spotify/librespot-pipe
+
+Restart=always
+User=pi
+Group=pi
+
+[Install]
+WantedBy=multi-user.target
