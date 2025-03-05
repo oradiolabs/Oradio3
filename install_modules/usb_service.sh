@@ -72,11 +72,23 @@ if [ -f $USB_LOGFILE ]; then
 	cat $USB_LOGFILE | grep "Error\|Warning"
 fi
 
+# Setup log file rotation to limit logfile size
+SRC=$SCRIPT_DIR/usb/logrotate.conf
+DST=/etc/logrotate.d/oradio
+cp $SRC.template $SRC
+# Get absolute path to USB logfile
+replace=`echo $USB_LOGFILE | sed 's/\//\\\\\//g'`
+sed -i "s/PLACEHOLDER_LOGFILE/$replace/g" $SRC
+
+if ! sudo diff $SRC $DST >/dev/null 2>&1; then
+	# Install the oradio logrotate configiguration file
+	sudo cp $SRC $DST
+fi
+
 # Configure the USB service
 SRC=$SCRIPT_DIR/usb/usb-mount@.service
 DST=/etc/systemd/system/usb-mount@.service
 if ! sudo diff $SRC $DST >/dev/null 2>&1; then
-
 	# The script is called by a systemd unit file. The "@" filename syntax allows passing the device name as an argument
 	sudo cp $SRC $DST
 
