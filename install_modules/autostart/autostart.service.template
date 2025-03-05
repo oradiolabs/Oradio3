@@ -12,6 +12,7 @@ Type=simple
 User=PLACEHOLDER_USER
 Group=PLACEHOLDER_GROUP
 WorkingDirectory=PLACEHOLDER_PATH
+Environment="DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/1000/bus"
 ExecStart=/home/PLACEHOLDER_USER/.venv/bin/python3 PLACEHOLDER_PATH/oradio_control.py
 RemainAfterExit=true
 Restart=always
