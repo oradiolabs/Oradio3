@@ -1,0 +1,6 @@
+PLACEHOLDER_LOGFILE {
+	size 100k
+	missingok
+	nocompress
+	rotate 1
+}

@@ -36,10 +36,18 @@ source $SCRIPT_DIR/constants.sh
 echo "Configuring boot options"
 
 # Copy Oradio boot options and signal If boot configuration 
-if ! sudo diff $SCRIPT_DIR/config/config.txt /boot/firmware/config.txt; then
-	sudo cp $SCRIPT_DIR/config/config.txt /boot/firmware/config.txt
+SRC=$SCRIPT_DIR/config/config.txt
+DST=/boot/firmware/config.txt
+
+if ! sudo diff $SRC $DST >/dev/null 2>&1; then
+
+	# Install the mpd configuration
+	sudo cp $SRC $DST
+
+	# Inform user to reboot
 	echo -e "${YELLOW}A reboot is required to complete the installion${NC}"
 	REBOOT_REQUIRED=$YES
 fi
+
 # Notify leaving module installation script
 echo -e "${GREEN}Boot options configured${NC}"

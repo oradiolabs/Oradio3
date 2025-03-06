@@ -36,7 +36,8 @@ source $SCRIPT_DIR/constants.sh
 echo "Configure Oradio hardware version log on boot"
 
 # Configure the hw_version service
-if [ ! -f /etc/systemd/system/oradio_hw_version.log ]; then
+if [ ! -f /var/log/oradio_hw_version.log ]; then
+
 	cp $SCRIPT_DIR/hw_version/hw_version.service.template $SCRIPT_DIR/hw_version/hw_version.service
 	sed -i "s/PLACEHOLDER_USER/$(id -un)/g" $SCRIPT_DIR/hw_version/hw_version.service
 	replace=`echo $(realpath "$SCRIPT_DIR/../Python") | sed 's/\//\\\\\//g'`
@@ -44,12 +45,15 @@ if [ ! -f /etc/systemd/system/oradio_hw_version.log ]; then
 
 	# Install the hw_version service
 	sudo cp $SCRIPT_DIR/hw_version/hw_version.service /etc/systemd/system/
+	echo 'script installed'
 
 	# Set hw_version system to start at boot
 	sudo systemctl enable hw_version.service
+	echo 'service enabled'
 
 	# To be safe, rerun all generators, reload all unit files, and recreate the entire dependency tree
 	sudo systemctl daemon-reload
+	echo 'daemon reloaded'
 fi
 
 # Notify leaving module installation script

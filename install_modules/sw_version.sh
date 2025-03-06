@@ -35,11 +35,23 @@ source $SCRIPT_DIR/constants.sh
 # Notify entering module installation script
 echo "Configure Oradio software version log"
 
+# Get git tag
+gittag=$(GIT_DIR=../$SCRIPTDIR/.git git describe --tags >/dev/null 2>&1)
+
+# Set count to 0 if not found in parsed output
+if [ -v $gittag ]; then
+	gittag="main HEAD"
+fi
+
 # Generate new sw version info
-sudo bash -c 'echo "{" > /var/log/oradio_sw_version.log'
-sudo bash -c 'echo "   \"serial\": \""$(date +"%Y-%m-%d-%H-%M-%S")"\"," >> /var/log/oradio_sw_version.log'
-sudo bash -c 'echo "   \"git-tag\": \""$(GIT_DIR=../$SCRIPTDIR/.git git describe --tags)"\"" >> /var/log/oradio_sw_version.log'
-sudo bash -c 'echo "}" >> /var/log/oradio_sw_version.log'
+echo "{" > $SCRIPT_DIR/oradio_sw_version.log
+echo "   \"serial\": \""$(date +"%Y-%m-%d-%H-%M-%S")"\"," >> $SCRIPT_DIR/oradio_sw_version.log
+echo "   \"git-tag\": \"$gittag\"" >> $SCRIPT_DIR/oradio_sw_version.log
+echo "}" >> $SCRIPT_DIR/oradio_sw_version.log
+
+# Install sw version
+sudo cp $SCRIPT_DIR/oradio_sw_version.log /var/log/oradio_sw_version.log
+rm -f $SCRIPT_DIR/oradio_sw_version.log
 
 # Notify leaving module installation script
 echo -e "${GREEN}Oradio software version log configured${NC}"

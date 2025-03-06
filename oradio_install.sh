@@ -45,7 +45,7 @@ ORADIO_MODULES=(
 	"backlighting"	# Depends on python
 	"web_service"	# Depends on network and python
 	"sw_version"
-	"autostart"
+	"autostart"		# Must be last
 )
 
 # Function to pretty-print the list of modules
