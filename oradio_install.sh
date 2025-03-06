@@ -33,9 +33,9 @@ source install_modules/constants.sh
 ORADIO_MODULES=(
 	"config"
 	"packages"
-	"fakehwclock"
 	"python"		# depends on packages
 	"network"
+	"i2c"			# Requires on python
 	"hw_version"	# depends on python
 	"logging"		# Depends on python
 	"spotify_connect"
