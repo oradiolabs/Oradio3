@@ -38,6 +38,7 @@ ORADIO_MODULES=(
 	"network"
 	"hw_version"	# depends on python
 	"logging"		# Depends on python
+	"spotify_connect"
 	"usb_service"	# Depends on network and python
 	"audio"			# Depends on usb_service and python
 	"volume"		# Depends on audio and python

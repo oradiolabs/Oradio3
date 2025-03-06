@@ -52,7 +52,7 @@ echo "install the latest version librespot from github repo"
 python -m pip install git+https://github.com/kokarare1212/librespot-python
 
 echo "install avahi-browse tool"
-sudo apt install avahi-utils
+sudo apt -y install avahi-utils
 
 echo "install pydantic"
 python -m pip install pydantic

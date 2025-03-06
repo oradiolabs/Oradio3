@@ -323,7 +323,7 @@ class SpotifyConnect():
             else:
                 self.state = MPV_PLAYERCTL_COMMAND_NOT_FOUND
         else:
-            status = MPV_PLAYERCTL_COMMAND_NOT_FOUND
+            self.status = MPV_PLAYERCTL_COMMAND_NOT_FOUND
             oradio_log.warning(f"command-status={status}")            
         return (self.state)
 
@@ -338,9 +338,9 @@ class SpotifyConnect():
                                                                   MPV_PLAYERCTL_STOPPED_STATE |
                                                                   MPV_PLAYERCTL_PAUSED_STATE]
         Possible remote API interface commands for MPV
-            echo '{ "command": ["get_property", "pause"] }' | socat - /tmp/mpv-socket
-            echo '{ "command": ["set_property", "pause", true] }' | socat - /tmp/mpv-socket
-            echo '{ "command": ["set_property", "pause", false] }' | socat - /tmp/mpv-socket
+            echo '{ "command": ["get_property", "pause"] }' | socat - /home/pi/spotify/mpv-socket
+            echo '{ "command": ["set_property", "pause", true] }' | socat - /home/pi/spotify/mpv-socket
+            echo '{ "command": ["set_property", "pause", false] }' | socat - /home/pi/spotify/mpv-socket
         '''
         commands_list = [MPV_PLAYERCTL_PLAY, MPV_PLAYERCTL_PAUSE, MPV_PLAYERCTL_STOP]
 
@@ -428,7 +428,7 @@ if __name__ == "__main__":
     
     ## stop a running Oradio_controls as it may interfere with this test ##
     print("kill Oradio_controls, to prevent interferences with this test module ")
-    script = "sudo pkill -9 -f oradio_control.py"
+    script = "sudo systemctl stop autostart.service"
 #    oradio_utils.run_shell_script(script)
 
 

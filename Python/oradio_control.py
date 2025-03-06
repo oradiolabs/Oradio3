@@ -125,33 +125,37 @@ class StateMachine:
                 leds.turn_on_led("LEDPlay")
                 mpd.play()
                 sound_player.play("Play")
-                spotify_control(spotify_connect, "pause")
+                #spotify_control(spotify_connect, "pause")
+                spotify_connect.playerctl_command(MPV_PLAYERCTL_PAUSE)                
      
             elif self.state == "StatePreset1":
                 leds.turn_on_led("LEDPreset1")
                 mpd.play_preset("Preset1")
                 sound_player.play("Preset1")
-                spotify_control(spotify_connect, "pause")
+                #spotify_control(spotify_connect, "pause")
+                spotify_connect.playerctl_command(MPV_PLAYERCTL_PAUSE)                
 
                 
             elif self.state == "StatePreset2":
                 leds.turn_on_led("LEDPreset2")
                 mpd.play_preset("Preset2")
                 sound_player.play("Preset2")
-                spotify_control(spotify_connect, "pause")
+                #spotify_control(spotify_connect, "pause")
+                spotify_connect.playerctl_command(MPV_PLAYERCTL_PAUSE)                
 
 
             elif self.state == "StatePreset3":
                 leds.turn_on_led("LEDPreset3")
                 mpd.play_preset("Preset3")
                 sound_player.play("Preset3")
-                spotify_control(spotify_connect, "pause")
-
+                #spotify_control(spotify_connect, "pause")
+                spotify_connect.playerctl_command(MPV_PLAYERCTL_PAUSE)
 
             elif self.state == "StateStop":
                 leds.turn_on_led_with_delay("LEDStop", 4)
                 mpd.pause()
-                spotify_control(spotify_connect, "pause")
+                #spotify_control(spotify_connect, "pause")
+                spotify_connect.playerctl_command(MPV_PLAYERCTL_PAUSE)                
                 sound_player.play("Stop")
      #           if Web_Service_Active:
     #              oradio_web_service.stop()# Stop Webservice When active 
@@ -161,7 +165,9 @@ class StateMachine:
                 leds.turn_on_led("LEDPlay")
                 sound_player.play("Spotify")
                 mpd.pause()
-                spotify_control(spotify_connect, "play")
+                
+                #spotify_control(spotify_connect, "play")
+                spotify_connect.playerctl_command(MPV_PLAYERCTL_PLAY)                
             
             elif self.state == "StatePlaySongWebIF":
                 leds.turn_on_led("LEDPlay")
@@ -274,63 +280,6 @@ def spotify_control(spotify_connect, action: str):
         return
     spotify_connect.playerctl_command(command)
     
-#---------------------OPTIONAL TO EMPY FIFO DURING PAUSE ------------
-# Enable by uncomment
-
-# empty_fifo_enabled = False
-# 
-# def monitor_spotify_state_and_manage_fifo(spotify_connect, check_interval=1):
-#     """
-#     Periodically checks the SpotifyConnect state and enables or disables
-#     FIFO emptying accordingly. For example, if the state is paused, then
-#     enable FIFO emptying to keep the event pipe alive.
-#     
-#     :param spotify_connect: An instance of SpotifyConnect.
-#     :param check_interval: Seconds between state checks.
-#     """
-#     global empty_fifo_enabled
-#     while True:
-#         current_state = spotify_connect.get_state()
-#         # If the player is paused, we enable FIFO emptying;
-#         # otherwise, we disable it.
-#         if current_state == MPV_PLAYERCTL_PAUSED_STATE:
-#             if not empty_fifo_enabled:
-#                 empty_fifo_enabled = True
-#                 oradio_log.info("Spotify is paused, enabling FIFO emptying.")
-#         else:
-#             if empty_fifo_enabled:
-#                 empty_fifo_enabled = False
-#                 oradio_log.info("Spotify is active, disabling FIFO emptying.")
-#         time.sleep(check_interval)
-# 
-# def empty_fifo_periodically(fifo_path, interval=1, chunk_size=256):
-#     """
-#     Opens the FIFO in non-blocking mode and drains its contents in chunks of 'chunk_size' bytes.
-#     This function runs in an infinite loop, sleeping for 'interval' seconds between reads.
-#     
-#     :param fifo_path: The full path to the FIFO.
-#     :param interval: The number of seconds to wait between reads.
-#     :param chunk_size: The number of bytes to read in each os.read call.
-#     """
-#     while True:
-#         if empty_fifo_enabled:
-#             try:
-#                 fd = os.open(fifo_path, os.O_RDONLY | os.O_NONBLOCK)
-#                 total_read = 0
-#                 while True:
-#                     try:
-#                         data = os.read(fd, chunk_size)
-#                         total_read += len(data)
-#                         if not data:
-#                             break
-#                     except BlockingIOError:
-#                         break
-#                 os.close(fd)
-# #                if total_read:
-# #                    print(f"Drained {total_read} bytes from FIFO")
-#             except Exception as e:
-#                 print(f"Error emptying FIFO {fifo_path}: {e}")
-#         time.sleep(interval)
 
 
 #---------------------------Messages and Queue handling------------------
@@ -393,6 +342,7 @@ def process_messages(queue):
 
         # If an error is provided, handle it as if it were another state.
         if error == None:
+            ## Henk this a temporary fix because we need to redefine the error definition
             error = "None"
         if error != "None":
             if error in handlers[command_type]:
@@ -548,8 +498,8 @@ state_machine = StateMachine()
 
 # Instantiate spotify
 spotify_connect = SpotifyConnect(shared_queue)
-
-spotify_control(spotify_connect, "pause")
+spotify_connect.playerctl_command(MPV_PLAYERCTL_PAUSE)
+#spotify_control(spotify_connect, "pause")
 
 
 #### Henk
