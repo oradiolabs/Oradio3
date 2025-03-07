@@ -432,7 +432,7 @@ oradio_usb_service = usb_service(shared_queue)
 
 # Check status usb
 state_machine.update_usb_event()
-if not usb_present_event.is_set(): # no USb present
+if not usb_present_event.is_set(): # no USB present
     oradio_log.warning("USB is Absent")
     state_machine.transition("StateUSBAbsent")   # Go to StateUSBAbsent
 else:
@@ -452,11 +452,12 @@ spotify_connect=SpotifyConnectPlaceholder(shared_queue)
 
 
 import sys
-import time
+#import time
 import traceback # by showing where in the code the error happened and what caused it
-import faulthandler # capture and print low-level crashes
+#OMJ: faulthandler is hier niet (meer) nodig, want zit nu in oradio_logging module. En sowieso was faulthandler niet voldoende, want vangt unhandled exceptions niet af
+#import faulthandler # capture and print low-level crashes
 
-faulthandler.enable()
+#faulthandler.enable()
 
 def main():
     try:
@@ -465,12 +466,18 @@ def main():
             time.sleep(1)  # Main loop
     except KeyboardInterrupt:
         oradio_log.debug("KeyboardInterrupt detected. Exiting...")
-    except Exception as e:
-        oradio_log.error("Unhandled exception: %s", e)
-        oradio_log.error(traceback.format_exc())
-        sys.exit(1)  # Ensure systemd restarts the service
+#OMJ: Nu oradio_logging unhandled exceptions en low level crashes logt kan dit weg
+#OMJ: En als je hem afvangt is het geen 'unhandled exception' meer :-)
+#    except Exception as e:
+#        oradio_log.error("Unhandled exception: %s", e)
+#        oradio_log.error(traceback.format_exc())
+#        sys.exit(1)  # Ensure systemd restarts the service
     finally:
         touch_buttons.cleanup()  # Ensure GPIO cleanup
 
 if __name__ == "__main__":
     main()
+
+#OMJ: gewone exit of met sys.exit() geforceerde exit werkt niet. Iets met actieve threads...
+    import signal
+    signal.raise_signal(signal.SIGTERM)
