@@ -26,6 +26,7 @@ Created on December 23, 2024
 import os
 import json
 import multipart    # Used to get POST form data
+from pathlib import Path
 from pydantic import BaseModel
 from fastapi import FastAPI, BackgroundTasks, Request
 from fastapi.responses import FileResponse, RedirectResponse
@@ -90,6 +91,10 @@ def load_presets():
 
 def store_presets(presets):
     """ Write the presets to presets.json in the USB Systeem folder """
+    try:
+        Path(USB_SYSTEM).mkdir(parents=True, exist_ok=True)
+    except FileExistsError as ex_err:
+        oradio_log.error("'%s' does not exist. Presets cannot be saved. error: %s", USB_SYSTEM, ex_err)
     try:
         with open(PRESETS_FILE, "w") as f:
             json.dump({"preset1": presets[0], "preset2": presets[1], "preset3": presets[2]}, f, indent=4)

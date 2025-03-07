@@ -124,8 +124,15 @@ class rms_service():
         """ If not yet active: start the heartbeat repeat timer and mark as active """
         global heartbeat_repeat_timer_is_running
         if not heartbeat_repeat_timer_is_running:
+
+            # Send HEARTBEAT when starting
+            self.send_message(HEARTBEAT)
+
+            # Send HEARTBEAT every time the timer expires
             self.heartbeat_timer = heartbeat(HEARTBEAT_REPEAT_TIME, self.send_message, args={HEARTBEAT,})
             self.heartbeat_timer.start()
+
+            # Mark timer active
             heartbeat_repeat_timer_is_running = True
         else:
             oradio_log.warning("heartbeat repeat timer already active")

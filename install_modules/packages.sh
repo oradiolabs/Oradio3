@@ -35,17 +35,31 @@ source $SCRIPT_DIR/constants.sh
 # Notify entering module installation script
 echo "Upgrade packages"
 
-# Update the OS packages to the latest greatest
-sudo apt-get update && sudo apt-get -fy full-upgrade
+# Output to console AND get number of upgradable packages
+exec 5>&1
+tmp_string=$(sudo apt update | tee >(cat - >&5))
+upgrade_count=$(echo ${tmp_string%'packages can be upgraded'*} | rev | cut -d' ' -f1)
 
-# Register if reboot is required
-if [ -f /var/run/reboot-required ]; then
-	echo -e "${YELLOW}A reboot is required to complete the installion${NC}"
-	REBOOT_REQUIRED=$YES
+# Set count to 0 if not found in parsed output
+if ! [[ $upgrade_count =~ ^-?[0-9]+$ ]]; then
+	upgrade_count=0
 fi
 
-# Cleanup obsolete packages
-sudo apt-get autoremove -y
+# Upgrade if need be
+if [ $upgrade_count -gt 0 ]; then
+
+	# Upgrade packages to the latest greatest
+	sudo apt-get -fy dist-upgrade
+
+	# Register if reboot is required
+	if [ -f /var/run/reboot-required ]; then
+		echo -e "${YELLOW}A reboot is required to complete the installion${NC}"
+		REBOOT_REQUIRED=$YES
+	fi
+
+	# Remove obsolete packages and their configuration files
+	sudo apt-get autopurge -y
+fi
 
 # Notify leaving module installation script
 echo -e "${GREEN}Packages are up to date${NC}"

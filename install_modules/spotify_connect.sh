@@ -38,23 +38,28 @@ source $SCRIPT_DIR/constants.sh
 echo "Load and configure spotify connect functionalty"
 
 ########## Get packages and python modules for spotify connect ##########
+#OMJ: git is al aanwezig als je source <(curl https://oradiolabs.nl.Oradio3/install) gedraaid hebt
 echo "install git"
 sudo apt install -y git
 
 ######### librespot() ####################################################
 echo "install raspotify which also install the librespot"
+#OMJ: curl is standaard aanwezig in Bookworm 64bit Lite image
 sudo apt-get -y install curl && curl -sL https://dtcooper.github.io/raspotify/install.sh | sh
 echo "==> stop/disable raspotify service, we only need librespot"
 sudo systemctl stop raspotify
 sudo systemctl disable raspotify
 
 echo "install the latest version librespot from github repo"
-python -m pip install git+https://github.com/kokarare1212/librespot-python
+#OMJ: door optie '--use-pep517' toe te voegen addresseer je een deprecated message
+#python -m pip install git+https://github.com/kokarare1212/librespot-python
+python -m pip install git+https://github.com/kokarare1212/librespot-python --use-pep517
 
 echo "install avahi-browse tool"
 sudo apt -y install avahi-utils
 
 echo "install pydantic"
+# pydantic wordt ook geinstalleerd in web_service. Dat lost zich vanzelf op als we de install scripts consolideren, issue #101
 python -m pip install pydantic
 
 echo "install mpv and its libraries"
@@ -67,12 +72,16 @@ python -m pip install dbus-python
 # also install pydantic in non-venv environment
 echo "deactivate current virtual machine"
 
-INSTALL_DIR='/home/pi/Oradio3/install_modules'
+#OMJ: pas op met absolute paden
+#INSTALL_DIR='/home/pi/Oradio3/install_modules'
+INSTALL_DIR=$SCRIPT_DIR
 
 deactivate
 sudo python -m pip install --break-system-packages pydantic
 echo "activate virtual machine again"
-source /home/pi/.venv/bin/activate
+#OMJ: pas op met absolute paden
+#source /home/pi/.venv/bin/activate
+source $HOME/.venv/bin/activate
 echo "copy the librespot service to /etc/systemd/system"
 sudo cp $INSTALL_DIR/spotify_connect/librespot.service /etc/systemd/system
 echo "copy the configuration file mpv.conf to /etc/mpv"
@@ -81,8 +90,11 @@ sudo cp $INSTALL_DIR/spotify_connect/mpv.service /etc/systemd/system
 sudo systemctl enable mpv.service
 sudo systemctl start mpv.service
 echo "create a audio pipe between librespot and mpv player"
-SPOTIFY_DIR="/home/pi/spotify"
-SPOTIFY_PIPE="/home/pi/spotify/librespot-pipe"
+#OMJ: pas op met absolute paden
+#SPOTIFY_DIR="/home/pi/spotify"
+#SPOTIFY_PIPE="/home/pi/spotify/librespot-pipe"
+SPOTIFY_DIR=$HOME"/spotify"
+SPOTIFY_PIPE=$HOME"/spotify/librespot-pipe"
 if ! [ -d "$SPOTIFY_DIR" ];
 then
 	mkdir $SPOTIFY_DIR
@@ -93,7 +105,8 @@ then
 	chmod 666 $SPOTIFY_PIPE
 fi
 # take care that librespot_event_handler.py has execute rights
-chmod +x /home/pi/Oradio3/Python/librespot_event_handler.py
+#OMJ: pas op met absolute paden
+chmod +x $SCRIPT_DIR/../Python/librespot_event_handler.py
 if systemctl is-active -q avahi-daemon.service;
 then
 	echo "avahi-daemon.service is active"

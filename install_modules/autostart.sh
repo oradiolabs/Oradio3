@@ -36,20 +36,25 @@ source $SCRIPT_DIR/constants.sh
 echo "Configure Oradio autostart on boot"
 
 # Configure the autostart service
-cp $SCRIPT_DIR/autostart/autostart.service.template $SCRIPT_DIR/autostart/autostart.service
-sed -i "s/PLACEHOLDER_USER/$(id -un)/g" $SCRIPT_DIR/autostart/autostart.service
-sed -i "s/PLACEHOLDER_GROUP/$(id -gn)/g" $SCRIPT_DIR/autostart/autostart.service
+SRC=$SCRIPT_DIR/autostart/autostart.service
+DST=/etc/systemd/system/autostart.service
+cp $SRC.template $SRC
+sed -i "s/PLACEHOLDER_USER/$(id -un)/g" $SRC
+sed -i "s/PLACEHOLDER_GROUP/$(id -gn)/g" $SRC
 replace=`echo $(realpath "$SCRIPT_DIR/../Python") | sed 's/\//\\\\\//g'`
-sed -i "s/PLACEHOLDER_PATH/$replace/g" $SCRIPT_DIR/autostart/autostart.service
+sed -i "s/PLACEHOLDER_PATH/$replace/g" $SRC
 
-# Install the autostart service
-sudo cp $SCRIPT_DIR/autostart/autostart.service /etc/systemd/system/
+if ! sudo diff $SRC $DST >/dev/null 2>&1; then
 
-# Set autostart system to start at boot
-sudo systemctl enable autostart.service
+	# Install the autostart service
+	sudo cp $SRC $DST
 
-# To be safe, rerun all generators, reload all unit files, and recreate the entire dependency tree
-sudo systemctl daemon-reload
+	# Set autostart system to start at boot
+	sudo systemctl enable autostart.service
+
+	# To be safe, rerun all generators, reload all unit files, and recreate the entire dependency tree
+	sudo systemctl daemon-reload
+fi
 
 # Notify leaving module installation script
 echo -e "${GREEN}Autostart Oradio on boot configured${NC}"

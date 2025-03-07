@@ -33,9 +33,9 @@ source install_modules/constants.sh
 ORADIO_MODULES=(
 	"config"
 	"packages"
-	"fakehwclock"
 	"python"		# depends on packages
 	"network"
+	"i2c"			# Requires on python
 	"hw_version"	# depends on python
 	"logging"		# Depends on python
 	"spotify_connect"
@@ -45,7 +45,7 @@ ORADIO_MODULES=(
 	"backlighting"	# Depends on python
 	"web_service"	# Depends on network and python
 	"sw_version"
-	"autostart"
+	"autostart"		# Must be last
 )
 
 # Function to pretty-print the list of modules
