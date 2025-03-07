@@ -123,7 +123,6 @@ class SpotifyConnect():
                 self.queue_put_mesg["state"]    = self.state
                 self.queue_put_mesg["error"]    = message["error"]                            
                 self.queue_put_mesg["data"]     = []
-                oradio_log.info(f"New message in Queue {self.queue_put_mesg}")                                            
                 self.msg_queue.put(self.queue_put_mesg)
         else:
             # if recv() returns an empty bytes object, b'', 

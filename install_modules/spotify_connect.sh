@@ -124,12 +124,12 @@ else
 fi
 
 ## check if asound.conf contains the correct spotify audio device ####
-echo "check asound.conf for Spotify Sound Device"
-if ! grep -q "$SPOTIFY_SOUND_DEVICE" /etc/asound.conf;
-then
-     echo -e "${RED}The asound.conf has no audio device $SPOTIFY_SOUND_DEVICE for Spotify Connect${NC} "
-     return
-fi
+#echo "check asound.conf for Spotify Sound Device"
+#if ! grep -q "$SPOTIFY_SOUND_DEVICE" /etc/asound.conf;
+#then
+#     echo -e "${RED}The asound.conf has no audio device $SPOTIFY_SOUND_DEVICE for Spotify Connect${NC} "
+#     return
+#fi
 
 ############################ end ######################################################################
 

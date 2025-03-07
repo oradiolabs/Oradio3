@@ -125,37 +125,26 @@ class StateMachine:
                 leds.turn_on_led("LEDPlay")
                 mpd.play()
                 sound_player.play("Play")
-                #spotify_control(spotify_connect, "pause")
-                spotify_connect.playerctl_command(MPV_PLAYERCTL_PAUSE)                
-     
+                spotify_control( MPV_PLAYERCTL_PAUSE)
             elif self.state == "StatePreset1":
                 leds.turn_on_led("LEDPreset1")
                 mpd.play_preset("Preset1")
                 sound_player.play("Preset1")
-                #spotify_control(spotify_connect, "pause")
-                spotify_connect.playerctl_command(MPV_PLAYERCTL_PAUSE)                
-
-                
+                spotify_control( MPV_PLAYERCTL_PAUSE)                
             elif self.state == "StatePreset2":
                 leds.turn_on_led("LEDPreset2")
                 mpd.play_preset("Preset2")
                 sound_player.play("Preset2")
-                #spotify_control(spotify_connect, "pause")
-                spotify_connect.playerctl_command(MPV_PLAYERCTL_PAUSE)                
-
-
+                spotify_control( MPV_PLAYERCTL_PAUSE)
             elif self.state == "StatePreset3":
                 leds.turn_on_led("LEDPreset3")
                 mpd.play_preset("Preset3")
                 sound_player.play("Preset3")
-                #spotify_control(spotify_connect, "pause")
-                spotify_connect.playerctl_command(MPV_PLAYERCTL_PAUSE)
-
+                spotify_control( MPV_PLAYERCTL_PAUSE)
             elif self.state == "StateStop":
                 leds.turn_on_led_with_delay("LEDStop", 4)
                 mpd.pause()
-                #spotify_control(spotify_connect, "pause")
-                spotify_connect.playerctl_command(MPV_PLAYERCTL_PAUSE)                
+                spotify_control( MPV_PLAYERCTL_PAUSE)
                 sound_player.play("Stop")
      #           if Web_Service_Active:
     #              oradio_web_service.stop()# Stop Webservice When active 
@@ -165,9 +154,7 @@ class StateMachine:
                 leds.turn_on_led("LEDPlay")
                 sound_player.play("Spotify")
                 mpd.pause()
-                
-                #spotify_control(spotify_connect, "play")
-                spotify_connect.playerctl_command(MPV_PLAYERCTL_PLAY)                
+                spotify_control(MPV_PLAYERCTL_PLAY)
             
             elif self.state == "StatePlaySongWebIF":
                 leds.turn_on_led("LEDPlay")
@@ -262,25 +249,19 @@ class StateMachine:
 #------------------WRAPPER Spotify connect Classs--------------------------
 
 
-def spotify_control(spotify_connect, action: str):
+def spotify_control(action: str):
     """
     Controls Spotify playback by calling SpotifyConnect.playerctl_command() directly.
     
     :param spotify_connect: an instance of SpotifyConnect.
-    :param action: A string indicating the action to perform ("play", "pause", or "stop").
+    :param action: An action command for the spotify player: [MPV_PLAYERCTL_PLAY | 
+                                                              MPV_PLAYERCTL_PAUSE, 
+                                                              MPV_PLAYERCTL_STOP]
     """
-    command_map = {
-        "play": MPV_PLAYERCTL_PLAY,
-        "pause": MPV_PLAYERCTL_PAUSE,
-        "stop": MPV_PLAYERCTL_STOP
-    }
-    command = command_map.get(action.lower())
-    if command is None:
-        oradio_log.warning(f"Invalid Spotify action: {action}")
-        return
-    spotify_connect.playerctl_command(command)
-    
-
+    status = spotify_connect.playerctl_command(action)
+    if status == MPV_PLAYERCTL_COMMAND_NOT_FOUND:
+        oradio_log.warning(f"Spotify control status error = {status}")
+    return(status)
 
 #---------------------------Messages and Queue handling------------------
         
@@ -325,20 +306,22 @@ def process_messages(queue):
             },
             # Add more mappings as needed.
         }
-
+        status = "Message handled"
         command_type = message.get("type")
         state = message.get("state")
         error = message.get("error", None)
-        oradio_log.info(f"Received message from Queue: {message}")        
         if command_type not in handlers:
             oradio_log.debug(f"Unhandled message type: {message}")
-            return
+            status = "Unknown command_type"
+            return(status)
 
         # Process the normal state message, if a handler exists.
         if state in handlers[command_type]:
             handlers[command_type][state]()
         else:
             oradio_log.debug(f"Unhandled state '{state}' for message type '{command_type}'.")
+            status = "Unknown state"
+            return(status)
 
         # If an error is provided, handle it as if it were another state.
         if error == None:
@@ -349,7 +332,9 @@ def process_messages(queue):
                 handlers[command_type][error]()
             else:
                 oradio_log.debug(f"Unhandled error '{error}' for message type '{command_type}'.")
-
+                status = "Unhandled error"
+                return(status)
+        return(status)
 #     try:
 #         while True:
 #             message = queue.get()  # Blocks until a message is available
@@ -362,7 +347,8 @@ def process_messages(queue):
         try:
             message = queue.get()  # Blocks until a message is available
             oradio_log.debug(f"Received message in Queue: {message}")
-            handle_message(message)
+            status = handle_message(message)
+            oradio_log.debug(f"Message handler status: {status}")            
         except Exception as e:
             oradio_log.error(f"Error processing message {message}: {e}")
             # Optionally continue processing after logging the error.
@@ -498,8 +484,7 @@ state_machine = StateMachine()
 
 # Instantiate spotify
 spotify_connect = SpotifyConnect(shared_queue)
-spotify_connect.playerctl_command(MPV_PLAYERCTL_PAUSE)
-#spotify_control(spotify_connect, "pause")
+spotify_control(MPV_PLAYERCTL_PAUSE)
 
 
 #### Henk

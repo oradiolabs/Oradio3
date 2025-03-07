@@ -26,6 +26,7 @@ Created on Januari 17, 2025
 """
 import urllib.request
 import subprocess
+from subprocess import run
 from vcgencmd import Vcgencmd
 from pydantic import BaseModel, EmailStr, Field, create_model
 from typing import Dict, Any, Optional
