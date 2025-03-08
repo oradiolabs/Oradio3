@@ -268,33 +268,44 @@ class MPDControl:
         Get available playlists and directories
         Return case-insensitive sorted list
         """
+        # Initialize
+        lists = []
+
+        # Get playlists
         try:
             # Connect if not connected
             self._ensure_client()
 
-            # Initialize
-            lists = []
-
-            # Get playlists and directories; minimize lock to mpd interaction
+            # Get playlists
             with self.mpd_lock:
                 playlists = self.client.listplaylists()
-                directories = self.client.listfiles()
 
             # Parse playlists for name only
             for entry in playlists:
                 lists.append(entry["playlist"])
+
+        except Exception as ex_err:
+            oradio_log.error("Error getting lists: %s", ex_err)
+
+        # Get directories
+        try:
+            # Connect if not connected
+            self._ensure_client()
+
+            # Get directories
+            with self.mpd_lock:
+                directories = self.client.listfiles()
 
             # Parse directories for name only; only include if "directory" key exists
             for entry in directories:
                 if "directory" in entry:
                     lists.append(entry["directory"])
 
-            # Sort alphabetically, ignore case
-            return sorted(lists, key=str.casefold)
-
         except Exception as ex_err:
             oradio_log.error("Error getting lists: %s", ex_err)
-            return []
+
+        # Sort alphabetically, ignore case
+        return sorted(lists, key=str.casefold)
 
     def get_songs(self, list):
         """
