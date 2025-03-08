@@ -459,8 +459,8 @@ def update_spotify_connect_available():
     """
     if spotify_connect_connected.is_set() and spotify_connect_playing.is_set():
         spotify_connect_available.set()  # When this is the case, the ON button becomes Spotify Button
-#         if state_machine.state in ("StatePlay", "StateIdle", "StateStop", "StatePreset1", "StatePreset2", "StatePreset3"):# if Spotify connect is  avalaible 
-#             state_machine.transition("StateSpotifyConnect") # Switch to Spotify Connect
+        if state_machine.state in ("StatePlay", "StateIdle", "StateStop", "StatePreset1", "StatePreset2", "StatePreset3"):# if Spotify connect is  avalaible 
+             state_machine.transition("StateSpotifyConnect") # Switch to Spotify Connect
     else:
         spotify_connect_available.clear()
         if  state_machine.state == "StateSpotifyConnect": # if Spotify connect is not avalaible 

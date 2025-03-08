@@ -123,6 +123,7 @@ class SpotifyConnect():
                 self.queue_put_mesg["state"]    = self.state
                 self.queue_put_mesg["error"]    = message["error"]                            
                 self.queue_put_mesg["data"]     = []
+                oradio_log.debug(f"New message in queue={self.queue_put_mesg}")
                 self.msg_queue.put(self.queue_put_mesg)
         else:
             # if recv() returns an empty bytes object, b'', 
@@ -146,6 +147,41 @@ class SpotifyConnect():
                 callback = key.data
                 # the key holds the registered callback and socket
                 callback(key.fileobj)
+
+    def get_mpv_player(self):
+        
+        def get_mpris_players():
+            bus = dbus.SessionBus()  # Refresh the session bus
+            players = [service for service in bus.list_names() if service.startswith("org.mpris.MediaPlayer2.")]
+            return bus,players
+    
+        for i in range(5):  # Retry up to 5 times
+            bus, mpris_players = get_mpris_players()
+            oradio_log.info(f"Available MPRIS Players: {mpris_players}")            
+            if "org.mpris.MediaPlayer2.mpv" in mpris_players:
+                self.state = SPOTIFY_CONNECT_MPV_STATE_OK
+                self.bus = bus
+                break
+            time.sleep(1)  # Wait 1 second before retrying
+            if i==4:
+                self.state = SPOTIFY_CONNECT_MPV_SERVICE_NOT_ACTIVE
+                oradio_log.error("Too many SessionBus retries, mpv not registered at SessionBus")
+            # temporary solution: need to figure out why this register process for mpv-SessionBis take some time
+            # seems to be that time between activation of mpv and register to SessionBus may some "undefined" time
+
+        # Check if mpv is in the list
+        if MPRIS_MPV_PLAYER not in mpris_players:
+            oradio_log.error("mpv is not found in MPRIS players!")
+            self.state = SPOTIFY_CONNECT_MPV_MPRIS_PLAYER_NOT_FOUND
+            mpv_player = "None"
+            return(self.state)                   
+        else:
+            oradio_log.info("mpv is found in MPRIS players!")
+            self.state = SPOTIFY_CONNECT_MPV_STATE_OK         
+            # Get the mpv MPRIS2 interface
+            mpv_player = self.bus.get_object(MPRIS_MPV_PLAYER, MPRIS_MEDIA_PLAYER)
+        return(self.state, mpv_player)
+
 
     def __init__(self, msg_queue):
         '''
@@ -182,37 +218,8 @@ class SpotifyConnect():
         except Exception as err:
             oradio_log.error("Restart MPV service error =",err)
 
-        # Wait for mpv to register on D-Bus
-        def get_mpris_players():
-            bus = dbus.SessionBus()  # Refresh the session bus
-            players = [service for service in bus.list_names() if service.startswith("org.mpris.MediaPlayer2.")]
-            return bus,players
-
-        for i in range(5):  # Retry up to 5 times
-            bus, mpris_players = get_mpris_players()
-            oradio_log.info(f"Available MPRIS Players: {mpris_players}")            
-            if "org.mpris.MediaPlayer2.mpv" in mpris_players:
-                self.state = SPOTIFY_CONNECT_MPV_STATE_OK
-                self.bus = bus
-                break
-            time.sleep(1)  # Wait 1 second before retrying
-            if i==4:
-                self.state = SPOTIFY_CONNECT_MPV_SERVICE_NOT_ACTIVE
-                oradio_log.error("Too many SessionBus retries, mpv not registered at SessionBus")
-            # temporary solution: need to figure out why this register process for mpv-SessionBis take some time
-            # seems to be that time between activation of mpv and register to SessionBus may some "undefined" time
-
-    
-       # Check if mpv is in the list
-        if MPRIS_MPV_PLAYER not in mpris_players:
-            oradio_log.error("mpv is not found in MPRIS players!")
-            self.state = SPOTIFY_CONNECT_MPV_MPRIS_PLAYER_NOT_FOUND
-            return(self.state, player_iface)                   
-        else:
-            oradio_log.info("mpv is found in MPRIS players!")
-            self.state = SPOTIFY_CONNECT_MPV_STATE_OK         
-        # Get the mpv MPRIS2 interface
-        mpv_player = self.bus.get_object(MPRIS_MPV_PLAYER, MPRIS_MEDIA_PLAYER)
+        
+        self.state,mpv_player = self.get_mpv_player()
 
         self.spotify_app_status = SPOTIFY_APP_STATUS_DISCONNECTED
         
@@ -294,8 +301,8 @@ class SpotifyConnect():
         '''
         commands_list = [MPV_PLAYERCTL_PLAY, MPV_PLAYERCTL_PAUSE, MPV_PLAYERCTL_STOP]
         """Check if mpv is available on D-Bus."""
-        bus_list_names = self.bus.list_names()
-        print("bus list names =", bus_list_names)
+        state,mpv_player = self.get_mpv_player()
+        #bus_list_names = self.bus.list_names()
         player = self.bus.get_object("org.mpris.MediaPlayer2.mpv", "/org/mpris/MediaPlayer2")
         playback_status = self.get_playback_status()
 
