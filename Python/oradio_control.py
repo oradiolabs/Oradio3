@@ -317,7 +317,9 @@ def process_messages(queue):
 
         # Process the normal state message, if a handler exists.
         if state in handlers[command_type]:
+            oradio_log.debug(f"Current state =: {state_machine.state}")            
             handlers[command_type][state]()
+            oradio_log.debug(f"New state =: {state_machine.state}")            
         else:
             oradio_log.debug(f"Unhandled state '{state}' for message type '{command_type}'.")
             status = "Unknown state"
@@ -430,12 +432,14 @@ def on_spotify_connect_disconnected():
 
 # Both can switch the Oradio remotely, which is not in line with "in Control"
 def on_spotify_connect_playing():
+    spotify_connect_connected.set() # Signal that spotify_connected is active
     spotify_connect_playing.set()
     update_spotify_connect_available()
     spotify_connect.playerctl_command(MPV_PLAYERCTL_PLAY)    
     oradio_log.debug(f"Spotify playing is acknowledged")
     
 def on_spotify_connect_paused():
+    spotify_connect_connected.set() # Signal that spotify_connected is active    
     spotify_connect_playing.clear()
     update_spotify_connect_available()
     spotify_connect.playerctl_command(MPV_PLAYERCTL_PAUSE)    
