@@ -461,6 +461,13 @@ def update_spotify_connect_available():
     are set. Otherwise, clears spotify_connect_available.
     After execution, logs the state of all three events.
     """
+    '''
+    ===>> Henk Note; Use SpotifyConnect.get_state() method to get current playback status and connected state of spotify
+    '''
+    ################## example ############################
+    playback_status, connected_state = spotify_connect.get_state()
+    oradio_log.info(f"Status info from class: spotify playback status ={playback_status}, connected_state = {connected_state}")
+    ################################################################################################################
     if spotify_connect_connected.is_set() and spotify_connect_playing.is_set():
         spotify_connect_available.set()  # When this is the case, the ON button becomes Spotify Button
         if state_machine.state in ("StatePlay", "StateIdle", "StateStop", "StatePreset1", "StatePreset2", "StatePreset3"):# if Spotify connect is  avalaible 

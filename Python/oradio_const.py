@@ -138,6 +138,8 @@ SPOTIFY_CONNECT_MPV_SERVICE_IS_ACTIVE   = "Spotify Connect MPV service is active
 SPOTIFY_CONNECT_MPV_MPRIS_PLAYER_NOT_FOUND = "Spotify Connect MPV MPRIS player not found"
 SPOTIFY_CONNECT_MPV_STATE_OK               = "Spotify Connect MPV State OK"
 
+SPOTIFY_CONNECT_CONNECTED = "Spotify Connect is connected"
+SPOTIFY_CONNECT_NOT_CONNECTED = "Spotify Connect is NOT connected"
 ##### JSON SCHEMA ########
 MODEL_NAME_NOT_FOUND = "Unknown model name, not found in schemas.json"
 MODEL_NAME_FOUND     = "model name found"

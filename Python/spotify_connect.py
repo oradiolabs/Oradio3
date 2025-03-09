@@ -93,26 +93,37 @@ class SpotifyConnect():
             librespot_data = json.loads(rec_data.decode())  #
             oradio_log.info(f"Data received from socket {librespot_data}")
             librespot_event = librespot_data["player_event"]
+            if "client_id" in librespot_data:
+                librespot_client_id = librespot_data["client_id"]
+            else:
+                librespot_client_id = "None"
             message = {}
             match librespot_event:        
                 case 'playing':
                     message["state"] = SPOTIFY_CONNECT_PLAYING_EVENT
-                    self.spotify_app_status = SPOTIFY_APP_STATUS_PLAYING                   
+                    self.spotify_app_status = SPOTIFY_APP_STATUS_PLAYING
+                    self.spotify_connected_state = SPOTIFY_CONNECT_CONNECTED
+                    self.spotify_client_id = librespot_client_id                                    
                 case 'paused':
                     message["state"] = SPOTIFY_CONNECT_PAUSED_EVENT
                     self.spotify_app_status = SPOTIFY_APP_STATUS_PAUSED                    
+                    self.spotify_connected_state = SPOTIFY_CONNECT_CONNECTED
                 case 'stopped':
                     message["state"] = SPOTIFY_CONNECT_STOPPED_EVENT
                     self.spotify_app_status = SPOTIFY_APP_STATUS_STOPPED
                 case 'session_connected':
                     message["state"] = SPOTIFY_CONNECT_CONNECTED_EVENT
-                    self.spotify_app_status = SPOTIFY_APP_STATUS_CONNECTED                    
+                    self.spotify_app_status = SPOTIFY_APP_STATUS_CONNECTED
+                    self.spotify_connected_state = SPOTIFY_CONNECT_CONNECTED  
+                    self.spotify_client_id = librespot_client_id   
                 case 'session_disconnected':
                     message["state"] = SPOTIFY_CONNECT_DISCONNECTED_EVENT
                     self.spotify_app_status = SPOTIFY_APP_STATUS_DISCONNECTED
+                    self.spotify_connected_state = SPOTIFY_CONNECT_NOT_CONNECTED                    
                 case 'session_client_changed':
                     message["state"] = SPOTIFY_CONNECT_CLIENT_CHANGED_EVENT
-                    self.spotify_app_status = SPOTIFY_APP_STATUS_CLIENT_CHANGED             
+                    self.spotify_app_status = SPOTIFY_APP_STATUS_CLIENT_CHANGED
+                    self.spotify_client_id = librespot_client_id                
                 case _:
                     message["state"] = None
             if message["state"] != None:
@@ -223,6 +234,8 @@ class SpotifyConnect():
         state, mpv_player = self.get_mpv_player()
 
         self.spotify_app_status = SPOTIFY_APP_STATUS_DISCONNECTED
+        self.spotify_connected_state = SPOTIFY_CONNECT_NOT_CONNECTED
+        self.spotify_client_id = "None"
         
         if self.state == SPOTIFY_CONNECT_MPV_STATE_OK:
             status, player_iface = setup_dbus_interface_to_control_mpv_player(mpv_player)
@@ -261,14 +274,12 @@ class SpotifyConnect():
     def get_state(self):
         '''
         Return the actual state of the Spotify Connect servers and related events
-        :return self.state = current state = [  SPOTIFY_CONNECT_SERVERS_RUNNING |
-                                                SPOTIFY_CONNECT_SERVERS_NOT_RUNNING |
-                                                SPOTIFY_CONNECT_MPV_SERVICE_NOT_ACTIVE |
-                                                SPOTIFY_CONNECT_MPV_SERVICE_IS_ACTIVE |
-                                                SPOTIFY_CONNECT_MPV_MPRIS_PLAYER_NOT_FOUND |
-                                                SPOTIFY_CONNECT_MPV_STATE_OK ]  
+        :return spotify_app_status = [ SPOTIFY_APP_STATUS_PLAYING | SPOTIFY_APP_STATUS_STOPPED | SPOTIFY_APP_STATUS_PAUSED | 
+                                        SPOTIFY_APP_STATUS_DISCONNECTED | SPOTIFY_APP_STATUS_CONNECTED | SPOTIFY_APP_STATUS_CLIENT_CHANGED]
+        :return spotify_connected_state = [ SPOTIFY_CONNECT_CONNECTED | SPOTIFY_CONNECT_NOT_CONNECTED] 
         '''
-        return(self.state)
+        
+        return (self.spotify_app_status, self.spotify_connected_state)
 
     def get_playback_status(self):
         '''
@@ -785,6 +796,27 @@ if __name__ == "__main__":
         spot_con.shutdown_server()
         time.sleep(1)
         return
+
+    def spotify_get_status():
+        from threading import Event
+        msg_queue = Queue()        
+        spot_con = SpotifyConnect( msg_queue)
+        event = Event()
+                   
+        def show_status(event):
+            while event.is_set():
+                playback_status, connected_state = spot_con.get_state()        
+                print(f"Playback status={playback_status}, connected_state = {connected_state} ")
+                time.sleep(2)
+        event.set()     
+        get_status_thread = threading.Thread(target=show_status, args=(event,) )
+        get_status_thread.start()
+        stop = input("Press any key to stop monitoring")
+        event.clear()
+        get_status_thread.join()
+        spot_con.shutdown_server()             
+        return
+
 # Run the test function
 
                 
@@ -797,7 +829,8 @@ if __name__ == "__main__":
                        " 4-MPRIS player control test\n"                       
                        " 5-Simulate as Oradio_controls \n"
                        " 6-Playback control without Spotify App \n"
-                       " 7-Playback control with mpv control \n"                       
+                       " 7-Playback control with mpv control \n"    
+                       " 8-Get the status of Spotify_connect \n"                                          
                        "select: "
                        )
  
@@ -831,6 +864,9 @@ if __name__ == "__main__":
                 playback_control_without_spotify_app()
             case 7:
                 playback_control_with_mpv()
+            case 8:
+                spotify_get_status()
+
 
             case _:
                 print("\nPlease input a valid number\n")
