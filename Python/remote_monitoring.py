@@ -66,21 +66,23 @@ def get_temperature():
 
 def get_sw_version():
     """ Read the contents of the SW serial number file """
-    if os.path.exists(SW_LOG_FILE):
+    try:
         with open(SW_LOG_FILE, "r") as f:
             data = json.load(f)
         return data["serial"] + " (git tag: " + data["git-tag"] + ")"
-    else:
-        return f"SW version file '{SW_LOG_FILE}' does not exist"
+    except (FileNotFoundError, json.decoder.JSONDecodeError, KeyError):
+        oradio_log.error("'%s': Missing file or invalid content", SW_LOG_FILE)
+        return "Invalid SW version"
 
 def get_hw_version():
     """ Read the contents of the HW serial number file """
-    if os.path.exists(HW_LOG_FILE):
+    try:
         with open(HW_LOG_FILE, "r") as f:
             data = json.load(f)
         return data["serial"] + " (" + data["hw_detected"] + ")"
-    else:
-        return f"HW version file '{HW_LOG_FILE}' does not exist"
+    except (FileNotFoundError, json.decoder.JSONDecodeError, KeyError):
+        oradio_log.error("'%s': Missing file or invalid content", HW_LOG_FILE)
+        return "Invalid HW version"
 
 def get_python_version():
     """Get the current python version """
@@ -188,6 +190,8 @@ class rms_service():
                 # We cannot log as ERROR as this might cause a loop
                 oradio_log.info("\x1b[38;5;196mERROR: Unsupported message type: %s\x1b[0m", msg_type)
                 return
+
+            oradio_log.debug("Sending to ORMS: %s", msg_data)
 
             if not self.send_files:
                 # Send message
