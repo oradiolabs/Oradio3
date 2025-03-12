@@ -40,7 +40,17 @@ dpkg --verify mpd >/dev/null 2>&1 || sudo apt-get install -y mpd
 dpkg --verify mpc >/dev/null 2>&1 || sudo apt-get install -y mpc
 
 # Install the audio configuration
-sudo cp $SCRIPT_DIR/audio/asound.conf /etc/asound.conf
+SRC=$SCRIPT_DIR/audio/asound.conf
+DST=/etc/asound.conf
+if ! sudo diff $SRC $DST >/dev/null 2>&1; then
+
+	# Install the asound configuration
+	sudo cp $SRC $DST
+
+	# Reload ALSA to activate the changes
+	sudo systemctl restart alsa-restore
+
+fi
 
 # Configure mpd music library location
 SRC=$SCRIPT_DIR/audio/mpd.conf

@@ -39,6 +39,7 @@ echo "Install and configure volume"
 dpkg --verify libasound2-dev >/dev/null 2>&1 || sudo apt-get install -y libasound2-dev
 
 # Set volume to normal level
+#OMJ: Is het niet beter om dit commando bij de asound installatie in audio.sh te doen?
 amixer -c 0 cset name='Digital Playback Volume' 90
 
 # Check for Python environment
