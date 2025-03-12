@@ -11,9 +11,15 @@ Type=simple
 # Placeholders will be modified by ../autostart.sh script
 User=PLACEHOLDER_USER
 Group=PLACEHOLDER_GROUP
-WorkingDirectory=PLACEHOLDER_PATH
+WorkingDirectory=PLACEHOLDER_PYTHON_PATH
 Environment="DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/1000/bus"
-ExecStart=/home/PLACEHOLDER_USER/.venv/bin/python3 PLACEHOLDER_PATH/oradio_control.py
+
+#OMJ: Als traceback.log bestaat en niet leeg is moet traceback.log eerst naar ORMS verstuurd worden.
+#OMJ: Keuze maken: of traceback.log wissen bij elke keer opstarten, of logrotate op toepassen om niet te groot te laten worden
+#ExecStartPre=/bin/bash -c '/usr/bin/rm -f PLACEHOLDER_LOGGING_PATH/traceback.log'
+
+ExecStart=/home/PLACEHOLDER_USER/.venv/bin/python3 PLACEHOLDER_PYTHON_PATH/oradio_control.py
+StandardError=file:PLACEHOLDER_LOGGING_PATH/traceback.log
 RemainAfterExit=true
 Restart=always
 # Restart after 10 seconds

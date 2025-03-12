@@ -268,51 +268,59 @@ class MPDControl:
         Get available playlists and directories
         Return case-insensitive sorted list
         """
+        # Connect if not connected
+        self._ensure_client()
+
+        # Initialize
+        lists = []
+
+        # Get playlists
         try:
-            # Connect if not connected
-            self._ensure_client()
-
-            # Initialize
-            lists = []
-
-            # Get playlists and directories; minimize lock to mpd interaction
+            # Get playlists
             with self.mpd_lock:
                 playlists = self.client.listplaylists()
-                directories = self.client.listfiles()
 
             # Parse playlists for name only
             for entry in playlists:
                 lists.append(entry["playlist"])
+
+        except Exception as ex_err:
+            oradio_log.error("Error getting lists: %s", ex_err)
+
+        # Get directories
+        try:
+            # Get directories
+            with self.mpd_lock:
+                directories = self.client.listfiles()
 
             # Parse directories for name only; only include if "directory" key exists
             for entry in directories:
                 if "directory" in entry:
                     lists.append(entry["directory"])
 
-            # Sort alphabetically, ignore case
-            return sorted(lists, key=str.casefold)
-
         except Exception as ex_err:
             oradio_log.error("Error getting lists: %s", ex_err)
-            return []
+
+        # Sort alphabetically, ignore case
+        return sorted(lists, key=str.casefold)
 
     def get_songs(self, list):
         """
         List the songs in the list.
         Return [{file: ..., artist:..., title:...}, ...]
         """
-        try:
-            # Connect if not connected
-            self._ensure_client()
+        # Connect if not connected
+        self._ensure_client()
 
-            # Get playlists and directories; minimize lock to mpd interaction
+        # Initialize
+        songs = []
+        found = False
+
+        # Get playlist songs
+        try:
+            # Get playlists
             with self.mpd_lock:
                 playlists = self.client.listplaylists()
-                directories = self.client.listfiles()
-
-            # Initialize
-            songs = []
-            found = False
 
             # Check playlists
             for playlist in playlists:
@@ -327,6 +335,19 @@ class MPDControl:
                             'title': detail.get('title', 'Unknown title')
                         })
                     found = True
+
+            # Log error if list not found
+            if not found:
+                oradio_log.error("Unknown list: '%s'", list)
+
+        except Exception as ex_err:
+            oradio_log.error("Error getting songs for '%s': %s", list, ex_err)
+
+        # Get directory songs
+        try:
+            # Get directories
+            with self.mpd_lock:
+                directories = self.client.listfiles()
 
             # Check directories
             if not found:
@@ -348,12 +369,11 @@ class MPDControl:
             if not found:
                 oradio_log.error("Unknown list: '%s'", list)
 
-            # Sort songs by artist, ignoring case
-            return sorted(songs, key=lambda x: x['artist'].lower())
-
         except Exception as ex_err:
             oradio_log.error("Error getting songs for '%s': %s", list, ex_err)
-            return []
+
+        # Sort songs by artist, ignoring case
+        return sorted(songs, key=lambda x: x['artist'].lower())
 
     def search(self, pattern):
         """
