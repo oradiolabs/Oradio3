@@ -25,6 +25,8 @@ Created on Januari 17, 2025
         https://pypi.org/project/concurrent-log-handler/
 """
 import os
+import sys
+import faulthandler
 import logging as python_logging
 from logging import DEBUG, INFO, WARNING, ERROR
 import concurrent_log_handler
@@ -43,6 +45,9 @@ ORADIO_LOG_LEVEL    = DEBUG
 ORADIO_LOG_FILE     = ORADIO_LOG_DIR + '/oradio.log'    # Use absolute path to prevent file rotation trouble
 ORADIO_LOG_FILESIZE = 512 * 1024
 ORADIO_LOG_BACKUPS  = 2
+
+# Capture and print low-level crashes
+faulthandler.enable()
 
 class ColorFormatter(python_logging.Formatter):
     """ Use colors to differentiate the different log level messages """
@@ -95,11 +100,6 @@ oradio_log = python_logging.getLogger('oradio')
 # Set default log level
 oradio_log.setLevel(ORADIO_LOG_LEVEL)
 
-# create console handler with a higher log level
-console_handler = python_logging.StreamHandler()
-console_handler.setFormatter(ColorFormatter())
-oradio_log.addHandler(console_handler)
-
 # Rotate log after reaching file size, keep old copies
 file_handler = ConcurrentRotatingFileHandler(ORADIO_LOG_FILE, 'a+', ORADIO_LOG_FILESIZE, ORADIO_LOG_BACKUPS)
 file_handler.setFormatter(ColorFormatter())
@@ -110,11 +110,21 @@ oradio_log.addHandler(file_handler)
 remote_handler = RemoteMonitoringHandler()
 oradio_log.addHandler(remote_handler)
 
+# Create console handler only when running in a real terminal
+if sys.stderr.isatty():
+    console_handler = python_logging.StreamHandler()
+    console_handler.setFormatter(ColorFormatter())
+    oradio_log.addHandler(console_handler)
+
 # Convert loggers to use background thread
 setup_logging_queues()
 
 # Entry point for stand-alone operation
 if __name__ == '__main__':
+
+    # import when running stand-alone
+    from threading import Thread
+    from multiprocessing import Process
 
     print(f"\nSystem logging level: {ORADIO_LOG_LEVEL}\n")
 
@@ -125,6 +135,9 @@ if __name__ == '__main__':
                        " 2-Test log level INFO\n"
                        " 3-Test log level WARNING\n"
                        " 4-Test log level ERROR\n"
+                       " 5-Test unhandled exceptions in Process and Thread\n"
+                       " 6-Test unhandled exception in current thread: will exit\n"
+                       " 7-Test segment fault: will exit\n"
                        "select: "
                        )
 
@@ -169,5 +182,21 @@ if __name__ == '__main__':
                 oradio_log.info('This is a info message')
                 oradio_log.warning('This is a warning message')
                 oradio_log.error('This is a error message')
+            case 5:
+                def generate_process_exception():
+                    print(10 + 'hello: Process')
+                print(f"\nGenerate unhandled exception in Process:\n")
+                Process(target=generate_process_exception).start()
+                def generate_thread_exception():
+                    print(10 + 'hello: Thread')
+                print(f"\nGenerate unhandled exception in Thread:\n")
+                Thread(target=generate_thread_exception).start()
+            case 6:
+                print(f"\nGenerate unhandled exception in current thread:\n")
+                print(10 + 'hello: current thread')
+
+            case 7:
+                print(f"\nGenerate segmentation fault:\n")
+                import ctypes; ctypes.string_at(0)
             case _:
                 print("\nPlease input a valid number\n")

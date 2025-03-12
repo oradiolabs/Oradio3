@@ -42,7 +42,9 @@ cp $SRC.template $SRC
 sed -i "s/PLACEHOLDER_USER/$(id -un)/g" $SRC
 sed -i "s/PLACEHOLDER_GROUP/$(id -gn)/g" $SRC
 replace=`echo $(realpath "$SCRIPT_DIR/../Python") | sed 's/\//\\\\\//g'`
-sed -i "s/PLACEHOLDER_PATH/$replace/g" $SRC
+sed -i "s/PLACEHOLDER_PYTHON_PATH/$replace/g" $SRC
+replace=`echo $(realpath "$SCRIPT_DIR/../logging") | sed 's/\//\\\\\//g'`
+sed -i "s/PLACEHOLDER_LOGGING_PATH/$replace/g" $SRC
 
 if ! sudo diff $SRC $DST >/dev/null 2>&1; then
 
