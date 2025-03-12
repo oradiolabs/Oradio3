@@ -30,7 +30,8 @@ from multiprocessing import Queue
 import subprocess
 import os
 
-import dbus
+#OMJ: Tijdelijk zonder knoppen
+#import dbus
 ##### oradio modules ####################
 from oradio_logging import oradio_log
 from volume_control import VolumeControl
@@ -55,7 +56,8 @@ remote_monitor.heartbeat_start()
 
 #--------- Spotify test part
 #----------Reservation------------
-from spotify_connect import SpotifyConnect
+#OMJ: Tijdelijk zonder knoppen
+#from spotify_connect import SpotifyConnect
 
 spotify_connect_connected = threading.Event() # track status Spotify connected
 spotify_connect_playing = threading.Event() # track Spotify playing
@@ -258,6 +260,9 @@ def spotify_control(action: str):
                                                               MPV_PLAYERCTL_PAUSE, 
                                                               MPV_PLAYERCTL_STOP]
     """
+    #OMJ: Tijdelijk zonder knoppen
+    return(MPV_PLAYERCTL_STOP)
+
     status = spotify_connect.playerctl_command(action)
     if status == MPV_PLAYERCTL_COMMAND_NOT_FOUND:
         oradio_log.warning(f"Spotify control status error = {status}")
@@ -494,7 +499,8 @@ threading.Thread(target=process_messages, args=(shared_queue,), daemon=True).sta
 state_machine = StateMachine()
 
 # Instantiate spotify
-spotify_connect = SpotifyConnect(shared_queue)
+#OMJ: Tijdelijk zonder knoppen
+#spotify_connect = SpotifyConnect(shared_queue)
 spotify_control(MPV_PLAYERCTL_PAUSE)
 
 

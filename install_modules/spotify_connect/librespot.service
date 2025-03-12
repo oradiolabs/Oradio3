@@ -13,12 +13,15 @@ Environment="LIBRESPOT_SYSTEM_CACHE=/home/pi/Oradio3"
 Environment="LIBRESPOT_BACKEND=alsa"
 Environment="LIBRESPOT_NAME=Oradio"
 Environment="LIBRESPOT_VERBOSE="
-Environment="LIBRESPOT_ONEVENT=/home/pi/Oradio3/Python/librespot_event_handler.py"
+#Environment="LIBRESPOT_ONEVENT=/home/pi/Oradio3/Python/librespot_event_handler.py"
 Environment="LIBRESPOT_DEVICE_TYPE=avr"
 
 # Set volume before starting Librespot
-ExecStartPre=/usr/bin/amixer -c 0 cset name='Digital Playback Volume' 90
-ExecStart=/usr/bin/librespot --bitrate 320 --backend pipe --device /home/pi/spotify/librespot-pipe
+#OMJ: Is dit gerelateerd aan regel 7: LIBRESPOT_INITIAL_VOLUME=100 ?
+#OMJ: Tijdens 1e keer installeren is audio nog niet geïnstalleerd, dus crasht amixer commando
+#ExecStartPre=/usr/bin/amixer -c 0 cset name='Digital Playback Volume' 90
+#ExecStart=/usr/bin/librespot --bitrate 320 --backend pipe --device /home/pi/spotify/librespot-pipe
+ExecStart=/usr/bin/librespot --bitrate 320
 
 Restart=always
 User=pi

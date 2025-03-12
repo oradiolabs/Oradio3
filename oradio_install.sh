@@ -38,11 +38,11 @@ ORADIO_MODULES=(
 	"i2c"			# Requires on python
 	"hw_version"	# depends on python
 	"logging"		# Depends on python
-	"spotify_connect"
+	"backlighting"	# Depends on python
 	"usb_service"	# Depends on network and python
 	"audio"			# Depends on usb_service and python
 	"volume"		# Depends on audio and python
-	"backlighting"	# Depends on python
+	"spotify_connect"
 	"web_service"	# Depends on network and python
 	"sw_version"
 	"autostart"		# Must be last

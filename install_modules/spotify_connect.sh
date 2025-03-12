@@ -50,6 +50,10 @@ echo "==> stop/disable raspotify service, we only need librespot"
 sudo systemctl stop raspotify
 sudo systemctl disable raspotify
 
+#OMJ: Vanwege problemen bij de integratie van gebruik vna de Oradio knoppen draaien we in eerste instatie alleen de Librespot service
+#OMJ: Start comment-out 1
+if false; then
+
 echo "install the latest version librespot from github repo"
 #OMJ: door optie '--use-pep517' toe te voegen addresseer je een deprecated message
 #python -m pip install git+https://github.com/kokarare1212/librespot-python
@@ -82,8 +86,17 @@ echo "activate virtual machine again"
 #OMJ: pas op met absolute paden
 #source /home/pi/.venv/bin/activate
 source $HOME/.venv/bin/activate
+
+fi
+#OMJ: Einde comment-out 1
+
 echo "copy the librespot service to /etc/systemd/system"
-sudo cp $INSTALL_DIR/spotify_connect/librespot.service /etc/systemd/system
+#sudo cp $INSTALL_DIR/spotify_connect/librespot.service /etc/systemd/system
+sudo cp $SCRIPT_DIR/spotify_connect/librespot.service /etc/systemd/system
+
+#OMJ: Start comment-out 2
+if false; then
+
 echo "copy the configuration file mpv.conf to /etc/mpv"
 sudo cp $INSTALL_DIR/spotify_connect/mpv.conf /etc/mpv/mpv.conf
 sudo cp $INSTALL_DIR/spotify_connect/mpv.service /etc/systemd/system
@@ -121,6 +134,9 @@ then
     echo -e "${RED}avahi-daemon still not active${NC}"
     return
 fi
+
+fi
+#OMJ: Einde comment-out 2
 
 echo "enable and start the librespot service"
 sudo systemctl enable librespot
