@@ -1,0 +1,22 @@
+# https://manpages.debian.org/testing/systemd/systemd.service.5.en.html
+# Placeholders will be modified by ../autostart.sh script
+
+[Unit]
+Description=Automatic Mount/Unmount USB Drive on %i
+
+[Service]
+# Controls where file descriptor 1 (stdout) and 2 (stderr) of the executed processes is connected to
+StandardOutput=append:PLACEHOLDER_LOGFILE_USB
+StandardError=append:PLACEHOLDER_LOGFILE_USB
+
+# Type=oneshot blocks on a start operation until the first process exits, and its state will be reported as "activating"
+Type=oneshot
+
+# Type=oneshot may have any number (0 or more) of ExecStart= directives which will be executed sequentially (waiting for each started process to exit before starting the next one)
+ExecStart=/usr/local/bin/usb-mount.sh add %i
+
+# Type=oneshot may leave out ExecStart= but have ExecStop= (useful together with RemainAfterExit=true for arranging things to run on system shutdown)
+ExecStop=/usr/local/bin/usb-mount.sh remove %i
+
+# Type=oneshot once the first process exits, transitions from "activating" straight to "inactive", unless RemainAfterExit=true is set (in which case it becomes "active" with no processes!)
+RemainAfterExit=true

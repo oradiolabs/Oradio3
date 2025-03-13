@@ -15,37 +15,20 @@ PARTITION="/dev/${DEVBASE}"		# Location of the USB partition to mount
 
 # Placeholders will be modified by ../usb.sh script
 MOUNT_POINT="PLACEHOLDER_MOUNT_POINT"	# Location where USB is mounted
-LOGFILE="PLACEHOLDER_LOGFILE"			# Location log info
 MONITOR="PLACEHOLDER_MONITOR"			# File used to monitor if USB is mounted/unmounted
-USER="PLACEHOLDER_USER"					# Logfile user
-GROUP="PLACEHOLDER_GROUP"				# Logfile group
-
-# Ensure directory for logfile does exists
-LOGDIR=$(/usr/bin/dirname "${LOGFILE}")
-if [ ! -f $LOGDIR ]; then
-	/usr/bin/mkdir -p "${LOGDIR}"
-	/usr/bin/chown $USER:$GROUP $LOGDIR
-fi
-
-# Create log file if it does not yet exist
-if [ ! -f $LOGFILE ]; then
-	/usr/bin/touch $LOGFILE
-	/usr/bin/chown $USER:$GROUP $LOGFILE
-fi
-echo "Check '$LOGFILE' for success, warning and error messages"
 
 # Mount the USB partition
 do_mount()
 {
 	# Skip if device not found
 	if [ ! -b $PARTITION ]; then
-		echo "$(date): Warning: ${PARTITION} not found" >> $LOGFILE
+		echo "$(date): Warning: ${PARTITION} not found"
 		exit 1
 	fi
 
 	# Skip if already mounted. Should not happen, therefore the warning
 	if /usr/bin/mountpoint $MOUNT_POINT > /dev/null 2>&1; then
-		echo "$(date): Warning: ${PARTITION} is already mounted at ${MOUNT_POINT}" >> $LOGFILE
+		echo "$(date): Warning: ${PARTITION} is already mounted at ${MOUNT_POINT}"
 		exit 1
 	fi
 
@@ -54,7 +37,7 @@ do_mount()
 
 	# Skip if partition label is not 
 	if [ "$LABEL" != $VALIDLABEL ]; then
-		echo "$(date): Warning: Label '$LABEL' of '$PARTITION' does not match '$VALIDLABEL'" >> $LOGFILE
+		echo "$(date): Warning: Label '$LABEL' of '$PARTITION' does not match '$VALIDLABEL'"
 		exit 1
 	fi
 
@@ -66,7 +49,7 @@ do_mount()
 
 	# Try to mount the partition
 	if ! /bin/mount -o $OPTS $PARTITION $MOUNT_POINT; then
-		echo "$(date): Error: Mounting '$PARTITION' (status = $?)" >> $LOGFILE
+		echo "$(date): Error: Mounting '$PARTITION' (status = $?)"
 		# Cleanup mount point
 		/bin/rm -f $MOUNT_POINT
 		exit 1
@@ -75,7 +58,7 @@ do_mount()
 	# Mount succesful: Create the flag triggering the Python watchdog 
 	/bin/touch $MONITOR
 
-	echo "$(date): Success: Mounted '$PARTITION' at '$MOUNT_POINT'" >> $LOGFILE
+	echo "$(date): Success: Mounted '$PARTITION' at '$MOUNT_POINT'"
 }
 
 # Unmount the USB partition
@@ -83,13 +66,13 @@ do_unmount()
 {
 	# Skip if not mounted. Should not happen, therefore the warning
 	if [ ! -d $MOUNT_POINT ]; then
-		echo "$(date): Warning: '$PARTITION' is not mounted" >> $LOGFILE
+		echo "$(date): Warning: '$PARTITION' is not mounted"
 		exit 1
 	fi
 
 	# Try to unmount the partition
 	if ! /bin/umount -l $PARTITION; then
-		echo "$(date): Error: Unmounting '$PARTITION' (status = $?)" >> $LOGFILE
+		echo "$(date): Error: Unmounting '$PARTITION' (status = $?)"
 		exit 1
 	fi
 
@@ -99,7 +82,7 @@ do_unmount()
 	# Delete the flag triggering the Python watchdog 
 	/bin/rm -f $MONITOR
 
-	echo "$(date): Success: Unmounted '$PARTITION'" >> $LOGFILE
+	echo "$(date): Success: Unmounted '$PARTITION'"
 }
 
 case "${ACTION}" in

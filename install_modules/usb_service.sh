@@ -35,8 +35,12 @@ source $SCRIPT_DIR/constants.sh
 # Notify entering module installation script
 echo "Load and configure USB functionalty"
 
+#OMJ: Hoort bij logging.sh acties
+# Create log directory
+mkdir -p "$SCRIPT_DIR/../$LOG_DIR"
+
 # Get absolute path to USB logfile
-USB_LOGFILE=$(realpath "$SCRIPT_DIR/../$LOG_DIR/")$USB_LOGFILE
+LOGFILE_USB=$(realpath "$SCRIPT_DIR/../$LOG_DIR/oradio_usb.log")
 
 # Configure the USB mount script
 SRC=$SCRIPT_DIR/usb/usb-mount.sh
@@ -47,15 +51,12 @@ sed -i "s/PLACEHOLDER_MOUNT_POINT/$replace/g" $SRC
 replace=`echo $USB_MONITOR | sed 's/\//\\\\\//g'`
 sed -i "s/PLACEHOLDER_MONITOR/$replace/g" $SRC
 
-# Get absolute path to USB logfile
-replace=`echo $USB_LOGFILE | sed 's/\//\\\\\//g'`
-sed -i "s/PLACEHOLDER_LOGFILE/$replace/g" $SRC
-sed -i "s/PLACEHOLDER_USER/$(id -un)/g" $SRC
-sed -i "s/PLACEHOLDER_GROUP/$(id -gn)/g" $SRC
-
-# Install the USB mount script
-sudo cp $SRC $DST
-sudo chmod +x $DST
+# Install script if new or changed
+if ! sudo diff $SRC $DST >/dev/null 2>&1; then
+	# Install the USB mount script
+	sudo cp $SRC $DST
+	sudo chmod +x $DST
+fi
 
 # Mount USB if present but not mounted
 if [ ! -f $USB_MONITOR ]; then
@@ -68,39 +69,52 @@ if [ ! -f $USB_MONITOR ]; then
 fi
 
 # Check for USB mount errors and/or warnings
-if [ -f $USB_LOGFILE ]; then
-	cat $USB_LOGFILE | grep "Error\|Warning"
+if [ -f $LOGFILE_USB ]; then
+	MESSAGE_USB=$(cat $LOGFILE_USB | grep "Error")
+	if [ $? -eq 0 ]; then
+		echo -e "${RED}Problem mounting USB: $MESSAGE_USB${NC}"
+	fi
+	MESSAGE_USB=$(cat $LOGFILE_USB | grep "Warning")
+	if [ $? -eq 0 ]; then
+		echo -e "${YELLOW}Problem mounting USB: $MESSAGE_USB${NC}"
+	fi
 fi
 
+#OMJ: Er zijn meer logfiles die rotated moeten worden: consolideren
 # Setup log file rotation to limit logfile size
 SRC=$SCRIPT_DIR/usb/logrotate.conf
-DST=/etc/logrotate.d/oradio
+DST=/etc/logrotate.d/usb
 cp $SRC.template $SRC
-# Get absolute path to USB logfile
-replace=`echo $USB_LOGFILE | sed 's/\//\\\\\//g'`
-sed -i "s/PLACEHOLDER_LOGFILE/$replace/g" $SRC
-
+replace=`echo $LOGFILE_USB | sed 's/\//\\\\\//g'`
+sed -i "s/PLACEHOLDER_LOGFILE_USB/$replace/g" $SRC
 if ! sudo diff $SRC $DST >/dev/null 2>&1; then
-	# Install the oradio logrotate configiguration file
+	# Install the oradio logrotate configuration file
 	sudo cp $SRC $DST
 fi
 
 # Configure the USB service
 SRC=$SCRIPT_DIR/usb/usb-mount@.service
 DST=/etc/systemd/system/usb-mount@.service
+cp $SRC.template $SRC
+replace=`echo $LOGFILE_USB | sed 's/\//\\\\\//g'`
+sed -i "s/PLACEHOLDER_LOGFILE_USB/$replace/g" $SRC
+
+# Install service if new or changed
 if ! sudo diff $SRC $DST >/dev/null 2>&1; then
 	# The script is called by a systemd unit file. The "@" filename syntax allows passing the device name as an argument
 	sudo cp $SRC $DST
-
-	# To be safe, rerun all generators, reload all unit files, and recreate the entire dependency tree
-	sudo systemctl daemon-reload
 fi
 
-# udev rules start and stop the systemd unit service on hotplug/unplug
-sudo cp $SCRIPT_DIR/usb/99-local.rules /etc/udev/rules.d/
+# Install rules if new or changed
+SRC=$SCRIPT_DIR/usb/99-local.rules
+DST=/etc/udev/rules.d/99-local.rules
+if ! sudo diff $SRC $DST >/dev/null 2>&1; then
+	# (Re)Install udev rules to trigger the systemd unit service on USB hotplug/unplug
+	sudo cp $SCRIPT_DIR/usb/99-local.rules /etc/udev/rules.d/
 
-# Reload to activate
-sudo udevadm control --reload-rules
+	# Reload to activate
+	sudo udevadm control --reload-rules
+fi
 
 # Check for Python environment
 if [ -v $VIRTUAL_ENV ]; then
