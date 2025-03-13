@@ -1,14 +1,15 @@
 #!/bin/bash
 
+# Placeholders will be modified by ../spotify_connect.sh script
+
 # File paths for flags
-ACTIVE_FLAG_FILE="/home/pi/Oradio3/Spotify/spotactive.flag"
-PLAYING_FLAG_FILE="/home/pi/Oradio3/Spotify/spotplaying.flag"
-LOG_FILE="/home/pi/Oradio3/logging/spotify_event.log"
+ACTIVE_FLAG_FILE="PLACEHOLDER_SPOTIFY_DIR/spotactive.flag"
+PLAYING_FLAG_FILE="PLACEHOLDER_SPOTIFY_DIR/spotplaying.flag"
 
 # Function to log events
 log_event() {
     local message="$1"
-    echo "$(date +'%Y-%m-%d %H:%M:%S') $message" >> $LOG_FILE
+    echo "$(date +'%Y-%m-%d %H:%M:%S') $message" >> PLACEHOLDER_LOGFILE_SPOTIFY
 }
 
 # Function to set a flag

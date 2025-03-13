@@ -22,8 +22,6 @@ if [ ! "$BASH_VERSION" ] || [ ! "$0" == "-bash" ]; then
 	return 1
 fi
 
-
-
 # In case the script is executed stand-alone
 SCRIPT_DIR=$( cd -- "$( dirname -- "${BASH_SOURCE[0]}" )" &> /dev/null && pwd )
 
@@ -37,130 +35,152 @@ source $SCRIPT_DIR/constants.sh
 # Notify entering module installation script
 echo "Load and configure spotify connect functionalty"
 
-########## Get packages and python modules for spotify connect ##########
-#OMJ: git is al aanwezig als je source <(curl https://oradiolabs.nl.Oradio3/install) gedraaid hebt
-echo "install git"
-sudo apt install -y git
+# Create Spotify directory
+SPOTIFY_DIR=$(realpath "$SCRIPT_DIR/../Spotify")
+mkdir -p $SPOTIFY_DIR
 
-######### librespot() ####################################################
-echo "install raspotify which also install the librespot"
-#OMJ: curl is standaard aanwezig in Bookworm 64bit Lite image
-sudo apt-get -y install curl && curl -sL https://dtcooper.github.io/raspotify/install.sh | sh
-echo "==> stop/disable raspotify service, we only need librespot"
+# Get absolute path to USB logfile
+LOGFILE_SPOTIFY=$(realpath "$SCRIPT_DIR/../$LOG_DIR/oradio_spotify.log")
+
+# Configure the Spotify script
+SRC=$SCRIPT_DIR/spotify_connect/spotify_event_handler.sh
+DST=/usr/local/bin/spotify_event_handler.sh
+cp $SRC.template $SRC
+replace=`echo $SPOTIFY_DIR | sed 's/\//\\\\\//g'`
+sed -i "s/PLACEHOLDER_SPOTIFY_DIR/$replace/g" $SRC
+replace=`echo $LOGFILE_SPOTIFY | sed 's/\//\\\\\//g'`
+sed -i "s/PLACEHOLDER_LOGFILE_SPOTIFY/$replace/g" $SRC
+if ! sudo diff $SRC $DST >/dev/null 2>&1; then
+	# Install the USB mount script
+	sudo cp $SRC $DST
+	sudo chmod +x $DST
+fi
+
+#OMJ: Is er een manier om te checken of de laatste versie van librespot al geinstalleerd is?
+# Install raspotify which also install the librespot
+curl -sL https://dtcooper.github.io/raspotify/install.sh | sh
+
+# stop and disable raspotify service, we only need librespot
 sudo systemctl stop raspotify
 sudo systemctl disable raspotify
 
 #OMJ: Vanwege problemen bij de integratie van gebruik vna de Oradio knoppen draaien we in eerste instatie alleen de Librespot service
-#OMJ: Start comment-out 1
+#OMJ: Start comment-out
 if false; then
 
-echo "install the latest version librespot from github repo"
-#OMJ: door optie '--use-pep517' toe te voegen addresseer je een deprecated message
-#python -m pip install git+https://github.com/kokarare1212/librespot-python
-python -m pip install git+https://github.com/kokarare1212/librespot-python --use-pep517
+	echo "install the latest version librespot from github repo"
+	#OMJ: door optie '--use-pep517' toe te voegen addresseer je een deprecated message
+	#python -m pip install git+https://github.com/kokarare1212/librespot-python
+	python -m pip install git+https://github.com/kokarare1212/librespot-python --use-pep517
 
-echo "install avahi-browse tool"
-sudo apt -y install avahi-utils
+	echo "install avahi-browse tool"
+	sudo apt -y install avahi-utils
 
-echo "install pydantic"
-# pydantic wordt ook geinstalleerd in web_service. Dat lost zich vanzelf op als we de install scripts consolideren, issue #101
-python -m pip install pydantic
+	echo "install pydantic"
+	# pydantic wordt ook geinstalleerd in web_service. Dat lost zich vanzelf op als we de install scripts consolideren, issue #101
+	python -m pip install pydantic
 
-echo "install mpv and its libraries"
-python -m pip install mpv
-sudo apt -y install mpv libmpv-dev python3-mpv mpv-mpris
+	echo "install mpv and its libraries"
+	python -m pip install mpv
+	sudo apt -y install mpv libmpv-dev python3-mpv mpv-mpris
 
-echo "install dbus-python"
-python -m pip install dbus-python
+	echo "install dbus-python"
+	python -m pip install dbus-python
 
-# also install pydantic in non-venv environment
-echo "deactivate current virtual machine"
+	# also install pydantic in non-venv environment
+	echo "deactivate current virtual machine"
 
-#OMJ: pas op met absolute paden
-#INSTALL_DIR='/home/pi/Oradio3/install_modules'
-INSTALL_DIR=$SCRIPT_DIR
+	deactivate
+	sudo python -m pip install --break-system-packages pydantic
+	echo "activate virtual machine again"
+	#OMJ: pas op met absolute paden
+	#source /home/pi/.venv/bin/activate
+	source $HOME/.venv/bin/activate
 
-deactivate
-sudo python -m pip install --break-system-packages pydantic
-echo "activate virtual machine again"
-#OMJ: pas op met absolute paden
-#source /home/pi/.venv/bin/activate
-source $HOME/.venv/bin/activate
+	echo "copy the configuration file mpv.conf to /etc/mpv"
+	sudo cp $SCRIPT_DIR/spotify_connect/mpv.conf /etc/mpv/mpv.conf
+	sudo cp $SCRIPT_DIR/spotify_connect/mpv.service /etc/systemd/system
+	sudo systemctl enable mpv.service
+	sudo systemctl start mpv.service
+	echo "create a audio pipe between librespot and mpv player"
+	#OMJ: pas op met absolute paden
+	#SPOTIFY_DIR="/home/pi/spotify"
+	#SPOTIFY_PIPE="/home/pi/spotify/librespot-pipe"
+	SPOTIFY_DIR=$HOME"/spotify"
+	SPOTIFY_PIPE=$HOME"/spotify/librespot-pipe"
+	if ! [ -d "$SPOTIFY_DIR" ];
+	then
+		mkdir $SPOTIFY_DIR
+	fi
+	if ! [[] -e "$SPOTIFY_PIPE" ];
+	then
+		mkfifo $SPOTIFY_PIPE
+		chmod 666 $SPOTIFY_PIPE
+	fi
+	# take care that librespot_event_handler.py has execute rights
+	#OMJ: pas op met absolute paden
+	chmod +x $SCRIPT_DIR/../Python/librespot_event_handler.py
+	if systemctl is-active -q avahi-daemon.service;
+	then
+		echo "avahi-daemon.service is active"
+		echo -e "${GREEN}avahi-daemon service is active${NC} "	
+	else
+		echo "start the avahi-daemon"
+		sudo systemctl start avahi-daemon
+	fi
+
+	if ! systemctl is-active -q avahi-daemon.service;
+	then
+		echo -e "${RED}avahi-daemon still not active${NC}"
+		return
+	fi
 
 fi
-#OMJ: Einde comment-out 1
+#OMJ: Einde comment-out
 
-echo "copy the librespot service to /etc/systemd/system"
-#sudo cp $INSTALL_DIR/spotify_connect/librespot.service /etc/systemd/system
-sudo cp $SCRIPT_DIR/spotify_connect/librespot.service /etc/systemd/system
+# Configure the Librespot service
+SRC=$SCRIPT_DIR/spotify_connect/librespot.service
+DST=/etc/systemd/system/librespot.service
+cp $SRC.template $SRC
+replace=`echo $SPOTIFY_DIR | sed 's/\//\\\\\//g'`
+sed -i "s/PLACEHOLDER_SPOTIFY_DIR/$replace/g" $SRC
+replace=`echo $LOGFILE_SPOTIFY | sed 's/\//\\\\\//g'`
+sed -i "s/PLACEHOLDER_LOGFILE_SPOTIFY/$replace/g" $SRC
+sed -i "s/PLACEHOLDER_USER/$(id -un)/g" $SRC
+sed -i "s/PLACEHOLDER_GROUP/$(id -gn)/g" $SRC
 
-#OMJ: Start comment-out 2
-if false; then
+# Install service if new or changed
+if ! sudo diff $SRC $DST >/dev/null 2>&1; then
 
-echo "copy the configuration file mpv.conf to /etc/mpv"
-sudo cp $INSTALL_DIR/spotify_connect/mpv.conf /etc/mpv/mpv.conf
-sudo cp $INSTALL_DIR/spotify_connect/mpv.service /etc/systemd/system
-sudo systemctl enable mpv.service
-sudo systemctl start mpv.service
-echo "create a audio pipe between librespot and mpv player"
-#OMJ: pas op met absolute paden
-#SPOTIFY_DIR="/home/pi/spotify"
-#SPOTIFY_PIPE="/home/pi/spotify/librespot-pipe"
-SPOTIFY_DIR=$HOME"/spotify"
-SPOTIFY_PIPE=$HOME"/spotify/librespot-pipe"
-if ! [ -d "$SPOTIFY_DIR" ];
-then
-	mkdir $SPOTIFY_DIR
-fi
-if ! [[] -e "$SPOTIFY_PIPE" ];
-then
-	mkfifo $SPOTIFY_PIPE
-	chmod 666 $SPOTIFY_PIPE
-fi
-# take care that librespot_event_handler.py has execute rights
-#OMJ: pas op met absolute paden
-chmod +x $SCRIPT_DIR/../Python/librespot_event_handler.py
-if systemctl is-active -q avahi-daemon.service;
-then
-	echo "avahi-daemon.service is active"
-    echo -e "${GREEN}avahi-daemon service is active${NC} "	
-else
-	echo "start the avahi-daemon"
-	sudo systemctl start avahi-daemon
+	# Install the service
+	sudo cp $SRC $DST
+
+	# Set service to start at boot
+	sudo systemctl enable autostart.service
+
+	# To be safe, rerun all generators, reload all unit files, and recreate the entire dependency tree
+	sudo systemctl daemon-reload
+
+	# Start the service
+	sudo systemctl restart librespot
 fi
 
-if ! systemctl is-active -q avahi-daemon.service;
-then
-    echo -e "${RED}avahi-daemon still not active${NC}"
+if ! systemctl is-active -q librespot.service; then
+    echo -e "${RED}Librespot service is not active${NC}"
     return
 fi
 
+#OMJ: Er zijn meer logfiles die rotated moeten worden: consolideren
+# Setup log file rotation to limit logfile size
+SRC=$SCRIPT_DIR/spotify_connect/logrotate.conf
+DST=/etc/logrotate.d/spotify
+cp $SRC.template $SRC
+replace=`echo $LOGFILE_SPOTIFY | sed 's/\//\\\\\//g'`
+sed -i "s/PLACEHOLDER_LOGFILE_SPOTIFY/$replace/g" $SRC
+if ! sudo diff $SRC $DST >/dev/null 2>&1; then
+	# Install the oradio logrotate configuration file
+	sudo cp $SRC $DST
 fi
-#OMJ: Einde comment-out 2
-
-echo "enable and start the librespot service"
-sudo systemctl enable librespot
-sudo systemctl restart librespot
-
-if systemctl is-active -q librespot.service;
-then
-	echo "librespot.service is active"
-    echo -e "${GREEN}Librespot service is active${NC} "	
-else
-	echo "librespot.service is not active"
-    echo -e "${RED}Librespot service is not active${NC}"
-    return	
-fi
-
-## check if asound.conf contains the correct spotify audio device ####
-#echo "check asound.conf for Spotify Sound Device"
-#if ! grep -q "$SPOTIFY_SOUND_DEVICE" /etc/asound.conf;
-#then
-#     echo -e "${RED}The asound.conf has no audio device $SPOTIFY_SOUND_DEVICE for Spotify Connect${NC} "
-#     return
-#fi
-
-############################ end ######################################################################
 
 # Notify leaving module installation script
 echo -e "${GREEN}Spotify connect functionality is loaded and configured${NC}"
