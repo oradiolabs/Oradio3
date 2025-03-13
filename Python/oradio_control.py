@@ -30,8 +30,7 @@ from multiprocessing import Queue
 import subprocess
 import os
 
-#OMJ: Tijdelijk zonder knoppen
-#import dbus
+
 ##### oradio modules ####################
 from oradio_logging import oradio_log
 from volume_control import VolumeControl
@@ -54,10 +53,9 @@ remote_monitor.send_sys_info()
 # Send heartbeat every hour to Remote Monitoring Service
 remote_monitor.heartbeat_start()
 
-#--------- Spotify test part
-#----------Reservation------------
-#OMJ: Tijdelijk zonder knoppen
-#from spotify_connect import SpotifyConnect
+
+# Use the spotify_connect_direct
+from spotify_connect_direct import SpotifyConnect
 
 spotify_connect_connected = threading.Event() # track status Spotify connected
 spotify_connect_playing = threading.Event() # track Spotify playing
@@ -127,26 +125,26 @@ class StateMachine:
                 leds.turn_on_led("LEDPlay")
                 mpd.play()
                 sound_player.play("Play")
-                spotify_control( MPV_PLAYERCTL_PAUSE)
+                spotify_connect.play()  # when spotify is active it will switch to StateSpotifyConnect 
             elif self.state == "StatePreset1":
                 leds.turn_on_led("LEDPreset1")
                 mpd.play_preset("Preset1")
                 sound_player.play("Preset1")
-                spotify_control( MPV_PLAYERCTL_PAUSE)                
+                spotify_connect.pause()  # when spotify is active it will switch to StateSpotifyConnect               
             elif self.state == "StatePreset2":
                 leds.turn_on_led("LEDPreset2")
                 mpd.play_preset("Preset2")
                 sound_player.play("Preset2")
-                spotify_control( MPV_PLAYERCTL_PAUSE)
+                spotify_connect.pause()  # when spotify is active it will switch to StateSpotifyConnect
             elif self.state == "StatePreset3":
                 leds.turn_on_led("LEDPreset3")
                 mpd.play_preset("Preset3")
                 sound_player.play("Preset3")
-                spotify_control( MPV_PLAYERCTL_PAUSE)
+                spotify_connect.pause()  # when spotify is active it will switch to StateSpotifyConnect
             elif self.state == "StateStop":
                 leds.turn_on_led_with_delay("LEDStop", 4)
                 mpd.pause()
-                spotify_control( MPV_PLAYERCTL_PAUSE)
+                spotify_connect.pause() # spotify is on pause and will not work
                 sound_player.play("Stop")
      #           if Web_Service_Active:
     #              oradio_web_service.stop()# Stop Webservice When active 
@@ -156,10 +154,11 @@ class StateMachine:
                 leds.turn_on_led("LEDPlay")
                 sound_player.play("Spotify")
                 mpd.pause()
-                spotify_control(MPV_PLAYERCTL_PLAY)
+                spotify_connect.play()
             
             elif self.state == "StatePlaySongWebIF":
                 leds.turn_on_led("LEDPlay")
+                spotify_connect.pause() # spotify is on pause and will not work
                 mpd.play()
                 sound_player.play("Play")
                                       
@@ -177,6 +176,7 @@ class StateMachine:
                 oradio_log.debug(f"Starting-up")
 
                 mpd.pause()  # just to make sure in case of restart
+                spotify_connect.pause() # spotify is on pause and will not work
                 mpd.start_update_mpd_database_thread()  # Update the MPD database in seperate thread            
                 time.sleep(3)  #  START uo time reservation just take some margin in start-up
 
@@ -187,11 +187,13 @@ class StateMachine:
                 
             elif self.state == "StateIdle":   # Wait for next button/ command
                 mpd.pause() # Stop the Mpd just to make sure
+                spotify_connect.pause() # spotify is on pause and will not work
                 oradio_log.debug(f"In Idle state, wait for next step")
         
             elif self.state == "StateWebService":  # Triggered by LONG PRESS
                 leds.control_blinking_led("LEDPlay", 0.7)
                 mpd.pause()
+                spotify_connect.pause() # spotify is on pause and will not work
                 oradio_web_service.start()
                 if wifi_connected_event.is_set(): # if connected to wifi web_service will start
                     oradio_log.debug(f"In WebService State, wait for next step")
@@ -200,10 +202,9 @@ class StateMachine:
                     oradio_log.debug(f"Long Press resulted in OradioAP as not connecetd to wifi")
                     sound_player.play("OradioAP")
                 Web_Service_Active = True
-                time.sleep(4)
+                time.sleep(5)
                 leds.control_blinking_led("LEDPlay", 0)
-                mpd.play()
-                leds.turn_on_led("LEDPlay")
+                self.transition("StatePlay")
 
             elif self.state == "StateWebServiceForceAP": # Triggered by EXTRA LONG PRESS
             #    leds.control_blinking_led("LEDPlay", 0)# stop previous blinking
@@ -213,8 +214,8 @@ class StateMachine:
                 sound_player.play("OradioAP")
                 oradio_log.debug(f"In WebServiceForceAP state, wait for next step")
                 Web_Service_Active = True
-            #    mpd.play()
-            #    self.play_SysSound("Play")
+                time.sleep(5)
+                self.transition("StatePlay")
         
             elif self.state == "StateError":
                 leds.control_blinking_led("LEDStop", 2)
@@ -248,25 +249,25 @@ class StateMachine:
             usb_present_event.clear()
 #            self.transition("StateUSBAbsent")
 
-#------------------WRAPPER Spotify connect Classs--------------------------
-
-
-def spotify_control(action: str):
-    """
-    Controls Spotify playback by calling SpotifyConnect.playerctl_command() directly.
-    
-    :param spotify_connect: an instance of SpotifyConnect.
-    :param action: An action command for the spotify player: [MPV_PLAYERCTL_PLAY | 
-                                                              MPV_PLAYERCTL_PAUSE, 
-                                                              MPV_PLAYERCTL_STOP]
-    """
-    #OMJ: Tijdelijk zonder knoppen
-    return(MPV_PLAYERCTL_STOP)
-
-    status = spotify_connect.playerctl_command(action)
-    if status == MPV_PLAYERCTL_COMMAND_NOT_FOUND:
-        oradio_log.warning(f"Spotify control status error = {status}")
-    return(status)
+# #------------------WRAPPER Spotify connect Classs--------------------------
+# 
+# 
+# def spotify_control(action: str):
+#     """
+#     Controls Spotify playback by calling SpotifyConnect.playerctl_command() directly.
+#     
+#     :param spotify_connect: an instance of SpotifyConnect.
+#     :param action: An action command for the spotify player: [MPV_PLAYERCTL_PLAY | 
+#                                                               MPV_PLAYERCTL_PAUSE, 
+#                                                               MPV_PLAYERCTL_STOP]
+#     """
+#     #OMJ: Tijdelijk zonder knoppen
+#     return(MPV_PLAYERCTL_STOP)
+# 
+#     status = spotify_connect.play()erctl_command(action)
+#     if status == MPV_PLAYERCTL_COMMAND_NOT_FOUND:
+#         oradio_log.warning(f"Spotify control status error = {status}")
+#     return(status)
 
 #---------------------------Messages and Queue handling------------------
         
@@ -305,62 +306,42 @@ def process_messages(queue):
                 SPOTIFY_CONNECT_DISCONNECTED_EVENT: on_spotify_connect_disconnected,
                 SPOTIFY_CONNECT_PLAYING_EVENT: on_spotify_connect_playing,
                 SPOTIFY_CONNECT_PAUSED_EVENT: on_spotify_connect_paused,
-                SPOTIFY_CONNECT_STOPPED_EVENT: on_spotify_connect_stopped,
-                SPOTIFY_CONNECT_CLIENT_CHANGED_EVENT: on_spotify_connect_changed,
 #                "Spotify error": on_spotify_error,
             },
             # Add more mappings as needed.
         }
-        status = "Message handled"
+
         command_type = message.get("type")
         state = message.get("state")
         error = message.get("error", None)
+
         if command_type not in handlers:
-            oradio_log.debug(f"Unhandled message type: {message}")
-            status = "Unknown command_type"
-            return(status)
+            oradio_log.debug("Unhandled message type: %s", message)
+            return
 
         # Process the normal state message, if a handler exists.
         if state in handlers[command_type]:
-            oradio_log.debug(f"Current state =: {state_machine.state}")            
             handlers[command_type][state]()
-            oradio_log.debug(f"New state =: {state_machine.state}")            
         else:
-            oradio_log.debug(f"Unhandled state '{state}' for message type '{command_type}'.")
-            status = "Unknown state"
-            return(status)
+            oradio_log.debug("Unhandled state '%s' for message type '%s'.",state, command_type)
 
         # If an error is provided, handle it as if it were another state.
-        if error == None:
-            ## Henk this a temporary fix because we need to redefine the error definition
-            error = "None"
-        if error != "None":
+        if error is not None:
             if error in handlers[command_type]:
                 handlers[command_type][error]()
             else:
-                oradio_log.debug(f"Unhandled error '{error}' for message type '{command_type}'.")
-                status = "Unhandled error"
-                return(status)
-        return(status)
-#     try:
-#         while True:
-#             message = queue.get()  # Blocks until a message is available
-#             oradio_log.debug(f"Received message in Queue: {message}")
-#             handle_message(message)
-#     except Exception as e:
-#         oradio_log.error(f"Unexpected error in process_messages: {e}")
+                oradio_log.debug("Unhandled error '%s' for message type '%s'.", error, command_type)
 
-    while True:
-        try:
+    try:
+        while True:
             message = queue.get()  # Blocks until a message is available
-            oradio_log.debug(f"Received message in Queue: {message}")
-            status = handle_message(message)
-            oradio_log.debug(f"Message handler status: {status}")            
-        except Exception as e:
-            oradio_log.error(f"Error processing message {message}: {e}")
-            # Optionally continue processing after logging the error.
+            oradio_log.debug("Received message in Queue: %s", message)
+            handle_message(message)
+    except Exception as e:
+        oradio_log.error("Unexpected error in process_messages: %s", e)
 
-# Define the actions
+
+
 
 def on_volume_changed():
     if state_machine.state == "StateStop" or state_machine.state == "StateIdle":
@@ -419,6 +400,7 @@ def on_webservice_not_active():
     oradio_log.debug(f"WebService NOT active is acknowledged")
     
 def on_webservice_playing_song():
+    spotify_connect.pause() # spotify is on pause and will not work
     if state_machine.state == "StateStop": # if webservice put songs in queue and plays it
         state_machine.transition("StatePlaySongWebIF")   #  and if player is switched of, switch it on, otherwise keep state
     oradio_log.debug(f"WebService playing song acknowledged")    
@@ -439,21 +421,18 @@ def on_spotify_connect_disconnected():
 def on_spotify_connect_playing():
     spotify_connect_connected.set() # Signal that spotify_connected is active
     spotify_connect_playing.set()
-    update_spotify_connect_available()
-    spotify_connect.playerctl_command(MPV_PLAYERCTL_PLAY)    
+    update_spotify_connect_available()    
     oradio_log.debug(f"Spotify playing is acknowledged")
     
 def on_spotify_connect_paused():
     spotify_connect_connected.set() # Signal that spotify_connected is active    
     spotify_connect_playing.clear()
     update_spotify_connect_available()
-    spotify_connect.playerctl_command(MPV_PLAYERCTL_PAUSE)    
     oradio_log.debug(f"Spotify paused is acknowledged")
     
 def on_spotify_connect_stopped():
     spotify_connect_playing.clear()
-    update_spotify_connect_available()  # simular as stopped
-    spotify_connect.playerctl_command(MPV_PLAYERCTL_PAUSE)    
+    update_spotify_connect_available()  # simular as stopped  
     oradio_log.debug(f"Spotify stopped is acknowledged")    
 
 def on_spotify_connect_changed():
@@ -499,9 +478,9 @@ threading.Thread(target=process_messages, args=(shared_queue,), daemon=True).sta
 state_machine = StateMachine()
 
 # Instantiate spotify
-#OMJ: Tijdelijk zonder knoppen
-#spotify_connect = SpotifyConnect(shared_queue)
-spotify_control(MPV_PLAYERCTL_PAUSE)
+
+spotify_connect = SpotifyConnect(shared_queue)
+spotify_connect.pause()  # pause spotify connect
 
 
 #### Henk
