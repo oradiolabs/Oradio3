@@ -156,13 +156,13 @@ if ! sudo diff $SRC $DST >/dev/null 2>&1; then
 	sudo cp $SRC $DST
 
 	# Set service to start at boot
-	sudo systemctl enable autostart.service
+	sudo systemctl enable $(basename $DST)
 
 	# To be safe, rerun all generators, reload all unit files, and recreate the entire dependency tree
 	sudo systemctl daemon-reload
 
 	# Start the service
-	sudo systemctl restart librespot
+	sudo systemctl restart  $(basename $DST)
 fi
 
 if ! systemctl is-active -q librespot.service; then
