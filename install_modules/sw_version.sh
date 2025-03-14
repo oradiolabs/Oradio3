@@ -35,18 +35,17 @@ source $SCRIPT_DIR/constants.sh
 # Notify entering module installation script
 echo "Configure Oradio software version log"
 
-# Get git tag
-gittag=$(GIT_DIR=../$SCRIPTDIR/.git git describe --tags >/dev/null 2>&1)
-
-# Set count to 0 if not found in parsed output
-if [ -v $gittag ]; then
-	gittag="main HEAD"
+# Get git version info
+if $(git branch | grep -q 'HEAD detached at'); then
+	gitinfo='Release: '$(git describe --tags)
+else
+	gitinfo='Branch: '$(git branch | cut -d' ' -f2)
 fi
 
 # Generate new sw version info
 echo "{" > $SCRIPT_DIR/oradio_sw_version.log
 echo "   \"serial\": \""$(date +"%Y-%m-%d-%H-%M-%S")"\"," >> $SCRIPT_DIR/oradio_sw_version.log
-echo "   \"git-tag\": \"$gittag\"" >> $SCRIPT_DIR/oradio_sw_version.log
+echo "   \"gitinfo\": \"$gitinfo\"" >> $SCRIPT_DIR/oradio_sw_version.log
 echo "}" >> $SCRIPT_DIR/oradio_sw_version.log
 
 # Install sw version
