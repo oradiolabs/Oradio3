@@ -19,9 +19,8 @@ Created on Januari 31`, 2025
 @status:        Development
 @summary: Oradio control and statemachine
 
-Update Wifi_connected event
-Update logic statemachine for No USB
-Added messages when Wifi connected Not connected
+Spotify Connect direct added
+Via Librespot and controlled by spotify_connect_direct.py
 
 """
 import time
@@ -56,6 +55,7 @@ remote_monitor.heartbeat_start()
 
 # Use the spotify_connect_direct
 from spotify_connect_direct import SpotifyConnect
+
 
 spotify_connect_connected = threading.Event() # track status Spotify connected
 spotify_connect_playing = threading.Event() # track Spotify playing
@@ -125,7 +125,7 @@ class StateMachine:
                 leds.turn_on_led("LEDPlay")
                 mpd.play()
                 sound_player.play("Play")
-                spotify_connect.play()  # when spotify is active it will switch to StateSpotifyConnect 
+                spotify_connect.pause()    # when spotify is active it will switch to StateSpotifyConnect 
             elif self.state == "StatePreset1":
                 leds.turn_on_led("LEDPreset1")
                 mpd.play_preset("Preset1")
@@ -146,9 +146,7 @@ class StateMachine:
                 mpd.pause()
                 spotify_connect.pause() # spotify is on pause and will not work
                 sound_player.play("Stop")
-     #           if Web_Service_Active:
-    #              oradio_web_service.stop()# Stop Webservice When active 
-    # As songs are playimh, it is much more logic that whith Stop, thw Webinterface is not stopped
+
       
             elif self.state == "StateSpotifyConnect":
                 leds.turn_on_led("LEDPlay")
@@ -249,27 +247,6 @@ class StateMachine:
             usb_present_event.clear()
 #            self.transition("StateUSBAbsent")
 
-# #------------------WRAPPER Spotify connect Classs--------------------------
-# 
-# 
-# def spotify_control(action: str):
-#     """
-#     Controls Spotify playback by calling SpotifyConnect.playerctl_command() directly.
-#     
-#     :param spotify_connect: an instance of SpotifyConnect.
-#     :param action: An action command for the spotify player: [MPV_PLAYERCTL_PLAY | 
-#                                                               MPV_PLAYERCTL_PAUSE, 
-#                                                               MPV_PLAYERCTL_STOP]
-#     """
-#     #OMJ: Tijdelijk zonder knoppen
-#     return(MPV_PLAYERCTL_STOP)
-# 
-#     status = spotify_connect.play()erctl_command(action)
-#     if status == MPV_PLAYERCTL_COMMAND_NOT_FOUND:
-#         oradio_log.warning(f"Spotify control status error = {status}")
-#     return(status)
-
-#---------------------------Messages and Queue handling------------------
         
 def process_messages(queue):
     """
@@ -445,17 +422,10 @@ def update_spotify_connect_available():
     are set. Otherwise, clears spotify_connect_available.
     After execution, logs the state of all three events.
     """
-    '''
-    ===>> Henk Note; Use SpotifyConnect.get_state() method to get current playback status and connected state of spotify
-    '''
-    ################## example ############################
-    playback_status, connected_state = spotify_connect.get_state()
-    oradio_log.info(f"Status info from class: spotify playback status ={playback_status}, connected_state = {connected_state}")
-    ################################################################################################################
     if spotify_connect_connected.is_set() and spotify_connect_playing.is_set():
         spotify_connect_available.set()  # When this is the case, the ON button becomes Spotify Button
-        if state_machine.state in ("StatePlay", "StateIdle", "StateStop", "StatePreset1", "StatePreset2", "StatePreset3"):# if Spotify connect is  avalaible 
-             state_machine.transition("StateSpotifyConnect") # Switch to Spotify Connect
+        if state_machine.state in ("StatePlay"):# if Spotify connect is  avalaible Switch to 
+              state_machine.transition("StateSpotifyConnect") # Switch to Spotify Connect
     else:
         spotify_connect_available.clear()
         if  state_machine.state == "StateSpotifyConnect": # if Spotify connect is not avalaible 
@@ -482,18 +452,6 @@ state_machine = StateMachine()
 spotify_connect = SpotifyConnect(shared_queue)
 spotify_connect.pause()  # pause spotify connect
 
-
-#### Henk
-# Start the FIFO-emptying thread:
-#fifo_path = "/home/pi/spotify/librespot-pipe"
-#fifo_thread = threading.Thread(target=empty_fifo_periodically, args=(fifo_path, 1, 256), daemon=True)
-#fifo_thread.start()
-
-# Start the monitor thread that checks the Spotify state:
-#monitor_thread = threading.Thread(target=monitor_spotify_state_and_manage_fifo, args=(spotify_connect, 1), daemon=True)
-#monitor_thread.start()
-##### end Henk
-
 # Initialize the oradio_usb class
 oradio_usb_service = usb_service(shared_queue)
 
@@ -514,9 +472,6 @@ volume_control = VolumeControl(shared_queue)
 #Initialize the web_service
 oradio_web_service = web_service(shared_queue)
 
-# Instantiate sound player
-#spotify_connect=SpotifyConnectPlaceholder(shared_queue)
-#spotify_connect = SpotifyConnect(msg_queue=shared_queue) 
 
 
 import sys
