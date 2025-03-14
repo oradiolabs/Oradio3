@@ -16,21 +16,29 @@ Created on Februari 1, 2025
 @version:       1
 @email:         oradioinfo@stichtingoradio.nl
 @status:        Development
-@summary: test program for Spotify Connect
+@summary:  Spotify Connect
+
+The librespot audio is muted when the Oradio is Off.
+The status of the Librespot connection is monitored via Librespot events
+which puts the status in two files spotactive.flag and spotplaying.flag
 
 """
 
-#!/usr/bin/env python3
 import time
 import os
 import subprocess
 import threading
 from multiprocessing import Queue
 
+# to mute the ALSA channel
+import alsaaudio
+
 #### Oradio modules ####
 import oradio_utils
 from oradio_const import *
 from oradio_logging import oradio_log
+
+ALSA_MIXER_SPOTCON = "VolumeSpotCon"
 
 class SpotifyConnect:
     # Define the flag file paths as class constants.
@@ -54,6 +62,13 @@ class SpotifyConnect:
         self.monitor_thread = threading.Thread(target=self.monitor_flags, daemon=True)
         self.monitor_thread.start()
         oradio_log.info("Monitor thread started.")
+        
+                # Initialize ALSA Mixer
+        try:
+            self.mixer = alsaaudio.Mixer(ALSA_MIXER_SPOTCON)
+        except alsaaudio.ALSAAudioError as ex_err:
+            oradio_log.error("Error initializing ALSA mixer: %s", ex_err)
+            raise
 
     def _reset_flag(self, filepath):
         """
@@ -114,30 +129,30 @@ class SpotifyConnect:
 
     def play(self):
         """
-        Resumes playback by sending a CONT signal to librespot.
-        Executes the command: pkill -CONT librespot
+        Set the volume of the Spot Con ALSA channel to 100% = UnMute
         """
         try:
-            subprocess.run(["pkill", "-CONT", "librespot"], check=True)
-            oradio_log.info("Play command librespot")
+#            subprocess.run(["pkill", "-CONT", "librespot"], check=True)
+            self.mixer.setvolume(100)
+            oradio_log.info("Spotify Connect UnMuted")
         except subprocess.CalledProcessError as e:
             oradio_log.error("Error executing play command: %s", e)
 
     def pause(self):
         """
-        Pauses playback by sending a STOP signal to librespot.
-        Executes the command: pkill -STOP librespot
+        Set the volume of the Spot Con ALSA channel to 0% = Mute 
         """
         try:
-            subprocess.run(["pkill", "-STOP", "librespot"], check=True)
-            oradio_log.info("Pause command librespot")
+       #     subprocess.run(["pkill", "-STOP", "librespot"], check=True)
+            self.mixer.setvolume(0)
+            oradio_log.info("Spotify Connect Muted")
         except subprocess.CalledProcessError as e:
             oradio_log.error("Error executing pause command: %s", e)
     
     def get_state(self):
         return {"active": self.active, "playing": self.playing}
 
-    def monitor_flags(self, interval=1):
+    def monitor_flags(self, interval=0.5):
         """
         Continuously monitors the flag files and sends events when their
         values change:
@@ -185,8 +200,8 @@ if __name__ == "__main__":
     # Interactive test menu for play and pause commands.
     while True:
         print("\nSelect an option:")
-        print("1. Play (pkill -CONT librespot)")
-        print("2. Pause (pkill -STOP librespot)")
+        print("1. Play (100% volume)")
+        print("2. Pause (0% volume)")
         print("q. Quit")
         choice = input("Enter your choice: ").strip()
         if choice == "1":
