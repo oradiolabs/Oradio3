@@ -33,6 +33,8 @@ ExecStart=/usr/bin/librespot \
     --volume-range 100 \
     --device-type avr \
     --autoplay on \
+    --device SpotCon_in \
+    --verbose \
     --onevent /usr/local/bin/spotify_event_handler.sh
 
 Restart=always
