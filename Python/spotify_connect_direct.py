@@ -18,7 +18,7 @@ Created on Februari 1, 2025
 @status:        Development
 @summary:  Spotify Connect
 
-The librespot audio is muted when the Oradio is Off.
+The librespot audio Spotify Connect is (un) muted when Oradio on/off. Connection stays active and music streaming
 The status of the Librespot connection is monitored via Librespot events
 which puts the status in two files spotactive.flag and spotplaying.flag
 
