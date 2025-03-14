@@ -1,3 +1,5 @@
+# Placeholders will be modified by ../autostart.sh script
+
 [Unit]
 Description=Autostart Oradio
 After=multi-user.target
@@ -8,11 +10,10 @@ StartLimitBurst=5
 
 [Service]
 Type=simple
-# Placeholders will be modified by ../autostart.sh script
 User=PLACEHOLDER_USER
 Group=PLACEHOLDER_GROUP
 WorkingDirectory=PLACEHOLDER_PYTHON_PATH
-Environment="DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/1000/bus"
+#Environment="DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/1000/bus"
 
 #OMJ: Als traceback.log bestaat en niet leeg is moet traceback.log eerst naar ORMS verstuurd worden.
 #OMJ: Keuze maken: of traceback.log wissen bij elke keer opstarten, of logrotate op toepassen om niet te groot te laten worden
