@@ -45,7 +45,7 @@ if ! sudo diff $SRC $DST >/dev/null 2>&1; then
 	sudo cp $SRC $DST
 
 	# Inform user to reboot
-	echo -e "${YELLOW}A reboot is required to complete the installion${NC}"
+#	echo -e "${YELLOW}A reboot is required to complete the installion${NC}"
 	REBOOT_REQUIRED=$YES
 fi
 

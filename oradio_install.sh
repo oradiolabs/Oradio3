@@ -132,6 +132,10 @@ REBOOT_REQUIRED=$NO
 for ((main_i = 0; main_i < ${#ORADIO_MODULES[@]}; main_i++)); do
 	module="${ORADIO_MODULES[$main_i]}"
 	source install_modules/$module.sh
+	if [ $REBOOT_REQUIRED == $YES ]; then
+		echo -e "${YELLOW}Please reboot now to complete the installion.\nAfter reboot login and start this install script again to complete the installation.${NC}"
+		return
+	fi
 done
 
 # Output wrap-up "header"

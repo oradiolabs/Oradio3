@@ -57,6 +57,11 @@ if [ $(hostname) != $HOSTNAME ]; then
 
 	# Activate changes
 	sudo systemctl restart NetworkManager.service
+
+	#OMJ: Als je NetworkManager restart kan je verder met het script, maar op de achtergrond is nog van allles gaande, kan het zijn dat de verbinding met het Internet nog niet hersteld is. Dit is met name het geval als je via een wifi verbindsing werkt, omdat reset van de NetworkManager een reconnect doet.
+	#OMJ: Zoek alternatief voor resetten van NetworkManager die de wifi verbinding niet verbreekt
+	# Allow NetworkManager to settle
+	sleep 5
 fi
 
 # Check for Python environment
