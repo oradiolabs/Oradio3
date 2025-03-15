@@ -33,16 +33,17 @@ source install_modules/constants.sh
 ORADIO_MODULES=(
 	"config"
 	"packages"
-	"python"		# Requires on packages
-	"network"		# Requires on python
+	"python"		# depends on packages
+	"network"
 	"i2c"			# Requires on python
-	"hw_version"	# Requires on python and i2c
-	"backlighting"	# Requires on python and i2c
-	"logging"		# Requires on python
-	"usb_service"	# Requires on network and python
-	"audio"			# Requires on usb_service and python
-	"volume"		# Requires on audio and python
-	"web_service"	# Requires on network and python
+	"hw_version"	# depends on python
+	"logging"		# Depends on python
+	"backlighting"	# Depends on python
+	"usb_service"	# Depends on network and python
+	"audio"			# Depends on usb_service and python
+	"volume"		# Depends on audio and python
+	"spotify_connect"
+	"web_service"	# Depends on network and python
 	"sw_version"
 	"autostart"		# Must be last
 )
@@ -131,6 +132,10 @@ REBOOT_REQUIRED=$NO
 for ((main_i = 0; main_i < ${#ORADIO_MODULES[@]}; main_i++)); do
 	module="${ORADIO_MODULES[$main_i]}"
 	source install_modules/$module.sh
+	if [ $REBOOT_REQUIRED == $YES ]; then
+		echo -e "${YELLOW}Please reboot now to complete the installion.\nAfter reboot login and start this install script again to complete the installation.${NC}"
+		return
+	fi
 done
 
 # Output wrap-up "header"

@@ -39,7 +39,6 @@ LOG_DIR="logging"
 
 USB_MOUNT_POINT="/media/oradio"
 USB_MONITOR="/media/usb_ready"
-USB_LOGFILE="/oradio_usb.log"
 
 USB_MUSIC=$USB_MOUNT_POINT"/Muziek"
 USB_SYSTEM=$USB_MOUNT_POINT"/Systeem"

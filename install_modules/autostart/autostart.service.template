@@ -1,3 +1,5 @@
+# Placeholders will be modified by ../autostart.sh script
+
 [Unit]
 Description=Autostart Oradio
 After=multi-user.target
@@ -8,18 +10,27 @@ StartLimitBurst=5
 
 [Service]
 Type=simple
-# Placeholders will be modified by ../autostart.sh script
+
+# Execute service in user environment
 User=PLACEHOLDER_USER
 Group=PLACEHOLDER_GROUP
-WorkingDirectory=PLACEHOLDER_PYTHON_PATH
-#OMJ: Als traceback.log bestaat en niet leeg is moet traceback.log eerst naar ORMS verstuurd worden.
-#OMJ: Keuze maken: of traceback.log wissen bij elke keer opstarten, of logrotate op toepassen om niet te groot te laten worden
-#ExecStartPre=/bin/bash -c '/usr/bin/rm -f PLACEHOLDER_LOGGING_PATH/traceback.log'
-ExecStart=/home/PLACEHOLDER_USER/.venv/bin/python3 PLACEHOLDER_PYTHON_PATH/oradio_control.py
+
+# Clear traceback.log when starting the service
 StandardError=file:PLACEHOLDER_LOGGING_PATH/traceback.log
+
+# Start Oradio
+WorkingDirectory=PLACEHOLDER_PYTHON_PATH
+ExecStart=/home/PLACEHOLDER_USER/.venv/bin/python3 oradio_control.py
+
+# Send traceback.log to Oradio Remote Monitoring Service
+ExecStopPost=-/usr/bin/bash -c  'curl -s \
+									-F "serial=$(vcgencmd otp_dump | grep "28:" | cut -c 4-)" \
+									-F "data=@PLACEHOLDER_LOGGING_PATH/traceback.log" \
+									https://oradiolabs.nl/rms/receive.php \
+								'
+
 RemainAfterExit=true
 Restart=always
-# Restart after 10 seconds
 RestartSec=10
 
 [Install]

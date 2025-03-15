@@ -46,16 +46,17 @@ sed -i "s/PLACEHOLDER_PYTHON_PATH/$replace/g" $SRC
 replace=`echo $(realpath "$SCRIPT_DIR/../logging") | sed 's/\//\\\\\//g'`
 sed -i "s/PLACEHOLDER_LOGGING_PATH/$replace/g" $SRC
 
+# Install service if new or changed
 if ! sudo diff $SRC $DST >/dev/null 2>&1; then
 
-	# Install the autostart service
+	# Install the service
 	sudo cp $SRC $DST
-
-	# Set autostart system to start at boot
-	sudo systemctl enable autostart.service
 
 	# To be safe, rerun all generators, reload all unit files, and recreate the entire dependency tree
 	sudo systemctl daemon-reload
+
+	# Set service to start at boot
+	sudo systemctl enable autostart.service
 fi
 
 # Notify leaving module installation script

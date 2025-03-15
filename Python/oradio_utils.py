@@ -25,8 +25,12 @@ Created on Januari 17, 2025
         https://pypi.org/project/concurrent-log-handler/
 """
 import urllib.request
+import subprocess
 from subprocess import run
 from vcgencmd import Vcgencmd
+from pydantic import BaseModel, EmailStr, Field, create_model
+from typing import Dict, Any, Optional
+import json
 
 ##### oradio modules ####################
 from oradio_logging import oradio_log
@@ -35,6 +39,78 @@ from oradio_logging import oradio_log
 from oradio_const import *
 
 ##### LOCAL constants ####################
+def is_service_active(service_name):
+    '''
+    Check if service is running
+    :param service_name = name of the service
+    :return True/False : True when active
+    '''
+    try:
+        # Run systemctl is-active command
+        result = subprocess.run(
+            ["sudo","systemctl", "is-active", service_name],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True
+        )
+        return result.stdout.strip() == "active"
+    except Exception as err:
+        oradio_log.error(f"Error checking {service_name} service, error-status=: {err}")
+        return False
+
+
+def json_schema_to_pydantic(name: str, schema: Dict[str,Any]) -> BaseModel:
+    '''
+    Dynamic Model generation based on a JSON schema
+    '''
+    if "properties" not in schema:  # Skip first entry
+        return None    
+    fields ={}
+    required_fields = set(schema.get("required", []))  # Get required fields from schema
+    
+    for prop, details in schema["properties"].items():
+        field_type = str  # Default type
+        if details["type"] == "integer":
+            field_type = int
+        elif details["type"] == "boolean":
+            field_type = bool
+        elif details["type"] == "number":
+            field_type = float
+        elif details["type"] == "array":
+            field_type = list
+        if "required" in schema and prop in schema["required"]:
+            fields[prop] = (field_type, ...)
+        else:
+            fields[prop] = (field_type, None)
+
+        # Handle optional fields (not in "required")
+        if prop not in required_fields:
+            fields[prop] = (Optional[field_type], None)  # Mark as Optional
+        else:
+            fields[prop] = (field_type, ...)  # Required fields
+                
+    return create_model(name, **fields)
+
+def create_json_model(model_name):
+    '''
+    Create a object based model derived from the json schema
+    :param model_name [str] = name of model in schema
+    :return model 
+    :return status = 
+    '''
+    # Load the JSON schema file
+    with open(JSON_SCHEMAS_FILE) as f:
+        schemas = json.load(f)
+    if model_name not in schemas:
+        status = MODEL_NAME_NOT_FOUND
+        Messages = None
+    else:
+        status = MODEL_NAME_FOUND
+        # Dynamically create Pydantic models
+        models = {name: json_schema_to_pydantic(name, schema) for name, schema in schemas.items()}
+        # create Messages model
+        Messages = models[model_name]
+    return(status, Messages)
 
 def check_internet_connection():
     """

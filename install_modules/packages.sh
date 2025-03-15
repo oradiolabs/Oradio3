@@ -53,7 +53,7 @@ if [ $upgrade_count -gt 0 ]; then
 
 	# Register if reboot is required
 	if [ -f /var/run/reboot-required ]; then
-		echo -e "${YELLOW}A reboot is required to complete the installion${NC}"
+#		echo -e "${YELLOW}A reboot is required to complete the installion${NC}"
 		REBOOT_REQUIRED=$YES
 	fi
 

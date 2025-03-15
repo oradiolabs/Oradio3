@@ -1,0 +1,48 @@
+# Placeholders will be modified by ../spotify_connect.sh script
+
+[Unit]
+Description=Librespot
+After=network.target
+
+[Service]
+# Controls where file descriptor 1 (stdout) and 2 (stderr) of the executed processes is connected to
+StandardOutput=append:PLACEHOLDER_LOGFILE_SPOTIFY
+StandardError=append:PLACEHOLDER_LOGFILE_SPOTIFY
+
+#Environment="LIBRESPOT_ZEROCONF_PORT=45305"
+#Environment="LIBRESPOT_INITIAL_VOLUME=100"
+#Environment="LIBRESPOT_DEVICE=SpotCon_in" Olaf: Via default Alsa
+#Environment="LIBRESPOT_ENABLE_VOLUME_NORMALISATION=on"
+#Environment="LIBRESPOT_DISABLE_AUDIO_CACHE="
+#Environment="LIBRESPOT_AUTOPLAY=on"
+#Environment="LIBRESPOT_SYSTEM_CACHE=/home/pi/Oradio3"
+#Environment="LIBRESPOT_BACKEND=alsa" Olaf: is standard
+#Environment="LIBRESPOT_NAME=Oradio"
+#Environment="LIBRESPOT_VERBOSE="
+#Environment="LIBRESPOT_ONEVENT=/home/pi/Oradio3/Python/librespot_event_handler.py"
+#Environment="LIBRESPOT_DEVICE_TYPE=avr"
+
+# Reset flag files before starting librespot
+ExecStartPre=/bin/bash -c 'echo "0" > PLACEHOLDER_SPOTIFY_DIR/spotactive.flag'
+ExecStartPre=/bin/bash -c 'echo "0" > PLACEHOLDER_SPOTIFY_DIR/spotplaying.flag'
+
+ExecStart=/usr/bin/librespot \
+    --name Oradio \
+    --initial-volume 100 \
+    --volume-ctrl log \
+    --volume-range 100 \
+    --device-type avr \
+    --autoplay on \
+    --device SpotCon_in \
+    --verbose \
+    --onevent /usr/local/bin/spotify_event_handler.sh
+
+Restart=always
+RestartSec=10
+
+# Set the UNIX user or group that the processes are executed as, respectively
+User=PLACEHOLDER_USER
+Group=PLACEHOLDER_GROUP
+
+[Install]
+WantedBy=multi-user.target

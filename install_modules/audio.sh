@@ -40,7 +40,17 @@ dpkg --verify mpd >/dev/null 2>&1 || sudo apt-get install -y mpd
 dpkg --verify mpc >/dev/null 2>&1 || sudo apt-get install -y mpc
 
 # Install the audio configuration
-sudo cp $SCRIPT_DIR/audio/asound.conf /etc/asound.conf
+SRC=$SCRIPT_DIR/audio/asound.conf
+DST=/etc/asound.conf
+if ! sudo diff $SRC $DST >/dev/null 2>&1; then
+
+	# Install the asound configuration
+	sudo cp $SRC $DST
+
+	# Work-around to activate SoftVolSpotCon
+	speaker-test -D SoftVolSpotCon -c2 >/dev/null 2>&1
+
+fi
 
 # Configure mpd music library location
 SRC=$SCRIPT_DIR/audio/mpd.conf
