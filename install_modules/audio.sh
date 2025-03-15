@@ -47,8 +47,8 @@ if ! sudo diff $SRC $DST >/dev/null 2>&1; then
 	# Install the asound configuration
 	sudo cp $SRC $DST
 
-	# Reload ALSA to activate the changes
-	sudo systemctl restart alsa-restore
+	# Work-around to activate SoftVolSpotCon
+	speaker-test -D SoftVolSpotCon -c2 >/dev/null 2>&1
 
 fi
 
