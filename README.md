@@ -19,13 +19,25 @@ When the Raspberry Pi has started ssh into the raspberry Pi and run command:
 
     source <(curl https://oradiolabs.nl/Oradio3/install)
 
+At the prompt enter the release you want to install.
+
 The script will install and configure required packages and services.
 
 Activating some changes requires rebooting, so when the script informs a reboot is required:
 
     sudo reboot
 
-The reboot will finalize the installation and start the Oradio3 application.
+When the Raspberry Pi has started ssh into the raspberry Pi and run command:
+
+    source <(curl https://oradiolabs.nl/Oradio3/install)
+
+At the prompt press Enter to continue the installatie, or 'q' to stop the installation.
+
+Wait for the installation to finish. <ins>Note</ins>: this can take up to half an hour.
+
+Start the Oradio:
+
+    sudo reboot
 
 **Update**
 
