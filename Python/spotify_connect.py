@@ -218,17 +218,17 @@ class SpotifyConnect():
         self.queue_put_mesg["type"] = MESSAGE_SPOTIFY_TYPE
 
         # restart mpv.service again: Need to investigate this as it is annoying
-        try:
-            # Run systemctl to restart mpv.service
-            result = subprocess.run(
-                ["sudo", "systemctl", "restart", "mpv"],
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
-                text=True
-            )
-            oradio_log.info("MPV service restarted ")
-        except Exception as err:
-            oradio_log.error("Restart MPV service error =",err)
+#        try:
+#            # Run systemctl to restart mpv.service
+#            result = subprocess.run(
+#                ["sudo", "systemctl", "restart", "mpv"],
+#                stdout=subprocess.PIPE,
+#                stderr=subprocess.PIPE,
+#                text=True
+#            )
+#            oradio_log.info("MPV service restarted ")
+#        except Exception as err:
+#            oradio_log.error("Restart MPV service error =",err)
 
         
         state, mpv_player = self.get_mpv_player()
@@ -236,11 +236,18 @@ class SpotifyConnect():
         self.spotify_app_status = SPOTIFY_APP_STATUS_DISCONNECTED
         self.spotify_connected_state = SPOTIFY_CONNECT_NOT_CONNECTED
         self.spotify_client_id = "None"
-        
+        self.stop_event = threading.Event() # used to stop the observer loop        
+
         if self.state == SPOTIFY_CONNECT_MPV_STATE_OK:
             status, player_iface = setup_dbus_interface_to_control_mpv_player(mpv_player)
             self.state  = status
 
+        self.sel = None
+        
+        if self.get_playback_status() == MPV_PLAYERCTL_PLAYING_STATE:
+            #self.spotify_app_status = SPOTIFY_APP_STATUS_PLAYING
+            self.spotify_connected_state = SPOTIFY_CONNECT_CONNECTED
+        
         if self.state == SPOTIFY_CONNECT_MPV_SERVICE_IS_ACTIVE:
             self.player_iface = player_iface
             # setup a observer (selector) for socket listening to incoming messages
@@ -251,7 +258,7 @@ class SpotifyConnect():
             self.server_socket.setblocking(False)
             oradio_log.info("event socket opened and listening on port {prt}".format(prt=SPOTIFY_EVENT_SOCKET_PORT))
             
-            self.stop_event = threading.Event() # used to stop the observer loop
+            #self.stop_event = threading.Event() # used to stop the observer loop
             
             self.sel.register(self.server_socket, selectors.EVENT_READ, self.accept_connection)
     
@@ -267,8 +274,9 @@ class SpotifyConnect():
         '''
         oradio_log.info("Shutting down server...")
         self.stop_event.set()  # Stop the observer loop
-        self.sel.unregister(self.server_socket)  # Unregister the server socket
-        self.server_socket.close()  # Close the socket
+        if self.sel != None:        
+            self.sel.unregister(self.server_socket)  # Unregister the server socket
+            self.server_socket.close()  # Close the socket
         oradio_log.info("Server closed.")
 
     def get_state(self):
@@ -415,13 +423,13 @@ def setup_dbus_interface_to_control_mpv_player(player):
     player_iface = None
     bus = None
     # check is mpv.service is active
-    if oradio_utils.is_service_active("mpv"):
+    if oradio_utils.is_user_service_active("mpv"):
         oradio_log.info("mpv.service is ACTIVE")
         status = SPOTIFY_CONNECT_MPV_SERVICE_IS_ACTIVE
     else:
         oradio_log.error("mpv.service is NOT running")
         status = SPOTIFY_CONNECT_MPV_SERVICE_NOT_ACTIVE
-        return(status, bus, player_iface)        
+        return(status, player_iface)        
 
     # Access properties using org.freedesktop.DBus.Properties
     props = dbus.Interface(player, MPRIS_DBUS_PROPERTIES)
@@ -438,17 +446,31 @@ if __name__ == "__main__":
     import time
     import importlib
     from multiprocessing import Queue    
+    import argparse
+
+    parser = argparse.ArgumentParser(description='Debug options')
+    message = 'DEBUG options are:  [ no | remote ]'
+    parser.add_argument('-d', '--debug', type = str, nargs='?', const='no', help=message )
+    args = parser.parse_args()
+    system_debug = args.debug
+    allowed_options = [None, "no","remote"]
+    if not system_debug in allowed_options:
+        parser.error(message)
+    print("Debug option =",system_debug)
     
     RED_TXT     = "\033[91m"
     GREEN_TXT   = "\033[92m"
     YELLOW_TXT  = "\033[93m"
     END_TXT     = "\x1b[0m"
     
-    ## stop a running Oradio_controls as it may interfere with this test ##
-    print("kill Oradio_controls, to prevent interferences with this test module ")
-    script = "sudo systemctl stop autostart.service"
-#    oradio_utils.run_shell_script(script)
-
+    if system_debug == 'remote':
+        print("remote debugging")
+        # Allow remote debugging from any IP address on port 8020
+        os.environ["PYTHONUNBUFFERED"] = "1"
+        os.environ["PYTHONMALLOC"] = "debug"
+        os.environ["PYDEVD_DISABLE_FILE_VALIDATION"] = "1"
+        import pydevd
+        pydevd.settrace('192.168.178.52', port=8020)
 
     def spotify_callback():
         pass
@@ -587,7 +609,8 @@ if __name__ == "__main__":
     def playback_control_with_mpv():
         msg_queue = Queue()
         spot_con = SpotifyConnect( msg_queue)
-        if spot_con.get_state() != SPOTIFY_CONNECT_MPV_STATE_OK:
+        app_status, connect_status = spot_con.get_state()
+        if connect_status != SPOTIFY_CONNECT_CONNECTED:
             oradio_log.error("Spotify Connect Servers not running")
             return()
         # send a librespot event to the socket
@@ -773,8 +796,9 @@ if __name__ == "__main__":
         msg_queue = Queue()
         spot_con = SpotifyConnect( msg_queue)                    
         time.sleep(1)
-        status = spot_con.get_state()
-        if status == SPOTIFY_CONNECT_MPV_STATE_OK:
+        app_status, connect_status = spot_con.get_state()
+        
+        if connect_status == SPOTIFY_CONNECT_CONNECTED:
         # check player ctl: Play
             spot_con.player_iface.Play()
             print("Play command sent.")
@@ -792,7 +816,7 @@ if __name__ == "__main__":
             else:
                 print(RED_TXT+f"Wrong Playback Status = {status}"+END_TXT)         
         else:
-            print(RED_TXT+f"Error status = {status}"+END_TXT)   
+            print(RED_TXT+f"Error status = {connect_status}"+END_TXT)   
         spot_con.shutdown_server()
         time.sleep(1)
         return
