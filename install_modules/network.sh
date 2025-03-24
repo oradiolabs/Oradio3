@@ -64,6 +64,19 @@ if [ $(hostname) != $HOSTNAME ]; then
 	sleep 30
 fi
 
+# Show Raspberry Pi serial number on login
+if ! grep -q "#   Serial: " /etc/bash.bashrc; then
+	sudo bash -c 'echo >> /etc/bash.bashrc'
+	sudo bash -c 'echo "# Show Pi serial number on login" >> /etc/bash.bashrc'
+	sudo bash -c 'echo "SERIAL=\$(vcgencmd otp_dump | grep \"28:\" | cut -c 4-)" >> /etc/bash.bashrc'
+	sudo bash -c 'echo "echo" >> /etc/bash.bashrc'
+	sudo bash -c 'echo "echo \"########################\"" >> /etc/bash.bashrc'
+	sudo bash -c 'echo "echo \"#   Serial: \$SERIAL   #\"" >> /etc/bash.bashrc'
+	sudo bash -c 'echo "echo \"########################\"" >> /etc/bash.bashrc'
+	sudo bash -c 'echo "echo" >> /etc/bash.bashrc'
+	sudo bash -c 'echo >> /etc/bash.bashrc'
+fi
+
 # Check for Python environment
 if [ -v $VIRTUAL_ENV ]; then
 	echo -e "${RED}Python not configured.${NC}"
