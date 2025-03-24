@@ -314,13 +314,13 @@ class MPDControl:
 
         # Initialize
         songs = []
-        found = False
 
-        # Get playlist songs
+        # Get songs
         try:
-            # Get playlists
+            # Get playlists and directories
             with self.mpd_lock:
                 playlists = self.client.listplaylists()
+                directories = self.client.listfiles()
 
             # Check playlists
             for playlist in playlists:
@@ -334,40 +334,20 @@ class MPDControl:
                             'artist': detail.get('artist', 'Unknown artist'),
                             'title': detail.get('title', 'Unknown title')
                         })
-                    found = True
-
-            # Log error if list not found
-            if not found:
-                oradio_log.error("Unknown list: '%s'", list)
-
-        except Exception as ex_err:
-            oradio_log.error("Error getting songs for '%s': %s", list, ex_err)
-
-        # Get directory songs
-        try:
-            # Get directories
-            with self.mpd_lock:
-                directories = self.client.listfiles()
 
             # Check directories
-            if not found:
-                for entry in directories:
-                    # Only consider entries that are directories.
-                    if "directory" in entry and list == entry["directory"]:
-                        # Get directory song details; minimize lock to mpd interaction
-                        with self.mpd_lock:
-                            details = self.client.lsinfo(entry["directory"])
-                        for detail in details:
-                            songs.append({
-                                'file': detail['file'],
-                                'artist': detail.get('artist', 'Unknown artist'),
-                                'title': detail.get('title', 'Unknown title')
-                            })
-                        found = True
-
-            # Log error if list not found
-            if not found:
-                oradio_log.error("Unknown list: '%s'", list)
+            for entry in directories:
+                # Only consider entries that are directories.
+                if "directory" in entry and list == entry["directory"]:
+                    # Get directory song details; minimize lock to mpd interaction
+                    with self.mpd_lock:
+                        details = self.client.lsinfo(entry["directory"])
+                    for detail in details:
+                        songs.append({
+                            'file': detail['file'],
+                            'artist': detail.get('artist', 'Unknown artist'),
+                            'title': detail.get('title', 'Unknown title')
+                        })
 
         except Exception as ex_err:
             oradio_log.error("Error getting songs for '%s': %s", list, ex_err)

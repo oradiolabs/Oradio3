@@ -97,7 +97,7 @@
 
 			// Get password
 			const pswd = document.getElementById("pswd").value;
-			if (pswd.length <= 8)
+			if (pswd.length < 8)
 			{
 				notification.innerHTML = "<p class=\"error\">Wachtwoord moet minimaal 8 karakters zijn</p>";
 				return;
