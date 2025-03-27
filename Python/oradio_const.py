@@ -54,6 +54,9 @@ STATE_WEB_SERVICE_ACTIVE = "web service is running"
 # Web service messages from service to parent
 #OMJ: 'Type' is eigenlijk 'source'
 MESSAGE_WEB_SERVICE_TYPE         = "web service message"
+MESSAGE_WEB_SERVICE_PL1_CHANGED  = "PL1 playlist changed"
+MESSAGE_WEB_SERVICE_PL2_CHANGED  = "PL2 playlist changed"
+MESSAGE_WEB_SERVICE_PL3_CHANGED  = "PL3 playlist changed"
 MESSAGE_WEB_SERVICE_PLAYING_SONG = "web service plays a song"
 
 ################## USB #############################

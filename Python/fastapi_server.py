@@ -138,11 +138,6 @@ async def playlists(request: Request):
         # Get requested action
         action = form_data.get('action')
 
-        # If the user clicked "Set Presets"
-        if action == "set_presets":
-            store_presets([form_data.get("preset1"), form_data.get("preset2"), form_data.get("preset3")])
-            presets = load_presets()
-
         # If the user clicked "Show Songs"
         if action == "show_songs":
             # Get selected playlist
@@ -169,6 +164,43 @@ async def playlists(request: Request):
     # Return playlists page and available networks as context
     return templates.TemplateResponse(request=request, name="playlists.html", context=context)
 
+class presets(BaseModel):
+    """ Model for playlist asssignment """
+    button: str = None
+    list_1: str = None
+    list_2: str = None
+    list_3: str = None
+
+# POST endpoint to save presets
+@api_app.post("/save_presets")
+async def save_presets(presets: presets):
+    """
+    Handle POST with presets to assign
+    """
+    # Create message
+    message = {}
+#OMJ: Het type klopt niet? Het is geen web service state message, eerder iets als info. Maar voor control is wel een state...
+    message["type"]  = MESSAGE_WEB_SERVICE_TYPE
+
+    if presets.button == "PL1":
+        oradio_log.debug("PL1 preset playlist: '%s'", presets.list_1)
+        message["state"] = MESSAGE_WEB_SERVICE_PL1_CHANGED
+    elif presets.button == "PL2":
+        oradio_log.debug("PL2 preset playlist: '%s'", presets.list_2)
+        message["state"] = MESSAGE_WEB_SERVICE_PL2_CHANGED
+    elif presets.button == "PL3":
+        oradio_log.debug("PL3 preset playlist: '%s'", presets.list_3)
+        message["state"] = MESSAGE_WEB_SERVICE_PL3_CHANGED
+    else:
+        oradio_log.error("Invalid playlist button '%s'", presets.button)
+
+    # Store presets
+    store_presets([presets.list_1, presets.list_2, presets.list_3])
+
+    # Put message in queue
+    oradio_log.debug("Send web service message: %s", message)
+    api_app.state.message_queue.put(message)
+
 class play(BaseModel):
     """ Model for wifi network credentials """
     song: str = None
@@ -178,8 +210,6 @@ class play(BaseModel):
 async def play_song(play: play):
     """
     Handle POST with wifi network credentials
-    Handle connecting in background task, so the POST gets a response
-    https://fastapi.tiangolo.com/tutorial/background-tasks/#using-backgroundtasks
     """
     oradio_log.debug("play song: '%s'", play.song)
     mpdcontrol.play_song(play.song)

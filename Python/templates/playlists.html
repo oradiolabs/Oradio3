@@ -29,7 +29,7 @@
 							Voorkeur {{ loop.index }}:
 						</div>
 						<div>
-							<select name="preset{{ loop.index }}" id="preset{{ loop.index }}" class="preset-select">
+							<select name="preset{{ loop.index }}" id="preset{{ loop.index }}" class="preset-select" onchange="savepresets('PL{{ loop.index }}')">
 							{% set index = ["preset", loop.index]|join %}
 							{% for folder in folders %}
 								{% if presets[index] == folder %}
@@ -42,7 +42,9 @@
 						</div>
 					</div>
 				{% endfor %}
-				<button type="submit">Instellen</button>
+				<div id="presets_notification" class="notification">
+					<!-- Will be filled by Javascript submitCredentials() -->
+				</div>
 			</form>
 
 			<!-- Show songs in a playlist -->
@@ -106,10 +108,12 @@
 		location.hash = "#" + "{{ anchor }}";
 
 		// Get notification element
+		const presets_notification = document.getElementById('presets_notification');
 		const playlist_notification = document.getElementById('playlist_notification');
 		const search_notification = document.getElementById('search_notification');
 
 		// Clear old notifications
+		presets_notification.innerHTML = "";
 		playlist_notification.innerHTML = "";
 		search_notification.innerHTML = "";
 
@@ -141,6 +145,40 @@
 		}
 
 		// Function to submit the network and password
+		async function savepresets(changedpreset)
+		{
+			// Send presets to server
+			try
+			{
+				const response = await fetch('/save_presets', {
+					method: 'POST',
+					headers: {
+						'Content-Type': 'application/json'
+					},
+					body: JSON.stringify({
+							"button": changedpreset,
+							"list_1": document.getElementById("preset1").value,
+							"list_2": document.getElementById("preset2").value,
+							"list_3": document.getElementById("preset3").value
+						})
+				});
+
+				if (! response.ok)
+				{
+					const errorData = await response.json();
+					presets_notification.innerHTML = "<p class=\"error\">Error: "+ errorData + "</p>";
+				}
+				else
+					presets_notification.innerHTML = "";
+
+			}
+			catch (error)
+			{
+				presets_notification.innerHTML = "<p class=\"error\">Er is een fout opgetreden bij het koppelen van de speellijst aan de knop.</p>";
+			}
+		}
+
+		// Function to submit the network and password
 		async function submitSong(song)
 		{
 			// Send song to play to server
@@ -158,17 +196,17 @@
 				{
 					const errorData = await response.json();
 					if (playlist.length > 0)
-						playlist_notification.textContent = "<p class=\"error\">Error: "+ errorData + "</p>";
+						playlist_notification.innerHTML = "<p class=\"error\">Error: "+ errorData + "</p>";
 					if (search.length > 0)
-						search_notification.textContent = "<p class=\"error\">Error: "+ errorData + "</p>";
+						search_notification.innerHTML = "<p class=\"error\">Error: "+ errorData + "</p>";
 				}
 			}
 			catch (error)
 			{
 				if (playlist.length > 0)
-					playlist_notification.innerHTML = "<p style=\"color: #ff0000;\">Er is een fout opgetreden bij het indienen van het te spelen liedje.</p>";
+					playlist_notification.innerHTML = "<p class=\"error\">Er is een fout opgetreden bij het indienen van het te spelen liedje.</p>";
 				if (search.length > 0)
-					search_notification.innerHTML = "<p style=\"color: #ff0000;\">Er is een fout opgetreden bij het indienen van het te spelen liedje.</p>";
+					search_notification.innerHTML = "<p class=\"error\">Er is een fout opgetreden bij het indienen van het te spelen liedje.</p>";
 			}
 		}
 	</script>
