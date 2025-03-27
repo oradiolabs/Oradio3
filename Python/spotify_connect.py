@@ -232,8 +232,9 @@ class SpotifyConnect():
 
         
         state, mpv_player = self.get_mpv_player()
-
+        # check if mpv player is playing: indicates that there is a spotify playlist active
         self.spotify_app_status = SPOTIFY_APP_STATUS_DISCONNECTED
+        
         self.spotify_connected_state = SPOTIFY_CONNECT_NOT_CONNECTED
         self.spotify_client_id = "None"
         self.stop_event = threading.Event() # used to stop the observer loop        

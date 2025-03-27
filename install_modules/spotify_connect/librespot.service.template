@@ -21,24 +21,9 @@ Environment="LIBRESPOT_NAME=Oradio"
 Environment="LIBRESPOT_VERBOSE="
 Environment="LIBRESPOT_ONEVENT=/home/pi/Oradio3/Python/librespot_event_handler.py"
 Environment="LIBRESPOT_DEVICE_TYPE=avr"
-# check these values 
-#Environment="LIBRESPOT_VOLUME_CTRL=log"
-#Environment="LIBRESPOT_VOLUME_RANGE=log"
+Environment="LIBRESPOT_VOLUME_CTRL=log"
+Environment="LIBRESPOT_VOLUME_RANGE=100"
 
-# Reset flag files before starting librespot
-#ExecStartPre=/bin/bash -c 'echo "0" > PLACEHOLDER_SPOTIFY_DIR/spotactive.flag'
-#ExecStartPre=/bin/bash -c 'echo "0" > PLACEHOLDER_SPOTIFY_DIR/spotplaying.flag'
-
-#ExecStart=/usr/bin/librespot \
-#    --name Oradio \
-#    --initial-volume 100 \
-#    --volume-ctrl log \
-#    --volume-range 100 \
-#    --device-type avr \
-#    --autoplay on \
-#    --device SpotCon_in \
-#    --verbose \
-#    --onevent /usr/local/bin/spotify_event_handler.sh
 
 Restart=always
 RestartSec=10
