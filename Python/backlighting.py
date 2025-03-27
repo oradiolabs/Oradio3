@@ -17,10 +17,9 @@ Created on Januari 17, 2025
 @version:       1
 @email:         oradioinfo@stichtingoradio.nl
 @status:        Development
-@summary: Class for USB detect, insert, and remove services
-    :Note
-    :Install
-    :Documentation
+@summary: Class to run the backlighting service. Measure the light level and adapt the backlightingMCP4725
+Update, such that it starts always with low backlighting level
+
 """
 import time
 import smbus2
@@ -59,6 +58,9 @@ class backlighting:
         self.steps_remaining = 0
         self.step_size = 0
         self.running = False  # Flag to control the auto_adjust loop
+        
+ # Write 4095 to EEPROM so that default from boot is all the leds are switched off
+        self.write_dac_to_eeprom(4095)
 
     def write_register(self, register, value):
         """ Write value to register """
@@ -91,11 +93,15 @@ class backlighting:
         return self.read_two_registers(self.VISIBLE_LIGHT_LOW, self.VISIBLE_LIGHT_HIGH)
 
     def write_dac(self, value):
-        """ Write backlight light level """
-        value = max(0, min(4095, value))
-        high_byte = (value >> 8) & 0x0F
-        low_byte = value & 0xFF
-        self.bus.write_byte_data(self.MCP4725_ADDR, high_byte, low_byte)
+        """Write a 12-bit value to the MCP4725 DAC (without EEPROM storage)."""
+        value = max(0, min(4095, value))  # Ensure value is within range
+
+        high_byte = (value >> 4) & 0xFF   # 8 most significant bits
+        low_byte = (value << 4) & 0xFF    # 4 least significant bits shifted
+
+        write_command = 0x40  # Fast mode write to DAC (no EEPROM storage)
+        
+        self.bus.write_i2c_block_data(self.MCP4725_ADDR, write_command, [high_byte, low_byte])
 
     def interpolate_backlight(self, lux):
         """ Calculate backlight setting based on light sensor value """
@@ -141,6 +147,17 @@ class backlighting:
         """ Stop the auto_adjust loop and turn the backlight on """
         self.running = False
         self.write_dac(self.backlight_max)  # Set backlight to max (off)
+        
+    def write_dac_to_eeprom(self, value):
+        """ Write DAC value and store in EEPROM (persistent after reboot) """
+        value = max(0, min(4095, value))  # Ensure value is within range
+
+        high_byte = (value >> 4) & 0xFF   # 8 most significant bits
+        low_byte = (value << 4) & 0xFF    # 4 least significant bits shifted
+
+        write_command = 0x60  # Write to DAC and store in EEPROM
+        
+        self.bus.write_i2c_block_data(self.MCP4725_ADDR, write_command, [high_byte, low_byte])
 
 if __name__ == "__main__":
     lighting = backlighting()
