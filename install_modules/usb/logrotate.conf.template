@@ -1,6 +1,0 @@
-PLACEHOLDER_LOGFILE_USB {
-	size 100k
-	missingok
-	nocompress
-	rotate 1
-}

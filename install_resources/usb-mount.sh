@@ -13,9 +13,8 @@ DEVBASE=$2						# sd[a-z][1-9]
 VALIDLABEL="ORADIO"				# Partition will not be mounted if label does not match VALIDLABEL
 PARTITION="/dev/${DEVBASE}"		# Location of the USB partition to mount
 
-# Placeholders will be modified by ../usb.sh script
-MOUNT_POINT="PLACEHOLDER_MOUNT_POINT"	# Location where USB is mounted
-MONITOR="PLACEHOLDER_MONITOR"			# File used to monitor if USB is mounted/unmounted
+MOUNT_POINT="/media/oradio"		# Location where USB is mounted
+MONITOR="/media/usb_ready"		# File used to monitor if USB is mounted/unmounted
 
 # Mount the USB partition
 do_mount()

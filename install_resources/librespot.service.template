@@ -1,0 +1,35 @@
+# Placeholders will be modified by ../oradio_install.sh script
+
+[Unit]
+Description=Librespot
+After=network.target
+
+[Service]
+# Controls where file descriptor 1 (stdout) and 2 (stderr) of the executed processes is connected to
+StandardOutput=append:PLACEHOLDER_LOGFILE_SPOTIFY
+StandardError=append:PLACEHOLDER_LOGFILE_SPOTIFY
+
+# Reset flag files before starting librespot
+ExecStartPre=/bin/bash -c 'echo "0" > PLACEHOLDER_SPOTIFY_PATH/spotactive.flag'
+ExecStartPre=/bin/bash -c 'echo "0" > PLACEHOLDER_SPOTIFY_PATH/spotplaying.flag'
+
+ExecStart=/usr/bin/librespot \
+    --name Oradio \
+    --initial-volume 100 \
+    --volume-ctrl log \
+    --volume-range 100 \
+    --device-type avr \
+    --autoplay on \
+    --device SpotCon_in \
+    --verbose \
+    --onevent /usr/local/bin/spotify_event_handler.sh
+
+Restart=always
+RestartSec=10
+
+# Set the UNIX user or group that the processes are executed as, respectively
+User=PLACEHOLDER_USER
+Group=PLACEHOLDER_GROUP
+
+[Install]
+WantedBy=multi-user.target

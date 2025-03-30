@@ -1,10 +1,10 @@
 #!/bin/bash
 
-# Placeholders will be modified by ../spotify_connect.sh script
+# Placeholders will be modified by ../oradio_install.sh script
 
 # File paths for flags
-ACTIVE_FLAG_FILE="PLACEHOLDER_SPOTIFY_DIR/spotactive.flag"
-PLAYING_FLAG_FILE="PLACEHOLDER_SPOTIFY_DIR/spotplaying.flag"
+ACTIVE_FLAG_FILE="PLACEHOLDER_SPOTIFY_PATH/spotactive.flag"
+PLAYING_FLAG_FILE="PLACEHOLDER_SPOTIFY_PATH/spotplaying.flag"
 
 # Function to log events
 log_event() {
