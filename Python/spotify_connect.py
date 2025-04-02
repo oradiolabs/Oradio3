@@ -310,6 +310,12 @@ class SpotifyConnect():
     
     import subprocess
 
+    def pause(self):
+        self.playerctl_command(MPV_PLAYERCTL_PAUSE)
+
+    def play(self):
+        self.playerctl_command(MPV_PLAYERCTL_PLAY)
+        
     def playerctl_command(self,command):
         '''
         Send command to playerctl via mpris player interface
