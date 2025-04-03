@@ -290,19 +290,23 @@ echo "########################"
 EOL'
 fi
 
+# Get date and time of git last update
+gitdate=$(git log -1 --format=%cd --date=format:'%Y-%m-%d-%H-%M-%S')
+# Get hash of last git commit
+lastcommit=$(git log --pretty="format:%h")
 # Get git version info
 if $(git branch | grep -q 'HEAD detached at'); then
 	gitinfo='Release: '$(git describe --tags)
 else
-	gitinfo='Branch: '$(git branch | cut -d' ' -f2)
+	gitinfo='Branch: '$(git branch | cut -d' ' -f2)' @ '$lastcommit
 fi
 # Generate new sw version info
-sudo bash -c 'cat << EOL >> /var/log/oradio_sw_version.log
+sudo bash -c 'cat << EOL > /var/log/oradio_sw_version.log
 {
-    "serial": "$(date +'%Y-%m-%d-%H-%M-%S')",
-    "gitinfo": "$gitinfo"
+    "serial": "$1",
+    "gitinfo": "$2"
 }
-EOL'
+EOL' -- "$gitdate" "$gitinfo"
 # Notify leaving module installation script
 echo -e "${GREEN}Oradio software version log configured${NC}"
 
