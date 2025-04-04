@@ -425,5 +425,5 @@ audio_output {
     type            "alsa"
     name            "MPD Output"
     device          "MPD_in"      # The ALSA PCM device
-    mixer_type      "none"        # Disable software volume control
+    mixer_type      "software"        # enable software volume control
 }
