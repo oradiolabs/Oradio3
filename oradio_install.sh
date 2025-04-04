@@ -24,11 +24,15 @@ YELLOW='\033[1;93m'
 GREEN='\033[1;32m'
 NC='\033[0m'
 
+# Initialize flag for calling scripts to test on
+RETURN=0
+
 # The script uses bash constructs and changes the environment
 if [ ! "$BASH_VERSION" ] || [ ! "$0" == "-bash" ]; then
 	echo -e "${RED}Use 'source $0' to run this script${NC}" 1>&2
 	# Stop with error flag
-	return 1
+	RETURN=1
+	return
 fi
 
 # Get the path where the script is running
@@ -65,7 +69,8 @@ OSVERSION=$(lsb_release -a | grep "Description:" | cut -d$'\t' -f2)
 if [ "$OSVERSION" != "$BOOKWORM64" ]; then
 	echo -e "${RED}Unsupported OS version: $OSVERSION${NC}"
 	# Stop with error flag
-	return 1
+	RETURN=1
+	return
 fi
 
 # Network domain name
@@ -277,28 +282,15 @@ sudo sed -i "s/^.domain-name=.*/domain-name=local/g" /etc/avahi/avahi-daemon.con
 # Allow mDNS on wired and wireless interfaces
 sudo sed -i "s/^#allow-interfaces=.*/allow-interfaces=eth0,wlan0/g" /etc/avahi/avahi-daemon.conf
 
-# Notify leaving module installation script
+# Progress report
 echo -e "${GREEN}Wifi is enabled and network domain is set to '${HOSTNAME}.local'${NC}"
-
-# Show Raspberry Pi serial number on login
-if ! grep -q "#   Serial: " /etc/bash.bashrc; then
-	sudo bash -c 'cat << EOL >> /etc/bash.bashrc 
-# Show Pi serial number on login" >> /etc/bash.bashrc
-echo "########################"
-echo "#   Serial: $(vcgencmd otp_dump | grep "28:" | cut -c 4-)   #"
-echo "########################"
-EOL'
-fi
 
 # Get date and time of git last update
 gitdate=$(git log -1 --format=%cd --date=format:'%Y-%m-%d-%H-%M-%S')
-# Get hash of last git commit
-lastcommit=$(git log --pretty="format:%h")
-# Get git version info
-if $(git branch | grep -q 'HEAD detached at'); then
-	gitinfo='Release: '$(git describe --tags)
-else
-	gitinfo='Branch: '$(git branch | cut -d' ' -f2)' @ '$lastcommit
+# Get info about installed Oradio3 version
+gitinfo="Release '$(git describe --tags 2>&1)'"
+if [ $? -gt 0 ]; then
+	gitinfo="Branch '$(git branch | cut -d' ' -f2)' @ $(git log --pretty='format:%h')"
 fi
 # Generate new sw version info
 sudo bash -c 'cat << EOL > /var/log/oradio_sw_version.log
@@ -307,8 +299,22 @@ sudo bash -c 'cat << EOL > /var/log/oradio_sw_version.log
     "gitinfo": "$2"
 }
 EOL' -- "$gitdate" "$gitinfo"
-# Notify leaving module installation script
+# Progress report
 echo -e "${GREEN}Oradio software version log configured${NC}"
+
+# Show Raspberry Pi serial number on login
+if ! grep -q "#   Serial: " /etc/bash.bashrc; then
+	# Get Oradio3 serial number
+	serial=$(vcgencmd otp_dump | grep "28:" | cut -c 4-)
+
+	sudo bash -c 'cat << EOL >> /etc/bash.bashrc 
+# Show Pi serial number on login
+echo "--------------------------------------------------"
+echo "Serial number: $1"
+echo "SW version: $2"
+echo "--------------------------------------------------"
+EOL' -- "$serial" "$gitinfo"
+fi
 
 # Configure the USB mount script
 install_resource $RESOURCES_PATH/usb-mount.sh /usr/local/bin/usb-mount.sh 'sudo chmod +x /usr/local/bin/usb-mount.sh'
@@ -341,7 +347,7 @@ install_resource $RESOURCES_PATH/usb-mount@.service /etc/systemd/system/usb-moun
 # Install rules if new or changed and reload to activate
 install_resource $RESOURCES_PATH/99-local.rules /etc/udev/rules.d/99-local.rules
 
-# Notify leaving module installation script
+# Progress report
 echo -e "${GREEN}USB functionalty loaded and configured. System automounts USB drives on '/media'${NC}"
 
 # Activate i2c interface
@@ -356,12 +362,12 @@ echo -e "${GREEN}i2c installed and configured${NC}"
 if [ ! -f /var/log/oradio_hw_version.log ]; then
 	install_resource $RESOURCES_PATH/hw_version.service /etc/systemd/system/hw_version.service 'sudo systemctl enable hw_version.service'
 fi
-# Notify leaving module installation script
+# Progress report
 echo -e "${GREEN}Oradio hardware version log configured${NC}"
 
 # Configure the backlighting service
 install_resource $RESOURCES_PATH/backlighting.service /etc/systemd/system/backlighting.service 'sudo systemctl enable backlighting.service'
-# Notify leaving module installation script
+# Progress report
 echo -e "${GREEN}Backlighting installed and configured${NC}"
 
 # Install audio configuration, activate SoftVolSpotCon, set volume to normal level
@@ -403,7 +409,8 @@ echo -e "${GREEN}Autostart Oradio on boot configured${NC}"
 if [ -v INSTALL_ERROR ]; then
 	echo -e "${RED}Installation completed with errors${NC}"
 	# Stop with error flag
-	return 1
+	RETURN=1
+	return
 fi
 
 ########## CONFIGURATION END ##########
