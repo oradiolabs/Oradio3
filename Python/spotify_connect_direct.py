@@ -38,7 +38,8 @@ import oradio_utils
 from oradio_const import *
 from oradio_logging import oradio_log
 
-ALSA_MIXER_SPOTCON = "VolumeSpotCon"
+ALSA_MIXER_SPOTCON = "VolumeSpotCon1"
+# the first volume controller of Spotify in asound.conf which is put to 0% if state is off
 
 class SpotifyConnect:
     # Define the flag file paths as class constants.
