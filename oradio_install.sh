@@ -76,9 +76,6 @@ fi
 # Network domain name
 HOSTNAME="oradio"
 
-# WiFi country setting
-WIFI_COUNTRY="NL"
-
 # Clear flag indicating reboot required to complete the installation
 unset REBOOT_AND_CONTINUE
 
@@ -241,7 +238,8 @@ EOL
 		sudo raspi-config nonint do_boot_behaviour B2
 
 		# This script will automatically be started after reboot
-		echo "Rebooting: Installation will continue after reboot"
+		echo -e "${YELLOW}Rebooting: Installation will automatically continue after reboot${NC}"
+		sleep 3 # Flush output to logfile
 		sudo reboot
 	fi
 
@@ -268,7 +266,7 @@ fi
 
 # Activate wireless interface
 # https://www.raspberrypi.com/documentation/computers/configuration.html#wlan-country-2
-sudo raspi-config nonint do_wifi_country $WIFI_COUNTRY		# Implicitly activates wifi
+sudo raspi-config nonint do_wifi_country NL		# Implicitly activates wifi
 
 # change hostname and hosts mapping to reflect the network domain name
 sudo bash -c "hostnamectl set-hostname ${HOSTNAME} && sed -i \"s/^127.0.1.1.*/127.0.1.1\t${HOSTNAME}/g\" /etc/hosts"
@@ -303,12 +301,12 @@ EOL' -- "$gitdate" "$gitinfo"
 echo -e "${GREEN}Oradio software version log configured${NC}"
 
 # Show Raspberry Pi serial number on login
-if ! grep -q "#   Serial: " /etc/bash.bashrc; then
+if ! grep -q "Serial number: " /etc/bash.bashrc; then
 	# Get Oradio3 serial number
 	serial=$(vcgencmd otp_dump | grep "28:" | cut -c 4-)
 
 	sudo bash -c 'cat << EOL >> /etc/bash.bashrc 
-# Show Pi serial number on login
+# Show Oradio3 serial number on login
 echo "--------------------------------------------------"
 echo "Serial number: $1"
 echo "SW version: $2"
