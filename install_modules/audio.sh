@@ -57,6 +57,7 @@ if ! sudo diff $SRC $DST >/dev/null 2>&1; then
         # added another 2 to activate
         speaker-test -D SoftVolSpotCon1 -c2 >/dev/null 2>&1
         speaker-test -D SoftVolSysSound -c2 >/dev/null 2>&1
+        speaker-test -D SoftVolMPD -c2 >/dev/null 2>&1
 
 fi
 
