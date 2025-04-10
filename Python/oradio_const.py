@@ -83,8 +83,8 @@ PRESET_FILE_PATH = USB_SYSTEM + "/presets.json"
 
 ################## VOLUME #############################
 # Raw volume units
-VOLUME_MINIMUM = 70
-VOLUME_MAXIMUM = 180
+VOLUME_MINIMUM = 95
+VOLUME_MAXIMUM = 185
 # Volume messages
 #OMJ: 'Type' is eigenlijk 'source'
 MESSAGE_TYPE_VOLUME   = "Vol Control message"
