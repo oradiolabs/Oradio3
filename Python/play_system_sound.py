@@ -18,11 +18,12 @@ Created on Januari 30, 2025
 @summary:       Oradio System Sound Player
 
 Reducing volume when system sounds are played. The volume control is independent of the master volume.
-The mpc volme is used for the MPD and amixer -c DigiAMP sset "VolumeSpotCon2" for Spotify.
-With the update, it is not needed that the statemachine needs to manage the start stop of the Sound
+The MPD and Spotify channel can be controlled with amixer -c DigiAMP sset "VolumeMPD" 100% for the MPD
+amixer -c DigiAMP sset "VolumeSpotCon2" 100% for Spotify.
+With this update, it is not needed that the statemachine needs to manage the start stop of the Sound
 During syssounds
-Also the Sound file Next is added.
-
+Also the Sound file Next and USBpresent is added
+And a volume controller to set the system sound
 """
 import os
 import subprocess
@@ -39,10 +40,11 @@ from oradio_const import *
 # SOUND_FILES_DIR is defined in global constants
 
 ##### LOCAL VOLUME CONSTANTS ####################
-DEFAULT_MPD_VOLUME = 100          # Default MPD volume (assumed)
-DEFAULT_SPOTIFY_VOLUME = 100      # Default Spotify volume (assumed)
-VOLUME_MPD_SYS_SOUND = 60         # MPD volume level for system sound playback
-VOLUME_SPOTIFY_SYS_SOUND = 60     # Spotify volume level for system sound playback
+DEFAULT_MPD_VOLUME = 100          # Default MPD volume (is reference volume)
+DEFAULT_SPOTIFY_VOLUME = 90      # Default Spotify volume (tuned to MPD mp3 files at 90 dB)
+VOLUME_MPD_SYS_SOUND = 70         # MPD volume level for system sound playback
+VOLUME_SPOTIFY_SYS_SOUND = 70     # Spotify volume level for system sound playback
+DEFAULT_SYS_SOUND_VOLUME = 70    # Volume of the System Sound, to tune it, is constant set
 
 SOUND_FILES = {
     # Sounds
@@ -62,6 +64,8 @@ SOUND_FILES = {
     "OradioAP":     f"{SOUND_FILES_DIR}/OradioAP_melding.wav",
     "WifiConnected": f"{SOUND_FILES_DIR}/Wifi_verbonden_melding.wav",
     "WifiNotConnected": f"{SOUND_FILES_DIR}/Niet_Wifi_verbonden_melding.wav",
+    "NewPlaylistPreset": f"{SOUND_FILES_DIR}/Nieuwe_afspeellijst_preset.wav",
+    "USBPresent": f"{SOUND_FILES_DIR}/USB_aangesloten.wav",
 }
 
 class PlaySystemSound:
@@ -83,6 +87,7 @@ class PlaySystemSound:
         self.batch_lock = threading.Lock()  # Protects the counter and volume adjustments.
         self.active_count = 0
         self.restore_timer = None  # Timer to delay volume restoration.
+        self._set_sys_volume(DEFAULT_SYS_SOUND_VOLUME) # set sys sound ones at the default value
 
     def play(self, sound_key):
         """
@@ -104,15 +109,29 @@ class PlaySystemSound:
             self.active_count += 1
 
         threading.Thread(target=self._play_sound_and_restore, args=(sound_key,), daemon=True).start()
+        
+    def _set_sys_volume(self, volume):
+        """
+        Sets the system sound volume using the amixer command.
+        :param volume: The volume level to set (integer).
+        """
+        oradio_log.debug("Setting Sys Sound volume to %s%%", volume)
+        subprocess.run(
+            ["amixer", "-c", "DigiAMP", "sset", "VolumeSysSound", f"{volume}%"],
+            check=True,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL
+        )        
+
 
     def _set_mpd_volume(self, volume):
         """
-        Sets the MPD volume using the 'mpc volume' command.
+        Sets the MPD volume using the 'amixer command.
         :param volume: The volume level to set (integer).
         """
         oradio_log.debug("Setting MPD volume to %s%%", volume)
         subprocess.run(
-            ["mpc", "volume", str(volume)],
+            ["amixer", "-c", "DigiAMP", "sset", "VolumeMPD", f"{volume}%"],
             check=True,
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL
@@ -185,24 +204,38 @@ if __name__ == "__main__":
     sound_player = PlaySystemSound()
     # Dynamically create menu options based on available sounds
     sound_keys = list(SOUND_FILES.keys())
-    # Generate dynamic input menu
+    # Build the dynamic input menu with an additional option for setting system volume
     input_selection = "\nSelect a function, input the number:\n"
     input_selection += " 0 - Quit\n"
-    for index, sound_key in enumerate(sound_keys, start=1):
+    input_selection += " 1 - Set system volume\n"
+    # Enumerate sound play options starting at 2
+    for index, sound_key in enumerate(sound_keys, start=2):
         input_selection += f" {index} - Play {sound_key}\n"
     input_selection += " 99 - Stress Test (random sounds)\n"
     input_selection += "Select: "
+
     # User command loop
     while True:
         try:
             function_nr = int(input(input_selection))
         except ValueError:
             function_nr = -1  # Invalid input
+        
         if function_nr == 0:
             print("\nExiting test program...\n")
             break
-        elif 1 <= function_nr <= len(sound_keys):
-            sound_key = sound_keys[function_nr - 1]
+        elif function_nr == 1:
+            # Option to set system volume
+            try:
+                new_volume = int(input("Enter new system volume (in %): "))
+                sound_player._set_sys_volume(new_volume)
+                print(f"System volume set to {new_volume}%.")
+            except ValueError:
+                print("Invalid volume value; please enter an integer.")
+            except subprocess.CalledProcessError as e:
+                print(f"Error setting system volume: {e}")
+        elif 2 <= function_nr <= (len(sound_keys) + 1):
+            sound_key = sound_keys[function_nr - 2]
             print(f"\nExecuting: Play {sound_key}\n")
             sound_player.play(sound_key)
         elif function_nr == 99:
