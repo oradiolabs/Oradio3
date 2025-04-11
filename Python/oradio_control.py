@@ -99,6 +99,7 @@ class StateMachine:
         if self.state == new_state:
             if self.state == "StatePlay" or self.state == "StatePreset1" or self.state == "StatePreset2" or self.state == "StatePreset3":
                 threading.Thread(target=mpd.next).start()  # PLAY NEXT SONG
+                sound_player.play("Next")
                 oradio_log.debug(f"Next song")
                 return  # Do not continue with change of state
         if spotify_connect_available.is_set(): # if Spotify connect is active 
@@ -162,10 +163,11 @@ class StateMachine:
                                       
             elif self.state == "StateUSBAbsent":
                 leds.control_blinking_led("LEDStop", 0.7)
-                
+                mpd.pause() # MPD stopped
+                spotify_connect.pause() # spotify is on pause and will not work
                 sound_player.play("Stop")
                 sound_player.play("NoUSB")
-                self.wait_for_usb_present()
+                self.wait_for_usb_present() # block until USb is present, without USB Oradio will not work anymore
                 state_machine.transition("StateIdle") # when USB is preset gow to Idle
                 ####
                 
@@ -190,8 +192,8 @@ class StateMachine:
         
             elif self.state == "StateWebService":  # Triggered by LONG PRESS
                 leds.control_blinking_led("LEDPlay", 0.7)
-                mpd.pause()
-                spotify_connect.pause() # spotify is on pause and will not work
+ #               mpd.pause()
+ #               spotify_connect.pause() # spotify is on pause and will not work
                 oradio_web_service.start()
                 if wifi_connected_event.is_set(): # if connected to wifi web_service will start
                     oradio_log.debug(f"In WebService State, wait for next step")
@@ -200,8 +202,8 @@ class StateMachine:
                     oradio_log.debug(f"Long Press resulted in OradioAP as not connecetd to wifi")
                     sound_player.play("OradioAP")
                 Web_Service_Active = True
-                time.sleep(5)
-                leds.control_blinking_led("LEDPlay", 0)
+ #              time.sleep(5) # wait for sound.player
+ #              leds.control_blinking_led("LEDPlay", 0)
                 self.transition("StatePlay")
 
             elif self.state == "StateWebServiceForceAP": # Triggered by EXTRA LONG PRESS
@@ -235,6 +237,7 @@ class StateMachine:
         time.sleep(0.2)  # Small delay to allow MPD to recover and before start mpd update
         # Start MPD database update in a separate thread
         oradio_log.debug(f"Starting MPD database update...")
+        sound_player.play("USBPresent")
         mpd.start_update_mpd_database_thread()
         
     def update_usb_event(self):
@@ -276,6 +279,9 @@ def process_messages(queue):
             "web service message": {
                 STATE_WEB_SERVICE_IDLE: on_webservice_not_active,
                 MESSAGE_WEB_SERVICE_PLAYING_SONG: on_webservice_playing_song,
+                MESSAGE_WEB_SERVICE_PL1_CHANGED: on_webservice_pl1_changed,
+                MESSAGE_WEB_SERVICE_PL2_CHANGED: on_webservice_pl2_changed,
+                MESSAGE_WEB_SERVICE_PL3_CHANGED: on_webservice_pl3_changed,
 #                "Webservice error": on_webservice_error,
             },
             MESSAGE_SPOTIFY_TYPE: {
@@ -365,6 +371,7 @@ def on_wifi_error():
         sound_player.play("WifiNotConnected")
     oradio_log.debug(f"Wifi failed to connect acknowledged")
 
+#------------------------Web service----------------------------
 
 def on_webservice_active():
     global Web_Service_Active
@@ -381,6 +388,25 @@ def on_webservice_playing_song():
     if state_machine.state == "StateStop": # if webservice put songs in queue and plays it
         state_machine.transition("StatePlaySongWebIF")   #  and if player is switched of, switch it on, otherwise keep state
     oradio_log.debug(f"WebService playing song acknowledged")    
+
+def on_webservice_pl1_changed():
+    state_machine.transition("StateIdle")  # Step in bewteen if state is the same, preventing Next 
+    state_machine.transition("StatePreset1")
+    # Schedule sound_player.play to be called after 1 second
+    threading.Timer(1.0, sound_player.play, args=("NewPlaylistPreset",)).start()
+    oradio_log.debug(f"WebService on_webservice_pl1_changed acknowledged")    
+
+def on_webservice_pl2_changed():
+    state_machine.transition("StateIdle") 
+    state_machine.transition("StatePreset2")
+    threading.Timer(1.0, sound_player.play, args=("NewPlaylistPreset",)).start()
+    oradio_log.debug(f"WebService on_webservice_pl2_changed acknowledged")
+    
+def on_webservice_pl3_changed():
+    state_machine.transition("StateIdle")  
+    state_machine.transition("StatePreset3")
+    threading.Timer(1.0, sound_player.play, args=("NewPlaylistPreset",)).start()
+    oradio_log.debug(f"WebService on_webservice_pl3_changed acknowledged")  
 
 #--------------------------Spotify-------------------------------
 
