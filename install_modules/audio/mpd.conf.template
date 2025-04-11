@@ -382,17 +382,17 @@ decoder {
 # more details about ReplayGain.
 # This setting is off by default.
 #
-#replaygain			"album"
+replaygain			"track"
 #
 # This setting sets the pre-amp used for files that have ReplayGain tags. By
 # default this setting is disabled.
 #
-#replaygain_preamp		"0"
+replaygain_preamp		"0"
 #
 # This setting sets the pre-amp used for files that do NOT have ReplayGain tags.
 # By default this setting is disabled.
 #
-#replaygain_missing_preamp	"0"
+replaygain_missing_preamp	"0"
 #
 # This setting enables or disables ReplayGain limiting.
 # MPD calculates actual amplification based on the ReplayGain tags
@@ -401,7 +401,7 @@ decoder {
 # above its original level. If replaygain_limit is disabled such amplification
 # might occur. By default this setting is enabled.
 #
-#replaygain_limit		"yes"
+replaygain_limit		"yes"
 #
 # This setting enables on-the-fly normalization volume adjustment. This will
 # result in the volume of all playing audio to be adjusted so the output has
@@ -424,6 +424,6 @@ filesystem_charset		"UTF-8"
 audio_output {
     type            "alsa"
     name            "MPD Output"
-    device          "MPD_in"      # The ALSA PCM device
-    mixer_type      "none"        # Disable software volume control
+    device          "MPD_in"      
+    mixer_type      "none"        
 }

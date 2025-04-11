@@ -39,6 +39,11 @@ echo "Install and configure audio"
 dpkg --verify mpd >/dev/null 2>&1 || sudo apt-get install -y mpd
 dpkg --verify mpc >/dev/null 2>&1 || sudo apt-get install -y mpc
 
+###########Equal ##############
+
+#equalizer package
+sudo apt install libasound2-plugin-equal -y
+
 # Install the audio configuration
 SRC=$SCRIPT_DIR/audio/asound.conf
 DST=/etc/asound.conf
@@ -48,9 +53,28 @@ if ! sudo diff $SRC $DST >/dev/null 2>&1; then
 	sudo cp $SRC $DST
 
 	# Work-around to activate SoftVolSpotCon
-	speaker-test -D SoftVolSpotCon -c2 >/dev/null 2>&1
+	speaker-test -D SoftVolSpotCon1 -c2 >/dev/null 2>&1
+        # added another 2 to activate
+        speaker-test -D SoftVolSpotCon1 -c2 >/dev/null 2>&1
+        speaker-test -D SoftVolSysSound -c2 >/dev/null 2>&1
+        speaker-test -D SoftVolMPD -c2 >/dev/null 2>&1
 
 fi
+
+# install equalizer settings
+SRC=$SCRIPT_DIR/audio/alsaequal.bin
+DST=/etc/alsaequal.bin
+if ! sudo diff $SRC $DST >/dev/null 2>&1; then
+
+        # Install the alsaequal settings
+        sudo cp $SRC $DST
+
+
+fi
+# give the mpd user permissions to rw alsaequal.bin
+sudo chmod 666 $DST
+
+###########Equal end ##############
 
 # Configure mpd music library location
 SRC=$SCRIPT_DIR/audio/mpd.conf
