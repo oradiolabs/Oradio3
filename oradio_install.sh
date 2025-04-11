@@ -368,6 +368,8 @@ install_resource $RESOURCES_PATH/backlighting.service /etc/systemd/system/backli
 # Progress report
 echo -e "${GREEN}Backlighting installed and configured${NC}"
 
+# Install equalizer settings with rw rights
+install_resource $RESOURCES_PATH/alsaequal.bin /etc/alsaequal.bin 'sudo chmod 666 /etc/alsaequal.bin'
 # Install audio configuration, activate SoftVolSpotCon, set volume to normal level
 # NOTE: Requires the Oradio3 boot config to be installed and activate
 install_resource $RESOURCES_PATH/asound.conf /etc/asound.conf \
@@ -375,8 +377,6 @@ install_resource $RESOURCES_PATH/asound.conf /etc/asound.conf \
 		'speaker-test -D SoftVolSysSound -c2 >/dev/null 2>&1' \
 		'speaker-test -D SoftVolMPD -c2 >/dev/null 2>&1' \
 		'amixer -c 0 cset name="Digital Playback Volume" 120'
-# Install equalizer settings
-install_resource $RESOURCES_PATH/alsaequal.bin /etc/alsaequal.bin 'sudo chmod +x /etc/alsaequal.bin'
 # Configure mpd music library location and start service at boot
 install_resource $RESOURCES_PATH/mpd.conf /etc/mpd.conf 'sudo systemctl enable mpd.service'
 # Progress report
