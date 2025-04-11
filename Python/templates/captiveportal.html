@@ -29,12 +29,15 @@
 				<input type="hidden" name="action" value="connect_wifi" />
 				<h1 >Verbind Oradio met WiFi-netwerk</h1>
 				<label for="SSIDs">Netwerk:</label>
-				<select id="SSIDs" onchange="networkSelected()">
-					<option selected disabled value="PLACEHOLDER">Selecteer uw WiFi-netwerk</option>
-					{% for network in networks %}
-						<option value="{{ network }}">{{ network }}</option>
-					{% endfor %}
-				</select>
+				<div class="datalist-container">
+					<input type="text" id="SSIDs" name="SSIDs" list="ssid_list" placeholder="-- Selecteer uw WiFi-netwerk --" onchange="networkSelected()">
+					<datalist id="ssid_list">
+						{% for network in networks %}
+							<option value="{{ network }}">{{ network }}</option>
+						{% endfor %}
+					</datalist>
+					<span class="custom-icon">&#x25BC;</span> <!-- ▼ icoon -->
+				</div>
 				<div id="password">
 					<label for="pswd">Wachtwoord:</label>
 					<input id="pswd" class="pswd-input" type="password" placeholder="Voer WiFi-wachtwoord in" />
@@ -89,7 +92,7 @@
 
 			// Get selected network info
 			const ssid = document.getElementById("SSIDs").value;
-			if (ssid == "PLACEHOLDER")
+			if (ssid == "")
 			{
 				notification.innerHTML = "<div class=\"error\">Kies een wifi netwerk</div>";
 				return;
