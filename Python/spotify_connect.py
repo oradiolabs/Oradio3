@@ -545,7 +545,7 @@ if __name__ == "__main__":
             with subprocess.Popen(script, stdout=PIPE, bufsize=1, universal_newlines=True) as process:
                 for line in process.stdout:
                     print(line, end='')  # Outputs the line immediately
-                    if "Oradio" in line:
+                    if "oradio" in line:
                         oradio_log.info("Oradio device discovered")
                         print(GREEN_TXT+"Oradio device discovered"+END_TXT)                        
                 if process.returncode != 0:
