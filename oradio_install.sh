@@ -169,7 +169,7 @@ if ! [ -f $HOME/.bashrc.backup ]; then # Execute if this script is NOT automatic
 #***************************************************************#
 #   Add any additionally required packages to 'PACKAGES'        #
 #***************************************************************#
-	PACKAGES="python3-dev libasound2-dev mpd mpc iptables"
+	PACKAGES="python3-dev libasound2-dev libasound2-plugin-equal mpd mpc iptables"
 	dpkg --verify $PACKAGES >/dev/null 2>&1 || sudo apt install -y $PACKAGES
 
 	# Progress report
@@ -370,7 +370,13 @@ echo -e "${GREEN}Backlighting installed and configured${NC}"
 
 # Install audio configuration, activate SoftVolSpotCon, set volume to normal level
 # NOTE: Requires the Oradio3 boot config to be installed and activate
-install_resource $RESOURCES_PATH/asound.conf /etc/asound.conf 'speaker-test -D SoftVolSpotCon -c2 >/dev/null 2>&1' 'amixer -c 0 cset name="Digital Playback Volume" 100'
+install_resource $RESOURCES_PATH/asound.conf /etc/asound.conf \
+		'speaker-test -D SoftVolSpotCon -c2 >/dev/null 2>&1' \
+		'speaker-test -D SoftVolSysSound -c2 >/dev/null 2>&1' \
+		'speaker-test -D SoftVolMPD -c2 >/dev/null 2>&1' \
+		'amixer -c 0 cset name="Digital Playback Volume" 120'
+# Install equalizer settings
+install_resource $RESOURCES_PATH/alsaequal.bin /etc/alsaequal.bin 'sudo chmod +x /etc/alsaequal.bin'
 # Configure mpd music library location and start service at boot
 install_resource $RESOURCES_PATH/mpd.conf /etc/mpd.conf 'sudo systemctl enable mpd.service'
 # Progress report
