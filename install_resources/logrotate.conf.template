@@ -1,0 +1,29 @@
+# Placeholders will be modified by ../oradio_install.sh script
+
+PLACEHOLDER_LOGFILE_USB {
+	size 100k
+	missingok
+	nocompress
+	rotate 1
+}
+
+PLACEHOLDER_LOGFILE_SPOTIFY {
+	size 100k
+	missingok
+	nocompress
+	rotate 1
+}
+
+PLACEHOLDER_LOGFILE_INSTALL {
+	size 100k
+	missingok
+	nocompress
+	rotate 1
+}
+
+PLACEHOLDER_LOGFILE_TRACEBACK {
+	size 100k
+	missingok
+	nocompress
+	rotate 1
+}

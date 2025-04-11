@@ -1,5 +1,5 @@
 # https://manpages.debian.org/testing/systemd/systemd.service.5.en.html
-# Placeholders will be modified by ../autostart.sh script
+# Placeholders will be modified by ../oradio_install.sh script
 
 [Unit]
 Description=Automatic Mount/Unmount USB Drive on %i

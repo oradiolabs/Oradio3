@@ -79,7 +79,7 @@ class usb_service():
         self.error = None
 
         # Check if USB is mounted
-        if os.path.isdir(USB_MOUNT_POINT):
+        if os.path.ismount(USB_MOUNT_POINT):
             # Set USB state
             self.state = STATE_USB_PRESENT
             # Handle wifi credentials

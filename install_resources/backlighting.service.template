@@ -1,13 +1,14 @@
+# Placeholders will be modified by ../oradio_install.sh script
+
 [Unit]
 Description=Backlighting Control for Oradio
 After=network.target
 
 [Service]
-# Placeholders will be modified by ../backlighting.sh script
 User=PLACEHOLDER_USER
 Group=PLACEHOLDER_GROUP
-WorkingDirectory=PLACEHOLDER_PATH
-ExecStart=/usr/bin/python3 PLACEHOLDER_PATH/backlighting.py
+WorkingDirectory=PLACEHOLDER_PYTHON_PATH
+ExecStart=/usr/bin/python3 PLACEHOLDER_PYTHON_PATH/backlighting.py
 Restart=always
 RestartSec=5
 
