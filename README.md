@@ -3,52 +3,58 @@ Stichting Oradio Oradio3 sources
 This repo contains an install script to load and configure the required to prepare an SD card.
 This SD card is then to be used in an Oradio3, available from https://stichtingoradio.nl
 
-**Installation**
+## Installation
 
 Create an SD card using the Bookworm 64bit Lite image:
+- Set hostname (e.g. oradio)
 - Enable SSH with password authentication
-- Configure ssh username and password (e.g. pi and oradio)
+- Configure SSH username and password (e.g. pi and oradio)
+- Optionally you can provide wifi SSID and password for your network with internet access, and Wifi country: NL
 
-Load the SD card in Raspberry Pi 3A+ (e.g. Oradio3 with USB hub and network dongle)
+Load the SD card in your Oradio3 (Raspberry Pi 3A+).
 
-Connect the Raspberry Pi to your network with internet access
+Connect the Oradio3 to your network with internet access using a USB hub with Ethernet dongle.<br>
+<ins>Note</ins>: This is optional if you provided wifi SSID and password when creating the SD card.
 
-Start the Raspberry pi with the SD card
+Start the Oradio3 with the SD card inserted.
 
-When the Raspberry Pi has started ssh into the raspberry Pi and run command:
+When the Oradio3 has configured itself after first boot SSH into the Oradio3 with your login and password.<br>
+<ins>Note</ins>: If you provided a hostname when creating the SD card you can ssh to &lt;hostname&gt;.local
+
+At the prompt, to _install the latest release_, execute command:
 
     source <(curl https://oradiolabs.nl/Oradio3/install)
 
-At the prompt enter the release you want to install.
+Or, at the prompt, to _install the main branch_, execute command:
+
+    source <(curl https://oradiolabs.nl/Oradio3/install) main
+
+Or, at the prompt, to _install your branch_, execute command:
+
+    source <(curl https://oradiolabs.nl/Oradio3/install) <branch name>
 
 The script will install and configure required packages and services.
-
-Activating some changes requires rebooting, so when the script informs a reboot is required:
-
-    sudo reboot
-
-When the Raspberry Pi has started ssh into the raspberry Pi and run command:
-
-    source <(curl https://oradiolabs.nl/Oradio3/install)
-
-At the prompt press Enter to continue the installatie, or 'q' to stop the installation.
 
 Wait for the installation to finish. <ins>Note</ins>: this can take up to half an hour.
 
-Start the Oradio:
+> **Important note for release 0.2.0:**<br>
+> The installation script does not automatically reboot to complete the installation.<br>
+> So keep an eye on the SSH console output and run <code>sudo reboot</code> when prompted.<br>
+> Then SSH back into the Oradio3 and run <code>cd Oradio3; source oradio_install.sh</code><br>
+> Again, when prompted, <code>sudo reboot</code> when prompted.
 
-    sudo reboot
+## Update
 
-**Update**
-
-Connect the Raspberry Pi to your network with internet access and ssh into the raspberry Pi and run command:
+Connect the Oradio3 to your network with internet access and SSH into the Oradio3 and run command:
 
     source <(curl https://oradiolabs.nl/Oradio3/update)
 
-The script will install and configure required packages and services.
+Wait for the installation to finish. <ins>Note</ins>: this can take up to 10 minutes.
 
-Activating some changes requires rebooting, so when the script informs a reboot is required:
+> **Important note for release 0.2.0:**<br>
+> The installation script does not automatically reboot to complete the installation.<br>
+> So keep an eye on the SSH console output and run <code>sudo reboot</code> when prompted.<br>
 
-    sudo reboot
+## Finish
 
-The reboot will finalize the installation and start the Oradio3 application.
+The Oradio3 is ready for use when you hear the startup tune (harp).
