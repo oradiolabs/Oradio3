@@ -9,9 +9,9 @@
 #
 # Created on January 19, 2025
 # @author:        Henk Stevens & Olaf Mastenbroek & Onno Janssen
-# @copyright:     Oradio Stichting
+# @copyright:     Stichting Oradio
 # @license:       GNU General Public License (GPL)
-# @organization:  Oradio Stichting
+# @organization:  Stichting Oradio
 # @version:       2
 # @email:         info@stichtingoradio.nl
 # @status:        Development
@@ -169,7 +169,7 @@ if ! [ -f $HOME/.bashrc.backup ]; then # Execute if this script is NOT automatic
 #***************************************************************#
 #   Add any additionally required packages to 'PACKAGES'        #
 #***************************************************************#
-	PACKAGES="python3-dev libasound2-dev libasound2-plugin-equal mpd mpc iptables"
+	PACKAGES="jq python3-dev libasound2-dev libasound2-plugin-equal mpd mpc iptables"
 	dpkg --verify $PACKAGES >/dev/null 2>&1 || sudo apt install -y $PACKAGES
 
 	# Progress report
@@ -304,14 +304,13 @@ echo -e "${GREEN}Oradio software version log configured${NC}"
 if ! grep -q "Serial number: " /etc/bash.bashrc; then
 	# Get Oradio3 serial number
 	serial=$(vcgencmd otp_dump | grep "28:" | cut -c 4-)
-
 	sudo bash -c 'cat << EOL >> /etc/bash.bashrc 
 # Show Oradio3 serial number on login
 echo "--------------------------------------------------"
 echo "Serial number: $1"
-echo "SW version: $2"
+echo "SW version: \$(cat /var/log/oradio_sw_version.log | jq -r ".gitinfo")"
 echo "--------------------------------------------------"
-EOL' -- "$serial" "$gitinfo"
+EOL' -- "$serial"
 fi
 
 # Configure the USB mount script
@@ -361,7 +360,7 @@ if [ ! -f /var/log/oradio_hw_version.log ]; then
 	install_resource $RESOURCES_PATH/hw_version.service /etc/systemd/system/hw_version.service 'sudo systemctl enable hw_version.service'
 fi
 # Progress report
-echo -e "${GREEN}Oradio hardware version log configured${NC}"
+echo -e "${GREEN}Oradio3 hardware version log configured${NC}"
 
 # Configure the backlighting service
 install_resource $RESOURCES_PATH/backlighting.service /etc/systemd/system/backlighting.service 'sudo systemctl enable backlighting.service'
@@ -407,7 +406,7 @@ echo -e "${GREEN}Spotify connect functionality is installed and configured${NC}"
 # Configure the autostart service
 install_resource $RESOURCES_PATH/autostart.service /etc/systemd/system/autostart.service 'sudo systemctl enable autostart.service'
 # Progress report
-echo -e "${GREEN}Autostart Oradio on boot configured${NC}"
+echo -e "${GREEN}Autostart Oradio3 on boot configured${NC}"
 
 # Stop if any installation failed
 if [ -v INSTALL_ERROR ]; then
@@ -420,5 +419,6 @@ fi
 ########## CONFIGURATION END ##########
 
 # Progress report
-echo -e "${GREEN}Installation completed. Rebooting to start Oradio${NC}"
-sudo reboot
+echo -e "${GREEN}Installation completed. Rebooting to start Oradio3${NC}"
+# Reboot to start Oradio3
+sleep 3 && sudo reboot
