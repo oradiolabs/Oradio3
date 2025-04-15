@@ -1,0 +1,12 @@
+[Unit]
+Description=Enable local hostname via Avahi
+After=network-online.target
+Requires=avahi-daemon.service # hard dependancy
+
+[Service]
+Type=oneshot
+ExecStart=/home/pi/Oradio3/shell_scripts/publishing_oradio_librespot.sh
+RemainAfterExit=true
+
+[Install]
+WantedBy=multi-user.target

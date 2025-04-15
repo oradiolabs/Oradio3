@@ -77,10 +77,9 @@ class ThrottledFilter(python_logging.Filter):
     """ Writing to SD card while throttled may corrupt the SD card """
     def filter(self, record):
         # Import here to avoid circular import
-        #from oradio_utils import get_throttled_state_rpi
+        from oradio_utils import get_throttled_state_rpi
         # Get rpi throttled state
-        #throttled, flags = get_throttled_state_rpi()
-        throttled = False
+        throttled, flags = get_throttled_state_rpi()
         # Do not log if throttled
         return not throttled
 

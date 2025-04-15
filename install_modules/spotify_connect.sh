@@ -66,9 +66,11 @@ sudo systemctl disable raspotify
 
 #OMJ: Vanwege problemen bij de integratie van gebruik vna de Oradio knoppen draaien we in eerste instatie alleen de Librespot service
 #OMJ: Start comment-out
-if true; then
+if false; then
 
 	echo "install the latest version librespot from github repo"
+	#OMJ: door optie '--use-pep517' toe te voegen addresseer je een deprecated message
+	#python -m pip install git+https://github.com/kokarare1212/librespot-python
 	python -m pip install git+https://github.com/kokarare1212/librespot-python --use-pep517
 
 	echo "install avahi-browse tool"
