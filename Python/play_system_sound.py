@@ -44,7 +44,7 @@ DEFAULT_MPD_VOLUME = 100          # Default MPD volume (is reference volume)
 DEFAULT_SPOTIFY_VOLUME = 90      # Default Spotify volume (tuned to MPD mp3 files at 90 dB)
 VOLUME_MPD_SYS_SOUND = 70         # MPD volume level for system sound playback
 VOLUME_SPOTIFY_SYS_SOUND = 70     # Spotify volume level for system sound playback
-DEFAULT_SYS_SOUND_VOLUME = 70    # Volume of the System Sound, to tune it, is constant set
+DEFAULT_SYS_SOUND_VOLUME = 80    # Volume of the System Sound, to tune it, is constant set
 
 SOUND_FILES = {
     # Sounds
