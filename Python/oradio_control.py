@@ -296,7 +296,7 @@ def process_messages(queue):
 
         command_type = message.get("type")
         state = message.get("state")
-        error = message.get("error", None)
+        error = message.get("error")
 
         if command_type not in handlers:
             oradio_log.debug("Unhandled message type: %s", message)
@@ -309,7 +309,7 @@ def process_messages(queue):
             oradio_log.debug("Unhandled state '%s' for message type '%s'.",state, command_type)
 
         # If an error is provided, handle it as if it were another state.
-        if error is not None:
+        if error is not MESSAGE_NO_ERROR:
             if error in handlers[command_type]:
                 handlers[command_type][error]()
             else:

@@ -102,13 +102,14 @@ class usb_service():
         Send USB message
         """
         # Create message
-        message = {}
-        message["type"]  = MESSAGE_USB_TYPE
-        message["state"] = self.state
+#OMJ: Het type klopt niet? Het is geen web service state message, eerder iets als info. Maar voor control is wel een state...
+        message = {"type": MESSAGE_USB_TYPE, "state": self.state}
 
         # Optionally add error message
         if self.error:
             message["error"] = self.error
+        else:
+            message["error"] = MESSAGE_NO_ERROR
 
         # Put message in queue
         oradio_log.debug("Send USB service message: %s", message)

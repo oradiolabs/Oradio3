@@ -127,7 +127,7 @@ class SpotifyConnect():
                 case _:
                     message["state"] = None
             if message["state"] != None:
-                message["error"] = "None"
+                message["error"] = MESSAGE_NO_ERROR
                 self.state = message["state"]
                 # construct the message based on the schema for Messages
                 self.queue_put_mesg["type"]     = MESSAGE_SPOTIFY_TYPE
