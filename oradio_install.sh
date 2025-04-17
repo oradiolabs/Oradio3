@@ -143,7 +143,7 @@ if ! [ -f $HOME/.bashrc.backup ]; then # Execute if this script is NOT automatic
 
 	if ! $(sudo apt update 2>/dev/null | grep -q "All packages are up to date"); then
 		# Upgrade packages to the latest greatest
-	#	sudo apt -y full-upgrade
+		sudo apt -y full-upgrade
 
 		# Remove obsolete packages and their configuration files
 		sudo apt -y autoremove
