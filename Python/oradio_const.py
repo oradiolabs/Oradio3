@@ -28,6 +28,10 @@ ORADIO_LOG_DIR  = os.path.abspath(ORADIO_DIR + '/../logging')
 SOUND_FILES_DIR = os.path.realpath(ORADIO_DIR + "/../system_sounds")
 
 JSON_SCHEMAS_FILE = os.path.realpath(ORADIO_DIR + "/schemas.json")
+
+# Messages consist of 3 elements: type, state and error
+MESSAGE_NO_ERROR = "None"
+
 ################## WIFI UTILS #############################
 # Access point
 ACCESS_POINT_SSID = "OradioAP"

@@ -60,10 +60,14 @@ class wifi_service():
         Include ssid if define
         """
         # Create message
-        message = {}
-        message["type"]  = MESSAGE_WIFI_TYPE
-        message["state"] = self.get_state()
-        message["error"] = self.error
+#OMJ: Het type klopt niet? Het is geen web service state message, eerder iets als info. Maar voor control is wel een state...
+        message = {"type": MESSAGE_WIFI_TYPE, "state": self.state}
+
+        # Optionally add error message
+        if self.error:
+            message["error"] = self.error
+        else:
+            message["error"] = MESSAGE_NO_ERROR
 
         # Put message in queue
         oradio_log.debug("Send wifi message: %s", message)

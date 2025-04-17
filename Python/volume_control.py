@@ -86,7 +86,7 @@ class VolumeControl:
         """ Sends a message to the specified queue. """
         if self.queue:
             try:
-                message = {"type": message_type, "state": state}
+                message = {"type": message_type, "state": state, "error": MESSAGE_NO_ERROR}
                 self.queue.put(message)
                 oradio_log.debug("Message sent to queue: %s", message)
             except Exception as ex_err:

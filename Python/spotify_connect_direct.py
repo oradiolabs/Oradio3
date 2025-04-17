@@ -120,7 +120,7 @@ class SpotifyConnect:
         """
         if self.message_queue:
             try:
-                message = {"type": MESSAGE_SPOTIFY_TYPE, "state": event}
+                message = {"type": MESSAGE_SPOTIFY_TYPE, "state": event, "error": MESSAGE_NO_ERROR}
                 self.message_queue.put(message)
                 oradio_log.info("Message sent to queue: %s", message)
             except Exception as ex_err:

@@ -112,13 +112,14 @@ class web_service():
         Send web service message
         """
         # Create message
-        message = {}
-        message["type"]  = MESSAGE_WEB_SERVICE_TYPE
-        message["state"] = self.get_state()
+#OMJ: Het type klopt niet? Het is geen web service state message, eerder iets als info. Maar voor control is wel een state...
+        message = {"type": MESSAGE_WEB_SERVICE_TYPE, "state": self.state}
 
         # Optionally add error message
         if self.error:
             message["error"] = self.error
+        else:
+            message["error"] = MESSAGE_NO_ERROR
 
         # Put message in queue
         oradio_log.debug("Send web service message: %s", message)

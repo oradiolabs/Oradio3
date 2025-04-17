@@ -180,7 +180,7 @@ async def save_presets(presets: presets):
     # Create message
     message = {}
 #OMJ: Het type klopt niet? Het is geen web service state message, eerder iets als info. Maar voor control is wel een state...
-    message["type"]  = MESSAGE_WEB_SERVICE_TYPE
+    message = {"type": MESSAGE_WEB_SERVICE_TYPE, "error": MESSAGE_NO_ERROR}
 
     if presets.button == "PL1":
         oradio_log.debug("PL1 preset playlist: '%s'", presets.list_1)
@@ -215,10 +215,8 @@ async def play_song(play: play):
     mpdcontrol.play_song(play.song)
 
     # Create message
-    message = {}
-    message["type"]  = MESSAGE_WEB_SERVICE_TYPE
 #OMJ: Het type klopt niet? Het is geen web service state message, eerder iets als info. Maar voor control is wel een state...
-    message["state"] = MESSAGE_WEB_SERVICE_PLAYING_SONG
+    message = {"type": MESSAGE_WEB_SERVICE_TYPE, "state": MESSAGE_WEB_SERVICE_PLAYING_SONG, "error": MESSAGE_NO_ERROR}
 
     # Put message in queue
     oradio_log.debug("Send web service message: %s", message)
