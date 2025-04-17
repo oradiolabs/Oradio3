@@ -28,23 +28,25 @@ And a volume controller to set the system sound
 import os
 import subprocess
 import threading
+import queue
 import time
 import random
 
 ##### oradio modules ####################
 from oradio_logging import oradio_log
-from volume_control import VolumeControl  # (Not used in this updated approach)
+from volume_control import VolumeControl
 
 ##### GLOBAL constants ####################
 from oradio_const import *
-# SOUND_FILES_DIR is defined in global constants
+# SOUND_FILES_DIR in oradio_const
 
 ##### LOCAL VOLUME CONSTANTS ####################
-DEFAULT_MPD_VOLUME = 100          # Default MPD volume (is reference volume)
-DEFAULT_SPOTIFY_VOLUME = 90      # Default Spotify volume (tuned to MPD mp3 files at 90 dB)
-VOLUME_MPD_SYS_SOUND = 70         # MPD volume level for system sound playback
-VOLUME_SPOTIFY_SYS_SOUND = 70     # Spotify volume level for system sound playback
-DEFAULT_SYS_SOUND_VOLUME = 70    # Volume of the System Sound, to tune it, is constant set
+DEFAULT_MPD_VOLUME       = 100
+DEFAULT_SPOTIFY_VOLUME   = 90
+VOLUME_MPD_SYS_SOUND     = 70
+VOLUME_SPOTIFY_SYS_SOUND = 70
+DEFAULT_SYS_SOUND_VOLUME = 80
+
 
 SOUND_FILES = {
     # Sounds
@@ -68,33 +70,40 @@ SOUND_FILES = {
     "USBPresent": f"{SOUND_FILES_DIR}/USB_aangesloten.wav",
 }
 
+
 class PlaySystemSound:
     """
-    Class to play system sounds asynchronously in a separate thread.
-    When a sound is played, if it is the first in a batch, the MPD and Spotify volumes
-    are set to the reduced system sound levels. Each play() increments a shared counter.
-    When an individual playback thread finishes, it decrements that counter.
-    When the counter reaches zero, a timer is started to restore the default volumes after
-    a short delay. If a new sound is played during that delay, the timer is canceled.
+    Singleton class to play system sounds asynchronously in a separate thread,
+    with batch‐ducking of MPD/Spotify volumes and delayed restoration.
     """
 
+    # ——— Singleton machinery ———
+    _instance = None
+    def __new__(cls, audio_device="SysSound_in"):
+        # If no instance exists yet, create one; otherwise return the existing one
+        if cls._instance is None:
+            cls._instance = super().__new__(cls)
+        return cls._instance
+
     def __init__(self, audio_device="SysSound_in"):
-        """
-        Initializes the PlaySystemSound class with an optional audio device.
-        :param audio_device: The ALSA device to use for playback (default: 'SysSound_in').
-        """
+        # Only run init once
+        if getattr(self, "_initialized", False):
+            return
+        self._initialized = True
+    # ——————————————————————————
+
         self.audio_device = audio_device
-        self.batch_lock = threading.Lock()  # Protects the counter and volume adjustments.
-        self.active_count = 0
-        self.restore_timer = None  # Timer to delay volume restoration.
-        self._set_sys_volume(DEFAULT_SYS_SOUND_VOLUME) # set sys sound ones at the default value
+        self.batch_lock     = threading.Lock()
+        self.active_count   = 0
+        self.restore_timer  = None
+
+        # Ensure system‐sound channel is at its default level
+        self._set_sys_volume(DEFAULT_SYS_SOUND_VOLUME)
 
     def play(self, sound_key):
         """
         Plays a system sound asynchronously.
-        For non-"Click" sounds, if no other sounds are active, the volumes are set to the reduced levels.
-        If a restore timer is pending, it is canceled.
-        :param sound_key: The key representing the sound in SOUND_FILES.
+        Ducks volumes on first sound of a batch, and schedules restore when count goes to zero.
         """
         with self.batch_lock:
             if self.restore_timer is not None:
@@ -108,52 +117,34 @@ class PlaySystemSound:
                     oradio_log.error("Error setting system sound volumes: %s", e)
             self.active_count += 1
 
-        threading.Thread(target=self._play_sound_and_restore, args=(sound_key,), daemon=True).start()
-        
+        threading.Thread(
+            target=self._play_sound_and_restore,
+            args=(sound_key,),
+            daemon=True
+        ).start()
+
     def _set_sys_volume(self, volume):
-        """
-        Sets the system sound volume using the amixer command.
-        :param volume: The volume level to set (integer).
-        """
         oradio_log.debug("Setting Sys Sound volume to %s%%", volume)
         subprocess.run(
             ["amixer", "-c", "DigiAMP", "sset", "VolumeSysSound", f"{volume}%"],
-            check=True,
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL
-        )        
-
+            check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL
+        )
 
     def _set_mpd_volume(self, volume):
-        """
-        Sets the MPD volume using the 'amixer command.
-        :param volume: The volume level to set (integer).
-        """
-        oradio_log.debug("Setting MPD volume to %s%%", volume)
+        oradio_log.debug("Setting MPD volume controller to %s%%", volume)
         subprocess.run(
             ["amixer", "-c", "DigiAMP", "sset", "VolumeMPD", f"{volume}%"],
-            check=True,
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL
+            check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL
         )
 
     def _set_spotify_volume(self, volume):
-        """
-        Sets the Spotify volume using the 'amixer' command.
-        :param volume: The volume level to set (integer).
-        """
-        oradio_log.debug("Setting Spotify volume to %s%%", volume)
+        oradio_log.debug("Setting Spotify volume controller to %s%%", volume)
         subprocess.run(
             ["amixer", "-c", "DigiAMP", "sset", "VolumeSpotCon2", f"{volume}%"],
-            check=True,
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL
+            check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL
         )
 
     def _play_sound(self, sound_key):
-        """
-        Internal method to play a system sound using `aplay` in a non-blocking way.
-        """
         try:
             sound_file = SOUND_FILES.get(sound_key)
             if not sound_file:
@@ -162,16 +153,15 @@ class PlaySystemSound:
             if not os.path.exists(sound_file):
                 oradio_log.debug("Sound file does not exist: %s", sound_file)
                 return
-            command = ["aplay", "-D", self.audio_device, sound_file]
-            subprocess.run(command, check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            subprocess.run(
+                ["aplay", "-D", self.audio_device, sound_file],
+                check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL
+            )
             oradio_log.debug("System sound played successfully: %s", sound_file)
         except subprocess.CalledProcessError as ex_err:
             oradio_log.error("Error playing sound: %s", ex_err)
 
     def _restore_volumes(self):
-        """
-        Restores the default MPD and Spotify volumes.
-        """
         with self.batch_lock:
             if self.active_count == 0:
                 try:
@@ -182,78 +172,77 @@ class PlaySystemSound:
                 self.restore_timer = None
 
     def _play_sound_and_restore(self, sound_key):
-        """
-        Wrapper method that plays the sound and then, in the finally block,
-        decrements the active counter. When the counter reaches zero, a timer is
-        started to restore the default volumes after a short delay.
-        """
         try:
             self._play_sound(sound_key)
         finally:
             with self.batch_lock:
                 self.active_count -= 1
                 if self.active_count == 0:
-                    # Delay volume restoration by 1 seconds to allow new sounds to join the batch.
-                    self.restore_timer = threading.Timer(1, self._restore_volumes)
+                    # Delay restore by 1s to batch rapid-fire calls
+                    self.restore_timer = threading.Timer(0.5, self._restore_volumes)
                     self.restore_timer.start()
 
 # ------------------ TEST SECTION ------------------
 if __name__ == "__main__":
     print("\nStarting System Sound Player Standalone Test...\n")
-    # Instantiate sound player
-    sound_player = PlaySystemSound()
-    # Dynamically create menu options based on available sounds
-    sound_keys = list(SOUND_FILES.keys())
-    # Build the dynamic input menu with an additional option for setting system volume
-    input_selection = "\nSelect a function, input the number:\n"
-    input_selection += " 0 - Quit\n"
-    input_selection += " 1 - Set system volume\n"
-    # Enumerate sound play options starting at 2
-    for index, sound_key in enumerate(sound_keys, start=2):
-        input_selection += f" {index} - Play {sound_key}\n"
-    input_selection += " 99 - Stress Test (random sounds)\n"
-    input_selection += "Select: "
 
-    # User command loop
+    volume_control = VolumeControl()
+    sound_player = PlaySystemSound()
+    sound_keys = list(SOUND_FILES.keys())
+
+    def build_menu():
+        menu = "\nSelect a function:\n 0  - Quit\n"
+        for i, k in enumerate(sound_keys, 1):
+            menu += f" {i:<3}- Play {k}\n"
+        menu += " 99 - Stress Test (random sounds)\n"
+        menu += "100 - Custom Sequence Test (enter 5 sound numbers)\n"
+        menu += "Select: "
+        return menu
+
     while True:
         try:
-            function_nr = int(input(input_selection))
+            choice = int(input(build_menu()))
         except ValueError:
-            function_nr = -1  # Invalid input
-        
-        if function_nr == 0:
+            choice = -1
+
+        if choice == 0:
             print("\nExiting test program...\n")
             break
-        elif function_nr == 1:
-            # Option to set system volume
-            try:
-                new_volume = int(input("Enter new system volume (in %): "))
-                sound_player._set_sys_volume(new_volume)
-                print(f"System volume set to {new_volume}%.")
-            except ValueError:
-                print("Invalid volume value; please enter an integer.")
-            except subprocess.CalledProcessError as e:
-                print(f"Error setting system volume: {e}")
-        elif 2 <= function_nr <= (len(sound_keys) + 1):
-            sound_key = sound_keys[function_nr - 2]
-            print(f"\nExecuting: Play {sound_key}\n")
-            sound_player.play(sound_key)
-        elif function_nr == 99:
+
+        elif 1 <= choice <= len(sound_keys):
+            key = sound_keys[choice - 1]
+            print(f"\nEnqueue: Play {key}\n")
+            sound_player.play(key)
+
+        elif choice == 99:
             print("\nExecuting: Stress Test\n")
             def stress_test(player, duration=10):
-                """Stress test: Randomly play sounds in parallel for a given duration."""
-                start_time = time.time()
-                def random_sound():
-                    while time.time() - start_time < duration:
-                        sound_key = random.choice(sound_keys)
-                        player.play(sound_key)
+                start = time.time()
+                def rnd():
+                    while time.time() - start < duration:
+                        player.play(random.choice(sound_keys))
                         time.sleep(random.uniform(0.1, 0.5))
-                thread_list = [threading.Thread(target=random_sound) for _ in range(5)]
-                for thread in thread_list:
-                    thread.start()
-                for thread in thread_list:
-                    thread.join()
+                threads = [threading.Thread(target=rnd) for _ in range(5)]
+                for t in threads: t.start()
+                for t in threads: t.join()
                 print("\nStress test completed.\n")
             stress_test(sound_player)
+
+        elif choice == 100:
+            print("\nCustom Sequence Test selected.")
+            seq_input = input(f"Enter 5 numbers (1–{len(sound_keys)}) separated by spaces: ")
+            nums = seq_input.strip().split()
+            if len(nums) != 5 or not all(n.isdigit() for n in nums):
+                print("Invalid input: need exactly 5 integers.\n")
+                continue
+            indices = [int(n) for n in nums]
+            if not all(1 <= i <= len(sound_keys) for i in indices):
+                print("Numbers out of range.\n")
+                continue
+            seq = [sound_keys[i-1] for i in indices]
+            print(f"Enqueuing sequence: {seq}\n")
+            for k in seq:
+                sound_player.play(k)
+
         else:
             print("\nInvalid selection. Please enter a valid number.\n")
