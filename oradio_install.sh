@@ -140,8 +140,8 @@ if ! [ -f $HOME/.bashrc.backup ]; then # Execute if this script is NOT automatic
 
 	# Ensure linux packages are up to date
 	# https://www.raspberrypi.com/documentation/computers/os.html#update-software
-
 	if ! $(sudo apt update 2>/dev/null | grep -q "All packages are up to date"); then
+
 		# Upgrade packages to the latest greatest
 		sudo apt -y full-upgrade
 
@@ -194,6 +194,7 @@ if ! [ -f $HOME/.bashrc.backup ]; then # Execute if this script is NOT automatic
 	# Progress report
 	echo -e "${GREEN}Python virtual environment configured${NC}"
 
+	# https://www.raspberrypi.com/documentation/computers/os.html#use-python-on-a-raspberry-pi
 #OMJ: Uitzoeken welke van deze packages als python3-<xxx> package te installeren zijn en dan verplaatsen naar Oradio3 PACKAGES hierboven
 	# Install python modules. On --use-pep517 see https://peps.python.org/pep-0517/
 #***************************************************************#
