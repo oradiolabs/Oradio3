@@ -113,7 +113,7 @@ class web_service():
         """
         # Create message
 #OMJ: Het type klopt niet? Het is geen web service state message, eerder iets als info. Maar voor control is wel een state...
-        message = {"type": MESSAGE_WEB_SERVICE_TYPE, "state": self.state}
+        message = {"type": MESSAGE_WEB_SERVICE_TYPE, "state": self.get_state()}
 
         # Optionally add error message
         if self.error:
