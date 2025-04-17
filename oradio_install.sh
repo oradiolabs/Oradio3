@@ -405,7 +405,7 @@ install_resource $RESOURCES_PATH/librespot.service /etc/systemd/system/librespot
 echo -e "${GREEN}Spotify connect functionality is installed and configured${NC}"
 
 # Install the about script
-install_resource $RESOURCES_PATH/about /usr/local/bin/about 'chmod +x /usr/local/bin/about'
+install_resource $RESOURCES_PATH/about /usr/local/bin/about 'sudo chmod +x /usr/local/bin/about'
 
 # Configure the autostart service
 install_resource $RESOURCES_PATH/autostart.service /etc/systemd/system/autostart.service 'sudo systemctl enable autostart.service'
