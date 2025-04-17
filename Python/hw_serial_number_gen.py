@@ -80,6 +80,8 @@ def create_hw_serial_file():
         # Use temporary file to avoid permission issues
         with open(LOG_FILE, "w") as f:
             json.dump(hw_info, f, indent=4)
+            f.write("\n")
+
         # Move file to correct location
         try:
             subprocess.check_output(["sudo", "mv", LOG_FILE, LOG_PATH])
