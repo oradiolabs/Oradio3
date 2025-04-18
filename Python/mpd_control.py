@@ -32,6 +32,10 @@ from play_system_sound import PlaySystemSound
 ##### GLOBAL constants ####################
 from oradio_const import *
 
+##### GLOBAL constants ####################
+CROSSFADE = 5
+
+
 class MPDControl:
     """
     Class to manage MPD client connection and control playback safely.
@@ -60,6 +64,12 @@ class MPDControl:
         try:
             client.connect(self.host, self.port)
             oradio_log.info("Connected to MPD server.")
+            # set a 5 second crossfade on every connection
+            try:
+                client.crossfade(CROSSFADE)
+                oradio_log.info("Connected to MPD server and set crossfade to 5 s.")
+            except Exception as xf_err:
+                oradio_log.warning("Could not set crossfade: %s", xf_err)
             return client
         except Exception as ex_err:
             oradio_log.error("Failed to connect to MPD server: %s", ex_err)
