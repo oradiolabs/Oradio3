@@ -4,7 +4,7 @@ After=network.target sound.target dbus.service
 Wants=dbus.service
 
 [Service]
-ExecStart=/usr/bin/mpv /home/pi/spotify/librespot-pipe
+ExecStart=/usr/bin/mpv /home/pi/Oradio3/spotify/librespot-pipe
 Restart=always
 RestartSec=3
 User=pi

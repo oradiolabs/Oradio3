@@ -39,6 +39,7 @@ from oradio_logging import oradio_log
 from oradio_const import *
 
 ##### LOCAL constants ####################
+
 def is_service_active(service_name):
     '''
     Check if service is running
@@ -49,6 +50,25 @@ def is_service_active(service_name):
         # Run systemctl is-active command
         result = subprocess.run(
             ["sudo","systemctl", "is-active", service_name],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True
+        )
+        return result.stdout.strip() == "active"
+    except Exception as err:
+        oradio_log.error(f"Error checking {service_name} service, error-status=: {err}")
+        return False
+
+def is_user_service_active(service_name):
+    '''
+    Check if a user service is running
+    :param service_name = name of the service
+    :return True/False : True when active
+    '''
+    try:
+        # Run systemctl is-active command
+        result = subprocess.run(
+            ["systemctl", "--user", "is-active", service_name],
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
             text=True
@@ -198,7 +218,17 @@ if __name__ == '__main__':
             case 1:
                 print(f"\nConnected to internet: {check_internet_connection()}\n")
             case 2:
-                print(f"\nthrottled: {get_throttled_state_rpi()}\n")
+                import time
+                log_file = ORADIO_LOG_DIR+'/oradio.log'                
+                throttled = get_throttled_state_rpi()
+                print(f"\nthrottled: {throttled}\n")
+                oradio_log.info(f"Lower USB power supply voltage from 12V to 4.7V and check time stamp in last line of log file!!!!")
+                time.sleep(0.5)                
+                if throttled:
+                    with open(log_file, 'r') as f:
+                        last_line = f.readlines()[-1]
+                    print("log-file last line=",last_line)
+
             case 3:
                 result, output = run_shell_script("ls")
                 print(f"\nExpect ok: result={result}, output={output}")

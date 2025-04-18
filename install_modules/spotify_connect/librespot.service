@@ -19,15 +19,12 @@ Environment="LIBRESPOT_DISABLE_AUDIO_CACHE="
 Environment="LIBRESPOT_AUTOPLAY=on"
 Environment="LIBRESPOT_SYSTEM_CACHE=/home/pi/Oradio3"
 Environment="LIBRESPOT_BACKEND=alsa"
-Environment="LIBRESPOT_NAME=oradio-3"
+Environment="LIBRESPOT_NAME=oradio-2"
 Environment="LIBRESPOT_VERBOSE="
 Environment="LIBRESPOT_ONEVENT=/home/pi/Oradio3/Python/librespot_event_handler.py"
 Environment="LIBRESPOT_DEVICE_TYPE=avr"
 
-ExecStart=/usr/bin/librespot
-# Reset flag files before starting librespot
-#ExecStartPre=/bin/bash -c 'echo "0" > /home/pi/Oradio3/Spotify/spotactive.flag'
-#ExecStartPre=/bin/bash -c 'echo "0" > /home/pi/Oradio3/Spotify/spotplaying.flag'
+ExecStart=/usr/bin/librespot --bitrate 320 --backend pipe --device /home/pi/Oradio3/spotify/librespot-pipe
 
 #ExecStart=/usr/bin/librespot \
 #    --name Oradio \
@@ -39,6 +36,7 @@ ExecStart=/usr/bin/librespot
 #    --device SpotCon_in \
 #    --verbose \
 #    --onevent /usr/local/bin/spotify_event_handler.sh
+
 
 Restart=always
 RestartSec=10
