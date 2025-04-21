@@ -424,5 +424,7 @@ fi
 
 # Progress report
 echo -e "${GREEN}Installation completed. Rebooting to start Oradio3${NC}"
+sleep 3
+
 # Reboot to start Oradio3
-sleep 3 && sudo reboot
+sudo reboot
