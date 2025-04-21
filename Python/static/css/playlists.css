@@ -11,7 +11,7 @@
  * Colors: https://www.computerhope.com/htmcolor.htm
  */
 
-.preset-grid {
+.presets-grid {
 	display: grid;
 	margin-bottom: 20px;
 	grid-template-columns: 0.5fr 1.5fr

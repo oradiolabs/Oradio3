@@ -117,7 +117,10 @@ async def playlists(request: Request):
 
     # Load presets and list available directories
     presets = load_presets()
-    folders = mpdcontrol.get_lists()
+    directories = mpdcontrol.get_directories()
+    playlists = mpdcontrol.get_playlists()
+    folders = sorted(directories + playlists, key=str.casefold)
+
 
     # Unknown playlist and thus empty song list
     playlist = ""
@@ -138,22 +141,25 @@ async def playlists(request: Request):
         # Get requested action
         action = form_data.get('action')
 
-        # If the user clicked "Show Songs"
-        if action == "show_songs":
-            # Get selected playlist
-            playlist = form_data.get("playlist")
-            # get preset songs
+        # Get selected playlist
+        playlist = form_data.get("playlist")
+        # Get songs for the playlist
+        if playlist:
             playlist_songs = mpdcontrol.get_songs(playlist)
+            print("playlist=", playlist_songs)
 
-        # If the user clicked "Search songs"
-        if action == "search_songs":
-            search = form_data.get('search')
+        # Get search pattern
+        search = form_data.get('search')
+        # Get songs for the search pattern
+        if search:
             search_songs = mpdcontrol.search(search)
 
     # Set playlists page and lists info as context
     context = {
                 "anchor"         : action,
                 "presets"        : presets,
+                "directories"    : directories,
+                "playlists"      : playlists,
                 "folders"        : folders,
                 "playlist"       : playlist,
                 "playlist_songs" : playlist_songs,
@@ -201,18 +207,68 @@ async def save_presets(presets: presets):
     oradio_log.debug("Send web service message: %s", message)
     api_app.state.message_queue.put(message)
 
-class play(BaseModel):
-    """ Model for wifi network credentials """
+class playlist(BaseModel):
+    """ Model for playlist """
+    name: str = None
+
+# POST endpoint to create playlist
+@api_app.post("/playlist_save")
+async def playlist_save(playlist: playlist):
+    """
+    Handle POST to store a playlist
+    """
+    oradio_log.debug("Save playlist: '%s'", playlist.name)
+    return mpdcontrol.playlist_save(playlist.name)
+
+# POST endpoint to remove playlist
+@api_app.post("/playlist_delete")
+async def playlist_delete(playlist: playlist):
+    """
+    Handle POST to delete a playlist
+    """
+    oradio_log.debug("Delete playlist: '%s'", playlist.name)
+    return mpdcontrol.playlist_delete(playlist.name)
+
+class addsong(BaseModel):
+    """ Model for adding song """
+    playlist: str = None
+    song:     str = None
+
+# POST endpoint to add song to playlist
+@api_app.post("/playlist_add")
+async def playlist_add(addsong: addsong):
+    """
+    Handle POST to add song to playlist
+    """
+    oradio_log.debug("Add song '%s' to playlist '%s'", addsong.song, addsong.playlist)
+    return mpdcontrol.playlist_add(addsong.playlist, addsong.song)
+
+class removesong(BaseModel):
+    """ Model for removing song """
+    playlist: str = None
+    song:     str = None
+
+# POST endpoint to remove song from playlist
+@api_app.post("/playlist_remove")
+async def playlist_remove(removesong: removesong):
+    """
+    Handle POST to remove song from playlist
+    """
+    oradio_log.debug("Remove song '%s' from playlist '%s'", removesong.song, removesong.playlist)
+    return mpdcontrol.playlist_remove(removesong.playlist, removesong.song)
+
+class song(BaseModel):
+    """ Model for song """
     song: str = None
 
 # POST endpoint to play song
 @api_app.post("/play_song")
-async def play_song(play: play):
+async def play_song(song: song):
     """
-    Handle POST with wifi network credentials
+    Handle POST to play a song
     """
-    oradio_log.debug("play song: '%s'", play.song)
-    mpdcontrol.play_song(play.song)
+    oradio_log.debug("play song: '%s'", song.song)
+    mpdcontrol.play_song(song.song)
 
     # Create message
 #OMJ: Het type klopt niet? Het is geen web service state message, eerder iets als info. Maar voor control is wel een state...

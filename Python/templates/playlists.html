@@ -19,12 +19,12 @@
 			<img src="../static/logo.png" class="logo" />
 
 			<!-- Set presets -->
-			<form method="POST">
+			<form id="presets_form" method="POST">
 				<!-- identifier used by server: do not change or remove -->
-				<input type="hidden" name="action" value="set_presets" />
-				<h1 id="set_presets">Speellijst aan knop koppelen</h1>
+				<input type="hidden" name="action" value="presets" />
+				<h1 id="presets">Speellijst aan knop koppelen</h1>
 				{% for item in presets %}
-					<div class="preset-grid">
+					<div class="presets-grid">
 						<div class="preset-label">
 							Voorkeur {{ loop.index }}:
 						</div>
@@ -47,44 +47,107 @@
 				</div>
 			</form>
 
-			<!-- Show songs in a playlist -->
-			<form method="POST">
+
+<style>
+.playlists_grid {
+	display: grid;
+	margin-bottom: 20px;
+	grid-template-columns: 2.5fr 0.5fr 0.5fr;
+}
+
+.songs_grid {
+	display: grid;
+	grid-template-columns: 2.5fr 0.5;
+}
+
+.my-button {
+	background-color: transparent;
+	background-size: cover; /* Laat de afbeelding het hele oppervlak bedekken */
+	cursor: pointer;           /* Muisaanwijzer */
+}
+
+.my-button:hover {
+	background-color: transparent;
+	filter: brightness(80%); /* Lager dan 100% = donkerder */
+}
+
+.save-button {
+	background-image: url('../static/save.png'); /* Zorg dat deze PNG in dezelfde map staat */
+	width: 40px;
+	height: 40px;
+	justify-self: end;
+}
+.save-button2 {
+	background-image: url('../static/save.png'); /* Zorg dat deze PNG in dezelfde map staat */
+	width: 20px;
+	height: 20px;
+	justify-self: end;
+}
+
+.delete-button {
+	background-image: url('../static/delete.png'); /* Zorg dat deze PNG in dezelfde map staat */
+	width: 40px;
+	height: 40px;
+	justify-self: end;
+}
+.delete-button2 {
+	background-image: url('../static/delete.png'); /* Zorg dat deze PNG in dezelfde map staat */
+	width: 20px;
+	height: 20px;
+	justify-self: end;
+}
+</style>
+
+			<!-- Custom playlist -->
+			<form id="form_playlist" method="POST">
 				<!-- identifier used by server: do not change or remove -->
 				<input type="hidden" name="action" value="show_songs" />
-				<h1 id="show_songs">Liedjes van speellijst tonen</h1>
-				<select name="playlist" id="playlist" onchange="this.form.submit()">
-					<option selected disabled value="">-- Kies een speellijst --</option>
-					{% for folder in folders %}
-						{% if playlist == folder %}
-							<option selected value="{{ folder }}">{{ folder }}</option>
-						{% else %}
-							<option value="{{ folder }}">{{ folder }}</option>
-						{% endif %}
-					{% endfor %}
-				</select>
+				<input type="hidden" name="search" value="{{ search }}" />
+				<h1 id="playlists">Speellijsten beheren</h1>
+				<div class="playlists_grid">
+					<div class="datalist-container">
+						<input type="text" id="playlist" name="playlist" value="{{ playlist }}" list="playlists_list" placeholder="-- Kies een speellijst --" onchange="this.form.submit()">
+						<datalist id="playlists_list">
+							{% for folder in folders %}
+								<option value="{{ folder }}">{{ folder }}</option>
+							{% endfor %}
+						</datalist>
+						<span class="custom-icon">&#x25BC;</span> <!-- ▼ icon -->
+					</div>
+					<button class="my-button save-button" title="Bewaren" onclick="savePlaylist()"></button>
+					<button class="my-button delete-button" title="Verwijderen" onclick="deletePlaylist()"></button>
+				</div>
 				<div id="playlist_notification" class="notification">
 					<!-- Will be filled by Javascript submitCredentials() -->
 				</div>
 			</form>
+
+			<!-- Show songs in a playlist -->
 			{% if playlist_songs %}
 			<div class="file-list">
-				<ul id="songs">
+				<ul id="songs1">
 				{% for song in playlist_songs %}
-					<li id="{{ song["file"] }}">{{ song["artist"] }} - {{ song["title"] }}</li>
+					<div style="display: grid; grid-template-columns: auto auto">
+						<li id="{{ song["file"] }}">{{ song["artist"] }} - {{ song["title"] }}</li>
+						{% if playlist in playlists %}
+							<button class="my-button delete-button2" title="Verwijderen" onclick="removeSong({{ song }})"></button>
+						{% endif %}
+					</div>
 				{% endfor %}
 				</ul>
 			</div>
 			{% endif %}
 
 			<!-- Search songs by artist or title -->
-			<form method="POST">
+			<form id="form_search" method="POST">
 				<!-- identifier used by server: do not change or remove -->
 				<input type="hidden" name="action" value="search_songs" />
+				<input type="hidden" name="playlist" value="{{ playlist }}" />
 				<h1 id="search_songs">Liedje zoeken</h1>
 				{% if search %}
-					<input name="search" type="text" required minlength="3" placeholder="Typ (deel van) naam van artiest of (deel van) titel" value="{{ search }}" />
+					<input name="search" type="text" minlength="3" placeholder="Typ (deel van) naam van artiest of (deel van) titel" value="{{ search }}" />
 				{% else %}
-					<input name="search" type="text" required minlength="3" placeholder="Typ (deel van) naam van artiest of (deel van) titel" />
+					<input name="search" type="text" minlength="3" placeholder="Typ (deel van) naam van artiest of (deel van) titel" />
 				{% endif %}
 				<div id="search_notification" class="notification">
 					<!-- Will be filled by Javascript submitCredentials() -->
@@ -93,9 +156,14 @@
 			</form>
 			{% if search_songs %}
 			<div class="file-list">
-				<ul id="songs">
+				<ul id="songs2">
 				{% for song in search_songs %}
-					<li id="{{ song["file"] }}">{{ song["artist"] }} - {{ song["title"] }}</li>
+					<div style="display: grid; grid-template-columns: auto auto">
+						<li id="{{ song["file"] }}">{{ song["artist"] }} - {{ song["title"] }}</li>
+						{% if playlist in playlists %}
+							<button class="my-button save-button2" title="Bewaren" onclick="addSong({{ song }})"></button>
+						{% endif %}
+					</div>
 				{% endfor %}
 				</ul>
 			</div>
@@ -112,25 +180,53 @@
 		const playlist_notification = document.getElementById('playlist_notification');
 		const search_notification = document.getElementById('search_notification');
 
+//OMJ: Let op: als er door een POST een fout gevonden is verdwijnt die met onderstaande 3 instructies!
 		// Clear old notifications
 		presets_notification.innerHTML = "";
 		playlist_notification.innerHTML = "";
 		search_notification.innerHTML = "";
 
 		// Notify if playlist and songs is empty
+		const playlist = {{ playlist|tojson|safe }}
+		const playlist_songs = {{ playlist_songs|tojson|safe }}
+		if ((playlist.length > 0) && (playlist_songs.length === 0))
+			playlist_notification.innerHTML = '<span class=\"warning\">Geen liedjes gevonden voor speellijst \'{{ playlist }}\'.</span>';
+
+/* Oude methode
 		var playlist = "{{ playlist }}"
 		var playlist_songs = "{{ playlist_songs }}"
 		if ((playlist.length > 0) && (playlist_songs == "[]"))
 			playlist_notification.innerHTML = '<span class=\"warning\">Geen liedjes gevonden voor speellijst \'{{ playlist }}\'.</span>';
+*/
 
 		// Notify if search and list is empty
+		const search = {{ search|tojson|safe }}
+		const search_songs = {{ search_songs|tojson|safe }}
+		if ((search.length > 0) && (search_songs.length === 0))
+			search_notification.innerHTML = '<span class=\"warning\">Geen liedjes gevonden met \'{{ search }}\' in de naam van de artiest of in de titel. Gebruik een andere zoekopdracht.</span>';
+
+/* Oude methode
 		search = "{{ search }}"
 		search_songs = "{{ search_songs }}"
 		if ((search.length > 0) && (search_songs == "[]"))
 			search_notification.innerHTML = '<span class=\"warning\">Geen liedjes gevonden met \'{{ search }}\' in de naam van de artiest of in de titel. Gebruik een andere zoekopdracht.</span>';
+*/
 
 		// Catch user clicking a song
-		if (ul = document.getElementById('songs'))
+		if (ul = document.getElementById('songs1'))
+		{
+			ul.addEventListener('click', function(e)
+			{
+				if (e.target.tagName === 'LI')
+				{
+					event.preventDefault();
+
+					// Send song to server for playback
+					submitSong(e.target.id)
+				}
+			});
+		}
+		if (ul = document.getElementById('songs2'))
 		{
 			ul.addEventListener('click', function(e)
 			{
@@ -144,7 +240,7 @@
 			});
 		}
 
-		// Function to submit the network and password
+		// Function to submit the presets and changed preset
 		async function savepresets(changedpreset)
 		{
 			// Send presets to server
@@ -176,6 +272,158 @@
 			{
 				presets_notification.innerHTML = "<p class=\"error\">Er is een fout opgetreden bij het koppelen van de speellijst aan de knop.</p>";
 			}
+		}
+
+		// Function to save the selected playlist
+		async function savePlaylist()
+		{
+			// Convert JinJa2 template variable to array
+			const playlists = {{ playlists|tojson|safe }};
+			const directories = {{ directories|tojson|safe }};
+			const playlist = document.getElementById("playlist").value;
+
+			// Only save if playlist does not yet exist
+			if (!playlist || playlists.includes(playlist) || directories.includes(playlist))
+			{
+				alert("Geen actie, want geen speellijst ingevoerd of speellijst '" + playlist + "' bestaat al: TODO: +-knop niet tonen");
+				return;
+			}
+
+			// Confirm creating the playlist
+			if (confirm("Weet u zeker dat u speellijst '" + playlist + "' wilt bewaren?") == false)
+				return;
+
+			// Send playlist to save to server
+			try
+			{
+				const response = await fetch('/playlist_save', {
+					method: 'POST',
+					headers: {
+						'Content-Type': 'application/json'
+					},
+					body: JSON.stringify({ "name": playlist })
+				});
+
+				if (! response.ok)
+				{
+					const errorData = await response.json();
+					playlist_notification.innerHTML = "<p class=\"error\">Error: "+ errorData + "</p>";
+				}
+			}
+			catch (error)
+			{
+				playlist_notification.innerHTML = "<p class=\"error\">Er is een fout opgetreden bij het bewaren van de speellijst.</p>";
+			}
+
+			// Submit form to reload
+			document.getElementById("form_playlist").submit();
+		}
+
+		// Function to delete the selected playlist
+		async function deletePlaylist()
+		{
+			// Convert JinJa2 template variable to array
+			const playlists = {{ playlists|tojson|safe }};
+			const directories = {{ directories|tojson|safe }};
+			const playlist = document.getElementById("playlist").value;
+
+			// Only delete if playlist exists
+			if (!playlist || directories.includes(playlist) || !playlists.includes(playlist))
+			{
+				alert("Geen actie, want geen speellijst ingevoerd of speellijst '" + playlist + "' is beschermd of speellijst '" + playlist + "' bestaat niet: TODO: X-knop niet tonen");
+				return;
+			}
+
+			// Confirm deleting the playlist
+			if (confirm("Weet u zeker dat u speellijst '" + playlist + "' wilt verwijderen?") == false)
+				return;
+
+			// Send playlist to delete to server
+			try
+			{
+				const response = await fetch('/playlist_delete', {
+					method: 'POST',
+					headers: {
+						'Content-Type': 'application/json'
+					},
+					body: JSON.stringify({ "name": playlist })
+				});
+
+				if (! response.ok)
+				{
+					const errorData = await response.json();
+					playlist_notification.innerHTML = "<p class=\"error\">Error: "+ errorData + "</p>";
+				}
+			}
+			catch (error)
+			{
+				playlist_notification.innerHTML = "<p class=\"error\">Er is een fout opgetreden bij het verwijderen van de speellijst.</p>";
+			}
+
+			// Submit form to reload
+			document.getElementById("form_playlist").submit();
+		}
+
+		async function addSong(song)
+		{
+			// Send song to add to playlist to server
+			const playlist = document.getElementById("playlist").value;
+			const errText = "Er is een fout opgetreden bij het toevoegen van '" + song + "' aan speellijst '" + playlist + "'";
+			try
+			{
+				const response = await fetch('/playlist_add', {
+					method: 'POST',
+					headers: {
+						'Content-Type': 'application/json'
+					},
+					body: JSON.stringify({ "playlist": playlist, "song": song.file })
+				});
+
+console.log("response=", response);
+				if (! response.ok)
+				{
+					const errorData = await response.json();
+					playlist_notification.innerHTML = "<p class=\"error\">" + errText + " Error: " + errorData + "</p>";
+				}
+			}
+			catch (error)
+			{
+				playlist_notification.innerHTML = "<p class=\"error\">" + errText + "</p>";
+			}
+
+			// Submit form to reload
+			document.getElementById("form_search").submit();
+		}
+
+		async function removeSong(song)
+		{
+			// Send song to remove from playlist to server
+			const playlist = document.getElementById("playlist").value;
+			const errText = "Er is een fout opgetreden bij het verwijderen van '" + song + "' uit speellijst '" + playlist + "'";
+			try
+			{
+				const response = await fetch('/playlist_remove', {
+					method: 'POST',
+					headers: {
+						'Content-Type': 'application/json'
+					},
+					body: JSON.stringify({ "playlist": playlist, "song": song.file })
+				});
+
+console.log("response=", response);
+				if (! response.ok)
+				{
+					const errorData = await response.json();
+					playlist_notification.innerHTML = "<p class=\"error\">" + errText + " Error: " + errorData + "</p>";
+				}
+			}
+			catch (error)
+			{
+				playlist_notification.innerHTML = "<p class=\"error\">" + errText + "</p>";
+			}
+
+			// Submit form to reload
+			document.getElementById("form_search").submit();
 		}
 
 		// Function to submit the network and password
