@@ -121,7 +121,6 @@ async def playlists(request: Request):
     playlists = mpdcontrol.get_playlists()
     folders = sorted(directories + playlists, key=str.casefold)
 
-
     # Unknown playlist and thus empty song list
     playlist = ""
     playlist_songs = []
@@ -172,7 +171,7 @@ async def playlists(request: Request):
 
 class presets(BaseModel):
     """ Model for playlist asssignment """
-    button: str = None
+    change: str = None
     list_1: str = None
     list_2: str = None
     list_3: str = None
@@ -188,17 +187,17 @@ async def save_presets(presets: presets):
 #OMJ: Het type klopt niet? Het is geen web service state message, eerder iets als info. Maar voor control is wel een state...
     message = {"type": MESSAGE_WEB_SERVICE_TYPE, "error": MESSAGE_NO_ERROR}
 
-    if presets.button == "PL1":
-        oradio_log.debug("PL1 preset playlist: '%s'", presets.list_1)
+    if presets.change == "preset1":
+        oradio_log.debug("preset1 playlist: '%s'", presets.list_1)
         message["state"] = MESSAGE_WEB_SERVICE_PL1_CHANGED
-    elif presets.button == "PL2":
-        oradio_log.debug("PL2 preset playlist: '%s'", presets.list_2)
+    elif presets.change == "preset2":
+        oradio_log.debug("preset2 playlist: '%s'", presets.list_2)
         message["state"] = MESSAGE_WEB_SERVICE_PL2_CHANGED
-    elif presets.button == "PL3":
-        oradio_log.debug("PL3 preset playlist: '%s'", presets.list_3)
+    elif presets.change == "preset3":
+        oradio_log.debug("preset3 playlist: '%s'", presets.list_3)
         message["state"] = MESSAGE_WEB_SERVICE_PL3_CHANGED
     else:
-        oradio_log.error("Invalid playlist button '%s'", presets.button)
+        oradio_log.error("Invalid playlist for '%s'", presets.change)
 
     # Store presets
     store_presets([presets.list_1, presets.list_2, presets.list_3])

@@ -11,12 +11,27 @@
  * Colors: https://www.computerhope.com/htmcolor.htm
  */
 
+:root {
+	/* Official Oradio colors */
+	--oradio-text: #EAE7DC;			/* Alabaster */
+	--oradio-header: #D8C3A5;		/* Khaki Web */
+	--oradio-border: #8E8D8A;		/* Middle Grey */
+	--oradio-select: #3FB858;		/* Bright Green */
+	--oradio-background: #14213D;	/* Oxford Blue */
+
+	/* Supporting colors */
+	--oradio-list: #363737;			/* Dark Grey */
+	--oradio-warning: #FFFE00;		/* Yellow */
+	--oradio-error: #FF0000;		/* Red */
+}
+
 body {
 	font-family: 'Roboto', Helvetica, Arial, sans-serif;
+	font-size: 14px;
 	margin: 0;
 	padding: 0;
-	background-color: #14213D;
-	color: rgb(234, 232, 221);
+	background-color: var(--oradio-background);
+	color: var(--oradio-text);
 	display: flex;
 	justify-content: center;
 	align-items: center;
@@ -27,8 +42,7 @@ body {
 	max-width: 400px;
 	width: 100%;
 	padding: 20px;
-	margin-bottom: 60px;			/* allow space for bottom menu */
-	background-color:#1F2933;
+	margin-bottom: 60px;		/* allow space for bottom menu */
 	border-radius: 10px;
 	box-shadow: 0 4px 8px rgba(0, 0, 0, 0.2);
 }
@@ -44,8 +58,8 @@ body {
 h1 {
 	width: 100%;
 	height: 20px;
-	background-color: #D8C3A5;
-	color: #000000;
+	color: var(--oradio-background);
+	background-color: var(--oradio-header);
 	border: none;
 	border-radius: 5px;
 	padding: 10px;
@@ -61,21 +75,6 @@ label {
 	font-weight: bold;
 }
 
-/* Make drop down icon stand out more */
-.datalist-container {
-	position: relative;
-	display: inline-block;
-	width: 100%;
-}
-.datalist-container .custom-icon {
-	position: absolute;
-	right: 10px;
-	top: 30%;
-	transform: translateY(-50%);
-	pointer-events: none; /* Ensures clicking is not blocked */
-	font-size: 20px;
-	color: #fff;	/* White */
-}
 
 /* OMJ: TODO: dropdown icon van select gelijk maken aan dropdown icon van datalist */
 
@@ -88,8 +87,8 @@ select {
 	border: 1px solid #ccc;
 	box-sizing: border-box;
 	font-size: 14px;
-	background-color: #1F2933;
-	color: rgb(234, 232, 221);
+	background-color: var(--oradio-background);
+	color: var(--oradio-text);
 }
 
 input {
@@ -98,30 +97,30 @@ input {
 	padding: 10px;
 	margin-bottom: 20px;
 	border-radius: 5px;
-	border: 1px solid #ccc;
+	border: 1px solid var(--oradio-border);
 	box-sizing: border-box;
 	font-size: 14px;
-	background-color: #1F2933;
-	color: rgb(234, 232, 221);
+	background-color: var(--oradio-background);
+	color: var(--oradio-text);
 }
 
 button {
 	width: 100%;
 	height: 40px;
-	background-color: #1DB954;
-	color: #FFFFFF;
+	background-color: var(--oradio-select);
+	color: var(--oradio-text);
 	border: none;
 	border-radius: 5px;
 	padding: 10px;
 	font-size: 16px;
+	font-weight: bold;
 	cursor: pointer;
-	transition: background-color 0.3s;
 	margin-bottom: 20px;
 	align-items: center;
 }
 
 button:hover {
-	background-color: #00FF7F;
+	filter: brightness(125%);
 }
 
 ul {
@@ -141,11 +140,11 @@ li {
 }
 
 .warning {
-	color: #FFEF00;
+	color: var(--oradio-warning);
 }
 
 .error {
-	color: #FF0000;
+	color: var(--oradio-error);
 }
 
 @media (max-width: 500px) {

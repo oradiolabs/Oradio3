@@ -1,0 +1,84 @@
+<!DOCTYPE html>
+<html lang="nl">
+<head>
+  <meta charset="UTF-8">
+  <title>Custom Select</title>
+  <style>
+    .autocomplete {
+      position: relative;
+      width: 300px;
+    }
+
+    #customInput {
+      width: 100%;
+      padding: 8px;
+      box-sizing: border-box;
+    }
+
+    .suggestie-box {
+      border: 1px solid #ccc;
+      display: none;
+      position: absolute;
+      top: 100%;
+      left: 0;
+      right: 0;
+      background-color: white;
+      z-index: 10;
+      max-height: 150px;
+      overflow-y: auto;
+    }
+
+    .suggestie-box div {
+      padding: 8px;
+      cursor: pointer;
+    }
+
+    .suggestie-box div:hover {
+      background-color: #eee;
+    }
+  </style>
+</head>
+<body>
+
+<div class="autocomplete">
+  <input type="text" id="customInput" placeholder="Typ of kies iets...">
+  <div id="suggesties" class="suggestie-box"></div>
+</div>
+
+<script>
+  const input = document.getElementById("customInput");
+  const suggestieBox = document.getElementById("suggesties");
+
+  const opties = ["Appel", "Banaan", "Kers", "Druif", "Peer", "Perzik", "Ananas"];
+
+  function toonAlleSuggesties() {
+    suggestieBox.innerHTML = "";
+
+    opties.forEach(optie => {
+      const div = document.createElement("div");
+      div.textContent = optie;
+      div.addEventListener("click", function () {
+        input.value = optie;
+        suggestieBox.style.display = "none";
+      });
+      suggestieBox.appendChild(div);
+    });
+
+    suggestieBox.style.display = "block";
+  }
+
+  input.addEventListener("focus", toonAlleSuggesties);
+  input.addEventListener("click", toonAlleSuggesties);
+
+  // Verberg de suggesties als je ergens anders klikt
+  document.addEventListener("click", function (e) {
+    if (!e.target.closest(".autocomplete")) {
+      suggestieBox.style.display = "none";
+      // Submit form to reload
+      document.getElementById("form_playlist").submit();
+    }
+  });
+</script>
+
+</body>
+</html>
