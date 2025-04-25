@@ -206,55 +206,38 @@ async def save_presets(presets: presets):
     oradio_log.debug("Send web service message: %s", message)
     api_app.state.message_queue.put(message)
 
-class playlist(BaseModel):
-    """ Model for playlist """
-    name: str = None
-
-# POST endpoint to create playlist
-@api_app.post("/playlist_save")
-async def playlist_save(playlist: playlist):
-    """
-    Handle POST to store a playlist
-    """
-    oradio_log.debug("Save playlist: '%s'", playlist.name)
-    return mpdcontrol.playlist_save(playlist.name)
-
-# POST endpoint to remove playlist
-@api_app.post("/playlist_delete")
-async def playlist_delete(playlist: playlist):
-    """
-    Handle POST to delete a playlist
-    """
-    oradio_log.debug("Delete playlist: '%s'", playlist.name)
-    return mpdcontrol.playlist_delete(playlist.name)
-
-class addsong(BaseModel):
-    """ Model for adding song """
+class modify(BaseModel):
+    """ Model for modifying playlist """
+    action:   str = None
     playlist: str = None
     song:     str = None
 
-# POST endpoint to add song to playlist
-@api_app.post("/playlist_add")
-async def playlist_add(addsong: addsong):
+# POST endpoint to modify playlist
+@api_app.post("/playlist_modify")
+async def playlist_modify(modify: modify):
     """
-    Handle POST to add song to playlist
+    Handle POST to:
+    - Add song to existing playlist
+    - Create playlist if no song given and playlist does not exist
+    - Create playlist if it does not exist and add given song
+    - Remove song from playlist
+    - Remove playlist if no song given
     """
-    oradio_log.debug("Add song '%s' to playlist '%s'", addsong.song, addsong.playlist)
-    return mpdcontrol.playlist_add(addsong.playlist, addsong.song)
-
-class removesong(BaseModel):
-    """ Model for removing song """
-    playlist: str = None
-    song:     str = None
-
-# POST endpoint to remove song from playlist
-@api_app.post("/playlist_remove")
-async def playlist_remove(removesong: removesong):
-    """
-    Handle POST to remove song from playlist
-    """
-    oradio_log.debug("Remove song '%s' from playlist '%s'", removesong.song, removesong.playlist)
-    return mpdcontrol.playlist_remove(removesong.playlist, removesong.song)
+    if modify.action == 'Add':
+        if modify.song == 'None':
+            oradio_log.debug("Create playlist: '%s'", modify.playlist)
+        else:
+            oradio_log.debug("Add song '%s' to playlist '%s'", modify.song, modify.playlist)
+        return mpdcontrol.playlist_add(modify.playlist, modify.song)
+    elif modify.action == 'Remove':
+        if modify.song == 'None':
+            oradio_log.debug("Delete playlist: '%s'", modify.playlist)
+        else:
+            oradio_log.debug("Delete song '%s' from playlist '%s'", modify.song, modify.playlist)
+        return mpdcontrol.playlist_remove(modify.playlist, modify.song)
+    else:
+        oradio_log.error("Unexpected action '%s'", modify.action)
+        return False
 
 class song(BaseModel):
     """ Model for song """

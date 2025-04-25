@@ -384,10 +384,10 @@ class MPDControl:
         List the songs matching the pattern in artist or title attributes
         Return [{file: ..., artist:..., title:...}, ...]
         """
-        try:
-            # Connect if not connected
-            self._ensure_client()
+        # Connect if not connected
+        self._ensure_client()
 
+        try:
             # Search artists and titles; minimize lock to mpd interaction
             with self.mpd_lock:
                 results = self.client.search('artist', pattern)
@@ -417,10 +417,11 @@ class MPDControl:
         The song is appended, moved immediately after the current song, and played.
         Once it finishes, it is removed from the queue.
         """
+        # Connect if not connected
+        self._ensure_client()
+
         try:
             oradio_log.debug("Attempting to play song: %s", song)
-            self._ensure_client()
-
             with self.mpd_lock:
                 status = self.client.status()
                 state = status.get("state", "stop")
@@ -487,77 +488,66 @@ class MPDControl:
         except Exception as ex_err:
             oradio_log.error("Error removing song with id '%s': %s", inserted_song_id, ex_err)
 
-    def playlist_save(self, playlist):
-        """
-        Save playlist
-        Return success | fail
-        """
-        try:
-            oradio_log.debug("Attempting to save playlist: '%s'", playlist)
-            self._ensure_client()
-            with self.mpd_lock:
-                # Create playlist if not exist and adds dummy url
-                self.client.playlistadd(playlist, "https://dummy.mp3")
-                # Delete the single item → playlist is now empty
-                self.client.playlistdelete(playlist, 0)
-            oradio_log.debug("Playlist '%s' saved", playlist)
-            return True
-        except Exception as ex_err:
-            oradio_log.error("Error saving playlist '%s': %s", playlist, ex_err)
-            return False
-
-    def playlist_delete(self, playlist):
-        """
-        Delete playlist
-        Return success | fail
-        """
-        try:
-            oradio_log.debug("Attempting to delete playlist: '%s'", playlist)
-            self._ensure_client()
-            with self.mpd_lock:
-                self.client.rm(playlist)
-            oradio_log.debug("Playlist '%s' deleted", playlist)
-            return True
-        except Exception as ex_err:
-            oradio_log.error("Error deleting playlist '%s': %s", playlist, ex_err)
-            return False
-
     def playlist_add(self, playlist, song):
         """
+        Create playlist if not exist
         Add song to playlist
         Return success | fail
         """
+        # Connect if not connected
+        self._ensure_client()
+
         try:
             oradio_log.debug("Attempting to add song '%s' to playlist: '%s'", song, playlist)
-            self._ensure_client()
             with self.mpd_lock:
-                # Add song to playlist
-                self.client.playlistadd(playlist, song)
-            oradio_log.debug("Song '%s' added to playlist '%s'", song, playlist)
+                if song == 'None':
+                    # Create playlist if not exist and adds dummy url
+                    self.client.playlistadd(playlist, "https://dummy.mp3")
+                    # Delete the dummy → playlist is now empty
+                    self.client.playlistdelete(playlist, 0)
+                    oradio_log.debug("Created playlist '%s'", playlist)
+                else:
+                    # Add song to playlist, creating playlist if it does not exist
+                    self.client.playlistadd(playlist, song)
+                    oradio_log.debug("Song '%s' added to playlist '%s'", song, playlist)
             return True
         except Exception as ex_err:
-            oradio_log.error("Error adding song '%s' to playlist '%s': %s", song, playlist, ex_err)
+            if song == 'None':
+                oradio_log.error("Error creating playlist '%s': %s", playlist, ex_err)
+            else:
+                oradio_log.error("Error adding song '%s' to playlist '%s': %s", song, playlist, ex_err)
             return False
 
     def playlist_remove(self, playlist, song):
         """
         Remove song from playlist
+        Remove playlist
         Return success | fail
         """
+        # Connect if not connected
+        self._ensure_client()
+
         try:
             oradio_log.debug("Attempting to remove song '%s' from playlist: '%s'", song, playlist)
-            self._ensure_client()
             with self.mpd_lock:
-                # Get playlist songs
-                playlist_items = self.client.listplaylist(playlist)
-                # Find index of song in playlist
-                index_to_remove = playlist_items.index(song)
-                # Remove song from playlist
-                self.client.playlistdelete(playlist, index_to_remove)
-            oradio_log.debug("Song '%s' removed from playlist '%s'", song, playlist)
+                if song == 'None':
+                    # Delete playlist
+                    self.client.rm(playlist)
+                    oradio_log.debug("Playlist '%s' deleted", playlist)
+                else:
+                    # Get playlist songs
+                    playlist_items = self.client.listplaylist(playlist)
+                    # Find index of song in playlist
+                    index_to_remove = playlist_items.index(song)
+                    # Remove song from playlist
+                    self.client.playlistdelete(playlist, index_to_remove)
+                    oradio_log.debug("Song '%s' deleted from playlist '%s'", song, playlist)
             return True
         except Exception as ex_err:
-            oradio_log.error("Error removing song '%s' from playlist '%s': %s", song, playlist, ex_err)
+            if song == 'None':
+                oradio_log.error("Error deleting playlist '%s': %s", playlist, ex_err)
+            else:
+                oradio_log.error("Error removing song '%s' from playlist '%s': %s", song, playlist, ex_err)
             return False
 
     @staticmethod

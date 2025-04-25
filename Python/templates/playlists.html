@@ -2,6 +2,7 @@
 <html lang="nl">
 	<head>
 		<meta charset="UTF-8" />
+		<meta name="autofocus" content="false">
 		<meta name="viewport" content="width=device-width, initial-scale=1.0" />
 
 		<link rel="stylesheet" href="../static/css/fontawesome.min.css" />
@@ -54,7 +55,7 @@
 
 .playlists_grid {
 	display: grid;
-	margin-bottom: 20px;
+	margin-bottom: 0;
 	grid-template-columns: 2.5fr 0.5fr 0.5fr;
 }
 
@@ -76,36 +77,49 @@
 
 .save-button {
 	background-image: url('../static/save.png'); /* Zorg dat deze PNG in dezelfde map staat */
+	margin: 0;
 	width: 40px;
 	height: 40px;
 	justify-self: end;
 }
 .save-button2 {
 	background-image: url('../static/save.png'); /* Zorg dat deze PNG in dezelfde map staat */
-	width: 20px;
-	height: 20px;
+	margin: 0;
+	width: 25px;
+	height: 25px;
 	justify-self: end;
 }
 
 .delete-button {
 	background-image: url('../static/delete.png'); /* Zorg dat deze PNG in dezelfde map staat */
+	margin: 0;
 	width: 40px;
 	height: 40px;
 	justify-self: end;
 }
 .delete-button2 {
 	background-image: url('../static/delete.png'); /* Zorg dat deze PNG in dezelfde map staat */
-	width: 20px;
-	height: 20px;
+	margin: 0;
+	width: 25px;
+	height: 25px;
 	justify-self: end;
 }
 .songs {
 	display: none;
 }
 </style>
+<style>
+/* Hide playlist input */
+input#playlist {
+	visibility: hidden;
+input {
+	pointer-events: none;
+}
+}
+</style>
 
 	</head>
-	<body>
+	<body tabindex="-1">
 		{% include "menu.html" %}
 		<div class="container">
 
@@ -114,8 +128,11 @@
 
 			<!-- Set presets -->
 			<form id="form_presets" method="POST">
+
 				<!-- identifier used by server: do not change or remove -->
 				<input type="hidden" name="action" value="presets" />
+
+				<!-- Link playlists to presets -->
 				<h1 id="presets">Speellijst aan knop koppelen</h1>
 				{% for item in presets %}
 					<div class="presets-grid">
@@ -134,15 +151,21 @@
 						</div>
 					</div>
 				{% endfor %}
+
+				<!-- Show notifcations, if any -->
 				<div id="presets_notification" class="notification">
 					<!-- Will be filled by Javascript submitCredentials() -->
 				</div>
+
 			</form>
 
 			<!-- Custom playlist -->
 			<form id="form_playlist" method="POST">
+
 				<!-- identifier used by server: do not change or remove -->
 				<input type="hidden" name="action" value="playlist" />
+
+				<!-- Manage playlists -->
 				<h1 id="playlists">Speellijsten beheren</h1>
 				<div class="playlists_grid">
 					<div class="custom-select" data-options='{{ folders|tojson|safe }}'>
@@ -152,458 +175,447 @@
 						<div id="options" class="options"></div>
 
 					</div>
-					<button class="my-button save-button" title="Bewaren" onclick="savePlaylist()"></button>
-					<button class="my-button delete-button" title="Verwijderen" onclick="deletePlaylist()"></button>
+					<button class="my-button save-button" title="Bewaren" onclick="addSong()"></button>
+					<button class="my-button delete-button" title="Verwijderen" onclick="removeSong()"></button>
 				</div>
+
+				<!-- Show notifcations, if any -->
 				<div id="playlist_notification" class="notification">
 					<!-- Will be filled by Javascript submitCredentials() -->
 				</div>
-<!--
-			</form>
--->
+
 				<!-- Show songs in a playlist -->
 				{% if playlist_songs %}
 				<div class="file-list">
-					<ul id="songs1">
+					<ul id="playlistsongs">
 					{% for song in playlist_songs %}
-						<div style="display: grid; grid-template-columns: auto auto">
-							<li id="{{ song["file"] }}">{{ song["artist"] }} - {{ song["title"] }}</li>
-							<!-- Hide/show by Javascript depending on playlist -->
+						<li style="display: grid; grid-template-columns: auto auto; align-items: center; padding: 10px 10px 10px 10px;" id="{{ song["file"] }}">
+							{{ song["artist"] }} - {{ song["title"] }}
 							<button class="songs my-button delete-button2" title="Verwijderen" onclick="removeSong({{ song }})"></button>
-						</div>
+						</li>
 					{% endfor %}
 					</ul>
 				</div>
 				{% endif %}
 
 				<!-- Search songs by artist or title -->
-<!--
-			<form id="form_search" method="POST">
--->
-				<!-- identifier used by server: do not change or remove -->
-				<input type="hidden" name="action" value="search" />
 				<h1 id="search_songs">Liedje zoeken</h1>
 				{% if search %}
-					<input name="search" type="text" minlength="3" placeholder="Typ (deel van) naam van artiest of (deel van) titel" value="{{ search }}" />
+					<input style="margin: 0;" id="search" name="search" type="text" minlength="3" placeholder="Typ (deel van) naam van artiest of (deel van) titel"	value="{{ search }}" />
 				{% else %}
-					<input name="search" type="text" minlength="3" placeholder="Typ (deel van) naam van artiest of (deel van) titel" />
+					<input style="margin: 0;" id="search" name="search" type="text" minlength="3" placeholder="Typ (deel van) naam van artiest of (deel van) titel" />
 				{% endif %}
+				<button type="submit" style="margin: 20px auto; width: 90%; display: block;">Zoeken</button>
+
+				<!-- Show notifcations, if any -->
 				<div id="search_notification" class="notification">
 					<!-- Will be filled by Javascript submitCredentials() -->
 				</div>
-				<button type="submit">Zoeken</button>
+
 				<!-- Show songs found -->
 				{% if search_songs %}
 				<div class="file-list">
-					<ul id="songs2">
+					<ul id="searchsongs">
 					{% for song in search_songs %}
-						<div style="display: grid; grid-template-columns: auto auto">
-							<li id="{{ song["file"] }}">{{ song["artist"] }} - {{ song["title"] }}</li>
-							<!-- Hide/show by Javascript depending on playlist -->
+						<li style="display: grid; grid-template-columns: auto auto; align-items: center; padding: 10px 10px 10px 10px;" id="{{ song["file"] }}">
+							{{ song["artist"] }} - {{ song["title"] }}
 							<button class="songs my-button save-button2" title="Bewaren" onclick="addSong({{ song }})"></button>
-						</div>
+						</li>
 					{% endfor %}
 					</ul>
 				</div>
 				{% endif %}
+
 			</form>
 
 		</div>
 
 	</body>
 	<script>
-//const sleep = (delay) => new Promise((resolve) => setTimeout(resolve, delay));
-		// Create custom select elements dropdown lists with options and actions
-		document.querySelectorAll('.custom-select').forEach(container =>
+// Run when page is loaded
+document.addEventListener('DOMContentLoaded', function ()
+{
+	// Remove focus from playlist input
+	setTimeout(() =>
+	{
+		document.querySelectorAll('input').forEach(input =>
 		{
-			const input = container.querySelector('input');
-			const dropdown = container.querySelector('.options');
-			const options = JSON.parse(container.dataset.options);
+			input.style.pointerEvents = 'auto';
+		});
+		// Make playlist input visible
+		const playlistInput = document.getElementById('playlist');
+		if (playlistInput)
+			playlistInput.style.visibility = 'visible';
+	}, 0);
 
-			function showOptions()
+	// Show the element used to trigger a server action
+	location.hash = "#" + "{{ anchor }}";
+
+	// Get the notification element once, reuse globally
+	const presets_notification = document.getElementById('presets_notification');
+	const playlist_notification = document.getElementById('playlist_notification');
+	const search_notification = document.getElementById('search_notification');
+
+	// Notify if playlist and songs is empty
+	const playlist = {{ playlist|tojson|safe }}
+	const playlist_songs = {{ playlist_songs|tojson|safe }}
+	if ((playlist.length > 0) && (playlist_songs.length === 0))
+	{
+		playlist_notification.innerHTML = "<span class='warning'>Geen liedjes gevonden voor speellijst '{{ playlist }}'</span>";
+		playlist_notification.style.display = "block";
+	}
+
+	// Notify if search and list is empty
+	const search = {{ search|tojson|safe }}
+	const search_songs = {{ search_songs|tojson|safe }}
+	if ((search.length > 0) && (search_songs.length === 0))
+	{
+		search_notification.innerHTML = "<span class='warning'>Geen liedjes gevonden met '{{ search }}' in de naam van de artiest of in de titel. Gebruik een andere zoekopdracht.</span>";
+		search_notification.style.display = "block";
+	}
+
+	// Create custom select elements dropdown lists with options and actions
+	document.querySelectorAll('.custom-select').forEach(container =>
+	{
+		const input = container.querySelector('input');
+		const dropdown = container.querySelector('.options');
+		const options = JSON.parse(container.dataset.options);
+
+		function showOptions()
+		{
+			dropdown.innerHTML = '';
+			options.forEach(option =>
 			{
-				dropdown.innerHTML = '';
-				options.forEach(option =>
+				const div = document.createElement('div');
+				div.textContent = option;
+				div.addEventListener('click', (event) =>
 				{
-					const div = document.createElement('div');
-					div.textContent = option;
-					div.addEventListener('click', () =>
+					// Cancel the default action that belongs to the event
+					event.preventDefault();
+
+					// Ignore if nothing changed
+					if (input.value !== option)
 					{
-						// Ignore if nothing changed
-						if (input.value !== option)
-						{
-							// Update input with option
-							input.value = option;
+						// Update input with option
+						input.value = option;
 
-							// Hide dropdown with options
-							dropdown.style.display = 'none';
+						// Hide dropdown with options
+						dropdown.style.display = 'none';
 
-							// preset changed
-							if (input.id.includes("preset"))
-								savepresets(input.id)
+						// preset changed
+						if (input.id.includes("preset"))
+							savepresets(input.id)
 
-							// playlist changed
-							if (input.id.includes("playlist"))
-								// Submit to activate playlist
-// In plaats van submit beter de lijst op te halen met een post?
-								document.getElementById("form_playlist").submit();
-console.log("playlist changed");
-						}
-						else
-						console.log("Geen wijziging, dus niets doen");
-					});
-					dropdown.appendChild(div);
-				});
-				dropdown.style.display = 'block';
-			}
-
-			// Show options when input is clicked
-			input.addEventListener("click", showOptions);
-
-			// Show options when input gets focus
-			input.addEventListener("focus", showOptions);
-
-			// Hide options when input loses focus
-			input.addEventListener("focusout", function (e)
-			{
-				// Delay to allow click on option to be processed
-				setTimeout(() =>
-				{
-					if (!input.contains(document.activeElement))
-					{
-						dropdown.style.display = "none";
-// In plaats van submit beter de lijst op te halen met een post?
-//						document.getElementById("form_playlist").submit();
+						// If playlist changed then submit to activate
+						if (input.id.includes("playlist"))
+							document.getElementById("form_playlist").submit();
 					}
-				}, 200);
+				});
+				dropdown.appendChild(div);
 			});
+			dropdown.style.display = 'block';
+		}
 
-			// Hide options when clicking outside the input or outside the options list
-			document.addEventListener("click", function (e)
+		// Show options when input is clicked
+		input.addEventListener("click", (event) =>
+		{
+			event.stopPropagation(); // Prevent click from propagating to document
+			showOptions();
+		});
+
+		// Hide options when input loses focus
+		input.addEventListener("focusout", function (event)
+		{
+			// Cancel the default action that belongs to the event
+			event.preventDefault();
+
+			// Delay to allow click on option to be processed
+			setTimeout(() =>
 			{
-				if (!container.contains(e.target))
+				if (!input.contains(document.activeElement))
 				{
 					dropdown.style.display = "none";
-// In plaats van submit beter de lijst op te halen met een post?
-//					document.getElementById("form_playlist").submit();
 				}
-			});
-
+			}, 200);
 		});
-	</script>
 
-	<script>
-		// Show buttons if playlist exist and is not a directory, otherwise hide button
-		function buttonVisibility()
+		// Hide options when clicking outside the input or outside the options list
+		document.addEventListener("click", function (event)
 		{
-			const songs = document.querySelectorAll(".songs");
-			const playlist = document.getElementById("playlist").value;
-			const directories = {{ directories|tojson|safe }};
+			if (!container.contains(event.target))
+				dropdown.style.display = "none";
+		});
+	});
 
-			if (playlist && !directories.includes(playlist))
-			{
-				// Show buttons
-				songs.forEach(el => {
-					el.style.display = "block";
-				});
+	// Control what happens when the enter key is pressed
+	document.addEventListener("keydown", function (event)
+	{
+		// Check if Enter-key is pressed
+		if (event.key === "Enter")
+		{
+			const activeElement = document.activeElement;
+
+			// Prevent default behavior
+			event.preventDefault();
+
+			// Action for playlist input
+			if (activeElement.id === "playlist") {
+				document.getElementById("form_playlist").submit();
+				return;
 			}
-			else
-			{
-				// Hide buttons
-				songs.forEach(el => {
-					el.style.display = "none";
-				});
+
+			// Action for search input
+			if (activeElement.id === "search") {
+				document.getElementById("form_playlist").submit();
+				return;
 			}
 		}
+	});
 
-		// Initialize
+	// Initialize
+	buttonVisibility();
+
+	// Update when playlist changes
+	document.getElementById("playlist").addEventListener("change", function ()
+	{
 		buttonVisibility();
+	});
 
-		// Update when playlist changes
-		document.getElementById("playlist").addEventListener("change", function ()
+	// Add click handlers to song lists
+	['playlistsongs', 'searchsongs'].forEach(id =>
+	{
+		const ul = document.getElementById(id);
+		if (ul)
 		{
-			buttonVisibility();
+			ul.addEventListener('click', function (event)
+			{
+				// Check if song clicked
+				if (event.target.tagName === 'LI')
+				{
+					// Cancel the default action that belongs to the event
+					event.preventDefault();
+
+					// Send song to server for playback
+					const source = id === 'playlistsongs' ? 'Playlist' : 'Search';
+					submitSong(source, event.target.id, event.target.textContent)
+				}
+			});
+		}
+	});
+
+	// Catch submit event
+	document.getElementById("form_playlist").addEventListener("submit", function(event)
+	{
+		// Prevent default behavior
+		event.preventDefault();
+
+		// If notification is visible
+		if (notificationTimeout)
+		{
+			// Wait 3 seconds before submitting
+			(async function()
+			{
+				// Wait 3 seconds
+				await new Promise(resolve => setTimeout(resolve, 3000));
+
+				// Submit form after 3 seconds
+				event.target.submit();
+			})();
+		}
+		else
+			// Submit form now
+			event.target.submit();
+	});
+
+});
+
+// Show buttons if playlist exist and is not a directory, otherwise hide button
+function buttonVisibility()
+{
+	const songs = document.querySelectorAll(".songs");
+	const playlist = document.getElementById("playlist").value.trim();
+	const directories = {{ directories|tojson|safe }};
+
+	if (playlist && !directories.includes(playlist))
+	{
+		// Show buttons
+		songs.forEach(el => {
+			el.style.display = "block";
+		});
+	}
+	else
+	{
+		// Hide buttons
+		songs.forEach(el => {
+			el.style.display = "none";
+		});
+	}
+}
+
+let notificationTimeout = false; // buiten de functie, bovenaan script
+
+// General helper function to show error message
+function showNotification(listType, message)
+{
+	// Check the listType and assign the corresponding notification element
+	let notificationElement;
+	if (listType === 'Presets')
+		notificationElement = presets_notification;
+	else if (listType === 'Playlist')
+		notificationElement = playlist_notification;
+	else if (listType === 'Search')
+		notificationElement = search_notification;
+	else
+		return;
+
+	// Show notification
+	notificationElement.innerHTML = `<p class='error'>${message}</p>`;
+	notificationElement.style.display = "block";
+
+	// Set flag to wait before submitting
+	notificationTimeout = true;
+}
+
+// Helper function to get playlist from input or null if invalid
+function getPlaylist(action)
+{
+	const playlist = document.getElementById("playlist").value.trim();
+	playlist_notification.style.display = "none";
+
+	if (!playlist)
+	{
+		showNotification('Playlist', "<p class='error'>Geef een geldige speellijstnaam op</p>");
+		return null;
+	}
+
+	const playlists = {{ playlists|tojson|safe }};
+	const directories = {{ directories|tojson|safe }};
+
+	// Check if the playlist is valid for the action (Add or Remove)
+	if ((action === 'Add' && directories.includes(playlist)) || 
+		(action === 'Remove' && (!playlists.includes(playlist) || directories.includes(playlist))))
+	{
+		const message = directories.includes(playlist)
+			? `<p class='error'>Speellijst '${playlist}' is beschermd</p>`
+			: `<p class='error'>Speellijst '${playlist}' bestaat niet</p>`;
+console.log("getPlaylist 1");
+		showNotification('Playlist', message);
+console.log("getPlaylist 2");
+		return null;
+	}
+
+	return playlist;
+}
+
+// Function to submit the presets and changed preset
+async function savepresets(change)
+{
+	const errorMessage = `Koppelen van '${change}' is mislukt`
+
+	// Send presets to server
+	try
+	{
+		const response = await fetch('/save_presets', {
+			method: 'POST',
+			headers: {'Content-Type': 'application/json'},
+			body: JSON.stringify({
+					"change": change,
+					"list_1": document.getElementById("preset1").value,
+					"list_2": document.getElementById("preset2").value,
+					"list_3": document.getElementById("preset3").value
+			})
 		});
 
-		// Show the element used to trigger a server action
-		location.hash = "#" + "{{ anchor }}";
-
-		// Get notification element
-		const presets_notification = document.getElementById('presets_notification');
-		const playlist_notification = document.getElementById('playlist_notification');
-		const search_notification = document.getElementById('search_notification');
-
-//OMJ: Let op: als er door een POST een fout gevonden is verdwijnt die met onderstaande 3 instructies!
-		// Clear old notifications
-		presets_notification.innerHTML = "";
-		playlist_notification.innerHTML = "";
-		search_notification.innerHTML = "";
-
-		// Notify if playlist and songs is empty
-		const playlist = {{ playlist|tojson|safe }}
-		const playlist_songs = {{ playlist_songs|tojson|safe }}
-		if ((playlist.length > 0) && (playlist_songs.length === 0))
-			playlist_notification.innerHTML = '<span class=\"warning\">Geen liedjes gevonden voor speellijst \'{{ playlist }}\'.</span>';
-
-		// Notify if search and list is empty
-		const search = {{ search|tojson|safe }}
-		const search_songs = {{ search_songs|tojson|safe }}
-		if ((search.length > 0) && (search_songs.length === 0))
-			search_notification.innerHTML = '<span class=\"warning\">Geen liedjes gevonden met \'{{ search }}\' in de naam van de artiest of in de titel. Gebruik een andere zoekopdracht.</span>';
-
-		// Catch user clicking a song
-		if (ul = document.getElementById('songs1'))
+		if (response.ok)
+			document.getElementById("form_playlist").submit();
+		else
 		{
-			ul.addEventListener('click', function(e)
-			{
-				if (e.target.tagName === 'LI')
-				{
-					event.preventDefault();
-
-					// Send song to server for playback
-					submitSong(e.target.id)
-				}
-			});
+			const errorData = await response.json();
+			showNotification('Presets', `<p class='error'>Error: ${errorData.message || errorMessage}</p>`);
 		}
-		if (ul = document.getElementById('songs2'))
+		
+	}
+	catch (error) {
+		showNotification('Presets', `${errorMessage}. Controleer of de web interface actief is.`);
+	}
+}
+
+// Add song to playlist. Create playlist if it does not exist.
+async function addSong(song)
+{
+	const playlist = getPlaylist('Add');
+	if (!playlist) return;
+
+	const errorMessage = song
+		? `Toevoegen van '${song.file}' aan speellijst '${playlist}' mislukt`
+		: `Opslaan van speellijst '${playlist}' mislukt`;
+
+	await modifyPlaylist('Add', playlist, song, errorMessage);
+}
+
+// Remove song from playlist. Remove playlist if no song.
+async function removeSong(song)
+{
+	const playlist = getPlaylist('Remove');
+	if (!playlist) return;
+
+	const errorMessage = song
+		? `Verwijderen van '${song.file}' uit speellijst '${playlist}' mislukt`
+		: `Verwijderen van speellijst '${playlist}' mislukt`;
+
+	if (!song) document.getElementById("playlist").value = "";
+
+	await modifyPlaylist('Remove', playlist, song, errorMessage);
+}
+
+// Send playlist and song to server
+async function modifyPlaylist(action, playlist, song, errorMessage)
+{
+	try
+	{
+		const response = await fetch('/playlist_modify', {
+			method: 'POST',
+			headers: {'Content-Type': 'application/json'},
+			body: JSON.stringify({ action, playlist, song: song ? song.file : 'None' })
+		});
+
+		if (response.ok)
+			document.getElementById("form_playlist").submit();
+		else
 		{
-			ul.addEventListener('click', function(e)
-			{
-				if (e.target.tagName === 'LI')
-				{
-					event.preventDefault();
-
-					// Send song to server for playback
-					submitSong(e.target.id)
-				}
-			});
+			const errorData = await response.json();
+			showNotification('Playlist', `${errorData.message || errorMessage}`);
 		}
+	}
+	catch (error)
+	{
+		showNotification('Playlist', `${errorMessage}. Controleer of de web interface actief is.`);
+	}
+}
 
-		// Function to submit the presets and changed preset
-		async function savepresets(change)
+// Function to submit the song to the server for playback
+async function submitSong(songlist, songfile, songtitle)
+{
+	const errorMessage = `Er is een fout opgetreden bij het indienen van het te spelen liedje '${songtitle}'`;
+
+	try
+	{
+		const response = await fetch('/play_song', {
+			method: 'POST',
+			headers: {'Content-Type': 'application/json'},
+			body: JSON.stringify({ "song": songfile })
+		});
+
+		if (!response.ok)
 		{
-console.log("change=", change);
-			// Send presets to server
-			try
-			{
-				const response = await fetch('/save_presets', {
-					method: 'POST',
-					headers: {
-						'Content-Type': 'application/json'
-					},
-					body: JSON.stringify({
-							"change": change,
-							"list_1": document.getElementById("preset1").value,
-							"list_2": document.getElementById("preset2").value,
-							"list_3": document.getElementById("preset3").value
-						})
-				});
-
-				if (! response.ok)
-				{
-					const errorData = await response.json();
-					presets_notification.innerHTML = "<p class=\"error\">Error: "+ errorData + "</p>";
-				}
-				else
-					presets_notification.innerHTML = "";
-
-			}
-			catch (error)
-			{
-				presets_notification.innerHTML = "<p class=\"error\">Er is een fout opgetreden bij het koppelen van de speellijst aan de knop.</p>";
-			}
+			const errorData = await response.json();
+			showNotification(songlist, `<p class='error'>Error: ${errorData.message || errorMessage}</p>`);
 		}
-
-		// Function to save the selected playlist
-		function savePlaylist()
-		{
-			// Convert JinJa2 template variable to array
-			const playlists = {{ playlists|tojson|safe }};
-			const directories = {{ directories|tojson|safe }};
-			const playlist = document.getElementById("playlist").value;
-
-			// Only save if playlist does not yet exist
-			if (!playlist || playlists.includes(playlist) || directories.includes(playlist))
-			{
-console.log("Geen actie, want geen speellijst ingevoerd of speellijst '" + playlist + "' bestaat al: TODO: +-knop niet tonen");
-				return;
-			}
-
-			// Confirm creating the playlist
-			if (confirm("Weet u zeker dat u speellijst '" + playlist + "' wilt bewaren?") == false)
-				return;
-
-			// Send playlist to save to server
-			try
-			{
-				const response = fetch('/playlist_save', {
-					method: 'POST',
-					headers: {
-						'Content-Type': 'application/json'
-					},
-					body: JSON.stringify({ "name": playlist })
-				});
-
-				if (! response.ok)
-				{
-					const errorData = response.json();
-					playlist_notification.innerHTML = "<p class=\"error\">Error: "+ errorData + "</p>";
-				}
-			}
-			catch (error)
-			{
-				playlist_notification.innerHTML = "<p class=\"error\">Er is een fout opgetreden bij het bewaren van de speellijst.</p>";
-			}
-
-			// Submit form to reload
-//			document.getElementById("form_playlist").submit();
-		}
-
-		// Function to delete the selected playlist
-		function deletePlaylist()
-		{
-			// Convert JinJa2 template variable to array
-			const playlists = {{ playlists|tojson|safe }};
-			const directories = {{ directories|tojson|safe }};
-			const playlist = document.getElementById("playlist").value;
-
-			// Only delete if playlist exists
-			if (!playlist || directories.includes(playlist) || !playlists.includes(playlist))
-			{
-console.log("Geen actie, want geen speellijst ingevoerd of speellijst '" + playlist + "' is beschermd of speellijst '" + playlist + "' bestaat niet: TODO: X-knop niet tonen");
-				// Clear playlist input
-				document.getElementById("playlist").value = "";
-
-				return;
-			}
-
-			// Confirm deleting the playlist
-			if (confirm("Weet u zeker dat u speellijst '" + playlist + "' wilt verwijderen?") == false)
-				return;
-
-			// Send playlist to delete to server
-			try
-			{
-				const response = fetch('/playlist_delete', {
-					method: 'POST',
-					headers: {
-						'Content-Type': 'application/json'
-					},
-					body: JSON.stringify({ "name": playlist })
-				});
-
-				if (! response.ok)
-				{
-					const errorData = response.json();
-					playlist_notification.innerHTML = "<p class=\"error\">Error: "+ errorData + "</p>";
-				}
-			}
-			catch (error)
-			{
-				playlist_notification.innerHTML = "<p class=\"error\">Er is een fout opgetreden bij het verwijderen van de speellijst.</p>";
-			}
-
-			// Clear playlist input
-			document.getElementById("playlist").value = "";
-
-			// Submit form to reload
-//			document.getElementById("form_playlist").submit();
-		}
-
-		async function addSong(song)
-		{
-			// Convert JinJa2 template variable to array
-			const folders = {{ folders|tojson|safe }};
-			const playlist = document.getElementById("playlist").value;
-
-			// If playlist does not yet exist then ask for confirmation to create
-			if (playlist && !folders.includes(playlist))
-			{
-				// Confirm creating the playlist with the song
-				if (confirm("Weet u zeker dat u '" + song.title + "' van '" + song.artist + "' in de nieuwe speellijst '"  + playlist + "' wilt bewaren?") == false)
-					return;
-			}
-
-			// Send song to add to playlist to server
-			const errText = "Er is een fout opgetreden bij het toevoegen van '" + song.file + "' aan speellijst '" + playlist + "'";
-			try
-			{
-				const response = await fetch('/playlist_add', {
-					method: 'POST',
-					headers: {
-						'Content-Type': 'application/json'
-					},
-					body: JSON.stringify({ "playlist": playlist, "song": song.file })
-				});
-
-				if (! response.ok)
-				{
-					const errorData = await response.json();
-					playlist_notification.innerHTML = "<p class=\"error\">" + errText + " Error: " + errorData + "</p>";
-				}
-			}
-			catch (error)
-			{
-				playlist_notification.innerHTML = "<p class=\"error\">" + errText + "</p>";
-			}
-		}
-
-		async function removeSong(song)
-		{
-			// Send song to remove from playlist to server
-			const playlist = document.getElementById("playlist").value;
-			const errText = "Er is een fout opgetreden bij het verwijderen van '" + song + "' uit speellijst '" + playlist + "'";
-			try
-			{
-				const response = await fetch('/playlist_remove', {
-					method: 'POST',
-					headers: {
-						'Content-Type': 'application/json'
-					},
-					body: JSON.stringify({ "playlist": playlist, "song": song.file })
-				});
-
-				if (! response.ok)
-				{
-					const errorData = response.json();
-					playlist_notification.innerHTML = "<p class=\"error\">" + errText + " Error: " + errorData + "</p>";
-				}
-			}
-			catch (error)
-			{
-				playlist_notification.innerHTML = "<p class=\"error\">" + errText + "</p>";
-			}
-		}
-
-		// Function to submit the network and password
-		async function submitSong(song)
-		{
-			// Send song to play to server
-			try
-			{
-				const response = await fetch('/play_song', {
-					method: 'POST',
-					headers: {
-						'Content-Type': 'application/json'
-					},
-					body: JSON.stringify({ "song": song })
-				});
-
-				if (! response.ok)
-				{
-					if (playlist.length > 0)
-						playlist_notification.innerHTML = "<p class=\"error\">Error: "+ response.json() + "</p>";
-					if (search.length > 0)
-						search_notification.innerHTML = "<p class=\"error\">Error: "+ response.json() + "</p>";
-				}
-			}
-			catch (error)
-			{
-				if (playlist.length > 0)
-					playlist_notification.innerHTML = "<p class=\"error\">Er is een fout opgetreden bij het indienen van het te spelen liedje.</p>";
-				if (search.length > 0)
-					search_notification.innerHTML = "<p class=\"error\">Er is een fout opgetreden bij het indienen van het te spelen liedje.</p>";
-			}
-		}
-	</script>
+	}
+	catch (error)
+	{
+		showNotification(songlist, `<p class='error'>Error: ${errorMessage}. Controleer of de web interface actief is.</p>`);
+	}
+}
+</script>
 </html>
