@@ -126,44 +126,33 @@ input {
 			<!-- Show Oradio logo -->
 			<img src="../static/logo.png" class="logo" />
 
-			<!-- Set presets -->
-			<form id="form_presets" method="POST">
-
-				<!-- identifier used by server: do not change or remove -->
-				<input type="hidden" name="action" value="presets" />
-
-				<!-- Link playlists to presets -->
-				<h1 id="presets">Speellijst aan knop koppelen</h1>
-				{% for item in presets %}
-					<div class="presets-grid">
-						<div class="preset-label">
-							Voorkeur {{ loop.index }}:
-						</div>
-						<div class="custom-select" data-options='{{ folders|tojson|safe }}'>
-							{% set index = ["preset", loop.index]|join %}
-							{% for folder in folders %}
-								{% if presets[index] == folder %}
-									<input type="text" id="{{ index }}" name="{{ index }} "value="{{ folder }}" readonly placeholder="-- Kies een speellijst --">
-								{% endif %}
-							{% endfor %}
-							<span class="custom-icon">&#x25BC;</span> <!-- ▼ icon -->
-							<div class="options"></div>
-						</div>
+			<!-- Link playlists to presets -->
+			<h1 id="presets">Speellijst aan knop koppelen</h1>
+			{% for item in presets %}
+				<div class="presets-grid">
+					<div class="preset-label">
+						Voorkeur {{ loop.index }}:
 					</div>
-				{% endfor %}
-
-				<!-- Show notifcations, if any -->
-				<div id="presets_notification" class="notification">
-					<!-- Will be filled by Javascript submitCredentials() -->
+					<div class="custom-select" data-options='{{ folders|tojson|safe }}'>
+						{% set index = ["preset", loop.index]|join %}
+						{% for folder in folders %}
+							{% if presets[index] == folder %}
+								<input type="text" id="{{ index }}" name="{{ index }} "value="{{ folder }}" readonly placeholder="-- Kies een speellijst --">
+							{% endif %}
+						{% endfor %}
+						<span class="custom-icon">&#x25BC;</span> <!-- ▼ icon -->
+						<div class="options"></div>
+					</div>
 				</div>
+			{% endfor %}
 
-			</form>
+			<!-- Show notifcations, if any -->
+			<div id="presets_notification" class="notification">
+				<!-- Will be filled by Javascript submitCredentials() -->
+			</div>
 
 			<!-- Custom playlist -->
 			<form id="form_playlist" method="POST">
-
-				<!-- identifier used by server: do not change or remove -->
-				<input type="hidden" name="action" value="playlist" />
 
 				<!-- Manage playlists -->
 				<h1 id="playlists">Speellijsten beheren</h1>
@@ -248,9 +237,6 @@ document.addEventListener('DOMContentLoaded', function ()
 			playlistInput.style.visibility = 'visible';
 	}, 0);
 
-	// Show the element used to trigger a server action
-	location.hash = "#" + "{{ anchor }}";
-
 	// Get the notification element once, reuse globally
 	const presets_notification = document.getElementById('presets_notification');
 	const playlist_notification = document.getElementById('playlist_notification');
@@ -319,7 +305,9 @@ document.addEventListener('DOMContentLoaded', function ()
 		// Show options when input is clicked
 		input.addEventListener("click", (event) =>
 		{
-			event.stopPropagation(); // Prevent click from propagating to document
+			// Prevent click from propagating to document
+			event.stopPropagation();
+			// Show playlist dropdown
 			showOptions();
 		});
 
@@ -359,13 +347,15 @@ document.addEventListener('DOMContentLoaded', function ()
 			event.preventDefault();
 
 			// Action for playlist input
-			if (activeElement.id === "playlist") {
+			if (activeElement.id === "playlist")
+			{
 				document.getElementById("form_playlist").submit();
 				return;
 			}
 
 			// Action for search input
-			if (activeElement.id === "search") {
+			if (activeElement.id === "search")
+			{
 				document.getElementById("form_playlist").submit();
 				return;
 			}
@@ -409,25 +399,57 @@ document.addEventListener('DOMContentLoaded', function ()
 		// Prevent default behavior
 		event.preventDefault();
 
-		// If notification is visible
 		if (notificationTimeout)
 		{
-			// Wait 3 seconds before submitting
-			(async function()
+			// Delay to allow notifications to be visible, fetch() commandfs to be completed
+			setTimeout(() =>
 			{
-				// Wait 3 seconds
-				await new Promise(resolve => setTimeout(resolve, 3000));
-
 				// Submit form after 3 seconds
 				event.target.submit();
-			})();
+			}, 3000);
 		}
 		else
-			// Submit form now
-			event.target.submit();
+		{
+			// Submit with small delay to satisfy Firefox behavior
+			setTimeout(() =>
+			{
+				// Submit form after 200 milliseconds
+				event.target.submit();
+			}, 200);
+		}
 	});
-
 });
+
+// Function to submit the presets and changed preset
+async function savepresets(change)
+{
+	const errorMessage = `Koppelen van '${change}' is mislukt`
+
+	// Send presets to server
+	try
+	{
+		const response = await fetch('/save_presets',
+		{
+			method: 'POST',
+			headers: {'Content-Type': 'application/json'},
+			body: JSON.stringify({
+					"change": change,
+					"list_1": document.getElementById("preset1").value,
+					"list_2": document.getElementById("preset2").value,
+					"list_3": document.getElementById("preset3").value
+			})
+		});
+		if (!response.ok)
+		{
+			const errorData = await response.json();
+			showNotification('Presets', `<p class='error'>Error: ${errorData.message || errorMessage}</p>`);
+		}
+	}
+	catch (error)
+	{
+		showNotification('Presets', `${errorMessage}. Controleer of de web interface actief is.`);
+	}
+}
 
 // Show buttons if playlist exist and is not a directory, otherwise hide button
 function buttonVisibility()
@@ -452,7 +474,8 @@ function buttonVisibility()
 	}
 }
 
-let notificationTimeout = false; // buiten de functie, bovenaan script
+// Flag to indicate notification is visible (true) or not (false)
+let notificationTimeout = false;
 
 // General helper function to show error message
 function showNotification(listType, message)
@@ -472,7 +495,7 @@ function showNotification(listType, message)
 	notificationElement.innerHTML = `<p class='error'>${message}</p>`;
 	notificationElement.style.display = "block";
 
-	// Set flag to wait before submitting
+	// Set flag indicating a notification is visible
 	notificationTimeout = true;
 }
 
@@ -484,60 +507,46 @@ function getPlaylist(action)
 
 	if (!playlist)
 	{
-		showNotification('Playlist', "<p class='error'>Geef een geldige speellijstnaam op</p>");
+		showNotification('Playlist', `<p class='error'>Kies of typ een geldige speellijstnaam.</p>`);
 		return null;
 	}
 
 	const playlists = {{ playlists|tojson|safe }};
 	const directories = {{ directories|tojson|safe }};
 
-	// Check if the playlist is valid for the action (Add or Remove)
-	if ((action === 'Add' && directories.includes(playlist)) || 
-		(action === 'Remove' && (!playlists.includes(playlist) || directories.includes(playlist))))
+	// Check if the playlist is valid
+	if (action === 'Add')
 	{
-		const message = directories.includes(playlist)
-			? `<p class='error'>Speellijst '${playlist}' is beschermd</p>`
-			: `<p class='error'>Speellijst '${playlist}' bestaat niet</p>`;
-console.log("getPlaylist 1");
-		showNotification('Playlist', message);
-console.log("getPlaylist 2");
-		return null;
+		// playlist cannot be a directory
+		if (directories.includes(playlist))
+		{
+			const message = `<p class='error'>Speellijst '${playlist}' is beschermd. Typ een unieke speellijstnaam.</p>`;
+			showNotification('Playlist', message);
+			return null;
+		}
+	}
+	
+	// Check if the playlist is valid
+	if (action === 'Remove')
+	{
+		// playlist cannot be a directory
+		if (directories.includes(playlist))
+		{
+			const message = `<p class='error'>Speellijst '${playlist}' is beschermd.</p>`;
+			showNotification('Playlist', message);
+			return null;
+		}
+
+		// playlist must exist
+		if (!playlists.includes(playlist))
+		{
+			const message = `<p class='error'>Speellijst '${playlist}' bestaat niet.</p>`;
+			showNotification('Playlist', message);
+			return null;
+		}
 	}
 
 	return playlist;
-}
-
-// Function to submit the presets and changed preset
-async function savepresets(change)
-{
-	const errorMessage = `Koppelen van '${change}' is mislukt`
-
-	// Send presets to server
-	try
-	{
-		const response = await fetch('/save_presets', {
-			method: 'POST',
-			headers: {'Content-Type': 'application/json'},
-			body: JSON.stringify({
-					"change": change,
-					"list_1": document.getElementById("preset1").value,
-					"list_2": document.getElementById("preset2").value,
-					"list_3": document.getElementById("preset3").value
-			})
-		});
-
-		if (response.ok)
-			document.getElementById("form_playlist").submit();
-		else
-		{
-			const errorData = await response.json();
-			showNotification('Presets', `<p class='error'>Error: ${errorData.message || errorMessage}</p>`);
-		}
-		
-	}
-	catch (error) {
-		showNotification('Presets', `${errorMessage}. Controleer of de web interface actief is.`);
-	}
 }
 
 // Add song to playlist. Create playlist if it does not exist.
@@ -547,7 +556,7 @@ async function addSong(song)
 	if (!playlist) return;
 
 	const errorMessage = song
-		? `Toevoegen van '${song.file}' aan speellijst '${playlist}' mislukt`
+		? `Toevoegen van '${song.file}' aan speellijst '${playlist}' mislukt.`
 		: `Opslaan van speellijst '${playlist}' mislukt`;
 
 	await modifyPlaylist('Add', playlist, song, errorMessage);
@@ -560,8 +569,8 @@ async function removeSong(song)
 	if (!playlist) return;
 
 	const errorMessage = song
-		? `Verwijderen van '${song.file}' uit speellijst '${playlist}' mislukt`
-		: `Verwijderen van speellijst '${playlist}' mislukt`;
+		? `Verwijderen van '${song.file}' uit speellijst '${playlist}' mislukt.`
+		: `Verwijderen van speellijst '${playlist}' mislukt.`;
 
 	if (!song) document.getElementById("playlist").value = "";
 
@@ -579,9 +588,7 @@ async function modifyPlaylist(action, playlist, song, errorMessage)
 			body: JSON.stringify({ action, playlist, song: song ? song.file : 'None' })
 		});
 
-		if (response.ok)
-			document.getElementById("form_playlist").submit();
-		else
+		if (!response.ok)
 		{
 			const errorData = await response.json();
 			showNotification('Playlist', `${errorData.message || errorMessage}`);
@@ -589,14 +596,14 @@ async function modifyPlaylist(action, playlist, song, errorMessage)
 	}
 	catch (error)
 	{
-		showNotification('Playlist', `${errorMessage}. Controleer of de web interface actief is.`);
+		showNotification('Playlist', `${errorMessage} Controleer of de web interface actief is.`);
 	}
 }
 
 // Function to submit the song to the server for playback
 async function submitSong(songlist, songfile, songtitle)
 {
-	const errorMessage = `Er is een fout opgetreden bij het indienen van het te spelen liedje '${songtitle}'`;
+	const errorMessage = `Er is een fout opgetreden bij het indienen van het te spelen liedje '${songtitle}'.`;
 
 	try
 	{
@@ -614,7 +621,7 @@ async function submitSong(songlist, songfile, songtitle)
 	}
 	catch (error)
 	{
-		showNotification(songlist, `<p class='error'>Error: ${errorMessage}. Controleer of de web interface actief is.</p>`);
+		showNotification(songlist, `<p class='error'>Error: ${errorMessage} Controleer of de web interface actief is.</p>`);
 	}
 }
 </script>
