@@ -351,13 +351,11 @@ class MPDControl:
                     with self.mpd_lock:
                         details = self.client.listplaylistinfo(list)
                     for detail in details:
-                        # Only list songs on the USB
-                        if not detail['file'].startswith("http"):
-                            songs.append({
-                                'file': detail['file'],
-                                'artist': detail.get('artist', 'Unknown artist'),
-                                'title': detail.get('title', 'Unknown title')
-                            })
+                        songs.append({
+                            'file': detail['file'],
+                            'artist': detail.get('artist', 'Unknown artist'),
+                            'title': detail.get('title', 'Unknown title')
+                        })
 
             # Check directories
             for entry in directories:
