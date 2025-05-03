@@ -1,0 +1,22 @@
+# Placeholders will be modified by ../oradio_install.sh script
+###############################################################################################
+# This mpv.service is a user service and should be located at ~/.config/systemd/user folder   #
+###############################################################################################
+[Unit]
+Description=Mpv Media Player
+After=network.target sound.target
+Wants=network.target sound.target
+Requires=dbus.service
+
+[Service]
+
+User=PLACEHOLDER_USER
+Group=PLACEHOLDER_GROUP
+Environment="DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/1000/bus"
+ExecStart=/usr/bin/mpv PLACEHOLDER_SPOTIFY_PATH/librespot-pipe
+# sometimes dbus.service is running but clients can get failure, so retry with a restart on-failure
+Restart=on-failure 
+RestartSec=3
+
+[Install]
+WantedBy=default.target

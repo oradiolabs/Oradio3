@@ -1,0 +1,12 @@
+###############################################
+## this file should be located at /etc/mpv  ###
+###############################################
+no-video
+idle=no
+input-ipc-server=PLACEHOLDER_SPOTIFY_PATH/mpv-socket
+log-file=PLACEHOLDER_LOGFILE_MPV
+demuxer=rawaudio
+demuxer-rawaudio-format=s16le
+demuxer-rawaudio-rate=44100
+demuxer-rawaudio-channels=2
+audio-device=alsa/SpotCon_in

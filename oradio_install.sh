@@ -46,6 +46,8 @@ LOGGING_PATH=$SCRIPT_PATH/logging
 SPOTIFY_PATH=$SCRIPT_PATH/Spotify
 # Location of files to install
 RESOURCES_PATH=$SCRIPT_PATH/install_resources
+#location of the shell scripts
+SHELL_SCRIPT_PATH=$SCRIPT_PATH/shell_scripts
 
 # Ensure required directories exist
 mkdir -p $LOGGING_PATH
@@ -56,6 +58,8 @@ LOGFILE_USB=$LOGGING_PATH/usb.log
 LOGFILE_SPOTIFY=$LOGGING_PATH/spotify.log
 LOGFILE_INSTALL=$LOGGING_PATH/install.log
 LOGFILE_TRACEBACK=$LOGGING_PATH/traceback.log
+LOGFILE_MPV=$LOGGING_PATH/mpv.log
+
 
 # Redirect script output to console and file
 exec > >(tee -a $LOGFILE_INSTALL) 2>&1
@@ -110,6 +114,11 @@ function install_resource {
 			sed -i "s/PLACEHOLDER_LOGFILE_INSTALL/$replace/g" $1
 			replace=`echo $LOGFILE_TRACEBACK | sed 's/\//\\\\\//g'`
 			sed -i "s/PLACEHOLDER_LOGFILE_TRACEBACK/$replace/g" $1
+			replace=`echo $SHELL_SCRIPT_PATH | sed 's/\//\\\\\//g'`
+			sed -i "s/PLACEHOLDER_SHELL_SCRIPT/$replace/g" $1
+			replace=`echo $LOGFILE_MPV | sed 's/\//\\\\\//g'`
+			sed -i "s/PLACEHOLDER_LOGFILE_MPV/$replace/g" $1
+
 		fi
 
 		if ! sudo diff $1 $2 >/dev/null 2>&1; then
@@ -277,9 +286,16 @@ export PS1=$VIRTUAL_ENV_PROMPT"\e[01;32m\u@$HOSTNAME\e[00m:\e[01;34m\w \$\e[00m 
 
 # Set Top Level Domain (TLD) to 'local', enabling access via http://oradio.local
 sudo sed -i "s/^.domain-name=.*/domain-name=local/g" /etc/avahi/avahi-daemon.conf
+sudo sed -i "s/^.publish-domain=.*/publish-domain=yes/g" /etc/avahi/avahi-daemon.conf
+sudo sed -i "s/^.publish-address=.*/publish-address=yes/g" /etc/avahi/avahi-daemon.conf
+# disable DNS-SD via external DNS
+sudo sed -i "s/^.enable-wide-area=.*/enable-wide-area=no/g" /etc/avahi/avahi-daemon.conf
 
 # Allow mDNS on wired and wireless interfaces
 sudo sed -i "s/^#allow-interfaces=.*/allow-interfaces=eth0,wlan0/g" /etc/avahi/avahi-daemon.conf
+
+# Only for IPv4
+sudo sed -i "s/^.use-ipv6=.*/use-ipv6=no/g" /etc/avahi/avahi-daemon.conf
 
 # Progress report
 echo -e "${GREEN}Wifi is enabled and network domain is set to '${HOSTNAME}.local'${NC}"

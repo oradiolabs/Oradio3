@@ -1,0 +1,16 @@
+######################################################################
+###### This service file should be located at /etc/avahi/services  ###
+######################################################################
+<?xml version="1.0" standalone='no'?>
+<!DOCTYPE service-group SYSTEM "avahi-service.dtd">
+
+<service-group>
+  <name replace-wildcards="yes">SpotifyConnect %h</name>
+  <service>
+    <type>_spotify-connect._tcp</type>
+    <port>45305</port>
+    <txt-record>VERSION=1.0</txt-record>
+    <txt-record>DESCRIPTION=SpotifyConnect Service</txt-record>
+    <txt-record>CPath=/zeroconf</txt-record>
+  </service>
+</service-group>

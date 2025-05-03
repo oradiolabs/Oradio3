@@ -23,6 +23,12 @@ Created on Februari 1, 2025
         - sudo apt-get -y install curl && curl -sL https://dtcooper.github.io/raspotify/install.sh | sh
         - python -m pip install git+https://github.com/kokarare1212/librespot-python
         - sudo apt install avahi-utils
+        - sudo apt install -y libdbus-1-dev libdbus-glib-1-dev python3-setuptools python3-wheel pkg-config meson        
+        - python -m pip install pydbus
+        - sudo apt install -y playerctl
+
+        debugger:
+        - python -m pip install pydevd
     :Documentation
         - D-bus : https://en.wikipedia.org/wiki/D-Bus
         - D-bus python: https://dbus.freedesktop.org/doc/dbus-python/tutorial.html
@@ -76,6 +82,61 @@ class SpotifyConnect():
         conn.setblocking(False)
         self.sel.register(conn, selectors.EVENT_READ, self.read_message)
     
+    def process_librespot_events(self, event):
+        '''
+        The librespot event will be used to update the state of spotify_connect_state and spotify_app_state.
+        :param event [str] = librespot events = [LIBRESPOT_EVENT_PLAYING | 
+                                                LIBRESPOT_EVENT_PAUSED |
+                                                LIBRESPOT_EVENT_CONNECTED |
+                                                LIBRESPOT_EVENT_CLIENT_CHANGED |
+                                                LIBRESPOT_EVENT_DISCONNECTED ]                                                
+        spotify_connect_state = [ SPOTIFY_CONNECT_NOT_CONNECTED | SPOTIFY_CONNECT_CONNECTED]
+        spotify_app_state     = [ SPOTIFY_APP_STATUS_ACTIVE | SPOTIFY_APP_STATUS_CLOSED ]
+        :return spotify_event_state = the processed event
+        
+        '''
+        spotify_event_state = LIBRESPOT_EVENT_NONE       
+        match self.spotify_connect_state:
+            case self.spotify_connect_state if self.spotify_connect_state == SPOTIFY_CONNECT_NOT_CONNECTED:    
+                match event:
+                    case event if event == LIBRESPOT_EVENT_CONNECTED:
+                        ## enter actions to enter new state
+                        spotify_app_new_status    = SPOTIFY_APP_STATUS_ACTIVE
+                        spotify_connect_new_state = SPOTIFY_CONNECT_CONNECTED
+                        spotify_event_state       = SPOTIFY_CONNECT_CONNECTED_EVENT 
+                    case _:
+                        spotify_connect_new_state   = SPOTIFY_CONNECT_NOT_CONNECTED
+                        spotify_app_new_status      = SPOTIFY_APP_STATUS_CLOSED                     
+
+            case self.spotify_connect_state if self.spotify_connect_state == SPOTIFY_CONNECT_CONNECTED:
+                match event:
+                    case event if event == LIBRESPOT_EVENT_DISCONNECTED:
+                        ## enter actions to enter new state
+                        spotify_app_new_status    = SPOTIFY_APP_STATUS_CLOSED
+                        spotify_connect_new_state = SPOTIFY_CONNECT_NOT_CONNECTED
+                        spotify_event_state       = SPOTIFY_CONNECT_DISCONNECTED_EVENT                        
+                    case event if event == LIBRESPOT_EVENT_PLAYING:
+                        spotify_app_new_status    = SPOTIFY_APP_STATUS_ACTIVE
+                        spotify_connect_new_state = SPOTIFY_CONNECT_CONNECTED
+                        spotify_event_state       = SPOTIFY_CONNECT_PLAYING_EVENT 
+                    case event if event == LIBRESPOT_EVENT_PAUSED:
+                        spotify_app_new_status    = SPOTIFY_APP_STATUS_ACTIVE
+                        spotify_connect_new_state = SPOTIFY_CONNECT_CONNECTED
+                        spotify_event_state       = SPOTIFY_CONNECT_PAUSED_EVENT 
+                    case _:
+                        spotify_connect_new_state = SPOTIFY_CONNECT_CONNECTED                  
+                        spotify_app_new_status    = SPOTIFY_APP_STATUS_ACTIVE                        
+            case _:
+                oradio_log.warning(f"Invalid state {self.spotify_connect_state}")
+                # corrective action is to set to SPOTIFY_CONNECT_NOT_CONNECTED
+                spotify_connect_new_state = SPOTIFY_CONNECT_NOT_CONNECTED
+                spotify_app_new_status    = SPOTIFY_APP_STATUS_CLOSED
+
+        self.spotify_connect_state  = spotify_connect_new_state        
+        self.spotify_app_status     = spotify_app_new_status
+        return(spotify_event_state)
+   
+    
     def read_message(self,conn):
         '''
         Read message from socket.
@@ -97,43 +158,16 @@ class SpotifyConnect():
                 librespot_client_id = librespot_data["client_id"]
             else:
                 librespot_client_id = "None"
-            message = {}
-            match librespot_event:        
-                case 'playing':
-                    message["state"] = SPOTIFY_CONNECT_PLAYING_EVENT
-                    self.spotify_app_status = SPOTIFY_APP_STATUS_PLAYING
-                    self.spotify_connected_state = SPOTIFY_CONNECT_CONNECTED
-                    self.spotify_client_id = librespot_client_id                                    
-                case 'paused':
-                    message["state"] = SPOTIFY_CONNECT_PAUSED_EVENT
-                    self.spotify_app_status = SPOTIFY_APP_STATUS_PAUSED                    
-                    self.spotify_connected_state = SPOTIFY_CONNECT_CONNECTED
-                case 'stopped':
-                    message["state"] = SPOTIFY_CONNECT_STOPPED_EVENT
-                    self.spotify_app_status = SPOTIFY_APP_STATUS_STOPPED
-                case 'session_connected':
-                    message["state"] = SPOTIFY_CONNECT_CONNECTED_EVENT
-                    self.spotify_app_status = SPOTIFY_APP_STATUS_CONNECTED
-                    self.spotify_connected_state = SPOTIFY_CONNECT_CONNECTED  
-                    self.spotify_client_id = librespot_client_id   
-                case 'session_disconnected':
-                    message["state"] = SPOTIFY_CONNECT_DISCONNECTED_EVENT
-                    self.spotify_app_status = SPOTIFY_APP_STATUS_DISCONNECTED
-                    self.spotify_connected_state = SPOTIFY_CONNECT_NOT_CONNECTED                    
-                case 'session_client_changed':
-                    message["state"] = SPOTIFY_CONNECT_CLIENT_CHANGED_EVENT
-                    self.spotify_app_status = SPOTIFY_APP_STATUS_CLIENT_CHANGED
-                    self.spotify_client_id = librespot_client_id                
-                case _:
-                    message["state"] = None
-            if message["state"] != None:
-                message["error"] = MESSAGE_NO_ERROR
-                self.state = message["state"]
+            self.spotify_client_id = librespot_client_id                
+
+            spotify_event_state = self.process_librespot_events(librespot_event) 
+            if spotify_event_state != LIBRESPOT_EVENT_NONE:
+                # put a event message on the queue   
                 # construct the message based on the schema for Messages
-                self.queue_put_mesg["type"]     = MESSAGE_SPOTIFY_TYPE
-                self.queue_put_mesg["state"]    = self.state
-                self.queue_put_mesg["error"]    = message["error"]                            
-                self.queue_put_mesg["data"]     = []
+                self.queue_put_mesg["type"]  = MESSAGE_SPOTIFY_TYPE
+                self.queue_put_mesg["state"] = spotify_event_state
+                self.queue_put_mesg["error"] = MESSAGE_NO_ERROR                            
+                self.queue_put_mesg["data"]  = []
                 oradio_log.debug(f"New message in queue={self.queue_put_mesg}")
                 self.msg_queue.put(self.queue_put_mesg)
         else:
@@ -194,6 +228,15 @@ class SpotifyConnect():
             mpv_player = self.bus.get_object(MPRIS_MPV_PLAYER, MPRIS_MEDIA_PLAYER)
         return(self.state, mpv_player)
 
+    def amixer_spotify_sound(self, volume):
+        '''
+        set sound level for VolumeSpotCon1
+        :param volume [int]: 0...100
+        '''
+        import alsaaudio        
+        ALSA_MIXER_SPOTCON = "VolumeSpotCon1"
+        self.mixer = alsaaudio.Mixer(ALSA_MIXER_SPOTCON)        
+        self.mixer.setvolume(volume)
 
     def __init__(self, msg_queue):
         '''
@@ -217,30 +260,31 @@ class SpotifyConnect():
         self.queue_put_mesg         = self.messages.model_dump()
         self.queue_put_mesg["type"] = MESSAGE_SPOTIFY_TYPE
 
-        # restart mpv.service again: Need to investigate this as it is annoying
-        try:
-            # Run systemctl to restart mpv.service
-            result = subprocess.run(
-                ["sudo", "systemctl", "restart", "mpv"],
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
-                text=True
-            )
-            oradio_log.info("MPV service restarted ")
-        except Exception as err:
-            oradio_log.error("Restart MPV service error =",err)
-
+        # set alsa volume for spotify to max, mpv controls muting
+        self.amixer_spotify_sound(100)
         
         state, mpv_player = self.get_mpv_player()
+        # check if mpv player is playing: indicates that there is a spotify playlist active
 
-        self.spotify_app_status = SPOTIFY_APP_STATUS_DISCONNECTED
-        self.spotify_connected_state = SPOTIFY_CONNECT_NOT_CONNECTED
+        self.spotify_app_status     = SPOTIFY_APP_STATUS_CLOSED
+        self.spotify_connected_state= SPOTIFY_CONNECT_NOT_CONNECTED
+        self.spotify_connect_state  = SPOTIFY_CONNECT_NOT_CONNECTED
+
         self.spotify_client_id = "None"
+        self.stop_event = threading.Event() # used to stop the observer loop        
+        self.stop_event.clear()
         
         if self.state == SPOTIFY_CONNECT_MPV_STATE_OK:
             status, player_iface = setup_dbus_interface_to_control_mpv_player(mpv_player)
             self.state  = status
 
+        self.sel = None
+        
+        playback_status = self.get_playback_status()
+        if playback_status == MPV_PLAYERCTL_PLAYING_STATE:
+            #self.spotify_app_status = SPOTIFY_APP_STATUS_PLAYING
+            self.spotify_connected_state = SPOTIFY_CONNECT_CONNECTED
+        print(f"spotify_connected_state={self.spotify_connected_state}, playback_status = {playback_status}")
         if self.state == SPOTIFY_CONNECT_MPV_SERVICE_IS_ACTIVE:
             self.player_iface = player_iface
             # setup a observer (selector) for socket listening to incoming messages
@@ -251,7 +295,7 @@ class SpotifyConnect():
             self.server_socket.setblocking(False)
             oradio_log.info("event socket opened and listening on port {prt}".format(prt=SPOTIFY_EVENT_SOCKET_PORT))
             
-            self.stop_event = threading.Event() # used to stop the observer loop
+            #self.stop_event = threading.Event() # used to stop the observer loop
             
             self.sel.register(self.server_socket, selectors.EVENT_READ, self.accept_connection)
     
@@ -267,8 +311,9 @@ class SpotifyConnect():
         '''
         oradio_log.info("Shutting down server...")
         self.stop_event.set()  # Stop the observer loop
-        self.sel.unregister(self.server_socket)  # Unregister the server socket
-        self.server_socket.close()  # Close the socket
+        if self.sel != None:        
+            self.sel.unregister(self.server_socket)  # Unregister the server socket
+            self.server_socket.close()  # Close the socket
         oradio_log.info("Server closed.")
 
     def get_state(self):
@@ -301,6 +346,12 @@ class SpotifyConnect():
     
     import subprocess
 
+    def pause(self):
+        self.playerctl_command(MPV_PLAYERCTL_PAUSE)
+
+    def play(self):
+        self.playerctl_command(MPV_PLAYERCTL_PLAY)
+        
     def playerctl_command(self,command):
         '''
         Send command to playerctl via mpris player interface
@@ -340,6 +391,8 @@ class SpotifyConnect():
                     self.state = MPV_PLAYERCTL_STOPPED_STATE                    
             else:
                 self.state = MPV_PLAYERCTL_COMMAND_NOT_FOUND
+            oradio_log.info(f"player-command = {command}, mpv-playback-status = {playback_status}, spotify_app_status={self.spotify_app_status} ")
+               
         else:
             self.status = MPV_PLAYERCTL_COMMAND_NOT_FOUND
             oradio_log.warning(f"command-status={status}")            
@@ -415,13 +468,13 @@ def setup_dbus_interface_to_control_mpv_player(player):
     player_iface = None
     bus = None
     # check is mpv.service is active
-    if oradio_utils.is_service_active("mpv"):
+    if oradio_utils.is_user_service_active("mpv"):
         oradio_log.info("mpv.service is ACTIVE")
         status = SPOTIFY_CONNECT_MPV_SERVICE_IS_ACTIVE
     else:
         oradio_log.error("mpv.service is NOT running")
         status = SPOTIFY_CONNECT_MPV_SERVICE_NOT_ACTIVE
-        return(status, bus, player_iface)        
+        return(status, player_iface)        
 
     # Access properties using org.freedesktop.DBus.Properties
     props = dbus.Interface(player, MPRIS_DBUS_PROPERTIES)
@@ -438,18 +491,32 @@ if __name__ == "__main__":
     import time
     import importlib
     from multiprocessing import Queue    
+    import argparse
+
+    parser = argparse.ArgumentParser(description='Debug options')
+    message = 'DEBUG options are:  [ no | remote ]'
+    parser.add_argument('-d', '--debug', type = str, nargs='?', const='no', help=message )
+    args = parser.parse_args()
+    system_debug = args.debug
+    allowed_options = [None, "no","remote"]
+    if not system_debug in allowed_options:
+        parser.error(message)
+    print("Debug option =",system_debug)
     
     RED_TXT     = "\033[91m"
     GREEN_TXT   = "\033[92m"
     YELLOW_TXT  = "\033[93m"
     END_TXT     = "\x1b[0m"
     
-    ## stop a running Oradio_controls as it may interfere with this test ##
-    print("kill Oradio_controls, to prevent interferences with this test module ")
-    script = "sudo systemctl stop autostart.service"
-#    oradio_utils.run_shell_script(script)
-
-
+    if system_debug == 'remote':
+        print("remote debugging")
+        # Allow remote debugging from any IP address on port 8020
+#        os.environ["PYTHONUNBUFFERED"] = "1"
+#        os.environ["PYTHONMALLOC"] = "debug"
+        os.environ["PYDEVD_DISABLE_FILE_VALIDATION"] = "1"
+        import pydevd
+        pydevd.settrace("192.168.178.52", port=5678)
+            
     def spotify_callback():
         pass
     
@@ -464,33 +531,39 @@ if __name__ == "__main__":
         environment['OLD_TRACK_ID'] ='None'                  
         environment['POSITION_MS']  ='None'      
         environment['VOLUME']       ='None'
-        match event:        
-            case 'changed':
-                environment['PLAYER_EVENT']='changed'
+        match event:
+            case event if event == LIBRESPOT_EVENT_CONNECTED:        
+                environment['PLAYER_EVENT'] = LIBRESPOT_EVENT_CONNECTED
+                environment['USER_NAME']    = "ORADIO"
+                environment['CONNECTION_ID'] = "123456"
+            case event if event == LIBRESPOT_EVENT_DISCONNECTED:                
+                environment['PLAYER_EVENT']= LIBRESPOT_EVENT_DISCONNECTED
+            case event if event == LIBRESPOT_EVENT_CHANGED:                
+                environment['PLAYER_EVENT']= LIBRESPOT_EVENT_CHANGED
                 environment['TRACK_ID']='TRACK#1'
                 environment['OLD_TRACK_ID']='TRACK#0'
-            case 'started':
-                environment['PLAYER_EVENT']='started'
+            case event if event == LIBRESPOT_EVENT_STARTED:                
+                environment['PLAYER_EVENT']= LIBRESPOT_EVENT_STARTED
                 environment['TRACK_ID']='TRACK#1'
-            case 'stopped':
-                environment['PLAYER_EVENT']='stopped'
+            case event if event == LIBRESPOT_EVENT_STOPPED:                
+                environment['PLAYER_EVENT']= LIBRESPOT_EVENT_STOPPED
                 environment['TRACK_ID']='TRACK#1'
-            case 'playing':
-                environment['PLAYER_EVENT']='playing'
+            case event if event == LIBRESPOT_EVENT_PLAYING:                
+                environment['PLAYER_EVENT']= LIBRESPOT_EVENT_PLAYING 
                 environment['TRACK_ID']='TRACK#1'
-                environment['POSITION_MS']='1234'                
-            case 'paused':
-                environment['PLAYER_EVENT']='paused'
+                environment['POSITION_MS']='1234'
+            case event if event == LIBRESPOT_EVENT_PAUSED:                                
+                environment['PLAYER_EVENT']= LIBRESPOT_EVENT_PAUSED
                 environment['TRACK_ID']='TRACK#1'
-                environment['POSITION_MS']='1234'                
-            case 'preloading':
-                environment['PLAYER_EVENT']='preloading'
+                environment['POSITION_MS']='1234'            
+            case event if event == LIBRESPOT_EVENT_PRELOADING:                    
+                environment['PLAYER_EVENT']= LIBRESPOT_EVENT_PRELOADING
                 environment['TRACK_ID']='TRACK#1'
-            case 'volume_set':                
-                environment['PLAYER_EVENT']='volume_set'
+            case event if event == LIBRESPOT_EVENT_VOLUME:                
+                environment['PLAYER_EVENT']= LIBRESPOT_EVENT_VOLUME
                 environment['VOLUME']='10'
-            case 'volume_changed':                
-                environment['PLAYER_EVENT']='volume_changed'
+            case event if event == LIBRESPOT_EVENT_VOLUME_CHANGED:                
+                environment['PLAYER_EVENT']= LIBRESPOT_EVENT_VOLUME_CHANGED
                 environment['VOLUME']='10'
             case _:
                 environment['PLAYER_EVENT']='EVENT_UNKNOWN'
@@ -500,7 +573,7 @@ if __name__ == "__main__":
         os.environ['POSITION_MS']   = environment['POSITION_MS']
         os.environ['VOLUME']        = environment['VOLUME']
         import librespot_event_handler
-        importlib.reload(librespot_event_handler) # will run de event handler
+        #importlib.reload(librespot_event_handler) # will run the event handler
         return 
     
     def discover_oradio_sound_device():
@@ -516,7 +589,7 @@ if __name__ == "__main__":
             with subprocess.Popen(script, stdout=PIPE, bufsize=1, universal_newlines=True) as process:
                 for line in process.stdout:
                     print(line, end='')  # Outputs the line immediately
-                    if "Oradio" in line:
+                    if "oradio" in line:
                         oradio_log.info("Oradio device discovered")
                         print(GREEN_TXT+"Oradio device discovered"+END_TXT)                        
                 if process.returncode != 0:
@@ -587,7 +660,8 @@ if __name__ == "__main__":
     def playback_control_with_mpv():
         msg_queue = Queue()
         spot_con = SpotifyConnect( msg_queue)
-        if spot_con.get_state() != SPOTIFY_CONNECT_MPV_STATE_OK:
+        app_status, connect_status = spot_con.get_state()
+        if connect_status != SPOTIFY_CONNECT_CONNECTED:
             oradio_log.error("Spotify Connect Servers not running")
             return()
         # send a librespot event to the socket
@@ -704,54 +778,60 @@ if __name__ == "__main__":
         spot_con = SpotifyConnect( msg_queue)                    
         time.sleep(1)
         status, msg_model = oradio_utils.create_json_model("Messages")
-        # to be done==> check status !!!
-         
-        # send a librespot event to the socket
-        event_selection = (YELLOW_TXT+"select an event:\n"
-                           "0-stop sending events\n"
-                           "1-playing event \n"
-                           "2-stopped event \n"
-                           "3-paused event \n"
-                           "select an event:"+END_TXT
-                           )
-        loop = "run"
-        while loop == "run":
+
+        print(YELLOW_TXT+"================================================================================"+END_TXT)
+        print(YELLOW_TXT+"All the librespot events will be tested and checked if received at message queue"+END_TXT)
+        print(YELLOW_TXT+"================================================================================="+END_TXT)
+        librespot_connect_event_sequence = [ LIBRESPOT_EVENT_CONNECTED, 
+                                            LIBRESPOT_EVENT_PAUSED, 
+                                            LIBRESPOT_EVENT_PLAYING,
+                                            LIBRESPOT_EVENT_CLIENT_CHANGED,
+                                            LIBRESPOT_EVENT_CHANGED,
+                                            LIBRESPOT_EVENT_STARTED,
+                                            LIBRESPOT_EVENT_STOPPED,
+                                            LIBRESPOT_EVENT_PRELOADING,
+                                            LIBRESPOT_EVENT_VOLUME,
+                                            LIBRESPOT_EVENT_VOLUME_CHANGED,
+                                            -1 ]
+
+        librespot_event_list = [ LIBRESPOT_EVENT_PLAYING, 
+                                LIBRESPOT_EVENT_PAUSED, 
+                                LIBRESPOT_EVENT_CONNECTED,
+                                LIBRESPOT_EVENT_DISCONNECTED,
+                                LIBRESPOT_EVENT_CONNECTED,
+                                LIBRESPOT_EVENT_CLIENT_CHANGED,
+                                LIBRESPOT_EVENT_CHANGED,
+                                LIBRESPOT_EVENT_STARTED,
+                                LIBRESPOT_EVENT_STOPPED,
+                                LIBRESPOT_EVENT_PRELOADING,
+                                LIBRESPOT_EVENT_VOLUME,
+                                LIBRESPOT_EVENT_VOLUME_CHANGED,
+                                -1 ]
+
+
+        event_index = 0
+        while librespot_connect_event_sequence[event_index] != -1:
             # Clear all items
             while not msg_queue.empty():
                 msg_queue.get()
-                
-            try:
-                event_nr = int(input(event_selection))
-            except:
-                event_nr = -1
-            print(event_nr)
-            match event_nr:
-                case 0:
-                    spot_con.shutdown_server()
-                    event = None
-                    loop = 'stop'
-                case 1:
-                    event = 'playing'
-                case 2:
-                    event = 'stopped'                    
-                case 3:
-                    event = 'paused'                    
-                case _:
-                    print("invalid selection, try again")
-                    event = None
-            if event != None:
-                send_a_librespot_event(event)                    
-                time.sleep(1)
-                # wait for message in queue
-                message = wait_for_queue_messages(msg_queue, msg_model)
-                print(message)
-                if event in message['state']:
-                    print(GREEN_TXT+f"Correct message event <{message['state']}> received in queue"+END_TXT)                    
+
+            event = librespot_connect_event_sequence[event_index]
+            print( f"testing the {event} librespot event")
+            send_a_librespot_event(event)                    
+            time.sleep(1)
+            # wait for message in queue
+            message = wait_for_queue_messages(msg_queue, msg_model)
+            print(message)
+            if event in message['state']:
+                print(GREEN_TXT+f"Correct message event <{message['state']}> received in queue"+END_TXT)                    
                 time.sleep(1)
             else:
-                loop = 'stop'
+                print(RED_TXT+f"Incorrect message event <{message['state']}> received in queue"+END_TXT)
+                break
                 time.sleep(1)                
-            print ("return to main test menu")
+            event_index += 1
+        print ("return to main test menu")
+        spot_con.shutdown_server()            
         return()
 
 
@@ -773,8 +853,9 @@ if __name__ == "__main__":
         msg_queue = Queue()
         spot_con = SpotifyConnect( msg_queue)                    
         time.sleep(1)
-        status = spot_con.get_state()
-        if status == SPOTIFY_CONNECT_MPV_STATE_OK:
+        app_status, connect_status = spot_con.get_state()
+        print ( "connect_status= ", connect_status)
+        if connect_status == SPOTIFY_CONNECT_CONNECTED:
         # check player ctl: Play
             spot_con.player_iface.Play()
             print("Play command sent.")
@@ -792,7 +873,7 @@ if __name__ == "__main__":
             else:
                 print(RED_TXT+f"Wrong Playback Status = {status}"+END_TXT)         
         else:
-            print(RED_TXT+f"Error status = {status}"+END_TXT)   
+            print(YELLOW_TXT+f"Error status = {connect_status}"+END_TXT)   
         spot_con.shutdown_server()
         time.sleep(1)
         return
@@ -816,6 +897,12 @@ if __name__ == "__main__":
         get_status_thread.join()
         spot_con.shutdown_server()             
         return
+    
+    def start_socket_server():
+    
+        msg_queue = Queue()
+        spot_con = SpotifyConnect( msg_queue)                    
+
 
 # Run the test function
 
@@ -826,18 +913,19 @@ if __name__ == "__main__":
                        " 1-Check if the Oradio sound device can be discovered on local mDNS \n"
                        " 2-Monitor librespot events \n"
                        " 3-Test event socket and queue \n"
-                       " 4-MPRIS player control test\n"                       
+                       " 4-MPRIS player control test, precondition: connect spotify to oradio\n"                       
                        " 5-Simulate as Oradio_controls \n"
                        " 6-Playback control without Spotify App \n"
                        " 7-Playback control with mpv control \n"    
-                       " 8-Get the status of Spotify_connect \n"                                          
+                       " 8-Get the status of Spotify_connect \n"
+                       " 9-Start socket server \n"                                                                 
                        "select: "
                        )
  
     # User command loop
     
 #    $ mpv --no-video --demuxer=rawaudio --demuxer-rawaudio-format=s16le --demuxer-rawaudio-rate=44100 --demuxer-rawaudio-channels=2 /spotify/librespot-pipe
-
+    
     while True:
 
         # Get user input
@@ -866,7 +954,9 @@ if __name__ == "__main__":
                 playback_control_with_mpv()
             case 8:
                 spotify_get_status()
-
+            case 9:
+                start_socket_server()
+                
 
             case _:
                 print("\nPlease input a valid number\n")
