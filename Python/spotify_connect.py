@@ -95,7 +95,7 @@ class SpotifyConnect():
         :return spotify_event_state = the processed event
         
         '''
-        spotify_event_state = LIBRESPOT_EVENT_NONE       
+        spotify_event_state = SPOTIFY_CONNECT_NO_EVENT
         match self.spotify_connect_state:
             case self.spotify_connect_state if self.spotify_connect_state == SPOTIFY_CONNECT_NOT_CONNECTED:    
                 match event:
@@ -123,9 +123,14 @@ class SpotifyConnect():
                         spotify_app_new_status    = SPOTIFY_APP_STATUS_ACTIVE
                         spotify_connect_new_state = SPOTIFY_CONNECT_CONNECTED
                         spotify_event_state       = SPOTIFY_CONNECT_PAUSED_EVENT 
+                    case event if event == LIBRESPOT_EVENT_CONNECTED:
+                        spotify_app_new_status    = SPOTIFY_APP_STATUS_ACTIVE
+                        spotify_connect_new_state = SPOTIFY_CONNECT_CONNECTED
+                        spotify_event_state       = SPOTIFY_CONNECT_CONNECTED_EVENT 
                     case _:
                         spotify_connect_new_state = SPOTIFY_CONNECT_CONNECTED                  
-                        spotify_app_new_status    = SPOTIFY_APP_STATUS_ACTIVE                        
+                        spotify_app_new_status    = SPOTIFY_APP_STATUS_ACTIVE
+                        spotify_event_state       = SPOTIFY_CONNECT_NO_EVENT                                                   
             case _:
                 oradio_log.warning(f"Invalid state {self.spotify_connect_state}")
                 # corrective action is to set to SPOTIFY_CONNECT_NOT_CONNECTED
@@ -490,7 +495,8 @@ if __name__ == "__main__":
     import os
     import time
     import importlib
-    from multiprocessing import Queue    
+    from multiprocessing import Queue
+    from queue import Empty    
     import argparse
 
     parser = argparse.ArgumentParser(description='Debug options')
@@ -519,6 +525,7 @@ if __name__ == "__main__":
             
     def spotify_callback():
         pass
+
     
     def send_a_librespot_event(event):
         '''
@@ -531,6 +538,7 @@ if __name__ == "__main__":
         environment['OLD_TRACK_ID'] ='None'                  
         environment['POSITION_MS']  ='None'      
         environment['VOLUME']       ='None'
+       
         match event:
             case event if event == LIBRESPOT_EVENT_CONNECTED:        
                 environment['PLAYER_EVENT'] = LIBRESPOT_EVENT_CONNECTED
@@ -573,7 +581,7 @@ if __name__ == "__main__":
         os.environ['POSITION_MS']   = environment['POSITION_MS']
         os.environ['VOLUME']        = environment['VOLUME']
         import librespot_event_handler
-        #importlib.reload(librespot_event_handler) # will run the event handler
+        importlib.reload(librespot_event_handler) # will run the event handler
         return 
     
     def discover_oradio_sound_device():
@@ -760,23 +768,28 @@ if __name__ == "__main__":
 
         while True:
             # Wait for message
-            get_msg = queue.get(block=True, timeout=None)
-            # port message into json schema
-            msg = msg_model(**get_msg)
-            message = msg.model_dump()
-            
-            # Show message received
+            try:
+                get_msg = queue.get(block=True, timeout=1)
+                # port message into json schema
+                msg = msg_model(**get_msg)
+                message = msg.model_dump()
+                status = "MESSAGE_RECEIVED"
+            except Empty:
+                status = "MESSAGE_TIMEOUT"
+                message = "None"
             oradio_log.info(f"Message received in queue: '{message}'")
             break
-        return(message)
+        return(status, message)
             
     def test_event_socket_and_queue():
         '''
         Test the event socket, its observer and the message queue for oradio_controls
         ''' 
+
         msg_queue = Queue()
         spot_con = SpotifyConnect( msg_queue)                    
         time.sleep(1)
+               
         status, msg_model = oradio_utils.create_json_model("Messages")
 
         print(YELLOW_TXT+"================================================================================"+END_TXT)
@@ -786,29 +799,31 @@ if __name__ == "__main__":
                                             LIBRESPOT_EVENT_PAUSED, 
                                             LIBRESPOT_EVENT_PLAYING,
                                             LIBRESPOT_EVENT_CLIENT_CHANGED,
-                                            LIBRESPOT_EVENT_CHANGED,
-                                            LIBRESPOT_EVENT_STARTED,
                                             LIBRESPOT_EVENT_STOPPED,
-                                            LIBRESPOT_EVENT_PRELOADING,
-                                            LIBRESPOT_EVENT_VOLUME,
-                                            LIBRESPOT_EVENT_VOLUME_CHANGED,
                                             -1 ]
 
-        librespot_event_list = [ LIBRESPOT_EVENT_PLAYING, 
-                                LIBRESPOT_EVENT_PAUSED, 
-                                LIBRESPOT_EVENT_CONNECTED,
-                                LIBRESPOT_EVENT_DISCONNECTED,
-                                LIBRESPOT_EVENT_CONNECTED,
-                                LIBRESPOT_EVENT_CLIENT_CHANGED,
-                                LIBRESPOT_EVENT_CHANGED,
-                                LIBRESPOT_EVENT_STARTED,
-                                LIBRESPOT_EVENT_STOPPED,
-                                LIBRESPOT_EVENT_PRELOADING,
-                                LIBRESPOT_EVENT_VOLUME,
-                                LIBRESPOT_EVENT_VOLUME_CHANGED,
-                                -1 ]
+        librespot_connect_queue_sequence = [ SPOTIFY_CONNECT_CONNECTED_EVENT, 
+                                            SPOTIFY_CONNECT_PAUSED_EVENT, 
+                                            SPOTIFY_CONNECT_PLAYING_EVENT,
+                                            SPOTIFY_CONNECT_NO_EVENT,
+                                            SPOTIFY_CONNECT_NO_EVENT,
+                                            -1 ]
 
+        librespot_disconnect_event_sequence = [ LIBRESPOT_EVENT_CONNECTED, 
+                                               LIBRESPOT_EVENT_DISCONNECTED,
+                                               LIBRESPOT_EVENT_PLAYING,
+                                               LIBRESPOT_EVENT_PAUSED, 
+                                               LIBRESPOT_EVENT_CONNECTED,
+                                               -1 ]
+        librespot_disconnect_queue_sequence = [ SPOTIFY_CONNECT_CONNECTED_EVENT, 
+                                               SPOTIFY_CONNECT_DISCONNECTED_EVENT,
+                                               SPOTIFY_CONNECT_NO_EVENT,
+                                               SPOTIFY_CONNECT_NO_EVENT,
+                                               SPOTIFY_CONNECT_CONNECTED_EVENT,
+                                               -1 ]
 
+        ########### Check the connected related events  ###################
+        print(YELLOW_TXT+f"Testing librespot event for connected states"+END_TXT)
         event_index = 0
         while librespot_connect_event_sequence[event_index] != -1:
             # Clear all items
@@ -820,15 +835,58 @@ if __name__ == "__main__":
             send_a_librespot_event(event)                    
             time.sleep(1)
             # wait for message in queue
-            message = wait_for_queue_messages(msg_queue, msg_model)
-            print(message)
-            if event in message['state']:
-                print(GREEN_TXT+f"Correct message event <{message['state']}> received in queue"+END_TXT)                    
-                time.sleep(1)
+            queue_event = librespot_connect_queue_sequence[event_index]
+
+            status, message = wait_for_queue_messages(msg_queue, msg_model)
+            print(status, message)
+            if status == "MESSAGE_TIMEOUT":
+                if queue_event == SPOTIFY_CONNECT_NO_EVENT:
+                    # timeout of 2 seconds, as this librespot event should not be passed into queue
+                    # so if timeout, it is correct.
+                    print(GREEN_TXT+f"Correct message event <{status}> received in queue"+END_TXT)                    
+                else:
+                    print(RED_TXT+f"Incorrect message event <{status}> received in queue"+END_TXT)
             else:
-                print(RED_TXT+f"Incorrect message event <{message['state']}> received in queue"+END_TXT)
-                break
-                time.sleep(1)                
+                if queue_event in message['state']:
+                    print(GREEN_TXT+f"Correct message event <{message['state']}> received in queue"+END_TXT)                    
+                    time.sleep(1)
+                else:
+                    print(RED_TXT+f"Incorrect message event <{message['state']}> received in queue"+END_TXT)
+                    break
+                    time.sleep(1)                
+            event_index += 1
+        
+        print(YELLOW_TXT+f"Testing librespot event for disconnected states"+END_TXT)
+        event_index = 0
+        while librespot_disconnect_event_sequence[event_index] != -1:
+            # Clear all items
+            while not msg_queue.empty():
+                msg_queue.get()
+
+            event = librespot_disconnect_event_sequence[event_index]
+            print( f"testing the {event} librespot event")
+            send_a_librespot_event(event)                    
+            time.sleep(1)
+            # wait for message in queue
+            queue_event = librespot_disconnect_queue_sequence[event_index]
+
+            status, message = wait_for_queue_messages(msg_queue, msg_model)
+            print(status, message)
+            if status == "MESSAGE_TIMEOUT":
+                if queue_event == SPOTIFY_CONNECT_NO_EVENT:
+                    # timeout of 2 seconds, as this librespot event should not be passed into queue
+                    # so if timeout, it is correct.
+                    print(GREEN_TXT+f"Correct message event <{status}> received in queue"+END_TXT)                    
+                else:
+                    print(RED_TXT+f"Incorrect message event <{status}> received in queue"+END_TXT)
+            else:
+                if queue_event in message['state']:
+                    print(GREEN_TXT+f"Correct message event <{message['state']}> received in queue"+END_TXT)                    
+                    time.sleep(1)
+                else:
+                    print(RED_TXT+f"Incorrect message event <{message['state']}> received in queue"+END_TXT)
+                    break
+                    time.sleep(1)                
             event_index += 1
         print ("return to main test menu")
         spot_con.shutdown_server()            
