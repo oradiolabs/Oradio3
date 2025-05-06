@@ -152,6 +152,14 @@
 							dropdown.style.display = "none";
 						}, 300);
 					});
+
+					// Hide options when clicking outside the input or outside the options list
+					document.addEventListener("click", function (event)
+					{
+						if (!container.contains(event.target) && dropdown.style.display == "block")
+							dropdown.style.display = "none";
+					});
+
 				});
 
 				// Toggle password visibility
