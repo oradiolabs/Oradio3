@@ -138,7 +138,7 @@ if ! [ -f $HOME/.bashrc.backup ]; then # Execute if this script is NOT automatic
 
 ########## OS PACKAGES BEGIN ##########
 
-	# Update local list of packages
+	# Update the package lists
 	sudo apt update
 	# NOTE: We do not upgrade: https://forums.raspberrypi.com/viewtopic.php?p=2310861&hilit=oradio#p2310861
 
