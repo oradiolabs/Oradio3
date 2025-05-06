@@ -380,6 +380,8 @@ class MPDControl:
     def search(self, pattern):
         """
         List the songs matching the pattern in artist or title attributes
+        Remove duplcates songs
+        Sort songs alphabetically, first on artist, then on title
         Return [{file: ..., artist:..., title:...}, ...]
         """
         # Connect if not connected
@@ -402,8 +404,18 @@ class MPDControl:
                       'title': result.get('title', 'Unknown title')
                 })
 
-            # For given list a list of songs with attributes file, artist, title. Sorted by artist, ignore case
-            return sorted(songs, key=lambda x: x['artist'].lower())
+            # Filter songs to be unique based on artist and title
+            found = set()
+            unique = []
+
+            for item in songs:
+                key = (item['artist'], item['title'])
+                if key not in found:
+                    found.add(key)
+                    unique.append(item)
+ 
+            # For given list a list of songs with attributes file, artist, title. Sorted by artist, then title, ignore case
+            return sorted(unique, key=lambda x: (x['artist'].lower(), x['title'].lower()))
 
         except Exception as ex_err:
             oradio_log.error("Error searching for songs with pattern '%s' in artist or title attribute: %s", pattern, ex_err)
