@@ -18,6 +18,8 @@ Created on December 23, 2024
 @email:         oradioinfo@stichtingoradio.nl
 @status:        Development
 @summary:       Defines for oradio scripts
+
+5 may update volume settings to prepare for speaker in production
 """
 
 ################## SYSTEM #############################
@@ -88,8 +90,8 @@ PRESET_FILE_PATH = USB_SYSTEM + "/presets.json"
 
 ################## VOLUME #############################
 # Raw volume units
-VOLUME_MINIMUM = 95
-VOLUME_MAXIMUM = 185
+VOLUME_MINIMUM = 105
+VOLUME_MAXIMUM = 200
 # Volume messages
 #OMJ: 'Type' is eigenlijk 'source'
 MESSAGE_TYPE_VOLUME   = "Vol Control message"
