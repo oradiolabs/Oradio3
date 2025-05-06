@@ -138,28 +138,9 @@ if ! [ -f $HOME/.bashrc.backup ]; then # Execute if this script is NOT automatic
 
 ########## OS PACKAGES BEGIN ##########
 
-	# Ensure linux packages are up to date
-	# https://www.raspberrypi.com/documentation/computers/os.html#update-software
-	if ! $(sudo apt update 2>/dev/null | grep -q "All packages are up to date"); then
-
-		# Upgrade packages to the latest greatest
-		sudo apt -y full-upgrade
-
-		# Remove obsolete packages and their configuration files
-		sudo apt -y autoremove
-
-		# Delete any lingering package files
-		sudo apt -y clean
-
-		# Check if reboot is needed to activate changes
-		if [ -f /var/run/reboot-required ]; then
-			echo -e "${YELLOW}Reboot requested for activating package updates${NC}"
-			REBOOT_AND_CONTINUE=1
-		fi
-	fi
-
-	# Progress report
-	echo -e "${GREEN}OS packages up to date${NC}"
+	# Update local list of packages
+	sudo apt update
+	# NOTE: We do not upgrade: https://forums.raspberrypi.com/viewtopic.php?p=2310861&hilit=oradio#p2310861
 
 ########## OS PACKAGES END ##########
 
@@ -214,8 +195,15 @@ if ! [ -f $HOME/.bashrc.backup ]; then # Execute if this script is NOT automatic
 	# Install boot options
 	install_resource $RESOURCES_PATH/config.txt /boot/firmware/config.txt 'REBOOT_AND_CONTINUE=1'
 
+	# Configure for Oradio3 USB to force load USB-storage device
+	if ! sudo grep -q "usb-storage.quirks=0781:5583:u" /boot/firmware/cmdline.txt; then
+		sudo sed -i 's/$/ usb-storage.quirks=0781:5583:u/' /boot/firmware/cmdline.txt
+		# Reboot required to activate
+		REBOOT_AND_CONTINUE=1
+	fi
+
 	# Progress report
-	echo -e "${GREEN}Boot options configured${NC}"
+	echo -e "${GREEN}Boot options and USB driver configured${NC}"
 
 ########## CONFIGURATION END ##########
 
