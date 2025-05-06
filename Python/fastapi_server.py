@@ -126,28 +126,6 @@ async def playlists(request: Request):
     # Return playlists page and available networks as context
     return templates.TemplateResponse(request=request, name="playlists.html", context=context)
 
-class playlist(BaseModel):
-    """ Model for playlist """
-    playlist: str = None
-
-# POST endpoint to get songs for playlist
-@api_app.post("/get_playlist_songs")
-async def get_playlist_songs(playlist: playlist):
-    """ Handle POST for getting the songs for the given playlist """
-    oradio_log.debug("Serving songs for playlist '%s'", playlist.playlist)
-    return mpdcontrol.get_songs(playlist.playlist)
-
-class search(BaseModel):
-    """ Model for searching for songs """
-    key: str = None
-
-# POST endpoint to get songs for search key
-@api_app.post("/get_search_songs")
-async def get_search_songs(search: search):
-    """ Handle POST for getting the songs for the given search key """
-    oradio_log.debug("Serving songs matching '%s'", search.key)
-    return mpdcontrol.search(search.key)
-
 class changedpreset(BaseModel):
     """ Model for playlist asssignment """
     preset:   str = None
@@ -190,6 +168,24 @@ async def save_preset(changedpreset: changedpreset):
     oradio_log.debug("Send web service message: %s", message)
     api_app.state.message_queue.put(message)
 
+class songs(BaseModel):
+    """ Model for getting songs from mpd """
+    source:  str = None
+    pattern: str = None
+
+# POST endpoint to get songs
+@api_app.post("/get_songs")
+async def get_songs(songs: songs):
+    """ Handle POST for getting the songs for the given source """
+    oradio_log.debug("Serving songs from '%s' for pattern '%s'", songs.source, songs.pattern)
+    if songs.source == 'playlist':
+        return mpdcontrol.get_songs(songs.pattern)
+    elif songs.source == 'search':
+        return mpdcontrol.search(songs.pattern)
+    else:
+        oradio_log.error("Invalid source '%s'", songs.source)
+        return JSONResponse(status_code=400, content={"message": f"De source '{songs.source}' is ongeldig"})
+
 class modify(BaseModel):
     """ Model for modifying playlist """
     action:   str = None
@@ -221,7 +217,7 @@ async def playlist_modify(modify: modify):
         return mpdcontrol.playlist_remove(modify.playlist, modify.song)
     else:
         oradio_log.error("Unexpected action '%s'", modify.action)
-        return False
+        return JSONResponse(status_code=400, content={"message": f"De action '{modify.action}' is ongeldig"})
 
 class song(BaseModel):
     """ Model for song """

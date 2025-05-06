@@ -18,11 +18,14 @@
 			const directories = {{ directories|tojson }};
 
 			// Global flag indicating playlist is protected
-			let playlistProtected = true;
+			let playlistIsProtected = true;
 
 			// Function to submit the changed preset
 			async function savepreset(preset)
 			{
+				// Get notification element
+				const notification = document.getElementById("presets_notification");
+
 				// Set error template
 				const errorMessage = `Koppelen van '${preset}' is mislukt`
 
@@ -40,181 +43,91 @@
 					if (!response.ok)
 					{
 						const errorData = await response.json();
-						playlist_notification.innerHTML = `<p class='error'>${errorData.message || errorMessage}</p>`;
-						playlist_notification.style.display = "block";
+						notification.innerHTML = `<p class='error'>${errorData.message || errorMessage}</p>`;
+						notification.style.display = "block";
 					}
 				}
 
 				// Handle server not responding
 				catch (error)
 				{
-					playlist_notification.innerHTML = `<p class='error'>${errorMessage} Controleer of de web interface actief is.</p>`;
-					playlist_notification.style.display = "block";
+					notification.innerHTML = `<p class='error'>${errorMessage}<br>Controleer of de web interface actief is</p>`;
+					notification.style.display = "block";
 				}
 			}
 
-			// Get songs for playlist input
+			/*
+			 * Called:
+			 * - On 'Enter'-key while playlist input has focus
+			 * - On playlist in dropdown selected
+			 * - On song added
+			 * Does: 
+			 * - Get songs for playlist input
+			 *   - Get playlist input
+			 *   - Validate playlist
+			 *   - Clear notification
+			 *   - Fetch songs for playlist input
+			 *   - Render songs:
+			 *     - Show list of songs or notification if none
+			 *     - Show 'Remove'-button if playlist is not protected
+			 */
 			async function getPlaylistSongs()
 			{
-				// Clear and hide notification
-				playlist_notification.innerHTML = "";
-				playlist_notification.style.display = "none";
-
-				// Get songs list container
-				const songlist = document.getElementById("playlistsongs");
-
-				// Hide songs list
-				songlist.style.display = "none";
-
-				// Get songs list element
-				const ul = songlist.querySelector("ul");
-
-				// Clear songs list
-				ul.innerHTML = "";
+				// Get notification element
+				const notification = document.getElementById("playlist_notification");
 
 				// Get playlist input
 				const playlist = document.getElementById("playlist").value.trim();
 
-				// Set error template
-				const errorMessage = `Ophalen van de liedjes van speellijst '${playlist}' is mislukt.`;
-
-				try
-				{
-					// Fetch playlist songs
-					const response = await fetch('/get_playlist_songs',
-					{
-						method: 'POST',
-						headers: {'Content-Type': 'application/json'},
-						body: JSON.stringify({ "playlist": playlist })
-					});
-
-					// Handle server response
-					if (response.ok)
-					{
-						// Wait for songs to be returned from server
-						const songs = await response.json();
-
-						// Get songs list container
-						const songlist = document.getElementById("playlistsongs");
-
-						// Hide songs list
-						songlist.style.display = "none";
-
-						// Get songs list element
-						const ul = songlist.querySelector("ul");
-
-						// Clear songs list
-						ul.innerHTML = "";
-
-						// Notify if no playlist is empty
-						if (playlist && (songs.length === 0))
-						{
-							playlist_notification.innerHTML = `<span class='warning'>Speellijst '${playlist}' is leeg.</span>`;
-							playlist_notification.style.display = "block";
-							return;
-						}
-
-						// Notify if playlist is web radio
-						if (songs.length && (/^https?:/.test(songs[0]['file'])))
-						{
-							playlist_notification.innerHTML = `<span class='warning'>Speellijst '${playlist}' is een webradio.</span>`;
-							playlist_notification.style.display = "block";
-							return;
-						}
-
-						// Finally, ok to manage playlist if not a directory
-						if (!directories.includes(playlist))
-							playlistProtected = false;
-
-						// Render songs
-						songs.forEach(song =>
-						{
-							// Create li element
-							const li = document.createElement("li");
-							// Song file name
-							li.id = song.file;
-							// Song artist and title
-							li.textContent = `${song.artist} - ${song.title}`;
-							// Add button if playlist is editable
-							if (!playlistProtected)
-							{
-								// Create button element
-								const button = document.createElement("button");
-								// Readability
-								button.title = "Verwijderen";
-								// Styling
-								button.classList.add("delete-button-small");
-								// Add button element to li
-								li.appendChild(button);
-							}
-							// Add li element to ul
-							ul.appendChild(li);
-						});
-
-						// Show songs list
-						songlist.style.display = "block";
-
-						// Update search songs list if visible
-						if (document.getElementById("searchsongs").style.display == "block")
-							getSearchSongs();
-					}
-					else
-					{
-						const errorData = await response.json();
-						playlist_notification.innerHTML = `<p class='error'>${errorData.message || errorMessage}</p>`;
-						playlist_notification.style.display = "block";
-					}
-				}
-
-				// Handle server not responding
-				catch (error)
-				{
-					playlist_notification.innerHTML = `<p class='error'>${errorMessage} Controleer of de web interface actief is.</p>`;
-					playlist_notification.style.display = "block";
-				}
-			}
-
-			// Get songs for search input
-			async function getSearchSongs()
-			{
-				// Clear and hide notification
-				search_notification.innerHTML = "";
-				search_notification.style.display = "none";
-
 				// Get songs list container
-				const songlist = document.getElementById("searchsongs");
+				const songlist = document.getElementById("playlistsongs");
 
-				// Hide songs list
-				songlist.style.display = "none";
-
-				// Get songs list element
-				const ul = songlist.querySelector("ul");
-
-				// Clear songs list
-				ul.innerHTML = "";
-
-				// Get search input
-				const search = document.getElementById("search").value.trim();
-
-				// Check for minimal search length
-				if (search.length < 3)
+				// Check for playlist
+				if (!playlist)
 				{
-					search_notification.innerHTML = `<span class='warning'>Gebruik een zoekopdracht met minimaal 3 karakters.</span>`;
-					search_notification.style.display = "block";
+					// Hide songs list
+					songlist.style.display = "none";
+
+					// Clear and hide notification
+					notification.innerHTML = "";
+					notification.style.display = "none";
+
+					// Empty playlist: cannot be modified
+					playlistIsProtected = true;
+
+					// Done: nothing to search for
+					return;
+				}
+
+				// Check playlist exists
+				if (!playlists.includes(playlist) && !directories.includes(playlist))
+				{
+					// playlist does not exist: Notify user
+					playlist_notification.innerHTML = `<p class='error'>Speellijst '${playlist}' bestaat niet<br>Voeg toe met de <button class="save-button-tiny"></button>-knop</p>`;
+					playlist_notification.style.display = "block";
+
+					// Hide songs list
+					const songlist = document.getElementById("playlistsongs");
+					songlist.style.display = "none";
+
+					// New playlist: can be modified
+					playlistIsProtected = false;
+
+					// Done: playlist does not exist
 					return;
 				}
 
 				// Set error template
-				const errorMessage = `Ophalen van de liedjes voor '${search}' is mislukt.`;
+				const errorMessage = `Ophalen van de liedjes van speellijst '${playlist}' is mislukt`;
 
 				try
 				{
-					// Fetch search songs
-					const response = await fetch('/get_search_songs',
+					// Fetch playlist songs
+					const response = await fetch('/get_songs',
 					{
 						method: 'POST',
 						headers: {'Content-Type': 'application/json'},
-						body: JSON.stringify({ "key": search })
+						body: JSON.stringify({"source": "playlist", "pattern": playlist})
 					});
 
 					// Handle server response
@@ -223,193 +136,408 @@
 						// Wait for songs to be returned from server
 						const songs = await response.json();
 
-						// Get songs list container
-						const songlist = document.getElementById("searchsongs");
-
-						// Hide songs list
-						songlist.style.display = "none";
-
-						// Get songs list element
-						const ul = songlist.querySelector("ul");
-
-						// Clear songs list
-						ul.innerHTML = "";
-
-						// Notify if no search is empty
-						if (search && (songs.length === 0))
+						// Notify if no songs
+						if (!Array.isArray(songs) || songs.length === 0)
 						{
-							search_notification.innerHTML = `<span class='warning'>Geen liedjes gevonden met '${search}' in de naam van de artiest of in de titel. Gebruik een andere zoekopdracht.</span>`;
-							search_notification.style.display = "block";
+							// Hide songs list
+							songlist.style.display = "none";
+
+							// Notify
+							notification.innerHTML = `<span class='warning'>Speellijst '${playlist}' is leeg</span>`;
+							notification.style.display = "block";
+
+							// playlist is NOT protected, so songlist CAN be modified
+							playlistIsProtected = false;
+
+							// Done: no songs found
 							return;
 						}
 
-						// Render songs
+						// Check if playlist is directory
+						if (directories.includes(playlist))
+						{
+							// playlist IS protected, so songlist CANNOT be modified
+							playlistIsProtected = true;
+						}
+						// Check if playlist is web radio
+						else if ((/^https?:/.test(songs[0]['file'])))
+						{
+							// Hide songs list
+							songlist.style.display = "none";
+
+							// playlist IS protected, so songlist CANNOT be modified
+							playlistIsProtected = true;
+
+							// Notify
+							notification.innerHTML = `<span class='warning'>Speellijst '${playlist}' is een webradio</span>`;
+							notification.style.display = "block";
+
+							// Done: no songs found
+							return;
+						}
+						else
+						{
+							// playlist is NOT protected, so songlist CAN be modified
+							playlistIsProtected = false;
+						}
+
+						// Get songs container
+						const ul = songlist.querySelector("ul");
+
+						// Clear songs container
+						ul.innerHTML = "";
+
+						// Add songs to container
 						songs.forEach(song =>
 						{
-							// Create li element
+							// Create song element
 							const li = document.createElement("li");
+
 							// Song file name
 							li.id = song.file;
+
 							// Song artist and title
 							li.textContent = `${song.artist} - ${song.title}`;
+
 							// Add button if playlist is editable
-							if (!playlistProtected)
+							if (!playlistIsProtected)
 							{
 								// Create button element
 								const button = document.createElement("button");
+
 								// Readability
-								button.title = "Toevoegen";
+								button.title = "Verwijderen";
+
 								// Styling
-								button.classList.add("save-button-small");
-								// Add button element to li
+								button.classList.add("delete-button-small");
+
+								// Add button element to song
 								li.appendChild(button);
 							}
-							// Add li element to ul
+
+							// Add song element to songs container
 							ul.appendChild(li);
 						});
 
 						// Show songs list
 						songlist.style.display = "block";
+
+						// Clear and hide notification
+						notification.innerHTML = "";
+						notification.style.display = "none";
+
 					}
 					else
 					{
+						// Wait for error to be returned from server
 						const errorData = await response.json();
-						search_notification.innerHTML = `<p class='error'>${errorData.message || errorMessage}</p>`;
-						search_notification.style.display = "block";
+
+						// Notify
+						notification.innerHTML = `<p class='error'>${errorData.message || errorMessage}</p>`;
+						notification.style.display = "block";
 					}
 				}
 
 				// Handle server not responding
 				catch (error)
 				{
-					search_notification.innerHTML = `<p class='error'>${errorMessage} Controleer of de web interface actief is.</p>`;
-					search_notification.style.display = "block";
+					notification.innerHTML = `<p class='error'>${errorMessage}<br>Controleer of de web interface actief is</p>`;
+					notification.style.display = "block";
+				}
+			}
+
+			/*
+			 * Called:
+			 * - On 'Enter'-key while search input has focus
+			 * - On 'Zoeken'-button
+			 * - After playlist changed
+			 * Does: 
+			 * - Get songs for search input
+			 *   - Get search input
+			 *   - Validate search pattern
+			 *   - Clear notification
+			 *   - Fetch songs for search input
+			 *   - Render songs:
+			 *     - Show list of songs or notification if none
+			 *     - Show 'Add'-button if playlist is not protected
+			 */
+			async function getSearchSongs()
+			{
+				// Get notification element
+				const notification = document.getElementById("search_notification");
+
+				// Get search input
+				const search = document.getElementById("search").value.trim();
+
+				// Get songs list container
+				const songlist = document.getElementById("searchsongs");
+
+				// Check for search pattern
+				if (!search)
+				{
+					// Hide songs list
+					songlist.style.display = "none";
+
+					// Clear and hide notification
+					notification.innerHTML = "";
+					notification.style.display = "none";
+
+					// Done: nothing to search for
+					return;
+				}
+
+				// Check for minimal search pattern length
+				if ((search.length > 0) && (search.length < 3))
+				{
+					// Hide songs list
+					songlist.style.display = "none";
+
+					// Notify
+					notification.innerHTML = `<span class='warning'>Gebruik een zoekopdracht met minimaal 3 karakters</span>`;
+					notification.style.display = "block";
+
+					// Done: search pattern too short
+					return;
+				}
+
+				// Set error template
+				const errorMessage = `Ophalen van de liedjes voor '${search}' is mislukt`;
+
+				try
+				{
+					// Fetch search songs
+					const response = await fetch('/get_songs',
+					{
+						method: 'POST',
+						headers: {'Content-Type': 'application/json'},
+						body: JSON.stringify({"source": "search", "pattern": search})
+					});
+
+					// Handle server response
+					if (response.ok)
+					{
+						// Wait for songs to be returned from server
+						const songs = await response.json();
+
+						// Notify if no songs
+						if (!Array.isArray(songs) || songs.length === 0)
+						{
+							// Hide songs list
+							songlist.style.display = "none";
+
+							// Notify
+							notification.innerHTML = `<span class='warning'>Geen liedjes gevonden met '${search}' in de naam van de artiest of in de titel<br>Gebruik een andere zoekopdracht</span>`;
+							notification.style.display = "block";
+
+							// Done: no songs found
+							return;
+						}
+
+						// Get songs container
+						const ul = songlist.querySelector("ul");
+
+						// Clear songs container
+						ul.innerHTML = "";
+
+						// Add songs to container
+						songs.forEach(song =>
+						{
+							// Create song element
+							const li = document.createElement("li");
+
+							// Song file name
+							li.id = song.file;
+
+							// Song artist and title
+							li.textContent = `${song.artist} - ${song.title}`;
+
+							// Add button if playlist is not protected
+							if (!playlistIsProtected)
+							{
+								// Create button element
+								const button = document.createElement("button");
+
+								// Readability
+								button.title = "Toevoegen";
+
+								// Styling
+								button.classList.add("save-button-small");
+
+								// Add button element to song element
+								li.appendChild(button);
+							}
+
+							// Add song element to songs container
+							ul.appendChild(li);
+						});
+
+						// Show songs list
+						songlist.style.display = "block";
+
+						// Clear and hide notification
+						notification.innerHTML = "";
+						notification.style.display = "none";
+					}
+					else
+					{
+						// Wait for error to be returned from server
+						const errorData = await response.json();
+
+						// Notify
+						notification.innerHTML = `<p class='error'>${errorData.message || errorMessage}</p>`;
+						notification.style.display = "block";
+					}
+				}
+
+				// Handle server not responding
+				catch (error)
+				{
+					notification.innerHTML = `<p class='error'>${errorMessage}<br>Controleer of de web interface actief is</p>`;
+					notification.style.display = "block";
 				}
 			}
 
 			// Add song to playlist. Create playlist if it does not exist.
 			async function addSong(songfile)
 			{
+				// Get notification element
+				const notification = document.getElementById("playlist_notification");
+
 				// Get playlist
 				const playlist = document.getElementById("playlist").value.trim();
 
 				// playlist cannot be empty
 				if (!playlist)
 				{
-					// Notify error
-					playlist_notification.innerHTML = `<p class='error'>Kies of typ een geldige speellijstnaam.</p>`;
-					playlist_notification.style.display = "block";
+					// Notify
+					notification.innerHTML = `<p class='error'>Kies of typ een geldige speellijstnaam</p>`;
+					notification.style.display = "block";
 
 					// Hide songs list
 					const songlist = document.getElementById("playlistsongs");
 					songlist.style.display = "none";
 
+					// Done: no playlist given
 					return;
 				}
 
 				// playlist cannot be a directory
 				if (directories.includes(playlist))
 				{
-					// Notify error
-					playlist_notification.innerHTML = `<p class='error'>Speellijst '${playlist}' is beschermd.<br>Typ een unieke speellijstnaam.</p>`;
-					playlist_notification.style.display = "block";
+					// Notify
+					notification.innerHTML = `<p class='error'>Speellijst '${playlist}' is beschermd<br>Typ een unieke speellijstnaam</p>`;
+					notification.style.display = "block";
+
+					// Done: playlist is directory
 					return;
 				}
 
+				// Set error template
 				const errorMessage = songfile
-					? `Toevoegen van '${songfile}' aan speellijst '${playlist}' mislukt.`
+					? `Toevoegen van '${songfile}' aan speellijst '${playlist}' mislukt`
 					: `Opslaan van speellijst '${playlist}' mislukt`;
 
+				// Add (song to) playlist from server
 				await modifyPlaylist('Add', playlist, songfile, errorMessage);
 
-				// Handle added song / added playlist
-				if (!songfile)
-					// Add playlist to playlists
+				// Add playlist if not yet known
+				if (!playlists.includes(playlist))
+				{
+					// Add playlist
 					playlists.push(playlist);
 
-				// Update songs list
+					// Sort case insensitive
+					playlists.sort((a, b) => a.localeCompare(b, undefined, { sensitivity: 'base' }));
+				}
+
+				// Update song lists
 				getPlaylistSongs();
+				getSearchSongs();
 			}
 
 			// Remove song from playlist. Remove playlist if no song.
 			async function removeSong(songfile)
 			{
+				// Get notification element
+				const notification = document.getElementById("playlist_notification");
+
 				// Get playlist
 				const playlist = document.getElementById("playlist").value.trim();
 
 				// playlist cannot be empty
 				if (!playlist)
 				{
-					// Notify error
-					playlist_notification.innerHTML = `<p class='error'>Kies of typ een geldige speellijstnaam.</p>`;
-					playlist_notification.style.display = "block";
+					// Notify
+					notification.innerHTML = `<p class='error'>Kies of typ een geldige speellijstnaam</p>`;
+					notification.style.display = "block";
 
 					// Hide songs list
 					const songlist = document.getElementById("playlistsongs");
 					songlist.style.display = "none";
 
+					// Done: no playlist given
 					return;
 				}
 
 				// playlist cannot be a directory or web radio
-				if (playlistProtected)
+				if (playlistIsProtected)
 				{
-					// Notify error
-					playlist_notification.innerHTML = `<p class='error'>Speellijst '${playlist}' is beschermd,<br>kan daarom niet verwijderd worden.</p>`;
-					playlist_notification.style.display = "block";
+					// Notify
+					notification.innerHTML = `<p class='error'>Speellijst '${playlist}' is beschermd</p>`;
+					notification.style.display = "block";
 
 					// Hide songs list
 					const songlist = document.getElementById("playlistsongs");
 					songlist.style.display = "none";
 
+					// Done: playlist is directory or web radio
 					return;
 				}
 
 				// playlist must exist
 				if (!playlists.includes(playlist))
 				{
-					// Notify error
-					playlist_notification.innerHTML = `<p class='error'>Speellijst '${playlist}' bestaat niet.</p>`;
-					playlist_notification.style.display = "block";
+					// Notify
+					notification.innerHTML = `<p class='error'>Speellijst '${playlist}' bestaat niet</p>`;
+					notification.style.display = "block";
 
 					// Hide songs list
 					const songlist = document.getElementById("playlistsongs");
 					songlist.style.display = "none";
 
+					// Done: playlist does not exist
 					return;
 				}
 
 				// Set error template
 				const errorMessage = songfile
-					? `Verwijderen van '${songfile}' uit speellijst '${playlist}' mislukt.`
-					: `Verwijderen van speellijst '${playlist}' mislukt.`;
+					? `Verwijderen van '${songfile}' uit speellijst '${playlist}' mislukt`
+					: `Verwijderen van speellijst '${playlist}' mislukt`;
 
 				// Remove (song from) playlist from server
 				await modifyPlaylist('Remove', playlist, songfile, errorMessage);
 
 				// Handle removed song / removed playlist
-				if (songfile)
-				{
-					// Update songs list
-					getPlaylistSongs();
-				}
-				else
+				if (!songfile)
 				{
 					// Clear playlist input
 					document.getElementById("playlist").value = "";
 
 					// Remove playlist from playlists
 					playlists = playlists.filter(pl => pl !== playlist);
-
-					// Hide songs list
-					const songlist = document.getElementById("playlistsongs");
-					songlist.style.display = "none";
 				}
+
+				// Update song lists
+				getPlaylistSongs();
+				getSearchSongs();
 			}
 
 			// Send playlist and song to server
 			async function modifyPlaylist(action, playlist, songfile, errorMessage)
 			{
+				// Get notification element
+				const notification = document.getElementById("playlist_notification");
+
 				try
 				{
 					// Submit action, playlist and song
@@ -424,16 +552,16 @@
 					if (!response.ok)
 					{
 						const errorData = await response.json();
-						playlist_notification.innerHTML = `<p class='error'>${errorData.message || errorMessage}</p>`;
-						playlist_notification.style.display = "block";
+						notification.innerHTML = `<p class='error'>${errorData.message || errorMessage}</p>`;
+						notification.style.display = "block";
 					}
 				}
 
 				// Handle server not responding
 				catch (error)
 				{
-					playlist_notification.innerHTML = `<p class='error'>${errorMessage} Controleer of de web interface actief is.</p>`;
-					playlist_notification.style.display = "block";
+					notification.innerHTML = `<p class='error'>${errorMessage}<br>Controleer of de web interface actief is</p>`;
+					notification.style.display = "block";
 				}
 			}
 
@@ -441,7 +569,7 @@
 			async function playSong(notification, songfile, songtitle)
 			{
 				// Set error template
-				const errorMessage = `Er is een fout opgetreden bij het indienen van het te spelen liedje '${songtitle}'.`;
+				const errorMessage = `Er is een fout opgetreden bij het indienen van het te spelen liedje '${songtitle}'`;
 
 				try
 				{
@@ -465,7 +593,7 @@
 				// Handle server not responding
 				catch (error)
 				{
-					notification.innerHTML = `<p class='error'>${errorMessage} Controleer of de web interface actief is.</p>`;
+					notification.innerHTML = `<p class='error'>${errorMessage}<br>Controleer of de web interface actief is</p>`;
 					notification.style.display = "block";
 				}
 			}
@@ -481,11 +609,6 @@
 						input.style.pointerEvents = 'auto';
 					});
 				}, 0);
-
-				// Get the notification element once, reuse globally
-				const presets_notification = document.getElementById('presets_notification');
-				const playlist_notification = document.getElementById('playlist_notification');
-				const search_notification = document.getElementById('search_notification');
 
 				// Create custom select elements dropdown lists with options and actions
 				document.querySelectorAll('.custom-select').forEach(container =>
@@ -519,16 +642,19 @@
 									// Hide dropdown with options
 									dropdown.style.display = 'none';
 
-									// Reset to protected
-									playlistProtected = true;
-
-									// Save changed preset
+									// Process changed preset
 									if (input.id.includes("preset"))
 										savepreset(input.id)
 
-									// Fetch and parse playlist songs
+									// Process changed playlist
 									if (input.id.includes("playlist"))
+									{
+										// Get playlist songs
 										getPlaylistSongs();
+
+										// Update search song list
+										getSearchSongs();
+									}
 								}
 							});
 
@@ -564,7 +690,14 @@
 						}, 300);
 					});
 
-					// Control what happens when the enter key is pressed in playlist input
+					// Hide options when clicking outside the input or outside the options list
+					document.addEventListener("click", function (event)
+					{
+						if (!container.contains(event.target) && dropdown.style.display == "block")
+							dropdown.style.display = "none";
+					});
+
+					// Control what happens when the Enter-key is pressed in playlist input
 					input.addEventListener("keydown", function (event)
 					{
 						// Check if Enter-key is pressed
@@ -579,35 +712,16 @@
 							// Get playlist input
 							const playlist = input.value.trim();
 
-							// Reset to protected
-							playlistProtected = true;
+							// Get playlist songs
+							getPlaylistSongs();
 
-							// Ignore if no playlist given
-							if (!playlist) return;
-
-							if (playlists.includes(playlist) || directories.includes(playlist))
-							{
-								// playlist exists: get playlist songs
-								getPlaylistSongs();
-							}
-							else
-							{
-								// playlist does not exist: Notify user
-								playlist_notification.innerHTML = `<p class='error'>Speellijst '${playlist}' bestaat niet.<br>Voeg toe met de <button class="save-button-tiny"></button>-knop.</p>`;
-								playlist_notification.style.display = "block";
-
-								// Hide songs list
-								const songlist = document.getElementById("playlistsongs");
-								songlist.style.display = "none";
-
-								// Reset to protected
-								playlistProtected = true;
-							}
+							// Update search song list
+							getSearchSongs();
 						}
 					});
 				});
 
-				// Control what happens when the enter key is pressed in search input
+				// Control what happens when the Enter-key is pressed in search input
 				document.getElementById("search").addEventListener("keydown", function (event)
 				{
 					// Check if Enter-key is pressed
@@ -616,7 +730,7 @@
 						// Prevent default behavior
 						event.preventDefault();
 
-						// Get songs for search key
+						// Get songs for search pattern
 						getSearchSongs();
 					}
 				});
