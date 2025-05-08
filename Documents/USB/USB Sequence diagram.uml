@@ -1,0 +1,27 @@
+@startuml
+
+actor User
+participant "usb_service" as usb
+participant "USBMonitor" as monitor
+participant "wifi_service" as wifi
+participant "Message Queue" as queue
+
+== User starts the USB service ==
+User -> usb : Start USB service
+usb -> monitor : Initialize USBMonitor
+monitor -> monitor : Begin monitoring USB mount point
+
+== USB Drive Inserted ==
+monitor -> usb : on_created()
+usb -> usb : usb_inserted()
+usb -> usb : Check for USB_WIFI_FILE
+usb -> wifi : wifi_service.wifi_connect(SSID, PASSWORD)
+wifi -> wifi : Attempt to connect to Wi-Fi
+usb -> queue : Send "USB inserted" message
+
+== USB Drive Removed ==
+monitor -> usb : on_deleted()
+usb -> usb : usb_removed()
+usb -> queue : Send "USB removed" message
+
+@enduml
