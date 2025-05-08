@@ -1,0 +1,22 @@
+@startuml
+actor User
+participant "Main Process" as MainProcess
+participant "Web Service" as WebService
+participant "Wi-Fi Service" as WifiService
+participant "Message Queue" as MessageQueue
+
+User -> MainProcess : start()
+MainProcess -> WebService : start()
+WebService -> WebService : start FastAPI server
+WebService -> WifiService : configure AP
+WebService -> MessageQueue : send message (web service started)
+MainProcess -> WebService : reset_timeout()
+WebService -> WebService : reset timeout counter
+MainProcess -> WebService : stop()
+WebService -> WebService : stop FastAPI server
+WebService -> WifiService : stop AP
+WebService -> WebService : remove port redirection
+WebService -> MessageQueue : send message (web service stopped)
+MainProcess -> User : done
+
+@enduml
