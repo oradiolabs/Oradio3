@@ -28,6 +28,7 @@ import json
 import multipart    # Used to get POST form data
 from pathlib import Path
 from pydantic import BaseModel
+from typing import Optional
 from fastapi import FastAPI, BackgroundTasks, Request
 from fastapi.responses import FileResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
@@ -190,7 +191,7 @@ class modify(BaseModel):
     """ Model for modifying playlist """
     action:   str = None
     playlist: str = None
-    song:     str = None
+    song:     Optional[str] = None
 
 # POST endpoint to modify playlist
 @api_app.post("/playlist_modify")
@@ -204,13 +205,13 @@ async def playlist_modify(modify: modify):
     - Remove playlist if no song given
     """
     if modify.action == 'Add':
-        if modify.song == 'None':
+        if modify.song == None:
             oradio_log.debug("Create playlist: '%s'", modify.playlist)
         else:
             oradio_log.debug("Add song '%s' to playlist '%s'", modify.song, modify.playlist)
         return mpdcontrol.playlist_add(modify.playlist, modify.song)
     elif modify.action == 'Remove':
-        if modify.song == 'None':
+        if modify.song == None:
             oradio_log.debug("Delete playlist: '%s'", modify.playlist)
         else:
             oradio_log.debug("Delete song '%s' from playlist '%s'", modify.song, modify.playlist)

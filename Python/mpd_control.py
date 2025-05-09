@@ -508,21 +508,27 @@ class MPDControl:
         self._ensure_client()
 
         try:
-            oradio_log.debug("Attempting to add song '%s' to playlist: '%s'", song, playlist)
             with self.mpd_lock:
-                if song == 'None':
-                    # Create playlist if not exist and adds dummy url
-                    self.client.playlistadd(playlist, "https://dummy.mp3")
-                    # Delete the dummy → playlist is now empty
-                    self.client.playlistdelete(playlist, 0)
-                    oradio_log.debug("Created playlist '%s'", playlist)
+                if song == None:
+                    oradio_log.debug("Attempting to create playlist: '%s'", playlist)
+                    # Check if playlist already exists
+                    playlists = self.client.listplaylists()
+                    if any(d.get("playlist") == playlist for d in playlists):
+                        # Create playlist and add dummy url
+                        self.client.playlistadd(playlist, "https://dummy.mp3")
+                        # Delete the dummy → playlist is now empty
+                        self.client.playlistdelete(playlist, 0)
+                        oradio_log.debug("Created playlist '%s'", playlist)
+                    else:
+                        oradio_log.warning("Playlist '%s' already exists", playlist)
                 else:
+                    oradio_log.debug("Attempting to add song '%s' to playlist: '%s'", song, playlist)
                     # Add song to playlist, creating playlist if it does not exist
                     self.client.playlistadd(playlist, song)
                     oradio_log.debug("Song '%s' added to playlist '%s'", song, playlist)
             return True
         except Exception as ex_err:
-            if song == 'None':
+            if song == None:
                 oradio_log.error("Error creating playlist '%s': %s", playlist, ex_err)
             else:
                 oradio_log.error("Error adding song '%s' to playlist '%s': %s", song, playlist, ex_err)
@@ -538,24 +544,29 @@ class MPDControl:
         self._ensure_client()
 
         try:
-            oradio_log.debug("Attempting to remove song '%s' from playlist: '%s'", song, playlist)
             with self.mpd_lock:
-                if song == 'None':
-                    # Delete playlist
-                    self.client.rm(playlist)
-                    oradio_log.debug("Playlist '%s' deleted", playlist)
+                if song == None:
+                    oradio_log.debug("Attempting to remove playlist: '%s'", playlist)
+                    playlists = self.client.listplaylists()
+                    if any(d.get("playlist") == playlist for d in playlists):
+                        # Delete playlist
+                        self.client.rm(playlist)
+                        oradio_log.debug("Playlist '%s' removed", playlist)
+                    else:
+                        oradio_log.warning("Playlist '%s' does not exist", playlist)
                 else:
+                    oradio_log.debug("Attempting to remove song '%s' from playlist: '%s'", song, playlist)
                     # Get playlist songs
-                    playlist_items = self.client.listplaylist(playlist)
+                    items = self.client.listplaylist(playlist)
                     # Find index of song in playlist
-                    index_to_remove = playlist_items.index(song)
+                    index = items.index(song)
                     # Remove song from playlist
-                    self.client.playlistdelete(playlist, index_to_remove)
-                    oradio_log.debug("Song '%s' deleted from playlist '%s'", song, playlist)
+                    self.client.playlistdelete(playlist, index)
+                    oradio_log.debug("Song '%s' removed from playlist '%s'", song, playlist)
             return True
         except Exception as ex_err:
-            if song == 'None':
-                oradio_log.error("Error deleting playlist '%s': %s", playlist, ex_err)
+            if song == None:
+                oradio_log.error("Error removing playlist '%s': %s", playlist, ex_err)
             else:
                 oradio_log.error("Error removing song '%s' from playlist '%s': %s", song, playlist, ex_err)
             return False

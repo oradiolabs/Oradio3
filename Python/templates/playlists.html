@@ -432,13 +432,26 @@
 					return;
 				}
 
+				// Ignore if playlist already exist
+				if (!songfile && playlists.includes(playlist))
+				{
+					// Notify
+					notification.innerHTML = `<p class='error'>Speellijst '${playlist}' bestaat.<br>Typ een unieke speellijstnaam</p>`;
+					notification.style.display = "block";
+
+					// Done: playlist already exists
+					return;
+				}
+
 				// Set error template
 				const errorMessage = songfile
 					? `Toevoegen van '${songfile}' aan speellijst '${playlist}' mislukt`
 					: `Opslaan van speellijst '${playlist}' mislukt`;
 
 				// Add (song to) playlist from server
-				await modifyPlaylist('Add', playlist, songfile, errorMessage);
+				if (!await modifyPlaylist('Add', playlist, songfile, errorMessage))
+					// Failed adding playlist/song
+					return;
 
 				// Add playlist if not yet known
 				if (!playlists.includes(playlist))
@@ -515,7 +528,9 @@
 					: `Verwijderen van speellijst '${playlist}' mislukt`;
 
 				// Remove (song from) playlist from server
-				await modifyPlaylist('Remove', playlist, songfile, errorMessage);
+				if (!await modifyPlaylist('Remove', playlist, songfile, errorMessage))
+					// Failed adding playlist/song
+					return;
 
 				// Handle removed song / removed playlist
 				if (!songfile)
@@ -545,23 +560,36 @@
 					{
 						method: 'POST',
 						headers: {'Content-Type': 'application/json'},
-						body: JSON.stringify({ "action": action, "playlist": playlist, "song": songfile ? songfile : "None" })
+						body: JSON.stringify({ "action": action, "playlist": playlist, "song": songfile ? songfile : null })
 					});
 
 					// Handle server response
-					if (!response.ok)
+					if (response.ok)
 					{
+						// Success
+						return true;
+					}
+					else
+					{
+						// Notify
 						const errorData = await response.json();
 						notification.innerHTML = `<p class='error'>${errorData.message || errorMessage}</p>`;
 						notification.style.display = "block";
+
+						// Fail
+						return false;
 					}
 				}
 
 				// Handle server not responding
 				catch (error)
 				{
+					// Notify
 					notification.innerHTML = `<p class='error'>${errorMessage}<br>Controleer of de web interface actief is</p>`;
 					notification.style.display = "block";
+
+					// Fail
+					return false;
 				}
 			}
 
