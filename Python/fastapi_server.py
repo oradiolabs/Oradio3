@@ -316,7 +316,7 @@ async def catch_all(request: Request):
       captive portal if wifi is an access point, or
       playlists if wifi connected to a network
     """
-    print("in catch all")
+    oradio_log.debug("Catchall")
     # Get access to wifi functions
     wifi = wifi_service(api_app.state.message_queue)
 
