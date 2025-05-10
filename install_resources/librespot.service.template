@@ -16,12 +16,12 @@ ExecStartPre=/bin/bash -c 'echo "0" > PLACEHOLDER_SPOTIFY_PATH/spotplaying.flag'
 ExecStart=/usr/bin/librespot \
     --name Oradio \
     --initial-volume 100 \
-    --volume-ctrl log \
-    --volume-range 100 \
+    --volume-ctrl fixed \
+    --enable-volume-normalisation \
+    --normalisation-pregain 3.0 \
     --device-type avr \
     --autoplay on \
     --device SpotCon_in \
-    --verbose \
     --onevent /usr/local/bin/spotify_event_handler.sh
 
 Restart=always
