@@ -28,6 +28,7 @@ import json
 import multipart    # Used to get POST form data
 from pathlib import Path
 from pydantic import BaseModel
+from typing import Optional
 from fastapi import FastAPI, BackgroundTasks, Request
 from fastapi.responses import FileResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
@@ -82,12 +83,12 @@ async def favicon():
 
 def load_presets():
     """ Load the current presets from presets.json in the USB Systeem folder """
-    if os.path.exists(PRESETS_FILE):
+    try:
         with open(PRESETS_FILE, "r") as f:
             return json.load(f)
-    else:
-        oradio_log.error("Failed to open '%s'", PRESETS_FILE)
-        return {"preset1": None, "preset2": None, "preset3": None}
+    except Exception as ex_err:
+        oradio_log.error("Failed to read '%s'. error: %s", PRESETS_FILE, ex_err)
+        return {"preset1": "", "preset2": "", "preset3": ""}
 
 def store_presets(presets):
     """ Write the presets to presets.json in the USB Systeem folder """
@@ -95,16 +96,17 @@ def store_presets(presets):
         Path(USB_SYSTEM).mkdir(parents=True, exist_ok=True)
     except FileExistsError as ex_err:
         oradio_log.error("'%s' does not exist. Presets cannot be saved. error: %s", USB_SYSTEM, ex_err)
+
     try:
         with open(PRESETS_FILE, "w") as f:
-            json.dump({"preset1": presets[0], "preset2": presets[1], "preset3": presets[2]}, f, indent=4)
+            json.dump({"preset1": presets['preset1'], "preset2": presets['preset2'], "preset3": presets['preset3']}, f, indent=4)
     except IOError as ex_err:
         oradio_log.error("Failed to write '%s'. error: %s", PRESETS_FILE, ex_err)
 
 # Get mpd functions
 mpdcontrol = MPDControl()
 
-@api_app.route("/playlists", methods=["GET", "POST"])
+@api_app.get("/playlists")
 async def playlists(request: Request):
     """
     Page managing options to:
@@ -115,104 +117,121 @@ async def playlists(request: Request):
     """
     oradio_log.debug("Serving playlists page")
 
-    # Load presets and list available directories
-    presets = load_presets()
-    folders = mpdcontrol.get_lists()
-
-    # Unknown playlist and thus empty song list
-    playlist = ""
-    playlist_songs = []
-
-    # Unknown search pattern and thus empty song list
-    search = ""
-    search_songs = []
-
-    # Unknown action
-    action = ""
-
-    if request.method == "POST":
-        # Load form data
-        form_data = await request.form()
-        oradio_log.debug("form_data=%s", form_data)
-
-        # Get requested action
-        action = form_data.get('action')
-
-        # If the user clicked "Show Songs"
-        if action == "show_songs":
-            # Get selected playlist
-            playlist = form_data.get("playlist")
-            # get preset songs
-            playlist_songs = mpdcontrol.get_songs(playlist)
-
-        # If the user clicked "Search songs"
-        if action == "search_songs":
-            search = form_data.get('search')
-            search_songs = mpdcontrol.search(search)
-
     # Set playlists page and lists info as context
     context = {
-                "anchor"         : action,
-                "presets"        : presets,
-                "folders"        : folders,
-                "playlist"       : playlist,
-                "playlist_songs" : playlist_songs,
-                "search"         : search,
-                "search_songs"   : search_songs
+                "presets"     : load_presets(),
+                "directories" : mpdcontrol.get_directories(),
+                "playlists"   : mpdcontrol.get_playlists()
             }
 
     # Return playlists page and available networks as context
     return templates.TemplateResponse(request=request, name="playlists.html", context=context)
 
-class presets(BaseModel):
+class changedpreset(BaseModel):
     """ Model for playlist asssignment """
-    button: str = None
-    list_1: str = None
-    list_2: str = None
-    list_3: str = None
+    preset:   str = None
+    playlist: str = None
 
-# POST endpoint to save presets
-@api_app.post("/save_presets")
-async def save_presets(presets: presets):
-    """
-    Handle POST with presets to assign
-    """
+# POST endpoint to save changed preset
+@api_app.post("/save_preset")
+async def save_preset(changedpreset: changedpreset):
+    """ Handle POST with changed preset """
+    oradio_log.debug("Save changed preset '%s' to playlist '%s'", changedpreset.preset, changedpreset.playlist)
+
     # Create message
     message = {}
 #OMJ: Het type klopt niet? Het is geen web service state message, eerder iets als info. Maar voor control is wel een state...
     message = {"type": MESSAGE_WEB_SERVICE_TYPE, "error": MESSAGE_NO_ERROR}
 
-    if presets.button == "PL1":
-        oradio_log.debug("PL1 preset playlist: '%s'", presets.list_1)
-        message["state"] = MESSAGE_WEB_SERVICE_PL1_CHANGED
-    elif presets.button == "PL2":
-        oradio_log.debug("PL2 preset playlist: '%s'", presets.list_2)
-        message["state"] = MESSAGE_WEB_SERVICE_PL2_CHANGED
-    elif presets.button == "PL3":
-        oradio_log.debug("PL3 preset playlist: '%s'", presets.list_3)
-        message["state"] = MESSAGE_WEB_SERVICE_PL3_CHANGED
-    else:
-        oradio_log.error("Invalid playlist button '%s'", presets.button)
+    # Message state options
+    preset_map = {
+        "preset1": MESSAGE_WEB_SERVICE_PL1_CHANGED,
+        "preset2": MESSAGE_WEB_SERVICE_PL2_CHANGED,
+        "preset3": MESSAGE_WEB_SERVICE_PL3_CHANGED
+    }
 
-    # Store presets
-    store_presets([presets.list_1, presets.list_2, presets.list_3])
+    if changedpreset.preset in preset_map:
+        # load presets
+        presets = load_presets()
+
+        # Modify preset
+        presets[changedpreset.preset] = changedpreset.playlist
+        oradio_log.debug("Preset '%s' playlist changed to '%s'", changedpreset.preset, changedpreset.playlist)
+        message["state"] = preset_map[changedpreset.preset]
+
+        # Store presets
+        store_presets(presets)
+    else:
+        oradio_log.error("Invalid preset '%s'", changedpreset.preset)
+        message["state"] = MESSAGE_WEB_SERVICE_FAIL_PRESET
 
     # Put message in queue
     oradio_log.debug("Send web service message: %s", message)
     api_app.state.message_queue.put(message)
 
-class play(BaseModel):
-    """ Model for wifi network credentials """
+class songs(BaseModel):
+    """ Model for getting songs from mpd """
+    source:  str = None
+    pattern: str = None
+
+# POST endpoint to get songs
+@api_app.post("/get_songs")
+async def get_songs(songs: songs):
+    """ Handle POST for getting the songs for the given source """
+    oradio_log.debug("Serving songs from '%s' for pattern '%s'", songs.source, songs.pattern)
+    if songs.source == 'playlist':
+        return mpdcontrol.get_songs(songs.pattern)
+    elif songs.source == 'search':
+        return mpdcontrol.search(songs.pattern)
+    else:
+        oradio_log.error("Invalid source '%s'", songs.source)
+        return JSONResponse(status_code=400, content={"message": f"De source '{songs.source}' is ongeldig"})
+
+class modify(BaseModel):
+    """ Model for modifying playlist """
+    action:   str = None
+    playlist: str = None
+    song:     Optional[str] = None
+
+# POST endpoint to modify playlist
+@api_app.post("/playlist_modify")
+async def playlist_modify(modify: modify):
+    """
+    Handle POST to:
+    - Add song to existing playlist
+    - Create playlist if no song given and playlist does not exist
+    - Create playlist if it does not exist and add given song
+    - Remove song from playlist
+    - Remove playlist if no song given
+    """
+    if modify.action == 'Add':
+        if modify.song == None:
+            oradio_log.debug("Create playlist: '%s'", modify.playlist)
+        else:
+            oradio_log.debug("Add song '%s' to playlist '%s'", modify.song, modify.playlist)
+        return mpdcontrol.playlist_add(modify.playlist, modify.song)
+    elif modify.action == 'Remove':
+        if modify.song == None:
+            oradio_log.debug("Delete playlist: '%s'", modify.playlist)
+        else:
+            oradio_log.debug("Delete song '%s' from playlist '%s'", modify.song, modify.playlist)
+        return mpdcontrol.playlist_remove(modify.playlist, modify.song)
+    else:
+        oradio_log.error("Unexpected action '%s'", modify.action)
+        return JSONResponse(status_code=400, content={"message": f"De action '{modify.action}' is ongeldig"})
+
+class song(BaseModel):
+    """ Model for song """
     song: str = None
 
 # POST endpoint to play song
 @api_app.post("/play_song")
-async def play_song(play: play):
+async def play_song(song: song):
     """
-    Handle POST with wifi network credentials
+    Handle POST to play a song
     """
-    oradio_log.debug("play song: '%s'", play.song)
-    mpdcontrol.play_song(play.song)
+    oradio_log.debug("play song: '%s'", song.song)
+    mpdcontrol.play_song(song.song)
 
     # Create message
 #OMJ: Het type klopt niet? Het is geen web service state message, eerder iets als info. Maar voor control is wel een state...
@@ -297,7 +316,7 @@ async def catch_all(request: Request):
       captive portal if wifi is an access point, or
       playlists if wifi connected to a network
     """
-    print("in catch all")
+    oradio_log.debug("Catchall")
     # Get access to wifi functions
     wifi = wifi_service(api_app.state.message_queue)
 

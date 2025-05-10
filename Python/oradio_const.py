@@ -63,6 +63,7 @@ MESSAGE_WEB_SERVICE_TYPE         = "web service message"
 MESSAGE_WEB_SERVICE_PL1_CHANGED  = "PL1 playlist changed"
 MESSAGE_WEB_SERVICE_PL2_CHANGED  = "PL2 playlist changed"
 MESSAGE_WEB_SERVICE_PL3_CHANGED  = "PL3 playlist changed"
+MESSAGE_WEB_SERVICE_FAIL_PRESET  = "Failed setting preset"
 MESSAGE_WEB_SERVICE_PLAYING_SONG = "web service plays a song"
 
 ################## USB #############################

@@ -3,29 +3,30 @@
 /* Menu bar styling */
 nav {
 	display: flex;
-	background-color: #1F2933;
-	border-top: 1px solid #8E8D8A;
+	background-color: var(--oradio-list);
+	border-top: 1px solid var(--oradio-border);
 	position: fixed;
+	height: 80px;
 	width: 440px;
 	bottom: 0;
 }
-
 nav a {
 	flex: 1;
-	height: 50px;
 	text-align: center;
 	padding: 5px 0 5px 0;
 	margin: 0;
 }
-
 nav a:hover {
-	background: #8E8D8A;
+	background: var(--oradio-border);
 }
 
 .waiting {
-	display: none;	/* On load, remove waiting indicator image center screen */
-	position: fixed;
-	margin: auto;
+	display: none;						/* On load, remove waiting indicator image center screen */
+	position: fixed;					/* Fixed on screen, also when scrolling */
+	top: 50%;
+	left: 50%;
+	transform: translate(-50%, -50%);	/* Exactly centered */
+	z-index: 1000;						/* On top of everything else */
 }
 </style>
 
@@ -35,15 +36,18 @@ nav a:hover {
 <!-- Menu bar -->
 <nav>
 	<a href="/captiveportal"><img src="../static/wifi.png" onclick="show_waiting()" /></a>
-	<a href="/playlists"><img src="../static/playlists.png" /></a>
-	<a href="/status"><img src="../static/status.png" /></a>
+	<a href="/playlists"><img src="../static/playlists.png" onclick="show_waiting()" /></a>
+	<a href="/status"><img src="../static/status.png" onclick="show_waiting()" /></a>
 	<!-- Add other menu items here if needed -->
 </nav>
 
 <script>
-// Dispaly waiting indicatot image center screen
-function show_waiting()
-{
-	document.getElementById('waiting').style.display = "block";
-};
+// Show waiting indicator
+function show_waiting() { document.getElementById('waiting').style.display = "block"; };
+
+// Hide waiting indicator
+function hide_waiting() { document.getElementById('waiting').style.display = "none"; };
+
+// Run when page is loaded
+document.addEventListener('DOMContentLoaded', function (event) { hide_waiting(); });
 </script>

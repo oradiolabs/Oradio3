@@ -10,33 +10,17 @@
  * Oradio captive portal style choices
  */
 
-/* Make drop down icon stand out more */
-.datalist-container {
-	position: relative;
-	display: inline-block;
-	width: 100%;
-}
-.datalist-container .custom-icon {
-	position: absolute;
-	right: 10px;
-	top: 30%;
-	transform: translateY(-50%);
-	pointer-events: none; /* Ensures clicking is not blocked */
-	font-size: 20px;
-	color: #fff;	/* White */
-}
-
 /* allow for 'eye' on the right */
 .pswd-input {
 	width: 90%;
 	padding: 10px;
 	margin-bottom: 20px;
 	border-radius: 5px;
-	border: 1px solid #ccc;
+	border: 1px solid var(--oradio-border);
 	box-sizing: border-box;
-	font-size: 14px;
-	background-color: #1F2933;
-	color: rgb(234, 232, 221);
+	font-size: 16px;
+	background-color: var(--oradio-background);
+	color: var(--oradio-text);
 }
 
 /* Improve icon visibility and position */

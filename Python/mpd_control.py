@@ -273,46 +273,58 @@ class MPDControl:
         except subprocess.CalledProcessError as ex_err:
             oradio_log.error("Error restarting MPD service: %s", ex_err.stderr)
 
-    def get_lists(self):
+    def get_directories(self):
         """
-        Get available playlists and directories
+        Get available directories
         Return case-insensitive sorted list
         """
         # Connect if not connected
         self._ensure_client()
 
         # Initialize
-        lists = []
-
-        # Get playlists
-        try:
-            # Get playlists
-            with self.mpd_lock:
-                playlists = self.client.listplaylists()
-
-            # Parse playlists for name only
-            for entry in playlists:
-                lists.append(entry["playlist"])
-
-        except Exception as ex_err:
-            oradio_log.error("Error getting lists: %s", ex_err)
+        folders = []
 
         # Get directories
         try:
-            # Get directories
             with self.mpd_lock:
                 directories = self.client.listfiles()
 
             # Parse directories for name only; only include if "directory" key exists
             for entry in directories:
                 if "directory" in entry:
-                    lists.append(entry["directory"])
+                    folders.append(entry["directory"])
 
         except Exception as ex_err:
-            oradio_log.error("Error getting lists: %s", ex_err)
+            oradio_log.error("Error getting directories: %s", ex_err)
 
         # Sort alphabetically, ignore case
-        return sorted(lists, key=str.casefold)
+        return sorted(folders, key=str.casefold)
+
+    def get_playlists(self):
+        """
+        Get available playlists
+        Return case-insensitive sorted list
+        """
+        # Connect if not connected
+        self._ensure_client()
+
+        # Initialize
+        folders = []
+
+        # Get playlists
+        try:
+            with self.mpd_lock:
+                playlists = self.client.listplaylists()
+
+            # Parse playlists for name only
+            for entry in playlists:
+                folders.append(entry["playlist"])
+
+        except Exception as ex_err:
+            oradio_log.error("Error getting playlists: %s", ex_err)
+
+        # Sort alphabetically, ignore case
+        return sorted(folders, key=str.casefold)
 
     def get_songs(self, list):
         """
@@ -368,12 +380,14 @@ class MPDControl:
     def search(self, pattern):
         """
         List the songs matching the pattern in artist or title attributes
+        Remove duplcates songs
+        Sort songs alphabetically, first on artist, then on title
         Return [{file: ..., artist:..., title:...}, ...]
         """
-        try:
-            # Connect if not connected
-            self._ensure_client()
+        # Connect if not connected
+        self._ensure_client()
 
+        try:
             # Search artists and titles; minimize lock to mpd interaction
             with self.mpd_lock:
                 results = self.client.search('artist', pattern)
@@ -390,8 +404,18 @@ class MPDControl:
                       'title': result.get('title', 'Unknown title')
                 })
 
-            # For given list a list of songs with attributes file, artist, title. Sorted by artist, ignore case
-            return sorted(songs, key=lambda x: x['artist'].lower())
+            # Filter songs to be unique based on artist and title
+            found = set()
+            unique = []
+
+            for item in songs:
+                key = (item['artist'], item['title'])
+                if key not in found:
+                    found.add(key)
+                    unique.append(item)
+ 
+            # For given list a list of songs with attributes file, artist, title. Sorted by artist, then title, ignore case
+            return sorted(unique, key=lambda x: (x['artist'].lower(), x['title'].lower()))
 
         except Exception as ex_err:
             oradio_log.error("Error searching for songs with pattern '%s' in artist or title attribute: %s", pattern, ex_err)
@@ -403,10 +427,11 @@ class MPDControl:
         The song is appended, moved immediately after the current song, and played.
         Once it finishes, it is removed from the queue.
         """
+        # Connect if not connected
+        self._ensure_client()
+
         try:
             oradio_log.debug("Attempting to play song: %s", song)
-            self._ensure_client()
-
             with self.mpd_lock:
                 status = self.client.status()
                 state = status.get("state", "stop")
@@ -435,7 +460,7 @@ class MPDControl:
             oradio_log.debug("Started monitoring removal for song id: %s", inserted_song_id)
 
         except Exception as ex_err:
-            oradio_log.error("Error playing song '{song}': %s", ex_err)
+            oradio_log.error("Error playing song '%s': %s", song, ex_err)
 
     def _remove_song_when_finished(self, inserted_song_id):
         """
@@ -472,6 +497,79 @@ class MPDControl:
                     oradio_log.debug("Song id %s already removed from the playlist", inserted_song_id)
         except Exception as ex_err:
             oradio_log.error("Error removing song with id '%s': %s", inserted_song_id, ex_err)
+
+    def playlist_add(self, playlist, song):
+        """
+        Create playlist if not exist
+        Add song to playlist
+        Return success | fail
+        """
+        # Connect if not connected
+        self._ensure_client()
+
+        try:
+            with self.mpd_lock:
+                if song == None:
+                    oradio_log.debug("Attempting to create playlist: '%s'", playlist)
+                    # Check if playlist already exists
+                    playlists = self.client.listplaylists()
+                    if any(d.get("playlist") == playlist for d in playlists):
+                        # Create playlist and add dummy url
+                        self.client.playlistadd(playlist, "https://dummy.mp3")
+                        # Delete the dummy → playlist is now empty
+                        self.client.playlistdelete(playlist, 0)
+                        oradio_log.debug("Created playlist '%s'", playlist)
+                    else:
+                        oradio_log.warning("Playlist '%s' already exists", playlist)
+                else:
+                    oradio_log.debug("Attempting to add song '%s' to playlist: '%s'", song, playlist)
+                    # Add song to playlist, creating playlist if it does not exist
+                    self.client.playlistadd(playlist, song)
+                    oradio_log.debug("Song '%s' added to playlist '%s'", song, playlist)
+            return True
+        except Exception as ex_err:
+            if song == None:
+                oradio_log.error("Error creating playlist '%s': %s", playlist, ex_err)
+            else:
+                oradio_log.error("Error adding song '%s' to playlist '%s': %s", song, playlist, ex_err)
+            return False
+
+    def playlist_remove(self, playlist, song):
+        """
+        Remove song from playlist
+        Remove playlist
+        Return success | fail
+        """
+        # Connect if not connected
+        self._ensure_client()
+
+        try:
+            with self.mpd_lock:
+                if song == None:
+                    oradio_log.debug("Attempting to remove playlist: '%s'", playlist)
+                    playlists = self.client.listplaylists()
+                    if any(d.get("playlist") == playlist for d in playlists):
+                        # Delete playlist
+                        self.client.rm(playlist)
+                        oradio_log.debug("Playlist '%s' removed", playlist)
+                    else:
+                        oradio_log.warning("Playlist '%s' does not exist", playlist)
+                else:
+                    oradio_log.debug("Attempting to remove song '%s' from playlist: '%s'", song, playlist)
+                    # Get playlist songs
+                    items = self.client.listplaylist(playlist)
+                    # Find index of song in playlist
+                    index = items.index(song)
+                    # Remove song from playlist
+                    self.client.playlistdelete(playlist, index)
+                    oradio_log.debug("Song '%s' removed from playlist '%s'", song, playlist)
+            return True
+        except Exception as ex_err:
+            if song == None:
+                oradio_log.error("Error removing playlist '%s': %s", playlist, ex_err)
+            else:
+                oradio_log.error("Error removing song '%s' from playlist '%s': %s", song, playlist, ex_err)
+            return False
 
     @staticmethod
     def get_playlist_name(preset_key, filepath):

@@ -11,10 +11,20 @@
  * Colors: https://www.computerhope.com/htmcolor.htm
  */
 
-.preset-grid {
+.presets-grid {
 	display: grid;
 	margin-bottom: 20px;
 	grid-template-columns: 0.5fr 1.5fr
+}
+.playlists_grid {
+	display: grid;
+	margin-bottom: 0;
+	grid-template-columns: 2.5fr 0.5fr 0.5fr;
+}
+.songs_grid {
+	display: grid;
+	margin-bottom: 0;
+	grid-template-columns: 2.5fr 0.5;
 }
 
 .preset-label {
@@ -22,19 +32,87 @@
     align-self: center;
 }
 
-.preset-select {
-	margin-bottom: 0px;
-    align-self: center;
+.save-button-large,
+.save-button-small {
+	background-image: url('../save.png');
+	background-size: contain;
+	background-repeat: no-repeat;
+	background-position: center;
+	margin: 0;
+	justify-self: end;
+	cursor: pointer;
+	border: none;
+	background-color: transparent;
+}
+.delete-button-large,
+.delete-button-small {
+	background-image: url('../delete.png');
+	background-size: contain;
+	background-repeat: no-repeat;
+	background-position: center;
+	margin: 0;
+	justify-self: end;
+	cursor: pointer;
+	border: none;
+	background-color: transparent;
+}
+.save-button-large,
+.delete-button-large {
+	width: 50px;
+	height: 40px;
+}
+.save-button-small,
+.delete-button-small {
+	width: 50px;	/* Facilitate clicking a sligtly left or right of icon */
+	height: 30px;
+}
+.save-button-large:hover,
+.save-button-small:hover,
+.delete-button-large:hover,
+.delete-button-small:hover {
+	background-color: transparent;
+	filter: brightness(125%);	/* brighter */
+}
+.save-button-tiny {
+	display: inline-block;
+	vertical-align: text-bottom;
+	background-image: url('../save.png');
+	background-size: contain;
+	background-repeat: no-repeat;
+	background-position: center;
+	background-color: transparent;
+	margin: 0;
+	padding: 0;
+	width: 16px;
+	height: 16px;
+	cursor: auto;
+}
+.save-button-tiny:hover {
+	filter: brightness(100%);
 }
 
 .file-list {
+	display: none;
+	border: 1px solid var(--oradio-border);
 	padding: 0 5px 0 5px;
 	line-height: 1.5;
-	margin-bottom: 20px;
+	margin: 20px 0 20px 0;
 	border-radius: 5px;
-	background-color: #14213D;
-	color: rgb(234, 232, 221);
+	background-color: var(--oradio-list);
 	max-height: 200px;
 	overflow-y: auto;
-	scrollbar-width: none;
+	-webkit-overflow-scrolling: touch;
+}
+.file-list::-webkit-scrollbar {
+  width: 8px;
+}
+.file-list::-webkit-scrollbar-track {
+  background: var(--oradio-border);
+}
+.file-list::-webkit-scrollbar-thumb {
+  background: var(--oradio-select);
+  border-radius: 4px;
+}
+.file-list::-webkit-scrollbar-thumb:hover {
+  background: var(--oradio-select);
 }

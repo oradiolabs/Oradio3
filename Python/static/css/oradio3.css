@@ -6,20 +6,30 @@
  * @license:      GNU General Public License version 3; https://www.gnu.org/licenses/gpl-3.0.html
  */
 
-/*
- * Oradio generic style choices
- * Colors: https://www.computerhope.com/htmcolor.htm
- */
+:root {
+	/* Official Oradio colors */
+	--oradio-text: #EAE7DC;			/* Alabaster */
+	--oradio-header: #D8C3A5;		/* Khaki Web */
+	--oradio-border: #8E8D8A;		/* Middle Grey */
+	--oradio-select: #3FB858;		/* Bright Green */
+	--oradio-background: #14213D;	/* Oxford Blue */
+
+	/* Supporting colors */
+	--oradio-list: #363737;			/* Dark Grey */
+	--oradio-success: #3FB858;		/* Bright Green */
+	--oradio-warning: #FFFE00;		/* Yellow */
+	--oradio-error: #FF0000;		/* Red */
+}
 
 body {
 	font-family: 'Roboto', Helvetica, Arial, sans-serif;
+	font-size: 16px;	/* Keep at least 16px to prevent zooming in iOS Safari */
 	margin: 0;
 	padding: 0;
-	background-color: #14213D;
-	color: rgb(234, 232, 221);
+	background-color: var(--oradio-background);
+	color: var(--oradio-text);
 	display: flex;
 	justify-content: center;
-	align-items: center;
 	min-height: 100vh;
 }
 
@@ -27,10 +37,7 @@ body {
 	max-width: 400px;
 	width: 100%;
 	padding: 20px;
-	margin-bottom: 60px;			/* allow space for bottom menu */
-	background-color:#1F2933;
-	border-radius: 10px;
-	box-shadow: 0 4px 8px rgba(0, 0, 0, 0.2);
+	margin-bottom: 60px;	/* allow space for bottom menu */
 }
 
 .logo {
@@ -44,14 +51,13 @@ body {
 h1 {
 	width: 100%;
 	height: 20px;
-	background-color: #D8C3A5;
-	color: #000000;
+	color: var(--oradio-background);
+	background-color: var(--oradio-header);
 	border: none;
 	border-radius: 5px;
 	padding: 10px;
-	font-size: 16px;
-	margin-left: -10px;
-	margin-bottom: 20px;
+	font-size: 20px;
+	margin: 20px 0 20px -10px;
 	text-align: center;
 }
 
@@ -61,17 +67,43 @@ label {
 	font-weight: bold;
 }
 
-select {
+/* Custom select enabling typing own option */
+.custom-select {
 	width: 100%;
-	height: 40px;
-	padding: 10px;
-	margin-bottom: 20px;
-	border-radius: 5px;
-	border: 1px solid #ccc;
-	box-sizing: border-box;
-	font-size: 14px;
-	background-color: #1F2933;
-	color: rgb(234, 232, 221);
+	position: relative;
+	display: inline-block;
+	cursor: pointer;
+}
+.custom-select input {
+	margin-bottom: 0;
+}
+.custom-select .custom-icon {
+	position: absolute;
+	right: 10px;
+	font-size: 20px;
+	transform: translateY(30%);
+	pointer-events: none;	/* Ensures clicking is not blocked */
+}
+
+/* Dropdown options list */
+.options {
+	border: 1px solid var(--oradio-border);
+	display: none;
+	position: absolute;
+	top: 100%;
+	left: 0;
+	right: 0;
+	background-color: var(--oradio-list);
+	z-index: 10;
+	max-height: 200px;
+	overflow-y: auto;
+}
+.options div {
+	padding: 8px;
+	cursor: pointer;
+}
+.options div:hover {
+	background-color: var(--oradio-select);
 }
 
 input {
@@ -80,30 +112,29 @@ input {
 	padding: 10px;
 	margin-bottom: 20px;
 	border-radius: 5px;
-	border: 1px solid #ccc;
+	border: 1px solid var(--oradio-border);
 	box-sizing: border-box;
-	font-size: 14px;
-	background-color: #1F2933;
-	color: rgb(234, 232, 221);
+	font-size: 16px;
+	background-color: var(--oradio-background);
+	color: var(--oradio-text);
 }
 
 button {
-	width: 100%;
+	display: block;
+	width: 90%;
+	margin: 20px auto;
 	height: 40px;
-	background-color: #1DB954;
-	color: #FFFFFF;
+	background-color: var(--oradio-select);
+	color: var(--oradio-text);
 	border: none;
 	border-radius: 5px;
 	padding: 10px;
 	font-size: 16px;
+	font-weight: bold;
 	cursor: pointer;
-	transition: background-color 0.3s;
-	margin-bottom: 20px;
-	align-items: center;
 }
-
 button:hover {
-	background-color: #00FF7F;
+	filter: brightness(125%);
 }
 
 ul {
@@ -114,20 +145,29 @@ ul {
 
 li {
 	margin: 5px 0;
+	display: grid;
+	grid-template-columns: auto auto;
+	align-items: center;
+	padding: 10px 10px 10px 10px;
 }
 
 .notification {
 	text-align: center;
 	line-height: 1.5;
-	margin-bottom: 10px;
+	margin: 10px 0 10px 0;
+	display: none;
+}
+
+.success {
+	color: var(--oradio-success);
 }
 
 .warning {
-	color: #FFEF00;
+	color: var(--oradio-warning);
 }
 
 .error {
-	color: #FF0000;
+	color: var(--oradio-error);
 }
 
 @media (max-width: 500px) {
