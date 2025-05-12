@@ -39,7 +39,7 @@ jobs:
       # Use .pylintrc 
       # Prevent MPDClient no-member errors, as they are false positives
       run: |
-        pylint $(git ls-files '*.py') --rcfile=.pylintrc --generated-members=self.client.*,mpd.client.* --output=pylint_result.txt || true
+        pylint $(git ls-files '*.py') --rcfile=.github/workflows/.pylintrc --generated-members=self.client.*,mpd.client.* --output=pylint_result.txt || true
     - name: Upload pylint result
       uses: actions/upload-artifact@v4
       with:
