@@ -35,7 +35,7 @@ from oradio_logging import oradio_log
 from oradio_const import *
 
 ##### LOCAL constants ####################
-ACCESS_POINT_HOST = "108.156.60.1"  # wsj.com
+_AP_HOST = "108.156.60.1"  # wsj.com
 
 class wifi_service():
     """
@@ -53,7 +53,7 @@ class wifi_service():
         self.error = None
         self.saved_ssid = None
 
-    def send_message(self):
+    def _send_message(self):
         """
         Send wifi message
         :param ssid ==> If connection fails then send ssid, so control can 
@@ -91,7 +91,7 @@ class wifi_service():
         if active == ssid:
             oradio_log.debug("Connection '%s' already active", ssid)
             # Inform controller of actual state and error
-            self.send_message()
+            self._send_message()
             # Return success, so caller can continue
             return True
 
@@ -109,12 +109,12 @@ class wifi_service():
                     self.error = MESSAGE_WIFI_FAIL_AP_START
                 else:
                     self.error = MESSAGE_WIFI_FAIL_CONNECT
-                self.send_message()
+                self._send_message()
                 # Return fail, so caller can try to recover
                 return False
 
         # Ensure NetworkManager has no old ssid info
-        if ssid in self.get_wifi_nm_connections() and ssid != self.saved_ssid:
+        if ssid in self._get_wifi_nm_connections() and ssid != self.saved_ssid:
             # Delete the ssid from NetworkManager
             try:
                 oradio_log.debug("Remove '%s' from NetorkManager", ssid)
@@ -127,7 +127,7 @@ class wifi_service():
                     self.error = MESSAGE_WIFI_FAIL_AP_START
                 else:
                     self.error = MESSAGE_WIFI_FAIL_CONNECT
-                self.send_message()
+                self._send_message()
                 # Return fail, so caller can try to recover
                 return False
 
@@ -140,7 +140,7 @@ class wifi_service():
                     "mode": "ap",
                     "ssid": ACCESS_POINT_SSID,
                     "ipv4.method": "shared",
-                    "ipv4.address": ACCESS_POINT_HOST+"/24"
+                    "ipv4.address": _AP_HOST+"/24"
                 }
                 # nmcli.connection.add(conn_type: str, options: Optional[ConnectionOptions] = None, ifname: str = "*", name: str = None, autoconnect: Bool = None) -> None
                 nmcli.connection.add("wifi", options, "*", ACCESS_POINT_SSID, False)
@@ -148,7 +148,7 @@ class wifi_service():
                 oradio_log.error("Failed to add access point '%s', error = %s", ACCESS_POINT_SSID, ex_err)
                 # Inform controller of actual state and error
                 self.error = MESSAGE_WIFI_FAIL_AP_START
-                self.send_message()
+                self._send_message()
                 # Return fail, so caller can try to recover
                 return False
         else:
@@ -168,7 +168,7 @@ class wifi_service():
                     oradio_log.error("Failed to configure wifi network '%s', error = %s", ssid, ex_err)
                     # Inform controller of actual state and error
                     self.error = MESSAGE_WIFI_FAIL_CONNECT
-                    self.send_message()
+                    self._send_message()
                     # Return fail, so caller can try to recover
                     return False
             else:
@@ -176,14 +176,14 @@ class wifi_service():
 
         # Connecting takes time, can fail: offload to a separate thread
         # ==> Don't use reference so that the python interpreter can garbage collect when thread is done
-        Thread(target=self.wifi_connect_thread, args=(ssid, active,)).start()
+        Thread(target=self._wifi_connect_thread, args=(ssid, active,)).start()
 
         oradio_log.info("Connecting to '%s' started", ssid)
 
         # Return success, so caller can continue
         return True
 
-    def wifi_connect_thread(self, new_ssid, old_ssid):
+    def _wifi_connect_thread(self, new_ssid, old_ssid):
         """
         Activate the connection
         Send message with result
@@ -242,9 +242,9 @@ class wifi_service():
                     """ OMJ: NetworkManager now has an orphan. Do we need to do garbage collection? """
 
         # Inform controller of actual state and error
-        self.send_message()
+        self._send_message()
 
-    def wifi_disconnect(self):
+    def _wifi_disconnect(self):
         """
         Disconnect if connected to connection
         If exists remove access point from NetworkManager
@@ -271,7 +271,7 @@ class wifi_service():
                     self.error = MESSAGE_WIFI_FAIL_AP_STOP
                 else:
                     self.error = MESSAGE_WIFI_FAIL_DISCONNECT
-                self.send_message()
+                self._send_message()
                 # Return fail, so caller can try to recover
                 return False
 
@@ -287,12 +287,12 @@ class wifi_service():
                     self.error = MESSAGE_WIFI_FAIL_AP_STOP
                 else:
                     self.error = MESSAGE_WIFI_FAIL_DISCONNECT
-                self.send_message()
+                self._send_message()
                 # Return fail, so caller can try to recover
                 return False
 
             # Inform controller of actual state, no error
-            self.send_message()
+            self._send_message()
 
         # Return success, so caller can continue
         oradio_log.info("Disconnected from: '%s'", active)
@@ -316,13 +316,13 @@ class wifi_service():
 
         # Configure DNS redirection
         oradio_log.debug("Redirect DNS")
-        cmd = "sudo bash -c 'echo \"address=/#/"+ACCESS_POINT_HOST+"\" > /etc/NetworkManager/dnsmasq-shared.d/redirect.conf'"
+        cmd = "sudo bash -c 'echo \"address=/#/"+_AP_HOST+"\" > /etc/NetworkManager/dnsmasq-shared.d/redirect.conf'"
         result, error = run_shell_script(cmd)
         if not result:
             oradio_log.error("Error during <%s> to configure DNS redirection, error: %s", cmd, error)
             # Inform controller of actual state and error
             self.error = MESSAGE_WIFI_FAIL_AP_START
-            self.send_message()
+            self._send_message()
             # Return fail, so caller can try to recover
             return False
 
@@ -355,7 +355,6 @@ class wifi_service():
         Remove DNS redirect to internal 
         """
         # Initialize
-        status = True
         self.error = None
 
         # Remove address redirection
@@ -366,7 +365,7 @@ class wifi_service():
             oradio_log.error("Error during <%s> to remove DNS redirection, error: %s", cmd, error)
             # Inform controller of actual state and error
             self.error = MESSAGE_WIFI_FAIL_AP_STOP
-            self.send_message()
+            self._send_message()
             # Return fail, so caller can try to recover
             return False
 
@@ -386,7 +385,7 @@ class wifi_service():
             else:
                 # Disconnect and remove the access point without sending message
                 oradio_log.debug("Disconnect from '%s'", ACCESS_POINT_SSID)
-                if not self.wifi_disconnect():
+                if not self._wifi_disconnect():
                     oradio_log.error("Failed to disconnect from '%s'", ACCESS_POINT_SSID)
                     # wifi_connect function informs controller
                     # Return fail, so caller can try to recover
@@ -450,7 +449,7 @@ class wifi_service():
 
         return network
 
-    def get_wifi_nm_connections(self):
+    def _get_wifi_nm_connections(self):
         """
         Get defined connections from NetworkManager
         :return connections ==> list of network ids defined in NetworkManager
@@ -462,13 +461,13 @@ class wifi_service():
         try:
             oradio_log.debug("Get connections from NetworkManager")
             # nmcli.connection() -> List[Connection]
-            list = nmcli.connection()
+            result = nmcli.connection()
         except Exception as ex_err:
             oradio_log.error("Failed to get connections from NetworkManager, error = %s", ex_err)
         else:
             # Inspect connections
             oradio_log.debug("Get wifi connections")
-            for connection in list:
+            for connection in result:
                 # Only wifi connections
                 if connection.conn_type == "wifi":
                     connections.append(connection.name)
@@ -483,39 +482,18 @@ class wifi_service():
         active = self.get_wifi_connection()
         # No connection: idle
         if not active:
-            return STATE_WIFI_IDLE
+            state = STATE_WIFI_IDLE
         # Connection to access point
         elif active == ACCESS_POINT_SSID:
-            return STATE_WIFI_ACCESS_POINT
+            state = STATE_WIFI_ACCESS_POINT
         # Connection to wifi network
         elif active != ACCESS_POINT_SSID:
             # Connected: determine connection type
             if check_internet_connection():
-                return STATE_WIFI_INFRASTRUCTURE
+                state = STATE_WIFI_INFRASTRUCTURE
             else:
-                return STATE_WIFI_LOCAL_NETWORK
-
-# Park until proven to be needed
-'''
-    def wifi_nm_clean(self):
-        """
-        Remove networks in NetworkManager except the active connection
-        """
-        # Get active wifi connection, if any
-        active = self.get_wifi_connection()
-        for ssid in self.get_wifi_nm_connections():
-            if ssid != active:
-                # Delete old_ssid from NetworkManager
-                try:
-                    oradio_log.debug(f"Remove '{ssid}' from NetworkManager")
-                    # nmcli.connection.delete(name: str, wait: int = None) -> None # Default timeout is 10 seconds
-                    nmcli.connection.delete(old_ssid)
-                except Exception as ex_err:
-                    oradio_log.error(f"Failed to remove '{ssid}' from NetworkManager, error = {ex_err}")
-                    """ OMJ: NetworkManager still has an orphan. What else can we do to clean the NetworkManager? """
-                    # Return fail, so caller can try to recover
-                    return False
-'''
+                state = STATE_WIFI_LOCAL_NETWORK
+        return state
 
 # Entry point for stand-alone operation
 if __name__ == '__main__':
@@ -523,7 +501,7 @@ if __name__ == '__main__':
     # import when running stand-alone
     from multiprocessing import Process, Queue
 
-    def remove_network_from_NM(network):
+    def _remove_network_from_nm(network):
         """ Remove given network from NetworkManager """
         try:
             oradio_log.debug("Remove '%s' from NetworkManager", network)
@@ -590,11 +568,11 @@ if __name__ == '__main__':
             case 2:
                 print(f"\nRegistered wifi networks: {wifi.get_wifi_networks()}\n")
             case 3:
-                print(f"\nDefined wifi connections: {wifi.get_wifi_nm_connections()}\n")
+                print(f"\nDefined wifi connections: {wifi._get_wifi_nm_connections()}\n")
             case 4:
                 network = input("Enter network to remove from NetworkManager: ")
                 if network:
-                    print(f"\nRemoved {network} from NetworkManager: {remove_network_from_NM(network)}\n")
+                    print(f"\nRemoved {network} from NetworkManager: {_remove_network_from_nm(network)}\n")
                 else:
                     print("\nNo network given\n")
             case 5:
@@ -608,7 +586,7 @@ if __name__ == '__main__':
                 else:
                     print("\nNo SSID and/or password given\n")
             case 7:
-                print(f"\nwifi_disconnect() returned '{wifi.wifi_disconnect()}'\n")
+                print(f"\n_wifi_disconnect() returned '{wifi._wifi_disconnect()}'\n")
             case 8:
                 if wifi.access_point_start():
                     print("\nSetting up access point. Check messages for result\n")
