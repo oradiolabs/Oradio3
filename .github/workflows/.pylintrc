@@ -1,0 +1,44 @@
+# Pylint regels voor PEP 8
+[MASTER]
+ignore=venv
+load-plugins=
+
+[MESSAGES CONTROL]
+# Deze waarschuwingen worden uitgeschakeld:
+# C0114: missing-module-docstring
+# C0115: missing-class-docstring
+# C0116: missing-function-docstring
+# R0903: too-few-public-methods
+disable=C0114, C0115, C0116, R0903
+
+[FORMAT]
+# Maximale lengte van regels volgens PEP8
+max-line-length=79
+indent-string='    '
+indent-after-paren=4
+
+[DESIGN]
+max-args=5
+max-locals=15
+max-returns=6
+max-branches=12
+max-statements=50
+max-line-length=79
+max-attributes=10
+max-nested-blocks=5
+
+[BASIC]
+good-names=i,j,k,ex,Run,_
+variable-rgx=[a-z_][a-z0-9_]{2,30}$
+argument-rgx=[a-z_][a-z0-9_]{2,30}$
+attr-rgx=[a-z_][a-z0-9_]{2,30}$
+class-rgx=[A-Z_][a-zA-Z0-9]+$
+function-rgx=[a-z_][a-z0-9_]{2,30}$
+
+[TYPECHECK]
+ignore-mixin-members=yes
+
+[REPORTS]
+output-format=colorized
+reports=no
+score=yes
