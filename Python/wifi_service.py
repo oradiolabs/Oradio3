@@ -225,7 +225,7 @@ class wifi_service():
                 nmcli.connection.delete(new_ssid)
             except Exception as ex_err:
                 oradio_log.error("Failed to remove '%s' from NetworkManager, error = %s", new_ssid, ex_err)
-                """ OMJ: NetworkManager now has an orphan. Do we need to do garbage collection? """
+                ''' OMJ: NetworkManager now has an orphan. Do we need to do garbage collection? '''
 
         # Connected to new_ssid: cleanup old_ssid
         else:
@@ -239,7 +239,7 @@ class wifi_service():
                     nmcli.connection.delete(old_ssid)
                 except Exception as ex_err:
                     oradio_log.error("Failed to remove '%s' from NetworkManager, error = %s", old_ssid, ex_err)
-                    """ OMJ: NetworkManager now has an orphan. Do we need to do garbage collection? """
+                    ''' OMJ: NetworkManager now has an orphan. Do we need to do garbage collection? '''
 
         # Inform controller of actual state and error
         self._send_message()
@@ -478,6 +478,8 @@ class wifi_service():
         """
         Using threads for connect and access point we cannot use class variables
         """
+        # Initialize
+        state = STATE_WIFI_IDLE
         # Get active wifi connection, if any
         active = self.get_wifi_connection()
         # No connection: idle
@@ -512,7 +514,7 @@ if __name__ == '__main__':
             return False
         return True
 
-    def check_messages(queue):
+    def _check_messages(queue):
         """
         Check if a new message is put into the queue
         If so, read the message from queue and display it
@@ -531,7 +533,7 @@ if __name__ == '__main__':
     wifi = wifi_service(message_queue)
 
     # Start  process to monitor the message queue
-    message_listener = Process(target=check_messages, args=(message_queue,))
+    message_listener = Process(target=_check_messages, args=(message_queue,))
     message_listener.start()
 
     # Show menu with test options
@@ -555,7 +557,7 @@ if __name__ == '__main__':
         # Get user input
         try:
             function_nr = int(input(input_selection))
-        except:
+        except ValueError:
             function_nr = -1
 
         # Execute selected function
