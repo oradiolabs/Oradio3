@@ -1,34 +1,41 @@
-# Pylint regels voor PEP 8
 [MASTER]
+# Files or directories to ignore (commonly virtual environments)
 ignore=venv
+
+# Optional: load additional pylint plugins (not needed for basic PEP8 checking)
 load-plugins=
 
 [MESSAGES CONTROL]
-# Deze waarschuwingen worden uitgeschakeld:
+# Disable specific messages that are not strict PEP8 violations or often overly verbose
 # C0114: missing-module-docstring
 # C0115: missing-class-docstring
 # C0116: missing-function-docstring
-# R0903: too-few-public-methods
+# R0903: too-few-public-methods (e.g. for simple data classes)
 disable=C0114, C0115, C0116, R0903
 
 [FORMAT]
-# Maximale lengte van regels volgens PEP8
+# PEP8 recommends a maximum line length of 79 characters
 max-line-length=79
+
+# Indentation settings (4 spaces, as per PEP8)
 indent-string='    '
 indent-after-paren=4
 
 [DESIGN]
+# Complexity limits — these can be adjusted for your project size
 max-args=5
 max-locals=15
 max-returns=6
 max-branches=12
 max-statements=50
-max-line-length=79
 max-attributes=10
 max-nested-blocks=5
 
 [BASIC]
+# Allow commonly used short variable names (like loop counters)
 good-names=i,j,k,ex,Run,_
+
+# Regular expressions for naming conventions (PEP8: snake_case and PascalCase)
 variable-rgx=[a-z_][a-z0-9_]{2,30}$
 argument-rgx=[a-z_][a-z0-9_]{2,30}$
 attr-rgx=[a-z_][a-z0-9_]{2,30}$
@@ -36,9 +43,11 @@ class-rgx=[A-Z_][a-zA-Z0-9]+$
 function-rgx=[a-z_][a-z0-9_]{2,30}$
 
 [TYPECHECK]
+# Suppress warnings for dynamically defined attributes, e.g., mixins or dynamic classes
 ignore-mixin-members=yes
 
 [REPORTS]
+# Cleaner output: no full reports, just messages and scores
 output-format=colorized
 reports=no
 score=yes
