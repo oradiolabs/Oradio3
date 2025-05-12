@@ -30,7 +30,7 @@ from pathlib import Path
 from pydantic import BaseModel
 from typing import Optional
 from fastapi import FastAPI, BackgroundTasks, Request
-from fastapi.responses import FileResponse, RedirectResponse
+from fastapi.responses import FileResponse, RedirectResponse,JSONResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
