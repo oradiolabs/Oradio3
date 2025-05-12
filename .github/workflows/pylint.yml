@@ -1,6 +1,6 @@
 name: Pylint
 
-on: [push]
+on: [push, pull_request]
 
 jobs:
   build:
@@ -36,12 +36,10 @@ jobs:
         # web_service
         pip install pydantic fastapi JinJa2 uvicorn python-multipart
     - name: Analysing the code with pylint
-      # C0301: long lines
-      # C0103: naming errors
-      # C0410: mutiple imports on 1 line
+      # Use .pylintrc 
       # Prevent MPDClient no-member errors, as they are false positives
       run: |
-        pylint $(git ls-files '*.py') --disable=C0301,C0103,C0410 --generated-members=self.client.*,mpd.client.* --output=pylint_result.txt || true
+        pylint $(git ls-files '*.py') --rcfile=.pylintrc --generated-members=self.client.*,mpd.client.* --output=pylint_result.txt || true
     - name: Upload pylint result
       uses: actions/upload-artifact@v4
       with:
