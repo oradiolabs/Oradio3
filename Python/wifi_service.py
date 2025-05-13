@@ -36,6 +36,7 @@ from oradio_const import *
 
 ##### LOCAL constants ####################
 _AP_HOST = "108.156.60.1"  # wsj.com
+_TIMEOUT = 300  # Wait up to 5 minutes to connect to network
 
 class WIFIService():
     """
@@ -208,7 +209,7 @@ class WIFIService():
                 try:
                     oradio_log.debug("Failed to activate '%s', activate '%s'", new_ssid, old_ssid)
                     # nmcli.connection.up(name: str, wait: int = None) -> None # Default timeout is 90 seconds
-                    nmcli.connection.up(old_ssid)
+                    nmcli.connection.up(old_ssid, _TIMEOUT)
                 except Exception as ex_err:
                     oradio_log.error("Failed to activate '%s', error = %s", old_ssid, ex_err)
                     if new_ssid == ACCESS_POINT_SSID:
