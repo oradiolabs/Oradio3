@@ -36,7 +36,7 @@ from fastapi.templating import Jinja2Templates
 
 ##### oradio modules ####################
 from oradio_logging import oradio_log
-from wifi_service import wifi_service
+from wifi_service import WIFIService
 from mpd_control import MPDControl
 
 ##### GLOBAL constants ####################
@@ -253,7 +253,7 @@ async def status(request: Request):
     serial = stream.read().strip()
 
     # Get wifi network Oradio is connected to
-    wifi = wifi_service(api_app.state.message_queue)
+    wifi = WIFIService(api_app.state.message_queue)
     network = wifi.get_wifi_connection()
 
     # Set playlists page and lists info as context
@@ -273,7 +273,7 @@ async def captiveportal(request: Request):
     oradio_log.debug("Serving captive portal page")
 
     # Get access to wifi functions
-    wifi = wifi_service(api_app.state.message_queue)
+    wifi = WIFIService(api_app.state.message_queue)
     context = {"networks": wifi.get_wifi_networks()}
 
     # Return active portal page and available networks as context
@@ -302,7 +302,7 @@ def wifi_connect_task(credentials: credentials):
     """
     oradio_log.debug("trying to connect to ssid=%s, pswd=%s", credentials.ssid, credentials.pswd)
     # Get access to wifi functions
-    wifi = wifi_service(api_app.state.message_queue)
+    wifi = WIFIService(api_app.state.message_queue)
 
     # Try to connect is handled is separate thread
     wifi.wifi_connect(credentials.ssid, credentials.pswd)
@@ -318,7 +318,7 @@ async def catch_all(request: Request):
     """
     oradio_log.debug("Catchall")
     # Get access to wifi functions
-    wifi = wifi_service(api_app.state.message_queue)
+    wifi = WIFIService(api_app.state.message_queue)
 
     # Access point is active, so serve captive portal
     if wifi.get_wifi_connection() == ACCESS_POINT_SSID:

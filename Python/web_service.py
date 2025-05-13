@@ -36,14 +36,14 @@ import uvicorn
 from oradio_logging import oradio_log
 from oradio_utils import run_shell_script
 from fastapi_server import api_app
-from wifi_service import wifi_service
+from wifi_service import WIFIService
 
 ##### GLOBAL constants ####################
 from oradio_const import *
 
 ##### LOCAL constants ####################
-WEB_SERVICE_TIMEOUT  = 600  # 10 minutes
-DEBUG_ALIVE_INTERVAL = 60   # Only show debug message every 60 seconds
+_WEB_SERVICE_TIMEOUT  = 600  # 10 minutes
+_DEBUG_ALIVE_INTERVAL = 60   # Only show debug message every 60 seconds
 
 class Server(uvicorn.Server):
     """
@@ -83,7 +83,7 @@ class web_service():
         self.error = None
 
         # Register timeout after which the access point is stopped
-        self.timeout = WEB_SERVICE_TIMEOUT
+        self.timeout = _WEB_SERVICE_TIMEOUT
 
         # Create and store an event for restarting the timeout counter
         self.event_reset = Event()
@@ -101,13 +101,13 @@ class web_service():
         api_app.state.event_reset = self.event_reset
 
         # Register wifi service and send wifi status message
-        self.wifi = wifi_service(self.msg_q)
+        self.wifi = WIFIService(self.msg_q)
         self.wifi.send_message()
 
         # Send initial state and error message
-        self.send_web_message()
+        self._send_message()
 
-    def send_web_message(self):
+    def _send_message(self):
         """
         Send web service message
         """
@@ -151,7 +151,7 @@ class web_service():
 
             # Execute main loop as separate thread
             # ==> Don't use reference so that the python interpreter can garbage collect when thread is done
-            Thread(target=self.run, args=(server,)).start()
+            Thread(target=self._run, args=(server,)).start()
 
         else:
             oradio_log.debug("Reset timeout counter of running web service")
@@ -184,7 +184,7 @@ class web_service():
             status = STATE_WEB_SERVICE_IDLE
         return status
 
-    def run(self, server):
+    def _run(self, server):
         """
         Process web server task
         """
@@ -228,7 +228,7 @@ class web_service():
                 if countdown == 0:
                     # Print remaining time before timeout
                     oradio_log.debug("Web server will timeout after %s seconds", int(self.timeout - (time() - self.started)))
-                    countdown = DEBUG_ALIVE_INTERVAL
+                    countdown = _DEBUG_ALIVE_INTERVAL
                 else:
                     countdown -= 1
 
@@ -251,7 +251,7 @@ if __name__ == '__main__':
     # import when running stand-alone
     import subprocess
 
-    def check_server_status():
+    def _check_server_status():
         """ Check if a process is listening on WEB_SERVER_HOST:WEB_SERVER_PORT """
         result = subprocess.run(['wget', '-q', '--spider', f"{WEB_SERVER_HOST}:{WEB_SERVER_PORT}"], stdout=subprocess.DEVNULL)
         if not result.returncode:
@@ -259,7 +259,7 @@ if __name__ == '__main__':
         else:
             return "No active web service found"
 
-    def check_messages(queue):
+    def _check_messages(queue):
         """
         Check if a new message is put into the queue
         If so, read the message from queue and display it
@@ -278,7 +278,7 @@ if __name__ == '__main__':
     oradio_web_service = web_service(message_queue)
 
     # Start  process to monitor the message queue
-    message_listener = Process(target=check_messages, args=(message_queue,))
+    message_listener = Process(target=_check_messages, args=(message_queue,))
     message_listener.start()
 
     # Show menu with test options
@@ -298,7 +298,7 @@ if __name__ == '__main__':
         # Get user input
         try:
             function_nr = int(input(input_selection))
-        except:
+        except ValueError:
             function_nr = -1
 
         # Execute selected function
@@ -310,7 +310,7 @@ if __name__ == '__main__':
                 break
             case 1:
                 print(f"\nMY web service state: {oradio_web_service.get_state()}")
-                print(f"ANY web service state: {check_server_status()}\n")
+                print(f"ANY web service state: {_check_server_status()}\n")
             case 2:
                 print("\nStarting the web service...\n")
                 oradio_web_service.start()

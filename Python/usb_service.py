@@ -32,7 +32,7 @@ from watchdog.events import PatternMatchingEventHandler
 
 ##### oradio modules ####################
 from oradio_logging import oradio_log
-from wifi_service import wifi_service
+from wifi_service import WIFIService
 
 ##### GLOBAL constants ####################
 from oradio_const import *
@@ -52,12 +52,12 @@ class USBMonitor(PatternMatchingEventHandler):
     def on_created(self, event): # when file is created
         # do something, eg. call your function to process the image
         oradio_log.info("%s created", event.src_path)
-        self.service.usb_inserted()
+        self.service._usb_inserted()
 
     def on_deleted(self, event): # when file is deleted
         # do something, eg. call your function to process the image
         oradio_log.info("%s deleted", event.src_path)
-        self.service.usb_removed()
+        self.service._usb_removed()
 
 class usb_service():
     """
@@ -83,7 +83,7 @@ class usb_service():
             # Set USB state
             self.state = STATE_USB_PRESENT
             # Handle wifi credentials
-            self.handle_usb_wifi_credentials()
+            self._handle_usb_wifi_credentials()
         else:
             # Set USB state
             self.state = STATE_USB_ABSENT
@@ -95,9 +95,9 @@ class usb_service():
         self.observer.start()
 
         # Send initial state and error message
-        self.send_usb_message()
+        self._send_message()
 
-    def send_usb_message(self):
+    def _send_message(self):
         """
         Send USB message
         """
@@ -121,7 +121,7 @@ class usb_service():
         """
         return self.state
 
-    def handle_usb_wifi_credentials(self):
+    def _handle_usb_wifi_credentials(self):
         """
         Check if wifi credentials are available on the USB drive root folder
         If exists, then try to connect using the wifi credentials from the file
@@ -169,13 +169,13 @@ class usb_service():
             oradio_log.info("USB wifi credentials found: ssid=%s, password=%s", ssid, pswd)
 
             # Connect to the wifi network
-            wifi_service(self.msg_q).wifi_connect(ssid, pswd)
+            WIFIService(self.msg_q).wifi_connect(ssid, pswd)
 
         else:
             # USB is absent
             oradio_log.info("USB state '%s': Ignore '%s'", self.state, USB_WIFI_FILE)
 
-    def usb_inserted(self):
+    def _usb_inserted(self):
         """
         Register USB drive inserted, check USB label, handle any wifi credentials
         Send state message
@@ -189,12 +189,12 @@ class usb_service():
         self.error = None
 
         # Get wifi credentials
-        self.handle_usb_wifi_credentials()
+        self._handle_usb_wifi_credentials()
 
         # send message
-        self.send_usb_message()
+        self._send_message()
 
-    def usb_removed(self):
+    def _usb_removed(self):
         """
         Register USB drive removed
         Send state message
@@ -206,7 +206,7 @@ class usb_service():
         self.error = None
 
         # send message
-        self.send_usb_message()
+        self._send_message()
 
     def stop(self):
         """
@@ -228,7 +228,7 @@ if __name__ == '__main__':
     # import when running stand-alone
     from multiprocessing import Process, Queue
 
-    def check_messages(queue):
+    def _check_messages(queue):
         """
         Check if a new message is put into the queue
         If so, read the message from queue and display it
@@ -247,7 +247,7 @@ if __name__ == '__main__':
     message_queue = Queue()
 
     # Start  process to monitor the message queue
-    message_listener = Process(target=check_messages, args=(message_queue,))
+    message_listener = Process(target=_check_messages, args=(message_queue,))
     message_listener.start()
 
     # Show menu with test options
@@ -268,7 +268,7 @@ if __name__ == '__main__':
         # Get user input
         try:
             function_nr = int(input(input_selection))
-        except:
+        except ValueError:
             function_nr = -1
 
         # Execute selected function
@@ -287,13 +287,13 @@ if __name__ == '__main__':
             case 2:
                 if monitor:
                     print("\nSimulate 'USB inserted' event...\n")
-                    monitor.usb_inserted()
+                    monitor._usb_inserted()
                 else:
                     print("\nUSB service not running\n")
             case 3:
                 if monitor:
                     print("\nSimulate 'USB removed' event...\n")
-                    monitor.usb_removed()
+                    monitor._usb_removed()
                 else:
                     print("\nUSB service not running\n")
             case 4:
@@ -304,7 +304,7 @@ if __name__ == '__main__':
             case 5:
                 if monitor:
                     print("\nGet USB wifi credentials...\n")
-                    monitor.handle_usb_wifi_credentials()
+                    monitor._handle_usb_wifi_credentials()
                 else:
                     print("\nUSB service not running\n")
             case 6:

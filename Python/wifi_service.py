@@ -37,7 +37,7 @@ from oradio_const import *
 ##### LOCAL constants ####################
 _AP_HOST = "108.156.60.1"  # wsj.com
 
-class wifi_service():
+class WIFIService():
     """
     States and functions related to wifi handling
     - States: Connected to a wifi network, not connected, acting as access point
@@ -53,7 +53,7 @@ class wifi_service():
         self.error = None
         self.saved_ssid = None
 
-    def _send_message(self):
+    def send_message(self):
         """
         Send wifi message
         :param ssid ==> If connection fails then send ssid, so control can 
@@ -91,7 +91,7 @@ class wifi_service():
         if active == ssid:
             oradio_log.debug("Connection '%s' already active", ssid)
             # Inform controller of actual state and error
-            self._send_message()
+            self.send_message()
             # Return success, so caller can continue
             return True
 
@@ -109,7 +109,7 @@ class wifi_service():
                     self.error = MESSAGE_WIFI_FAIL_AP_START
                 else:
                     self.error = MESSAGE_WIFI_FAIL_CONNECT
-                self._send_message()
+                self.send_message()
                 # Return fail, so caller can try to recover
                 return False
 
@@ -127,7 +127,7 @@ class wifi_service():
                     self.error = MESSAGE_WIFI_FAIL_AP_START
                 else:
                     self.error = MESSAGE_WIFI_FAIL_CONNECT
-                self._send_message()
+                self.send_message()
                 # Return fail, so caller can try to recover
                 return False
 
@@ -148,7 +148,7 @@ class wifi_service():
                 oradio_log.error("Failed to add access point '%s', error = %s", ACCESS_POINT_SSID, ex_err)
                 # Inform controller of actual state and error
                 self.error = MESSAGE_WIFI_FAIL_AP_START
-                self._send_message()
+                self.send_message()
                 # Return fail, so caller can try to recover
                 return False
         else:
@@ -168,7 +168,7 @@ class wifi_service():
                     oradio_log.error("Failed to configure wifi network '%s', error = %s", ssid, ex_err)
                     # Inform controller of actual state and error
                     self.error = MESSAGE_WIFI_FAIL_CONNECT
-                    self._send_message()
+                    self.send_message()
                     # Return fail, so caller can try to recover
                     return False
             else:
@@ -242,7 +242,7 @@ class wifi_service():
                     ''' OMJ: NetworkManager now has an orphan. Do we need to do garbage collection? '''
 
         # Inform controller of actual state and error
-        self._send_message()
+        self.send_message()
 
     def _wifi_disconnect(self):
         """
@@ -271,7 +271,7 @@ class wifi_service():
                     self.error = MESSAGE_WIFI_FAIL_AP_STOP
                 else:
                     self.error = MESSAGE_WIFI_FAIL_DISCONNECT
-                self._send_message()
+                self.send_message()
                 # Return fail, so caller can try to recover
                 return False
 
@@ -287,12 +287,12 @@ class wifi_service():
                     self.error = MESSAGE_WIFI_FAIL_AP_STOP
                 else:
                     self.error = MESSAGE_WIFI_FAIL_DISCONNECT
-                self._send_message()
+                self.send_message()
                 # Return fail, so caller can try to recover
                 return False
 
             # Inform controller of actual state, no error
-            self._send_message()
+            self.send_message()
 
         # Return success, so caller can continue
         oradio_log.info("Disconnected from: '%s'", active)
@@ -322,7 +322,7 @@ class wifi_service():
             oradio_log.error("Error during <%s> to configure DNS redirection, error: %s", cmd, error)
             # Inform controller of actual state and error
             self.error = MESSAGE_WIFI_FAIL_AP_START
-            self._send_message()
+            self.send_message()
             # Return fail, so caller can try to recover
             return False
 
@@ -365,7 +365,7 @@ class wifi_service():
             oradio_log.error("Error during <%s> to remove DNS redirection, error: %s", cmd, error)
             # Inform controller of actual state and error
             self.error = MESSAGE_WIFI_FAIL_AP_STOP
-            self._send_message()
+            self.send_message()
             # Return fail, so caller can try to recover
             return False
 
@@ -530,7 +530,7 @@ if __name__ == '__main__':
 
     # Initialize
     message_queue = Queue()
-    wifi = wifi_service(message_queue)
+    wifi = WIFIService(message_queue)
 
     # Start  process to monitor the message queue
     message_listener = Process(target=_check_messages, args=(message_queue,))
