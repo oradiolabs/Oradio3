@@ -5,6 +5,7 @@ PLACEHOLDER_LOGFILE_USB {
 	missingok
 	nocompress
 	rotate 1
+	copytruncate
 }
 
 PLACEHOLDER_LOGFILE_SPOTIFY {
@@ -12,6 +13,7 @@ PLACEHOLDER_LOGFILE_SPOTIFY {
 	missingok
 	nocompress
 	rotate 1
+	copytruncate
 }
 
 PLACEHOLDER_LOGFILE_INSTALL {
@@ -19,6 +21,7 @@ PLACEHOLDER_LOGFILE_INSTALL {
 	missingok
 	nocompress
 	rotate 1
+	copytruncate
 }
 
 PLACEHOLDER_LOGFILE_TRACEBACK {
@@ -26,4 +29,5 @@ PLACEHOLDER_LOGFILE_TRACEBACK {
 	missingok
 	nocompress
 	rotate 1
+	copytruncate
 }
