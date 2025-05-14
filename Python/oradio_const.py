@@ -98,52 +98,15 @@ MESSAGE_STATE_CHANGED = "Volume changed"
 ################## SYSTEM SOUNDS #############################
 SOUND_FILES_DIR = "/home/pi/Oradio3/system_sounds"
 
+################# AUTO MODULE TEST #############################
+AUTO_TEST_SUCCESS = "success"
+AUTO_TEST_ERROR   = "error"
+
 ############# SPOTIFY CONFIG #####################################
 MESSAGE_SPOTIFY_TYPE        = "Spotify message"
 SPOTIFY_EVENT_SOCKET_PORT   = 8010
 MPV_SOCKET = "/home/pi/spotify/mpv-socket"
 
-# MPV_PLAYER COMMANDS ####
-MPV_PLAYERCTL_PLAY  = "play"
-MPV_PLAYERCTL_PAUSE = "pause"
-MPV_PLAYERCTL_STOP  = "stop"
-#MPV_PLAYER STATES ####
-MPV_PLAYERCTL_PLAYING_STATE = "Playing"
-MPV_PLAYERCTL_STOPPED_STATE = "Stopped"
-MPV_PLAYERCTL_PAUSED_STATE  = "Paused"
-
-MPV_PLAYERCTL_COMMAND_NOT_FOUND = "playerctl command not found"
-MPV_PLAYERCTL_COMMAND_ERROR     = "playerctl command failed"
-
-# MPRIS Medaio Player identifier (D-Bus service names, according the  naming convention for the MPRIS2 specification. 
-# It is not a physical file or program, but a logical D-Bus service name 
-# that media players register under when they support MPRIS.
-MPRIS_MPV_PLAYER            = "org.mpris.MediaPlayer2.mpv"
-MPRIS_MEDIA_PLAYER          = "/org/mpris/MediaPlayer2"
-MPRIS_MP2_PLAYER            = "org.mpris.MediaPlayer2.Player"
-MPRIS_DBUS_PROPERTIES       = "org.freedesktop.DBus.Properties"
-MPRIS_MEDIA_PLAYER_SEARCH   = "org/mpris/MediaPlayer2."
-
-# SPOTIFY events and states
-SPOTIFY_APP_STATUS_PLAYING  = "Playing"
-SPOTIFY_APP_STATUS_STOPPED  = "Stopped"
-SPOTIFY_APP_STATUS_PAUSED   = "Paused"
-SPOTIFY_APP_STATUS_CLOSED   = "Closed"
-SPOTIFY_APP_STATUS_ACTIVE   = "Active"
-SPOTIFY_APP_STATUS_CLIENT_CHANGED   = "Client changed"
-
-LIBRESPOT_EVENT_PLAYING         = "playing"
-LIBRESPOT_EVENT_PAUSED          = "paused"
-LIBRESPOT_EVENT_CONNECTED       = "session_connected"
-LIBRESPOT_EVENT_DISCONNECTED    = "session_disconnected"
-LIBRESPOT_EVENT_CLIENT_CHANGED  = "session_client_changed"
-LIBRESPOT_EVENT_CHANGED         = "changed"
-LIBRESPOT_EVENT_STARTED         = "started"
-LIBRESPOT_EVENT_STOPPED         = "stopped"
-LIBRESPOT_EVENT_PRELOADING      = "preloading"
-LIBRESPOT_EVENT_VOLUME          = "volume_set"
-LIBRESPOT_EVENT_VOLUME_CHANGED  = "volume_changed"
-LIBRESPOT_EVENT_NONE            = "no event"
 
 SPOTIFY_CONNECT_PLAYING_EVENT           = "Spotify Connect playing event"
 SPOTIFY_CONNECT_PAUSED_EVENT            = "Spotify Connect paused event"
@@ -159,8 +122,6 @@ SPOTIFY_CONNECT_MPV_MPRIS_PLAYER_NOT_FOUND = "Spotify Connect MPV MPRIS player n
 SPOTIFY_CONNECT_MPV_STATE_OK               = "Spotify Connect MPV State OK"
 SPOTIFY_CONNECT_NO_EVENT                   = "Spotify Connect No Event"
 
-SPOTIFY_CONNECT_CONNECTED       = "Spotify Connect is connected"
-SPOTIFY_CONNECT_NOT_CONNECTED   = "Spotify Connect is NOT connected"
 ##### JSON SCHEMA ########
 MODEL_NAME_NOT_FOUND = "Unknown model name, not found in schemas.json"
 MODEL_NAME_FOUND     = "model name found"
