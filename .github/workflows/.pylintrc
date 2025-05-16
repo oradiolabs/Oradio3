@@ -7,12 +7,9 @@ load-plugins=
 
 [MESSAGES CONTROL]
 # Disable specific messages that are not strict PEP8 violations or often overly verbose
-# C0114: missing-module-docstring
-# C0115: missing-class-docstring
-# C0116: missing-function-docstring
 # C0301: line too long
 # R0903: too-few-public-methods (e.g. for simple data classes)
-disable=C0114, C0115, C0116, C0301, R0903
+disable=C0301, R0903
 
 [FORMAT]
 # PEP8 recommends a maximum line length of 79 characters
