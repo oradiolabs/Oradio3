@@ -107,7 +107,6 @@ MESSAGE_SPOTIFY_TYPE        = "Spotify message"
 SPOTIFY_EVENT_SOCKET_PORT   = 8010
 MPV_SOCKET = "/home/pi/spotify/mpv-socket"
 
-
 SPOTIFY_CONNECT_PLAYING_EVENT           = "Spotify Connect playing event"
 SPOTIFY_CONNECT_PAUSED_EVENT            = "Spotify Connect paused event"
 SPOTIFY_CONNECT_STOPPED_EVENT           = "Spotify Connect stopped event"
