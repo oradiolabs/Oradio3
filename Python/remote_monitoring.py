@@ -26,7 +26,7 @@ import json
 from platform import python_version
 from datetime import datetime
 from threading import Timer
-import subprocess 
+import subprocess
 import requests
 
 ##### oradio modules ####################
@@ -206,7 +206,8 @@ class rms_service():
                 # Send message + files
                 msg_files = {}
                 for file in self.send_files:
-                    msg_files.update({file: open(file, "rb")})
+                    with open(file, "rb") as fp:
+                        msg_files.update(fp)
                 try:
                     response = requests.post(RMS_SERVER_URL, data=msg_data, files=msg_files, timeout=REQUEST_TIMEOUT)
                 except requests.Timeout:
@@ -226,7 +227,7 @@ class rms_service():
                 try:
 #OMJ: Werkt nog niet om een update te doen, omdat source <() niet werkt in subprocess.run()
                     result = subprocess.run(command, shell = True, capture_output = True, encoding = 'utf-8', check=True)
-                    oradio_log.debug("shell script result:\n%s", process.stdout)
+                    oradio_log.debug("shell script result:\n%s", result.stdout)
                 except subprocess.CalledProcessError as ex_err:
                     oradio_log.info("\x1b[38;5;196mERROR: shell script exit code: %d, error: %s\x1b[0m", ex_err.returncode, ex_err.stderr)
 
