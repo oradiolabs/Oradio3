@@ -20,12 +20,14 @@ Created on February 8, 2025
 @summary: Send log messages to remote monitoring service
 """
 import os
+import re
 import glob
 import json
-import requests
 from platform import python_version
 from datetime import datetime
 from threading import Timer
+import subprocess 
+import requests
 
 ##### oradio modules ####################
 from oradio_logging import oradio_log
@@ -119,8 +121,9 @@ class rms_service():
         """
         Setup rms service class variables
         """
-        self.serial     = get_serial()
+        self.serial = get_serial()
         self.send_files = None
+        self.heartbeat_timer = None
 
     def heartbeat_start(self):
         """ If not yet active: start the heartbeat repeat timer and mark as active """
@@ -131,7 +134,7 @@ class rms_service():
             self._send_message(HEARTBEAT)
 
             # Send HEARTBEAT every time the timer expires
-            self.heartbeat_timer = heartbeat(HEARTBEAT_REPEAT_TIME, self._send_message, args={HEARTBEAT,})
+            self.heartbeat_timer = heartbeat(HEARTBEAT_REPEAT_TIME, self._send_message, args=(HEARTBEAT,))
             self.heartbeat_timer.start()
 
             # Mark timer active
@@ -205,7 +208,7 @@ class rms_service():
                 for file in self.send_files:
                     msg_files.update({file: open(file, "rb")})
                 try:
-                    response = requests.post(RMS_SERVER_URL, data=msg_data, files=msg_files)
+                    response = requests.post(RMS_SERVER_URL, data=msg_data, files=msg_files, timeout=REQUEST_TIMEOUT)
                 except requests.Timeout:
                     oradio_log.info("\x1b[38;5;196mERROR: Timeout posting file(s)\x1b[0m")
 
@@ -215,19 +218,17 @@ class rms_service():
                 oradio_log.info("\x1b[38;5;196mERROR: Status code=%s, response.headers=%s\x1b[0m", response.status_code, response.headers)
 
             # Check for command in response, execute in linux shell if exists
-            import re
             match = re.search(r"'command'\s*=>\s*(.*)", response.text)
             if match:
                 # Pass command to linux shell for execution
-                from subprocess import run
                 command = match.group(1).strip()
                 oradio_log.debug("Run command '%s' from RMS server", command)
-                '''OMJ: Werkt nog niet om een update te doen, omdat source <() niet werkt in een sub-rocess '''
-                process = run(command, shell = True, capture_output = True, encoding = 'utf-8')
-                if process.returncode == 0:
+                try:
+#OMJ: Werkt nog niet om een update te doen, omdat source <() niet werkt in subprocess.run()
+                    result = subprocess.run(command, shell = True, capture_output = True, encoding = 'utf-8', check=True)
                     oradio_log.debug("shell script result:\n%s", process.stdout)
-                else:
-                    oradio_log.info("\x1b[38;5;196mERROR: shell script error: %s\x1b[0m", process.stderr)
+                except subprocess.CalledProcessError as ex_err:
+                    oradio_log.info("\x1b[38;5;196mERROR: shell script exit code: %d, error: %s\x1b[0m", ex_err.returncode, ex_err.stderr)
 
 if __name__ == "__main__":
 
@@ -263,16 +264,16 @@ if __name__ == "__main__":
                 break
             case 1:
                 print("\nSend HEARTBEAT test message to Remote Monitoring Service...\n")
-                rms._send_message(HEARTBEAT)
+                rms._send_message(HEARTBEAT)                                            # pylint: disable=protected-access
             case 2:
                 print("\nSend SYS_INFO test message to Remote Monitoring Service...\n")
                 rms.send_sys_info()
             case 3:
                 print("\nSend WARNING test message to Remote Monitoring Service...\n")
-                rms._send_message(WARNING, 'test warning message', 'filename:lineno')
+                rms._send_message(WARNING, 'test warning message', 'filename:lineno')   # pylint: disable=protected-access
             case 4:
                 print("\nSend ERROR test message to Remote Monitoring Service...\n")
-                rms._send_message(ERROR, 'test error message', 'filename:lineno')
+                rms._send_message(ERROR, 'test error message', 'filename:lineno')       # pylint: disable=protected-access
             case 5:
                 print("\nStart heartbeat... Check ORMS for heartbeats\n")
                 rms.heartbeat_start()
