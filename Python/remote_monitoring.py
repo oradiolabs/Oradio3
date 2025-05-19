@@ -217,11 +217,15 @@ class RmsService():
             # Send message + files
             msg_files = {}
             for file in self.send_files:
-                msg_files[file] = (file, open(file, "rb"))
+                msg_files[file] = (file, open(file, "rb"))  # pylint: disable=consider-using-with
             try:
                 response = requests.post(RMS_SERVER_URL, data=msg_data, files=msg_files, timeout=REQUEST_TIMEOUT)
             except requests.Timeout:
                 oradio_log.info("\x1b[38;5;196mERROR: Timeout posting file(s)\x1b[0m")
+
+            # Close after sending
+            for _, (_, fobj) in msg_files.items():
+                fobj.close()
 
         # Check for errors
         if response.status_code != 200:
