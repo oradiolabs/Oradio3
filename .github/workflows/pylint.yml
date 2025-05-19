@@ -50,7 +50,7 @@ jobs:
       # Use .pylintrc 
       # Prevent MPDClient no-member errors, as they are false positives
       run: |
-        pylint "$(git ls-files '*.py')" \
+        pylint $(git ls-files '*.py') \
           --rcfile=.github/workflows/.pylintrc \
           --generated-members=self.client.*,mpd.client.* \
           --output=pylint_result.txt
