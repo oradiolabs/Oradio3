@@ -141,10 +141,10 @@ class RmsService():
         if not HEARTBEAT_REPEAT_TIMER_IS_RUNNING:
 
             # Send HEARTBEAT when starting
-            self._send_message(HEARTBEAT)
+            self.send_message(HEARTBEAT)
 
             # Send HEARTBEAT every time the timer expires
-            self.heartbeat_timer = Hearbeat(HEARTBEAT_REPEAT_TIME, self._send_message, args=(HEARTBEAT,))
+            self.heartbeat_timer = Hearbeat(HEARTBEAT_REPEAT_TIME, self.send_message, args=(HEARTBEAT,))
             self.heartbeat_timer.start()
 
             # Mark timer active
@@ -161,9 +161,9 @@ class RmsService():
 
     def send_sys_info(self):
         """ Wrapper to simplify oradio control """
-        self._send_message(SYS_INFO)
+        self.send_message(SYS_INFO)
 
-    def _send_message(self, msg_type, message = None, function = None):
+    def send_message(self, msg_type, message = None, function = None):
         """
         Format message based on type
         If connected to the internet: send message to Remote Monitoring Service
@@ -266,16 +266,16 @@ if __name__ == "__main__":
                 break
             case 1:
                 print("\nSend HEARTBEAT test message to Remote Monitoring Service...\n")
-                rms._send_message(HEARTBEAT)                                            # pylint: disable=protected-access
+                rms.send_message(HEARTBEAT)
             case 2:
                 print("\nSend SYS_INFO test message to Remote Monitoring Service...\n")
                 rms.send_sys_info()
             case 3:
                 print("\nSend WARNING test message to Remote Monitoring Service...\n")
-                rms._send_message(WARNING, 'test warning message', 'filename:lineno')   # pylint: disable=protected-access
+                rms.send_message(WARNING, 'test warning message', 'filename:lineno')
             case 4:
                 print("\nSend ERROR test message to Remote Monitoring Service...\n")
-                rms._send_message(ERROR, 'test error message', 'filename:lineno')       # pylint: disable=protected-access
+                rms.send_message(ERROR, 'test error message', 'filename:lineno')
             case 5:
                 print("\nStart heartbeat... Check ORMS for heartbeats\n")
                 rms.heartbeat_start()
