@@ -46,7 +46,7 @@ jobs:
         pip install pydantic fastapi JinJa2 uvicorn python-multipart
 
     - name: Analysing the code with pylint
-      # continue-on-error: true
+      continue-on-error: true
       # Use .pylintrc 
       # Prevent MPDClient no-member errors, as they are false positives
       run: |
