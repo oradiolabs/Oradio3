@@ -22,16 +22,17 @@ Created on February 8, 2025
 import os
 import glob
 import json
+import requests
+from platform import python_version
 from datetime import datetime
 from threading import Timer
-import requests
 
 ##### oradio modules ####################
 from oradio_logging import oradio_log
 from oradio_utils import check_internet_connection
 
 ##### GLOBAL constants ####################
-from oradio_const import *
+from oradio_const import ORADIO_LOG_DIR
 
 ##### LOCAL constants ####################
 # Message types
@@ -50,7 +51,7 @@ HEARTBEAT_REPEAT_TIME = 60 * 60     # 1 hour in seconds
 REQUEST_TIMEOUT = 30
 
 # Flag to ensure only 1 heartbeat repeat timer is active
-heartbeat_repeat_timer_is_running = False
+HEARTBEAT_REPEAT_TIMER_IS_RUNNING = False
 
 def get_serial():
     """ Extract serial from hardware """
@@ -67,26 +68,25 @@ def get_temperature():
 def get_sw_version():
     """ Read the contents of the SW serial number file """
     try:
-        with open(SW_LOG_FILE, "r") as f:
-            data = json.load(f)
+        with open(SW_LOG_FILE, "r", encoding="utf-8") as file:
+            data = json.load(file)
         return data["serial"] + data["gitinfo"] + ")"
-    except (FileNotFoundError, json.decoder.JSONDecodeError, KeyError):
+    except (FileNotFoundError, json.JSONDecodeError, KeyError):
         oradio_log.error("'%s': Missing file or invalid content", SW_LOG_FILE)
         return "Invalid SW version"
 
 def get_hw_version():
     """ Read the contents of the HW serial number file """
     try:
-        with open(HW_LOG_FILE, "r") as f:
-            data = json.load(f)
+        with open(HW_LOG_FILE, "r", encoding="utf-8") as file:
+            data = json.load(file)
         return data["serial"] + " (" + data["hw_detected"] + ")"
-    except (FileNotFoundError, json.decoder.JSONDecodeError, KeyError):
+    except (FileNotFoundError, json.JSONDecodeError, KeyError):
         oradio_log.error("'%s': Missing file or invalid content", HW_LOG_FILE)
         return "Invalid HW version"
 
 def get_python_version():
     """Get the current python version """
-    from platform import python_version
     version = python_version()
     return version
 
@@ -124,33 +124,33 @@ class rms_service():
 
     def heartbeat_start(self):
         """ If not yet active: start the heartbeat repeat timer and mark as active """
-        global heartbeat_repeat_timer_is_running
-        if not heartbeat_repeat_timer_is_running:
+        global HEARTBEAT_REPEAT_TIMER_IS_RUNNING
+        if not HEARTBEAT_REPEAT_TIMER_IS_RUNNING:
 
             # Send HEARTBEAT when starting
-            self.send_message(HEARTBEAT)
+            self._send_message(HEARTBEAT)
 
             # Send HEARTBEAT every time the timer expires
-            self.heartbeat_timer = heartbeat(HEARTBEAT_REPEAT_TIME, self.send_message, args={HEARTBEAT,})
+            self.heartbeat_timer = heartbeat(HEARTBEAT_REPEAT_TIME, self._send_message, args={HEARTBEAT,})
             self.heartbeat_timer.start()
 
             # Mark timer active
-            heartbeat_repeat_timer_is_running = True
+            HEARTBEAT_REPEAT_TIMER_IS_RUNNING = True
         else:
             oradio_log.warning("heartbeat repeat timer already active")
 
     def heartbeat_stop(self):
         """ Stop the heartbeat repeat timer and mark as not active """
-        global heartbeat_repeat_timer_is_running
-        if heartbeat_repeat_timer_is_running:
+        global HEARTBEAT_REPEAT_TIMER_IS_RUNNING
+        if HEARTBEAT_REPEAT_TIMER_IS_RUNNING:
             self.heartbeat_timer.cancel()
-            heartbeat_repeat_timer_is_running = False
+            HEARTBEAT_REPEAT_TIMER_IS_RUNNING = False
 
     def send_sys_info(self):
         """ Wrapper to simplify oradio control """
-        self.send_message(SYS_INFO)
+        self._send_message(SYS_INFO)
 
-    def send_message(self, msg_type, message = None, function = None):
+    def _send_message(self, msg_type, message = None, function = None):
         """
         Format message based on type
         If connected to the internet: send message to Remote Monitoring Service
@@ -214,13 +214,28 @@ class rms_service():
                 # We cannot log as ERROR as this might cause a loop
                 oradio_log.info("\x1b[38;5;196mERROR: Status code=%s, response.headers=%s\x1b[0m", response.status_code, response.headers)
 
+            # Check for command in response, execute in linux shell if exists
+            import re
+            match = re.search(r"'command'\s*=>\s*(.*)", response.text)
+            if match:
+                # Pass command to linux shell for execution
+                from subprocess import run
+                command = match.group(1).strip()
+                oradio_log.debug("Run command '%s' from RMS server", command)
+                '''OMJ: Werkt nog niet om een update te doen, omdat source <() niet werkt in een sub-rocess '''
+                process = run(command, shell = True, capture_output = True, encoding = 'utf-8')
+                if process.returncode == 0:
+                    oradio_log.debug("shell script result:\n%s", process.stdout)
+                else:
+                    oradio_log.info("\x1b[38;5;196mERROR: shell script error: %s\x1b[0m", process.stderr)
+
 if __name__ == "__main__":
 
     # Instantiate RMS service
     rms = rms_service()
 
     # Show menu with test options
-    input_selection = ("Select a function, input the number.\n"
+    INPUT_SELECTION = ("Select a function, input the number.\n"
                        " 0-quit\n"
                        " 1-test heartbeat\n"
                        " 2-test sys_info\n"
@@ -236,29 +251,28 @@ if __name__ == "__main__":
 
         # Get user input
         try:
-            function_nr = int(input(input_selection))
-        except:
-            function_nr = -1
+            FUNCTION_NR = int(input(INPUT_SELECTION))
+        except ValueError:
+            FUNCTION_NR = -1
 
         # Execute selected function
-        match function_nr:
+        match FUNCTION_NR:
             case 0:
                 print("\nExiting test program...\n")
                 rms.heartbeat_stop()
                 break
             case 1:
                 print("\nSend HEARTBEAT test message to Remote Monitoring Service...\n")
-                rms.send_message(HEARTBEAT)
-                rms.heartbeat_start()
+                rms._send_message(HEARTBEAT)
             case 2:
                 print("\nSend SYS_INFO test message to Remote Monitoring Service...\n")
                 rms.send_sys_info()
             case 3:
                 print("\nSend WARNING test message to Remote Monitoring Service...\n")
-                rms.send_message(WARNING, 'test warning message', 'filename:lineno')
+                rms._send_message(WARNING, 'test warning message', 'filename:lineno')
             case 4:
                 print("\nSend ERROR test message to Remote Monitoring Service...\n")
-                rms.send_message(ERROR, 'test error message', 'filename:lineno')
+                rms._send_message(ERROR, 'test error message', 'filename:lineno')
             case 5:
                 print("\nStart heartbeat... Check ORMS for heartbeats\n")
                 rms.heartbeat_start()
