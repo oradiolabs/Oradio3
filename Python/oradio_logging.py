@@ -88,8 +88,8 @@ class RemoteMonitoringHandler(python_logging.Handler):
     def emit(self, record):
         if record.levelno in (WARNING, ERROR):
             # Import here to avoid circular import
-            from remote_monitoring import rms_service
-            rms_service().send_message(record.levelname, record.message, f"{record.filename}:{record.lineno}")
+            from remote_monitoring import RmsService
+            RmsService().send_message(record.levelname, record.message, f"{record.filename}:{record.lineno}")
 
 # Ensure logging directory exists
 os.makedirs(ORADIO_LOG_DIR, exist_ok=True)
