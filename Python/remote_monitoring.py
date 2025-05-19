@@ -216,9 +216,8 @@ class RmsService():
         else:
             # Send message + files
             msg_files = {}
-            for filename in self.send_files:
-                with open(filename, "rb") as file:
-                    msg_files.update(file)
+            for file in self.send_files:
+                msg_files[file] = (file, open(file, "rb"))
             try:
                 response = requests.post(RMS_SERVER_URL, data=msg_data, files=msg_files, timeout=REQUEST_TIMEOUT)
             except requests.Timeout:
