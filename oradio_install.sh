@@ -24,19 +24,18 @@ YELLOW='\033[1;93m'
 GREEN='\033[1;32m'
 NC='\033[0m'
 
-# Initialize flag for calling scripts to test on
-RETURN=0
-
 # The script uses bash constructs and changes the environment
-if [ ! "$BASH_VERSION" ] || [ ! "$0" == "-bash" ]; then
-	echo -e "${RED}Use 'source $0' to run this script${NC}" 1>&2
-	# Stop with error flag
-	RETURN=1
-	return
+if [ -z "$BASH_VERSION" ]; then
+    echo "${RED}This script requires bash. Try again with: bash $0${NC}"
+    exit 1
 fi
 
-# Get the path where the script is running
+# Get the script name and path
+SCRIPT_NAME=$(basename $BASH_SOURCE)
 SCRIPT_PATH=$( cd -- "$( dirname -- "${BASH_SOURCE}" )" &> /dev/null && pwd )
+
+# Working directory
+cd $SCRIPT_PATH
 
 # Location of Python files
 PYTHON_PATH=$SCRIPT_PATH/Python
@@ -61,7 +60,7 @@ LOGFILE_TRACEBACK=$LOGGING_PATH/traceback.log
 exec > >(tee -a $LOGFILE_INSTALL) 2>&1
 
 # When leaving this script stop redirection and wait until redirect process has finished
-trap 'exec > /dev/tty 2>&1; wait' RETURN
+trap 'exec > /dev/tty 2>&1; wait' EXIT
 
 # Script is for Bookworm 64bit Lite
 BOOKWORM64="Debian GNU/Linux 12 (bookworm)"
@@ -69,15 +68,14 @@ OSVERSION=$(lsb_release -a | grep "Description:" | cut -d$'\t' -f2)
 if [ "$OSVERSION" != "$BOOKWORM64" ]; then
 	echo -e "${RED}Unsupported OS version: $OSVERSION${NC}"
 	# Stop with error flag
-	RETURN=1
-	return
+	exit 1
 fi
 
 # Network domain name
 HOSTNAME="oradio"
 
 # Clear flag indicating reboot required to complete the installation
-unset REBOOT_AND_CONTINUE
+unset REBOOT_NEEDED
 
 # Clear flag indicating installation error
 unset INSTALL_ERROR
@@ -112,7 +110,7 @@ function install_resource {
 			sed -i "s/PLACEHOLDER_LOGFILE_TRACEBACK/$replace/g" $1
 		fi
 
-		if ! sudo diff $1 $2 >/dev/null 2>&1; then
+		if ! sudo cmp -s $1 $2 >/dev/null 2>&1; then
 			# Install the configuration
 			sudo cp $1 $2
 
@@ -129,17 +127,42 @@ function install_resource {
 
 ########## INITIALIZE END ##########
 
-if ! [ -f $HOME/.bashrc.backup ]; then # Execute if this script is NOT automatically started after reboot
+if [ "$1" != "--continue" ]; then
 
 ########## INITIAL RUN BEGIN ##########
 
 	# Progress report
-	echo -e "${GREEN}$(date +'%Y-%m-%d %H:%M:%S'): Starting '$BASH_SOURCE'${NC}"
+	echo -e "${GREEN}$(date +'%Y-%m-%d %H:%M:%S'): Starting '$SCRIPT_NAME'${NC}"
 
 ########## OS PACKAGES BEGIN ##########
 
-	# Update the package lists
-	sudo apt update
+	# Update the package lists if too old
+	MAX_AGE=$((6 * 3600))  # 6 hours in seconds
+
+	# Get the newest modification time from files in the apt lists directory
+	APT_LISTS_DIR="/var/lib/apt/lists"
+	last_update=$(find "$APT_LISTS_DIR" -type f -printf "%T@\\n" 2>/dev/null | sort -n | tail -1)
+
+	# If no update history, run apt-get update
+	if [ -z "$last_update" ]; then
+	  echo "No update history found. Running apt-get update"
+	  sudo apt-get update
+	else
+		# Convert to integer
+		last_update=${last_update%.*}
+
+		# Get current time
+		current_time=$(date +%s)
+		age=$((current_time - last_update))
+
+		if [ "$age" -gt "$MAX_AGE" ]; then
+		  echo "Last apt-get update was more than 6 hours ago. Running update..."
+		  sudo apt-get update
+		else
+		  echo "apt-get update was run less than 6 hours ago. Skipping."
+		fi
+	fi
+
 	# NOTE: We do not upgrade: https://forums.raspberrypi.com/viewtopic.php?p=2310861&hilit=oradio#p2310861
 
 ########## OS PACKAGES END ##########
@@ -150,8 +173,14 @@ if ! [ -f $HOME/.bashrc.backup ]; then # Execute if this script is NOT automatic
 #***************************************************************#
 #   Add any additionally required packages to 'PACKAGES'        #
 #***************************************************************#
-	PACKAGES="jq python3-dev libasound2-dev libasound2-plugin-equal mpd mpc iptables"
-	dpkg --verify $PACKAGES >/dev/null 2>&1 || sudo apt install -y $PACKAGES
+	PACKAGES="git jq python3-dev libasound2-dev libasound2-plugin-equal mpd mpc iptables"
+
+	# Check which packages are not yet installed
+	MISSING_PKGS=$(dpkg -l $PACKAGES 2>/dev/null | grep '^i' | tr ':' ' ' | awk '{print $2}' | sort)
+	TO_INSTALL=$(comm -23 <(echo "$PACKAGES" | tr ' ' '\n' | sort) <(echo "$MISSING_PKGS"))
+
+	# Install missing packages
+	[ -n "$TO_INSTALL" ] && sudo apt-get install -y $TO_INSTALL
 
 	# Progress report
 	echo -e "${GREEN}Oradio3 packages installed and up to date${NC}"
@@ -161,11 +190,11 @@ if ! [ -f $HOME/.bashrc.backup ]; then # Execute if this script is NOT automatic
 ########## PYTHON BEGIN ##########
 
 	# Configure Python virtual environment
-	if [ -v $VIRTUAL_ENV ]; then
+	if [ ! -d ~/.venv ]; then
 		# Prepare python virtual environment
 		python3 -m venv ~/.venv
 
-		# Activate the python virtual environment in current environemnt
+		# Activate the python virtual environment in current environment
 		source ~/.venv/bin/activate
 
 		# Activate python virtual environment when logging in: add if not yet present
@@ -183,7 +212,23 @@ if ! [ -f $HOME/.bashrc.backup ]; then # Execute if this script is NOT automatic
 #***************************************************************#
 	PYTHON="python-mpd2 smbus2 rpi-lgpio concurrent_log_handler requests nmcli pyalsaaudio\
 			vcgencmd watchdog pydantic fastapi JinJa2 uvicorn python-multipart"
-	python3 -m pip install --upgrade --use-pep517 $PYTHON
+
+	# Check which Python packages are not installed or outdated
+	missing_or_outdated=()
+	for pkg in $PYTHON; do
+		if ! python3 -c "import pkg_resources; pkg_resources.require('$pkg')" 2>/dev/null; then
+			missing_or_outdated+=("$pkg")
+		fi
+	done
+
+	# Install or upgrade only those needed
+	if [ ${#missing_or_outdated[@]} -gt 0 ]; then
+		# Upgrade pip and use wheel cache
+		python3 -m pip install --upgrade pip setuptools wheel
+
+		# Install or upgrade packages
+		python3 -m pip install --upgrade --use-pep517 "${missing_or_outdated[@]}"
+	fi
 
 	# Progress report
 	echo -e "${GREEN}Python modules installed and up to date${NC}"
@@ -193,13 +238,13 @@ if ! [ -f $HOME/.bashrc.backup ]; then # Execute if this script is NOT automatic
 ########## CONFIGURATION BEGIN ##########
 
 	# Install boot options
-	install_resource $RESOURCES_PATH/config.txt /boot/firmware/config.txt 'REBOOT_AND_CONTINUE=1'
+	install_resource $RESOURCES_PATH/config.txt /boot/firmware/config.txt 'REBOOT_NEEDED=true'
 
 	# Configure for Oradio3 USB to force load USB-storage device
 	if ! sudo grep -q "usb-storage.quirks=0781:5583:u" /boot/firmware/cmdline.txt; then
 		sudo sed -i 's/$/ usb-storage.quirks=0781:5583:u/' /boot/firmware/cmdline.txt
 		# Reboot required to activate
-		REBOOT_AND_CONTINUE=1
+		REBOOT_NEEDED=true
 	fi
 
 	# Progress report
@@ -208,26 +253,15 @@ if ! [ -f $HOME/.bashrc.backup ]; then # Execute if this script is NOT automatic
 ########## CONFIGURATION END ##########
 
 	# Reboot if required for activation
-	if [ -v REBOOT_AND_CONTINUE ]; then
+	if [ -v REBOOT_NEEDED ]; then
 		# Configure to continue the installation after reboot
-		if ! $(cat $HOME/.bashrc | grep -q $BASH_SOURCE); then
-			# Backup $HOME/.bashrc
-			cp $HOME/.bashrc $HOME/.bashrc.backup
-
-# Write commands to continue installation
-cat << EOL >> $HOME/.bashrc 
-# Enter repository directory
-cd $SCRIPT_PATH
-# Continue installing Oradio3
-source $BASH_SOURCE
-EOL
-		fi
+		sudo grep -qxF "bash $SCRIPT_PATH/$SCRIPT_NAME --continue" ~/.bashrc || echo "bash $SCRIPT_PATH/$SCRIPT_NAME --continue" >> ~/.bashrc
 
 		# Enable raspi-config to auto-login to console
 		sudo raspi-config nonint do_boot_behaviour B2
 
 		# This script will automatically be started after reboot
-		echo -e "${YELLOW}Rebooting: Installation will automatically continue after reboot${NC}"
+		echo -e "${YELLOW}Reboot required: Installation will continue after reboot${NC}"
 		sleep 3 # Flush output to logfile
 		sudo reboot
 	fi
@@ -239,10 +273,10 @@ else # Execute if this script IS automatically started after reboot
 ########## REBOOT RUN BEGIN ##########
 
 	# Progress report
-	echo -e "${GREEN}$(date +'%Y-%m-%d %H:%M:%S'): Continueing '$BASH_SOURCE'${NC}"
+	echo -e "${GREEN}$(date +'%Y-%m-%d %H:%M:%S'): Continue after reboot${NC}"
 
-	# Restore normal behaviour after reboot
-	mv $HOME/.bashrc.backup $HOME/.bashrc
+    # Remove the @reboot line from crontab
+	sudo sed -i "\#^bash $SCRIPT_PATH/$SCRIPT_NAME --continue\$#d" ~/.bashrc
 
 	# Enable raspi-config to auto-login to console
 	sudo raspi-config nonint do_boot_behaviour B1
@@ -259,9 +293,6 @@ sudo raspi-config nonint do_wifi_country NL		# Implicitly activates wifi
 
 # change hostname and hosts mapping to reflect the network domain name
 sudo bash -c "hostnamectl set-hostname ${HOSTNAME} && sed -i \"s/^127.0.1.1.*/127.0.1.1\t${HOSTNAME}/g\" /etc/hosts"
-
-# Set user prompt to reflect new hostname
-export PS1=$VIRTUAL_ENV_PROMPT"\e[01;32m\u@$HOSTNAME\e[00m:\e[01;34m\w \$\e[00m "
 
 # Set Top Level Domain (TLD) to 'local', enabling access via http://oradio.local
 sudo sed -i "s/^.domain-name=.*/domain-name=local/g" /etc/avahi/avahi-daemon.conf
@@ -378,13 +409,22 @@ echo -e "${GREEN}Log files rotation configured${NC}"
 # Configure Spotify connect
 install_resource $RESOURCES_PATH/spotify_event_handler.sh /usr/local/bin/spotify_event_handler.sh 'sudo chmod +x /usr/local/bin/spotify_event_handler.sh'
 
-# Install raspotify which also install the librespot
-#OMJ: Is er een manier om te checken of de laatste versie van librespot al geinstalleerd is?
-curl -sL https://dtcooper.github.io/raspotify/install.sh | sh
+# get librespot installed version, if any
+librespot_installed="v"$(/usr/bin/librespot --version | awk '{print $2}')
 
-# stop and disable raspotify service, we only need librespot
-sudo systemctl stop raspotify
-sudo systemctl disable raspotify
+# Get librespot github release version
+librespot_release=$(curl -s https://api.github.com/repos/librespot-org/librespot/releases/latest | grep '"tag_name":' | cut -d '"' -f4)
+
+if [ "$librespot_installed" = "$librespot_release" ]; then
+    echo "librespot is up to date: $librespot_installed"
+else
+	# Install raspotify which also install the librespot
+	curl -sL https://dtcooper.github.io/raspotify/install.sh | sh
+
+	# stop and disable raspotify service, we only need librespot
+	sudo systemctl stop raspotify
+	sudo systemctl disable raspotify
+fi
 
 # Configure the Librespot service
 install_resource $RESOURCES_PATH/librespot.service /etc/systemd/system/librespot.service 'sudo systemctl enable librespot.service'
@@ -404,8 +444,7 @@ echo -e "${GREEN}Autostart Oradio3 on boot configured${NC}"
 if [ -v INSTALL_ERROR ]; then
 	echo -e "${RED}Installation completed with errors${NC}"
 	# Stop with error flag
-	RETURN=1
-	return
+	exit 1
 fi
 
 ########## CONFIGURATION END ##########
