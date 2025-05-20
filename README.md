@@ -23,15 +23,15 @@ When the Oradio3 has configured itself after first boot SSH into the Oradio3 wit
 
 At the prompt, to _install the latest release_, execute command:
 
-    source <(curl https://oradiolabs.nl/Oradio3/install)
+    bash <(curl https://oradiolabs.nl/Oradio3/install)
 
 Or, at the prompt, to _install the main branch_, execute command:
 
-    source <(curl https://oradiolabs.nl/Oradio3/install) main
+    bash <(curl https://oradiolabs.nl/Oradio3/install) main
 
 Or, at the prompt, to _install your branch_, execute command:
 
-    source <(curl https://oradiolabs.nl/Oradio3/install) <branch name>
+    bash <(curl https://oradiolabs.nl/Oradio3/install) <branch name>
 
 The script will install and configure required packages and services.
 
@@ -40,14 +40,14 @@ Wait for the installation to finish. <ins>Note</ins>: this can take up to half a
 > **Important note for release 0.2.0:**<br>
 > The installation script does not automatically reboot to complete the installation.<br>
 > So keep an eye on the SSH console output and run <code>sudo reboot</code> when prompted.<br>
-> Then SSH back into the Oradio3 and run <code>cd Oradio3; source oradio_install.sh</code><br>
+> Then SSH back into the Oradio3 and run <code>cd Oradio3; bash oradio_install.sh</code><br>
 > Again, when prompted, <code>sudo reboot</code> when prompted.
 
 ## Update
 
 Connect the Oradio3 to your network with internet access and SSH into the Oradio3 and run command:
 
-    source <(curl https://oradiolabs.nl/Oradio3/update)
+    bash <(curl https://oradiolabs.nl/Oradio3/update)
 
 Wait for the installation to finish. <ins>Note</ins>: this can take up to 10 minutes.
 
