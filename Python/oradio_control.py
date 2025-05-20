@@ -37,7 +37,7 @@ from mpd_control import MPDControl
 from led_control import LEDControl
 from play_system_sound import PlaySystemSound
 from touch_buttons import TouchButtons
-from remote_monitoring import rms_service
+from remote_monitoring import RmsService
 
 ##### GLOBAL constants ####################
 from oradio_const import *
@@ -45,7 +45,7 @@ from oradio_const import *
 ##### LOCAL constants ####################
 
 # Instantiate remote monitor
-remote_monitor = rms_service()
+remote_monitor = RmsService()
 
 # Send system info to Remote Monitoring Service
 remote_monitor.send_sys_info()
