@@ -1,0 +1,14 @@
+# Placeholders will be modified by ../oradio_install.sh script
+
+[Unit]
+Description=Wait for user mpv.service
+After=multi-user.target
+Before=autostart.service
+
+[Service]
+Type=oneshot
+ExecStart=SHELL_SCRIPT_PATH/wait-for-mpv.sh
+
+[Install]
+WantedBy=multi-user.target
+

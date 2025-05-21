@@ -2,7 +2,9 @@
 
 [Unit]
 Description=Librespot
-After=network.target
+After=network-online.target avahi-daemon.service
+Wants=network-online.target avahi-daemon.service
+Requires=publishing_oradio_librespot.service
 
 [Service]
 # Controls where file descriptor 1 (stdout) and 2 (stderr) of the executed processes is connected to
@@ -13,16 +15,24 @@ StandardError=append:PLACEHOLDER_LOGFILE_SPOTIFY
 ExecStartPre=/bin/bash -c 'echo "0" > PLACEHOLDER_SPOTIFY_PATH/spotactive.flag'
 ExecStartPre=/bin/bash -c 'echo "0" > PLACEHOLDER_SPOTIFY_PATH/spotplaying.flag'
 
-ExecStart=/usr/bin/librespot \
-    --name Oradio \
-    --initial-volume 100 \
-    --volume-ctrl fixed \
-    --enable-volume-normalisation \
-    --normalisation-pregain 3.0 \
-    --device-type avr \
-    --autoplay on \
-    --device SpotCon_in \
-    --onevent /usr/local/bin/spotify_event_handler.sh
+Environment="LIBRESPOT_ZEROCONF_PORT=45305"
+Environment="LIBRESPOT_INITIAL_VOLUME=100"
+Environment="LIBRESPOT_DEVICE=SpotCon_in"
+Environment="LIBRESPOT_ENABLE_VOLUME_NORMALISATION=on"
+Environment="LIBRESPOT_DISABLE_AUDIO_CACHE="
+Environment="LIBRESPOT_AUTOPLAY=on"
+Environment="LIBRESPOT_SYSTEM_CACHE=/home/pi/Oradio3"
+Environment="LIBRESPOT_BACKEND=alsa"
+Environment="LIBRESPOT_NAME=mijnOradio"
+Environment="LIBRESPOT_VERBOSE="
+Environment="LIBRESPOT_ONEVENT=/home/pi/Oradio3/Python/librespot_event_handler.py"
+Environment="LIBRESPOT_DEVICE_TYPE=avr"
+Environment="LIBRESPOT_VOLUME_CTRL=log"
+Environment="LIBRESPOT_VOLUME_RANGE=100"
+# initial audio-cache buffer for stream interruption of 6 seconds max
+#Environment="LIBRESPOT_INITIAL_BUFFER=262144"
+
+ExecStart=/usr/bin/librespot --bitrate 320 --backend pipe --device /home/pi/Oradio3/Spotify/librespot-pipe
 
 Restart=always
 RestartSec=10

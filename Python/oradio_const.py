@@ -101,39 +101,14 @@ MESSAGE_STATE_CHANGED = "Volume changed"
 ################## SYSTEM SOUNDS #############################
 SOUND_FILES_DIR = "/home/pi/Oradio3/system_sounds"
 
+################# AUTO MODULE TEST #############################
+AUTO_TEST_SUCCESS = "success"
+AUTO_TEST_ERROR   = "error"
+
 ############# SPOTIFY CONFIG #####################################
 MESSAGE_SPOTIFY_TYPE        = "Spotify message"
 SPOTIFY_EVENT_SOCKET_PORT   = 8010
 MPV_SOCKET = "/home/pi/spotify/mpv-socket"
-
-# MPV_PLAYER COMMANDS ####
-MPV_PLAYERCTL_PLAY  = "play"
-MPV_PLAYERCTL_PAUSE = "pause"
-MPV_PLAYERCTL_STOP  = "stop"
-#MPV_PLAYER STATES ####
-MPV_PLAYERCTL_PLAYING_STATE = "Playing"
-MPV_PLAYERCTL_STOPPED_STATE = "Stopped"
-MPV_PLAYERCTL_PAUSED_STATE  = "Paused"
-
-MPV_PLAYERCTL_COMMAND_NOT_FOUND = "playerctl command not found"
-MPV_PLAYERCTL_COMMAND_ERROR     = "playerctl command failed"
-
-# MPRIS Medaio Player identifier (D-Bus service names, according the  naming convention for the MPRIS2 specification. 
-# It is not a physical file or program, but a logical D-Bus service name 
-# that media players register under when they support MPRIS.
-MPRIS_MPV_PLAYER            = "org.mpris.MediaPlayer2.mpv"
-MPRIS_MEDIA_PLAYER          = "/org/mpris/MediaPlayer2"
-MPRIS_MP2_PLAYER            = "org.mpris.MediaPlayer2.Player"
-MPRIS_DBUS_PROPERTIES       = "org.freedesktop.DBus.Properties"
-MPRIS_MEDIA_PLAYER_SEARCH   = "org/mpris/MediaPlayer2."
-
-# SPOTIFY events and states
-SPOTIFY_APP_STATUS_PLAYING      = "Playing"
-SPOTIFY_APP_STATUS_STOPPED      = "Stopped"
-SPOTIFY_APP_STATUS_PAUSED       = "Paused"
-SPOTIFY_APP_STATUS_DISCONNECTED = "Disconnected"
-SPOTIFY_APP_STATUS_CONNECTED    = "Connected"
-SPOTIFY_APP_STATUS_CLIENT_CHANGED = "Client changed"
 
 SPOTIFY_CONNECT_PLAYING_EVENT           = "Spotify Connect playing event"
 SPOTIFY_CONNECT_PAUSED_EVENT            = "Spotify Connect paused event"
@@ -147,9 +122,8 @@ SPOTIFY_CONNECT_MPV_SERVICE_NOT_ACTIVE  = "Spotify Connect MPV service not activ
 SPOTIFY_CONNECT_MPV_SERVICE_IS_ACTIVE   = "Spotify Connect MPV service is active"
 SPOTIFY_CONNECT_MPV_MPRIS_PLAYER_NOT_FOUND = "Spotify Connect MPV MPRIS player not found"
 SPOTIFY_CONNECT_MPV_STATE_OK               = "Spotify Connect MPV State OK"
+SPOTIFY_CONNECT_NO_EVENT                   = "Spotify Connect No Event"
 
-SPOTIFY_CONNECT_CONNECTED = "Spotify Connect is connected"
-SPOTIFY_CONNECT_NOT_CONNECTED = "Spotify Connect is NOT connected"
 ##### JSON SCHEMA ########
 MODEL_NAME_NOT_FOUND = "Unknown model name, not found in schemas.json"
 MODEL_NAME_FOUND     = "model name found"
