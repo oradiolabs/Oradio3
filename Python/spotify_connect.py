@@ -103,7 +103,7 @@ class SpotifyConnect():
                     message["state"] = SPOTIFY_CONNECT_PLAYING_EVENT
                     self.spotify_app_status = SPOTIFY_APP_STATUS_PLAYING
                     self.spotify_connected_state = SPOTIFY_CONNECT_CONNECTED
-                    self.spotify_client_id = librespot_client_id                                    
+                    self.spotify_client_id = librespot_client_id
                 case 'paused':
                     message["state"] = SPOTIFY_CONNECT_PAUSED_EVENT
                     self.spotify_app_status = SPOTIFY_APP_STATUS_PAUSED                    
