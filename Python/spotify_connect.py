@@ -887,7 +887,7 @@ if __name__ == "__main__":
                 queue_event = librespot_connect_queue_sequence[event_index]
                 queue_status, message = _wait_for_queue_messages(msg_queue, msg_model)
                 print(queue_status, message)
-                if queue_status == "MESSAGE_TIMEOUT":
+                if queue_status == MESSAGE_TIMEOUT:
                     if queue_event == SPOTIFY_CONNECT_NO_EVENT:
                         # timeout of 2 seconds, as this librespot event should not be passed into queue
                         # so if timeout, it is correct.
@@ -927,7 +927,7 @@ if __name__ == "__main__":
 
                 queue_status, message = _wait_for_queue_messages(msg_queue, msg_model)
                 print(queue_status, message)
-                if queue_status == "MESSAGE_TIMEOUT":
+                if queue_status == MESSAGE_TIMEOUT:
                     if queue_event == SPOTIFY_CONNECT_NO_EVENT:
                         # timeout of 2 seconds, as this librespot event should not be passed into queue
                         # so if timeout, it is correct.

@@ -9,9 +9,6 @@ Wants=network.target sound.target
 Requires=dbus.service
 
 [Service]
-
-User=PLACEHOLDER_USER
-Group=PLACEHOLDER_GROUP
 Environment="DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/1000/bus"
 ExecStart=/usr/bin/mpv PLACEHOLDER_SPOTIFY_PATH/librespot-pipe
 # sometimes dbus.service is running but clients can get failure, so retry with a restart on-failure

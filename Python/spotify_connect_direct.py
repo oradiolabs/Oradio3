@@ -41,7 +41,7 @@ from oradio_logging import oradio_log
 ALSA_MIXER_SPOTCON = "VolumeSpotCon1"
 # the first volume controller of Spotify in asound.conf which is put to 0% if state is off
 
-class SpotifyConnect:
+class SpotifyConnectX:
     # Define the flag file paths as class constants.
     ACTIVE_FLAG_FILE = "/home/pi/Oradio3/Spotify/spotactive.flag"
     PLAYING_FLAG_FILE = "/home/pi/Oradio3/Spotify/spotplaying.flag"

@@ -49,6 +49,7 @@ RESOURCES_PATH=$SCRIPT_PATH/install_resources
 #location of the shell scripts
 SHELL_SCRIPT_PATH=$SCRIPT_PATH/shell_scripts
 
+
 # Ensure required directories exist
 mkdir -p $LOGGING_PATH
 mkdir -p $SPOTIFY_PATH
@@ -157,7 +158,7 @@ if ! [ -f $HOME/.bashrc.backup ]; then # Execute if this script is NOT automatic
 #***************************************************************#
 #   Add any additionally required packages to 'PACKAGES'        #
 #***************************************************************#
-	PACKAGES="jq python3-dev libasound2-dev libasound2-plugin-equal mpd mpc iptables"
+	PACKAGES="jq python3-dev libasound2-dev libasound2-plugin-equal mpd mpc iptables mpv libmpv-dev python3-mpv mpv-mpris avahi-utils"
 	dpkg --verify $PACKAGES >/dev/null 2>&1 || sudo apt install -y $PACKAGES
 
 	# Progress report
@@ -189,7 +190,7 @@ if ! [ -f $HOME/.bashrc.backup ]; then # Execute if this script is NOT automatic
 #   Add any additionally required Python modules to 'PYTHON'    #
 #***************************************************************#
 	PYTHON="python-mpd2 smbus2 rpi-lgpio concurrent_log_handler requests nmcli pyalsaaudio\
-			vcgencmd watchdog pydantic fastapi JinJa2 uvicorn python-multipart pydbus python-mpv"
+			vcgencmd watchdog pydantic fastapi JinJa2 uvicorn python-multipart dbus-python python-mpv pydevd"
 	python3 -m pip install --upgrade --use-pep517 $PYTHON
 
 	# Progress report
@@ -398,13 +399,19 @@ install_resource $RESOURCES_PATH/librespot.service /etc/systemd/system/librespot
 install_resource $RESOURCES_PATH/publishing_oradio_librespot.service /etc/systemd/system/publishing_oradio_librespot.service 'sudo systemctl enable publishing_oradio_librespot.service'
 install_resource $RESOURCES_PATH/oradio-spotify.service /etc/avahi/services/oradio-spotify.service
 # configure MPV service as user service
-mkdir /home/pi/.config/systemd/user
+sudo mkdir -p /home/pi/.config/systemd/user
+sudo chown -R pi:pi /home/pi/.config
+SPOTIFY_PIPE=$SPOTIFY_PATH/librespot-pipe
+sudo mkfifo $SPOTIFY_PIPE
+chmod 666 $SPOTIFY_PIPE
+
 install_resource $RESOURCES_PATH/mpv.service /home/pi/.config/systemd/user/mpv.service 'systemctl --user enable mpv.service'
+sudo chown pi:pi /home/pi/.config/systemd/user/mpv.service
 install_resource $RESOURCES_PATH/mpv.conf /etc/mpv/mpv.conf
 #configure nsswitch at /etc
 sudo sed -i "s/^.domain-name=.*/domain-name=local/g" /etc/nsswitch.conf
 sudo sed -i "s/mdns4_minimal/myhostname mdsn4_minimal/g" /etc/nsswitch.conf
-
+sudo chmod +x $SHELL_SCRIPT_PATH
 #
 
 # Progress report

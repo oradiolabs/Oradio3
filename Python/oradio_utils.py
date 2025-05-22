@@ -58,6 +58,24 @@ def is_service_active(service_name):
         oradio_log.error(f"Error checking {service_name} service, error-status=: {err}")
         return False
 
+def is_user_service_active(service_name):
+    '''
+    Check if a user service is running
+    :param service_name = name of the service
+    :return True/False : True when active
+    '''
+    try:
+        # Run systemctl is-active command
+        result = subprocess.run(
+            ["systemctl", "--user", "is-active", service_name],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True
+        )
+        return result.stdout.strip() == "active"
+    except Exception as err:
+        oradio_log.error(f"Error checking {service_name} service, error-status=: {err}")
+        return False
 
 def json_schema_to_pydantic(name: str, schema: Dict[str,Any]) -> BaseModel:
     '''

@@ -54,7 +54,8 @@ remote_monitor.heartbeat_start()
 
 
 # Use the spotify_connect_direct
-from spotify_connect_direct import SpotifyConnect
+#from spotify_connect_direct import SpotifyConnect
+from spotify_connect import SpotifyConnect
 
 
 spotify_connect_connected = threading.Event() # track status Spotify connected
