@@ -408,6 +408,7 @@ chmod 666 $SPOTIFY_PIPE
 install_resource $RESOURCES_PATH/mpv.service /home/pi/.config/systemd/user/mpv.service 'systemctl --user enable mpv.service'
 sudo chown pi:pi /home/pi/.config/systemd/user/mpv.service
 install_resource $RESOURCES_PATH/mpv.conf /etc/mpv/mpv.conf
+install_resource $RESOURCES_PATH/wait_for_mpv.service /etc/systemd/system/wait_for_mpv.service 'sudo systemctl enable wait_for_mpv.service'
 #configure nsswitch at /etc
 sudo sed -i "s/^.domain-name=.*/domain-name=local/g" /etc/nsswitch.conf
 sudo sed -i "s/mdns4_minimal/myhostname mdsn4_minimal/g" /etc/nsswitch.conf

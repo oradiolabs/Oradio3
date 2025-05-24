@@ -4,13 +4,21 @@
 ###############################################################################################
 [Unit]
 Description=Mpv Media Player
-After=network.target sound.target
-Wants=network.target sound.target
-Requires=dbus.service
+After=network.target sound.target graphical-session.target
+Wants=network.target sound.target graphical-session.target
+#Requires=dbus.service
 
 [Service]
 Environment="DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/1000/bus"
+####################################################################################################################
+### use /mpv_ready/ready as signal that mpv has been started, for the wait_for_mpv.service                       ###
+## /run/user/1000 is the preferred place to store signals, especially when working with systemd --user services. ###
+#####################################################################################################################
+ExecStartPre=/bin/mkdir -p /run/user/1000/mpv_ready
 ExecStart=/usr/bin/mpv PLACEHOLDER_SPOTIFY_PATH/librespot-pipe
+ExecStartPost=/usr/bin/touch /run/user/1000/mpv_ready/ready
+#ExecStopPost=/usr/bin/rm -f /run/user/1000/mpv_ready/ready
+
 # sometimes dbus.service is running but clients can get failure, so retry with a restart on-failure
 Restart=on-failure 
 RestartSec=3

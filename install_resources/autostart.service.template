@@ -2,7 +2,8 @@
 
 [Unit]
 Description=Autostart Oradio
-After=multi-user.target
+After=multi-user.target dbus.service librespot.service wait_for_mpv.service
+Requires=librespot.service wait_for_mpv.service
 # must be greater than RestartSec * StartLimitBurst otherwise the service will be restarted indefinitely
 StartLimitInterval=55
 # Try max 5 times

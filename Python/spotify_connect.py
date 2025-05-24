@@ -130,7 +130,19 @@ class SpotifyConnect():
         '''
          setup an observer listening to socket for incoming messages
         '''
+        
         self.msg_queue  = msg_queue
+        if 'DBUS_SESSION_BUS_ADDRESS' not in os.environ:
+            bus_address = f'unix:path=/run/user/{os.getuid()}/bus'
+            os.environ['DBUS_SESSION_BUS_ADDRESS'] = bus_address
+            oradio_log.info(f"The environment variable DBUS_SESSION_BUS_ADDRESS is set to {bus_address}")
+        ##########################################################################################################################
+        # The mpv requires a connection to the D-Bus session bus will fails because there is no DISPLAY environment variable
+        # which is often required to launch a D-Bus session on systems that expect a graphical environment (X11).
+        # As we are running a headless Raspberry Pi environment, so launching a DBus session 
+        # doesn’t work the same way it would under X11.
+        # If the mpv is launched as user service, we have to ensure DBUS_SESSION_BUS_ADDRESS is set correctly. 
+        ###########################################################################################################################
 
         # create a message object based on json schema
         # Load the JSON schema file
@@ -368,8 +380,7 @@ class SpotifyConnect():
         Start an observer for the selected socket,\
          observer will initiate a callback upon an EVENT_READ
         '''
-        oradio_log.info("The observer thread which listens to \
-                            incoming message is running")
+        oradio_log.info("The observer thread which listens to incoming message is running")
         while not self.stop_event.is_set():
             events = self.sel.select(timeout=None)
             # events has a list of events. A tuple of a key and event_mask

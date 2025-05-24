@@ -8,7 +8,7 @@ for i in $(seq 1 $MAX_RETRIES); do
     HOSTNAME=$(avahi-resolve -a $IP_ADDRESS | awk '{print $2}')
     if [[ -n "$HOSTNAME" ]]; then
         echo "Resolved hostname: $HOSTNAME"
-        echo "HOSTBAME=$HOSTNAME"
+        echo "HOSTNAME=$HOSTNAME"
         break
     fi
     echo "Waiting for Avahi to resolve hostname... ($i/$MAX_RETRIES)"

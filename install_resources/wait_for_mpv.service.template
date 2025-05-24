@@ -2,12 +2,14 @@
 
 [Unit]
 Description=Wait for user mpv.service
-After=multi-user.target
+After=multi-user.target user@1000.service
+Requires=user@1000.service
 Before=autostart.service
 
 [Service]
 Type=oneshot
-ExecStart=SHELL_SCRIPT_PATH/wait-for-mpv.sh
+ExecStart=PLACEHOLDER_SHELL_SCRIPT/wait_for_mpv.sh
+TimeoutSec=50
 
 [Install]
 WantedBy=multi-user.target

@@ -1,11 +1,17 @@
 #!/bin/bash
 
-USER_ID=1000  # replace with the actual UID running mpv: check with==> id -u pi
-SERVICE_NAME=mpv.service
+READY_FILE="/run/user/1000/mpv_ready/ready"
+TIMEOUT=45
 
-while true; do
-    state=$(machinectl show-user $USER_ID | grep -q 'State=running')
-    systemctl --user --machine=$USER_ID@ show "$SERVICE_NAME" > /dev/null 2>&1 && \
-    systemctl --user --machine=$USER_ID@ is-active "$SERVICE_NAME" &> /dev/null && break
+echo "Waiting for $READY_FILE to appear..."
+
+for i in $(seq 1 "$TIMEOUT"); do
+    if [ -e "$READY_FILE" ]; then
+        echo "mpv.service is ready."
+        exit 0
+    fi
     sleep 1
 done
+
+echo "Timeout: mpv.service did not become ready."
+exit 1

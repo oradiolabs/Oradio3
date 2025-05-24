@@ -45,6 +45,7 @@ librespot_event_data = [{'player_event': 'None'},   # Name of the Event
                         {'client_model_name':'None'}]  # Model Name of the Client     
 environment= os.environ
 event_data = {}
+print(environment)
 if "PLAYER_EVENT" in environment:
     librespot_event = environment['PLAYER_EVENT']
     event_data['player_event'] = environment['PLAYER_EVENT']    

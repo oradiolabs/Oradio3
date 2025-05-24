@@ -108,11 +108,11 @@ def _handle_response_command(response_text):
         command = match.group(1).strip()
         oradio_log.debug("Run command '%s' from RMS server", command)
         try:
-#OMJ: Werkt nog niet om een update te doen, omdat source <() niet werkt in subprocess.run()
-            result = subprocess.run(command, shell=True, capture_output=True, encoding='utf-8', check=True)
+            # executable need to be set, othewise python uses sh. Text converts the result into reable
+            result = subprocess.run(command, shell=True, capture_output=True, check=True, executable="/usr/bin/bash", text=True)
             oradio_log.debug("shell script result:\n%s", result.stdout)
         except subprocess.CalledProcessError as ex_err:
-            oradio_log.info("\x1b[38;5;196mERROR: shell script exit code: %d, error: %s\x1b[0m", ex_err.returncode, ex_err.stderr)
+            oradio_log.error("shell script '%s' exit code: %d\nOutput:\n%s\nError:\n%s", command, ex_err.returncode, ex_err.stdout, ex_err.stderr)
 
 class Hearbeat(Timer):
     """ Auto-repeating timer """
@@ -201,8 +201,7 @@ class RmsService():
 
         # Unexpected message type
         else:
-            # We cannot log as ERROR as this might cause a loop
-            oradio_log.info("\x1b[38;5;196mERROR: Unsupported message type: %s\x1b[0m", msg_type)
+            oradio_log.error("Unsupported message type: %s", msg_type)
             return
 
         oradio_log.debug("Sending to ORMS: %s", msg_data)
@@ -212,6 +211,7 @@ class RmsService():
             try:
                 response = requests.post(RMS_SERVER_URL, data=msg_data, timeout=REQUEST_TIMEOUT)
             except requests.Timeout:
+                # If we use oradio_error() we might get stuck in a loop
                 oradio_log.info("\x1b[38;5;196mERROR: Timeout posting message\x1b[0m")
         else:
             # Send message + files
@@ -221,6 +221,7 @@ class RmsService():
             try:
                 response = requests.post(RMS_SERVER_URL, data=msg_data, files=msg_files, timeout=REQUEST_TIMEOUT)
             except requests.Timeout:
+                # If we use oradio_error() we might get stuck in a loop
                 oradio_log.info("\x1b[38;5;196mERROR: Timeout posting file(s)\x1b[0m")
 
             # Close after sending
@@ -229,10 +230,10 @@ class RmsService():
 
         # Check for errors
         if response.status_code != 200:
-            # We cannot log as ERROR as this might cause a loop
+            # If we use oradio_error() we might get stuck in a loop
             oradio_log.info("\x1b[38;5;196mERROR: Status code=%s, response.headers=%s\x1b[0m", response.status_code, response.headers)
 
-        # If exists, execute command in Linux shell
+        # Check for command in RMS response and if exists execute command in Linux shell
         _handle_response_command(response.text)
 
 if __name__ == "__main__":

@@ -3,7 +3,7 @@
 [Unit]
 Description=Enable local hostname via Avahi
 After=network-online.target
-Requires=avahi-daemon.service # hard dependancy
+Requires=avahi-daemon.service
 
 [Service]
 Type=oneshot
