@@ -1,9 +1,9 @@
 #!/bin/bash
-sudo hostnamectl hostname oradio 
-sudo sed -i "s/^.publish-addresses=.*/publish-addresses=yes/g" /etc/avahi/avahi-daemon.conf
-sudo sed -i "s/^.publish-domain=.*/publish-domain=yes/g" /etc/avahi/avahi-daemon.conf
-# reload the service daemon
-sudo systemctl daemon-reload
-# restart the avahi-daemon service
+# Temporarily set the hostname
+sudo hostnamectl hostname oradio
+# Restart avahi-daemon first to pick up the new hostname
 sudo systemctl restart avahi-daemon.service
-
+# Start avahi-publish in the background
+sudo avahi-publish -s "oradio" _http._tcp 8000 &
+# Store the PID of the backgrounded avahi-publish command
+echo $! > /tmp/oradio_webserver.pid
