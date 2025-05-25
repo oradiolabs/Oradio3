@@ -131,6 +131,14 @@ class web_service():
         Setup access point or keep active wifi connection
         :param force_ap (optional) ==> Setup access point even if already connected
         """
+        # Enable the oradio.local service for http://oradio.local
+        shell_script=SHELL_SCRIPTS_DIR+"/enable_local_host.sh"
+        cmd = f"bash {shell_script}"
+        result, error = run_shell_script(cmd)
+        if not result:
+            oradio_log.error("Error during <%s> during shell-script, error = %s", cmd, error)
+        else:
+            oradio_log.info("http://oradio.local web-service support enabled")
         # Web service is not running
         if not self.event_active.is_set():
 
@@ -165,6 +173,15 @@ class web_service():
         """
         Set event flag to signal to stop the web server
         """
+        # disable the local.host service for http://oradio.local
+        shell_script=SHELL_SCRIPTS_DIR+"/disable_local_host.sh"
+        cmd = f"bash {shell_script}"
+        result, error = run_shell_script(cmd)
+        if not result:
+            oradio_log.error("Error during <%s> during shell-script, error = %s", cmd, error)
+        else:
+            oradio_log.info("http://oradio.local web-service support disabled")
+
         if self.event_active.is_set():
             self.event_stop.set()
 

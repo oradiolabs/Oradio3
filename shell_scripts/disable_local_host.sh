@@ -1,5 +1,7 @@
 #!/bin/bash
-#!/bin/bash
+
 sudo hostnamectl hostname mijnOradio
-# kill the "oradio.local" mDNS service
-kill "$(cat /tmp/oradio_webserver.pid)"
+sudo systemctl restart avahi-daemon.service
+sudo pkill -f avahi-publish
+# Optionally restart your fallback service
+sudo avahi-publish -s "mijnOradio" _http._tcp 8000 &
