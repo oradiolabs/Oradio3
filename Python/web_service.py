@@ -173,15 +173,6 @@ class web_service():
         """
         Set event flag to signal to stop the web server
         """
-        # disable the local.host service for http://oradio.local
-        shell_script=SHELL_SCRIPTS_DIR+"/disable_local_host.sh"
-        cmd = f"bash {shell_script}"
-        result, error = run_shell_script(cmd)
-        if not result:
-            oradio_log.error("Error during <%s> during shell-script, error = %s", cmd, error)
-        else:
-            oradio_log.info("http://oradio.local web-service support disabled")
-
         if self.event_active.is_set():
             self.event_stop.set()
 
@@ -259,7 +250,16 @@ class web_service():
         if not result:
             oradio_log.error("Error during <%s> to remove iptables port redirection, error = %s", cmd, error)
 
-        # Pass stopped status to web service
+         # disable the local.host service for http://oradio.local
+        shell_script=SHELL_SCRIPTS_DIR+"/disable_local_host.sh"
+        cmd = f"bash {shell_script}"
+        result, error = run_shell_script(cmd)
+        if not result:
+            oradio_log.error("Error during <%s> during shell-script, error = %s", cmd, error)
+        else:
+            oradio_log.info("http://oradio.local web-service support disabled")
+
+       # Pass stopped status to web service
         self.event_active.clear()
 
 # Entry point for stand-alone operation
