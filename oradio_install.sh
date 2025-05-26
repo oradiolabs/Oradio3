@@ -275,7 +275,7 @@ else # Execute if this script IS automatically started after reboot
 	# Progress report
 	echo -e "${GREEN}$(date +'%Y-%m-%d %H:%M:%S'): Continue after reboot${NC}"
 
-    # Remove the @reboot line from crontab
+	# Restore normal behaviour after reboot
 	sudo sed -i "\#^bash $SCRIPT_PATH/$SCRIPT_NAME --continue\$#d" ~/.bashrc
 
 	# Enable raspi-config to auto-login to console
