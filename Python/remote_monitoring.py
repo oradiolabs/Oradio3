@@ -72,7 +72,7 @@ def _get_sw_version():
     try:
         with open(SW_LOG_FILE, "r", encoding="utf-8") as file:
             data = json.load(file)
-        return data["serial"] + data["gitinfo"] + ")"
+        return data["serial"] + " (" + data["gitinfo"] + ")"
     except (FileNotFoundError, json.JSONDecodeError, KeyError):
         oradio_log.error("'%s': Missing file or invalid content", SW_LOG_FILE)
         return "Invalid SW version"
