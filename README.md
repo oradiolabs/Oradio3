@@ -37,24 +37,6 @@ The script will install and configure required packages and services.
 
 Wait for the installation to finish. <ins>Note</ins>: this can take up to half an hour.
 
-> **Important note for release 0.2.0:**<br>
-> The installation script does not automatically reboot to complete the installation.<br>
-> So keep an eye on the SSH console output and run <code>sudo reboot</code> when prompted.<br>
-> Then SSH back into the Oradio3 and run <code>cd Oradio3; bash oradio_install.sh</code><br>
-> Again, when prompted, <code>sudo reboot</code> when prompted.
-
-## Update
-
-Connect the Oradio3 to your network with internet access and SSH into the Oradio3 and run command:
-
-    bash <(curl https://oradiolabs.nl/Oradio3/update)
-
-Wait for the installation to finish. <ins>Note</ins>: this can take up to 10 minutes.
-
-> **Important note for release 0.2.0:**<br>
-> The installation script does not automatically reboot to complete the installation.<br>
-> So keep an eye on the SSH console output and run <code>sudo reboot</code> when prompted.<br>
-
 ## Finish
 
 The Oradio3 is ready for use when you hear the startup tune (harp).
