@@ -24,10 +24,10 @@ YELLOW='\033[1;93m'
 GREEN='\033[1;32m'
 NC='\033[0m'
 
-# The script uses bash constructs and changes the environment
-if [ -z "$BASH_VERSION" ]; then
-    echo "${RED}This script requires bash. Try again with: bash $0${NC}"
-    exit 1
+# The script uses bash constructs
+if [ -z "$BASH" ]; then
+    echo "${RED}This script requires bash${NC}"
+	exit 1
 fi
 
 # Get the script name and path
