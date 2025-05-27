@@ -131,16 +131,17 @@ class web_service():
         Setup access point or keep active wifi connection
         :param force_ap (optional) ==> Setup access point even if already connected
         """
-        # Enable the oradio.local service for http://oradio.local
-        shell_script=SHELL_SCRIPTS_DIR+"/enable_local_host.sh"
-        cmd = f"bash {shell_script}"
-        result, error = run_shell_script(cmd)
-        if not result:
-            oradio_log.error("Error during <%s> during shell-script, error = %s", cmd, error)
-        else:
-            oradio_log.info("http://oradio.local web-service support enabled")
         # Web service is not running
         if not self.event_active.is_set():
+
+             # Enable the local.host service
+            shell_script=SHELL_SCRIPTS_DIR+"/enable_local_host.sh"
+            cmd = f"bash {shell_script}"
+            result, error = run_shell_script(cmd)
+            if not result:
+                oradio_log.error("Error during <%s> during shell-script, error = %s", cmd, error)
+            else:
+                oradio_log.info("http://oradio.local enabled")
 
             oradio_log.debug("Configure port redirection")
             # Set port redirection for all network requests to reach the web service
@@ -250,14 +251,14 @@ class web_service():
         if not result:
             oradio_log.error("Error during <%s> to remove iptables port redirection, error = %s", cmd, error)
 
-         # disable the local.host service for http://oradio.local
+         # disable the local.host service
         shell_script=SHELL_SCRIPTS_DIR+"/disable_local_host.sh"
         cmd = f"bash {shell_script}"
         result, error = run_shell_script(cmd)
         if not result:
             oradio_log.error("Error during <%s> during shell-script, error = %s", cmd, error)
         else:
-            oradio_log.info("http://oradio.local web-service support disabled")
+            oradio_log.info("http://oradio.local disabled")
 
        # Pass stopped status to web service
         self.event_active.clear()
