@@ -134,12 +134,12 @@ class web_service():
         # Web service is not running
         if not self.event_active.is_set():
 
-             # Enable the local.host service
+            # Enable the local.host service
             shell_script=SHELL_SCRIPTS_DIR+"/enable_local_host.sh"
             cmd = f"bash {shell_script}"
             result, error = run_shell_script(cmd)
             if not result:
-                oradio_log.error("Error during <%s> during shell-script, error = %s", cmd, error)
+                oradio_log.error("Error during '%s' during shell-script, error = %s", cmd, error)
             else:
                 oradio_log.info("http://oradio.local enabled")
 
@@ -256,7 +256,7 @@ class web_service():
         cmd = f"bash {shell_script}"
         result, error = run_shell_script(cmd)
         if not result:
-            oradio_log.error("Error during <%s> during shell-script, error = %s", cmd, error)
+            oradio_log.error("Error during '%s' during shell-script, error = %s", cmd, error)
         else:
             oradio_log.info("http://oradio.local disabled")
 
