@@ -30,12 +30,13 @@ from pathlib import Path
 from pydantic import BaseModel
 from typing import Optional
 from fastapi import FastAPI, BackgroundTasks, Request
-from fastapi.responses import FileResponse, RedirectResponse,JSONResponse
+from fastapi.responses import FileResponse, RedirectResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
 ##### oradio modules ####################
 from oradio_logging import oradio_log
+from oradio_utils import run_shell_script
 from wifi_service import WIFIService
 from mpd_control import MPDControl
 
@@ -274,11 +275,23 @@ async def captiveportal(request: Request):
 
     # Get access to wifi functions
     wifi = WIFIService(api_app.state.message_queue)
-    context = {"networks": wifi.get_wifi_networks()}
+
+    # Get Spotify name
+    shell_script=SHELL_SCRIPTS_DIR+"/get_spotify_name.sh"
+    cmd = f"bash {shell_script}"
+    result, spotify = run_shell_script(cmd)
+    if not result:
+        oradio_log.error("Error during '%s' during shell-script, error = %s", cmd, spotify)
+    else:
+        oradio_log.info("Spotify name: '%s'", spotify.strip())
+
+    context = {
+                "networks": wifi.get_wifi_networks(),
+                "spotify": spotify.strip()
+            }
 
     # Return active portal page and available networks as context
     return templates.TemplateResponse(request=request, name="captiveportal.html", context=context)
-
 
 class credentials(BaseModel):
     """ # Model for wifi network credentials """
@@ -306,6 +319,29 @@ def wifi_connect_task(credentials: credentials):
 
     # Try to connect is handled is separate thread
     wifi.wifi_connect(credentials.ssid, credentials.pswd)
+
+class spotify(BaseModel):
+    """ # Model for Spotify device name """
+    name: str = None
+
+# POST endpoint to set Spotify device name
+@api_app.post("/spotify")
+async def spotify(spotify: spotify):
+    """
+    Handle POST with Spotify device name
+    """
+    oradio_log.debug("Trying to set Spotify name to '%s'", spotify.name)
+    # Set Spotify name
+    shell_script=SHELL_SCRIPTS_DIR+"/set_spotify_name.sh"
+    cmd = f"bash {shell_script} '{spotify.name}'"
+    print("cmd=", cmd)
+    result, spotify = run_shell_script(cmd)
+    if not result:
+        oradio_log.error("Error during '%s' during shell-script, error = %s", cmd, spotify)
+    else:
+        oradio_log.info("Spotify name: '%s'", spotify.strip())
+    return spotify.strip()
+#    return JSONResponse(content={"name": spotify.strip()})
 
 #### CATCH ALL ####################
 
