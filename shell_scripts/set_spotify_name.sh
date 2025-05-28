@@ -22,10 +22,9 @@ to_librespot_name() {
 # Set Spotify name
 SPOTIFY_NAME=$(to_librespot_name "$1")
 
-# Override-map maken indien niet bestaand
+# Create override directory
 OVERRIDE_DIR="/etc/systemd/system/librespot.service.d"
 OVERRIDE_FILE="$OVERRIDE_DIR/override.conf"
-
 sudo mkdir -p "$OVERRIDE_DIR"
 
 # Create override file
@@ -37,8 +36,10 @@ EOF
 # Reload systemd
 sudo systemctl daemon-reload
 
-# Restart librespot service
-sudo systemctl restart librespot.service
+# Restart librespot service: Use stop/start, not restart, to prevent autostart service to restart
+#sudo systemctl restart librespot.service
+#sudo systemctl stop librespot.service
+#sudo systemctl start librespot.service
 
 # Return name for use in web interface
 echo $SPOTIFY_NAME
