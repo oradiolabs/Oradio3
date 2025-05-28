@@ -133,7 +133,7 @@
 					{
 						name = await response.json();
 						document.getElementById("spotify").value = name;
-						notification.innerHTML = `<p>De Oradio start opnieuw op<br>Kies '${name}' in de Spotify app</p>`;
+						notification.innerHTML = `<p>Kies '${name}' in de Spotify app</p>`;
 					}
 					else
 					{
@@ -322,7 +322,7 @@
 					<input id="pswd" class="pswd-input" type="password" placeholder="Voer WiFi-wachtwoord in" />
 					<span class="password-toggle-icon oradio-eye"><i class="fa-regular fa-eye"></i></span>
 				</div>
-				<button type="submit" id="submit" onclick="submitCredentials()">Instellen</button>
+				<button type="submit" onclick="submitCredentials()">Instellen</button>
 				<div id="notification_credentials" class="notification">
 					<!-- Will be filled by Javascript submitCredentials() -->
 				</div>
@@ -333,7 +333,7 @@
 				<!-- Spotify -->
 				<h1 >Kies naam in Spotify app</h1>
 				<input id="spotify" type="text" value="{{ spotify }}" placeholder="Voer Spotify naam van Oradio in" />
-				<button type="submit" id="submit" onclick="submitSpotify()">Instellen</button>
+				<button type="submit" onclick="submitSpotify()">Instellen</button>
 				<div id="notification_spotify" class="notification">
 					<!-- Will be filled by Javascript submitCredentials() -->
 				</div>
