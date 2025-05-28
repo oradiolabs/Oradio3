@@ -37,9 +37,8 @@ EOF
 # Reload systemd
 sudo systemctl daemon-reload
 
-# Restart librespot service: Usestop/start, not restart, to prevent autostart service to restart
-sudo systemctl stop librespot.service
-sudo systemctl start librespot.service
+# Restart librespot service
+sudo systemctl restart librespot.service
 
 # Return name for use in web interface
 echo $SPOTIFY_NAME
