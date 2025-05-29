@@ -19,6 +19,9 @@ Group=PLACEHOLDER_GROUP
 # Clear traceback.log when starting the service
 StandardError=file:PLACEHOLDER_LOGFILE_TRACEBACK
 
+# Ensure default hostname
+ExecStartPre=PLACEHOLDER_SHELL_SCRIPT/disable_local_host.sh
+
 # Start Oradio
 WorkingDirectory=PLACEHOLDER_PYTHON_PATH
 ExecStart=/home/PLACEHOLDER_USER/.venv/bin/python3 oradio_control.py
