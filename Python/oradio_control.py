@@ -143,6 +143,7 @@ class StateMachine:
                 sound_player.play("Preset3")
                 spotify_connect.pause()  # when spotify is active it will switch to StateSpotifyConnect
             elif self.state == "StateStop":
+                oradio_web_service.stop()
                 leds.turn_on_led_with_delay("LEDStop", 4)
                 mpd.pause()
                 spotify_connect.pause() # spotify is on pause and will not work
