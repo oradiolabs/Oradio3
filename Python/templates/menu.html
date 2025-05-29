@@ -6,13 +6,15 @@ nav {
 	background-color: var(--oradio-list);
 	border-top: 1px solid var(--oradio-border);
 	position: fixed;
-	height: 80px;
+	height: 90px;
 	width: 440px;
 	bottom: 0;
 }
 nav a {
 	flex: 1;
 	text-align: center;
+	text-decoration: none;
+	color: var(--oradio-text);
 	padding: 5px 0 5px 0;
 	margin: 0;
 }
@@ -35,9 +37,9 @@ nav a:hover {
 
 <!-- Menu bar -->
 <nav>
-	<a href="/captiveportal"><img src="../static/wifi.png" onclick="show_waiting()" /></a>
-	<a href="/playlists"><img src="../static/playlists.png" onclick="show_waiting()" /></a>
-	<a href="/status"><img src="../static/status.png" onclick="show_waiting()" /></a>
+	<a href="/captiveportal"><img src="../static/wifi.png" onclick="show_waiting()" /><br>Network</a>
+	<a href="/playlists"><img src="../static/playlists.png" onclick="show_waiting()" /><br>Playlists</a>
+	<a href="/status"><img src="../static/status.png" onclick="show_waiting()" /><br>Status</a>
 	<!-- Add other menu items here if needed -->
 </nav>
 
