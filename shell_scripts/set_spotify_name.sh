@@ -33,13 +33,21 @@ sudo bash -c "cat > $OVERRIDE_FILE" <<EOF
 Environment="LIBRESPOT_NAME=$SPOTIFY_NAME"
 EOF
 
-# Reload systemd
-sudo systemctl daemon-reload
+#ISSUE: It is not possible to reload/restart only librespot.service: Either Oradio stops working, or Oradio service restarts as well
+# Challenge is to find a solution to ONLY restart librespot service, WITHOUT restarting Oradio
+# Work around:
+# - Script does NOT restart the librespot service
+# - User is informed to power-cycle the Oradio to activate the new Spotify name
 
-# Restart librespot service: Use stop/start, not restart, to prevent autostart service to restart
-#sudo systemctl restart librespot.service
+# Reload systemd
+#sudo systemctl daemon-reload
+
+# Restart librespot service: Supposedly using stop/start, not restart, prevents autostart service to restart. HOWEVER: Oradio then stops responding to buttons
 #sudo systemctl stop librespot.service
 #sudo systemctl start librespot.service
+
+# Restart librespot service: This causes autostart service to restart as well
+#sudo systemctl restart librespot.service
 
 # Return name for use in web interface
 echo $SPOTIFY_NAME
