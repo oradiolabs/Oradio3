@@ -99,6 +99,8 @@ function install_resource {
 			sed -i "s/PLACEHOLDER_PYTHON_PATH/$replace/g" $1
 			replace=`echo $SPOTIFY_PATH | sed 's/\//\\\\\//g'`
 			sed -i "s/PLACEHOLDER_SPOTIFY_PATH/$replace/g" $1
+			replace=`echo $LOGGING_PATH | sed 's/\//\\\\\//g'`
+			sed -i "s/PLACEHOLDER_LOGGING_PATH/$replace/g" $1
 
 			replace=`echo $LOGFILE_USB | sed 's/\//\\\\\//g'`
 			sed -i "s/PLACEHOLDER_LOGFILE_USB/$replace/g" $1
@@ -410,7 +412,7 @@ echo -e "${GREEN}Log files rotation configured${NC}"
 install_resource $RESOURCES_PATH/spotify_event_handler.sh /usr/local/bin/spotify_event_handler.sh 'sudo chmod +x /usr/local/bin/spotify_event_handler.sh'
 
 # get librespot installed version, if any
-librespot_installed="v"$(/usr/bin/librespot --version | awk '{print $2}')
+librespot_installed="v"$(/usr/bin/librespot --version 2>/dev/null | awk '{print $2}')
 
 # Get librespot github release version
 librespot_release=$(curl -s https://api.github.com/repos/librespot-org/librespot/releases/latest | grep '"tag_name":' | cut -d '"' -f4)
@@ -431,6 +433,9 @@ install_resource $RESOURCES_PATH/librespot.service /etc/systemd/system/librespot
 
 # Progress report
 echo -e "${GREEN}Spotify connect functionality is installed and configured${NC}"
+
+# Install the send_log_files_to_rms script
+install_resource $RESOURCES_PATH/send_log_files_to_rms.sh /usr/local/bin/send_log_files_to_rms.sh 'sudo chmod +x /usr/local/bin/send_log_files_to_rms.sh'
 
 # Install the about script
 install_resource $RESOURCES_PATH/about /usr/local/bin/about 'sudo chmod +x /usr/local/bin/about'

@@ -1,0 +1,21 @@
+#!/bin/bash
+# Send log files to Oradio Remote Monitoring Service
+
+# Get Oradio serial number
+serial=$(vcgencmd otp_dump | grep "28:" | cut -c 4-)
+
+# Add each file in the directory
+for file in $(ls PLACEHOLDER_LOGGING_PATH/*); do
+
+	# skip if not a regular file
+	[ -f "$file" ] || continue
+
+	# Build curl command
+	curl_cmd="curl -s -F \"serial=$serial\""
+	curl_cmd+=" -F \"data=@$file\""
+	curl_cmd+=" https://oradiolabs.nl/rms/receive.php"
+
+	# Run the curl command
+	bash -c "$curl_cmd"
+
+done
