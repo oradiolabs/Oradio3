@@ -103,6 +103,8 @@ function install_resource {
 			sed -i "s/PLACEHOLDER_PYTHON_PATH/$replace/g" $1
 			replace=`echo $SPOTIFY_PATH | sed 's/\//\\\\\//g'`
 			sed -i "s/PLACEHOLDER_SPOTIFY_PATH/$replace/g" $1
+			replace=`echo $LOGGING_PATH | sed 's/\//\\\\\//g'`
+			sed -i "s/PLACEHOLDER_LOGGING_PATH/$replace/g" $1
 
 			replace=`echo $LOGGING_PATH | sed 's/\//\\\\\//g'`
 			sed -i "s/PLACEHOLDER_LOGGING_PATH/$replace/g" $1
