@@ -114,7 +114,7 @@ class WIFIService():
                 oradio_log.debug("Disconnect from: '%s'", active)
                 # nmcli.connection.down(name: str, wait: int = None) -> None # Default timeout is 10 seconds
                 nmcli.connection.down(active)
-            except NMCLIError as ex_err:
+            except Exception as ex_err:
                 oradio_log.error("Failed to disconnect from '%s', error = %s", active, ex_err)
                 # Inform controller of actual state and error
                 if ssid == ACCESS_POINT_SSID:
@@ -132,7 +132,7 @@ class WIFIService():
                 oradio_log.debug("Remove '%s' from NetorkManager", ssid)
                 # nmcli.connection.delete(name: str, wait: int = None) -> None # Default timeout is 10 seconds
                 nmcli.connection.delete(ssid)
-            except NMCLIError as ex_err:
+            except Exception as ex_err:
                 oradio_log.error("Failed to remove '%s' from NetworkManager, error = %s", ssid, ex_err)
                 # Inform controller of actual state and error
                 if ssid == ACCESS_POINT_SSID:
@@ -156,7 +156,7 @@ class WIFIService():
                 }
                 # nmcli.connection.add(conn_type: str, options: Optional[ConnectionOptions] = None, ifname: str = "*", name: str = None, autoconnect: Bool = None) -> None
                 nmcli.connection.add("wifi", options, "*", ACCESS_POINT_SSID, False)
-            except NMCLIError as ex_err:
+            except Exception as ex_err:
                 oradio_log.error("Failed to add access point '%s', error = %s", ACCESS_POINT_SSID, ex_err)
                 # Inform controller of actual state and error
                 self.error = MESSAGE_WIFI_FAIL_AP_START
@@ -176,7 +176,7 @@ class WIFIService():
                     }
                     # nmcli.connection.add(conn_type: str, options: Optional[ConnectionOptions] = None, ifname: str = "*", name: str = None, autoconnect: Bool = None) -> None
                     nmcli.connection.add("wifi", options, "*", ssid, True)
-                except NMCLIError as ex_err:
+                except Exception as ex_err:
                     oradio_log.error("Failed to configure wifi network '%s', error = %s", ssid, ex_err)
                     # Inform controller of actual state and error
                     self.error = MESSAGE_WIFI_FAIL_CONNECT
@@ -208,7 +208,7 @@ class WIFIService():
             oradio_log.debug("Activate '%s'", new_ssid)
             # nmcli.connection.up(name: str, wait: int = None) -> None # Default timeout is 90 seconds
             nmcli.connection.up(new_ssid)
-        except NMCLIError as ex_err:
+        except Exception as ex_err:
             oradio_log.error("Failed to activate '%s', error = %s", new_ssid, ex_err)
             if new_ssid == ACCESS_POINT_SSID:
                 self.error = MESSAGE_WIFI_FAIL_AP_START
@@ -221,7 +221,7 @@ class WIFIService():
                     oradio_log.debug("Failed to activate '%s', activate '%s'", new_ssid, old_ssid)
                     # nmcli.connection.up(name: str, wait: int = None) -> None # Default timeout is 90 seconds
                     nmcli.connection.up(old_ssid)
-                except NMCLIError as ex_err:
+                except Exception as ex_err:
                     oradio_log.error("Failed to activate '%s', error = %s", old_ssid, ex_err)
                     if new_ssid == ACCESS_POINT_SSID:
                         self.error = MESSAGE_WIFI_FAIL_AP_START
@@ -235,7 +235,7 @@ class WIFIService():
                 oradio_log.debug("Failed to activate '%s': remove from NetworkManager", new_ssid)
                 # nmcli.connection.delete(name: str, wait: int = None) -> None # Default timeout is 10 seconds
                 nmcli.connection.delete(new_ssid)
-            except NMCLIError as ex_err:
+            except Exception as ex_err:
                 oradio_log.error("Failed to remove '%s' from NetworkManager, error = %s", new_ssid, ex_err)
                 ''' OMJ: NetworkManager now has an orphan. Do we need to do garbage collection? '''
 
@@ -249,7 +249,7 @@ class WIFIService():
                     oradio_log.debug("Remove '%s' from NetworkManager", old_ssid)
                     # nmcli.connection.delete(name: str, wait: int = None) -> None # Default timeout is 10 seconds
                     nmcli.connection.delete(old_ssid)
-                except NMCLIError as ex_err:
+                except Exception as ex_err:
                     oradio_log.error("Failed to remove '%s' from NetworkManager, error = %s", old_ssid, ex_err)
                     ''' OMJ: NetworkManager now has an orphan. Do we need to do garbage collection? '''
 
@@ -276,7 +276,7 @@ class WIFIService():
                 oradio_log.debug("Disconnect from: '%s'", active)
                 # nmcli.connection.down(name: str, wait: int = None) -> None # Default timeout is 10 seconds
                 nmcli.connection.down(active)
-            except NMCLIError as ex_err:
+            except Exception as ex_err:
                 oradio_log.error("Failed to disconnect from '%s', error = %s", active, ex_err)
                 # Inform controller of actual state and error
                 if active == ACCESS_POINT_SSID:
@@ -292,7 +292,7 @@ class WIFIService():
                 oradio_log.debug("Remove '%s' from NetworkManager", active)
                 # nmcli.connection.delete(name: str, wait: int = None) -> None # Default timeout is 10 seconds
                 nmcli.connection.delete(active)
-            except NMCLIError as ex_err:
+            except Exception as ex_err:
                 oradio_log.error("Failed to remove '%s' from NetworkManager, error = %s", active, ex_err)
                 # Inform controller of actual state and error
                 if active == ACCESS_POINT_SSID:
@@ -422,7 +422,7 @@ class WIFIService():
             oradio_log.debug("Get list of networks broadcasting their ssid")
             # nmcli.device.wifi(ifname: str = None, rescan: bool = None) -> List[DeviceWifi]
             wifi_list = nmcli.device.wifi(None, None)
-        except NMCLIError as ex_err:
+        except Exception as ex_err:
             oradio_log.error("Failed to get wifi networks, error = %s", ex_err)
         else:
             oradio_log.debug("Remove '%s' from the list", ACCESS_POINT_SSID)
@@ -446,7 +446,7 @@ class WIFIService():
             # Get all network connections
             # nmcli.connection() -> List[Connection]
             connections = nmcli.connection()
-        except NMCLIError as ex_err:
+        except Exception as ex_err:
             oradio_log.error("Failed to get active connection, error = %s", ex_err)
         else:
             # Inspect connections
@@ -474,7 +474,7 @@ class WIFIService():
             oradio_log.debug("Get connections from NetworkManager")
             # nmcli.connection() -> List[Connection]
             result = nmcli.connection()
-        except NMCLIError as ex_err:
+        except Exception as ex_err:
             oradio_log.error("Failed to get connections from NetworkManager, error = %s", ex_err)
         else:
             # Inspect connections
@@ -521,7 +521,7 @@ if __name__ == '__main__':
             oradio_log.debug("Remove '%s' from NetworkManager", network)
             # nmcli.connection.delete(name: str, wait: int = None) -> None # Default timeout is 10 seconds
             nmcli.connection.delete(network)
-        except NMCLIError as ex_err:
+        except Exception as ex_err:
             oradio_log.error("Failed to remove '%s' from NetworkManager, error = %s", network, ex_err)
             return False
         return True
