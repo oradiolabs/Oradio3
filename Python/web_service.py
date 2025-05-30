@@ -45,11 +45,6 @@ from oradio_const import (
     MESSAGE_WEB_SERVICE_TYPE,
     STATE_WEB_SERVICE_IDLE,
     STATE_WEB_SERVICE_ACTIVE,
-    MESSAGE_WEB_SERVICE_PL1_CHANGED,
-    MESSAGE_WEB_SERVICE_PL2_CHANGED,
-    MESSAGE_WEB_SERVICE_PL3_CHANGED,
-    MESSAGE_WEB_SERVICE_FAIL_PRESET,
-    MESSAGE_WEB_SERVICE_PLAYING_SONG,
     MESSAGE_NO_ERROR
 )
 
@@ -299,7 +294,7 @@ if __name__ == '__main__':
     message_listener.start()
 
     # Show menu with test options
-    input_selection = ("Select a function, input the number.\n"
+    InputSelection = ("Select a function, input the number.\n"
                        " 0-quit\n"
                        " 1-Show web service state\n"
                        " 2-start web service (long-press-AAN)\n"
@@ -314,12 +309,12 @@ if __name__ == '__main__':
 
         # Get user input
         try:
-            function_nr = int(input(input_selection))
+            FunctionNr = int(input(InputSelection))
         except ValueError:
-            function_nr = -1
+            FunctionNr = -1
 
         # Execute selected function
-        match function_nr:
+        match FunctionNr:
             case 0:
                 print("\nStopping the web service...\n")
                 oradio_web_service.stop()

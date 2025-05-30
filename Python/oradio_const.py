@@ -23,7 +23,8 @@ Created on December 23, 2024
 """
 
 ################## SYSTEM #############################
-import os, sys
+import os
+import sys
 # Make Oradio file locations relative
 ORADIO_DIR      = sys.path[0]
 ORADIO_LOG_DIR  = os.path.abspath(ORADIO_DIR + '/../logging')
@@ -114,8 +115,8 @@ MPV_PLAYERCTL_PAUSED_STATE  = "Paused"
 MPV_PLAYERCTL_COMMAND_NOT_FOUND = "playerctl command not found"
 MPV_PLAYERCTL_COMMAND_ERROR     = "playerctl command failed"
 
-# MPRIS Medaio Player identifier (D-Bus service names, according the  naming convention for the MPRIS2 specification. 
-# It is not a physical file or program, but a logical D-Bus service name 
+# MPRIS Medaio Player identifier (D-Bus service names, according the  naming convention for the MPRIS2 specification.
+# It is not a physical file or program, but a logical D-Bus service name
 # that media players register under when they support MPRIS.
 MPRIS_MPV_PLAYER            = "org.mpris.MediaPlayer2.mpv"
 MPRIS_MEDIA_PLAYER          = "/org/mpris/MediaPlayer2"
@@ -150,4 +151,3 @@ SPOTIFY_CONNECT_NOT_CONNECTED = "Spotify Connect is NOT connected"
 ##### JSON SCHEMA ########
 MODEL_NAME_NOT_FOUND = "Unknown model name, not found in schemas.json"
 MODEL_NAME_FOUND     = "model name found"
-

@@ -55,7 +55,7 @@ class SpotifyConnect:
         self.active = False
         self.playing = False
         self.message_queue = message_queue
-        
+
         # Reset flag files to 0 at initialization.
         self.initialize_flags()
 
@@ -63,8 +63,8 @@ class SpotifyConnect:
         self.monitor_thread = threading.Thread(target=self.monitor_flags, daemon=True)
         self.monitor_thread.start()
         oradio_log.info("Monitor thread started.")
-        
-                # Initialize ALSA Mixer
+
+        # Initialize ALSA Mixer
         try:
             self.mixer = alsaaudio.Mixer(ALSA_MIXER_SPOTCON)
         except alsaaudio.ALSAAudioError as ex_err:
@@ -149,7 +149,7 @@ class SpotifyConnect:
             oradio_log.info("Spotify Connect Muted")
         except subprocess.CalledProcessError as e:
             oradio_log.error("Error executing pause command: %s", e)
-    
+
     def get_state(self):
         return {"active": self.active, "playing": self.playing}
 

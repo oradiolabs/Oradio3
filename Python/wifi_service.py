@@ -549,7 +549,7 @@ if __name__ == '__main__':
     message_listener.start()
 
     # Show menu with test options
-    input_selection = ("Select a function, input the number.\n"
+    InputSelection = ("Select a function, input the number.\n"
                        " 0-quit\n"
                        " 1-get wifi state\n"
                        " 2-list on air wifi networks\n"
@@ -568,12 +568,12 @@ if __name__ == '__main__':
 
         # Get user input
         try:
-            function_nr = int(input(input_selection))
+            FunctionNr = int(input(InputSelection))
         except ValueError:
-            function_nr = -1
+            FunctionNr = -1
 
         # Execute selected function
-        match function_nr:
+        match FunctionNr:
             case 0:
                 print("\nExiting test program...\n")
                 break
@@ -582,7 +582,7 @@ if __name__ == '__main__':
             case 2:
                 print(f"\nRegistered wifi networks: {wifi.get_wifi_networks()}\n")
             case 3:
-                print(f"\nDefined wifi connections: {wifi._get_wifi_nm_connections()}\n")
+                print(f"\nDefined wifi connections: {wifi._get_wifi_nm_connections()}\n")   # pylint: disable=protected-access
             case 4:
                 network = input("Enter network to remove from NetworkManager: ")
                 if network:
@@ -600,7 +600,7 @@ if __name__ == '__main__':
                 else:
                     print("\nNo SSID and/or password given\n")
             case 7:
-                print(f"\n_wifi_disconnect() returned '{wifi._wifi_disconnect()}'\n")
+                print(f"\n_wifi_disconnect() returned '{wifi._wifi_disconnect()}'\n")       # pylint: disable=protected-access
             case 8:
                 if wifi.access_point_start():
                     print("\nSetting up access point. Check messages for result\n")

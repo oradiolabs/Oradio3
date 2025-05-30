@@ -263,7 +263,7 @@ if __name__ == '__main__':
     message_listener.start()
 
     # Show menu with test options
-    input_selection = ("Select a function, input the number.\n"
+    InputSelection = ("Select a function, input the number.\n"
                        " 0-quit\n"
                        " 1-Start USB service\n"
                        " 2-Trigger USB inserted\n"
@@ -279,12 +279,12 @@ if __name__ == '__main__':
 
         # Get user input
         try:
-            function_nr = int(input(input_selection))
+            FunctionNr = int(input(InputSelection))
         except ValueError:
-            function_nr = -1
+            FunctionNr = -1
 
         # Execute selected function
-        match function_nr:
+        match FunctionNr:
             case 0:
                 print("\nExiting test program...\n")
                 if monitor:

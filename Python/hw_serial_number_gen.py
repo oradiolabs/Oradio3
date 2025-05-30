@@ -78,15 +78,15 @@ def create_hw_serial_file():
         }
 
         # Use temporary file to avoid permission issues
-        with open(LOG_FILE, "w") as f:
-            json.dump(hw_info, f, indent=4)
-            f.write("\n")
+        with open(LOG_FILE, "w", encoding='utf-8') as file:
+            json.dump(hw_info, file, indent=4)
+            file.write("\n")
 
         # Move file to correct location
         try:
             subprocess.check_output(["sudo", "mv", LOG_FILE, LOG_PATH])
-        except subprocess.CalledProcessError as e:
-            print(f"Failed to create {LOG_PATH + LOG_FILE}, return code={e.returncode}")
+        except subprocess.CalledProcessError as ex_err:
+            print(f"Failed to create {LOG_PATH + LOG_FILE}, return code={ex_err.returncode}")
 
         print(f"HW serial file '{LOG_PATH + LOG_FILE}' created.")
     else:
@@ -97,8 +97,8 @@ def read_hw_serial_file():
     Read and display the contents of the HW serial number file.
     """
     if os.path.exists(LOG_PATH + LOG_FILE):
-        with open(LOG_PATH + LOG_FILE, "r") as f:
-            data = json.load(f)
+        with open(LOG_PATH + LOG_FILE, "r", encoding='utf-8') as file:
+            data = json.load(file)
         print("Contents of HW serial file:")
         print(json.dumps(data, indent=4))
     else:
@@ -111,8 +111,8 @@ def delete_hw_serial_file():
     if os.path.exists(LOG_PATH + LOG_FILE):
         try:
             subprocess.check_output(["sudo", "rm", "-f", LOG_PATH + LOG_FILE])
-        except subprocess.CalledProcessError as e:
-            print(f"Failed to delete '{LOG_PATH + LOG_FILE}', return code={e.returncode}")
+        except subprocess.CalledProcessError as ex_err:
+            print(f"Failed to delete '{LOG_PATH + LOG_FILE}', return code={ex_err.returncode}")
         print("HW serial file deleted.")
     else:
         print(f"HW serial file does not exist at '{LOG_PATH + LOG_FILE}'")
@@ -158,8 +158,8 @@ def systemd_mode():
             "hw_detected": "MCP3021 found at 0x4D"
         }
         os.makedirs(os.path.dirname(LOG_PATH + LOG_FILE), exist_ok=True)
-        with open(LOG_PATH + LOG_FILE, "w") as f:
-            json.dump(hw_info, f, indent=4)
+        with open(LOG_PATH + LOG_FILE, "w", encoding='utf-8') as file:
+            json.dump(hw_info, file, indent=4)
 
 if __name__ == "__main__":
     # If running interactively (with a terminal attached), show the menu.
