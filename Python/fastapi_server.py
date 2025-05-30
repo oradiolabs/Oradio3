@@ -30,7 +30,7 @@ from pathlib import Path
 from pydantic import BaseModel
 from typing import Optional
 from fastapi import FastAPI, BackgroundTasks, Request
-from fastapi.responses import FileResponse, RedirectResponse,JSONResponse
+from fastapi.responses import FileResponse, RedirectResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
@@ -83,23 +83,34 @@ async def favicon():
 
 def load_presets():
     """ Load the current presets from presets.json in the USB Systeem folder """
+    # Catch if USB_SYSTEM does not exist
+    if not os.path.isdir(USB_SYSTEM):
+        oradio_log.error("USB system path '%s' does not exist or is not a directory", USB_SYSTEM)
+        return {"preset1": "", "preset2": "", "preset3": ""}
+
+    # Try to load the presets
     try:
-        with open(PRESETS_FILE, "r") as f:
-            return json.load(f)
+        with open(PRESETS_FILE, "r") as file:
+            return json.load(file)
+    except FileNotFoundError:
+        oradio_log.warning("Presets file '%s' not found", PRESETS_FILE)
+        return {"preset1": "", "preset2": "", "preset3": ""}
     except Exception as ex_err:
         oradio_log.error("Failed to read '%s'. error: %s", PRESETS_FILE, ex_err)
         return {"preset1": "", "preset2": "", "preset3": ""}
 
 def store_presets(presets):
     """ Write the presets to presets.json in the USB Systeem folder """
+    # Try to store the presets
     try:
+        # try to make the directory if it does not exist
         Path(USB_SYSTEM).mkdir(parents=True, exist_ok=True)
     except FileExistsError as ex_err:
         oradio_log.error("'%s' does not exist. Presets cannot be saved. error: %s", USB_SYSTEM, ex_err)
 
     try:
-        with open(PRESETS_FILE, "w") as f:
-            json.dump({"preset1": presets['preset1'], "preset2": presets['preset2'], "preset3": presets['preset3']}, f, indent=4)
+        with open(PRESETS_FILE, "w") as file:
+            json.dump({"preset1": presets['preset1'], "preset2": presets['preset2'], "preset3": presets['preset3']}, file, indent=4)
     except IOError as ex_err:
         oradio_log.error("Failed to write '%s'. error: %s", PRESETS_FILE, ex_err)
 
@@ -205,13 +216,13 @@ async def playlist_modify(modify: modify):
     - Remove playlist if no song given
     """
     if modify.action == 'Add':
-        if modify.song == None:
+        if modify.song is None:
             oradio_log.debug("Create playlist: '%s'", modify.playlist)
         else:
             oradio_log.debug("Add song '%s' to playlist '%s'", modify.song, modify.playlist)
         return mpdcontrol.playlist_add(modify.playlist, modify.song)
     elif modify.action == 'Remove':
-        if modify.song == None:
+        if modify.song is None:
             oradio_log.debug("Delete playlist: '%s'", modify.playlist)
         else:
             oradio_log.debug("Delete song '%s' from playlist '%s'", modify.song, modify.playlist)
@@ -300,7 +311,7 @@ def wifi_connect_task(credentials: credentials):
     """
     Executes as background task
     """
-    oradio_log.debug("trying to connect to ssid=%s, pswd=%s", credentials.ssid, credentials.pswd)
+    oradio_log.debug("trying to connect to ssid=%s", credentials.ssid)
     # Get access to wifi functions
     wifi = WIFIService(api_app.state.message_queue)
 

@@ -58,8 +58,8 @@ class backlighting:
         self.steps_remaining = 0
         self.step_size = 0
         self.running = False  # Flag to control the auto_adjust loop
-        
- # Write 4095 to EEPROM so that default from boot is all the leds are switched off
+
+        # Write 4095 to EEPROM so that default from boot is all the leds are switched off
         self.write_dac_to_eeprom(4095)
 
     def write_register(self, register, value):
@@ -100,7 +100,7 @@ class backlighting:
         low_byte = (value << 4) & 0xFF    # 4 least significant bits shifted
 
         write_command = 0x40  # Fast mode write to DAC (no EEPROM storage)
-        
+
         self.bus.write_i2c_block_data(self.MCP4725_ADDR, write_command, [high_byte, low_byte])
 
     def interpolate_backlight(self, lux):
@@ -147,7 +147,7 @@ class backlighting:
         """ Stop the auto_adjust loop and turn the backlight on """
         self.running = False
         self.write_dac(self.backlight_max)  # Set backlight to max (off)
-        
+
     def write_dac_to_eeprom(self, value):
         """ Write DAC value and store in EEPROM (persistent after reboot) """
         value = max(0, min(4095, value))  # Ensure value is within range
@@ -156,7 +156,7 @@ class backlighting:
         low_byte = (value << 4) & 0xFF    # 4 least significant bits shifted
 
         write_command = 0x60  # Write to DAC and store in EEPROM
-        
+
         self.bus.write_i2c_block_data(self.MCP4725_ADDR, write_command, [high_byte, low_byte])
 
 if __name__ == "__main__":

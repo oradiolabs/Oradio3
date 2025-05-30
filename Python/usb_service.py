@@ -26,7 +26,8 @@ Created on Januari 17, 2025
         Using a watchdog triggered by MONITOR handles the USB insert/removed behaviour
         https://pypi.org/project/watchdog/
 """
-import os, json
+import os
+import json
 from watchdog.observers import Observer
 from watchdog.events import PatternMatchingEventHandler
 
@@ -35,9 +36,20 @@ from oradio_logging import oradio_log
 from wifi_service import WIFIService
 
 ##### GLOBAL constants ####################
-from oradio_const import *
+from oradio_const import (
+    USB_MOUNT_PATH,
+    USB_MOUNT_POINT,
+    MESSAGE_USB_TYPE,
+    STATE_USB_PRESENT,
+    STATE_USB_ABSENT,
+    MESSAGE_NO_ERROR,
+    MESSAGE_USB_ERROR_FILE
+)
 
 ##### LOCAL constants ####################
+USB_MONITOR   = "usb_ready"                             # Name of file used to monitor if USB is mounted or not
+USB_WIFI_FILE = USB_MOUNT_POINT + "/wifi_invoer.json"   # File name in USB root with wifi credentials
+
 
 # MONITOR is used to signal mounting/unmounting is complete
 class USBMonitor(PatternMatchingEventHandler):
@@ -46,18 +58,18 @@ class USBMonitor(PatternMatchingEventHandler):
     Calls inserted/removed functions
     """
     def __init__(self, service, *args, **kwargs):
-        super(USBMonitor, self).__init__(*args, **kwargs)
+        super().__init__(*args, **kwargs)
         self.service = service
 
     def on_created(self, event): # when file is created
         # do something, eg. call your function to process the image
         oradio_log.info("%s created", event.src_path)
-        self.service._usb_inserted()
+        self.service._usb_inserted()    # pylint: disable=protected-access
 
     def on_deleted(self, event): # when file is deleted
         # do something, eg. call your function to process the image
         oradio_log.info("%s deleted", event.src_path)
-        self.service._usb_removed()
+        self.service._usb_removed()    # pylint: disable=protected-access
 
 class usb_service():
     """
@@ -135,10 +147,10 @@ class usb_service():
                 return
 
             # Read and parse JSON file
-            with open(USB_WIFI_FILE, "r") as f:
+            with open(USB_WIFI_FILE, "r", encoding="utf-8") as file:
                 try:
                     # Get JSON object as a dictionary
-                    data = json.load(f)
+                    data = json.load(file)
                 except:
                     oradio_log.error("Error parsing '%s'", USB_WIFI_FILE)
                     self.error = MESSAGE_USB_ERROR_FILE
@@ -287,13 +299,13 @@ if __name__ == '__main__':
             case 2:
                 if monitor:
                     print("\nSimulate 'USB inserted' event...\n")
-                    monitor._usb_inserted()
+                    monitor._usb_inserted()     # pylint: disable=protected-access
                 else:
                     print("\nUSB service not running\n")
             case 3:
                 if monitor:
                     print("\nSimulate 'USB removed' event...\n")
-                    monitor._usb_removed()
+                    monitor._usb_removed()      # pylint: disable=protected-access
                 else:
                     print("\nUSB service not running\n")
             case 4:
@@ -304,7 +316,7 @@ if __name__ == '__main__':
             case 5:
                 if monitor:
                     print("\nGet USB wifi credentials...\n")
-                    monitor._handle_usb_wifi_credentials()
+                    monitor._handle_usb_wifi_credentials()      # pylint: disable=protected-access
                 else:
                     print("\nUSB service not running\n")
             case 6:

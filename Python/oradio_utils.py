@@ -9,7 +9,7 @@
   ####   #    #  #    #  #####      #     ####
 
 
-Created on Januari 17, 2025
+Created on January 17, 2025
 @author:        Henk Stevens & Olaf Mastenbroek & Onno Janssen
 @copyright:     Copyright 2024, Oradio Stichting
 @license:       GNU General Public License (GPL)
@@ -24,27 +24,31 @@ Created on Januari 17, 2025
         https://docs.python.org/3/howto/logging.html
         https://pypi.org/project/concurrent-log-handler/
 """
-import urllib.request
-import subprocess
-from subprocess import run
-from vcgencmd import Vcgencmd
-from pydantic import BaseModel, EmailStr, Field, create_model
-from typing import Dict, Any, Optional
 import json
+import subprocess
+import urllib.request
+from subprocess import run
+from typing import Dict, Any, Optional
+from pydantic import BaseModel, create_model
+from vcgencmd import Vcgencmd
 
 ##### oradio modules ####################
 from oradio_logging import oradio_log
 
 ##### GLOBAL constants ####################
-from oradio_const import *
+from oradio_const import (
+    JSON_SCHEMAS_FILE,
+    MODEL_NAME_NOT_FOUND,
+    MODEL_NAME_FOUND
+)
 
 ##### LOCAL constants ####################
 def is_service_active(service_name):
-    '''
+    """
     Check if service is running
     :param service_name = name of the service
     :return True/False : True when active
-    '''
+    """
     try:
         # Run systemctl is-active command
         result = subprocess.run(
@@ -55,14 +59,14 @@ def is_service_active(service_name):
         )
         return result.stdout.strip() == "active"
     except Exception as err:
-        oradio_log.error(f"Error checking {service_name} service, error-status=: {err}")
+        oradio_log.error("Error checking %s service, error-status=: %s", service_name, err)
         return False
 
 
 def json_schema_to_pydantic(name: str, schema: Dict[str,Any]) -> BaseModel:
-    '''
+    """
     Dynamic Model generation based on a JSON schema
-    '''
+    """
     if "properties" not in schema:  # Skip first entry
         return None    
     fields ={}
@@ -88,19 +92,19 @@ def json_schema_to_pydantic(name: str, schema: Dict[str,Any]) -> BaseModel:
             fields[prop] = (Optional[field_type], None)  # Mark as Optional
         else:
             fields[prop] = (field_type, ...)  # Required fields
-                
+
     return create_model(name, **fields)
 
 def create_json_model(model_name):
-    '''
+    """
     Create a object based model derived from the json schema
     :param model_name [str] = name of model in schema
     :return model 
     :return status = 
-    '''
+    """
     # Load the JSON schema file
-    with open(JSON_SCHEMAS_FILE) as f:
-        schemas = json.load(f)
+    with open(JSON_SCHEMAS_FILE) as file:
+        schemas = json.load(file)
     if model_name not in schemas:
         status = MODEL_NAME_NOT_FOUND
         Messages = None
@@ -187,7 +191,7 @@ if __name__ == '__main__':
         # Get user input
         try:
             function_nr = int(input(input_selection))
-        except:
+        except ValueError:
             function_nr = -1
 
         # Execute selected function

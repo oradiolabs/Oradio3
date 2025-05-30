@@ -38,16 +38,16 @@ librespot_event_data = [{'player_event': 'None'},   # Name of the Event
                         {'track_duration':'None'},  # Duration in ms
                         {'position_ms':'None'},     # Position in ms
                         {'user_name':'None'},       # Session User Name (really an ID not a display name)
-                        {'connection_id':'None'},   # Session Connection ID                        
+                        {'connection_id':'None'},   # Session Connection ID
                         {'client_id':'None'},       # ID of the Client
-                        {'client_name':'None'},     # Name of the Client       
+                        {'client_name':'None'},     # Name of the Client
                         {'client_brand_name':'None'}, # Brand Name of the Client
-                        {'client_model_name':'None'}]  # Model Name of the Client     
+                        {'client_model_name':'None'}]  # Model Name of the Client
 environment= os.environ
 event_data = {}
 if "PLAYER_EVENT" in environment:
     librespot_event = environment['PLAYER_EVENT']
-    event_data['player_event'] = environment['PLAYER_EVENT']    
+    event_data['player_event'] = environment['PLAYER_EVENT']
     match (librespot_event):
         case 'changed':
             event_data['track_id']     = environment['TRACK_ID']
@@ -55,30 +55,30 @@ if "PLAYER_EVENT" in environment:
         case 'started':
             event_data['track_id']     = environment['TRACK_ID']
         case 'stopped':
-            event_data['track_id']     = environment['TRACK_ID']        
+            event_data['track_id']     = environment['TRACK_ID']
         case 'playing':
             event_data['track_id']     = environment['TRACK_ID']
             event_data['position_ms']  = environment['POSITION_MS']
         case 'paused':
             event_data['track_id']     = environment['TRACK_ID']
             event_data['position_ms']  = environment['POSITION_MS']
-        case 'preloading':                        
-            event_data['track_id']     = environment['TRACK_ID']        
+        case 'preloading':
+            event_data['track_id']     = environment['TRACK_ID']
         case 'session_connected':
-            event_data['user_name']     = environment['USER_NAME']        
+            event_data['user_name']     = environment['USER_NAME']
             event_data['connection_id'] = environment['CONNECTION_ID']
-        case 'session_disconnected':                        
-            event_data['user_name']     = environment['USER_NAME']        
+        case 'session_disconnected':
+            event_data['user_name']     = environment['USER_NAME']
             event_data['connection_id'] = environment['CONNECTION_ID']
-        case 'session_client_changed':                        
-            event_data['client_id']         = environment['CLIENT_ID']        
+        case 'session_client_changed':
+            event_data['client_id']         = environment['CLIENT_ID']
             event_data['client_name']       = environment['CLIENT_NAME']
-            event_data['client_brand_name'] = environment['CLIENT_BRAND_NAME']        
+            event_data['client_brand_name'] = environment['CLIENT_BRAND_NAME']
             event_data['client_model_name'] = environment['CLIENT_MODEL_NAME']
         case 'volume_set':
-            event_data['volume'] = environment['VOLUME']              
+            event_data['volume'] = environment['VOLUME']
         case 'volume_changed':
-            event_data['volume'] = environment['VOLUME']            
+            event_data['volume'] = environment['VOLUME']
         case _:
             pass
     librespot_event_data=event_data

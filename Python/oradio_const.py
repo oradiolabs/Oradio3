@@ -72,10 +72,6 @@ USB_MOUNT_PATH  = "/media"
 USB_MOUNT_POINT = USB_MOUNT_PATH + "/oradio"
 USB_MUSIC       = USB_MOUNT_POINT + "/Muziek"
 USB_SYSTEM      = USB_MOUNT_POINT + "/Systeem"
-# Name of file used to monitor if USB is mounted or not
-USB_MONITOR = "usb_ready"
-# File name in USB root with wifi credentials
-USB_WIFI_FILE = USB_MOUNT_POINT + "/wifi_invoer.json"
 # USB states
 STATE_USB_PRESENT = "USB drive present"
 STATE_USB_ABSENT  = "USB drive absent"
@@ -150,6 +146,7 @@ SPOTIFY_CONNECT_MPV_STATE_OK               = "Spotify Connect MPV State OK"
 
 SPOTIFY_CONNECT_CONNECTED = "Spotify Connect is connected"
 SPOTIFY_CONNECT_NOT_CONNECTED = "Spotify Connect is NOT connected"
+
 ##### JSON SCHEMA ########
 MODEL_NAME_NOT_FOUND = "Unknown model name, not found in schemas.json"
 MODEL_NAME_FOUND     = "model name found"
