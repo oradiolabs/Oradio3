@@ -43,6 +43,7 @@ STATE_WIFI_IDLE           = "Wifi is not connected"
 STATE_WIFI_INFRASTRUCTURE = "Connected to infrastructure"
 STATE_WIFI_LOCAL_NETWORK  = "Connected to local network"
 STATE_WIFI_ACCESS_POINT   = "Configured as access point"
+STATE_WIFI_INFRASTRUCTURE_ALREADY_EXISTS = "Connected to existing infrastructure" # issue #245
 # wifi messages
 #OMJ: 'Type' is eigenlijk 'source'
 MESSAGE_WIFI_TYPE            = "Wifi message"
@@ -51,6 +52,10 @@ MESSAGE_WIFI_FAIL_DISCONNECT = "Wifi failed to disconnect"
 MESSAGE_WIFI_FAIL_AP_START   = "Failed to start access point"
 MESSAGE_WIFI_FAIL_AP_STOP    = "Failed to stop access point"
 
+# issue #245
+# wifi status ###
+CONNECTION_WIFI_ERROR       = "connection wifi error"
+CONNECTION_ALREADY_EXISTS   = "connection already exists"
 ################## WEB SERVICE #############################
 # Web server address
 WEB_SERVER_HOST = "0.0.0.0"
