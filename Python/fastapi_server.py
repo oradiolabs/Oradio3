@@ -30,7 +30,7 @@ from pathlib import Path
 from pydantic import BaseModel
 from typing import Optional
 from fastapi import FastAPI, BackgroundTasks, Request
-from fastapi.responses import FileResponse, RedirectResponse, JSONResponse
+from fastapi.responses import FileResponse, RedirectResponse, JSONResponse, HTMLResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
@@ -148,7 +148,6 @@ class changedpreset(BaseModel):
 async def save_preset(changedpreset: changedpreset):
     """ Handle POST with changed preset """
     oradio_log.debug("Save changed preset '%s' to playlist '%s'", changedpreset.preset, changedpreset.playlist)
-
     # Create message
     message = {}
 #OMJ: Het type klopt niet? Het is geen web service state message, eerder iets als info. Maar voor control is wel een state...
@@ -168,7 +167,11 @@ async def save_preset(changedpreset: changedpreset):
         # Modify preset
         presets[changedpreset.preset] = changedpreset.playlist
         oradio_log.debug("Preset '%s' playlist changed to '%s'", changedpreset.preset, changedpreset.playlist)
-        message["state"] = preset_map[changedpreset.preset]
+        # issue #245
+        if 'WebRadio' in changedpreset.playlist:
+            message["state"] = MESSAGE_WEB_SERVICE_PL_WEBRADIO
+        else:
+            message["state"] = preset_map[changedpreset.preset]
 
         # Store presets
         store_presets(presets)
@@ -338,6 +341,32 @@ async def catch_all(request: Request):
 
     # Default: serve playlists
     return RedirectResponse(url='/playlists')
+
+# issue #245
+def get_current_ssid():
+    try:
+        return subprocess.check_output(["iwgetid", "-r"]).decode().strip()
+    except Exception:
+        return "Niet verbonden"
+
+def scan_wifi_networks():
+    try:
+        output = subprocess.check_output(["nmcli", "-t", "-f", "SSID", "dev", "wifi"]).decode()
+        ssids = list(filter(None, set(output.strip().split('\n'))))  # Remove duplicates/empty lines
+        return ssids
+    except Exception:
+        return []
+
+@api_app.get("/")
+def wifi_page(request: Request):
+    networks = scan_wifi_networks()  # Replace static list
+    current_ssid = get_current_ssid()
+    return templates.TemplateResponse("captiveportal.html", {
+        "request": request,
+        "networks": networks,
+        "current_ssid": current_ssid
+    })
+
 
 # Entry point for stand-alone operation
 if __name__ == "__main__":

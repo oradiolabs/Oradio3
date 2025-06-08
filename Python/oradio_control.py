@@ -285,6 +285,8 @@ def process_messages(queue):
                 MESSAGE_WEB_SERVICE_PL1_CHANGED: on_webservice_pl1_changed,
                 MESSAGE_WEB_SERVICE_PL2_CHANGED: on_webservice_pl2_changed,
                 MESSAGE_WEB_SERVICE_PL3_CHANGED: on_webservice_pl3_changed,
+                # issue #245
+                MESSAGE_WEB_SERVICE_PL_WEBRADIO: on_webservice_pl_web_radio_changed,
 #                "Webservice error": on_webservice_error,
             },
             MESSAGE_SPOTIFY_TYPE: {
@@ -415,6 +417,13 @@ def on_webservice_pl3_changed():
     state_machine.transition("StatePreset3")
     threading.Timer(3.0, sound_player.play, args=("NewPlaylistPreset",)).start()
     oradio_log.debug(f"WebService on_webservice_pl3_changed acknowledged")  
+
+# issue #245
+def on_webservice_pl_web_radio_changed():
+    state_machine.transition("StateIdle")  
+    threading.Timer(3.0, sound_player.play, args=("NewPlaylistWebradio",)).start()
+    oradio_log.debug(f"WebService on_webservice_pl_web_radio_changed acknowledged")  
+
 
 #--------------------------Spotify-------------------------------
 
