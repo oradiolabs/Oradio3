@@ -195,6 +195,10 @@
 			<!-- Provide network credentials to connect to -->
 			<form method="POST">
 
+				<div class="current-ssid">
+					<label for="current-ssid">Huidige WiFi-verbinding:</label>
+					<input type="text" id="current-ssid" value="{{ current_ssid or 'nog geen wifi geconfigureerd' }}" readonly />
+				</div>
 				<!-- Network SSID -->
 				<h1 >Verbind Oradio met WiFi-netwerk</h1>
 				<label for="SSIDs">Netwerk:</label>

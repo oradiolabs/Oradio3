@@ -283,15 +283,26 @@ async def status(request: Request):
 
 @api_app.get("/captiveportal")
 async def captiveportal(request: Request):
-    """ Return captive portal """
+    """Return captive portal"""
     oradio_log.debug("Serving captive portal page")
 
     # Get access to wifi functions
     wifi = WIFIService(api_app.state.message_queue)
-    context = {"networks": wifi.get_wifi_networks()}
+
+    # Get networks and current SSID
+    networks = wifi.get_wifi_networks()
+    current_ssid = get_sta_ssid()
 
     # Return active portal page and available networks as context
-    return templates.TemplateResponse(request=request, name="captiveportal.html", context=context)
+    return templates.TemplateResponse(
+        request=request,
+        name="captiveportal.html",
+        context={
+            "networks": networks,
+            "current_ssid": current_ssid
+        }
+    )
+
 
 
 class credentials(BaseModel):
@@ -343,30 +354,62 @@ async def catch_all(request: Request):
     return RedirectResponse(url='/playlists')
 
 # issue #245
-def get_current_ssid():
-    try:
-        return subprocess.check_output(["iwgetid", "-r"]).decode().strip()
-    except Exception:
-        return "Niet verbonden"
+import configparser
+
+def get_sta_ssid():
+    connections_path = "/etc/NetworkManager/system-connections"
+
+    if not os.path.isdir(connections_path):
+        return "nog geen wifi geconfigureerd"
+
+    # List .nmconnection files with full path
+    files = [
+        os.path.join(connections_path, f)
+        for f in os.listdir(connections_path)
+        if f.endswith(".nmconnection")
+    ]
+
+    if not files:
+        return "nog geen wifi geconfigureerd"
+
+    # Sort by modification time (descending = most recent first)
+    files.sort(key=lambda f: os.path.getmtime(f), reverse=True)
+
+    for file in files:
+        config = configparser.ConfigParser()
+        try:
+            config.read(file)
+            ssid = config.get("wifi", "ssid", fallback=None)
+            mode = config.get("wifi", "mode", fallback="infrastructure")
+
+            # Skip AP-mode or OradioAP
+            if mode == "ap" or ssid == "OradioAP":
+                continue
+
+            if ssid:
+                return ssid
+        except Exception as e:
+            print(f"Failed to read {file}: {e}")
+            continue
+
+    return "nog geen wifi geconfigureerd"
 
 def scan_wifi_networks():
     try:
         output = subprocess.check_output(["nmcli", "-t", "-f", "SSID", "dev", "wifi"]).decode()
-        ssids = list(filter(None, set(output.strip().split('\n'))))  # Remove duplicates/empty lines
+        ssids = list(filter(None, set(output.strip().split("\n"))))
         return ssids
     except Exception:
         return []
-
 @api_app.get("/")
 def wifi_page(request: Request):
-    networks = scan_wifi_networks()  # Replace static list
-    current_ssid = get_current_ssid()
+    networks = scan_wifi_networks()
+    current_ssid = get_sta_ssid() or None  # ensure None if not found
     return templates.TemplateResponse("captiveportal.html", {
         "request": request,
         "networks": networks,
-        "current_ssid": current_ssid
+        "current_ssid": current_ssid,
     })
-
 
 # Entry point for stand-alone operation
 if __name__ == "__main__":

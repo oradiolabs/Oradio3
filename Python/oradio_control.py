@@ -421,7 +421,7 @@ def on_webservice_pl3_changed():
 # issue #245
 def on_webservice_pl_web_radio_changed():
     state_machine.transition("StateIdle")  
-    threading.Timer(3.0, sound_player.play, args=("NewPlaylistWebradio",)).start()
+    threading.Timer(1.0, sound_player.play, args=("NewPlaylistWebradio",)).start()
     oradio_log.debug(f"WebService on_webservice_pl_web_radio_changed acknowledged")  
 
 
