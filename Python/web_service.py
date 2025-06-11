@@ -266,13 +266,6 @@ if __name__ == '__main__':
     # import when running stand-alone
     import subprocess
 
-    print("remote debugging")
-    # Allow remote debugging from any IP address on selected port
-    import os
-    os.environ["PYDEVD_DISABLE_FILE_VALIDATION"] = "1"
-    import pydevd
-    pydevd.settrace("192.168.178.52", port=5678)    
-
     def _check_server_status():
         """ Check if a process is listening on WEB_SERVER_HOST:WEB_SERVER_PORT """
         result = subprocess.run(['wget', '-q', '--spider', f"{WEB_SERVER_HOST}:{WEB_SERVER_PORT}"], stdout=subprocess.DEVNULL)

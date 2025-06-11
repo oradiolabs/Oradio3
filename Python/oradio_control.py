@@ -526,11 +526,6 @@ import traceback # by showing where in the code the error happened and what caus
 #faulthandler.enable()
 
 def main():
-    print("remote debugging")
-    # Allow remote debugging from any IP address on selected port
-    os.environ["PYDEVD_DISABLE_FILE_VALIDATION"] = "1"
-    import pydevd
-    pydevd.settrace("192.168.178.52", port=5678)    
     try:
         oradio_log.debug("Oradio control main loop running")
         while True:
