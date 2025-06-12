@@ -126,10 +126,10 @@ class PlaySystemSound:
 
     def _set_sys_volume(self, volume):
         oradio_log.debug("Setting Sys Sound volume to %s%%", volume)
-#        subprocess.run(
-#            ["amixer", "-c", "DigiAMP", "sset", "VolumeSysSound", f"{volume}%"],
-#            check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL
- #       )
+        subprocess.run(
+            ["amixer", "-c", "DigiAMP", "sset", "VolumeSysSound", f"{volume}%"],
+            check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL
+        )
 
     def _set_mpd_volume(self, volume):
         oradio_log.debug("Setting MPD volume controller to %s%%", volume)
