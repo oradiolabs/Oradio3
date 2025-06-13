@@ -96,39 +96,43 @@
 					const input = container.querySelector('input');
 					const dropdown = container.querySelector('.options');
 
-					function showOptions()
-					{
-						let options = networks;
-						options.sort((a, b) => a.toLowerCase().localeCompare(b.toLowerCase()));
+					function showOptions() {
+					  let options = networks.slice(); // Copy the array
 
-						dropdown.innerHTML = '';
-						options.forEach(option =>
-						{
-							const div = document.createElement('div');
-							div.textContent = option;
+					  // Sort by SSID
+					  options.sort((a, b) => a.ssid.toLowerCase().localeCompare(b.ssid.toLowerCase()));
 
-							// Add click event handler
-							div.addEventListener('click', (event) =>
-							{
-								// Ignore if nothing changed
-								if (input.value !== option)
-								{
-									// Update input with option
-									input.value = option;
+					  // Clear existing dropdown
+					  dropdown.innerHTML = '';
 
-									// Hide dropdown with options
-									dropdown.style.display = 'none';
-								}
-							});
+					  options.forEach(network => {
+					    const div = document.createElement('div');
+					    div.textContent = network.ssid;
 
-							// Add option to list
-							dropdown.appendChild(div);
-						});
+					    // Add click event handler
+					    div.addEventListener('click', (event) => {
+					      if (input.value !== network.ssid) {
+					        input.value = network.ssid;
 
-						// Show dropdown
-						dropdown.style.display = 'block';
+					        // Trigger input event to update lock icon
+					        input.dispatchEvent(new Event('input'));
+
+					        // Hide dropdown
+					        dropdown.style.display = 'none';
+
+							// 🔒 Update lock icon and label
+							const isOpen = !option.security || option.security.trim() === "";
+							document.getElementById('lock-icon').textContent = isOpen ? "🔓" : "🔒";
+							document.getElementById('lock-label').textContent = isOpen ? "Open network" : "Secured network";
+					      }
+					    });
+
+					    dropdown.appendChild(div);
+					  });
+
+					  // Show dropdown
+					  dropdown.style.display = 'block';
 					}
-
 					// Show options when input is clicked
 					input.addEventListener("click", (event) =>
 					{
@@ -183,6 +187,27 @@
 				});
 
 			});
+			document.addEventListener("DOMContentLoaded", function () {
+			  const input = document.getElementById("SSIDs");
+			  const lockIcon = document.getElementById("lock-icon");
+
+			  input.addEventListener("input", function () {
+			    const selectedSSID = input.value;
+			    const found = networks.find(n => n.ssid === selectedSSID);
+
+			    if (found) {
+			      // If no security info or empty string, it's open
+			      if (!found.security || found.security.trim() === "") {
+			        lockIcon.textContent = "🔓 Open"; // Open
+			      } else {
+			        lockIcon.textContent = "🔒Secured"; // Secured
+			      }
+			    } else {
+			      // Unknown SSID, hide or default
+			      lockIcon.textContent = "🔓";
+			    }
+			  });
+			});
 		</script>
 	</head>
 	<body>
@@ -194,16 +219,20 @@
 
 			<!-- Provide network credentials to connect to -->
 			<form method="POST">
-
 				<!-- Network SSID -->
 				<h1 >Verbind Oradio met WiFi-netwerk</h1>
 				<label for="SSIDs">Netwerk:</label>
 				<div class="custom-select">
-					<input type="text" id="SSIDs" name="SSIDs" placeholder="-- Selecteer of typ uw WiFi-netwerk --" />
-					<span class="custom-icon">&#x25BC;</span> <!-- ▼ icon -->
-					<div id="options" class="options"></div>
+				  <input type="text" id="SSIDs" name="SSIDs" placeholder="-- Selecteer of typ uw WiFi-netwerk --" readonly />
+				  <span class="custom-icon">&#x25BC;</span> <!-- Dropdown icon -->
+				  <div id="options" class="options"></div>
 				</div>
-
+				<!-- Lock icon (default: open) -->
+				<!-- Lock icon placeholder -->
+				<div id="lock-container" style="display: flex; align-items: center; margin-top: 8px;">
+				  <span id="lock-icon" style="font-size: 1.6em;">🔓</span>
+				  <span id="lock-label" style="margin-left: 5px;"></span>
+				</div>				
 				<!-- Separator -->
 				<div style="height: 30px;">&nbsp;</div>
 
@@ -214,10 +243,15 @@
 					<span class="password-toggle-icon oradio-eye"><i class="fa-regular fa-eye"></i></span>
 				</div>
 				<button type="submit" id="submit" onclick="submitCredentials()">Instellen</button>
+				<!-- issue 247 -->
+				<button type="button" id="submit-no-password" onclick="submitWithoutPassword()">Instellen zonder wachtwoord</button>
+				<!-- end issue 247 -->
+				
 				<div id="notification" class="notification">
 					<!-- Will be filled by Javascript submitCredentials() -->
 				</div>
 
+				
 			</form>
 
 		</div>

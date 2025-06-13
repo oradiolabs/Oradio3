@@ -28,3 +28,15 @@
 	font-size: 1.5rem;
 	vertical-align: middle;
 }
+#lock-status {
+	font-size: 0.9em;
+	color: #ccc;
+	display: flex;
+	align-items: center;
+	gap: 6px;
+}
+#lock-icon {
+  font-size: 1.6em; /* Adjust to your preference (1.5em – 2em) */
+  margin-right: 5px;
+  vertical-align: middle;
+}

@@ -37,13 +37,16 @@ from oradio_const import (
     MESSAGE_WIFI_TYPE,
     STATE_WIFI_IDLE,
     STATE_WIFI_INFRASTRUCTURE,
+    STATE_WIFI_INFRASTRUCTURE_ALREADY_EXISTS, # issue #245
     STATE_WIFI_LOCAL_NETWORK,
     STATE_WIFI_ACCESS_POINT,
     MESSAGE_NO_ERROR,
     MESSAGE_WIFI_FAIL_CONNECT,
     MESSAGE_WIFI_FAIL_DISCONNECT,
     MESSAGE_WIFI_FAIL_AP_START,
-    MESSAGE_WIFI_FAIL_AP_STOP
+    MESSAGE_WIFI_FAIL_AP_STOP,
+    CONNECTION_WIFI_ERROR, # issue 245
+    CONNECTION_ALREADY_EXISTS # issue #245
 )
 
 ##### LOCAL constants ####################
@@ -64,6 +67,9 @@ class WIFIService():
         self.msg_q = queue
         self.error = None
         self.saved_ssid = None
+        # issue #245
+        self.wifi_connection_status = None
+        # end issue #245
 
     def send_message(self):
         """
@@ -105,6 +111,9 @@ class WIFIService():
             # Inform controller of actual state and error
             self.send_message()
             # Return success, so caller can continue
+            # issue #245
+            self.wifi_connection_status = CONNECTION_ALREADY_EXISTS
+            # end issue #245
             return True
 
         # If connected then disconnect
@@ -123,6 +132,9 @@ class WIFIService():
                     self.error = MESSAGE_WIFI_FAIL_CONNECT
                 self.send_message()
                 # Return fail, so caller can try to recover
+                # issue #245
+                self.wifi_connection_status = CONNECTION_WIFI_ERROR
+                # end issue #245
                 return False
 
         # Ensure NetworkManager has no old ssid info
@@ -141,6 +153,9 @@ class WIFIService():
                     self.error = MESSAGE_WIFI_FAIL_CONNECT
                 self.send_message()
                 # Return fail, so caller can try to recover
+                # issue #245
+                self.wifi_connection_status = CONNECTION_WIFI_ERROR
+                # end issue #245
                 return False
 
         # Setup access point or network connection
@@ -162,6 +177,9 @@ class WIFIService():
                 self.error = MESSAGE_WIFI_FAIL_AP_START
                 self.send_message()
                 # Return fail, so caller can try to recover
+                # issue #245
+                self.wifi_connection_status = CONNECTION_WIFI_ERROR
+                # end issue #245
                 return False
         else:
             # Saved network is already configured
@@ -182,10 +200,15 @@ class WIFIService():
                     self.error = MESSAGE_WIFI_FAIL_CONNECT
                     self.send_message()
                     # Return fail, so caller can try to recover
+                    # issue #245
+                    self.wifi_connection_status = CONNECTION_WIFI_ERROR
+                    # end issue #245
                     return False
             else:
                 oradio_log.debug("Network '%s' already exists in NetworkManager", ssid)
-
+                # issue #245
+                self.wifi_connection_status = CONNECTION_ALREADY_EXISTS
+                # end issue #245
         # Connecting takes time, can fail: offload to a separate thread
         # ==> Don't use reference so that the python interpreter can garbage collect when thread is done
         Thread(target=self._wifi_connect_thread, args=(ssid, active,)).start()
@@ -320,7 +343,6 @@ class WIFIService():
 
         # Get active wifi connection, if any
         active = self.get_wifi_connection()
-
         # Done if access point is already active
         if active == ACCESS_POINT_SSID:
             oradio_log.debug("Access point already active")
@@ -357,7 +379,6 @@ class WIFIService():
             # wifi_connect function informs controller
             # Return fail, so caller can try to recover
             return False
-
         # Return success, so caller can continue
         return True
 
@@ -422,16 +443,27 @@ class WIFIService():
             oradio_log.debug("Get list of networks broadcasting their ssid")
             # nmcli.device.wifi(ifname: str = None, rescan: bool = None) -> List[DeviceWifi]
             wifi_list = nmcli.device.wifi(None, None)
+            for wifi in wifi_list:
+                ssid = wifi.ssid
+                security = wifi.security  # Typically: "WPA2", "WPA1 WPA2", or "--" (open network)
+        
+                if ssid:  # Avoid empty SSIDs
+                    networks.append({
+                        "ssid": wifi.ssid,
+                        "security": "" if security == "--" else security
+                    })            
+
         except Exception as ex_err:
             oradio_log.error("Failed to get wifi networks, error = %s", ex_err)
-        else:
-            oradio_log.debug("Remove '%s' from the list", ACCESS_POINT_SSID)
-            for network in wifi_list:
-                # Add unique, ignore own Access Point
-                if (network.ssid != ACCESS_POINT_SSID) and (len(network.ssid) != 0) and (network.ssid not in networks):
-                    networks.append(network.ssid)
-
+#        else:
+#            oradio_log.debug("Remove '%s' from the list", ACCESS_POINT_SSID)
+#            for network in wifi_list:
+#                # Add unique, ignore own Access Point
+#                if (network.ssid != ACCESS_POINT_SSID) and (len(network.ssid) != 0) and (network.ssid not in networks):
+#                    networks.append(network.ssid)
+        print("WiFi-Networks=",networks)
         return networks
+
 
     def get_wifi_connection(self):
         """
@@ -494,6 +526,7 @@ class WIFIService():
         state = STATE_WIFI_IDLE
         # Get active wifi connection, if any
         active = self.get_wifi_connection()
+        # new connection
         # No connection: idle
         if not active:
             state = STATE_WIFI_IDLE
@@ -507,6 +540,8 @@ class WIFIService():
                 state = STATE_WIFI_INFRASTRUCTURE
             else:
                 state = STATE_WIFI_LOCAL_NETWORK
+        if self.wifi_connection_status == CONNECTION_ALREADY_EXISTS:
+            state = STATE_WIFI_INFRASTRUCTURE_ALREADY_EXISTS # issue #245
         return state
 
 # Entry point for stand-alone operation
