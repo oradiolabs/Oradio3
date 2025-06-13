@@ -212,7 +212,8 @@ if [ "$1" != "--continue" ]; then
 #***************************************************************#
 #   Add any additionally required Python modules to 'PYTHON'    #
 #***************************************************************#
-	PYTHON="python-mpd2 smbus2 rpi-lgpio concurrent_log_handler requests nmcli pyalsaaudio\
+#	PYTHON="python-mpd2 smbus2 rpi-lgpio concurrent_log_handler requests nmcli pyalsaaudio\
+    PYTHON="python-mpd2 smbus2 rpi-lgpio concurrent-log-handler==0.9.25 requests nmcli pyalsaaudio\
 			vcgencmd watchdog pydantic fastapi JinJa2 uvicorn python-multipart"
 
 	# Check which Python packages are not installed or outdated
@@ -222,6 +223,9 @@ if [ "$1" != "--continue" ]; then
 			missing_or_outdated+=("$pkg")
 		fi
 	done
+
+	# DEBUG: show which packages will be installed or upgraded
+	echo -e "${YELLOW}To install/update:${NC} ${missing_or_outdated[*]}"
 
 	# Install or upgrade only those needed
 	if [ ${#missing_or_outdated[@]} -gt 0 ]; then
