@@ -101,7 +101,6 @@ class WIFIService():
         """
         # Initialize
         self.error = None
-
         # Get active wifi connection, if any
         active = self.get_wifi_connection()
 
@@ -187,11 +186,18 @@ class WIFIService():
                 # Add wifi network configuration
                 try:
                     oradio_log.debug("Add '%s' to NetworkManager", ssid)
-                    options = {
-                        "ssid": ssid,
-                        "wifi-sec.key-mgmt": "wpa-psk",
-                        "wifi-sec.psk": password
-                    }
+                    # issue 247
+                    if password == "None":
+                        options = {
+                            "ssid": ssid
+                        }
+                    else:
+                        options = {
+                            "ssid": ssid,
+                            "wifi-sec.key-mgmt": "wpa-psk",
+                            "wifi-sec.psk": password
+                        }
+                    # end issue 247
                     # nmcli.connection.add(conn_type: str, options: Optional[ConnectionOptions] = None, ifname: str = "*", name: str = None, autoconnect: Bool = None) -> None
                     nmcli.connection.add("wifi", options, "*", ssid, True)
                 except Exception as ex_err:
@@ -433,7 +439,8 @@ class WIFIService():
     def get_wifi_networks(self):
         """
         Get all available wifi networks, except Oradio access points
-        :return networks ==> list of network ssid + if password required, sorted by strongest signal first
+        issue247 add security to returned network
+        :return networks ==> list of network ssid and security, sorted by strongest signal first
         """
         # initialize
         networks = []
@@ -443,25 +450,20 @@ class WIFIService():
             oradio_log.debug("Get list of networks broadcasting their ssid")
             # nmcli.device.wifi(ifname: str = None, rescan: bool = None) -> List[DeviceWifi]
             wifi_list = nmcli.device.wifi(None, None)
-            for wifi in wifi_list:
-                ssid = wifi.ssid
-                security = wifi.security  # Typically: "WPA2", "WPA1 WPA2", or "--" (open network)
-        
-                if ssid:  # Avoid empty SSIDs
-                    networks.append({
-                        "ssid": wifi.ssid,
-                        "security": "" if security == "--" else security
-                    })            
-
         except Exception as ex_err:
             oradio_log.error("Failed to get wifi networks, error = %s", ex_err)
-#        else:
-#            oradio_log.debug("Remove '%s' from the list", ACCESS_POINT_SSID)
-#            for network in wifi_list:
-#                # Add unique, ignore own Access Point
-#                if (network.ssid != ACCESS_POINT_SSID) and (len(network.ssid) != 0) and (network.ssid not in networks):
-#                    networks.append(network.ssid)
-        print("WiFi-Networks=",networks)
+        else:
+            oradio_log.debug("Remove '%s' from the list", ACCESS_POINT_SSID)
+            # issue 247
+            for network in wifi_list:
+                # Add unique, ignore own Access Point
+                if (network.ssid != ACCESS_POINT_SSID) and (len(network.ssid) != 0) and (network.ssid not in networks):
+                    networks.append({
+                        "ssid": network.ssid,
+                        "security": "" if network.security == "--" else network.security
+                        #Security is typically: "WPA2", "WPA1 WPA2", or "--" (open network)
+                    }) 
+            # end issue #247  
         return networks
 
 

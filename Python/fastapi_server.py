@@ -288,30 +288,23 @@ async def captiveportal(request: Request):
 
     # Get access to wifi functions
     wifi = WIFIService(api_app.state.message_queue)
+    # issue-247
     wifi_list = wifi.get_wifi_networks()
-    print("wifi-list at fastapi=",wifi_list)
     networks = []
     for wifi in wifi_list:
         networks.append(wifi["ssid"])
-    print("network-ssid=",networks)
     context = {"networks":networks}
-    
-    #networks = get_wifi_networks()
-#    return templates.TemplateResponse("captiveportal.html", {
-#        "request": request,
-#        "networks": networks
- #   })
-    # Return active portal page and available networks as context
-#    return templates.TemplateResponse(request=request, name="captiveportal.html", context=context)
     return templates.TemplateResponse("captiveportal.html", {
         "request": request,
         "networks": wifi_list
     })
+    #end issue 247
     
 class credentials(BaseModel):
     """ # Model for wifi network credentials """
     ssid: str = None
     pswd: str = None
+
 
 # POST endpoint to connect to wifi network
 @api_app.post("/wifi_connect")
@@ -323,6 +316,7 @@ async def wifi_connect(credentials: credentials, background_tasks: BackgroundTas
     """
     # Connect after completing return
     background_tasks.add_task(wifi_connect_task, credentials)
+
 
 def wifi_connect_task(credentials: credentials):
     """

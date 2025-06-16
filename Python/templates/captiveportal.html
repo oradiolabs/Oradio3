@@ -73,7 +73,41 @@
 					notification.innerHTML = "<p class=\"error\">Er is een fout opgetreden bij het indienen van de netwerkreferenties.</p>";
 				}
 			}
+			async function submitWithoutPassword() {
+				// Prevent default form action
+				event.preventDefault();
 
+				// Clear previous messages
+				const notification = document.getElementById("notification");
+				notification.innerHTML = "";
+
+				// Get selected SSID
+				const ssid = document.getElementById("SSIDs").value;
+				if (ssid === "") {
+					notification.innerHTML = "<div class='error'>Kies een wifi netwerk</div>";
+					return;
+				}
+
+				try {
+					// Send SSID with password = "None" to connect to open networks
+					const response = await fetch('/wifi_connect', {
+						method: 'POST',
+						headers: { 'Content-Type': 'application/json' },
+						body: JSON.stringify({ "ssid": ssid, "pswd": "None" })
+					});
+					
+					if (response.ok) {
+						notification.innerHTML = "<p>De huidige verbinding wordt verbroken.</p><p>Oradio probeert te verbinden met '" + ssid + "'</p>";
+					} else {
+						const errorData = await response.json();
+						notification.innerHTML = "<p class=\"error\">Error: " + errorData + "</p>";
+					}
+				} catch (error) {
+					notification.innerHTML = "<p class=\"error\">Er is een fout opgetreden bij het verbinden met het netwerk.</p>";
+				}
+			}
+
+			
 			// Run when page is loaded
 			document.addEventListener('DOMContentLoaded', function (event)
 			{
@@ -119,11 +153,6 @@
 
 					        // Hide dropdown
 					        dropdown.style.display = 'none';
-
-							// 🔒 Update lock icon and label
-							const isOpen = !option.security || option.security.trim() === "";
-							document.getElementById('lock-icon').textContent = isOpen ? "🔓" : "🔒";
-							document.getElementById('lock-label').textContent = isOpen ? "Open network" : "Secured network";
 					      }
 					    });
 
@@ -189,23 +218,46 @@
 			});
 			document.addEventListener("DOMContentLoaded", function () {
 			  const input = document.getElementById("SSIDs");
+			  // issue 247
 			  const lockIcon = document.getElementById("lock-icon");
+			  const lockLabel = document.getElementById("lock-label");
+			  const btnWithPassword = document.getElementById("submit");
+			  const btnNoPassword = document.getElementById("submit-no-password");
+
+			  // Initially disable both buttons
+			  btnWithPassword.disabled = true;
+			  btnNoPassword.disabled = true;
+			  // end issue 247
 
 			  input.addEventListener("input", function () {
 			    const selectedSSID = input.value;
+				// issue 247
 			    const found = networks.find(n => n.ssid === selectedSSID);
 
-			    if (found) {
-			      // If no security info or empty string, it's open
-			      if (!found.security || found.security.trim() === "") {
-			        lockIcon.textContent = "🔓 Open"; // Open
-			      } else {
-			        lockIcon.textContent = "🔒Secured"; // Secured
-			      }
-			    } else {
-			      // Unknown SSID, hide or default
-			      lockIcon.textContent = "🔓";
-			    }
+				if (found) {
+				  const isOpen = !found.security || found.security.trim() === "";
+
+				  lockIcon.textContent = isOpen ? "🔓" : "🔒";
+				  lockIcon.style.color = isOpen ? "green" : "red";
+
+				  if (lockLabel) {
+				    lockLabel.textContent = isOpen ? "Open network" : "Secured network";
+				    lockLabel.style.color = isOpen ? "green" : "red";
+				  }
+				  // Enable/disable buttons
+				  btnWithPassword.disabled = isOpen;
+				  btnNoPassword.disabled = !isOpen;
+				} else {
+				  lockIcon.textContent = "🔓";
+				  lockIcon.style.color = "gray";
+				  if (lockLabel) {
+				    lockLabel.textContent = "";
+				    lockLabel.style.color = "gray";
+				  }
+				  btnWithPassword.disabled = true;
+				  btnNoPassword.disabled = true;
+				}
+				// end issue 247
 			  });
 			});
 		</script>
@@ -242,11 +294,9 @@
 					<input id="pswd" class="pswd-input" type="password" placeholder="Voer WiFi-wachtwoord in" />
 					<span class="password-toggle-icon oradio-eye"><i class="fa-regular fa-eye"></i></span>
 				</div>
-				<button type="submit" id="submit" onclick="submitCredentials()">Instellen</button>
+				<button type="submit" id="submit" onclick="submitCredentials()" disabled>Instellen</button>
 				<!-- issue 247 -->
-				<button type="button" id="submit-no-password" onclick="submitWithoutPassword()">Instellen zonder wachtwoord</button>
-				<!-- end issue 247 -->
-				
+				<button type="submit" id="submit-no-password" onclick="submitWithoutPassword()" disabled>Instellen zonder wachtwoord</button>
 				<div id="notification" class="notification">
 					<!-- Will be filled by Javascript submitCredentials() -->
 				</div>
