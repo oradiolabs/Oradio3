@@ -28,6 +28,7 @@
 	font-size: 1.5rem;
 	vertical-align: middle;
 }
+/* issue 247 */
 #lock-status {
 	font-size: 0.9em;
 	color: #ccc;

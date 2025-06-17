@@ -221,6 +221,7 @@
 			  // issue 247
 			  const lockIcon = document.getElementById("lock-icon");
 			  const lockLabel = document.getElementById("lock-label");
+			  const lockContainer = document.getElementById("lock-container"); 
 			  const btnWithPassword = document.getElementById("submit");
 			  const btnNoPassword = document.getElementById("submit-no-password");
 
@@ -244,6 +245,8 @@
 				    lockLabel.textContent = isOpen ? "Open network" : "Secured network";
 				    lockLabel.style.color = isOpen ? "green" : "red";
 				  }
+				  // SHOW lock container
+				  lockContainer.style.display = "flex";
 				  // Enable/disable buttons
 				  btnWithPassword.disabled = isOpen;
 				  btnNoPassword.disabled = !isOpen;
@@ -279,12 +282,13 @@
 				  <span class="custom-icon">&#x25BC;</span> <!-- Dropdown icon -->
 				  <div id="options" class="options"></div>
 				</div>
+				<!-- issue 247 --> 
 				<!-- Lock icon (default: open) -->
 				<!-- Lock icon placeholder -->
-				<div id="lock-container" style="display: flex; align-items: center; margin-top: 8px;">
+				<div id="lock-container" style="display: none; align-items: center; margin-top: 8px;">
 				  <span id="lock-icon" style="font-size: 1.6em;">🔓</span>
 				  <span id="lock-label" style="margin-left: 5px;"></span>
-				</div>				
+				</div>
 				<!-- Separator -->
 				<div style="height: 30px;">&nbsp;</div>
 
@@ -294,7 +298,7 @@
 					<input id="pswd" class="pswd-input" type="password" placeholder="Voer WiFi-wachtwoord in" />
 					<span class="password-toggle-icon oradio-eye"><i class="fa-regular fa-eye"></i></span>
 				</div>
-				<button type="submit" id="submit" onclick="submitCredentials()" disabled>Instellen</button>
+				<button type="submit" id="submit" onclick="submitCredentials()" disabled>Instellen met wachtwoord</button>
 				<!-- issue 247 -->
 				<button type="submit" id="submit-no-password" onclick="submitWithoutPassword()" disabled>Instellen zonder wachtwoord</button>
 				<div id="notification" class="notification">
