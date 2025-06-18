@@ -172,7 +172,7 @@ class web_service():
             self.reset_timeout()
 
         # Start access point. Save current connection if needed
-        ### See issue #245
+        ### See issue-245
         force_ap = True
         self.wifi.access_point_start(force_ap)
 

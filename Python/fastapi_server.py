@@ -298,7 +298,7 @@ async def captiveportal(request: Request):
         "request": request,
         "networks": wifi_list
     })
-    #end issue 247
+    #end issue-247
     
 class credentials(BaseModel):
     """ # Model for wifi network credentials """

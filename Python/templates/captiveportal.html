@@ -218,7 +218,7 @@
 			});
 			document.addEventListener("DOMContentLoaded", function () {
 			  const input = document.getElementById("SSIDs");
-			  // issue 247
+			  // issue-247
 			  const lockIcon = document.getElementById("lock-icon");
 			  const lockLabel = document.getElementById("lock-label");
 			  const lockContainer = document.getElementById("lock-container"); 
@@ -228,39 +228,38 @@
 			  // Initially disable both buttons
 			  btnWithPassword.disabled = true;
 			  btnNoPassword.disabled = true;
-			  // end issue 247
+			  // end issue-247
 
 			  input.addEventListener("input", function () {
 			    const selectedSSID = input.value;
-				// issue 247
+				// issue-247
 			    const found = networks.find(n => n.ssid === selectedSSID);
 
-				if (found) {
-				  const isOpen = !found.security || found.security.trim() === "";
-
-				  lockIcon.textContent = isOpen ? "🔓" : "🔒";
-				  lockIcon.style.color = isOpen ? "green" : "red";
-
-				  if (lockLabel) {
-				    lockLabel.textContent = isOpen ? "Open network" : "Secured network";
-				    lockLabel.style.color = isOpen ? "green" : "red";
-				  }
-				  // SHOW lock container
-				  lockContainer.style.display = "flex";
-				  // Enable/disable buttons
-				  btnWithPassword.disabled = isOpen;
-				  btnNoPassword.disabled = !isOpen;
-				} else {
-				  lockIcon.textContent = "🔓";
-				  lockIcon.style.color = "gray";
-				  if (lockLabel) {
-				    lockLabel.textContent = "";
-				    lockLabel.style.color = "gray";
-				  }
-				  btnWithPassword.disabled = true;
-				  btnNoPassword.disabled = true;
-				}
-				// end issue 247
+				if (found) 
+					{
+						// found object can be with or without security:
+						//    no security ==> found = {security:"", ssid:"ssid_name"}
+						//    with security ==> found = {security:"security-mode, ssid:"ssid_name""}
+						const isOpen = !found.security || found.security.trim() === "";
+						// set the lockIcon and lock text according open or secured network
+						lockIcon.textContent = isOpen ? "🔓" : "🔒";
+						lockIcon.style.color = isOpen ? "green" : "red";
+						lockLabel.textContent = isOpen ? "Open network" : "Secured network";
+						// SHOW lock container
+						lockContainer.style.display = "flex";
+						// Enable/disable buttons
+						btnWithPassword.disabled = isOpen;
+						btnNoPassword.disabled = !isOpen;
+					} else 
+					{
+						lockIcon.textContent = "🔓";
+						lockIcon.style.color = "gray";
+						lockLabel.textContent = "";
+						lockLabel.style.color = "gray";
+						btnWithPassword.disabled = true;
+						btnNoPassword.disabled = true;
+					}
+					// end issue-247
 			  });
 			});
 		</script>
@@ -282,7 +281,7 @@
 				  <span class="custom-icon">&#x25BC;</span> <!-- Dropdown icon -->
 				  <div id="options" class="options"></div>
 				</div>
-				<!-- issue 247 --> 
+				<!-- issue-247 --> 
 				<!-- Lock icon (default: open) -->
 				<!-- Lock icon placeholder -->
 				<div id="lock-container" style="display: none; align-items: center; margin-top: 8px;">
@@ -299,7 +298,7 @@
 					<span class="password-toggle-icon oradio-eye"><i class="fa-regular fa-eye"></i></span>
 				</div>
 				<button type="submit" id="submit" onclick="submitCredentials()" disabled>Instellen met wachtwoord</button>
-				<!-- issue 247 -->
+				<!-- issue-247 -->
 				<button type="submit" id="submit-no-password" onclick="submitWithoutPassword()" disabled>Instellen zonder wachtwoord</button>
 				<div id="notification" class="notification">
 					<!-- Will be filled by Javascript submitCredentials() -->

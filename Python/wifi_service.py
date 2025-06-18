@@ -37,7 +37,7 @@ from oradio_const import (
     MESSAGE_WIFI_TYPE,
     STATE_WIFI_IDLE,
     STATE_WIFI_INFRASTRUCTURE,
-    STATE_WIFI_INFRASTRUCTURE_ALREADY_EXISTS, # issue #245
+    STATE_WIFI_INFRASTRUCTURE_ALREADY_EXISTS, # issue-245
     STATE_WIFI_LOCAL_NETWORK,
     STATE_WIFI_ACCESS_POINT,
     MESSAGE_NO_ERROR,
@@ -45,8 +45,8 @@ from oradio_const import (
     MESSAGE_WIFI_FAIL_DISCONNECT,
     MESSAGE_WIFI_FAIL_AP_START,
     MESSAGE_WIFI_FAIL_AP_STOP,
-    CONNECTION_WIFI_ERROR, # issue 245
-    CONNECTION_ALREADY_EXISTS # issue #245
+    CONNECTION_WIFI_ERROR, # issue-245
+    CONNECTION_ALREADY_EXISTS # issue-245
 )
 
 ##### LOCAL constants ####################
@@ -67,9 +67,9 @@ class WIFIService():
         self.msg_q = queue
         self.error = None
         self.saved_ssid = None
-        # issue #245
+        # issue-245
         self.wifi_connection_status = None
-        # end issue #245
+        # end issue-245
 
     def send_message(self):
         """
@@ -110,9 +110,9 @@ class WIFIService():
             # Inform controller of actual state and error
             self.send_message()
             # Return success, so caller can continue
-            # issue #245
+            # issue-245
             self.wifi_connection_status = CONNECTION_ALREADY_EXISTS
-            # end issue #245
+            # end issue-245
             return True
 
         # If connected then disconnect
@@ -131,9 +131,9 @@ class WIFIService():
                     self.error = MESSAGE_WIFI_FAIL_CONNECT
                 self.send_message()
                 # Return fail, so caller can try to recover
-                # issue #245
+                # issue-245
                 self.wifi_connection_status = CONNECTION_WIFI_ERROR
-                # end issue #245
+                # end issue-245
                 return False
 
         # Ensure NetworkManager has no old ssid info
@@ -152,9 +152,9 @@ class WIFIService():
                     self.error = MESSAGE_WIFI_FAIL_CONNECT
                 self.send_message()
                 # Return fail, so caller can try to recover
-                # issue #245
+                # issue-245
                 self.wifi_connection_status = CONNECTION_WIFI_ERROR
-                # end issue #245
+                # end issue-245
                 return False
 
         # Setup access point or network connection
@@ -176,9 +176,9 @@ class WIFIService():
                 self.error = MESSAGE_WIFI_FAIL_AP_START
                 self.send_message()
                 # Return fail, so caller can try to recover
-                # issue #245
+                # issue-245
                 self.wifi_connection_status = CONNECTION_WIFI_ERROR
-                # end issue #245
+                # end issue-245
                 return False
         else:
             # Saved network is already configured
@@ -186,7 +186,7 @@ class WIFIService():
                 # Add wifi network configuration
                 try:
                     oradio_log.debug("Add '%s' to NetworkManager", ssid)
-                    # issue 247
+                    # issue-247
                     if password == "None":
                         options = {
                             "ssid": ssid
@@ -197,7 +197,7 @@ class WIFIService():
                             "wifi-sec.key-mgmt": "wpa-psk",
                             "wifi-sec.psk": password
                         }
-                    # end issue 247
+                    # end issue-247
                     # nmcli.connection.add(conn_type: str, options: Optional[ConnectionOptions] = None, ifname: str = "*", name: str = None, autoconnect: Bool = None) -> None
                     nmcli.connection.add("wifi", options, "*", ssid, True)
                 except Exception as ex_err:
@@ -206,15 +206,15 @@ class WIFIService():
                     self.error = MESSAGE_WIFI_FAIL_CONNECT
                     self.send_message()
                     # Return fail, so caller can try to recover
-                    # issue #245
+                    # issue-245
                     self.wifi_connection_status = CONNECTION_WIFI_ERROR
-                    # end issue #245
+                    # end issue-245
                     return False
             else:
                 oradio_log.debug("Network '%s' already exists in NetworkManager", ssid)
-                # issue #245
+                # issue-245
                 self.wifi_connection_status = CONNECTION_ALREADY_EXISTS
-                # end issue #245
+                # end issue-245
         # Connecting takes time, can fail: offload to a separate thread
         # ==> Don't use reference so that the python interpreter can garbage collect when thread is done
         Thread(target=self._wifi_connect_thread, args=(ssid, active,)).start()
@@ -454,7 +454,7 @@ class WIFIService():
             oradio_log.error("Failed to get wifi networks, error = %s", ex_err)
         else:
             oradio_log.debug("Remove '%s' from the list", ACCESS_POINT_SSID)
-            # issue 247
+            # issue-247
             for network in wifi_list:
                 # Add unique, ignore own Access Point
                 if (network.ssid != ACCESS_POINT_SSID) and (len(network.ssid) != 0) and (network.ssid not in networks):
@@ -463,7 +463,7 @@ class WIFIService():
                         "security": "" if network.security == "--" else network.security
                         #Security is typically: "WPA2", "WPA1 WPA2", or "--" (open network)
                     }) 
-            # end issue #247  
+            # end issue-247  
         return networks
 
 
@@ -543,7 +543,7 @@ class WIFIService():
             else:
                 state = STATE_WIFI_LOCAL_NETWORK
         if self.wifi_connection_status == CONNECTION_ALREADY_EXISTS:
-            state = STATE_WIFI_INFRASTRUCTURE_ALREADY_EXISTS # issue #245
+            state = STATE_WIFI_INFRASTRUCTURE_ALREADY_EXISTS # issue-245
         return state
 
 # Entry point for stand-alone operation
