@@ -45,6 +45,9 @@ LOGGING_PATH=$SCRIPT_PATH/logging
 SPOTIFY_PATH=$SCRIPT_PATH/Spotify
 # Location of files to install
 RESOURCES_PATH=$SCRIPT_PATH/install_resources
+#location of the shell scripts
+SHELL_SCRIPT_PATH=$SCRIPT_PATH/shell_scripts
+
 
 # Ensure required directories exist
 mkdir -p $LOGGING_PATH
@@ -72,7 +75,7 @@ if [ "$OSVERSION" != "$BOOKWORM64" ]; then
 fi
 
 # Network domain name
-HOSTNAME="oradio"
+HOSTNAME="mijnOradio"
 
 # Clear flag indicating reboot required to complete the installation
 unset REBOOT_NEEDED
@@ -102,6 +105,8 @@ function install_resource {
 			replace=`echo $LOGGING_PATH | sed 's/\//\\\\\//g'`
 			sed -i "s/PLACEHOLDER_LOGGING_PATH/$replace/g" $1
 
+			replace=`echo $LOGGING_PATH | sed 's/\//\\\\\//g'`
+			sed -i "s/PLACEHOLDER_LOGGING_PATH/$replace/g" $1
 			replace=`echo $LOGFILE_USB | sed 's/\//\\\\\//g'`
 			sed -i "s/PLACEHOLDER_LOGFILE_USB/$replace/g" $1
 			replace=`echo $LOGFILE_SPOTIFY | sed 's/\//\\\\\//g'`
@@ -110,6 +115,10 @@ function install_resource {
 			sed -i "s/PLACEHOLDER_LOGFILE_INSTALL/$replace/g" $1
 			replace=`echo $LOGFILE_TRACEBACK | sed 's/\//\\\\\//g'`
 			sed -i "s/PLACEHOLDER_LOGFILE_TRACEBACK/$replace/g" $1
+			replace=`echo $SHELL_SCRIPT_PATH | sed 's/\//\\\\\//g'`
+			sed -i "s/PLACEHOLDER_SHELL_SCRIPT/$replace/g" $1
+			replace=`echo $LOGFILE_MPV | sed 's/\//\\\\\//g'`
+			sed -i "s/PLACEHOLDER_LOGFILE_MPV/$replace/g" $1
 		fi
 
 		if ! sudo cmp -s $1 $2 >/dev/null 2>&1; then
@@ -175,7 +184,7 @@ if [ "$1" != "--continue" ]; then
 #***************************************************************#
 #   Add any additionally required packages to 'PACKAGES'        #
 #***************************************************************#
-	PACKAGES="git jq python3-dev libasound2-dev libasound2-plugin-equal mpd mpc iptables"
+	PACKAGES="git jq python3-dev libasound2-dev libasound2-plugin-equal mpd mpc iptables avahi-utils"
 
 	# Check which packages are not yet installed
 	MISSING_PKGS=$(dpkg -l $PACKAGES 2>/dev/null | grep '^i' | tr ':' ' ' | awk '{print $2}' | sort)
@@ -212,8 +221,8 @@ if [ "$1" != "--continue" ]; then
 #***************************************************************#
 #   Add any additionally required Python modules to 'PYTHON'    #
 #***************************************************************#
-	PYTHON="python-mpd2 smbus2 rpi-lgpio concurrent_log_handler requests nmcli pyalsaaudio\
-			vcgencmd watchdog pydantic fastapi JinJa2 uvicorn python-multipart"
+	PYTHON="python-mpd2 smbus2 rpi-lgpio concurrent-log-handler==0.9.25 requests nmcli pyalsaaudio\
+			vcgencmd watchdog pydantic fastapi JinJa2 uvicorn python-multipart pydevd"
 
 	# Check which Python packages are not installed or outdated
 	missing_or_outdated=()
@@ -430,6 +439,14 @@ fi
 
 # Configure the Librespot service
 install_resource $RESOURCES_PATH/librespot.service /etc/systemd/system/librespot.service 'sudo systemctl enable librespot.service'
+install_resource $RESOURCES_PATH/publishing_oradio_librespot.service /etc/systemd/system/publishing_oradio_librespot.service 'sudo systemctl enable publishing_oradio_librespot.service'
+install_resource $RESOURCES_PATH/oradio-spotify.service /etc/avahi/services/oradio-spotify.service
+
+#configure nsswitch at /etc
+sudo sed -i "s/^.domain-name=.*/domain-name=local/g" /etc/nsswitch.conf
+sudo sed -i "s/mdns4_minimal/myhostname mdsn4_minimal/g" /etc/nsswitch.conf
+# Make shell scripts executable
+sudo chmod +x $SHELL_SCRIPT_PATH/*
 
 # Progress report
 echo -e "${GREEN}Spotify connect functionality is installed and configured${NC}"

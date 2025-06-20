@@ -29,7 +29,7 @@ import sys
 ORADIO_DIR      = sys.path[0]
 ORADIO_LOG_DIR  = os.path.abspath(ORADIO_DIR + '/../logging')
 SOUND_FILES_DIR = os.path.realpath(ORADIO_DIR + "/../system_sounds")
-
+SHELL_SCRIPTS_DIR =  os.path.realpath(ORADIO_DIR + "/../shell_scripts")
 JSON_SCHEMAS_FILE = os.path.realpath(ORADIO_DIR + "/schemas.json")
 
 # Messages consist of 3 elements: type, state and error

@@ -45,7 +45,8 @@ from oradio_const import (
     MESSAGE_WEB_SERVICE_TYPE,
     STATE_WEB_SERVICE_IDLE,
     STATE_WEB_SERVICE_ACTIVE,
-    MESSAGE_NO_ERROR
+    MESSAGE_NO_ERROR,
+    SHELL_SCRIPTS_DIR
 )
 
 ##### LOCAL constants ####################
@@ -146,7 +147,17 @@ class web_service():
         """
         # Web service is not running
         if not self.event_active.is_set():
-
+            ## issue-163 mDNS naming resolution
+            # Enable the local.host service
+            if True:
+                shell_script=SHELL_SCRIPTS_DIR+"/enable_local_host.sh"
+                cmd = f"bash {shell_script}"
+                result, error = run_shell_script(cmd)
+                if not result:
+                    oradio_log.error("Error during '%s' during shell-script, error = %s", cmd, error)
+                else:
+                    oradio_log.info("http://oradio.local enabled")
+                ## end issue-163
             oradio_log.debug("Configure port redirection")
             # Set port redirection for all network requests to reach the web service
             cmd = f"sudo bash -c 'iptables -t nat -A PREROUTING -p tcp --dport 80 -j REDIRECT --to-port {WEB_SERVER_PORT}'"
@@ -247,7 +258,17 @@ class web_service():
 
         # Remove access point, keeping wifi connection if connected
         self.wifi.access_point_stop()
-
+        if True:
+            # issue-163 multiple Oradio on network
+             # disable the local.host service
+            shell_script=SHELL_SCRIPTS_DIR+"/disable_local_host.sh"
+            cmd = f"bash {shell_script}"
+            result, error = run_shell_script(cmd)
+            if not result:
+                oradio_log.error("Error during '%s' during shell-script, error = %s", cmd, error)
+            else:
+                oradio_log.info("http://oradio.local disabled")
+            # end issue-163
         # Remove port redirection
         oradio_log.debug("Remove port redirection")
         cmd = f"sudo bash -c 'iptables -t nat -D PREROUTING -p tcp --dport 80 -j REDIRECT --to-port {WEB_SERVER_PORT}'"

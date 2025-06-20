@@ -1,0 +1,18 @@
+# Placeholders will be modified by ../oradio_install.sh script
+
+[Unit]
+Description=Enable local hostname via Avahi
+After=network-online.target
+Requires=avahi-daemon.service # hard dependancy
+
+[Service]
+Type=oneshot
+
+User=PLACEHOLDER_USER
+Group=PLACEHOLDER_GROUP
+WorkingDirectory=PLACEHOLDER_SHELL_SCRIPT
+ExecStart=PLACEHOLDER_SHELL_SCRIPT/publishing_oradio_librespot.sh
+RemainAfterExit=true
+
+[Install]
+WantedBy=multi-user.target
