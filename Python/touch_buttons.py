@@ -44,7 +44,9 @@ BUTTONS = {
 }
 # Press durations
 LONG_PRESS_DURATION = 6         # Seconds for long press
-EXTRA_LONG_PRESS_DURATION = 16  # Seconds for extra-long press
+# EXTRA_LONG_PRESS_DURATION = 16  # Seconds for extra-long press
+
+
 
 class TouchButtons:
     """
@@ -129,30 +131,31 @@ class TouchButtons:
         threading.Thread(target=self._long_press_handler,
                          args=(button_name,), daemon=True).start()
 
-        # Wait for extra-long press duration
-        while time.monotonic() - start_time < EXTRA_LONG_PRESS_DURATION:
-            if GPIO.input(channel) == GPIO.HIGH:
-                return
-            time.sleep(0.05)
-
-        # Handle extra-long press
-        self._extra_long_press_handler(button_name)
+#         # Wait for extra-long press duration
+#         while time.monotonic() - start_time < EXTRA_LONG_PRESS_DURATION:
+#             if GPIO.input(channel) == GPIO.HIGH:
+#                 return
+#             time.sleep(0.05)
+# 
+#         # Handle extra-long press
+#         self._extra_long_press_handler(button_name)
 
     def _long_press_handler(self, button_name):
         """Handles long press actions."""
         if self.state_machine:
             if button_name == "Play":
-                self.state_machine.transition("StateWebService")
+#                self.state_machine.transition("StateWebService")
+                self.state_machine.transition("StateWebServiceForceAP")  # Start OradioAP
             else:
                 oradio_log.error("LONG press detected on button: %s (no action)", button_name)
 
-    def _extra_long_press_handler(self, button_name):
-        """Handles extra-long press actions."""
-        if self.state_machine:
-            if button_name == "Play":
-                self.state_machine.transition("StateWebServiceForceAP")
-            else:
-                oradio_log.error("EXTRA LONG press detected on button: %s (no action)", button_name)
+#     def _extra_long_press_handler(self, button_name):
+#         """Handles extra-long press actions."""
+#         if self.state_machine:
+#             if button_name == "Play":
+#                 self.state_machine.transition("StateWebServiceForceAP")
+#             else:
+#                 oradio_log.error("EXTRA LONG press detected on button: %s (no action)", button_name)
 
     def cleanup(self):
         """Cleans up GPIO on exit."""
