@@ -64,6 +64,7 @@ SOUND_FILES = {
     "NoUSB":        f"{SOUND_FILES_DIR}/NoUSB_melding.wav",
     "WebInterface": f"{SOUND_FILES_DIR}/WebInterface_melding.wav",
     "OradioAP":     f"{SOUND_FILES_DIR}/OradioAP_melding.wav",
+    "OradioAPstop":     f"{SOUND_FILES_DIR}/OradioAP_gestopt_melding.wav",
     "WifiConnected": f"{SOUND_FILES_DIR}/Wifi_verbonden_melding.wav",
     "WifiNotConnected": f"{SOUND_FILES_DIR}/Niet_Wifi_verbonden_melding.wav",
     "NewPlaylistPreset": f"{SOUND_FILES_DIR}/Nieuwe_afspeellijst_preset.wav",
