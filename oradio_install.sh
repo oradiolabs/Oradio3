@@ -169,25 +169,51 @@ if [ "$1" != "--continue" ]; then
 
 ########## OS PACKAGES END ##########
 
-########## ORADIO3 PACKAGES BEGIN ##########
+########## ORADIO3 LINUX PACKAGES BEGIN ##########
 
-	# Install packages if not yet installed
 #***************************************************************#
 #   Add any additionally required packages to 'PACKAGES'        #
 #***************************************************************#
-	PACKAGES="git jq python3-dev libasound2-dev libasound2-plugin-equal mpd mpc iptables"
+	LINUX_PACKAGES=(
+		git
+		jq
+		python3-dev
+		libasound2-dev
+		libasound2-plugin-equal
+		mpd
+		mpc
+		iptables
+	)
 
-	# Check which packages are not yet installed
-	MISSING_PKGS=$(dpkg -l $PACKAGES 2>/dev/null | grep '^i' | tr ':' ' ' | awk '{print $2}' | sort)
-	TO_INSTALL=$(comm -23 <(echo "$PACKAGES" | tr ' ' '\n' | sort) <(echo "$MISSING_PKGS"))
+	# Fetch list of upgradable packages
+	UPGRADABLE=$(apt list --upgradable 2>/dev/null | cut -d/ -f1)
 
-	# Install missing packages
-	[ -n "$TO_INSTALL" ] && sudo apt-get install -y $TO_INSTALL
+	# Create associative array for fast lookup
+	declare -A UPGRADABLE_MAP
+	for package in $UPGRADABLE; do
+		UPGRADABLE_MAP["$package"]=1
+	done
+
+	# Ensure Linux packages are installed and up-to-date
+	for package in "${LINUX_PACKAGES[@]}"; do
+		if dpkg -s "$package" &>/dev/null; then
+			# Check if installed package can be upgraded
+			if [[ ${UPGRADABLE_MAP["$package"]+_} ]]; then
+				echo -e "${YELLOW}$package is outdated: upgrading...${NC}"
+				sudo apt-get install -y $package
+			else
+				echo "$package is up-to-date"
+			fi
+		else
+			echo -e "${YELLOW}$package is missing: installing...${NC}"
+			sudo apt-get install -y $package
+		fi
+	done
 
 	# Progress report
 	echo -e "${GREEN}Oradio3 packages installed and up to date${NC}"
 
-########## ORADIO3 PACKAGES END ##########
+########## ORADIO3 LINUX PACKAGES END ##########
 
 ########## PYTHON BEGIN ##########
 
@@ -208,32 +234,68 @@ if [ "$1" != "--continue" ]; then
 
 	# https://www.raspberrypi.com/documentation/computers/os.html#use-python-on-a-raspberry-pi
 #OMJ: Uitzoeken welke van deze packages als python3-<xxx> package te installeren zijn en dan verplaatsen naar Oradio3 PACKAGES hierboven
-	# Install python modules. On --use-pep517 see https://peps.python.org/pep-0517/
 #***************************************************************#
 #   Add any additionally required Python modules to 'PYTHON'    #
 #***************************************************************#
-	PYTHON="python-mpd2 smbus2 rpi-lgpio concurrent_log_handler requests nmcli pyalsaaudio\
-			vcgencmd watchdog pydantic fastapi JinJa2 uvicorn python-multipart"
+	PYTHON_PACKAGES=(
+		python-mpd2
+		smbus2
+		rpi-lgpio
+		concurrent-log-handler
+		requests
+		nmcli pyalsaaudio
+		vcgencmd
+		watchdog
+		pydantic
+		fastapi
+		JinJa2
+		uvicorn
+		python-multipart
+	)
 
-	# Check which Python packages are not installed or outdated
-	missing_or_outdated=()
-	for pkg in $PYTHON; do
-		if ! python3 -c "import pkg_resources; pkg_resources.require('$pkg')" 2>/dev/null; then
-			missing_or_outdated+=("$pkg")
+	# Ensure Python packages are installed and up-to-date
+	for package in "${PYTHON_PACKAGES[@]}"; do
+
+		installed_version=$(python -c "
+import sys
+try:
+    from importlib.metadata import version
+except ImportError:
+    from importlib_metadata import version  # For Python < 3.8 with backport
+try:
+    print(version('$package'))
+except:
+    sys.exit(1)
+")
+    
+		if [ $? -ne 0 ]; then
+			echo -e "${YELLOW}$package is missing: installing...${NC}"
+			# On --use-pep517 see https://peps.python.org/pep-0517/
+			python3 -m pip install --upgrade --use-pep517 $package
+			continue
+		fi
+
+		# Get latest version from PyPI
+		latest_version=$(curl -s "https://pypi.org/pypi/${package}/json" | \
+			python -c "import sys, json; print(json.load(sys.stdin)['info']['version'])" 2>/dev/null)
+
+		if [ -z "$latest_version" ]; then
+			echo -e "${ERROR} Failed to fetch version for $package from PyPI${NC}"
+			exit 1
+		fi
+
+		# Compare versions
+		if [ "$installed_version" != "$latest_version" ]; then
+			echo -e "${YELLOW}$package is outdated: upgrading...${NC}"
+			# On --use-pep517 see https://peps.python.org/pep-0517/
+			python3 -m pip install --upgrade --use-pep517 $package
+		else
+			echo "$package is up-to-date"
 		fi
 	done
 
-	# Install or upgrade only those needed
-	if [ ${#missing_or_outdated[@]} -gt 0 ]; then
-		# Upgrade pip and use wheel cache
-		python3 -m pip install --upgrade pip setuptools wheel
-
-		# Install or upgrade packages
-		python3 -m pip install --upgrade --use-pep517 "${missing_or_outdated[@]}"
-	fi
-
 	# Progress report
-	echo -e "${GREEN}Python modules installed and up to date${NC}"
+	echo -e "${GREEN}Python packages installed and up-to-date${NC}"
 
 ########## PYTHON END ##########
 
