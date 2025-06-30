@@ -17,11 +17,13 @@
 		<title>Oradio wifi instellen</title>
 
 		<script>
+			// Initialize
+			let notification;
 			// Convert template variable to javascript
 			const networks = {{ networks|tojson }};
 
 			// Function to submit the network and password
-			async function submitCredentials()
+			async function submitCredentials(event)
 			{
 				// Cancel the default action that belongs to the event
 				event.preventDefault();
@@ -33,7 +35,7 @@
 				const ssid = document.getElementById("SSIDs").value;
 				if (ssid == "")
 				{
-					notification.innerHTML = "<div class='error'>Kies een wifi netwerk</div>";
+					notification.innerHTML = `<div class="error">Kies een wifi netwerk</div>`;
 					return;
 				}
 
@@ -41,7 +43,7 @@
 				const pswd = document.getElementById("pswd").value;
 				if (pswd.length < 8)
 				{
-					notification.innerHTML = "<p class=\"error\">Wachtwoord moet minimaal 8 karakters zijn</p>";
+					notification.innerHTML = `<p class="error">Wachtwoord moet minimaal 8 karakters zijn</p>`;
 					return;
 				}
 
@@ -58,19 +60,22 @@
 					// Handle server response
 					if (response.ok)
 					{
-						notification.innerHTML = "<p>De huidige verbinding wordt verbroken.</p><p>Oradio probeert te verbinden met '" + ssid + "'</p>";
+						notification.innerHTML = `<p>De huidige verbinding wordt verbroken.</p><p>Oradio probeert te verbinden met '${ssid}'</p>`;
 					}
 					else
 					{
+						// Wait for error to be returned from server
 						const errorData = await response.json();
-						notification.textContent = "<p class=\"error\">Error: "+ errorData + "</p>";
+
+						// Notify
+						notification.innerHTML = `<p class="error">${errorData.message || errorMessage}</p>`;
 					}
 				}
 
 				// Handle server not responding
 				catch (error)
 				{
-					notification.innerHTML = "<p class=\"error\">Er is een fout opgetreden bij het indienen van de netwerkreferenties.</p>";
+					notification.innerHTML = `<p class="error">${errorMessage}<br>Controleer of de web interface actief is</p>`;
 				}
 			}
 
@@ -86,8 +91,13 @@
 					});
 				}, 0);
 
+				// Get notification
+				notification = document.getElementById('network_notification');
+
+				// Clear old notification
+				notification.innerHTML = "";
+
 				// Show notification
-				const notification = document.getElementById('notification');
 				notification.style.display = "block";
 
 				// Create custom select elements dropdown lists with options and actions
@@ -193,7 +203,7 @@
 			<img src="../static/logo.png" class="logo" />
 
 			<!-- Provide network credentials to connect to -->
-			<form method="POST">
+			<form onsubmit="submitCredentials(event)">
 
 				<!-- Network SSID -->
 				<h1 >Verbind Oradio met WiFi-netwerk</h1>
@@ -213,8 +223,8 @@
 					<input id="pswd" class="pswd-input" type="password" placeholder="Voer WiFi-wachtwoord in" />
 					<span class="password-toggle-icon oradio-eye"><i class="fa-regular fa-eye"></i></span>
 				</div>
-				<button type="submit" id="submit" onclick="submitCredentials()">Instellen</button>
-				<div id="notification" class="notification">
+				<button type="submit" id="submit"">Instellen</button>
+				<div id="network_notification" class="notification">
 					<!-- Will be filled by Javascript submitCredentials() -->
 				</div>
 
