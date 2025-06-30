@@ -49,7 +49,6 @@ from oradio_const import (
 )
 
 ##### LOCAL constants ####################
-WEB_SERVICE_TIMEOUT  = 600  # 10 minutes
 DEBUG_ALIVE_INTERVAL = 60   # Only show debug message every 60 seconds
 
 class Server(uvicorn.Server):
@@ -95,12 +94,6 @@ class web_service():
         # Clear error
         self.error = None
 
-        # Register timeout after which the access point is stopped
-        self.timeout = WEB_SERVICE_TIMEOUT
-
-        # Create and store an event for restarting the timeout counter
-        self.event_reset = Event()
-
         # Create and store an event for manually stopping the process
         self.event_stop = Event()
 
@@ -109,9 +102,6 @@ class web_service():
 
         # Pass the queue to the web server
         api_app.state.message_queue = self.msg_q
-
-        # Pass event to reset timeout counter to web server
-        api_app.state.event_reset = self.event_reset
 
         # Register wifi service and send wifi status message
         self.wifi = WIFIService(self.msg_q)
@@ -138,11 +128,10 @@ class web_service():
         oradio_log.debug("Send web service message: %s", message)
         self.msg_q.put(message)
 
-    def start(self, force_ap=False):
+    def start(self):
         """
-        Start the web server, or reset timeout counter if already running
-        Setup access point or keep active wifi connection
-        :param force_ap (optional) ==> Setup access point even if already connected
+        Start the web server
+        Setup access point
         """
         # Web service is not running
         if not self.event_active.is_set():
@@ -159,20 +148,15 @@ class web_service():
             config = uvicorn.Config(api_app, host=WEB_SERVER_HOST, port=WEB_SERVER_PORT, log_level="info")
             server = Server(config=config)
 
-            # Mark start time for timeout counter
-            self.started = time()
-
             # Execute main loop as separate thread
             # ==> Don't use reference so that the python interpreter can garbage collect when thread is done
             Thread(target=self._run, args=(server,)).start()
 
         else:
-            oradio_log.debug("Reset timeout counter of running web service")
-            # web service is active, so starting == timeout counter reset
-            self.reset_timeout()
+            oradio_log.debug("web service is already running")
 
         # Start access point. Save current connection if needed
-        self.wifi.access_point_start(force_ap)
+        self.wifi.access_point_start()
 
     def stop(self):
         """
@@ -180,12 +164,6 @@ class web_service():
         """
         if self.event_active.is_set():
             self.event_stop.set()
-
-    def reset_timeout(self):
-        """
-        Set event flag to signal timeout counter reset
-        """
-        self.event_reset.set()
 
     def get_state(self):
         """
@@ -208,10 +186,7 @@ class web_service():
         with server.run_in_thread():
 
             # Confirm starting the web server
-            oradio_log.info("Web service is running. Timeout = %s", self.timeout)
-
-            # Only show 'web service is running' debug message every minute
-            countdown = 0
+            oradio_log.info("Web service is running")
 
             # Execute in a loop
             while True:
@@ -219,31 +194,11 @@ class web_service():
                 # Sleeping slows down handling of incoming web service requests. But no sleep means CPU load is 100%. 1s a compromise.
                 sleep(1)
 
-                # Check for timeout
-                if time() - self.started > self.timeout:
-                    oradio_log.debug("Web service stopped by timeout")
-                    break
-
-                # Check for reset event
-                if self.event_reset.is_set():
-                    oradio_log.debug("Reset web service timeout counter")
-                    self.started = time()
-                    self.event_reset.clear()
-                    countdown = 0
-
                 # Check for stop event
                 if self.event_stop.is_set():
                     oradio_log.debug("Web service stopped by command")
                     self.event_stop.clear()
                     break
-
-                # Only show 'web service is running' debug message every minute
-                if countdown == 0:
-                    # Print remaining time before timeout
-                    oradio_log.debug("Web server will timeout after %s seconds", int(self.timeout - (time() - self.started)))
-                    countdown = DEBUG_ALIVE_INTERVAL
-                else:
-                    countdown -= 1
 
         # Remove access point, keeping wifi connection if connected
         self.wifi.access_point_stop()
@@ -263,13 +218,6 @@ if __name__ == '__main__':
 
     # import when running stand-alone
     import subprocess
-
-    def _check_server_status():
-        """ Check if a process is listening on WEB_SERVER_HOST:WEB_SERVER_PORT """
-        result = subprocess.run(['wget', '-q', '--spider', f"{WEB_SERVER_HOST}:{WEB_SERVER_PORT}"], stdout=subprocess.DEVNULL)
-        if not result.returncode:
-            return "Web service is active"
-        return "No active web service found"
 
     def _check_messages(queue):
         """
@@ -298,9 +246,7 @@ if __name__ == '__main__':
                        " 0-quit\n"
                        " 1-Show web service state\n"
                        " 2-start web service (long-press-AAN)\n"
-                       " 3-start web service (extra-long-press-AAN)\n"
-                       " 4-restart web service timeout\n"
-                       " 5-stop web service (any-press-UIT)\n"
+                       " 3-stop web service (any-press-UIT)\n"
                        "select: "
                        )
 
@@ -316,23 +262,19 @@ if __name__ == '__main__':
         # Execute selected function
         match FunctionNr:
             case 0:
-                print("\nStopping the web service...\n")
-                oradio_web_service.stop()
                 print("\nExiting test program...\n")
                 break
             case 1:
-                print(f"\nMY web service state: {oradio_web_service.get_state()}")
-                print(f"ANY web service state: {_check_server_status()}\n")
+                # Check if a process is listening on WEB_SERVER_HOST:WEB_SERVER_PORT
+                result = subprocess.run(['wget', '-q', '--spider', f"{WEB_SERVER_HOST}:{WEB_SERVER_PORT}"], stdout=subprocess.DEVNULL)
+                if not result.returncode:
+                    print("\nActive web service found\n")
+                else:
+                    print("\nNo active web service found\n")
             case 2:
                 print("\nStarting the web service...\n")
                 oradio_web_service.start()
             case 3:
-                print("\nForcing access point...\n")
-                oradio_web_service.start(force_ap=True)
-            case 4:
-                print("\nResetting timeout counter...\n")
-                oradio_web_service.reset_timeout()
-            case 5:
                 print("\nStopping the web service...\n")
                 oradio_web_service.stop()
             case _:

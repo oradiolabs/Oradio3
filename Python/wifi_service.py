@@ -310,7 +310,7 @@ class WIFIService():
         oradio_log.info("Disconnected from: '%s'", active)
         return True
 
-    def access_point_start(self, force_ap=False):
+    def access_point_start(self):
         """
         Redirect DNS to internal
         Setup access point network
@@ -342,13 +342,9 @@ class WIFIService():
         # If connected, and force access point, then save connection and setup access point
         # If connected, and not force access point, then keep the active connection
         if active:
-            if force_ap:
-                # Keep current network connection when an access point is started
-                self.saved_ssid = active
-                oradio_log.info("Save ssid '%s' for reconnect on stop", self.saved_ssid)
-            else:
-                oradio_log.debug("Keep active wifi network '%s'", active)
-                return True
+            # Keep current network connection when an access point is started
+            self.saved_ssid = active
+            oradio_log.info("Save ssid '%s' for reconnect on stop", self.saved_ssid)
 
         oradio_log.debug("Activate access point '%s'", ACCESS_POINT_SSID)
         # Setup and start acccess point
