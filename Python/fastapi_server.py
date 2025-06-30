@@ -57,21 +57,6 @@ api_app.mount("/static", StaticFiles(directory=web_path+"/static"), name="static
 # Initialize templates with custom filters and globals
 templates = Jinja2Templates(directory=web_path+"/templates")
 
-@api_app.middleware("http")
-async def middleware(request: Request, call_next):
-    """
-    “A 'middleware' is a function that works with every request before it is processed
-    by any specific path operation. And also with every response before returning it.”
-    """
-    oradio_log.debug("Send timeout reset message")
-
-    # User interaction: Set event flag to signal timeout counter reset
-    api_app.state.event_reset.set()
-
-    # Continue processing requests
-    response = await call_next(request)
-    return response
-
 #### FAVICON ####################
 
 @api_app.get("/favicon.ico", include_in_schema=False)
