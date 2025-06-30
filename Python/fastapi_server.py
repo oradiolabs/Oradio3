@@ -17,7 +17,7 @@ Created on December 23, 2024
 @version:       2
 @email:         oradioinfo@stichtingoradio.nl
 @status:        Development
-@summary: Class for web interface and Captive Portal server
+@summary: Class for web interface and web server
     :Note
     :Install
     :Documentation
@@ -261,19 +261,19 @@ async def status(request: Request):
     # Return playlists page and available networks as context
     return templates.TemplateResponse(request=request, name="status.html", context=context)
 
-#### CAPTIVE PORTAL ####################
+#### NETWORK ####################
 
-@api_app.get("/captiveportal")
-async def captiveportal(request: Request):
-    """ Return captive portal """
-    oradio_log.debug("Serving captive portal page")
+@api_app.get("/network")
+async def network(request: Request):
+    """ Return network """
+    oradio_log.debug("Serving network page")
 
     # Get access to wifi functions
     wifi = WIFIService(api_app.state.message_queue)
     context = {"networks": wifi.get_wifi_networks()}
 
-    # Return active portal page and available networks as context
-    return templates.TemplateResponse(request=request, name="captiveportal.html", context=context)
+    # Return network page and available networks as context
+    return templates.TemplateResponse(request=request, name="network.html", context=context)
 
 
 class credentials(BaseModel):
@@ -308,20 +308,9 @@ def wifi_connect_task(credentials: credentials):
 @api_app.route("/{full_path:path}", methods=["GET", "POST"])
 async def catch_all(request: Request):
     """
-    Any unknown path will return:
-      captive portal if wifi is an access point, or
-      playlists if wifi connected to a network
+    Any unknown path will return playlists page
     """
     oradio_log.debug("Catchall")
-    # Get access to wifi functions
-    wifi = WIFIService(api_app.state.message_queue)
-
-    # Access point is active, so serve captive portal
-    if wifi.get_wifi_connection() == ACCESS_POINT_SSID:
-        # Return captive portal
-        return await captiveportal(request)
-
-    # Default: serve playlists
     return RedirectResponse(url='/playlists')
 
 # Entry point for stand-alone operation
