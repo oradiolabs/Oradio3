@@ -20,7 +20,7 @@ Created on April 28, 2025
 """
 import time
 import threading
-import RPi.GPIO as GPIO
+from RPi import GPIO
 
 ##### oradio modules ####################
 from oradio_logging import oradio_log
@@ -28,7 +28,6 @@ from play_system_sound import PlaySystemSound
 from led_control import LEDControl  # Import LED control module
 
 ##### GLOBAL constants ####################
-from oradio_const import *
 
 ##### LOCAL constants ####################
 # Debounce time in milliseconds to ignore rapid repeat triggers
@@ -44,12 +43,9 @@ BUTTONS = {
 }
 # Press durations
 LONG_PRESS_DURATION = 6         # Seconds for long press
-EXTRA_LONG_PRESS_DURATION = 16  # Seconds for extra-long press
 
 class TouchButtons:
-    """
-    Handles GPIO-based touch buttons with debounce, long, and extra-long press detection.
-    """
+    """Handles GPIO-based touch buttons with debounce, long, and extra-long press detection."""
 
     def __init__(self, state_machine=None, test_mode=False):
         """
@@ -77,9 +73,7 @@ class TouchButtons:
             GPIO.add_event_detect(pin, GPIO.FALLING, callback=self._button_callback, bouncetime=10)
 
     def _button_callback(self, channel):
-        """
-        Handles initial button press events with debounce.
-        """
+        """Handles initial button press events with debounce."""
         button_name = self.gpio_to_button.get(channel)
         if not button_name:
             return
@@ -129,30 +123,13 @@ class TouchButtons:
         threading.Thread(target=self._long_press_handler,
                          args=(button_name,), daemon=True).start()
 
-        # Wait for extra-long press duration
-        while time.monotonic() - start_time < EXTRA_LONG_PRESS_DURATION:
-            if GPIO.input(channel) == GPIO.HIGH:
-                return
-            time.sleep(0.05)
-
-        # Handle extra-long press
-        self._extra_long_press_handler(button_name)
-
     def _long_press_handler(self, button_name):
         """Handles long press actions."""
         if self.state_machine:
             if button_name == "Play":
-                self.state_machine.transition("StateWebService")
+                self.state_machine.transition("StateWebService")  # Start OradioAP
             else:
                 oradio_log.error("LONG press detected on button: %s (no action)", button_name)
-
-    def _extra_long_press_handler(self, button_name):
-        """Handles extra-long press actions."""
-        if self.state_machine:
-            if button_name == "Play":
-                self.state_machine.transition("StateWebServiceForceAP")
-            else:
-                oradio_log.error("EXTRA LONG press detected on button: %s (no action)", button_name)
 
     def cleanup(self):
         """Cleans up GPIO on exit."""
