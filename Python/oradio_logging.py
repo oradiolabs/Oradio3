@@ -29,22 +29,23 @@ import sys
 import faulthandler
 import logging as python_logging
 from logging import DEBUG, INFO, WARNING, ERROR
-import concurrent_log_handler
+import logging.handlers
+import queue
+import atexit
 from concurrent_log_handler import ConcurrentRotatingFileHandler
-from concurrent_log_handler.queue import setup_logging_queues
 
 ##### oradio modules ####################
 # Functionality needed from other modules is loaded when needed to avoid circular import errors
 
 ##### GLOBAL constants ####################
-from oradio_const import *
+from oradio_const import ORADIO_LOG_DIR
 
 ##### LOCAL constants ####################
 ORADIO_LOGGER       = 'oradio'
 ORADIO_LOG_LEVEL    = DEBUG
 ORADIO_LOG_FILE     = ORADIO_LOG_DIR + '/oradio.log'    # Use absolute path to prevent file rotation trouble
 ORADIO_LOG_FILESIZE = 512 * 1024
-ORADIO_LOG_BACKUPS  = 2
+ORADIO_LOG_BACKUPS  = 1
 
 # Capture and print low-level crashes
 faulthandler.enable()
@@ -88,8 +89,8 @@ class RemoteMonitoringHandler(python_logging.Handler):
     def emit(self, record):
         if record.levelno in (WARNING, ERROR):
             # Import here to avoid circular import
-            from remote_monitoring import rms_service
-            rms_service().send_message(record.levelname, record.message, f"{record.filename}:{record.lineno}")
+            from remote_monitoring import RmsService
+            RmsService().send_message(record.levelname, record.message, f"{record.filename}:{record.lineno}")
 
 # Ensure logging directory exists
 os.makedirs(ORADIO_LOG_DIR, exist_ok=True)
@@ -100,11 +101,22 @@ oradio_log = python_logging.getLogger('oradio')
 # Set default log level
 oradio_log.setLevel(ORADIO_LOG_LEVEL)
 
+# Your CLH handler
+clh_handler = ConcurrentRotatingFileHandler(ORADIO_LOG_FILE, 'a+', ORADIO_LOG_FILESIZE, ORADIO_LOG_BACKUPS)
+
+# Explicit queue setup
+log_queue = queue.Queue(maxsize=10000)
+
+# Queue handler for non-blocking
+queue_handler = python_logging.handlers.QueueHandler(log_queue)
+
+# Configure logging
+oradio_log.addHandler(queue_handler)
+
 # Rotate log after reaching file size, keep old copies
-file_handler = ConcurrentRotatingFileHandler(ORADIO_LOG_FILE, 'a+', ORADIO_LOG_FILESIZE, ORADIO_LOG_BACKUPS)
-file_handler.setFormatter(ColorFormatter())
-file_handler.addFilter(ThrottledFilter())      # Do not write to SD card when RPI is throttled
-oradio_log.addHandler(file_handler)
+clh_handler.setFormatter(ColorFormatter())
+clh_handler.addFilter(ThrottledFilter())      # Do not write to SD card when RPI is throttled
+oradio_log.addHandler(clh_handler)
 
 # Instantiate the Remote Monitoring Service handler
 remote_handler = RemoteMonitoringHandler()
@@ -116,9 +128,6 @@ if sys.stderr.isatty():
     console_handler.setFormatter(ColorFormatter())
     oradio_log.addHandler(console_handler)
 
-# Convert loggers to use background thread
-setup_logging_queues()
-
 # Entry point for stand-alone operation
 if __name__ == '__main__':
 
@@ -129,7 +138,7 @@ if __name__ == '__main__':
     print(f"\nSystem logging level: {ORADIO_LOG_LEVEL}\n")
 
     # Show menu with test options
-    input_selection = ("Select a function, input the number.\n"
+    InputSelection = ("Select a function, input the number.\n"
                        " 0-quit\n"
                        " 1-Test log level DEBUG\n"
                        " 2-Test log level INFO\n"
@@ -145,12 +154,12 @@ if __name__ == '__main__':
     while True:
         # Get user input
         try:
-            function_nr = int(input(input_selection))
-        except:
-            function_nr = -1
+            FunctionNr = int(input(InputSelection))
+        except ValueError:
+            FunctionNr = -1
 
         # Execute selected function
-        match function_nr:
+        match FunctionNr:
             case 0:
                 print("\nExiting test program...\n")
                 break
@@ -185,18 +194,18 @@ if __name__ == '__main__':
             case 5:
                 def generate_process_exception():
                     print(10 + 'hello: Process')
-                print(f"\nGenerate unhandled exception in Process:\n")
+                print("\nGenerate unhandled exception in Process:\n")
                 Process(target=generate_process_exception).start()
                 def generate_thread_exception():
                     print(10 + 'hello: Thread')
-                print(f"\nGenerate unhandled exception in Thread:\n")
+                print("\nGenerate unhandled exception in Thread:\n")
                 Thread(target=generate_thread_exception).start()
             case 6:
-                print(f"\nGenerate unhandled exception in current thread:\n")
+                print("\nGenerate unhandled exception in current thread:\n")
                 print(10 + 'hello: current thread')
 
             case 7:
-                print(f"\nGenerate segmentation fault:\n")
+                print("\nGenerate segmentation fault:\n")
                 import ctypes; ctypes.string_at(0)
             case _:
                 print("\nPlease input a valid number\n")

@@ -39,23 +39,36 @@ from fastapi_server import api_app
 from wifi_service import WIFIService
 
 ##### GLOBAL constants ####################
-from oradio_const import *
+from oradio_const import (
+    WEB_SERVER_HOST,
+    WEB_SERVER_PORT,
+    MESSAGE_WEB_SERVICE_TYPE,
+    STATE_WEB_SERVICE_IDLE,
+    STATE_WEB_SERVICE_ACTIVE,
+    MESSAGE_NO_ERROR
+)
 
 ##### LOCAL constants ####################
-_WEB_SERVICE_TIMEOUT  = 600  # 10 minutes
-_DEBUG_ALIVE_INTERVAL = 60   # Only show debug message every 60 seconds
+WEB_SERVICE_TIMEOUT  = 600  # 10 minutes
+DEBUG_ALIVE_INTERVAL = 60   # Only show debug message every 60 seconds
 
 class Server(uvicorn.Server):
     """
-    Wrapper to run FastAPI service in a separate thread
+    Wrapper to run FastAPI service in a separate thread using uvicorn
     https://stackoverflow.com/questions/61577643/python-how-to-use-fastapi-and-uvicorn-run-without-blocking-the-thread
     """
     # Ignore signals
     def install_signal_handlers(self):
+        """
+        Override to avoid signal handler installation in thread context
+        """
         pass
 
     @contextlib.contextmanager
     def run_in_thread(self):
+        """
+        Run the server in a background thread using a context manager
+        """
         thread = Thread(target=self.run)
         thread.start()
         try:
@@ -83,7 +96,7 @@ class web_service():
         self.error = None
 
         # Register timeout after which the access point is stopped
-        self.timeout = _WEB_SERVICE_TIMEOUT
+        self.timeout = WEB_SERVICE_TIMEOUT
 
         # Create and store an event for restarting the timeout counter
         self.event_reset = Event()
@@ -109,7 +122,7 @@ class web_service():
 
     def _send_message(self):
         """
-        Send web service message
+        Send web service message to the queue
         """
         # Create message
 #OMJ: Het type klopt niet? Het is geen web service state message, eerder iets als info. Maar voor control is wel een state...
@@ -228,7 +241,7 @@ class web_service():
                 if countdown == 0:
                     # Print remaining time before timeout
                     oradio_log.debug("Web server will timeout after %s seconds", int(self.timeout - (time() - self.started)))
-                    countdown = _DEBUG_ALIVE_INTERVAL
+                    countdown = DEBUG_ALIVE_INTERVAL
                 else:
                     countdown -= 1
 
@@ -256,8 +269,7 @@ if __name__ == '__main__':
         result = subprocess.run(['wget', '-q', '--spider', f"{WEB_SERVER_HOST}:{WEB_SERVER_PORT}"], stdout=subprocess.DEVNULL)
         if not result.returncode:
             return "Web service is active"
-        else:
-            return "No active web service found"
+        return "No active web service found"
 
     def _check_messages(queue):
         """
@@ -282,7 +294,7 @@ if __name__ == '__main__':
     message_listener.start()
 
     # Show menu with test options
-    input_selection = ("Select a function, input the number.\n"
+    InputSelection = ("Select a function, input the number.\n"
                        " 0-quit\n"
                        " 1-Show web service state\n"
                        " 2-start web service (long-press-AAN)\n"
@@ -297,12 +309,12 @@ if __name__ == '__main__':
 
         # Get user input
         try:
-            function_nr = int(input(input_selection))
+            FunctionNr = int(input(InputSelection))
         except ValueError:
-            function_nr = -1
+            FunctionNr = -1
 
         # Execute selected function
-        match function_nr:
+        match FunctionNr:
             case 0:
                 print("\nStopping the web service...\n")
                 oradio_web_service.stop()

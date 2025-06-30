@@ -32,11 +32,23 @@ from oradio_utils import check_internet_connection, run_shell_script
 from oradio_logging import oradio_log
 
 ##### GLOBAL constants ####################
-from oradio_const import *
+from oradio_const import (
+    ACCESS_POINT_SSID,
+    MESSAGE_WIFI_TYPE,
+    STATE_WIFI_IDLE,
+    STATE_WIFI_INFRASTRUCTURE,
+    STATE_WIFI_LOCAL_NETWORK,
+    STATE_WIFI_ACCESS_POINT,
+    MESSAGE_NO_ERROR,
+    MESSAGE_WIFI_FAIL_CONNECT,
+    MESSAGE_WIFI_FAIL_DISCONNECT,
+    MESSAGE_WIFI_FAIL_AP_START,
+    MESSAGE_WIFI_FAIL_AP_STOP
+)
 
 ##### LOCAL constants ####################
-_AP_HOST = "108.156.60.1"  # wsj.com
-_TIMEOUT = 300  # Wait up to 5 minutes to connect to network
+AP_HOST = "108.156.60.1"  # wsj.com
+TIMEOUT = 300  # Wait up to 5 minutes to connect to network
 
 class WIFIService():
     """
@@ -141,7 +153,7 @@ class WIFIService():
                     "mode": "ap",
                     "ssid": ACCESS_POINT_SSID,
                     "ipv4.method": "shared",
-                    "ipv4.address": _AP_HOST+"/24"
+                    "ipv4.address": AP_HOST+"/24"
                 }
                 # nmcli.connection.add(conn_type: str, options: Optional[ConnectionOptions] = None, ifname: str = "*", name: str = None, autoconnect: Bool = None) -> None
                 nmcli.connection.add("wifi", options, "*", ACCESS_POINT_SSID, False)
@@ -209,7 +221,7 @@ class WIFIService():
                 try:
                     oradio_log.debug("Failed to activate '%s', activate '%s'", new_ssid, old_ssid)
                     # nmcli.connection.up(name: str, wait: int = None) -> None # Default timeout is 90 seconds
-                    nmcli.connection.up(old_ssid, _TIMEOUT)
+                    nmcli.connection.up(old_ssid, TIMEOUT)
                 except Exception as ex_err:
                     oradio_log.error("Failed to activate '%s', error = %s", old_ssid, ex_err)
                     if new_ssid == ACCESS_POINT_SSID:
@@ -317,7 +329,7 @@ class WIFIService():
 
         # Configure DNS redirection
         oradio_log.debug("Redirect DNS")
-        cmd = "sudo bash -c 'echo \"address=/#/"+_AP_HOST+"\" > /etc/NetworkManager/dnsmasq-shared.d/redirect.conf'"
+        cmd = "sudo bash -c 'echo \"address=/#/"+AP_HOST+"\" > /etc/NetworkManager/dnsmasq-shared.d/redirect.conf'"
         result, error = run_shell_script(cmd)
         if not result:
             oradio_log.error("Error during <%s> to configure DNS redirection, error: %s", cmd, error)
@@ -538,7 +550,7 @@ if __name__ == '__main__':
     message_listener.start()
 
     # Show menu with test options
-    input_selection = ("Select a function, input the number.\n"
+    InputSelection = ("Select a function, input the number.\n"
                        " 0-quit\n"
                        " 1-get wifi state\n"
                        " 2-list on air wifi networks\n"
@@ -557,12 +569,12 @@ if __name__ == '__main__':
 
         # Get user input
         try:
-            function_nr = int(input(input_selection))
+            FunctionNr = int(input(InputSelection))
         except ValueError:
-            function_nr = -1
+            FunctionNr = -1
 
         # Execute selected function
-        match function_nr:
+        match FunctionNr:
             case 0:
                 print("\nExiting test program...\n")
                 break
@@ -571,7 +583,7 @@ if __name__ == '__main__':
             case 2:
                 print(f"\nRegistered wifi networks: {wifi.get_wifi_networks()}\n")
             case 3:
-                print(f"\nDefined wifi connections: {wifi._get_wifi_nm_connections()}\n")
+                print(f"\nDefined wifi connections: {wifi._get_wifi_nm_connections()}\n")   # pylint: disable=protected-access
             case 4:
                 network = input("Enter network to remove from NetworkManager: ")
                 if network:
@@ -589,7 +601,7 @@ if __name__ == '__main__':
                 else:
                     print("\nNo SSID and/or password given\n")
             case 7:
-                print(f"\n_wifi_disconnect() returned '{wifi._wifi_disconnect()}'\n")
+                print(f"\n_wifi_disconnect() returned '{wifi._wifi_disconnect()}'\n")       # pylint: disable=protected-access
             case 8:
                 if wifi.access_point_start():
                     print("\nSetting up access point. Check messages for result\n")

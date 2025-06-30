@@ -37,7 +37,7 @@ from mpd_control import MPDControl
 from led_control import LEDControl
 from play_system_sound import PlaySystemSound
 from touch_buttons import TouchButtons
-from remote_monitoring import rms_service
+from remote_monitoring import RmsService
 
 ##### GLOBAL constants ####################
 from oradio_const import *
@@ -45,7 +45,7 @@ from oradio_const import *
 ##### LOCAL constants ####################
 
 # Instantiate remote monitor
-remote_monitor = rms_service()
+remote_monitor = RmsService()
 
 # Send system info to Remote Monitoring Service
 remote_monitor.send_sys_info()
@@ -143,6 +143,7 @@ class StateMachine:
                 sound_player.play("Preset3")
                 spotify_connect.pause()  # when spotify is active it will switch to StateSpotifyConnect
             elif self.state == "StateStop":
+                oradio_web_service.stop()
                 leds.turn_on_led_with_delay("LEDStop", 4)
                 mpd.pause()
                 spotify_connect.pause() # spotify is on pause and will not work

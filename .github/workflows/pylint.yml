@@ -13,11 +13,19 @@ jobs:
         python-version: ["3.11"]
     steps:
     - uses: actions/checkout@v4
+
     - name: Set up Python ${{ matrix.python-version }}
       uses: actions/setup-python@v4
       with:
         python-version: ${{ matrix.python-version }}
-    - name: Install dependencies
+
+    - name: Install system dependencies
+      run: |
+        sudo apt-get update
+        # volume
+        sudo apt-get install libasound2-dev -y
+
+    - name: Install Python dependencies
       run: |
         python -m pip install --upgrade pip
         pip install pylint
@@ -25,7 +33,7 @@ jobs:
         pip install smbus2 rpi-lgpio
         # logging
         pip install concurrent_log_handler requests
-        # network - wifi
+        # network
         pip install nmcli
         # utils
         pip install vcgencmd
@@ -33,16 +41,20 @@ jobs:
         pip install watchdog
         # audio
         pip install python-mpd2
-        # volume
-        sudo apt-get install libasound2-dev -y
         pip install pyalsaaudio --use-pep517
         # web_service
         pip install pydantic fastapi JinJa2 uvicorn python-multipart
+
     - name: Analysing the code with pylint
+      continue-on-error: true
       # Use .pylintrc 
       # Prevent MPDClient no-member errors, as they are false positives
       run: |
-        pylint $(git ls-files '*.py') --rcfile=.github/workflows/.pylintrc --generated-members=self.client.*,mpd.client.* --output=pylint_result.txt || true
+        pylint $(git ls-files '*.py') \
+        --rcfile=.github/workflows/.pylintrc \
+        --generated-members=self.client.*,mpd.client.* \
+        --output=pylint_result.txt
+
     - name: Upload pylint result
       uses: actions/upload-artifact@v4
       with:

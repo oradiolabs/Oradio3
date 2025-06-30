@@ -28,7 +28,7 @@ from play_system_sound import PlaySystemSound
 from led_control import LEDControl  # Import LED control module
 
 ##### GLOBAL constants ####################
-from oradio_const import *  
+from oradio_const import *
 
 ##### LOCAL constants ####################
 # Debounce time in milliseconds to ignore rapid repeat triggers
