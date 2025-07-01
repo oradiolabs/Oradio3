@@ -36,8 +36,7 @@ from oradio_const import (
     ACCESS_POINT_SSID,
     MESSAGE_WIFI_TYPE,
     STATE_WIFI_IDLE,
-    STATE_WIFI_INFRASTRUCTURE,
-    STATE_WIFI_LOCAL_NETWORK,
+    STATE_WIFI_INTERNET,
     STATE_WIFI_ACCESS_POINT,
     MESSAGE_NO_ERROR,
     MESSAGE_WIFI_FAIL_CONNECT,
@@ -66,11 +65,10 @@ class WIFIService():
 
     def send_message(self, error):
         """
-        Send wifi message
+        Send wifi service message
         :param error: Error message or code to include in the message
         """
         # Create message
-#OMJ: Het type klopt niet? Het is geen web service state message, eerder iets als info. Maar voor control is wel een state...
         message = {
             "type": MESSAGE_WIFI_TYPE,
             "state": self.get_state(),
@@ -78,7 +76,7 @@ class WIFIService():
         }
 
         # Put message in queue
-        oradio_log.debug("Send wifi message: %s", message)
+        oradio_log.debug("Send wifi service message: %s", message)
         self.msg_q.put(message)
 
     def wifi_connect(self, ssid, password):
@@ -215,8 +213,6 @@ class WIFIService():
                         self.send_message(MESSAGE_WIFI_FAIL_CONNECT)
                 else:
                     oradio_log.info("Connect to '%s' is active", old_ssid)
-                    # Inform controller of actual state and error
-                    self.send_message(MESSAGE_NO_ERROR)
 
             # Delete new_ssid from NetworkManager
             try:
@@ -240,6 +236,9 @@ class WIFIService():
                 except Exception as ex_err:
                     oradio_log.error("Failed to remove '%s' from NetworkManager, error = %s", old_ssid, ex_err)
                     ''' OMJ: NetworkManager now has an orphan. Do we need to do garbage collection? '''
+
+            # Inform controller of actual state and error
+            self.send_message(MESSAGE_NO_ERROR)
 
     def _wifi_disconnect(self):
         """
@@ -329,6 +328,9 @@ class WIFIService():
             # wifi_connect function informs controller
             # Return fail, so caller can try to recover
             return False
+
+        # Inform controller of actual state, no error
+        self.send_message(MESSAGE_NO_ERROR)
 
         # Return success, so caller can continue
         return True
@@ -472,9 +474,8 @@ class WIFIService():
         elif active != ACCESS_POINT_SSID:
             # Connected: determine connection type
             if check_internet_connection():
-                state = STATE_WIFI_INFRASTRUCTURE
-            else:
-                state = STATE_WIFI_LOCAL_NETWORK
+                state = STATE_WIFI_INTERNET
+            # Wifi can be connected to a network which has no internet, which for Oradio is meaningless.
         return state
 
 # Entry point for stand-alone operation

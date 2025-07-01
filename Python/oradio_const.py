@@ -39,10 +39,9 @@ MESSAGE_NO_ERROR = "None"
 # Access point
 ACCESS_POINT_SSID = "OradioAP"
 # wifi states
-STATE_WIFI_IDLE           = "Wifi is not connected"
-STATE_WIFI_INFRASTRUCTURE = "Connected to infrastructure"
-STATE_WIFI_LOCAL_NETWORK  = "Connected to local network"
-STATE_WIFI_ACCESS_POINT   = "Configured as access point"
+STATE_WIFI_IDLE         = "Wifi is not connected"
+STATE_WIFI_INTERNET     = "Wifi connected to internet"
+STATE_WIFI_ACCESS_POINT = "Wifi configured as access point"
 # wifi messages
 #OMJ: 'Type' is eigenlijk 'source'
 MESSAGE_WIFI_TYPE            = "Wifi message"

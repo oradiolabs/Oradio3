@@ -64,9 +64,8 @@ from web_service import web_service
 
 usb_present_event = threading.Event() # track status USB
 
-wifi_connected_event = threading.Event() # track status wifi
-
-oradio_ap = threading.Event() # track status wifi
+#OMJ: access point is een afgeleide van de web service, dus beter om oradio_web_service.get_state() te gebruiken
+#oradio_ap = threading.Event() # track status wifi
 
 Web_Service_Active=False # track status Webservice NOT used yet
 
@@ -120,9 +119,7 @@ class StateMachine:
             self.state = requested_state
             oradio_log.debug("State changed: %s → %s", old, self.state)
         else:
-            oradio_log.warning(
-                f"Transition to {requested_state} blocked (USB absent)"
-            )
+            oradio_log.warning("Transition to %s blocked (USB absent)", requested_state)
             if self.state != "StateUSBAbsent":
                 self.state = "StateUSBAbsent"
                 oradio_log.debug("State set to StateUSBAbsent")
@@ -142,7 +139,9 @@ class StateMachine:
             if self.state == "StatePlay":
                 leds.turn_on_led("LEDPlay")
                 mpd.play()
-                sound_player.play("Play")
+#OMJ: Na het opstarten van de web service (long press AAN) vind ik het raar om dan het Play geluidje te horen
+                if oradio_web_service.get_state() != STATE_WEB_SERVICE_ACTIVE:
+                    sound_player.play("Play")
                 spotify_connect.pause()    # when spotify is active it will switch to StateSpotifyConnect
 
             elif self.state == "StatePreset1":
@@ -168,10 +167,12 @@ class StateMachine:
                 mpd.pause()
                 spotify_connect.pause() # spotify is on pause and will not work
                 sound_player.play("Stop")
-                # Stop any network services
-                if oradio_ap.is_set():
+#OMJ: access point is een afgeleide van de web service, dus beter om web_service.get_state() te gebruiken
+                if oradio_web_service.get_state() == STATE_WEB_SERVICE_ACTIVE:
+#                if oradio_ap.is_set():
+                    # Stop network services
                     oradio_web_service.stop()
-                    oradio_ap.clear()
+#                    oradio_ap.clear()
                     time.sleep(2)  #  time reservation just take some margin in Stop
                     sound_player.play("OradioAPstopped")
 
@@ -211,19 +212,20 @@ class StateMachine:
 
                 self.transition("StateIdle")
 
-            elif self.state == "StateIdle":   # Wait for next button/ command
+            elif self.state == "StateIdle": # Wait for next button/ command
                 mpd.pause() # Stop the Mpd just to make sure
                 spotify_connect.pause() # spotify is on pause and will not work
                 oradio_log.debug("In Idle state, wait for next step")
 
             elif self.state == "StateWebService": # Triggered by LONG PRESS
                 leds.control_blinking_led("LEDPlay", 0.5)
- #               mpd.pause()
-                oradio_web_service.start()
-                oradio_ap.set()  # set that the OradioAp is active
+                oradio_web_service.start() # Start the web service (and access point) Do nothing if already started
+#OMJ: Als er iets mis gaat met opstarten van de web service en/of access point hoor je toch dat je verbinding kan maken.
+#     Beter om bericht pas te geven als web service running én access point actief ontvangen is?
+#     Nadeel is dat dit even kan duren, dus je na knipperen van de LEDs je afvraagt wat nu te doen...
+# ==> Voor nu gaan we met melding hier ervan uit dat alles goed gaat
                 sound_player.play("OradioAPstarted")
                 oradio_log.debug("In WebService state, wait for next step")
-
                 time.sleep(5) # wait and block for new transition
                 self.transition("StatePlay") # move further to orginal state
 
@@ -277,8 +279,7 @@ def process_messages(queue):
             },
             MESSAGE_WIFI_TYPE : {
                 STATE_WIFI_IDLE: on_wifi_not_connected,
-                STATE_WIFI_INFRASTRUCTURE: on_wifi_connected_to_internet,
-                STATE_WIFI_LOCAL_NETWORK: on_wifi_connected_to_local_network,
+                STATE_WIFI_INTERNET: on_wifi_connected_to_internet,
                 STATE_WIFI_ACCESS_POINT: on_wifi_access_point,
                 # If an error occurs, the error text is used as the key.
                 MESSAGE_WIFI_FAIL_CONNECT: on_wifi_error,
@@ -327,8 +328,11 @@ def process_messages(queue):
             message = queue.get()  # Blocks until a message is available
             oradio_log.debug("Received message in Queue: %s", message)
             handle_message(message)
-    except Exception as e:
-        oradio_log.error("Unexpected error in process_messages: %s", e)
+    except Exception as ex_err:
+        oradio_log.error("Unexpected error in process_messages: %s", ex_err)
+
+
+#-------------------VOLUME-----------------------
 
 def on_volume_changed():
     if state_machine.state == "StateStop" or state_machine.state == "StateIdle":
@@ -345,42 +349,42 @@ def on_usb_present():
     usb_present_event.set()  # Signal that USB is now present
     oradio_log.debug("USB present acknowledged")
 
-#--------------------Web & Wifi--------------------
+#-------------------WIFI--------------------------
 
 def on_wifi_connected_to_internet():
-    wifi_connected_event.set()
     # Send system info to Remote Monitoring Service
     remote_monitor.send_sys_info()
-    if state_machine.state != "StateStartUp":
-    # no need , when succesfull connected to wifi, that at every startup it is played
-        sound_player.play("WifiConnected")
-    oradio_log.debug("Wifi is connected acknowledged")
 
-def on_wifi_connected_to_local_network():
-    wifi_connected_event.set()
-    if state_machine.state != "StateStartUp":
-    # no need , when succesfull connected to wifi, that at every startup it is played
+#OMJ: Only when ON button is active give notification and stop web server (just to be sure)
+    if state_machine.state == "StatePlay":
+        oradio_web_service.stop() # Stop the web service (and access point) Do nothing if already stopped
+#OMJ: The relevant information is that the Oradio is connected to the internet (and can therefore play web radio and Spotify)
         sound_player.play("WifiConnected")
-    oradio_log.debug("Wifi is connected acknowledged")
+
+    oradio_log.debug("Wifi is connected to internet acknowledged")
 
 def on_wifi_not_connected():
-    wifi_connected_event.clear()
-    if state_machine.state != "StateStartUp":
-    # no need , when not connected to wifi, that at every startup it is played
+#OMJ: Only when ON button is active give notification and stop web server (just to be sure)
+    if state_machine.state == "StatePlay":
+        oradio_web_service.stop() # Stop the web service (and access point) Do nothing if already stopped
+#OMJ: The relevant information is that the Oradio is NOT connected to the internet (and can therefore NOT play web radio and Spotify)
         sound_player.play("WifiNotConnected")
+
     oradio_log.debug("Wifi is NOT connected acknowledged")
 
 def on_wifi_access_point():
     oradio_log.debug("Configured as access point acknowledged")
 
 def on_wifi_error():
-    wifi_connected_event.clear()
-    if state_machine.state != "StateStartUp":
-    # no need , when not connected to wifi, that at every startup it is played
+#OMJ: Only when ON button is active give notification and stop web server (just to be sure)
+    if state_machine.state == "StatePlay":
+        oradio_web_service.stop() # Stop the web service (and access point) Do nothing if already stopped
+#OMJ: The relevant information is that the Oradio is NOT connected to the internet (and can therefore NOT play web radio and Spotify)
         sound_player.play("WifiNotConnected")
+
     oradio_log.debug("Wifi failed to connect acknowledged")
 
-#------------------------Web service----------------------------
+#-------------------WEB---------------------------
 
 def on_webservice_active():
     global Web_Service_Active
@@ -417,7 +421,7 @@ def on_webservice_pl3_changed():
     threading.Timer(3.0, sound_player.play, args=("NewPlaylistPreset",)).start()
     oradio_log.debug("WebService on_webservice_pl3_changed acknowledged")
 
-#--------------------------Spotify-------------------------------
+#-------------------SPOTIFY-----------------------
 
 def on_spotify_connect_connected():
     spotify_connect_connected.set() # Signal that spotify_connected is active
@@ -460,10 +464,10 @@ def update_spotify_connect_available():
     if spotify_connect_connected.is_set() and spotify_connect_playing.is_set():
         spotify_connect_available.set()  # When this is the case, the ON button becomes Spotify Button
         if state_machine.state in ("StatePlay"):# if Spotify connect is  avalaible Switch to
-              state_machine.transition("StateSpotifyConnect") # Switch to Spotify Connect
+            state_machine.transition("StateSpotifyConnect") # Switch to Spotify Connect
     else:
         spotify_connect_available.clear()
-        if  state_machine.state == "StateSpotifyConnect": # if Spotify connect is not avalaible
+        if state_machine.state == "StateSpotifyConnect": # if Spotify connect is not avalaible
             state_machine.transition("StateStop") # Switch of as Spotify stops
 
     oradio_log.info(

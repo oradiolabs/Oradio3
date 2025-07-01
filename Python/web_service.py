@@ -105,24 +105,22 @@ class web_service():
 
         # Register wifi service and send wifi status message
         self.wifi = WIFIService(self.msg_q)
-        self.wifi.send_message()
+        self.wifi.send_message(MESSAGE_NO_ERROR)
 
         # Send initial state and error message
-        self._send_message()
+        self.send_message(MESSAGE_NO_ERROR)
 
-    def _send_message(self):
+    def send_message(self, error):
         """
-        Send web service message to the queue
+        Send web service message
+        :param error: Error message or code to include in the message
         """
         # Create message
-#OMJ: Het type klopt niet? Het is geen web service state message, eerder iets als info. Maar voor control is wel een state...
-        message = {"type": MESSAGE_WEB_SERVICE_TYPE, "state": self.get_state()}
-
-        # Optionally add error message
-        if self.error:
-            message["error"] = self.error
-        else:
-            message["error"] = MESSAGE_NO_ERROR
+        message = {
+            "type": MESSAGE_WEB_SERVICE_TYPE,
+            "state": self.get_state(),
+            "error": error
+        }
 
         # Put message in queue
         oradio_log.debug("Send web service message: %s", message)
@@ -155,15 +153,14 @@ class web_service():
         else:
             oradio_log.debug("web service is already running")
 
-        # Start access point. Save current connection if needed
-        self.wifi.access_point_start()
-
     def stop(self):
         """
         Set event flag to signal to stop the web server
         """
         if self.event_active.is_set():
             self.event_stop.set()
+        else:
+            oradio_log.debug("web service is already stopped")
 
     def get_state(self):
         """
@@ -182,6 +179,12 @@ class web_service():
         # Pass started status to web service
         self.event_active.set()
 
+        # Send state and error message
+        self.send_message(MESSAGE_NO_ERROR)
+
+        # Start access point, saving current connection if any
+        self.wifi.access_point_start()
+
         # Running web server non-blocking
         with server.run_in_thread():
 
@@ -196,7 +199,7 @@ class web_service():
 
                 # Check for stop event
                 if self.event_stop.is_set():
-                    oradio_log.debug("Web service stopped by command")
+                    oradio_log.debug("Web service stopped")
                     self.event_stop.clear()
                     break
 
@@ -212,6 +215,9 @@ class web_service():
 
         # Pass stopped status to web service
         self.event_active.clear()
+
+        # Send state and error message
+        self.send_message(MESSAGE_NO_ERROR)
 
 # Entry point for stand-alone operation
 if __name__ == '__main__':
@@ -262,11 +268,13 @@ if __name__ == '__main__':
         # Execute selected function
         match FunctionNr:
             case 0:
+                print("\nStopping the web service...\n")
+                oradio_web_service.stop()
                 print("\nExiting test program...\n")
                 break
             case 1:
                 # Check if a process is listening on WEB_SERVER_HOST:WEB_SERVER_PORT
-                result = subprocess.run(['wget', '-q', '--spider', f"{WEB_SERVER_HOST}:{WEB_SERVER_PORT}"], stdout=subprocess.DEVNULL)
+                result = subprocess.run(f"ss -tuln | grep {WEB_SERVER_HOST}:{WEB_SERVER_PORT}", shell=True, stdout=subprocess.DEVNULL)
                 if not result.returncode:
                     print("\nActive web service found\n")
                 else:
