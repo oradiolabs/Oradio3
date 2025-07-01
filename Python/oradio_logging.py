@@ -29,9 +29,10 @@ import sys
 import faulthandler
 import logging as python_logging
 from logging import DEBUG, INFO, WARNING, ERROR
-import concurrent_log_handler
+import logging.handlers
+import queue
+import atexit
 from concurrent_log_handler import ConcurrentRotatingFileHandler
-from concurrent_log_handler.queue import setup_logging_queues
 
 ##### oradio modules ####################
 # Functionality needed from other modules is loaded when needed to avoid circular import errors
@@ -100,11 +101,22 @@ oradio_log = python_logging.getLogger('oradio')
 # Set default log level
 oradio_log.setLevel(ORADIO_LOG_LEVEL)
 
+# Your CLH handler
+clh_handler = ConcurrentRotatingFileHandler(ORADIO_LOG_FILE, 'a+', ORADIO_LOG_FILESIZE, ORADIO_LOG_BACKUPS)
+
+# Explicit queue setup
+log_queue = queue.Queue(maxsize=10000)
+
+# Queue handler for non-blocking
+queue_handler = python_logging.handlers.QueueHandler(log_queue)
+
+# Configure logging
+oradio_log.addHandler(queue_handler)
+
 # Rotate log after reaching file size, keep old copies
-file_handler = ConcurrentRotatingFileHandler(ORADIO_LOG_FILE, 'a+', ORADIO_LOG_FILESIZE, ORADIO_LOG_BACKUPS)
-file_handler.setFormatter(ColorFormatter())
-file_handler.addFilter(ThrottledFilter())      # Do not write to SD card when RPI is throttled
-oradio_log.addHandler(file_handler)
+clh_handler.setFormatter(ColorFormatter())
+clh_handler.addFilter(ThrottledFilter())      # Do not write to SD card when RPI is throttled
+oradio_log.addHandler(clh_handler)
 
 # Instantiate the Remote Monitoring Service handler
 remote_handler = RemoteMonitoringHandler()
@@ -115,9 +127,6 @@ if sys.stderr.isatty():
     console_handler = python_logging.StreamHandler()
     console_handler.setFormatter(ColorFormatter())
     oradio_log.addHandler(console_handler)
-
-# Convert loggers to use background thread
-setup_logging_queues()
 
 # Entry point for stand-alone operation
 if __name__ == '__main__':
