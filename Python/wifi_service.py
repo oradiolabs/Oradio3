@@ -62,24 +62,20 @@ class WIFIService():
         """
         # Initialize
         self.msg_q = queue
-        self.error = None
         self.saved_ssid = None
 
-    def send_message(self):
+    def send_message(self, error):
         """
         Send wifi message
-        :param ssid ==> If connection fails then send ssid, so control can 
-        Include ssid if define
+        :param error: Error message or code to include in the message
         """
         # Create message
 #OMJ: Het type klopt niet? Het is geen web service state message, eerder iets als info. Maar voor control is wel een state...
-        message = {"type": MESSAGE_WIFI_TYPE, "state": self.get_state()}
-
-        # Optionally add error message
-        if self.error:
-            message["error"] = self.error
-        else:
-            message["error"] = MESSAGE_NO_ERROR
+        message = {
+            "type": MESSAGE_WIFI_TYPE,
+            "state": self.get_state(),
+            "error": error
+        }
 
         # Put message in queue
         oradio_log.debug("Send wifi message: %s", message)
@@ -93,9 +89,6 @@ class WIFIService():
         :param ssid ==> Identifier of wifi network to create
         :param password ==> Password of wifi network to create
         """
-        # Initialize
-        self.error = None
-
         # Get active wifi connection, if any
         active = self.get_wifi_connection()
 
@@ -103,7 +96,7 @@ class WIFIService():
         if active == ssid:
             oradio_log.debug("Connection '%s' already active", ssid)
             # Inform controller of actual state and error
-            self.send_message()
+            self.send_message(MESSAGE_NO_ERROR)
             # Return success, so caller can continue
             return True
 
@@ -118,10 +111,9 @@ class WIFIService():
                 oradio_log.error("Failed to disconnect from '%s', error = %s", active, ex_err)
                 # Inform controller of actual state and error
                 if ssid == ACCESS_POINT_SSID:
-                    self.error = MESSAGE_WIFI_FAIL_AP_START
+                    self.send_message(MESSAGE_WIFI_FAIL_AP_START)
                 else:
-                    self.error = MESSAGE_WIFI_FAIL_CONNECT
-                self.send_message()
+                    self.send_message(MESSAGE_WIFI_FAIL_CONNECT)
                 # Return fail, so caller can try to recover
                 return False
 
@@ -136,10 +128,9 @@ class WIFIService():
                 oradio_log.error("Failed to remove '%s' from NetworkManager, error = %s", ssid, ex_err)
                 # Inform controller of actual state and error
                 if ssid == ACCESS_POINT_SSID:
-                    self.error = MESSAGE_WIFI_FAIL_AP_START
+                    self.send_message(MESSAGE_WIFI_FAIL_AP_START)
                 else:
-                    self.error = MESSAGE_WIFI_FAIL_CONNECT
-                self.send_message()
+                    self.send_message(MESSAGE_WIFI_FAIL_CONNECT)
                 # Return fail, so caller can try to recover
                 return False
 
@@ -159,8 +150,7 @@ class WIFIService():
             except Exception as ex_err:
                 oradio_log.error("Failed to add access point '%s', error = %s", ACCESS_POINT_SSID, ex_err)
                 # Inform controller of actual state and error
-                self.error = MESSAGE_WIFI_FAIL_AP_START
-                self.send_message()
+                self.send_message(MESSAGE_WIFI_FAIL_AP_START)
                 # Return fail, so caller can try to recover
                 return False
         else:
@@ -179,8 +169,7 @@ class WIFIService():
                 except Exception as ex_err:
                     oradio_log.error("Failed to configure wifi network '%s', error = %s", ssid, ex_err)
                     # Inform controller of actual state and error
-                    self.error = MESSAGE_WIFI_FAIL_CONNECT
-                    self.send_message()
+                    self.send_message(MESSAGE_WIFI_FAIL_CONNECT)
                     # Return fail, so caller can try to recover
                     return False
             else:
@@ -200,9 +189,6 @@ class WIFIService():
         Activate the connection
         Send message with result
         """
-        # Initialize
-        self.error = None
-
         # Connect to new_ssid
         try:
             oradio_log.debug("Activate '%s'", new_ssid)
@@ -211,9 +197,9 @@ class WIFIService():
         except Exception as ex_err:
             oradio_log.error("Failed to activate '%s', error = %s", new_ssid, ex_err)
             if new_ssid == ACCESS_POINT_SSID:
-                self.error = MESSAGE_WIFI_FAIL_AP_START
+                self.send_message(MESSAGE_WIFI_FAIL_AP_START)
             else:
-                self.error = MESSAGE_WIFI_FAIL_CONNECT
+                self.send_message(MESSAGE_WIFI_FAIL_CONNECT)
 
             # Connect to the old_ssid
             if old_ssid:
@@ -224,11 +210,13 @@ class WIFIService():
                 except Exception as ex_err:
                     oradio_log.error("Failed to activate '%s', error = %s", old_ssid, ex_err)
                     if new_ssid == ACCESS_POINT_SSID:
-                        self.error = MESSAGE_WIFI_FAIL_AP_START
+                        self.send_message(MESSAGE_WIFI_FAIL_AP_START)
                     else:
-                        self.error = MESSAGE_WIFI_FAIL_CONNECT
+                        self.send_message(MESSAGE_WIFI_FAIL_CONNECT)
                 else:
                     oradio_log.info("Connect to '%s' is active", old_ssid)
+                    # Inform controller of actual state and error
+                    self.send_message(MESSAGE_NO_ERROR)
 
             # Delete new_ssid from NetworkManager
             try:
@@ -253,18 +241,12 @@ class WIFIService():
                     oradio_log.error("Failed to remove '%s' from NetworkManager, error = %s", old_ssid, ex_err)
                     ''' OMJ: NetworkManager now has an orphan. Do we need to do garbage collection? '''
 
-        # Inform controller of actual state and error
-        self.send_message()
-
     def _wifi_disconnect(self):
         """
         Disconnect if connected to connection
         If exists remove access point from NetworkManager
         Send message with actual state and error info, if any
         """
-        # Initialize
-        self.error = None
-
         # Get active wifi connection, if any
         active = self.get_wifi_connection()
 
@@ -280,10 +262,9 @@ class WIFIService():
                 oradio_log.error("Failed to disconnect from '%s', error = %s", active, ex_err)
                 # Inform controller of actual state and error
                 if active == ACCESS_POINT_SSID:
-                    self.error = MESSAGE_WIFI_FAIL_AP_STOP
+                    self.send_message(MESSAGE_WIFI_FAIL_AP_STOP)
                 else:
-                    self.error = MESSAGE_WIFI_FAIL_DISCONNECT
-                self.send_message()
+                    self.send_message(MESSAGE_WIFI_FAIL_DISCONNECT)
                 # Return fail, so caller can try to recover
                 return False
 
@@ -296,15 +277,14 @@ class WIFIService():
                 oradio_log.error("Failed to remove '%s' from NetworkManager, error = %s", active, ex_err)
                 # Inform controller of actual state and error
                 if active == ACCESS_POINT_SSID:
-                    self.error = MESSAGE_WIFI_FAIL_AP_STOP
+                    self.send_message(MESSAGE_WIFI_FAIL_AP_STOP)
                 else:
-                    self.error = MESSAGE_WIFI_FAIL_DISCONNECT
-                self.send_message()
+                    self.send_message(MESSAGE_WIFI_FAIL_DISCONNECT)
                 # Return fail, so caller can try to recover
                 return False
 
             # Inform controller of actual state, no error
-            self.send_message()
+            self.send_message(MESSAGE_NO_ERROR)
 
         # Return success, so caller can continue
         oradio_log.info("Disconnected from: '%s'", active)
@@ -315,9 +295,6 @@ class WIFIService():
         Redirect DNS to internal
         Setup access point network
         """
-        # Initialize
-        self.error = None
-
         # Get active wifi connection, if any
         active = self.get_wifi_connection()
 
@@ -333,8 +310,7 @@ class WIFIService():
         if not result:
             oradio_log.error("Error during <%s> to configure DNS redirection, error: %s", cmd, error)
             # Inform controller of actual state and error
-            self.error = MESSAGE_WIFI_FAIL_AP_START
-            self.send_message()
+            self.send_message(MESSAGE_WIFI_FAIL_AP_START)
             # Return fail, so caller can try to recover
             return False
 
@@ -362,9 +338,6 @@ class WIFIService():
         Stop and cleanup access point
         Remove DNS redirect to internal 
         """
-        # Initialize
-        self.error = None
-
         # Remove address redirection
         oradio_log.debug("Remove DNS redirection")
         cmd = "sudo rm -rf /etc/NetworkManager/dnsmasq-shared.d/redirect.conf"
@@ -372,8 +345,7 @@ class WIFIService():
         if not result:
             oradio_log.error("Error during <%s> to remove DNS redirection, error: %s", cmd, error)
             # Inform controller of actual state and error
-            self.error = MESSAGE_WIFI_FAIL_AP_STOP
-            self.send_message()
+            self.send_message(MESSAGE_WIFI_FAIL_AP_STOP)
             # Return fail, so caller can try to recover
             return False
 
