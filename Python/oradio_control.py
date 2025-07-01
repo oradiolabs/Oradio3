@@ -61,6 +61,7 @@ spotify_connect_available = threading.Event() # track Spotify playing & connetye
 #-----------------------
 from usb_service import usb_service
 from web_service import web_service
+from wifi_service import WIFIService
 
 usb_present_event = threading.Event() # track status USB
 
@@ -99,9 +100,11 @@ class StateMachine:
         }
         if self.state == requested_state:
             if self.state in play_states:
-                threading.Thread(target=mpd.next).start()  # PLAY NEXT SONG
-                sound_player.play("Next")
-                oradio_log.debug("Next song")
+#OMJ: Alleen next song als current song geen webradio is
+                if not mpd.current_is_webradio():
+                    threading.Thread(target=mpd.next).start()  # PLAY NEXT SONG
+                    sound_player.play("Next")
+                    oradio_log.debug("Next song")
                 return  # bail out: no state change, no further work
 
         # ————————————————————————————————
@@ -148,18 +151,30 @@ class StateMachine:
                 leds.turn_on_led("LEDPreset1")
                 mpd.play_preset("Preset1")
                 sound_player.play("Preset1")
+#OMJ: Webradio afspelen als verbonden met internet, anders melden
+                if mpd.preset_is_webradio("Preset1") and (oradio_wifi_service.get_state() != STATE_WIFI_INTERNET):
+                    time.sleep(1)  #  time reservation just take some margin between announcements
+                    sound_player.play("NoInternet")
                 spotify_connect.pause()  # when spotify is active it will switch to StateSpotifyConnect
 
             elif self.state == "StatePreset2":
                 leds.turn_on_led("LEDPreset2")
                 mpd.play_preset("Preset2")
                 sound_player.play("Preset2")
+#OMJ: Webradio afspelen als verbonden met internet, anders melden
+                if mpd.preset_is_webradio("Preset2") and (oradio_wifi_service.get_state() != STATE_WIFI_INTERNET):
+                    time.sleep(1)  #  time reservation just take some margin between announcements
+                    sound_player.play("NoInternet")
                 spotify_connect.pause()  # when spotify is active it will switch to StateSpotifyConnect
 
             elif self.state == "StatePreset3":
                 leds.turn_on_led("LEDPreset3")
                 mpd.play_preset("Preset3")
                 sound_player.play("Preset3")
+#OMJ: Webradio afspelen als verbonden met internet, anders melden
+                if mpd.preset_is_webradio("Preset3") and (oradio_wifi_service.get_state() != STATE_WIFI_INTERNET):
+                    time.sleep(1)  #  time reservation just take some margin between announcements
+                    sound_player.play("NoInternet")
                 spotify_connect.pause()  # when spotify is active it will switch to StateSpotifyConnect
 
             elif self.state == "StateStop":
@@ -290,6 +305,7 @@ def process_messages(queue):
                 MESSAGE_WEB_SERVICE_PL1_CHANGED: on_webservice_pl1_changed,
                 MESSAGE_WEB_SERVICE_PL2_CHANGED: on_webservice_pl2_changed,
                 MESSAGE_WEB_SERVICE_PL3_CHANGED: on_webservice_pl3_changed,
+                MESSAGE_WEB_SERVICE_PL_WEBRADIO: on_webservice_pl_web_radio_changed,
 #                "Webservice error": on_webservice_error,
             },
             MESSAGE_SPOTIFY_TYPE: {
@@ -406,20 +422,29 @@ def on_webservice_pl1_changed():
     state_machine.transition("StateIdle")  # Step in bewteen if state is the same, preventing Next
     state_machine.transition("StatePreset1")
     # Schedule sound_player.play to be called after 1 second
+#OMJ: Waarom hier 1.5 seconden wachten voordat de melding gespeeld wordt?
     threading.Timer(1.5, sound_player.play, args=("NewPlaylistPreset",)).start()
     oradio_log.debug("WebService on_webservice_pl1_changed acknowledged")
 
 def on_webservice_pl2_changed():
     state_machine.transition("StateIdle")
     state_machine.transition("StatePreset2")
+#OMJ: Waarom hier 2 seconden wachten voordat de melding gespeeld wordt?
     threading.Timer(2.0, sound_player.play, args=("NewPlaylistPreset",)).start()
     oradio_log.debug("WebService on_webservice_pl2_changed acknowledged")
 
 def on_webservice_pl3_changed():
     state_machine.transition("StateIdle")
     state_machine.transition("StatePreset3")
+#OMJ: Waarom hier 3 seconden wachten voordat de melding gespeeld wordt?
     threading.Timer(3.0, sound_player.play, args=("NewPlaylistPreset",)).start()
     oradio_log.debug("WebService on_webservice_pl3_changed acknowledged")
+
+def on_webservice_pl_web_radio_changed():
+    state_machine.transition("StateIdle")
+#OMJ: Waarom hier 1 seconde wachten voordat de melding gespeeld wordt?
+    threading.Timer(1.0, sound_player.play, args=("NewPlaylistWebradio",)).start()
+    oradio_log.debug("WebService on_webservice_pl_web_radio_changed acknowledged")
 
 #-------------------SPOTIFY-----------------------
 
@@ -506,6 +531,9 @@ touch_buttons = TouchButtons(state_machine)
 
 # Initialize the volume_control, works stand alone, getting messages via the shared_queue
 volume_control = VolumeControl(shared_queue)
+
+#Initialize the wifi_service
+oradio_wifi_service = WIFIService(shared_queue)
 
 #Initialize the web_service
 oradio_web_service = web_service(shared_queue)

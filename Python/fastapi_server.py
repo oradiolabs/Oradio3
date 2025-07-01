@@ -153,10 +153,17 @@ async def save_preset(changedpreset: changedpreset):
         # Modify preset
         presets[changedpreset.preset] = changedpreset.playlist
         oradio_log.debug("Preset '%s' playlist changed to '%s'", changedpreset.preset, changedpreset.playlist)
-        message["state"] = preset_map[changedpreset.preset]
 
         # Store presets
         store_presets(presets)
+
+        if mpdcontrol.preset_is_webradio(changedpreset.preset):
+            # playlist is a web radio
+            message["state"] = MESSAGE_WEB_SERVICE_PL_WEBRADIO
+        else:
+            # playlist is local
+            message["state"] = preset_map[changedpreset.preset]
+
     else:
         oradio_log.error("Invalid preset '%s'", changedpreset.preset)
         message["state"] = MESSAGE_WEB_SERVICE_FAIL_PRESET
@@ -274,7 +281,6 @@ async def network(request: Request):
 
     # Return network page and available networks as context
     return templates.TemplateResponse(request=request, name="network.html", context=context)
-
 
 class credentials(BaseModel):
     """ # Model for wifi network credentials """
