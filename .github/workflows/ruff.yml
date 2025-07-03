@@ -26,7 +26,7 @@ jobs:
         run: pip install --upgrade ruff
 
       - name: Install reviewdog
-        uses: reviewdog/action-reviewdog@v0
+        uses: reviewdog/action-reviewdog@v0.20.3
 
       - name: Run Ruff (only deprecated warnings) with Reviewdog
         run: |
