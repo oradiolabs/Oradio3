@@ -33,7 +33,7 @@ jobs:
   
       - name: Run Ruff (only deprecated warnings) with Reviewdog
         run: |
-          ruff check . --select UP,B002,B006 -- --format=github \
+          ruff check . --select UP,B002,B006 \
             | grep -i deprecated || true \
             | reviewdog -efm="%f:%l:%c: %m" \
               -name="ruff" \
