@@ -13,6 +13,9 @@ jobs:
       matrix:
         python-version: ["3.11"]
 
+    env:
+      REVIEWDOG_GITHUB_API_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -25,5 +28,14 @@ jobs:
       - name: Install Ruff
         run: pip install ruff
 
-      - name: Analyse the code with Ruff
-        run: ruff check . --select UP,B002,B006 | grep -i deprecated > ruff_result.txt && cat ruff_result.txt; exit 1 || exit 0
+      - name: Install reviewdog
+        uses: reviewdog/action-setup@e04ffabe3898a0af8d0fb1af00c188831c4b5893 # v1.3.2
+  
+      - name: Run Ruff (only deprecated warnings) with Reviewdog
+        run: |
+          ruff check . --select UP,B002,B006 -- --format=github \
+            | grep -i deprecated || true \
+            | reviewdog -efm="%f:%l:%c: %m" \
+              -name="ruff" \
+              -reporter=github-pr-check \
+              -fail-on-error=true
