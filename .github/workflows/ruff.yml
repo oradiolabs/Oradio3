@@ -27,7 +27,6 @@ jobs:
 
       - name: Install reviewdog
         uses: reviewdog/action-setup@e04ffabe3898a0af8d0fb1af00c188831c4b5893 # v1.3.2
-        run: reviewdog -version
   
       - name: Run Ruff (only deprecated warnings) with Reviewdog
         run: |
