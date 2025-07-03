@@ -23,7 +23,10 @@ jobs:
           python-version: ${{ matrix.python-version }}
 
       - name: Install Ruff
-        run: pip install ruff
+        run: pip install --upgrade ruff
+
+      - name: Install reviewdog
+        uses: reviewdog/action@v1
 
       - name: Run Ruff (only deprecated warnings) with Reviewdog
         run: |
