@@ -25,5 +25,11 @@ jobs:
       - name: Install Ruff
         run: pip install ruff
 
-      - name: Analyse the code with Ruff
-        run: ruff check . --select UP,B002,B006 | grep -i deprecated > ruff_result.txt && cat ruff_result.txt; exit 1 || exit 0
+      - name: Run Ruff (only deprecated warnings) with Reviewdog
+        run: |
+          ruff check . --select UP,B002,B006 --format=github \
+            | grep -i deprecated || true \
+            | reviewdog -efm="%f:%l:%c: %m" \
+              -name="ruff" \
+              -reporter=github-pr-check \
+              -fail-on-error=true
