@@ -27,7 +27,7 @@ jobs:
 
       - name: Analyse the code with Ruff
         continue-on-error: true
-        run: ruff check . --select UP,B002,B006 >ruff.txt
+        run: ruff check . --select UP,B002,B006 >ruff_result.txt
 
       - name: Upload ruff result
         uses: actions/upload-artifact@v4
