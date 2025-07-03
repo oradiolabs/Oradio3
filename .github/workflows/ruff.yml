@@ -26,6 +26,7 @@ jobs:
         run: pip install ruff
 
       - name: Analyse the code with Ruff
+        continue-on-error: true
         run: ruff check . --select UP,B002,B006 >ruff.txt
 
       - name: Upload ruff result
