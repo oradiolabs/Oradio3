@@ -28,14 +28,14 @@ jobs:
       - name: Install Ruff
         run: pip install ruff
 
-      - name: Install reviewdog
-        uses: reviewdog/action-setup@e04ffabe3898a0af8d0fb1af00c188831c4b5893 # v1.3.2
-  
-      - name: Run Ruff (only deprecated warnings) with Reviewdog
+      - name: Run ruff and fail on deprecated warnings
         run: |
-          ruff check . --select UP,B002,B006 -- --format=github \
-            | grep -i deprecated || true \
-            | reviewdog -efm="%f:%l:%c: %m" \
-              -name="ruff" \
-              -reporter=github-pr-check \
-              -fail-on-error=true
+          ruff check . --select UP,B002,B006 | grep -i deprecated > ruff_result.txt || true
+          if [ -s ruff_result.txt ]; then
+            echo "Found deprecated code:"
+            cat ruff_result.txt
+            exit 1
+          else
+            echo "No deprecated code found."
+            exit 0
+          fi
