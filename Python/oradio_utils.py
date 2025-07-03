@@ -28,7 +28,7 @@ import json
 import subprocess
 import urllib.request
 from subprocess import run
-from typing import Dict, Any, Optional
+from typing import Any, Optional
 from pydantic import BaseModel, create_model
 from vcgencmd import Vcgencmd
 
@@ -63,7 +63,7 @@ def is_service_active(service_name):
         return False
 
 
-def json_schema_to_pydantic(name: str, schema: Dict[str,Any]) -> BaseModel:
+def json_schema_to_pydantic(name: str, schema: dict[str,Any]) -> BaseModel:
     """
     Dynamic Model generation based on a JSON schema
     """
