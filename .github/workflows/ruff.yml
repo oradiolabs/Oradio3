@@ -26,4 +26,10 @@ jobs:
         run: pip install ruff
 
       - name: Analyse the code with Ruff
-        run: ruff check . --select UP,B002,B006 | grep -i deprecated
+        run: ruff check . --select UP,B002,B006 | grep -i deprecated >ruff_result.txt
+
+      - name: Upload ruff result
+        uses: actions/upload-artifact@v4
+        with:
+          name: ruff_result.txt
+          path: ruff_result.txt
