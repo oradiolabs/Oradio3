@@ -46,11 +46,6 @@ from oradio_const import *
 # Instantiate remote monitor
 remote_monitor = RmsService()
 
-# Send system info to Remote Monitoring Service
-remote_monitor.send_sys_info()
-# Send heartbeat every hour to Remote Monitoring Service
-remote_monitor.heartbeat_start()
-
 # Use the spotify_connect_direct
 from spotify_connect_direct import SpotifyConnect
 
@@ -368,8 +363,11 @@ def on_usb_present():
 #-------------------WIFI--------------------------
 
 def on_wifi_connected_to_internet():
+#OMJ: NU ben je verbonden met internet: ALLEEN hier de sys_info en heartbeat sturen (issue #76)
     # Send system info to Remote Monitoring Service
     remote_monitor.send_sys_info()
+    # Send heartbeat every hour to Remote Monitoring Service
+    remote_monitor.heartbeat_start()
 
 #OMJ: Only when ON button is active give notification and stop web server (just to be sure)
     if state_machine.state == "StatePlay":
