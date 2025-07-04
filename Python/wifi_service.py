@@ -156,12 +156,18 @@ class WIFIService():
             if ssid != self.saved_ssid:
                 # Add wifi network configuration
                 try:
-                    oradio_log.debug("Add '%s' to NetworkManager", ssid)
-                    options = {
-                        "ssid": ssid,
-                        "wifi-sec.key-mgmt": "wpa-psk",
-                        "wifi-sec.psk": password
-                    }
+                    if password:
+                        oradio_log.debug("Add '%s' and password to NetworkManager", ssid)
+                        options = {
+                            "ssid": ssid,
+                            "wifi-sec.key-mgmt": "wpa-psk",
+                            "wifi-sec.psk": password
+                        }
+                    else:
+                        oradio_log.debug("Add '%s' without password to NetworkManager", ssid)
+                        options = {
+                            "ssid": ssid
+                        }
                     # nmcli.connection.add(conn_type: str, options: Optional[ConnectionOptions] = None, ifname: str = "*", name: str = None, autoconnect: Bool = None) -> None
                     nmcli.connection.add("wifi", options, "*", ssid, True)
                 except Exception as ex_err:
@@ -398,8 +404,11 @@ class WIFIService():
             oradio_log.debug("Remove '%s' from the list", ACCESS_POINT_SSID)
             for network in wifi_list:
                 # Add unique, ignore own Access Point
-                if (network.ssid != ACCESS_POINT_SSID) and (len(network.ssid) != 0) and (network.ssid not in networks):
-                    networks.append(network.ssid)
+                if (network.ssid != ACCESS_POINT_SSID) and (len(network.ssid) != 0) and (network.ssid not in [n["ssid"] for n in networks]):
+                    if network.security:
+                        networks.append({"ssid": network.ssid, "type": "closed"})
+                    else:
+                        networks.append({"ssid": network.ssid, "type": "open"})
 
         return networks
 
@@ -562,12 +571,15 @@ if __name__ == '__main__':
                 print(f"\nActive wifi connection: {wifi.get_wifi_connection()}\n")
             case 6:
                 ssid = input("Enter SSID of the network to add: ")
-                pswd = input("Enter password for the network to add: ")
-                if ssid and pswd:
+                pswd = input("Enter password for the network to add (empty for open network): ")
+                if ssid:
                     wifi.wifi_connect(ssid, pswd)
-                    print(f"\nConnecting to ssid: '{ssid}', password: '{pswd}'. Check messages for result\n")
+                    if pswd:
+                        print(f"\nConnecting to ssid '{ssid}' with password '{pswd}'. Check messages for result\n")
+                    else:
+                        print(f"\nConnecting to ssid '{ssid}' without password. Check messages for result\n")
                 else:
-                    print("\nNo SSID and/or password given\n")
+                    print("\nNo SSID given\n")
             case 7:
                 print(f"\n_wifi_disconnect() returned '{wifi._wifi_disconnect()}'\n")       # pylint: disable=protected-access
             case 8:

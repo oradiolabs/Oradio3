@@ -41,7 +41,11 @@
 
 				// Get password
 				const pswd = document.getElementById("pswd").value;
-				if (pswd.length < 8)
+
+
+				// Check if network needs a password and if yes, if it is long enough
+				const network = networks.find(n => n.ssid === ssid);
+				if (!network || (network.type === "closed" && pswd.length < 8))
 				{
 					notification.innerHTML = `<p class="error">Wachtwoord moet minimaal 8 karakters zijn</p>`;
 					return;
@@ -108,7 +112,7 @@
 
 					function showOptions()
 					{
-						let options = networks;
+						let options = networks.map(network => network.ssid);
 						options.sort((a, b) => a.toLowerCase().localeCompare(b.toLowerCase()));
 
 						dropdown.innerHTML = '';
@@ -155,11 +159,37 @@
 						// Cancel the default action that belongs to the event
 						event.preventDefault();
 
+						// Clear notification
+						notification.innerHTML = "";
+
+						// Clear password
+						document.getElementById("pswd").value = "";
+
 						// Delay to allow click on option to be processed
 						setTimeout(() =>
 						{
 							// Hide dropdown
 							dropdown.style.display = "none";
+
+							// If a network is entered
+							if (input.value.trim() !== "")
+							{
+								// Check if network needs a password
+								const network = networks.find(n => n.ssid === input.value.trim());
+								if (network)
+									if (network.type === "closed")
+										// Network needs a password
+										document.getElementById("password").style.display = "block"
+									else
+										// Open network, no password needed
+										document.getElementById("password").style.display = "none"
+								else
+									// Unknown network, assume password is needed
+									document.getElementById("password").style.display = "block"
+
+								// Show submit button
+								document.getElementById("submit").style.display = "block"
+							}
 						}, 300);
 					});
 
@@ -218,12 +248,12 @@
 				<div style="height: 30px;">&nbsp;</div>
 
 				<!-- Password -->
-				<div id="password">
+				<div id="password" style="display: none">
 					<label for="pswd">Wachtwoord:</label>
 					<input id="pswd" class="pswd-input" type="password" placeholder="Voer WiFi-wachtwoord in" />
 					<span class="password-toggle-icon oradio-eye"><i class="fa-regular fa-eye"></i></span>
 				</div>
-				<button type="submit" id="submit"">Instellen</button>
+				<button id="submit" type="submit" style="display: none">Met netwerk verbinden</button>
 				<div id="network_notification" class="notification">
 					<!-- Will be filled by Javascript submitCredentials() -->
 				</div>
