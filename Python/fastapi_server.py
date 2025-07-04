@@ -113,14 +113,12 @@ async def playlists(request: Request):
     """
     oradio_log.debug("Serving playlists page")
 
-    # Set playlists page and lists info as context
+    # Return playlist page and presets, directories and playlists as context
     context = {
                 "presets"     : load_presets(),
                 "directories" : mpdcontrol.get_directories(),
                 "playlists"   : mpdcontrol.get_playlists()
             }
-
-    # Return playlists page and available networks as context
     return templates.TemplateResponse(request=request, name="playlists.html", context=context)
 
 class changedpreset(BaseModel):
@@ -259,13 +257,11 @@ async def status(request: Request):
     wifi = WIFIService(api_app.state.message_queue)
     network = wifi.get_wifi_connection()
 
-    # Set playlists page and lists info as context
+    # Return status page and serial and active wifi connection as context
     context = {
                 "serial"  : serial,
                 "network" : network
             }
-
-    # Return playlists page and available networks as context
     return templates.TemplateResponse(request=request, name="status.html", context=context)
 
 #### NETWORK ####################
@@ -277,9 +273,17 @@ async def network(request: Request):
 
     # Get access to wifi functions
     wifi = WIFIService(api_app.state.message_queue)
-    context = {"networks": wifi.get_wifi_networks()}
 
-    # Return network page and available networks as context
+    # Get Spotify name
+#OMJ: TODO - implement getting Spotify device name
+    spotify = "Placeholder!!!"
+#OMJ: Te lezen uit de Librespot system service: systemctl show librespot | sed -n 's/.*--name \([^ ]*\).*/\1/p' | uniq
+
+    # Return network page and available networks and Spotify name as context
+    context = {
+                "networks": wifi.get_wifi_networks(),
+                "spotify": spotify
+            }
     return templates.TemplateResponse(request=request, name="network.html", context=context)
 
 class credentials(BaseModel):
@@ -308,6 +312,24 @@ def wifi_connect_task(credentials: credentials):
 
     # Try to connect is handled is separate thread
     wifi.wifi_connect(credentials.ssid, credentials.pswd)
+
+class spotify(BaseModel):
+    """ # Model for Spotify device name """
+    name: str = None
+
+# POST endpoint to set Spotify device name
+@api_app.post("/spotify")
+async def spotify(spotify: spotify):
+    """
+    Handle POST with Spotify device name
+    """
+    oradio_log.debug("Trying to set Spotify name to '%s'", spotify.name)
+
+    # Set Spotify name
+#OMJ: TODO - implement setting Spotify device name
+
+    return spotify.name
+
 
 #### CATCH ALL ####################
 
