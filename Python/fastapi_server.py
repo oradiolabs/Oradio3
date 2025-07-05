@@ -24,6 +24,7 @@ Created on December 23, 2024
         https://fastapi.tiangolo.com/
 """
 import os
+import re
 import json
 import multipart    # Used to get POST form data
 from pathlib import Path
@@ -36,6 +37,7 @@ from fastapi.templating import Jinja2Templates
 
 ##### oradio modules ####################
 from oradio_logging import oradio_log
+from oradio_utils import run_shell_script
 from wifi_service import WIFIService
 from mpd_control import MPDControl
 
@@ -275,14 +277,19 @@ async def network(request: Request):
     wifi = WIFIService(api_app.state.message_queue)
 
     # Get Spotify name
-#OMJ: TODO - implement getting Spotify device name
-    spotify = "Placeholder!!!"
-#OMJ: Te lezen uit de Librespot system service: systemctl show librespot | sed -n 's/.*--name \([^ ]*\).*/\1/p' | uniq
+    oradio_log.debug("Get Spotify name")
+    cmd = "systemctl show librespot | sed -n 's/.*--name \\([^ ]*\\).*/\\1/p' | uniq"
+
+    result, response = run_shell_script(cmd)
+    if not result:
+        oradio_log.error("Error during <%s> to get Spotify name, error: %s", cmd, response)
+        # Return fail, so caller can try to recover
+        return JSONResponse(status_code=400, content={"message": response})
 
     # Return network page and available networks and Spotify name as context
     context = {
                 "networks": wifi.get_wifi_networks(),
-                "spotify": spotify
+                "spotify": response.strip()
             }
     return templates.TemplateResponse(request=request, name="network.html", context=context)
 
@@ -323,13 +330,46 @@ async def spotify(spotify: spotify):
     """
     Handle POST with Spotify device name
     """
-    oradio_log.debug("Trying to set Spotify name to '%s'", spotify.name)
+    oradio_log.debug("Set Spotify name to '%s'", spotify.name)
 
     # Set Spotify name
 #OMJ: TODO - implement setting Spotify device name
+# Te wijzigen met:
+
+
+    # One or more uppercase letters, lowercase letters, numbers, - or _
+    pattern = r'^[A-Za-z0-9_-]+$'
+    if not bool(re.match(pattern, spotify.name)):
+        response = f"'{spotify.name}' is ongeldig. Alleen hoofdletters, kleine letters, cijfers, - of _ is toegestaan"
+        oradio_log.error(response)
+        # Return fail, so caller can try to recover
+        return JSONResponse(status_code=400, content={"message": response})
+
+    # Change name in librespot service configuration file
+    cmd = f"sudo sed -i 's/--name \\S*/--name {spotify.name}/' /etc/systemd/system/librespot.service"
+    result, response = run_shell_script(cmd)
+    if not result:
+        oradio_log.error("Error during <%s> to set Spotify name, error: %s", cmd, response)
+        # Return fail, so caller can try to recover
+        return JSONResponse(status_code=400, content={"message": response})
+
+    # Have systemd reload all .service files
+    cmd = "sudo systemctl daemon-reload"
+    result, response = run_shell_script(cmd)
+    if not result:
+        oradio_log.error("Error during <%s> to set Spotify name, error: %s", cmd, response)
+        # Return fail, so caller can try to recover
+        return JSONResponse(status_code=400, content={"message": response})
+
+    # Restart librespot service to activate new name
+    cmd = "sudo systemctl restart librespot.service"
+    result, response = run_shell_script(cmd)
+    if not result:
+        oradio_log.error("Error during <%s> to set Spotify name, error: %s", cmd, response)
+        # Return fail, so caller can try to recover
+        return JSONResponse(status_code=400, content={"message": response})
 
     return spotify.name
-
 
 #### CATCH ALL ####################
 

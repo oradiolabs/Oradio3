@@ -44,7 +44,6 @@
 				// Get password
 				const pswd = document.getElementById("pswd").value;
 
-
 				// Check if network needs a password and if yes, if it is long enough
 				const network = networks.find(n => n.ssid === ssid);
 				if (!network || (network.type === "closed" && pswd.length < 8))
@@ -52,6 +51,9 @@
 					notification_network.innerHTML = `<p class="error">Wachtwoord moet minimaal 8 karakters zijn</p>`;
 					return;
 				}
+
+				// Set error template
+				const errorMessage = `Verbinding maken met netwerk '${ssid}' is mislukt`;
 
 				try
 				{
@@ -123,8 +125,7 @@
 					{
 						name = await response.json();
 						document.getElementById("spotify").value = name;
-//						notification_spotify.innerHTML = `<p>Trek de stekker uit de Oradio en steek hem er na 5 seconden weer in<br>Zodra de Oradio opgestart is kunt u de Oradio genaamd '${name}' in de Spotify app kiezen</p>`;
-						notification_spotify.innerHTML = `<p class='warning'>LET OP: op dit moment is alleen de UI geïmplementeerd<br>De Spotify naam van deze Oradio is dus nog niet veranderd!</p>`;
+						notification_spotify.innerHTML = `<p>De Spotify naam is gewijzigd in '${name}'</p>`;
 					}
 					else
 					{
@@ -268,6 +269,12 @@
 
 				});
 
+				// Clear spotify notification when selecting input
+				document.getElementById("spotify").addEventListener("focus", function()
+				{
+					notification_spotify.innerHTML = "";
+				});
+
 				// Toggle password visibility
 				const password = document.getElementById("pswd");
 				const togglePassword = document.querySelector(".password-toggle-icon i");
@@ -333,7 +340,7 @@
 				<!-- Spotify -->
 				<h1 >Kies naam in Spotify app</h1>
 				<input id="spotify" type="text" value="{{ spotify }}" placeholder="Voer Spotify naam van deze Oradio in" />
-				<button id="submitSpotifyButton" type="submit"">Spotify naam instellen</button>
+				<button id="submitSpotifyButton" type="submit">Spotify naam instellen</button>
 				<div id="notification_spotify" class="notification">
 					<!-- Will be filled by Javascript submitSpotify() -->
 				</div>
