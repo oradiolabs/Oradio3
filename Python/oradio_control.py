@@ -21,6 +21,8 @@ Created on Januari 31`, 2025
 
 Spotify Connect direct added
 Via Librespot and controlled by spotify_connect_direct.py
+Update for 0.4.0: OradioAP mode
+
 
 """
 import time
@@ -109,6 +111,19 @@ class StateMachine:
             oradio_log.debug("Spotify Connect active → redirecting to StateSpotifyConnect")
             requested_state = "StateSpotifyConnect"
 
+        if requested_state == "StateWebService":
+            if oradio_web_service.get_state() == STATE_WEB_SERVICE_ACTIVE: # if already active LongPress stops Webserice
+                oradio_web_service.stop()
+                leds.control_blinking_led("LEDPlay", 0)  # stop the blinking of the LEDPlay
+#                time.sleep(2)  #  time reservation just take some margin in Stop
+                sound_player.play("OradioAPstopped")            
+                return
+            
+                
+
+        
+
+
         # ————————————————————————————————
         # 3. USB PRESENCE GUARD + COMMIT
         # ————————————————————————————————
@@ -133,13 +148,16 @@ class StateMachine:
 
         with self.task_lock:  # is needed to prevent that mutiple calls to the statemachine are handled
             leds.turn_off_all_leds()
-
-            if self.state == "StatePlay":
-                leds.turn_on_led("LEDPlay")
+#            if oradio_web_service.get_state() == STATE_WEB_SERVICE_ACTIVE: # If Webservice active make
+#                leds.control_blinking_led("LEDPlay", 2)
+                
+            if self.state == "StatePlay":                
                 mpd.play()
-#OMJ: Na het opstarten van de web service (long press AAN) vind ik het raar om dan het Play geluidje te horen
-                if oradio_web_service.get_state() != STATE_WEB_SERVICE_ACTIVE:
-                    sound_player.play("Play")
+                sound_player.play("Play")
+                if oradio_web_service.get_state() == STATE_WEB_SERVICE_ACTIVE:
+                    leds.control_blinking_led("LEDPlay", 2) # WebService is active switch LedPlay blinking
+                else:
+                    leds.turn_on_led("LEDPlay")
                 spotify_connect.pause()    # when spotify is active it will switch to StateSpotifyConnect
 
             elif self.state == "StatePreset1":
@@ -150,6 +168,8 @@ class StateMachine:
                 if mpd.preset_is_webradio("Preset1") and (oradio_wifi_service.get_state() != STATE_WIFI_INTERNET):
                     time.sleep(1)  #  time reservation just take some margin between announcements
                     sound_player.play("NoInternet")
+                if oradio_web_service.get_state() == STATE_WEB_SERVICE_ACTIVE:
+                    leds.control_blinking_led("LEDPlay", 2)
                 spotify_connect.pause()  # when spotify is active it will switch to StateSpotifyConnect
 
             elif self.state == "StatePreset2":
@@ -160,6 +180,8 @@ class StateMachine:
                 if mpd.preset_is_webradio("Preset2") and (oradio_wifi_service.get_state() != STATE_WIFI_INTERNET):
                     time.sleep(1)  #  time reservation just take some margin between announcements
                     sound_player.play("NoInternet")
+                if oradio_web_service.get_state() == STATE_WEB_SERVICE_ACTIVE:
+                    leds.control_blinking_led("LEDPlay", 2)
                 spotify_connect.pause()  # when spotify is active it will switch to StateSpotifyConnect
 
             elif self.state == "StatePreset3":
@@ -170,6 +192,8 @@ class StateMachine:
                 if mpd.preset_is_webradio("Preset3") and (oradio_wifi_service.get_state() != STATE_WIFI_INTERNET):
                     time.sleep(1)  #  time reservation just take some margin between announcements
                     sound_player.play("NoInternet")
+                if oradio_web_service.get_state() == STATE_WEB_SERVICE_ACTIVE:
+                    leds.control_blinking_led("LEDPlay", 2)
                 spotify_connect.pause()  # when spotify is active it will switch to StateSpotifyConnect
 
             elif self.state == "StateStop":
@@ -182,8 +206,9 @@ class StateMachine:
 #                if oradio_ap.is_set():
                     # Stop network services
                     oradio_web_service.stop()
+                    leds.control_blinking_led("LEDPlay", 0)  # stop the blinking of the LEDPlay
 #                    oradio_ap.clear()
-                    time.sleep(2)  #  time reservation just take some margin in Stop
+#                    time.sleep(2)  #  time reservation just take some margin in Stop
                     sound_player.play("OradioAPstopped")
 
             elif self.state == "StateSpotifyConnect":
@@ -228,7 +253,7 @@ class StateMachine:
                 oradio_log.debug("In Idle state, wait for next step")
 
             elif self.state == "StateWebService": # Triggered by LONG PRESS
-                leds.control_blinking_led("LEDPlay", 0.5)
+                leds.control_blinking_led("LEDPlay", 2)
                 oradio_web_service.start() # Start the web service (and access point) Do nothing if already started
 #OMJ: Als er iets mis gaat met opstarten van de web service en/of access point hoor je toch dat je verbinding kan maken.
 #     Beter om bericht pas te geven als web service running én access point actief ontvangen is?
@@ -236,8 +261,8 @@ class StateMachine:
 # ==> Voor nu gaan we met melding hier ervan uit dat alles goed gaat
                 sound_player.play("OradioAPstarted")
                 oradio_log.debug("In WebService state, wait for next step")
-                time.sleep(5) # wait and block for new transition
-                self.transition("StatePlay") # move further to orginal state
+#                time.sleep(5) # wait and block for new transition
+#                self.transition("StatePlay") # move further to orginal state
 
             elif self.state == "StateError":
                 leds.control_blinking_led("LEDStop", 2)
