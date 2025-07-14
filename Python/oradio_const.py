@@ -41,6 +41,7 @@ ACCESS_POINT_SSID = "OradioAP"
 # wifi states
 STATE_WIFI_IDLE         = "Wifi is not connected"
 STATE_WIFI_INTERNET     = "Wifi connected to internet"
+STATE_WIFI_CONNECTED    = "Wifi connected without internet"
 STATE_WIFI_ACCESS_POINT = "Wifi configured as access point"
 # wifi messages
 #OMJ: 'Type' is eigenlijk 'source'
@@ -64,8 +65,9 @@ MESSAGE_WEB_SERVICE_PL1_CHANGED  = "PL1 playlist changed"
 MESSAGE_WEB_SERVICE_PL2_CHANGED  = "PL2 playlist changed"
 MESSAGE_WEB_SERVICE_PL3_CHANGED  = "PL3 playlist changed"
 MESSAGE_WEB_SERVICE_PL_WEBRADIO  = "playlist is web radio"
-MESSAGE_WEB_SERVICE_FAIL_PRESET  = "Failed setting preset"
 MESSAGE_WEB_SERVICE_PLAYING_SONG = "web service plays a song"
+MESSAGE_WEB_SERVICE_FAIL_START   = "web service failed to start"
+MESSAGE_WEB_SERVICE_FAIL_STOP    = "web service failed to stop"
 
 ################## USB #############################
 # Paths
