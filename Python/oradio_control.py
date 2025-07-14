@@ -285,79 +285,9 @@ class StateMachine:
             oradio_log.debug("USB is absent. Clearing usb_present_event.")
             usb_present_event.clear()
 
+#-------------Messages handler: Handle messages from the queue of other modules
 
-def process_messages(queue):
-    """
-    Continuously process and handle messages from the queue.
-    """
-    def handle_message(message):
-        handlers = {
-            MESSAGE_TYPE_VOLUME: {
-                MESSAGE_STATE_CHANGED: on_volume_changed,
-                # For example, if an error is reported as "Volume error"
-#               "Volume error": on_volume_error,
-            },
-            MESSAGE_USB_TYPE : {
-                STATE_USB_ABSENT: on_usb_absent,
-                STATE_USB_PRESENT: on_usb_present,
-                # Example error key for USB messages
-#                "USB error": on_usb_error,
-            },
-            MESSAGE_WIFI_TYPE : {
-                STATE_WIFI_IDLE: on_wifi_not_connected,
-                STATE_WIFI_INTERNET: on_wifi_connected_to_internet,
-                STATE_WIFI_ACCESS_POINT: on_wifi_access_point,
-                # If an error occurs, the error text is used as the key.
-                MESSAGE_WIFI_FAIL_CONNECT: on_wifi_error,
-            },
-            MESSAGE_WEB_SERVICE_TYPE: {
-                STATE_WEB_SERVICE_IDLE: on_webservice_not_active,
-                MESSAGE_WEB_SERVICE_PLAYING_SONG: on_webservice_playing_song,
-                MESSAGE_WEB_SERVICE_PL1_CHANGED: on_webservice_pl1_changed,
-                MESSAGE_WEB_SERVICE_PL2_CHANGED: on_webservice_pl2_changed,
-                MESSAGE_WEB_SERVICE_PL3_CHANGED: on_webservice_pl3_changed,
-                MESSAGE_WEB_SERVICE_PL_WEBRADIO: on_webservice_pl_web_radio_changed,
-#                "Webservice error": on_webservice_error,
-            },
-            MESSAGE_SPOTIFY_TYPE: {
-                SPOTIFY_CONNECT_CONNECTED_EVENT: on_spotify_connect_connected,
-                SPOTIFY_CONNECT_DISCONNECTED_EVENT: on_spotify_connect_disconnected,
-                SPOTIFY_CONNECT_PLAYING_EVENT: on_spotify_connect_playing,
-                SPOTIFY_CONNECT_PAUSED_EVENT: on_spotify_connect_paused,
-#                "Spotify error": on_spotify_error,
-            },
-            # Add more mappings as needed.
-        }
-
-        command_type = message.get("type")
-        state = message.get("state")
-        error = message.get("error")
-
-        if command_type not in handlers:
-            oradio_log.debug("Unhandled message type: %s", message)
-            return
-
-        # Process the normal state message, if a handler exists.
-        if state in handlers[command_type]:
-            handlers[command_type][state]()
-        else:
-            oradio_log.debug("Unhandled state '%s' for message type '%s'.",state, command_type)
-
-        # If an error is provided, handle it as if it were another state.
-        if error is not MESSAGE_NO_ERROR:
-            if error in handlers[command_type]:
-                handlers[command_type][error]()
-            else:
-                oradio_log.debug("Unhandled error '%s' for message type '%s'.", error, command_type)
-
-    try:
-        while True:
-            message = queue.get()  # Blocks until a message is available
-            oradio_log.debug("Received message in Queue: %s", message)
-            handle_message(message)
-    except Exception as ex_err:
-        oradio_log.error("Unexpected error in process_messages: %s", ex_err)
-
+#----- the Handler functions defining the actions when a message is recieved---
 
 #-------------------VOLUME-----------------------
 
@@ -419,7 +349,7 @@ def on_wifi_error():
 def on_webservice_active():
     oradio_log.debug("WebService active is acknowledged")
 
-def on_webservice_not_active():
+def on_webservice_idle():
     play_webservice_states = {"StatePlay", "StatePreset1", "StatePreset2", "StatePreset3", "StateWebService"}
     # if webservice is stopped (probably due to input Network credentials), move back to StatePlay
     if state_machine.state in play_webservice_states: 
@@ -510,7 +440,85 @@ def update_spotify_connect_available():
         f"Available: {spotify_connect_available.is_set()}"
     )
 
-#------------------------------------------------------------------------
+#-------------The Handler map, defining message contant and the handler funtion---
+
+HANDLERS = {
+    MESSAGE_TYPE_VOLUME: {
+        MESSAGE_STATE_CHANGED: on_volume_changed,
+        # "Volume error": on_volume_error,
+    },
+    MESSAGE_USB_TYPE: {
+        STATE_USB_ABSENT: on_usb_absent,
+        STATE_USB_PRESENT: on_usb_present,
+        # "USB error": on_usb_error,
+    },
+    MESSAGE_WIFI_TYPE: {
+        STATE_WIFI_IDLE: on_wifi_not_connected,
+        STATE_WIFI_INTERNET: on_wifi_connected_to_internet,
+        STATE_WIFI_ACCESS_POINT: on_wifi_access_point,
+        MESSAGE_WIFI_FAIL_CONNECT: on_wifi_error,
+    },
+    MESSAGE_WEB_SERVICE_TYPE: {
+        STATE_WEB_SERVICE_IDLE: on_webservice_idle,
+        STATE_WEB_SERVICE_ACTIVE: on_webservice_active,  
+        MESSAGE_WEB_SERVICE_PLAYING_SONG: on_webservice_playing_song,
+        MESSAGE_WEB_SERVICE_PL1_CHANGED: on_webservice_pl1_changed,
+        MESSAGE_WEB_SERVICE_PL2_CHANGED: on_webservice_pl2_changed,
+        MESSAGE_WEB_SERVICE_PL3_CHANGED: on_webservice_pl3_changed,
+        MESSAGE_WEB_SERVICE_PL_WEBRADIO: on_webservice_pl_web_radio_changed,
+        # "Webservice error": on_webservice_error,
+    },
+    MESSAGE_SPOTIFY_TYPE: {
+        SPOTIFY_CONNECT_CONNECTED_EVENT: on_spotify_connect_connected,
+        SPOTIFY_CONNECT_DISCONNECTED_EVENT: on_spotify_connect_disconnected,
+        SPOTIFY_CONNECT_PLAYING_EVENT: on_spotify_connect_playing,
+        SPOTIFY_CONNECT_PAUSED_EVENT: on_spotify_connect_paused,
+        # "Spotify error": on_spotify_error,
+    },
+}
+
+
+def handle_message(message):
+    command_type = message.get("type")
+    state        = message.get("state")
+    error        = message.get("error", None)
+
+    handlers = HANDLERS.get(command_type)
+    if handlers is None:
+        oradio_log.warning("Unhandled message type: %s", message)
+        return
+
+    if handler := handlers.get(state):
+        handler()
+    else:
+        oradio_log.warning(
+            "Unhandled state '%s' for message type '%s'.",
+            state, command_type
+        )
+
+    if error and error != MESSAGE_NO_ERROR:
+        if handler := handlers.get(error):
+            handler()
+        else:
+            oradio_log.warning(
+                "Unhandled error '%s' for message type '%s'.",
+                error, command_type
+            )
+
+# ----------- Process the messages---------
+def process_messages(queue):
+    try:
+        while True:
+            msg = queue.get()
+            oradio_log.debug("Received message in Queue: %s", msg)
+            handle_message(msg)
+    except Exception as ex:
+        oradio_log.error("Unexpected error in process_messages: %s", ex)            
+            
+#
+
+
+#------------------Start-up and define other modules ------------------------------
 
 shared_queue = Queue() # Create a shared queue
 
