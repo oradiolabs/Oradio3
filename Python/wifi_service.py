@@ -25,7 +25,6 @@ Created on December 23, 2024
         https://superfastpython.com/multiprocessing-in-python/
 """
 import threading
-import subprocess
 import nmcli
 
 ##### oradio modules ####################
@@ -95,10 +94,10 @@ class WifiService():
         if not active:
             # Not connected
             return STATE_WIFI_IDLE
-        elif active == ACCESS_POINT_SSID:
+        if active == ACCESS_POINT_SSID:
             # Connection is access point
             return STATE_WIFI_ACCESS_POINT
-        elif check_internet_connection():
+        if check_internet_connection():
             # Connection to wifi network with internet access
             return STATE_WIFI_INTERNET
         else:
@@ -499,12 +498,12 @@ if __name__ == '__main__':
 
         # Get user input
         try:
-            function_nr = int(input(INPUT_SELECTION))
+            _function_nr = int(input(INPUT_SELECTION))
         except ValueError:
-            function_nr = -1
+            _function_nr = -1
 
         # Execute selected function
-        match function_nr:
+        match _function_nr:
             case 0:
                 print("\nExiting test program...\n")
                 break
@@ -515,24 +514,24 @@ if __name__ == '__main__':
             case 3:
                 print(f"\nNetworkManager wifi connections: {_networkmanager_list()}\n")   # pylint: disable=protected-access
             case 4:
-                connection = input("Enter connection to remove from NetworkManager: ")
-                if connection:
-                    print(f"\nRemoved {connection} from NetworkManager: {_networkmanager_remove(connection)}\n")
+                network_id = input("Enter connection to remove from NetworkManager: ")
+                if network_id:
+                    print(f"\nRemoved {network_id} from NetworkManager: {_networkmanager_remove(network_id)}\n")
                 else:
                     print("\nNo connection given\n")
             case 5:
                 print(f"\nActive wifi connection: {get_wifi_connection()}\n")
             case 6:
-                network = input("Enter SSID of the network to add: ")
+                network_id = input("Enter SSID of the network to add: ")
                 password = input("Enter password for the network to add (empty for open network): ")
-                if network:
-                    if wifi.wifi_connect(network, password):
+                if network_id:
+                    if wifi.wifi_connect(network_id, password):
                         if password:
-                            print(f"\nConnecting to '{network}' with password '{password}'. Check messages for result\n")
+                            print(f"\nConnecting to '{network_id}' with password '{password}'. Check messages for result\n")
                         else:
-                            print(f"\nConnecting to '{network}' without password. Check messages for result\n")
+                            print(f"\nConnecting to '{network_id}' without password. Check messages for result\n")
                     else:
-                        print(f"\nFailed to connect to '{network}' \n")
+                        print(f"\nFailed to connect to '{network_id}' \n")
                 else:
                     print("\nNo network given\n")
             case 7:
