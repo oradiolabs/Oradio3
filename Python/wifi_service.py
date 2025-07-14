@@ -100,11 +100,10 @@ class WifiService():
         if check_internet_connection():
             # Connection to wifi network with internet access
             return STATE_WIFI_INTERNET
-        else:
-            # Connection to wifi network WITHOUT internet access
-            return STATE_WIFI_CONNECTED
+        # Connection to wifi network WITHOUT internet access
+        return STATE_WIFI_CONNECTED
 
-    def wifi_connect(self, ssid, pswd):
+    def wifi_connect(self, ssid, pswd): # pylint: disable=too-many-branches
         """
         Done if already connected
         Create unique wifi network in NetworkManager
@@ -498,12 +497,12 @@ if __name__ == '__main__':
 
         # Get user input
         try:
-            _function_nr = int(input(INPUT_SELECTION))
+            function_nr = int(input(INPUT_SELECTION))  # pylint: disable=invalid-name
         except ValueError:
-            _function_nr = -1
+            function_nr = -1  # pylint: disable=invalid-name
 
         # Execute selected function
-        match _function_nr:
+        match function_nr:
             case 0:
                 print("\nExiting test program...\n")
                 break
