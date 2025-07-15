@@ -60,10 +60,10 @@ class Server(uvicorn.Server):
     https://stackoverflow.com/questions/61577643/python-how-to-use-fastapi-and-uvicorn-run-without-blocking-the-thread
     """
     # Ignore signals
-    def install_signal_handlers(self):     # pylint: disable=unnecessary-pass
+    def install_signal_handlers(self):
         """ Override to avoid signal handler installation in thread context """
         # Intentionally empty
-        pass
+        pass     # pylint: disable=unnecessary-pass
 
     @contextlib.contextmanager
     def run_in_thread(self):
