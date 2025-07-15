@@ -5,12 +5,12 @@ on:
 
 jobs:
   delete-old-actions:
-    name: Run to remove old action logs, keeping only most recent 5 logs
+    name: Remove old action logs, keeping only most recent 10 logs
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - uses: yanovation/delete-old-actions@v1
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
-          days-ago: 30
+          days-ago: 0
           keep-latest: 10
