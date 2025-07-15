@@ -5,6 +5,9 @@ on:
     - cron: '0 0 * * *'  # Run every night at midnight
   workflow_dispatch:     # Allow running manually
 
+permissions:
+  actions: write    # Required to remove workflow runs
+
 jobs:
   delete-old-actions:
     name: Remove old action logs, keeping only most recent 10 logs
