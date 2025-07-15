@@ -33,9 +33,7 @@ from fastapi import FastAPI, BackgroundTasks, Request
 from fastapi.responses import FileResponse, RedirectResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
-from wifi_service import get_wifi_networks, get_wifi_connection
-import multipart    # Used to get POST form data
-
+from wifi_service import WifiService, get_wifi_networks, get_wifi_connection
 
 ##### oradio modules ####################
 from oradio_logging import oradio_log
@@ -45,6 +43,8 @@ from mpd_control import MPDControl
 ##### GLOBAL constants ####################
 from oradio_const import (
     USB_SYSTEM,
+    WEB_SERVER_HOST,
+    WEB_SERVER_PORT,
     MESSAGE_WEB_SERVICE_TYPE,
     MESSAGE_WEB_SERVICE_PL1_CHANGED,
     MESSAGE_WEB_SERVICE_PL2_CHANGED,
@@ -116,7 +116,7 @@ def store_presets(presets):
 mpdcontrol = MPDControl()
 
 @api_app.get("/playlists")
-async def playlists(request: Request):
+async def playlists_page(request: Request):
     """
     Page managing options to:
       - Assign playlists to presets
@@ -147,7 +147,6 @@ async def save_preset(changedpreset: ChangedPreset):
 
     # Create message
     message = {}
-#OMJ: Het type klopt niet? Het is geen web service state message, eerder iets als info. Maar voor control is wel een state...
     message = {"type": MESSAGE_WEB_SERVICE_TYPE, "error": MESSAGE_NO_ERROR}
 
     # Message state options
@@ -196,9 +195,8 @@ async def get_songs(songs: Songs):
         return mpdcontrol.get_songs(songs.pattern)
     if songs.source == 'search':
         return mpdcontrol.search(songs.pattern)
-    else:
-        oradio_log.error("Invalid source '%s'", songs.source)
-        return JSONResponse(status_code=400, content={"message": f"De source '{songs.source}' is ongeldig"})
+    oradio_log.error("Invalid source '%s'", songs.source)
+    return JSONResponse(status_code=400, content={"message": f"De source '{songs.source}' is ongeldig"})
 
 class Modify(BaseModel):
     """ Model for modifying playlist """
@@ -229,9 +227,8 @@ async def playlist_modify(modify: Modify):
         else:
             oradio_log.debug("Delete song '%s' from playlist '%s'", modify.song, modify.playlist)
         return mpdcontrol.playlist_remove(modify.playlist, modify.song)
-    else:
-        oradio_log.error("Unexpected action '%s'", modify.action)
-        return JSONResponse(status_code=400, content={"message": f"De action '{modify.action}' is ongeldig"})
+    oradio_log.error("Unexpected action '%s'", modify.action)
+    return JSONResponse(status_code=400, content={"message": f"De action '{modify.action}' is ongeldig"})
 
 class Song(BaseModel):
     """ Model for song """
@@ -261,7 +258,7 @@ async def play_song(song: Song):
 #### STATUS ####################
 
 @api_app.get("/status")
-async def status(request: Request):
+async def status_page(request: Request):
     """ Return status """
     oradio_log.debug("Serving status page")
 
@@ -282,7 +279,7 @@ async def status(request: Request):
 #### NETWORK ####################
 
 @api_app.get("/network")
-async def network(request: Request):
+async def network_page(request: Request):
     """ Return network """
     oradio_log.debug("Serving network page")
 
@@ -326,7 +323,7 @@ def wifi_connect_task(credentials: Credentials):
     oradio_log.debug("trying to connect to ssid=%s", credentials.ssid)
 
     # wifi_connect starts a thread handling the connection setup
-    ''' IMPORTANT: Need to use parent class, as stopping the server will remove local data '''
+    # IMPORTANT: Need to use parent class, as stopping the server will remove local data
     api_app.state.service.wifi.wifi_connect(credentials.ssid, credentials.pswd)
 
     # Stop the web service
@@ -381,7 +378,7 @@ async def spotify_name(spotify: Spotify):
 #### CATCH ALL ####################
 
 @api_app.route("/{full_path:path}", methods=["GET", "POST"])
-async def catch_all(request: Request):
+async def catch_all():
     """
     Any unknown path will return playlists page
     """
@@ -393,9 +390,7 @@ if __name__ == "__main__":
 
     # import when running stand-alone
     import uvicorn
-    from wifi_service import WifiService
     from multiprocessing import Process, Queue
-    from oradio_const import WEB_SERVER_HOST, WEB_SERVER_PORT
 
     def check_messages(queue):
         """
