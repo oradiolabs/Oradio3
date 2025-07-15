@@ -1,4 +1,4 @@
-name: Ruff
+name: Check for deprecated with Ruff
 
 on:
   push:
