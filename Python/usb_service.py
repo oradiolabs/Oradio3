@@ -165,15 +165,9 @@ class USBService():
                 self.error = MESSAGE_USB_ERROR_FILE
                 return
 
-            # Test if ssid not empty
-            if len(ssid) == 0:
-                oradio_log.error("SSID=%s cannot be empty", ssid)
-                self.error = MESSAGE_USB_ERROR_FILE
-                return
-
-            # Test if pswd is 8 or more characters
-            if len(pswd) < 9:
-                oradio_log.error("PASSWORD=%s cannot be less than 8 characters", pswd)
+            # Test if ssid is empty or >= 8 characters
+            if 0 < len(pswd) < 8:
+                oradio_log.error("Password must be empty for open network or at least 8 characters for secured network")
                 self.error = MESSAGE_USB_ERROR_FILE
                 return
 
