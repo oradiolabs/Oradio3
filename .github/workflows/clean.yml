@@ -5,18 +5,17 @@ on:
     - cron: '0 0 * * *'  # Run every night at midnight
   workflow_dispatch:     # Allow running manually
 
-permissions:
-  actions: write    # Required to remove workflow runs
-
 jobs:
   delete-old-actions:
-    name: Remove old action logs, keeping only most recent 10 logs
     runs-on: ubuntu-latest
+    permissions:
+      actions: write    # Required to remove workflow runs
+      contents: read    # Required to read workflow runs
     steps:
-      - uses: actions/checkout@v4
-      - uses: yanovation/delete-old-actions@v1
+      - name: Delete old workflow runs
+        uses: Mattraks/delete-workflow-runs@v2
         with:
-          token: ${{ secrets.GITHUB_TOKEN }}
-          days-ago: 10        # Remove everything older than 10 days
-          keep-latest: 5      # Keep at least 5 runs per workflow
-          dry-run: false      # True to test without deleting anything
+          token: ${{ github.token }}
+          repository: ${{ github.repository }}
+          retain_days: 10        # Amount of days used to compare with the retention days of each workflow
+          keep_minimum_runs: 5   # Minimum runs to keep for each workflow
