@@ -52,7 +52,7 @@ AP_HOST = "108.156.60.1"  # wsj.com
 class WifiService():
     """
     States and functions related to wifi handling
-    - States: Connected to a wifi network, not connected, acting as access point
+    - connected to a wifi network with internet, connected to a wifi network without internet, not connected, acting as access point
     Send messages on state changes
     """
     def __init__(self, queue):
@@ -62,7 +62,6 @@ class WifiService():
         """
         # Initialize
         self.msg_q = queue
-        self.saved_ssid = None
         self.saved_network = None
 
         # Send initial state and error message
@@ -105,12 +104,13 @@ class WifiService():
 
     def wifi_connect(self, ssid, pswd): # pylint: disable=too-many-branches
         """
+        Public function
         Done if already connected
         Create unique wifi network in NetworkManager
         Manage DNS redirection and reconnection to previous network for access point
         Start thread to connect to the wifi network
-        :param ssid ==> Identifier of wifi network to create
-        :param pswd ==> Password of wifi network to create
+        :param ssid: Identifier of wifi network to create
+        :param pswd: Password of wifi network to create
         """
         # Get active wifi connection, if any
         active = get_wifi_connection()
@@ -152,7 +152,7 @@ class WifiService():
 
         # Removing before adding == replacing the network settings, just in case the password has changed
         # Disconnect and remove the current connection, not trying to reconnect (wifi_disconnect logs and sends message)
-        if not self._wifi_disconnect(False):
+        if not self.wifi_disconnect(False):
             # Return fail, so caller can continue
             return False
 
@@ -210,7 +210,9 @@ class WifiService():
 
     def _wifi_connect_thread(self, network):
         """
+        Private function
         Activate the network
+        :param network: wifi network ssid as configured in NetworkManager
         On error fall back to previous network
         Send message with result
         """
@@ -240,11 +242,12 @@ class WifiService():
             # Inform controller of actual state and error
             self._send_message(MESSAGE_NO_ERROR)
 
-    def _wifi_disconnect(self, reconnect=True):
+    def wifi_disconnect(self, reconnect=True):
         """
+        Public function
         Disconnect if connected
         Remove connection from NetworkManager
-        Reconnect to saved network if requested
+        :param reconnect: If True reconnect to saved network
         Send message with actual state and error info, if any
         """
         # Get active wifi connection, if any
@@ -352,7 +355,12 @@ def get_wifi_connection():
     return network
 
 def _get_wifi_password(network):
-
+    """
+    Private function
+    Get password from NetworkManager for given network
+    :param network: wifi network ssid as configured in NetworkManager
+    :return: password | None
+    """
     oradio_log.debug("Get wifi password")
     cmd = f"sudo nmcli -s -g 802-11-wireless-security.psk con show \"{network}\""
     result, response = run_shell_script(cmd)
@@ -365,7 +373,8 @@ def _get_wifi_password(network):
 def _wifi_up(network):
     """
     Private function
-    Connect to connection
+    Connect to network
+    :param network: wifi network ssid as configured in NetworkManager
     nmcli does not raise specific exception
     """
     # Stop the connection
@@ -381,7 +390,8 @@ def _wifi_up(network):
 def _wifi_down(network):
     """
     Private function
-    Disconnect from connection
+    Disconnect from network
+    :param network: wifi network ssid as configured in NetworkManager
     nmcli does not raise specific exception
     """
     # Stop the connection
@@ -424,6 +434,9 @@ def _networkmanager_add(network, config, autoconnect):
     """
     Private function
     Add given network to NetworkManager
+    :param network: wifi network ssid to be configured in NetworkManager
+    :param config: wifi network configuration to be configured in NetworkManager
+    :param autoconnect: Automatically reconnect if connection gets lost
     nmcli does not raise specific exception
     """
     try:
@@ -439,6 +452,7 @@ def _networkmanager_remove(network):
     """
     Private function
     Remove given network from NetworkManager
+    :param network: wifi network ssid as configured in NetworkManager
     nmcli does not raise specific exception
     """
     try:
@@ -539,7 +553,7 @@ if __name__ == '__main__':
                 else:
                     print("\nFailed to start access point\n")
             case 8:
-                if wifi._wifi_disconnect():       # pylint: disable=protected-access
+                if wifi.wifi_disconnect():
                     print("\nWiFi disconnected: check messages for behaviour\n")
                 else:
                     print("\nFailed to disconnect\n")
