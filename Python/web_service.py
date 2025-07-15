@@ -26,30 +26,33 @@ Created on December 23, 2024
         https://captivebehavior.wballiance.com/
         https://superfastpython.com/multiprocessing-in-python/
 """
+import time
 import contextlib
-from time import sleep, time
 from threading import Thread
-from multiprocessing import Process, Queue, Event
+from multiprocessing import Event
 import uvicorn
 
 ##### oradio modules ####################
 from oradio_logging import oradio_log
 from oradio_utils import run_shell_script
 from fastapi_server import api_app
-from wifi_service import WIFIService
+from wifi_service import WifiService
 
 ##### GLOBAL constants ####################
 from oradio_const import (
+    ACCESS_POINT_SSID,
     WEB_SERVER_HOST,
     WEB_SERVER_PORT,
     MESSAGE_WEB_SERVICE_TYPE,
     STATE_WEB_SERVICE_IDLE,
     STATE_WEB_SERVICE_ACTIVE,
+    MESSAGE_WEB_SERVICE_FAIL_START,
+    MESSAGE_WEB_SERVICE_FAIL_STOP,
     MESSAGE_NO_ERROR
 )
 
 ##### LOCAL constants ####################
-DEBUG_ALIVE_INTERVAL = 60   # Only show debug message every 60 seconds
+TIMEOUT = 10   # Seconds to wait for web server process to start/stop
 
 class Server(uvicorn.Server):
     """
@@ -58,27 +61,23 @@ class Server(uvicorn.Server):
     """
     # Ignore signals
     def install_signal_handlers(self):
-        """
-        Override to avoid signal handler installation in thread context
-        """
+        """ Override to avoid signal handler installation in thread context """
         pass
 
     @contextlib.contextmanager
     def run_in_thread(self):
-        """
-        Run the server in a background thread using a context manager
-        """
+        """ Run the server in a background thread using a context manager """
         thread = Thread(target=self.run)
         thread.start()
         try:
             while not self.started:
-                sleep(1e-3)
+                time.sleep(1e-3)
             yield
         finally:
             self.should_exit = True
             thread.join()
 
-class web_service():
+class WebService():
     """
     Custom process class for the web interface, via the wifi network or own access point as Captive Portal
     Manage web server and captive portal
@@ -88,11 +87,8 @@ class web_service():
         """"
         Class constructor: Setup the class
         """
-        # Initialize
+        # Register queue
         self.msg_q = queue
-
-        # Clear error
-        self.error = None
 
         # Create and store an event for manually stopping the process
         self.event_stop = Event()
@@ -100,18 +96,18 @@ class web_service():
         # Track web service status (Events start as 'not set' == STATE_WEB_SERVICE_IDLE)
         self.event_active = Event()
 
-        # Pass the queue to the web server
-        api_app.state.message_queue = self.msg_q
-
         # Register wifi service and send wifi status message
-        self.wifi = WIFIService(self.msg_q)
-        self.wifi.send_message(MESSAGE_NO_ERROR)
+        self.wifi = WifiService(self.msg_q)
+
+        # Pass the class instance to the web server
+        api_app.state.service = self
 
         # Send initial state and error message
-        self.send_message(MESSAGE_NO_ERROR)
+        self._send_message(MESSAGE_NO_ERROR)
 
-    def send_message(self, error):
+    def _send_message(self, error):
         """
+        Private function
         Send web service message
         :param error: Error message or code to include in the message
         """
@@ -126,44 +122,9 @@ class web_service():
         oradio_log.debug("Send web service message: %s", message)
         self.msg_q.put(message)
 
-    def start(self):
-        """
-        Start the web server
-        Setup access point
-        """
-        # Web service is not running
-        if not self.event_active.is_set():
-
-            oradio_log.debug("Configure port redirection")
-            # Set port redirection for all network requests to reach the web service
-            cmd = f"sudo bash -c 'iptables -t nat -A PREROUTING -p tcp --dport 80 -j REDIRECT --to-port {WEB_SERVER_PORT}'"
-            result, error = run_shell_script(cmd)
-            if not result:
-                oradio_log.error("Error during <%s> to configure port redirection, error = %s", cmd, error)
-
-            # Start web server
-            oradio_log.debug("Start FastAPI server")
-            config = uvicorn.Config(api_app, host=WEB_SERVER_HOST, port=WEB_SERVER_PORT, log_level="info")
-            server = Server(config=config)
-
-            # Execute main loop as separate thread
-            # ==> Don't use reference so that the python interpreter can garbage collect when thread is done
-            Thread(target=self._run, args=(server,)).start()
-
-        else:
-            oradio_log.debug("web service is already running")
-
-    def stop(self):
-        """
-        Set event flag to signal to stop the web server
-        """
-        if self.event_active.is_set():
-            self.event_stop.set()
-        else:
-            oradio_log.debug("web service is already stopped")
-
     def get_state(self):
         """
+        Public function
         Return web service status
         """
         if self.event_active.is_set():
@@ -172,18 +133,96 @@ class web_service():
             status = STATE_WEB_SERVICE_IDLE
         return status
 
-    def _run(self, server):
+    def start(self):
+        """
+        Public function
+        Start port redirection
+        Start the web server
+        Setup access point
+        """
+        # Start web service if not running
+        if not self.event_active.is_set():
+
+            # Set port redirection for all network requests to reach the web service
+            oradio_log.debug("Configure port redirection")
+            cmd = f"sudo bash -c 'iptables -t nat -A PREROUTING -p tcp --dport 80 -j REDIRECT --to-port {WEB_SERVER_PORT}'"
+            result, error = run_shell_script(cmd)
+            if not result:
+                oradio_log.error("Error during <%s> to configure port redirection, error = %s", cmd, error)
+                # Send message web server did not start
+                self._send_message(MESSAGE_WEB_SERVICE_FAIL_START)
+                return
+
+            # Execute main loop as separate thread
+            # ==> Don't use reference so that the python interpreter can garbage collect when thread is done
+            Thread(target=self._run, daemon=True).start()
+
+            # Wait for the web server to start with a timeout
+            if not self.event_active.wait(timeout=TIMEOUT):
+                # Send message web server did not start
+                self._send_message(MESSAGE_WEB_SERVICE_FAIL_START)
+                return
+
+            # Start access point, saving current connection if any
+            self.wifi.wifi_connect(ACCESS_POINT_SSID, None)
+
+            # Send message web server has started
+            self._send_message(MESSAGE_NO_ERROR)
+
+        else:
+            oradio_log.debug("web service is already running")
+
+    def stop(self):
+        """
+        Public function
+        Stop access point
+        Set event flag to signal to stop the web server
+        Stop port redirection
+        """
+        if self.event_active.is_set():
+
+            #Initialize
+            error = MESSAGE_NO_ERROR
+
+            # Remove access point, restoring wifi connection if any
+            self.wifi.wifi_disconnect()
+
+            # Signal the web server to stop
+            self.event_stop.set()
+
+            # Wait for the web server to stop with a timeout
+            start_time = time.time()
+            while self.event_active.is_set():
+                if time.time() - start_time >= TIMEOUT:
+                    error = MESSAGE_WEB_SERVICE_FAIL_STOP
+                    break
+                time.sleep(0.1)
+
+            # Remove port redirection
+            oradio_log.debug("Remove port redirection")
+            cmd = f"sudo bash -c 'iptables -t nat -D PREROUTING -p tcp --dport 80 -j REDIRECT --to-port {WEB_SERVER_PORT}'"
+            result, error = run_shell_script(cmd)
+            if not result:
+                oradio_log.error("Error during <%s> to remove iptables port redirection, error = %s", cmd, error)
+                error = MESSAGE_WEB_SERVICE_FAIL_STOP
+
+            # Send state and error message
+            self._send_message(error)
+
+        else:
+            oradio_log.debug("web service is already stopped")
+
+    def _run(self):
         """
         Process web server task
         """
+        # Start web server
+        oradio_log.debug("Start FastAPI server")
+        config = uvicorn.Config(api_app, host=WEB_SERVER_HOST, port=WEB_SERVER_PORT, log_level="info")
+        server = Server(config=config)
+
         # Pass started status to web service
         self.event_active.set()
-
-        # Send state and error message
-        self.send_message(MESSAGE_NO_ERROR)
-
-        # Start access point, saving current connection if any
-        self.wifi.access_point_start()
 
         # Running web server non-blocking
         with server.run_in_thread():
@@ -191,39 +230,27 @@ class web_service():
             # Confirm starting the web server
             oradio_log.info("Web service is running")
 
-            # Execute in a loop
-            while True:
+            # Signal the web server is running
+            self.event_active.set()
 
-                # Sleeping slows down handling of incoming web service requests. But no sleep means CPU load is 100%. 1s a compromise.
-                sleep(1)
+            # Wait for stop event
+            self.event_stop.wait()
 
-                # Check for stop event
-                if self.event_stop.is_set():
-                    oradio_log.debug("Web service stopped")
-                    self.event_stop.clear()
-                    break
+            # Reset stop event
+            self.event_stop.clear()
 
-        # Remove access point, keeping wifi connection if connected
-        self.wifi.access_point_stop()
-
-        # Remove port redirection
-        oradio_log.debug("Remove port redirection")
-        cmd = f"sudo bash -c 'iptables -t nat -D PREROUTING -p tcp --dport 80 -j REDIRECT --to-port {WEB_SERVER_PORT}'"
-        result, error = run_shell_script(cmd)
-        if not result:
-            oradio_log.error("Error during <%s> to remove iptables port redirection, error = %s", cmd, error)
+            # Confirm stopping the web server
+            oradio_log.debug("Web service stopped")
 
         # Pass stopped status to web service
         self.event_active.clear()
-
-        # Send state and error message
-        self.send_message(MESSAGE_NO_ERROR)
 
 # Entry point for stand-alone operation
 if __name__ == '__main__':
 
     # import when running stand-alone
     import subprocess
+    from multiprocessing import Process, Queue
 
     def _check_messages(queue):
         """
@@ -237,18 +264,18 @@ if __name__ == '__main__':
             # Wait for message
             message = queue.get(block=True, timeout=None)
             # Show message received
-            print(f"\nMessage received: '{message}'\n")
+            print(f"Message received: '{message}'\n")
 
     # Initialize
     message_queue = Queue()
-    oradio_web_service = web_service(message_queue)
+    web_service = WebService(message_queue)
 
     # Start  process to monitor the message queue
     message_listener = Process(target=_check_messages, args=(message_queue,))
     message_listener.start()
 
     # Show menu with test options
-    InputSelection = ("Select a function, input the number.\n"
+    INPUT_SELECTION = ("Select a function, input the number.\n"
                        " 0-quit\n"
                        " 1-Show web service state\n"
                        " 2-start web service (long-press-AAN)\n"
@@ -261,15 +288,15 @@ if __name__ == '__main__':
 
         # Get user input
         try:
-            FunctionNr = int(input(InputSelection))
+            function_nr = int(input(INPUT_SELECTION))  # pylint: disable=invalid-name
         except ValueError:
-            FunctionNr = -1
+            function_nr = -1  # pylint: disable=invalid-name
 
         # Execute selected function
-        match FunctionNr:
+        match function_nr:
             case 0:
                 print("\nStopping the web service...\n")
-                oradio_web_service.stop()
+                web_service.stop()
                 print("\nExiting test program...\n")
                 break
             case 1:
@@ -281,10 +308,10 @@ if __name__ == '__main__':
                     print("\nNo active web service found\n")
             case 2:
                 print("\nStarting the web service...\n")
-                oradio_web_service.start()
+                web_service.start()
             case 3:
                 print("\nStopping the web service...\n")
-                oradio_web_service.stop()
+                web_service.stop()
             case _:
                 print("\nPlease input a valid number\n")
 
