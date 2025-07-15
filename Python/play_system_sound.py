@@ -37,39 +37,38 @@ from oradio_logging import oradio_log
 from volume_control import VolumeControl
 
 ##### GLOBAL constants ####################
-from oradio_const import *
-# SOUND_FILES_DIR in oradio_const
+from oradio_const import SOUND_FILES_DIR
 
 ##### LOCAL VOLUME CONSTANTS ####################
 DEFAULT_MPD_VOLUME       = 100
 DEFAULT_SPOTIFY_VOLUME   = 100
 VOLUME_MPD_SYS_SOUND     = 70
 VOLUME_SPOTIFY_SYS_SOUND = 70
-DEFAULT_SYS_SOUND_VOLUME = 80
-
+DEFAULT_SYS_SOUND_VOLUME = 90
 
 SOUND_FILES = {
     # Sounds
     "StartUp": f"{SOUND_FILES_DIR}/StartUp.wav",
     "Stop":    f"{SOUND_FILES_DIR}/UIT.wav",
     "Play":    f"{SOUND_FILES_DIR}/AAN.wav",
-    "Preset1": f"{SOUND_FILES_DIR}/PL1.wav",
-    "Preset2": f"{SOUND_FILES_DIR}/PL2.wav",
-    "Preset3": f"{SOUND_FILES_DIR}/PL3.wav",
     "Click":   f"{SOUND_FILES_DIR}/click.wav",
-    "Next":    f"{SOUND_FILES_DIR}/volgende_nummer.wav",
-    # Announcements
-    "Spotify":      f"{SOUND_FILES_DIR}/Spotify_melding.wav",
-    "NoInternet":   f"{SOUND_FILES_DIR}/NoInternet_melding.wav",
-    "NoUSB":        f"{SOUND_FILES_DIR}/NoUSB_melding.wav",
-    "WebInterface": f"{SOUND_FILES_DIR}/WebInterface_melding.wav",
-    "OradioAP":     f"{SOUND_FILES_DIR}/OradioAP_melding.wav",
-    "WifiConnected": f"{SOUND_FILES_DIR}/Wifi_verbonden_melding.wav",
-    "WifiNotConnected": f"{SOUND_FILES_DIR}/Niet_Wifi_verbonden_melding.wav",
-    "NewPlaylistPreset": f"{SOUND_FILES_DIR}/Nieuwe_afspeellijst_preset.wav",
-    "USBPresent": f"{SOUND_FILES_DIR}/USB_aangesloten.wav",
-}
 
+    # Announcements
+    "Preset1":             f"{SOUND_FILES_DIR}/Preset1_melding.wav",
+    "Preset2":             f"{SOUND_FILES_DIR}/Preset2_melding.wav",
+    "Preset3":             f"{SOUND_FILES_DIR}/Preset3_melding.wav",
+    "Next":                f"{SOUND_FILES_DIR}/Next_melding.wav",
+    "Spotify":             f"{SOUND_FILES_DIR}/Spotify_melding.wav",
+    "NoInternet":          f"{SOUND_FILES_DIR}/NoInternet_melding.wav",
+    "NoUSB":               f"{SOUND_FILES_DIR}/NoUSB_melding.wav",
+    "OradioAPstarted":     f"{SOUND_FILES_DIR}/OradioAPstarted_melding.wav",
+    "OradioAPstopped":     f"{SOUND_FILES_DIR}/OradioAPstopped_melding.wav",
+    "WifiConnected":       f"{SOUND_FILES_DIR}/WifiConnected_melding.wav",
+    "WifiNotConnected":    f"{SOUND_FILES_DIR}/WifiNotConnected_melding.wav",
+    "NewPlaylistPreset":   f"{SOUND_FILES_DIR}/NewPlaylistPreset_melding.wav",
+    "NewPlaylistWebradio": f"{SOUND_FILES_DIR}/NewPlaylistWebradio_melding.wav",
+    "USBPresent":          f"{SOUND_FILES_DIR}/USBPresent_melding.wav",
+}
 
 class PlaySystemSound:
     """
