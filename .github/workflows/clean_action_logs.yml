@@ -1,7 +1,9 @@
-name: Clean
+name: Delete Old Workflow Runs
 
 on:
-  workflow_dispatch:
+  schedule:
+    - cron: '0 0 * * *'  # Run every night at midnight
+  workflow_dispatch:     # Allow running manually
 
 jobs:
   delete-old-actions:
@@ -12,5 +14,7 @@ jobs:
       - uses: yanovation/delete-old-actions@v1
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
-          days-ago: 0
           keep-latest: 10
+          older-than-days: 10        # Remove everything older than 10 days
+          keep-minimum-workflows: 10 # Keep at least 5 runs per workflow
+          delete-artifacts: true     # Remove related artifacts
