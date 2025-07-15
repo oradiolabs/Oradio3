@@ -306,7 +306,7 @@ def process_messages(queue):
             MESSAGE_WIFI_TYPE : {
                 STATE_WIFI_IDLE: on_wifi_not_connected,
                 STATE_WIFI_INTERNET: on_wifi_connected_to_internet,
-#OMJ: Wat te doen als gebruiker ene netwerk gekozen heeft watr geen internet heeft?
+#OMJ: Wat te doen als gebruiker een netwerk gekozen heeft wat geen internet heeft?
 #                STATE_WIFI_CONNECTED: on_wifi_connected_without_internet,
                 STATE_WIFI_ACCESS_POINT: on_wifi_access_point,
                 # If an error occurs, the error text is used as the key.
@@ -534,7 +534,7 @@ HANDLERS = {
     },
     MESSAGE_WEB_SERVICE_TYPE: {
         STATE_WEB_SERVICE_IDLE: on_webservice_idle,
-        STATE_WEB_SERVICE_ACTIVE: on_webservice_active,  
+        STATE_WEB_SERVICE_ACTIVE: on_webservice_active,
         MESSAGE_WEB_SERVICE_PLAYING_SONG: on_webservice_playing_song,
         MESSAGE_WEB_SERVICE_PL1_CHANGED: on_webservice_pl1_changed,
         MESSAGE_WEB_SERVICE_PL2_CHANGED: on_webservice_pl2_changed,
@@ -587,9 +587,7 @@ def process_messages(queue):
             oradio_log.debug("Received message in Queue: %s", msg)
             handle_message(msg)
     except Exception as ex:
-        oradio_log.error("Unexpected error in process_messages: %s", ex)            
-            
-#
+        oradio_log.error("Unexpected error in process_messages: %s", ex)
 
 
 #------------------Start-up and define other modules ------------------------------
@@ -666,7 +664,7 @@ def _stress_loop(min_d, max_d, max_count):
             cnt = _stress_count
 
         print(f"[STRESS #{cnt}] → {nxt}   (threads: {threading.active_count()})")
-        oradio_log.info(f"[STRESS #{cnt}] → {nxt}")
+        oradio_log.info("[STRESS #%s] → %s", cnt, nxt)
 
         state_machine.transition(nxt)
 
