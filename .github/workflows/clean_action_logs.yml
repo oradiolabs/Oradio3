@@ -14,7 +14,6 @@ jobs:
       - uses: yanovation/delete-old-actions@v1
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
-          keep-latest: 10
-          older-than-days: 10        # Remove everything older than 10 days
-          keep-minimum-workflows: 10 # Keep at least 5 runs per workflow
-          delete-artifacts: true     # Remove related artifacts
+          days-ago: 10        # Remove everything older than 10 days
+          keep-latest: 5      # Keep at least 5 runs per workflow
+          dry-run: false      # True to test without deleting anything
