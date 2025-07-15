@@ -1,4 +1,4 @@
-name: Pylint
+name: Check Python with Pylint (PEP8)
 
 on: 
   push:
