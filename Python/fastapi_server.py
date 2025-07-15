@@ -382,7 +382,7 @@ async def catch_all(request: Request):
     """
     Any unknown path will return playlists page
     """
-    oradio_log.debug(f"Catchall triggered for path: {request.url.path}")
+    oradio_log.debug("Catchall triggered for path: %s", request.url.path)
     return RedirectResponse(url='/playlists', status_code=302)
 
 # Entry point for stand-alone operation

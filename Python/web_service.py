@@ -29,7 +29,7 @@ Created on December 23, 2024
 import time
 import contextlib
 from threading import Thread
-from multiprocessing import Event
+from multiprocessing import Event, Process, Queue
 import uvicorn
 
 ##### oradio modules ####################
@@ -62,7 +62,8 @@ class Server(uvicorn.Server):
     # Ignore signals
     def install_signal_handlers(self):
         """ Override to avoid signal handler installation in thread context """
-        pass
+        # Intentionally empty
+        ...
 
     @contextlib.contextmanager
     def run_in_thread(self):
@@ -250,7 +251,6 @@ if __name__ == '__main__':
 
     # import when running stand-alone
     import subprocess
-    from multiprocessing import Process, Queue
 
     def _check_messages(queue):
         """
@@ -301,8 +301,8 @@ if __name__ == '__main__':
                 break
             case 1:
                 # Check if a process is listening on WEB_SERVER_HOST:WEB_SERVER_PORT
-                result = subprocess.run(f"ss -tuln | grep {WEB_SERVER_HOST}:{WEB_SERVER_PORT}", shell=True, stdout=subprocess.DEVNULL)
-                if not result.returncode:
+                proc = subprocess.run(f"ss -tuln | grep {WEB_SERVER_HOST}:{WEB_SERVER_PORT}", shell=True, check=False, stdout=subprocess.DEVNULL)
+                if not proc.returncode:
                     print("\nActive web service found\n")
                 else:
                     print("\nNo active web service found\n")
