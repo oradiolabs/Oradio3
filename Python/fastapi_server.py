@@ -378,12 +378,12 @@ async def spotify_name(spotify: Spotify):
 #### CATCH ALL ####################
 
 @api_app.route("/{full_path:path}", methods=["GET", "POST"])
-async def catch_all():
+async def catch_all(request: Request):
     """
     Any unknown path will return playlists page
     """
-    oradio_log.debug("Catchall")
-    return RedirectResponse(url='/playlists')
+    oradio_log.debug(f"Catchall triggered for path: {request.url.path}")
+    return RedirectResponse(url='/playlists', status_code=302)
 
 # Entry point for stand-alone operation
 if __name__ == "__main__":
