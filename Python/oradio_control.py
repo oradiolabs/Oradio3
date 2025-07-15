@@ -60,9 +60,9 @@ spotify_connect_playing = threading.Event() # track Spotify playing
 spotify_connect_available = threading.Event() # track Spotify playing & connetyec
 
 #-----------------------
-from usb_service import usb_service
-from web_service import web_service
-from wifi_service import WIFIService
+from usb_service import USBService
+from web_service import WebService
+from wifi_service import WifiService
 
 usb_present_event = threading.Event() # track status USB
 
@@ -211,7 +211,7 @@ class StateMachine:
             elif state_to_handle == "StatePlaySongWebIF":
                 if oradio_web_service.get_state() == STATE_WEB_SERVICE_ACTIVE:
                     leds.control_blinking_led("LEDPlay", 2)
-                else:    
+                else:
                     leds.turn_on_led("LEDPlay")
                 spotify_connect.pause()
                 mpd.play()
@@ -285,9 +285,80 @@ class StateMachine:
             oradio_log.debug("USB is absent. Clearing usb_present_event.")
             usb_present_event.clear()
 
-#-------------Messages handler: Handle messages from the queue of other modules
-
 #----- the Handler functions defining the actions when a message is recieved---
+def process_messages(queue):
+    """
+    Continuously process and handle messages from the queue.
+    """
+    def handle_message(message):
+        handlers = {
+            MESSAGE_TYPE_VOLUME: {
+                MESSAGE_STATE_CHANGED: on_volume_changed,
+                # For example, if an error is reported as "Volume error"
+#               "Volume error": on_volume_error,
+            },
+            MESSAGE_USB_TYPE : {
+                STATE_USB_ABSENT: on_usb_absent,
+                STATE_USB_PRESENT: on_usb_present,
+                # Example error key for USB messages
+#                "USB error": on_usb_error,
+            },
+            MESSAGE_WIFI_TYPE : {
+                STATE_WIFI_IDLE: on_wifi_not_connected,
+                STATE_WIFI_INTERNET: on_wifi_connected_to_internet,
+#OMJ: Wat te doen als gebruiker ene netwerk gekozen heeft watr geen internet heeft?
+#                STATE_WIFI_CONNECTED: on_wifi_connected_without_internet,
+                STATE_WIFI_ACCESS_POINT: on_wifi_access_point,
+                # If an error occurs, the error text is used as the key.
+                MESSAGE_WIFI_FAIL_CONNECT: on_wifi_error,
+            },
+            MESSAGE_WEB_SERVICE_TYPE: {
+                STATE_WEB_SERVICE_IDLE: on_webservice_not_active,
+                MESSAGE_WEB_SERVICE_PLAYING_SONG: on_webservice_playing_song,
+                MESSAGE_WEB_SERVICE_PL1_CHANGED: on_webservice_pl1_changed,
+                MESSAGE_WEB_SERVICE_PL2_CHANGED: on_webservice_pl2_changed,
+                MESSAGE_WEB_SERVICE_PL3_CHANGED: on_webservice_pl3_changed,
+                MESSAGE_WEB_SERVICE_PL_WEBRADIO: on_webservice_pl_web_radio_changed,
+#                "Webservice error": on_webservice_error,
+            },
+            MESSAGE_SPOTIFY_TYPE: {
+                SPOTIFY_CONNECT_CONNECTED_EVENT: on_spotify_connect_connected,
+                SPOTIFY_CONNECT_DISCONNECTED_EVENT: on_spotify_connect_disconnected,
+                SPOTIFY_CONNECT_PLAYING_EVENT: on_spotify_connect_playing,
+                SPOTIFY_CONNECT_PAUSED_EVENT: on_spotify_connect_paused,
+#                "Spotify error": on_spotify_error,
+            },
+            # Add more mappings as needed.
+        }
+
+        command_type = message.get("type")
+        state = message.get("state")
+        error = message.get("error")
+
+        if command_type not in handlers:
+            oradio_log.debug("Unhandled message type: %s", message)
+            return
+
+        # Process the normal state message, if a handler exists.
+        if state in handlers[command_type]:
+            handlers[command_type][state]()
+        else:
+            oradio_log.debug("Unhandled state '%s' for message type '%s'.",state, command_type)
+
+        # If an error is provided, handle it as if it were another state.
+        if error is not MESSAGE_NO_ERROR:
+            if error in handlers[command_type]:
+                handlers[command_type][error]()
+            else:
+                oradio_log.debug("Unhandled error '%s' for message type '%s'.", error, command_type)
+
+    try:
+        while True:
+            message = queue.get()  # Blocks until a message is available
+            oradio_log.debug("Received message in Queue: %s", message)
+            handle_message(message)
+    except Exception as ex_err:
+        oradio_log.error("Unexpected error in process_messages: %s", ex_err)
 
 #-------------------VOLUME-----------------------
 
@@ -320,13 +391,16 @@ def on_wifi_connected_to_internet():
 #        oradio_web_service.stop() # Stop the web service (and access point) Do nothing if already stopped
 # The relevant information is that the Oradio is connected to the internet (and can therefore play web radio and Spotify)
         sound_player.play("WifiConnected")
-        
+
 
     oradio_log.debug("Wifi is connected to internet acknowledged")
 
 def on_wifi_not_connected():
+    # Stop sending heartbeat to Remote Monitoring Service
+    remote_monitor.heartbeat_stop()
+
     play_states = {"StatePlay", "StatePreset1", "StatePreset2", "StatePreset3"}
-    
+
     if state_machine.state in play_states:
 #        oradio_web_service.stop() # Stop the web service (and access point) Do nothing if already stopped
         sound_player.play("WifiNotConnected")
@@ -352,7 +426,7 @@ def on_webservice_active():
 def on_webservice_idle():
     play_webservice_states = {"StatePlay", "StatePreset1", "StatePreset2", "StatePreset3", "StateWebService"}
     # if webservice is stopped (probably due to input Network credentials), move back to StatePlay
-    if state_machine.state in play_webservice_states: 
+    if state_machine.state in play_webservice_states:
         state_machine.transition("StatePlay") # Move from Webservice state to back to Play State
     oradio_log.debug("WebService NOT active is acknowledged")
 
@@ -533,7 +607,7 @@ spotify_connect = SpotifyConnect(shared_queue)
 spotify_connect.pause()  # pause spotify connect
 
 # Initialize the oradio_usb class
-oradio_usb_service = usb_service(shared_queue)
+oradio_usb_service = USBService(shared_queue)
 
 # Check status usb
 state_machine.update_usb_event()
@@ -550,10 +624,10 @@ touch_buttons = TouchButtons(state_machine)
 volume_control = VolumeControl(shared_queue)
 
 #Initialize the wifi_service
-oradio_wifi_service = WIFIService(shared_queue)
+oradio_wifi_service = WifiService(shared_queue)
 
 #Initialize the web_service
-oradio_web_service = web_service(shared_queue)
+oradio_web_service = WebService(shared_queue)
 
 
 # ——————————————————————————————
@@ -607,7 +681,7 @@ def _stress_loop(min_d, max_d, max_count):
     # final summary once the loop exits (whether by Q or max)
     print(f"\n✅ Stress test finished. Total transitions: {_stress_count}")
     print(f"   Active threads now: {threading.active_count()}")
-    
+
 
 def maybe_start_stress():
     """
