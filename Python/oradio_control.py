@@ -153,15 +153,14 @@ class StateMachine:
             leds.turn_off_all_leds()
 
             if state_to_handle == "StatePlay":
-                mpd.play()
-                sound_player.play("Play")
                 if oradio_web_service.get_state() == STATE_WEB_SERVICE_ACTIVE:
                     leds.control_blinking_led("LEDPlay", 2)
-                    oradio_log.debug("In StatePlay, start blinking Play led")
                 else:
                     leds.turn_on_led("LEDPlay")
-                    oradio_log.debug("In StatePlay, switch on  Play led")
+                mpd.play()
                 spotify_connect.pause()
+                sound_player.play("Play")
+                
 
             elif state_to_handle == "StatePreset1":
                 leds.turn_on_led("LEDPreset1")
@@ -208,15 +207,16 @@ class StateMachine:
                     oradio_web_service.stop()
                     leds.control_blinking_led("LEDPlay", 0)
                     sound_player.play("OradioAPstopped")
-                    stop_websvc_state_monitor()  # stop web_service state monitoring 
+#                    stop_websvc_state_monitor()  # stop web_service state monitoring 
 
             elif state_to_handle == "StateSpotifyConnect":
-                leds.turn_on_led("LEDPlay")
-                sound_player.play("Spotify")
-                mpd.pause()
-                spotify_connect.play()
                 if oradio_web_service.get_state() == STATE_WEB_SERVICE_ACTIVE:
                     leds.control_blinking_led("LEDPlay", 2)
+                else:
+                    leds.turn_on_led("LEDPlay")
+                mpd.pause()
+                spotify_connect.play()
+                sound_player.play("Spotify")
 
             elif state_to_handle == "StatePlaySongWebIF":
                 if oradio_web_service.get_state() == STATE_WEB_SERVICE_ACTIVE:
@@ -259,7 +259,7 @@ class StateMachine:
             elif state_to_handle == "StateWebService":
                 leds.control_blinking_led("LEDPlay", 2)
                 oradio_web_service.start()
-                start_websvc_state_monitor()  # to monitor the state of the web_service
+#                start_websvc_state_monitor()  # to monitor the state of the web_service
                 sound_player.play("OradioAPstarted")
                 oradio_log.debug("In WebService state, wait for next step")
 
@@ -295,53 +295,9 @@ class StateMachine:
             usb_present_event.clear()
 
 
-#------------Helper function to monitor web_service--------
+#-------------Messages handler: -----------------
             
-_websvc_monitor_stop = threading.Event()
-
-def _websvc_state_monitor():
-    """Internal: loop polling oradio_web_service.get_state()."""
-    # initialize last_state so we don't emit a change on the very first check
-    last_state = oradio_web_service.get_state()
-    while not _websvc_monitor_stop.is_set():
-        current = oradio_web_service.get_state()
-        # 1) Log only on a real change
-        if current != last_state:
-            oradio_log.info(
-                "WebService state changed from %s to %s",
-                last_state, current
-            )
-            last_state = current
-
-        # 2) If we hit idle, trigger the SM once and then stop
-        play_states = {"StatePlay", "StatePreset1", "StatePreset2", "StatePreset3", "StateWebService"}
-        if current == "web service is idle":   
-            if state_machine.state in play_states:
-                # stop monitoring before firing your transition
-                _websvc_monitor_stop.set()
-                oradio_log.info("Stopped monitoring WebService and make transition to Play")
-                state_machine.transition("StateIdle")
-                state_machine.transition("StatePlay")
-
-        time.sleep(0.5)
-
-def start_websvc_state_monitor():
-    """Start the background thread watching for web-service state changes."""
-    # clear any previous stop request
-    _websvc_monitor_stop.clear()
-    t = threading.Thread(target=_websvc_state_monitor, daemon=True)
-    t.start()
-    oradio_log.info("Started WebService state monitor thread.")
-
-def stop_websvc_state_monitor():
-    """Stop the background monitor thread (it will exit shortly)."""
-    _websvc_monitor_stop.set()
-    oradio_log.info("Stopped WebService state monitor thread.")
-
-
-#-------------Messages handler: Handle messages from the queue of other modules
-
-#----- the Handler functions defining the actions when a message is recieved---
+# 1) Functions which define the actions for the messages
 
 #-------------------VOLUME-----------------------
 
@@ -401,11 +357,13 @@ def on_webservice_active():
     oradio_log.debug("WebService active is acknowledged")
 
 def on_webservice_idle():
-#     play_webservice_states = {"StatePlay", "StatePreset1", "StatePreset2", "StatePreset3", "StateWebService"}
+     play_webservice_states = {"StatePlay", "StatePreset1", "StatePreset2", "StatePreset3", "StateWebService"}
 #     # if webservice is stopped (probably due to input Network credentials), move back to StatePlay
-#     if state_machine.state in play_webservice_states:
-#         state_machine.transition("StatePlay") # Move from Webservice state to back to Play State
-    oradio_log.debug("WebService idle is acknowledged")
+     if state_machine.state in play_webservice_states:
+         state_machine.transition("StateIdle")
+         state_machine.transition("StatePlay") # Move from Webservice state to back to Play State
+         threading.Timer(2, sound_player.play, args=("OradioAPstopped",)).start()
+     oradio_log.debug("WebService idle is acknowledged")
 
 def on_webservice_playing_song():
     spotify_connect.pause() # spotify is on pause and will not work
@@ -491,7 +449,7 @@ def update_spotify_connect_available():
         f"Available: {spotify_connect_available.is_set()}"
     )
 
-#-------------The Handler map, defining message contant and the handler funtion---
+#2)-----The Handler map, defining message content and the handler funtion---
 
 HANDLERS = {
     MESSAGE_TYPE_VOLUME: {
@@ -556,7 +514,7 @@ def handle_message(message):
                 error, command_type
             )
 
-# ----------- Process the messages---------
+# 3)----------- Process the messages---------
 def process_messages(queue):
     try:
         while True:
