@@ -52,7 +52,7 @@ from oradio_const import (
 )
 
 ##### LOCAL constants ####################
-TIMEOUT = 10   # Seconds to wait for web server process to start/stop
+TIMEOUT = 30   # Seconds to wait for web server process to start/stop
 
 class Server(uvicorn.Server):
     """
@@ -154,22 +154,26 @@ class WebService():
                 self._send_message(MESSAGE_WEB_SERVICE_FAIL_START)
                 return
 
+            # Start access point, saving current connection if any
+            self.wifi.wifi_connect(ACCESS_POINT_SSID, None)
+
             # Execute main loop as separate thread
             # ==> Don't use reference so that the python interpreter can garbage collect when thread is done
             Thread(target=self._run, daemon=True).start()
 
             # Wait for the web server to start with a timeout
-            if not self.event_active.wait(timeout=TIMEOUT):
-                # Send message web server did not start
-                self._send_message(MESSAGE_WEB_SERVICE_FAIL_START)
-                return
+            start_time = time.time()
+            while self.event_active.is_set():
+                if time.time() - start_time >= TIMEOUT:
+                    oradio_log.error("Timeout waiting for server to start")
+                    self._send_message(MESSAGE_WEB_SERVICE_FAIL_START)
+                    return
+                time.sleep(0.1)
 
-            # Start access point, saving current connection if any
-            self.wifi.wifi_connect(ACCESS_POINT_SSID, None)
-
-            # Send message web server has started
+            # Send message web server started
             self._send_message(MESSAGE_NO_ERROR)
 
+            oradio_log.debug("Web server started")
         else:
             oradio_log.debug("web service is already running")
 
@@ -182,11 +186,17 @@ class WebService():
         """
         if self.event_active.is_set():
 
-            #Initialize
-            error = MESSAGE_NO_ERROR
-
             # Remove access point, restoring wifi connection if any
             self.wifi.wifi_disconnect()
+
+            # Remove port redirection
+            oradio_log.debug("Remove port redirection")
+            cmd = f"sudo bash -c 'iptables -t nat -D PREROUTING -p tcp --dport 80 -j REDIRECT --to-port {WEB_SERVER_PORT}'"
+            result, error = run_shell_script(cmd)
+            if not result:
+                oradio_log.error("Error during <%s> to remove iptables port redirection, error = %s", cmd, error)
+                # Send state and error message
+                self._send_message(MESSAGE_WEB_SERVICE_FAIL_STOP)
 
             # Signal the web server to stop
             self.event_stop.set()
@@ -195,21 +205,15 @@ class WebService():
             start_time = time.time()
             while self.event_active.is_set():
                 if time.time() - start_time >= TIMEOUT:
-                    error = MESSAGE_WEB_SERVICE_FAIL_STOP
-                    break
+                    oradio_log.error("Timeout waiting for server to stop")
+                    self._send_message(MESSAGE_WEB_SERVICE_FAIL_STOP)
+                    return
                 time.sleep(0.1)
 
-            # Remove port redirection
-            oradio_log.debug("Remove port redirection")
-            cmd = f"sudo bash -c 'iptables -t nat -D PREROUTING -p tcp --dport 80 -j REDIRECT --to-port {WEB_SERVER_PORT}'"
-            result, error = run_shell_script(cmd)
-            if not result:
-                oradio_log.error("Error during <%s> to remove iptables port redirection, error = %s", cmd, error)
-                error = MESSAGE_WEB_SERVICE_FAIL_STOP
+            # Send message web server stopped
+            self._send_message(MESSAGE_NO_ERROR)
 
-            # Send state and error message
-            self._send_message(error)
-
+            oradio_log.debug("Web server stopped")
         else:
             oradio_log.debug("web service is already stopped")
 
@@ -225,14 +229,11 @@ class WebService():
         # Pass started status to web service
         self.event_active.set()
 
+        # Confirm starting the web server
+        oradio_log.info("Web service started")
+
         # Running web server non-blocking
         with server.run_in_thread():
-
-            # Confirm starting the web server
-            oradio_log.info("Web service is running")
-
-            # Signal the web server is running
-            self.event_active.set()
 
             # Wait for stop event
             self.event_stop.wait()
@@ -240,11 +241,11 @@ class WebService():
             # Reset stop event
             self.event_stop.clear()
 
+            # Pass stopped status to web service
+            self.event_active.clear()
+
             # Confirm stopping the web server
             oradio_log.debug("Web service stopped")
-
-        # Pass stopped status to web service
-        self.event_active.clear()
 
 # Entry point for stand-alone operation
 if __name__ == '__main__':
