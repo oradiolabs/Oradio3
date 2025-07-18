@@ -27,7 +27,6 @@ from mpd import MPDClient
 
 ##### oradio modules ####################
 from oradio_logging import oradio_log
-from play_system_sound import PlaySystemSound
 
 ##### GLOBAL constants ####################
 from oradio_const import *
@@ -52,9 +51,6 @@ class MPDControl:
         # Start MPD connection maintenance thread
         self.connection_thread = threading.Thread(target=self._maintain_connection, daemon=True)
         self.connection_thread.start()
-
-        # Store the PlaySystemSound instance for later use.
-        self.sound_player = PlaySystemSound()
 
     def _connect(self):
         """Connects to the MPD server."""
@@ -112,6 +108,7 @@ class MPDControl:
                         self.last_status_error = str(ex_err)
             time.sleep(10)  # Check every 10 seconds
 
+
     def _ensure_client(self):
         """Ensures an active MPD client before sending commands."""
         with self.mpd_lock:
@@ -140,17 +137,18 @@ class MPDControl:
                 stored_playlist_names = [pl.get("playlist") for pl in stored_playlists]
 
                 if playlist_name in stored_playlist_names:
-                    # If the preset is a stored playlist, load it.
+                    # Stored playlist: load in saved order
                     self.client.load(playlist_name)
+                    self.client.random(0)  # turn OFF random play
+                    self.client.repeat(1)  # 0 = play once through; 1 = loop
                 else:
-                    # Otherwise, assume it's a directory and add it.
+                    # Directory: add then shuffle/repeat as before
                     self.client.add(playlist_name)
+                    self.client.shuffle()  # one-time scramble
+                    self.client.random(1)  # enable random as tracks advance
+                    self.client.repeat(1)  # loop directory indefinitely
 
-                self.client.shuffle()
-                self.client.random(1)
-                self.client.repeat(1)
                 self.client.play()
-
                 oradio_log.debug("Playing: %s", playlist_name)
 
             except Exception as ex_err:
@@ -357,6 +355,10 @@ class MPDControl:
                             'title': detail.get('title', 'Unknown title')
                         })
 
+
+            # return list of songs in order they are listed in the playlist
+            return songs
+
             # Check directories
             for entry in directories:
                 # Only consider entries that are directories.
@@ -371,11 +373,11 @@ class MPDControl:
                             'title': detail.get('title', 'Unknown title')
                         })
 
+            # return alphabetically sorted list of songs
+            return sorted(songs, key=lambda x: x['artist'].lower())
+
         except Exception as ex_err:
             oradio_log.error("Error getting songs for '%s': %s", list, ex_err)
-
-        # Sort songs by artist, ignoring case
-        return sorted(songs, key=lambda x: x['artist'].lower())
 
     def search(self, pattern):
         """
@@ -526,6 +528,8 @@ class MPDControl:
                     # Add song to playlist, creating playlist if it does not exist
                     self.client.playlistadd(playlist, song)
                     oradio_log.debug("Song '%s' added to playlist '%s'", song, playlist)
+                    # Getting the list of songs for the playlist will update the mpd database
+                    self.client.listplaylistinfo(playlist)
             return True
         except Exception as ex_err:
             if song == None:
@@ -563,6 +567,8 @@ class MPDControl:
                     # Remove song from playlist
                     self.client.playlistdelete(playlist, index)
                     oradio_log.debug("Song '%s' removed from playlist '%s'", song, playlist)
+                    # Getting the list of songs for the playlist will update the mpd database
+                    self.client.listplaylistinfo(playlist)
             return True
         except Exception as ex_err:
             if song == None:
