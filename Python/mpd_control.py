@@ -27,7 +27,6 @@ from mpd import MPDClient
 
 ##### oradio modules ####################
 from oradio_logging import oradio_log
-#from play_system_sound import PlaySystemSound
 
 ##### GLOBAL constants ####################
 from oradio_const import *
@@ -52,9 +51,6 @@ class MPDControl:
         # Start MPD connection maintenance thread
         self.connection_thread = threading.Thread(target=self._maintain_connection, daemon=True)
         self.connection_thread.start()
-
-        # Store the PlaySystemSound instance for later use.
- #       self.sound_player = PlaySystemSound()
 
     def _connect(self):
         """Connects to the MPD server."""
@@ -359,6 +355,10 @@ class MPDControl:
                             'title': detail.get('title', 'Unknown title')
                         })
 
+
+            # return list of songs in order they are listed in the playlist
+            return songs
+
             # Check directories
             for entry in directories:
                 # Only consider entries that are directories.
@@ -373,11 +373,11 @@ class MPDControl:
                             'title': detail.get('title', 'Unknown title')
                         })
 
+            # return alphabetically sorted list of songs
+            return sorted(songs, key=lambda x: x['artist'].lower())
+
         except Exception as ex_err:
             oradio_log.error("Error getting songs for '%s': %s", list, ex_err)
-
-        # Sort songs by artist, ignoring case
-        return sorted(songs, key=lambda x: x['artist'].lower())
 
     def search(self, pattern):
         """
@@ -528,6 +528,8 @@ class MPDControl:
                     # Add song to playlist, creating playlist if it does not exist
                     self.client.playlistadd(playlist, song)
                     oradio_log.debug("Song '%s' added to playlist '%s'", song, playlist)
+                    # Getting the list of songs for the playlist will update the mpd database
+                    self.client.listplaylistinfo(playlist)
             return True
         except Exception as ex_err:
             if song == None:
@@ -565,6 +567,8 @@ class MPDControl:
                     # Remove song from playlist
                     self.client.playlistdelete(playlist, index)
                     oradio_log.debug("Song '%s' removed from playlist '%s'", song, playlist)
+                    # Getting the list of songs for the playlist will update the mpd database
+                    self.client.listplaylistinfo(playlist)
             return True
         except Exception as ex_err:
             if song == None:
