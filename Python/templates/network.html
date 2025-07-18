@@ -12,38 +12,48 @@
 		<link rel="stylesheet" href="../static/css/fontawesome.min.css" />
 		<link rel="stylesheet" href="../static/css/regular.min.css" />
 		<link rel="stylesheet" href="../static/css/oradio3.css" />
-		<link rel="stylesheet" href="../static/css/captiveportal.css" />
+		<link rel="stylesheet" href="../static/css/network.css" />
 
 		<title>Oradio wifi instellen</title>
 
 		<script>
+			// Initialize
+			let notification_network;
+			let notification_spotify;
 			// Convert template variable to javascript
 			const networks = {{ networks|tojson }};
+			const spotify = {{ spotify|tojson }};
 
 			// Function to submit the network and password
-			async function submitCredentials()
+			async function submitCredentials(event)
 			{
 				// Cancel the default action that belongs to the event
 				event.preventDefault();
 
-				// Clear old notification
-				notification.innerHTML = "";
+				// Clear old network notification
+				notification_network.innerHTML = "";
 
 				// Get selected network info
 				const ssid = document.getElementById("SSIDs").value;
 				if (ssid == "")
 				{
-					notification.innerHTML = "<div class='error'>Kies een wifi netwerk</div>";
+					notification_network.innerHTML = `<div class="error">Kies een wifi netwerk</div>`;
 					return;
 				}
 
 				// Get password
 				const pswd = document.getElementById("pswd").value;
-				if (pswd.length < 8)
+
+				// Check if network needs a password and if yes, if it is long enough
+				const network = networks.find(n => n.ssid === ssid);
+				if (!network || (network.type === "closed" && pswd.length < 8))
 				{
-					notification.innerHTML = "<p class=\"error\">Wachtwoord moet minimaal 8 karakters zijn</p>";
+					notification_network.innerHTML = `<p class="error">Wachtwoord moet minimaal 8 karakters zijn</p>`;
 					return;
 				}
+
+				// Set error template
+				const errorMessage = `Verbinding maken met netwerk '${ssid}' is mislukt`;
 
 				try
 				{
@@ -58,20 +68,83 @@
 					// Handle server response
 					if (response.ok)
 					{
-						notification.innerHTML = "<p>De huidige verbinding wordt verbroken.</p><p>Oradio probeert te verbinden met '" + ssid + "'</p>";
+						notification_network.innerHTML = `<p>De huidige verbinding wordt verbroken.</p><p>Oradio probeert te verbinden met '${ssid}'</p>`;
 					}
 					else
 					{
+						// Wait for error to be returned from server
 						const errorData = await response.json();
-						notification.textContent = "<p class=\"error\">Error: "+ errorData + "</p>";
+
+						// Notify
+						notification_network.innerHTML = `<p class="error">${errorData.message || errorMessage}</p>`;
 					}
 				}
 
 				// Handle server not responding
 				catch (error)
 				{
-					notification.innerHTML = "<p class=\"error\">Er is een fout opgetreden bij het indienen van de netwerkreferenties.</p>";
+					notification_network.innerHTML = `<p class="error">${errorMessage}<br>Controleer of de web interface actief is</p>`;
 				}
+			}
+
+			// Function to submit the Spotify name
+			async function submitSpotify(event)
+			{
+				// Cancel the default action that belongs to the event
+				event.preventDefault();
+
+				// Clear old notifications
+				notification_spotify.innerHTML = "";
+
+				// Get selected network info
+				var name = document.getElementById("spotify").value;
+				if (name == "")
+				{
+					notification_spotify.innerHTML = "<div class='error'>Kies een naam voor in de Spotifiy app</div>";
+					return;
+				}
+
+				// Show waiting indicator
+				document.getElementById('waiting').style.display = "block";
+
+				// Set error template
+				const errorMessage = `Instellen van Spotify naam '${name}' is mislukt`;
+
+				try
+				{
+					// Send credentials to server
+					const response = await fetch('/spotify',
+					{
+						method: 'POST',
+						headers: {'Content-Type': 'application/json'},
+						body: JSON.stringify({ "name": name })
+					});
+
+					// Handle server response
+					if (response.ok)
+					{
+						name = await response.json();
+						document.getElementById("spotify").value = name;
+						notification_spotify.innerHTML = `<p>De Spotify naam is gewijzigd in '${name}'</p>`;
+					}
+					else
+					{
+						// Wait for error to be returned from server
+						const errorData = await response.json();
+
+						// Notify
+						notification_spotify.innerHTML = `<p class='error'>${errorData.message || errorMessage}</p>`;
+					}
+				}
+
+				// Handle server not responding
+				catch (error)
+				{
+					notification_spotify.innerHTML = `<p class='error'>${errorMessage}<br>Controleer of de web interface actief is</p>`;
+				}
+
+				// Hide waiting indicator
+				document.getElementById('waiting').style.display = "none";
 			}
 
 			// Run when page is loaded
@@ -86,9 +159,17 @@
 					});
 				}, 0);
 
-				// Show notification
-				const notification = document.getElementById('notification');
-				notification.style.display = "block";
+				// Get notifications
+				notification_network = document.getElementById('notification_network');
+				notification_spotify = document.getElementById('notification_spotify');
+
+				// Clear old notifications
+				notification_network.innerHTML = "";
+				notification_spotify.innerHTML = "";
+
+				// Show notifications
+				notification_network.style.display = "block";
+				notification_spotify.style.display = "block";
 
 				// Create custom select elements dropdown lists with options and actions
 				document.querySelectorAll('.custom-select').forEach(container =>
@@ -98,7 +179,7 @@
 
 					function showOptions()
 					{
-						let options = networks;
+						let options = networks.map(network => network.ssid);
 						options.sort((a, b) => a.toLowerCase().localeCompare(b.toLowerCase()));
 
 						dropdown.innerHTML = '';
@@ -145,11 +226,37 @@
 						// Cancel the default action that belongs to the event
 						event.preventDefault();
 
+						// Clear network notification
+						notification_network.innerHTML = "";
+
+						// Clear password
+						document.getElementById("pswd").value = "";
+
 						// Delay to allow click on option to be processed
 						setTimeout(() =>
 						{
 							// Hide dropdown
 							dropdown.style.display = "none";
+
+							// If a network is entered
+							if (input.value.trim() !== "")
+							{
+								// Check if network needs a password
+								const network = networks.find(n => n.ssid === input.value.trim());
+								if (network)
+									if (network.type === "closed")
+										// Network needs a password
+										document.getElementById("password").style.display = "block"
+									else
+										// Open network, no password needed
+										document.getElementById("password").style.display = "none"
+								else
+									// Unknown network, assume password is needed
+									document.getElementById("password").style.display = "block"
+
+								// Show submit credentials button
+								document.getElementById("submitCredentialsButton").style.display = "block"
+							}
 						}, 300);
 					});
 
@@ -160,6 +267,12 @@
 							dropdown.style.display = "none";
 					});
 
+				});
+
+				// Clear spotify notification when selecting input
+				document.getElementById("spotify").addEventListener("focus", function()
+				{
+					notification_spotify.innerHTML = "";
 				});
 
 				// Toggle password visibility
@@ -193,7 +306,7 @@
 			<img src="../static/logo.png" class="logo" />
 
 			<!-- Provide network credentials to connect to -->
-			<form method="POST">
+			<form onsubmit="submitCredentials(event)">
 
 				<!-- Network SSID -->
 				<h1 >Verbind Oradio met WiFi-netwerk</h1>
@@ -208,14 +321,28 @@
 				<div style="height: 30px;">&nbsp;</div>
 
 				<!-- Password -->
-				<div id="password">
+				<div id="password" style="display: none">
 					<label for="pswd">Wachtwoord:</label>
 					<input id="pswd" class="pswd-input" type="password" placeholder="Voer WiFi-wachtwoord in" />
 					<span class="password-toggle-icon oradio-eye"><i class="fa-regular fa-eye"></i></span>
 				</div>
-				<button type="submit" id="submit" onclick="submitCredentials()">Instellen</button>
-				<div id="notification" class="notification">
+				<button id="submitCredentialsButton" type="submit" style="display: none">Met netwerk verbinden</button>
+				<div id="notification_network" class="notification">
 					<!-- Will be filled by Javascript submitCredentials() -->
+				</div>
+
+			</form>
+
+			<!-- Separator -->
+			<div style="height: 30px;">&nbsp;</div>
+
+			<form onsubmit="submitSpotify(event)">
+				<!-- Spotify -->
+				<h1 >Kies naam in Spotify app</h1>
+				<input id="spotify" type="text" value="{{ spotify }}" placeholder="Voer Spotify naam van deze Oradio in" />
+				<button id="submitSpotifyButton" type="submit">Spotify naam instellen</button>
+				<div id="notification_spotify" class="notification">
+					<!-- Will be filled by Javascript submitSpotify() -->
 				</div>
 
 			</form>

@@ -33,7 +33,7 @@ from watchdog.events import PatternMatchingEventHandler
 
 ##### oradio modules ####################
 from oradio_logging import oradio_log
-from wifi_service import WIFIService
+from wifi_service import WifiService
 
 ##### GLOBAL constants ####################
 from oradio_const import (
@@ -71,7 +71,7 @@ class USBMonitor(PatternMatchingEventHandler):
         oradio_log.info("%s deleted", event.src_path)
         self.service._usb_removed()    # pylint: disable=protected-access
 
-class usb_service():
+class USBService():
     """
     States and functions related to USB drive handling
     - States: Present/absent, label, wifi credentials from USB_WIFI_FILE in USB root
@@ -151,7 +151,7 @@ class usb_service():
                 try:
                     # Get JSON object as a dictionary
                     data = json.load(file)
-                except:
+                except json.JSONDecodeError:
                     oradio_log.error("Error parsing '%s'", USB_WIFI_FILE)
                     self.error = MESSAGE_USB_ERROR_FILE
                     return
@@ -165,15 +165,9 @@ class usb_service():
                 self.error = MESSAGE_USB_ERROR_FILE
                 return
 
-            # Test if ssid not empty
-            if len(ssid) == 0:
-                oradio_log.error("SSID=%s cannot be empty", ssid)
-                self.error = MESSAGE_USB_ERROR_FILE
-                return
-
-            # Test if pswd is 8 or more characters
-            if len(pswd) < 9:
-                oradio_log.error("PASSWORD=%s cannot be less than 8 characters", pswd)
+            # Test if ssid is empty or >= 8 characters
+            if 0 < len(pswd) < 8:
+                oradio_log.error("Password must be empty for open network or at least 8 characters for secured network")
                 self.error = MESSAGE_USB_ERROR_FILE
                 return
 
@@ -181,7 +175,7 @@ class usb_service():
             oradio_log.info("USB wifi credentials found: ssid=%s, password=%s", ssid, pswd)
 
             # Connect to the wifi network
-            WIFIService(self.msg_q).wifi_connect(ssid, pswd)
+            WifiService(self.msg_q).wifi_connect(ssid, pswd)
 
         else:
             # USB is absent
@@ -255,7 +249,7 @@ if __name__ == '__main__':
             print(f"\nMessage received: '{message}'\n")
 
     # Initialize
-    monitor = None
+    monitor = None  # pylint: disable=invalid-name
     message_queue = Queue()
 
     # Start  process to monitor the message queue
@@ -263,7 +257,7 @@ if __name__ == '__main__':
     message_listener.start()
 
     # Show menu with test options
-    InputSelection = ("Select a function, input the number.\n"
+    INPUT_SELECTION = ("Select a function, input the number.\n"
                        " 0-quit\n"
                        " 1-Start USB service\n"
                        " 2-Trigger USB inserted\n"
@@ -279,12 +273,12 @@ if __name__ == '__main__':
 
         # Get user input
         try:
-            FunctionNr = int(input(InputSelection))
+            function_nr = int(input(INPUT_SELECTION))  # pylint: disable=invalid-name
         except ValueError:
-            FunctionNr = -1
+            function_nr = -1  # pylint: disable=invalid-name
 
         # Execute selected function
-        match FunctionNr:
+        match function_nr:
             case 0:
                 print("\nExiting test program...\n")
                 if monitor:
@@ -293,7 +287,7 @@ if __name__ == '__main__':
             case 1:
                 if not monitor:
                     print("\nStarting the USB service...\n")
-                    monitor = usb_service(message_queue)
+                    monitor = USBService(message_queue)
                 else:
                     print("\nUSB service already running\n")
             case 2:

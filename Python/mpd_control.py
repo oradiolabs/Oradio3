@@ -64,10 +64,10 @@ class MPDControl:
         try:
             client.connect(self.host, self.port)
             oradio_log.info("Connected to MPD server.")
-            # set a 5 second crossfade on every connection
+            # set a 5s crossfade on every connection
             try:
                 client.crossfade(CROSSFADE)
-                oradio_log.info("Connected to MPD server and set crossfade to 5 s.")
+                oradio_log.info("Connected to MPD server and set crossfade to 5s.")
             except Exception as xf_err:
                 oradio_log.warning("Could not set crossfade: %s", xf_err)
             return client
@@ -571,6 +571,56 @@ class MPDControl:
                 oradio_log.error("Error removing song '%s' from playlist '%s': %s", song, playlist, ex_err)
             return False
 
+    def preset_is_webradio(self, preset):
+        """
+        Check if playlist is a web radio
+        Return success | fail
+        """
+        # Connect if not connected
+        self._ensure_client()
+        playlist = self.get_playlist_name(preset, PRESET_FILE_PATH)
+
+        try:
+            # Get entries from the specific playlist
+            with self.mpd_lock:
+                entries = self.client.listplaylistinfo(playlist)
+
+            # If no entries then not a webradio
+            if not entries:
+                return False
+
+            # Iterate through entries
+            for idx, song in enumerate(entries, start=1):
+                file_path = song.get("file", "")
+                title = song.get("title") or song.get("name") or file_path
+
+                if file_path.startswith("http://") or file_path.startswith("https://"):
+                    oradio_log.debug("'%s' with playlist '%s' is a web radio", preset, playlist)
+                    # Web radio if entry is url, thus a web radio
+                    return True
+
+        except Exception as ex_err:
+            oradio_log.debug("'%s' with playlist '%s' is not a web radio", preset, playlist)
+            return False
+
+    def current_is_webradio(self):
+        """Returns if current song is a web radio or not"""
+        self._ensure_client()
+        try:
+            with self.mpd_lock:
+                # Get current song
+                current_song = self.client.currentsong()
+
+            # Check if the "file" is a URL
+            file_path = current_song.get("file", "")
+            if file_path.startswith("http://") or file_path.startswith("https://"):
+                return True
+            else:
+                return False
+        except Exception as ex_err:
+            oradio_log.error("Error checking if current song is a web radio: %s", ex_err)
+            return False
+
     @staticmethod
     def get_playlist_name(preset_key, filepath):
         """Retrieves the playlist name for a given preset key."""
@@ -614,6 +664,8 @@ if __name__ == '__main__':
                        "14  - Create and Store a New Playlist\n"
                        "15  - Select a Stored Playlist to Play\n"
                        "16  - Select an Available Directory to Play\n"
+                       "17  - Check if preset is web radio\n"
+                       "18  - Check if current song is web radio\n"
                        "Select: ")
 
     while True:
@@ -826,5 +878,16 @@ if __name__ == '__main__':
                             print("Invalid selection.")
                     except ValueError:
                         print("Invalid input, please enter a number.")
+            case 17:
+                selection = int(input("\nEnter preset number 1, 2 or 3 to check: "))
+                if mpd.preset_is_webradio(f"preset{selection}"):
+                    print(f"\npreset{selection} is a web radio\n")
+                else:
+                    print(f"\npreset{selection} is NOT a web radio\n")
+            case 18:
+                if mpd.current_is_webradio():
+                    print("\nCurrent song is a web radio\n")
+                else:
+                    print("\nCurrent song is NOT a web radio\n")
             case _:
                 print("\nInvalid selection. Please enter a valid number.\n")

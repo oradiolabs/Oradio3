@@ -267,7 +267,7 @@ try:
 except:
     sys.exit(1)
 ")
-    
+
 		if [ $? -ne 0 ]; then
 			echo -e "${YELLOW}$package is missing: installing...${NC}"
 			# On --use-pep517 see https://peps.python.org/pep-0517/
