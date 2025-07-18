@@ -230,7 +230,6 @@ class StateMachine:
 
             elif state_to_handle == "StateWebService":
                 leds.control_blinking_led("LEDPlay", 2)
-                sound_player.play("Play")
                 oradio_web_service.start() # to indicate that long press is confirmed
                 oradio_log.debug("In WebService state, wait for next step")
 
@@ -355,7 +354,7 @@ class Networking:
             elif old_state == "APWebservice" and new_state != "APWebservice":
                 leds.control_blinking_led("LEDPlay", 0)
                 sound_player.play("OradioAPstopped")
-                play_webservice_states = {"StatePlay", "StatePreset1", "StatePreset2", "StatePreset3", "StateWebService"}			
+                play_webservice_states = {"StatePlay", "StatePreset1", "StatePreset2", "StatePreset3", "StateWebService"}
                 if state_machine.state in play_webservice_states: # If in play states, 
            #         leds.control_blinking_led("LEDPlay", 0)
                     state_machine.transition("StateIdle")
@@ -367,8 +366,11 @@ class Networking:
             if new_state == "Internet":
                 #  play “WifiConnected” only when arriving (some states ago) from APWebservice
                 if self.ap_tracker:
-                    sound_player.play("WifiConnected")
-                    self.ap_tracker = False
+                    play_webservice_states = {"StatePlay", "StatePreset1", "StatePreset2", "StatePreset3", "StateWebService"}
+                    if state_machine.state in play_webservice_states: # If in play states,
+#                    sound_player.play("WifiConnected")
+                        threading.Timer(4, sound_player.play, args=("WifiConnected",)).start() # delay prevent mixing
+                        self.ap_tracker = False
 
                 # Send system info to Remote Monitoring Service
                 remote_monitor.send_sys_info()
@@ -380,9 +382,11 @@ class Networking:
                 
             if new_state == "ConnectedNoInternet":
                 #  play “WifiNot  Connected” only when arriving from APWebservice
-                if self.ap_tracker:
-                    sound_player.play("NoInternet")
-                    self.ap_tracker = False
+                play_webservice_states = {"StatePlay", "StatePreset1", "StatePreset2", "StatePreset3", "StateWebService"}
+                if state_machine.state in play_webservice_states: # If in play states,
+                    if self.ap_tracker:
+                        sound_player.play("NoInternet")
+                        self.ap_tracker = False
                 oradio_log.info("Networking is in Connected No Internet state")
                 
             elif new_state == "Idle":
@@ -432,7 +436,9 @@ def on_wifi_access_point():
     oradio_log.debug("Configured as access point acknowledged")
 
 def on_wifi_error():
-    sound_player.play("WifiNotConnected")  # 
+    play_webservice_states = {"StatePlay", "StatePreset1", "StatePreset2", "StatePreset3", "StateWebService"}
+    if state_machine.state in play_webservice_states: # If in play states,
+        sound_player.play("WifiNotConnected")  # 
     oradio_log.debug("Wifi Error acknowledged")
 
 #-------------------WEB---------------------------
