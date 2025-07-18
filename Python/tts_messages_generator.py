@@ -34,7 +34,6 @@ import logging
 import os
 import subprocess
 import sys
-from typing import Dict, List
 
 import requests
 from requests.exceptions import RequestException
@@ -49,7 +48,7 @@ PITCH       = "-5%"    # iets lager = minder schel
 
 # --------- TE SPREKEN MELDINGEN ------------------------------------
 
-PROMPTS: Dict[str, str] = {
+PROMPTS: dict[str, str] = {
     "Preset1_melding.wav": "één.",
     "Preset2_melding.wav": "twee.",
     "Preset3_melding.wav": "drie.",
@@ -106,7 +105,7 @@ def synthesize(text: str) -> bytes:
     return response.content
 
 
-def menu_playback(wav_paths: List[str]) -> None:
+def menu_playback(wav_paths: list[str]) -> None:
     """Tekstmenu om WAV’s af te spelen met aplay."""
     if not wav_paths:
         return
@@ -133,7 +132,7 @@ def main() -> None:
         sys.exit("❌  AZURE_SPEECH_KEY ontbreekt in environment.")
 
     os.makedirs(OUTPUT_DIR, exist_ok=True)
-    generated: List[str] = []
+    generated: list[str] = []
 
     for fname, text in PROMPTS.items():
         path = os.path.join(OUTPUT_DIR, fname)
