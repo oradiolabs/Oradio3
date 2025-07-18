@@ -28,7 +28,7 @@ import json
 import subprocess
 import urllib.request
 from subprocess import run
-from typing import Dict, Any, Optional
+from typing import Any, Optional
 from pydantic import BaseModel, create_model
 from vcgencmd import Vcgencmd
 
@@ -63,15 +63,15 @@ def is_service_active(service_name):
         return False
 
 
-def json_schema_to_pydantic(name: str, schema: Dict[str,Any]) -> BaseModel:
+def json_schema_to_pydantic(name: str, schema: dict[str,Any]) -> BaseModel:
     """
     Dynamic Model generation based on a JSON schema
     """
     if "properties" not in schema:  # Skip first entry
-        return None    
+        return None
     fields ={}
     required_fields = set(schema.get("required", []))  # Get required fields from schema
-    
+
     for prop, details in schema["properties"].items():
         field_type = str  # Default type
         if details["type"] == "integer":
@@ -99,8 +99,8 @@ def create_json_model(model_name):
     """
     Create a object based model derived from the json schema
     :param model_name [str] = name of model in schema
-    :return model 
-    :return status = 
+    :return model
+    :return status =
     """
     # Load the JSON schema file
     with open(JSON_SCHEMAS_FILE) as file:
@@ -131,7 +131,7 @@ def check_internet_connection():
 def get_throttled_state_rpi():
     """
     Get the state of the throttled flags available in vcgencmd module
-    :return flags = the full throttled state flags of the system in JSON format. 
+    :return flags = the full throttled state flags of the system in JSON format.
     This is a bit pattern - a bit being set indicates the following meanings:
         Bit     Meaning
         0     Under-voltage detected
@@ -144,7 +144,7 @@ def get_throttled_state_rpi():
         19     Soft temperature limit has occurred
 
         A value of zero indicates that none of the above conditions is true.
-        The last four bits (3..0) are checked and when one of them are set the 
+        The last four bits (3..0) are checked and when one of them are set the
         throttled_state is set to True
     :return if one of bits is set ==> throttled_state = True, else False
     """

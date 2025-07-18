@@ -17,30 +17,43 @@ Created on December 23, 2024
 @version:       2
 @email:         oradioinfo@stichtingoradio.nl
 @status:        Development
-@summary: Class for web interface and Captive Portal server
+@summary: Class for web interface and web server
     :Note
     :Install
     :Documentation
         https://fastapi.tiangolo.com/
 """
 import os
+import re
 import json
-import multipart    # Used to get POST form data
 from pathlib import Path
-from pydantic import BaseModel
 from typing import Optional
+from pydantic import BaseModel
 from fastapi import FastAPI, BackgroundTasks, Request
 from fastapi.responses import FileResponse, RedirectResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
+from wifi_service import WifiService, get_wifi_networks, get_wifi_connection
 
 ##### oradio modules ####################
 from oradio_logging import oradio_log
-from wifi_service import WIFIService
+from oradio_utils import run_shell_script
 from mpd_control import MPDControl
 
 ##### GLOBAL constants ####################
-from oradio_const import *
+from oradio_const import (
+    USB_SYSTEM,
+    WEB_SERVER_HOST,
+    WEB_SERVER_PORT,
+    MESSAGE_WEB_SERVICE_TYPE,
+    MESSAGE_WEB_SERVICE_PL1_CHANGED,
+    MESSAGE_WEB_SERVICE_PL2_CHANGED,
+    MESSAGE_WEB_SERVICE_PL3_CHANGED,
+    MESSAGE_WEB_SERVICE_PL_WEBRADIO,
+    MESSAGE_WEB_SERVICE_PLAYING_SONG,
+    MESSAGE_NO_ERROR
+)
+################## USB #############################
 
 ##### LOCAL constants ####################
 PRESETS_FILE = USB_SYSTEM + "/presets.json"
@@ -56,21 +69,6 @@ api_app.mount("/static", StaticFiles(directory=web_path+"/static"), name="static
 
 # Initialize templates with custom filters and globals
 templates = Jinja2Templates(directory=web_path+"/templates")
-
-@api_app.middleware("http")
-async def middleware(request: Request, call_next):
-    """
-    “A 'middleware' is a function that works with every request before it is processed
-    by any specific path operation. And also with every response before returning it.”
-    """
-    oradio_log.debug("Send timeout reset message")
-
-    # User interaction: Set event flag to signal timeout counter reset
-    api_app.state.event_reset.set()
-
-    # Continue processing requests
-    response = await call_next(request)
-    return response
 
 #### FAVICON ####################
 
@@ -90,12 +88,12 @@ def load_presets():
 
     # Try to load the presets
     try:
-        with open(PRESETS_FILE, "r") as file:
+        with open(PRESETS_FILE, "r", encoding="utf-8") as file:
             return json.load(file)
     except FileNotFoundError:
         oradio_log.warning("Presets file '%s' not found", PRESETS_FILE)
         return {"preset1": "", "preset2": "", "preset3": ""}
-    except Exception as ex_err:
+    except Exception as ex_err:     # pylint: disable=broad-exception-caught
         oradio_log.error("Failed to read '%s'. error: %s", PRESETS_FILE, ex_err)
         return {"preset1": "", "preset2": "", "preset3": ""}
 
@@ -109,7 +107,7 @@ def store_presets(presets):
         oradio_log.error("'%s' does not exist. Presets cannot be saved. error: %s", USB_SYSTEM, ex_err)
 
     try:
-        with open(PRESETS_FILE, "w") as file:
+        with open(PRESETS_FILE, "w", encoding="utf-8") as file:
             json.dump({"preset1": presets['preset1'], "preset2": presets['preset2'], "preset3": presets['preset3']}, file, indent=4)
     except IOError as ex_err:
         oradio_log.error("Failed to write '%s'. error: %s", PRESETS_FILE, ex_err)
@@ -118,7 +116,7 @@ def store_presets(presets):
 mpdcontrol = MPDControl()
 
 @api_app.get("/playlists")
-async def playlists(request: Request):
+async def playlists_page(request: Request):
     """
     Page managing options to:
       - Assign playlists to presets
@@ -128,30 +126,27 @@ async def playlists(request: Request):
     """
     oradio_log.debug("Serving playlists page")
 
-    # Set playlists page and lists info as context
+    # Return playlist page and presets, directories and playlists as context
     context = {
                 "presets"     : load_presets(),
                 "directories" : mpdcontrol.get_directories(),
                 "playlists"   : mpdcontrol.get_playlists()
             }
-
-    # Return playlists page and available networks as context
     return templates.TemplateResponse(request=request, name="playlists.html", context=context)
 
-class changedpreset(BaseModel):
+class ChangedPreset(BaseModel):
     """ Model for playlist asssignment """
     preset:   str = None
     playlist: str = None
 
 # POST endpoint to save changed preset
 @api_app.post("/save_preset")
-async def save_preset(changedpreset: changedpreset):
+async def save_preset(changedpreset: ChangedPreset):
     """ Handle POST with changed preset """
     oradio_log.debug("Save changed preset '%s' to playlist '%s'", changedpreset.preset, changedpreset.playlist)
 
     # Create message
     message = {}
-#OMJ: Het type klopt niet? Het is geen web service state message, eerder iets als info. Maar voor control is wel een state...
     message = {"type": MESSAGE_WEB_SERVICE_TYPE, "error": MESSAGE_NO_ERROR}
 
     # Message state options
@@ -168,37 +163,42 @@ async def save_preset(changedpreset: changedpreset):
         # Modify preset
         presets[changedpreset.preset] = changedpreset.playlist
         oradio_log.debug("Preset '%s' playlist changed to '%s'", changedpreset.preset, changedpreset.playlist)
-        message["state"] = preset_map[changedpreset.preset]
 
         # Store presets
         store_presets(presets)
+
+        if mpdcontrol.preset_is_webradio(changedpreset.preset):
+            # Send message playlist is web radio
+            message["state"] = MESSAGE_WEB_SERVICE_PL_WEBRADIO
+            oradio_log.debug("Send web service message: %s", message)
+            api_app.state.service.msg_q.put(message)
+        else:
+            # Send message which playlist has changed
+            message["state"] = preset_map[changedpreset.preset]
+            oradio_log.debug("Send web service message: %s", message)
+            api_app.state.service.msg_q.put(message)
+
     else:
         oradio_log.error("Invalid preset '%s'", changedpreset.preset)
-        message["state"] = MESSAGE_WEB_SERVICE_FAIL_PRESET
 
-    # Put message in queue
-    oradio_log.debug("Send web service message: %s", message)
-    api_app.state.message_queue.put(message)
-
-class songs(BaseModel):
+class Songs(BaseModel):
     """ Model for getting songs from mpd """
     source:  str = None
     pattern: str = None
 
 # POST endpoint to get songs
 @api_app.post("/get_songs")
-async def get_songs(songs: songs):
+async def get_songs(songs: Songs):
     """ Handle POST for getting the songs for the given source """
     oradio_log.debug("Serving songs from '%s' for pattern '%s'", songs.source, songs.pattern)
     if songs.source == 'playlist':
         return mpdcontrol.get_songs(songs.pattern)
-    elif songs.source == 'search':
+    if songs.source == 'search':
         return mpdcontrol.search(songs.pattern)
-    else:
-        oradio_log.error("Invalid source '%s'", songs.source)
-        return JSONResponse(status_code=400, content={"message": f"De source '{songs.source}' is ongeldig"})
+    oradio_log.error("Invalid source '%s'", songs.source)
+    return JSONResponse(status_code=400, content={"message": f"De source '{songs.source}' is ongeldig"})
 
-class modify(BaseModel):
+class Modify(BaseModel):
     """ Model for modifying playlist """
     action:   str = None
     playlist: str = None
@@ -206,7 +206,7 @@ class modify(BaseModel):
 
 # POST endpoint to modify playlist
 @api_app.post("/playlist_modify")
-async def playlist_modify(modify: modify):
+async def playlist_modify(modify: Modify):
     """
     Handle POST to:
     - Add song to existing playlist
@@ -221,23 +221,22 @@ async def playlist_modify(modify: modify):
         else:
             oradio_log.debug("Add song '%s' to playlist '%s'", modify.song, modify.playlist)
         return mpdcontrol.playlist_add(modify.playlist, modify.song)
-    elif modify.action == 'Remove':
+    if modify.action == 'Remove':
         if modify.song is None:
             oradio_log.debug("Delete playlist: '%s'", modify.playlist)
         else:
             oradio_log.debug("Delete song '%s' from playlist '%s'", modify.song, modify.playlist)
         return mpdcontrol.playlist_remove(modify.playlist, modify.song)
-    else:
-        oradio_log.error("Unexpected action '%s'", modify.action)
-        return JSONResponse(status_code=400, content={"message": f"De action '{modify.action}' is ongeldig"})
+    oradio_log.error("Unexpected action '%s'", modify.action)
+    return JSONResponse(status_code=400, content={"message": f"De action '{modify.action}' is ongeldig"})
 
-class song(BaseModel):
+class Song(BaseModel):
     """ Model for song """
     song: str = None
 
 # POST endpoint to play song
 @api_app.post("/play_song")
-async def play_song(song: song):
+async def play_song(song: Song):
     """
     Handle POST to play a song
     """
@@ -246,16 +245,20 @@ async def play_song(song: song):
 
     # Create message
 #OMJ: Het type klopt niet? Het is geen web service state message, eerder iets als info. Maar voor control is wel een state...
-    message = {"type": MESSAGE_WEB_SERVICE_TYPE, "state": MESSAGE_WEB_SERVICE_PLAYING_SONG, "error": MESSAGE_NO_ERROR}
+    message = {
+        "type": MESSAGE_WEB_SERVICE_TYPE,
+        "state": MESSAGE_WEB_SERVICE_PLAYING_SONG,
+        "error": MESSAGE_NO_ERROR
+    }
 
     # Put message in queue
     oradio_log.debug("Send web service message: %s", message)
-    api_app.state.message_queue.put(message)
+    api_app.state.service.msg_q.put(message)
 
 #### STATUS ####################
 
 @api_app.get("/status")
-async def status(request: Request):
+async def status_page(request: Request):
     """ Return status """
     oradio_log.debug("Serving status page")
 
@@ -264,41 +267,47 @@ async def status(request: Request):
     serial = stream.read().strip()
 
     # Get wifi network Oradio is connected to
-    wifi = WIFIService(api_app.state.message_queue)
-    network = wifi.get_wifi_connection()
+    network = get_wifi_connection()
 
-    # Set playlists page and lists info as context
+    # Return status page and serial and active wifi connection as context
     context = {
                 "serial"  : serial,
                 "network" : network
             }
-
-    # Return playlists page and available networks as context
     return templates.TemplateResponse(request=request, name="status.html", context=context)
 
-#### CAPTIVE PORTAL ####################
+#### NETWORK ####################
 
-@api_app.get("/captiveportal")
-async def captiveportal(request: Request):
-    """ Return captive portal """
-    oradio_log.debug("Serving captive portal page")
+@api_app.get("/network")
+async def network_page(request: Request):
+    """ Return network """
+    oradio_log.debug("Serving network page")
 
-    # Get access to wifi functions
-    wifi = WIFIService(api_app.state.message_queue)
-    context = {"networks": wifi.get_wifi_networks()}
+    # Get Spotify name
+    oradio_log.debug("Get Spotify name")
+    cmd = "systemctl show librespot | sed -n 's/.*--name \\([^ ]*\\).*/\\1/p' | uniq"
 
-    # Return active portal page and available networks as context
-    return templates.TemplateResponse(request=request, name="captiveportal.html", context=context)
+    result, response = run_shell_script(cmd)
+    if not result:
+        oradio_log.error("Error during <%s> to get Spotify name, error: %s", cmd, response)
+        # Return fail, so caller can try to recover
+        return JSONResponse(status_code=400, content={"message": response})
 
+    # Return network page and available networks and Spotify name as context
+    context = {
+                "networks": get_wifi_networks(),
+                "spotify": response.strip()
+            }
+    return templates.TemplateResponse(request=request, name="network.html", context=context)
 
-class credentials(BaseModel):
+class Credentials(BaseModel):
     """ # Model for wifi network credentials """
     ssid: str = None
     pswd: str = None
 
 # POST endpoint to connect to wifi network
 @api_app.post("/wifi_connect")
-async def wifi_connect(credentials: credentials, background_tasks: BackgroundTasks):
+async def wifi_connect(credentials: Credentials, background_tasks: BackgroundTasks):
     """
     Handle POST with wifi network credentials
     Handle connecting in background task, so the POST gets a response
@@ -307,37 +316,74 @@ async def wifi_connect(credentials: credentials, background_tasks: BackgroundTas
     # Connect after completing return
     background_tasks.add_task(wifi_connect_task, credentials)
 
-def wifi_connect_task(credentials: credentials):
+def wifi_connect_task(credentials: Credentials):
     """
     Executes as background task
     """
     oradio_log.debug("trying to connect to ssid=%s", credentials.ssid)
-    # Get access to wifi functions
-    wifi = WIFIService(api_app.state.message_queue)
 
-    # Try to connect is handled is separate thread
-    wifi.wifi_connect(credentials.ssid, credentials.pswd)
+    # wifi_connect starts a thread handling the connection setup
+    # IMPORTANT: Need to use parent class, as stopping the server will remove local data
+    api_app.state.service.wifi.wifi_connect(credentials.ssid, credentials.pswd)
+
+    # Stop the web service
+    api_app.state.service.stop()
+
+class Spotify(BaseModel):
+    """ # Model for Spotify device name """
+    name: str = None
+
+# POST endpoint to set Spotify device name
+@api_app.post("/spotify")
+async def spotify_name(spotify: Spotify):
+    """
+    Handle POST to store Spotify device name
+    """
+    oradio_log.debug("Set Spotify name to '%s'", spotify.name)
+
+    # Spotify name must be one or more uppercase letters, lowercase letters, numbers, - or _
+    pattern = r'^[A-Za-z0-9_-]+$'
+    if not bool(re.match(pattern, spotify.name)):
+        response = f"'{spotify.name}' is ongeldig. Alleen hoofdletters, kleine letters, cijfers, - of _ is toegestaan"
+        oradio_log.error(response)
+        # Return fail, so caller can try to recover
+        return JSONResponse(status_code=400, content={"message": response})
+
+    # Change name in librespot service configuration file
+    cmd = f"sudo sed -i 's/--name \\S*/--name {spotify.name}/' /etc/systemd/system/librespot.service"
+    result, response = run_shell_script(cmd)
+    if not result:
+        oradio_log.error("Error during <%s> to set Spotify name, error: %s", cmd, response)
+        # Return fail, so caller can try to recover
+        return JSONResponse(status_code=400, content={"message": response})
+
+    # Have systemd reload all .service files
+    cmd = "sudo systemctl daemon-reload"
+    result, response = run_shell_script(cmd)
+    if not result:
+        oradio_log.error("Error during <%s> to set Spotify name, error: %s", cmd, response)
+        # Return fail, so caller can try to recover
+        return JSONResponse(status_code=400, content={"message": response})
+
+    # Restart librespot service to activate new name
+    cmd = "sudo systemctl restart librespot.service"
+    result, response = run_shell_script(cmd)
+    if not result:
+        oradio_log.error("Error during <%s> to set Spotify name, error: %s", cmd, response)
+        # Return fail, so caller can try to recover
+        return JSONResponse(status_code=400, content={"message": response})
+
+    return spotify.name
 
 #### CATCH ALL ####################
 
 @api_app.route("/{full_path:path}", methods=["GET", "POST"])
 async def catch_all(request: Request):
     """
-    Any unknown path will return:
-      captive portal if wifi is an access point, or
-      playlists if wifi connected to a network
+    Any unknown path will return playlists page
     """
-    oradio_log.debug("Catchall")
-    # Get access to wifi functions
-    wifi = WIFIService(api_app.state.message_queue)
-
-    # Access point is active, so serve captive portal
-    if wifi.get_wifi_connection() == ACCESS_POINT_SSID:
-        # Return captive portal
-        return await captiveportal(request)
-
-    # Default: serve playlists
-    return RedirectResponse(url='/playlists')
+    oradio_log.debug("Catchall triggered for path: %s", request.url.path)
+    return RedirectResponse(url='/playlists', status_code=302)
 
 # Entry point for stand-alone operation
 if __name__ == "__main__":
@@ -360,6 +406,24 @@ if __name__ == "__main__":
             # Show message received
             print(f"\nMessage received: '{message}'\n")
 
+    class DummyWebService():
+        """ Dummy class to handle API calls sending messages and calling functions """
+
+        def __init__(self, queue):
+            """" Class constructor: Setup the class """
+            # Initialize
+            self.msg_q = queue
+
+            # Register wifi service
+            self.wifi = WifiService(self.msg_q)
+
+            # Pass the class instance to the web server
+            api_app.state.service = self
+
+        def stop(self):
+            """ Dummy for handling network page shutdown """
+            print("Call to dummy 'stop server': not really stopping...")
+
     # Initialize
     message_queue = Queue()
 
@@ -367,8 +431,8 @@ if __name__ == "__main__":
     message_listener = Process(target=check_messages, args=(message_queue,))
     message_listener.start()
 
-    # Pass the queue to the web server
-    api_app.state.message_queue = message_queue
+    # Setup dummy web service
+    web_service = DummyWebService(message_queue)
 
     # Start the web server with log level 'trace'
     uvicorn.run(api_app, host=WEB_SERVER_HOST, port=WEB_SERVER_PORT, log_level="trace")
