@@ -43,6 +43,7 @@ class MPDControl:
         self.host = host
         self.port = port
         self.client = None
+        self.current_playlist = None
         self.mpd_lock = threading.Lock()
 
         # Event for cancelling MPD database update
@@ -141,12 +142,16 @@ class MPDControl:
                     self.client.load(playlist_name)
                     self.client.random(0)  # turn OFF random play
                     self.client.repeat(1)  # 0 = play once through; 1 = loop
+                    # Store current playlist name
+                    self.current_playlist = playlist_name
                 else:
                     # Directory: add then shuffle/repeat as before
                     self.client.add(playlist_name)
                     self.client.shuffle()  # one-time scramble
                     self.client.random(1)  # enable random as tracks advance
                     self.client.repeat(1)  # loop directory indefinitely
+                    # Clear current playlist name
+                    self.current_playlist = None
 
                 self.client.play()
                 oradio_log.debug("Playing: %s", playlist_name)
@@ -191,7 +196,19 @@ class MPDControl:
             try:
                 status = self.client.status()
                 if status.get("state") == "play":
-                    self.client.next()
+                    # Next song playlist / directory
+                    if self.current_playlist:
+                        # Go to next song in the list, to first if at the end
+                        next_index = int(status.get("song")) + 1
+                        if next_index >= len(self.client.playlistinfo()):
+                            next_index = 0
+                        # Playlist may have changed through playlist_add() / playlist_remove() via the web interface
+                        self.client.clear()
+                        self.client.load(self.current_playlist)
+                        # Play the next song
+                        self.client.play(next_index)
+                    else:
+                        self.client.next()
                     oradio_log.debug("MPD next")
                 else:
                     oradio_log.debug("Cannot skip track: MPD is not playing.")
