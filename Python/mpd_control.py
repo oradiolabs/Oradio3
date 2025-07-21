@@ -23,6 +23,7 @@ import time
 import json
 import threading
 import subprocess
+import unicodedata
 from mpd import MPDClient
 
 ##### oradio modules ####################
@@ -399,10 +400,17 @@ class MPDControl:
     def search(self, pattern):
         """
         List the songs matching the pattern in artist or title attributes
-        Remove duplcates songs
+        Remove duplicates songs
         Sort songs alphabetically, first on artist, then on title
         Return [{file: ..., artist:..., title:...}, ...]
         """
+        # Function to lowercase + trim + strip diacritics (accents)
+        def _normalize(text):
+            text = text.strip().lower()
+            text = unicodedata.normalize('NFD', text)
+            text = ''.join(c for c in text if unicodedata.category(c) != 'Mn')
+            return text
+
         # Connect if not connected
         self._ensure_client()
 
@@ -420,21 +428,31 @@ class MPDControl:
                 songs.append({
                       'file': result['file'],
                       'artist': result.get('artist', 'Unknown artist'),
-                      'title': result.get('title', 'Unknown title')
+                      'normalized_artist': _normalize(result.get('artist', 'Unknown artist')),
+                      'title': result.get('title', 'Unknown title'),
+                      'normalized_title': _normalize(result.get('title', 'Unknown title'))
                 })
 
             # Filter songs to be unique based on artist and title
             found = set()
             unique = []
-
+ 
+            # Collect dataset for filtering and sorting
             for item in songs:
-                key = (item['artist'], item['title'])
+                artist = item.get("artist")
+                title = item.get("title")
+                normalized__artist = item.get("normalized_artist")
+                normalized__title = item.get("normalized_title")
+
+            # Filter songs to be unique based on normalized artist and normalized title
+            for item in songs:
+                key = (item['normalized_artist'], item['normalized_title'])
                 if key not in found:
                     found.add(key)
                     unique.append(item)
- 
-            # For given list a list of songs with attributes file, artist, title. Sorted by artist, then title, ignore case
-            return sorted(unique, key=lambda x: (x['artist'].lower(), x['title'].lower()))
+
+            # Return list of songs with attributes file, artist, title. Sorted by artist, then title, ignore case
+            return sorted(unique, key=lambda x: (x['normalized_artist'], x['normalized_title']))
 
         except Exception as ex_err:
             oradio_log.error("Error searching for songs with pattern '%s' in artist or title attribute: %s", pattern, ex_err)
