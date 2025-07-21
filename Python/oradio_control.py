@@ -201,8 +201,6 @@ class StateMachine:
                 leds.turn_on_led("LEDPreset1")
                 mpd.play_preset("Preset1")
                 sound_player.play("Preset1")
-#                 if mpd.preset_is_webradio("Preset1") and self.network_mgr and self.network_mgr.state != "Internet":
-#                     threading.Timer(4, sound_player.play, args=("NoInternet",)).start() # delay prevent mixing
                 if self.network_mgr and self.network_mgr.state == "APWebservice":
                     leds.control_blinking_led("LEDPlay", 2)
                 spotify_connect.pause()
@@ -211,8 +209,6 @@ class StateMachine:
                 leds.turn_on_led("LEDPreset2")
                 mpd.play_preset("Preset2")
                 sound_player.play("Preset2")
-#                 if mpd.preset_is_webradio("Preset2") and self.network_mgr and self.network_mgr.state != "Internet":
-#                     threading.Timer(4, sound_player.play, args=("NoInternet",)).start() # delay prevent mixing
                 if self.network_mgr and self.network_mgr.state == "APWebservice":
                     leds.control_blinking_led("LEDPlay", 2)
                 spotify_connect.pause()
@@ -221,8 +217,6 @@ class StateMachine:
                 leds.turn_on_led("LEDPreset3")
                 mpd.play_preset("Preset3")
                 sound_player.play("Preset3")
-#                 if mpd.preset_is_webradio("Preset3") and self.network_mgr and self.network_mgr.state != "Internet":
-#                     threading.Timer(4, sound_player.play, args=("NoInternet",)).start() # delay prevent mixing
                 if self.network_mgr and self.network_mgr.state == "APWebservice":
                     leds.control_blinking_led("LEDPlay", 2)
                 spotify_connect.pause()
@@ -232,8 +226,6 @@ class StateMachine:
                 mpd.pause()
                 spotify_connect.pause()
                 sound_player.play("Stop")
-#                 if self.network_mgr and self.network_mgr.state == "APWebservice":
-#                     oradio_web_service.stop()
 
             elif state_to_handle == "StateSpotifyConnect":
                 if network_mgr.state == "APWebservice":
@@ -393,6 +385,23 @@ class Networking:
         with self.task_lock:
             # Handle APWebservice blinking on entry
             if new_state == "APWebservice":
+                
+                # 1) If we're currently in a preset state that is a WebRadio, stop it
+                play_presets = {"StatePreset1", "StatePreset2", "StatePreset3"}
+                curr = state_machine.state
+                if curr in play_presets:
+                    # turn "StatePreset1" → "Preset1"
+                    preset_key = curr.replace("State", "")
+                    if mpd.preset_is_webradio(preset_key):
+                        mpd.stop()
+                        oradio_log.info("Stopped WebRadio preset %s on APWebservice entry", preset_key)
+
+                # 2) Or if we're in plain Play and it's a WebRadio, stop it
+                elif curr == "StatePlay" and mpd.current_is_webradio():
+                    mpd.stop()
+                    oradio_log.info("Stopped WebRadio playback on APWebservice entry")
+                
+                      
                 leds.control_blinking_led("LEDPlay", 2)
                 sound_player.play("OradioAPstarted")
                 self.ap_tracker = True
