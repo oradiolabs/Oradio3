@@ -87,18 +87,16 @@ class USBService():
         # Initialize
         self.msg_q = queue
 
-        # Clear error
-        self.error = None
-
         # Check if USB is mounted
         if os.path.ismount(USB_MOUNT_POINT):
             # Set USB state
             self.state = STATE_USB_PRESENT
             # Handle wifi credentials
-            self._handle_usb_wifi_credentials()
+            error = self._handle_usb_wifi_credentials()
         else:
             # Set USB state
             self.state = STATE_USB_ABSENT
+            error = MESSAGE_NO_ERROR
 
         # Set observer to handle USB inserted/removed events
         self.observer = Observer()
@@ -107,21 +105,20 @@ class USBService():
         self.observer.start()
 
         # Send initial state and error message
-        self._send_message()
+        self._send_message(error)
 
-    def _send_message(self):
+    def _send_message(self, error):
         """
-        Send USB message
+        Private function
+        Send USB service message
+        :param error: Error message or code to include in the message
         """
         # Create message
-#OMJ: Het type klopt niet? Het is geen web service state message, eerder iets als info. Maar voor control is wel een state...
-        message = {"type": MESSAGE_USB_TYPE, "state": self.state}
-
-        # Optionally add error message
-        if self.error:
-            message["error"] = self.error
-        else:
-            message["error"] = MESSAGE_NO_ERROR
+        message = {
+            "type": MESSAGE_USB_TYPE,
+            "state": self.state,
+            "error": error
+        }
 
         # Put message in queue
         oradio_log.debug("Send USB service message: %s", message)
@@ -144,7 +141,7 @@ class USBService():
             # Check if wifi credentials file exists in USB drive root
             if not os.path.isfile(USB_WIFI_FILE):
                 oradio_log.debug("'%s' not found", USB_WIFI_FILE)
-                return
+                return MESSAGE_NO_ERROR
 
             # Read and parse JSON file
             with open(USB_WIFI_FILE, "r", encoding="utf-8") as file:
@@ -153,8 +150,7 @@ class USBService():
                     data = json.load(file)
                 except json.JSONDecodeError:
                     oradio_log.error("Error parsing '%s'", USB_WIFI_FILE)
-                    self.error = MESSAGE_USB_ERROR_FILE
-                    return
+                    return MESSAGE_USB_ERROR_FILE
 
             # Check if the SSID and PASSWORD keys are present
             if data and 'SSID' in data.keys() and 'PASSWORD' in data.keys():
@@ -162,14 +158,12 @@ class USBService():
                 pswd = data['PASSWORD']
             else:
                 oradio_log.error("SSID and/or PASSWORD not found in '%s'", USB_WIFI_FILE)
-                self.error = MESSAGE_USB_ERROR_FILE
-                return
+                return MESSAGE_USB_ERROR_FILE
 
             # Test if ssid is empty or >= 8 characters
             if 0 < len(pswd) < 8:
                 oradio_log.error("Password must be empty for open network or at least 8 characters for secured network")
-                self.error = MESSAGE_USB_ERROR_FILE
-                return
+                return MESSAGE_USB_ERROR_FILE
 
             # Log wifi credentials found
             oradio_log.info("USB wifi credentials found: ssid=%s, password=%s", ssid, pswd)
@@ -181,6 +175,9 @@ class USBService():
             # USB is absent
             oradio_log.info("USB state '%s': Ignore '%s'", self.state, USB_WIFI_FILE)
 
+        # No issues found
+        return MESSAGE_NO_ERROR
+
     def _usb_inserted(self):
         """
         Register USB drive inserted, check USB label, handle any wifi credentials
@@ -191,14 +188,11 @@ class USBService():
         # Set USB state
         self.state = STATE_USB_PRESENT
 
-        # Clear error
-        self.error = None
-
         # Get wifi credentials
-        self._handle_usb_wifi_credentials()
+        error = self._handle_usb_wifi_credentials()
 
         # send message
-        self._send_message()
+        self._send_message(error)
 
     def _usb_removed(self):
         """
@@ -209,10 +203,9 @@ class USBService():
 
         # Set state and clear info
         self.state = STATE_USB_ABSENT
-        self.error = None
 
         # send message
-        self._send_message()
+        self._send_message(MESSAGE_NO_ERROR)
 
     def stop(self):
         """
