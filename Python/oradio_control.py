@@ -108,7 +108,7 @@ class StateMachine:
             return
         # Good to go
         oradio_log.debug("Starting WebService: %r", ws)
-        sound_player.play("Attention")
+        leds.control_blinking_led("LEDPlay", 2)
         ws.start()
         
     def transition(self, requested_state):
@@ -400,9 +400,6 @@ class Networking:
                 elif curr == "StatePlay" and mpd.current_is_webradio():
                     mpd.stop()
                     oradio_log.info("Stopped WebRadio playback on APWebservice entry")
-                
-                      
-                leds.control_blinking_led("LEDPlay", 2)
                 sound_player.play("OradioAPstarted")
                 self.ap_tracker = True
                 oradio_log.info("Networking entered APWebservice state")
@@ -413,7 +410,6 @@ class Networking:
                     leds.turn_on_led("LEDPlay")
                 else:
                     leds.control_blinking_led("LEDPlay", 0)
-                sound_player.play("Attention")
                 sound_player.play("OradioAPstopped")
 
                 APWebserviceTracker= True
