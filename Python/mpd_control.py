@@ -23,6 +23,7 @@ import time
 import json
 import threading
 import subprocess
+import unicodedata
 from mpd import MPDClient
 
 ##### oradio modules ####################
@@ -341,9 +342,9 @@ class MPDControl:
         # Sort alphabetically, ignore case
         return sorted(folders, key=str.casefold)
 
-    def get_songs(self, list):
+    def get_songs(self, list_name):
         """
-        List the songs in the list.
+        List the songs in list_name
         Return [{file: ..., artist:..., title:...}, ...]
         """
         # Connect if not connected
@@ -361,10 +362,10 @@ class MPDControl:
 
             # Check playlists
             for playlist in playlists:
-                if list == playlist.get('playlist'):
+                if list_name == playlist.get('playlist'):
                     # Get playlist song details; minimize lock to mpd interaction
                     with self.mpd_lock:
-                        details = self.client.listplaylistinfo(list)
+                        details = self.client.listplaylistinfo(list_name)
                     for detail in details:
                         songs.append({
                             'file': detail['file'],
@@ -372,14 +373,14 @@ class MPDControl:
                             'title': detail.get('title', 'Unknown title')
                         })
 
-
-            # return list of songs in order they are listed in the playlist
-            return songs
+                    # return list of songs in order they are listed in the playlist
+                    return songs
 
             # Check directories
             for entry in directories:
+                print("playlist=", entry)
                 # Only consider entries that are directories.
-                if "directory" in entry and list == entry["directory"]:
+                if "directory" in entry and list_name == entry["directory"]:
                     # Get directory song details; minimize lock to mpd interaction
                     with self.mpd_lock:
                         details = self.client.lsinfo(entry["directory"])
@@ -390,19 +391,29 @@ class MPDControl:
                             'title': detail.get('title', 'Unknown title')
                         })
 
-            # return alphabetically sorted list of songs
-            return sorted(songs, key=lambda x: x['artist'].lower())
+                    # return alphabetically sorted list of songs
+                    return sorted(songs, key=lambda x: x['artist'].lower())
 
         except Exception as ex_err:
-            oradio_log.error("Error getting songs for '%s': %s", list, ex_err)
+            oradio_log.error("Error getting songs for '%s': %s", list_name, ex_err)
+
+        # Return empty as list is not an known playlist or directory
+        return songs
 
     def search(self, pattern):
         """
         List the songs matching the pattern in artist or title attributes
-        Remove duplcates songs
+        Remove duplicates songs
         Sort songs alphabetically, first on artist, then on title
         Return [{file: ..., artist:..., title:...}, ...]
         """
+        # Function to lowercase + trim + strip diacritics (accents)
+        def _normalize(text):
+            text = text.strip().lower()
+            text = unicodedata.normalize('NFD', text)
+            text = ''.join(c for c in text if unicodedata.category(c) != 'Mn')
+            return text
+
         # Connect if not connected
         self._ensure_client()
 
@@ -420,21 +431,31 @@ class MPDControl:
                 songs.append({
                       'file': result['file'],
                       'artist': result.get('artist', 'Unknown artist'),
-                      'title': result.get('title', 'Unknown title')
+                      'normalized_artist': _normalize(result.get('artist', 'Unknown artist')),
+                      'title': result.get('title', 'Unknown title'),
+                      'normalized_title': _normalize(result.get('title', 'Unknown title'))
                 })
 
             # Filter songs to be unique based on artist and title
             found = set()
             unique = []
-
+ 
+            # Collect dataset for filtering and sorting
             for item in songs:
-                key = (item['artist'], item['title'])
+                artist = item.get("artist")
+                title = item.get("title")
+                normalized__artist = item.get("normalized_artist")
+                normalized__title = item.get("normalized_title")
+
+            # Filter songs to be unique based on normalized artist and normalized title
+            for item in songs:
+                key = (item['normalized_artist'], item['normalized_title'])
                 if key not in found:
                     found.add(key)
                     unique.append(item)
- 
-            # For given list a list of songs with attributes file, artist, title. Sorted by artist, then title, ignore case
-            return sorted(unique, key=lambda x: (x['artist'].lower(), x['title'].lower()))
+
+            # Return list of songs with attributes file, artist, title. Sorted by artist, then title, ignore case
+            return sorted(unique, key=lambda x: (x['normalized_artist'], x['normalized_title']))
 
         except Exception as ex_err:
             oradio_log.error("Error searching for songs with pattern '%s' in artist or title attribute: %s", pattern, ex_err)
