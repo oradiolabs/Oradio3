@@ -81,8 +81,36 @@ sound_player = PlaySystemSound()
 class StateMachine:
     def __init__(self):
         self.state = "StateStartUp"
+        self.prev_state = None
+        
         self.task_lock = threading.Lock()
-
+        # placeholders until you wire them in
+        self._websvc    = None
+        self.network_mgr = None
+        
+    def set_networking(self, network_mgr):
+        """Inject the Networking instance so run_state_method can see it."""
+        self.network_mgr = network_mgr    
+  
+    def set_services(self, web_service):
+        """
+        Inject the (already‐constructed) WebService.
+        """
+        self._websvc  = web_service
+    # to start via long-press the webservice indepently from the statemachine
+    def start_webservice(self):
+        """
+        Trigger the injected WebService to start by long-press).
+        """
+        ws = self._websvc
+        if ws is None:
+            # You tried to start before set_services() was called
+            return
+        # Good to go
+        oradio_log.debug("Starting WebService: %r", ws)
+        sound_player.play("Attention")
+        ws.start()
+        
     def transition(self, requested_state):
         oradio_log.debug("Request Transitioning from %s to %s", self.state, requested_state)
 
@@ -105,20 +133,46 @@ class StateMachine:
             requested_state = "StateSpotifyConnect"
 
         # ————————————————————————————————
-        # 3. USB PRESENCE GUARD + COMMIT
+        # 3 Switch off Webservice
+        # ————————————————————————————————
+        if self.network_mgr and self.network_mgr.state == "APWebservice" and requested_state == "StateStop":
+            oradio_web_service.stop()
+            return # Switch off the APWebservice and do nothing at the Audio Statemachine
+
+
+        # ————————————————————————————————
+        # 4 BLOCK WEBRADIO PRESETS WHEN NO INTERNET
+        # ————————————————————————————————
+        web_preset_states = {"StatePreset1", "StatePreset2", "StatePreset3"}
+        if requested_state in web_preset_states:
+            # map "StatePreset1" → "Preset1"
+            preset_key = requested_state.replace("State", "")
+            # only block if this preset is actually a web radio
+            if mpd.preset_is_webradio(preset_key) and network_mgr.state != "Internet":
+                oradio_log.info(
+                    "Blocked transition to %s: preset is web radio but no Internet",
+                    requested_state
+                )
+                threading.Timer(2, sound_player.play, args=("NoInternet",)).start() # delay prevent mixing
+                return
+
+        # ————————————————————————————————
+        # 5. USB PRESENCE GUARD + COMMIT
         # ————————————————————————————————
         if usb_present_event.is_set():
-            old = self.state
+            
+            self.prev_state = self.state
             self.state = requested_state
-            oradio_log.debug("State changed: %s → %s", old, self.state)
+            oradio_log.debug("State changed: %s → %s", self.prev_state, self.state)
         else:
             oradio_log.warning("Transition to %s blocked (USB absent)", requested_state)
             if self.state != "StateUSBAbsent":
-                self.state = "StateUSBAbsent"
+                self.prev_state = self.state
+                self.state      = "StateUSBAbsent"
                 oradio_log.debug("State set to StateUSBAbsent")
 
         # ————————————————————————————————
-        # 4. SPAWN THREAD FOR THIS REQUEST
+        # 6. SPAWN THREAD FOR THIS REQUEST
         # ————————————————————————————————
         state_to_handle = requested_state
         threading.Thread(
@@ -134,7 +188,7 @@ class StateMachine:
             leds.turn_off_all_leds()
 
             if state_to_handle == "StatePlay":
-                if network_mgr.state == "APWebservice":
+                if self.network_mgr and self.network_mgr.state == "APWebservice":
                     leds.control_blinking_led("LEDPlay", 2)
                 else:
                     leds.turn_on_led("LEDPlay")
@@ -147,9 +201,9 @@ class StateMachine:
                 leds.turn_on_led("LEDPreset1")
                 mpd.play_preset("Preset1")
                 sound_player.play("Preset1")
-                if mpd.preset_is_webradio("Preset1") and network_mgr.state != "Internet":
-                    threading.Timer(1.5, sound_player.play, args=("NoInternet",)).start() # delay prevent mixing
-                if network_mgr.state == "APWebservice":
+#                 if mpd.preset_is_webradio("Preset1") and self.network_mgr and self.network_mgr.state != "Internet":
+#                     threading.Timer(4, sound_player.play, args=("NoInternet",)).start() # delay prevent mixing
+                if self.network_mgr and self.network_mgr.state == "APWebservice":
                     leds.control_blinking_led("LEDPlay", 2)
                 spotify_connect.pause()
 
@@ -157,9 +211,9 @@ class StateMachine:
                 leds.turn_on_led("LEDPreset2")
                 mpd.play_preset("Preset2")
                 sound_player.play("Preset2")
-                if mpd.preset_is_webradio("Preset2") and network_mgr.state != "Internet":
-                    threading.Timer(1.5, sound_player.play, args=("NoInternet",)).start() # delay prevent mixing
-                if network_mgr.state == "APWebservice":
+#                 if mpd.preset_is_webradio("Preset2") and self.network_mgr and self.network_mgr.state != "Internet":
+#                     threading.Timer(4, sound_player.play, args=("NoInternet",)).start() # delay prevent mixing
+                if self.network_mgr and self.network_mgr.state == "APWebservice":
                     leds.control_blinking_led("LEDPlay", 2)
                 spotify_connect.pause()
 
@@ -167,9 +221,9 @@ class StateMachine:
                 leds.turn_on_led("LEDPreset3")
                 mpd.play_preset("Preset3")
                 sound_player.play("Preset3")
-                if mpd.preset_is_webradio("Preset3") and network_mgr.state != "Internet":
-                    threading.Timer(1.5, sound_player.play, args=("NoInternet",)).start() # delay prevent mixing
-                if network_mgr.state == "APWebservice":
+#                 if mpd.preset_is_webradio("Preset3") and self.network_mgr and self.network_mgr.state != "Internet":
+#                     threading.Timer(4, sound_player.play, args=("NoInternet",)).start() # delay prevent mixing
+                if self.network_mgr and self.network_mgr.state == "APWebservice":
                     leds.control_blinking_led("LEDPlay", 2)
                 spotify_connect.pause()
 
@@ -178,8 +232,8 @@ class StateMachine:
                 mpd.pause()
                 spotify_connect.pause()
                 sound_player.play("Stop")
-                if network_mgr.state == "APWebservice":
-                    oradio_web_service.stop()
+#                 if self.network_mgr and self.network_mgr.state == "APWebservice":
+#                     oradio_web_service.stop()
 
             elif state_to_handle == "StateSpotifyConnect":
                 if network_mgr.state == "APWebservice":
@@ -205,9 +259,8 @@ class StateMachine:
                 spotify_connect.pause()
                 sound_player.play("Stop")
                 sound_player.play("NoUSB")
-                if network_mgr.state == "APWebservice":
+                if self.network_mgr and self.network_mgr.state == "APWebservice":
                     oradio_web_service.stop()
-                    leds.control_blinking_led("LEDPlay", 0)
                 self.wait_for_usb_present()
                 self.transition("StateIdle")
 
@@ -228,14 +281,9 @@ class StateMachine:
                 spotify_connect.pause()
                 oradio_log.debug("In Idle state, wait for next step")
 
-            elif state_to_handle == "StateWebService":
-                leds.control_blinking_led("LEDPlay", 2)
-                oradio_web_service.start() # to indicate that long press is confirmed
-                oradio_log.debug("In WebService state, wait for next step")
-
             elif state_to_handle == "StateError":
                 leds.control_blinking_led("LEDStop", 2)
-
+                
 
     def wait_for_usb_present(self):
         """Waits for the USB to be present, cancels ongoing MPD updates, and restarts MPD if needed."""
@@ -352,25 +400,40 @@ class Networking:
 
             #  Stop blinking only if we just left APWebservice
             elif old_state == "APWebservice" and new_state != "APWebservice":
-                leds.control_blinking_led("LEDPlay", 0)
+                if state_machine.state == "StatePlay":
+                    leds.turn_on_led("LEDPlay")
+                else:
+                    leds.control_blinking_led("LEDPlay", 0)
+                sound_player.play("Attention")
                 sound_player.play("OradioAPstopped")
-                play_webservice_states = {"StatePlay", "StatePreset1", "StatePreset2", "StatePreset3", "StateWebService"}
-                if state_machine.state in play_webservice_states: # If in play states, 
-           #         leds.control_blinking_led("LEDPlay", 0)
-                    state_machine.transition("StateIdle")
-                    state_machine.transition("StatePlay") # Move from APWebservice state to back to Play State
-           #         sound_player.play("OradioAPstopped")
+
                 APWebserviceTracker= True
                 oradio_log.info("Networking left APWebservice state")
 
             if new_state == "Internet":
                 #  play “WifiConnected” only when arriving (some states ago) from APWebservice
-                if self.ap_tracker:
-                    play_webservice_states = {"StatePlay", "StatePreset1", "StatePreset2", "StatePreset3", "StateWebService"}
-                    if state_machine.state in play_webservice_states: # If in play states,
-#                    sound_player.play("WifiConnected")
-                        threading.Timer(4, sound_player.play, args=("WifiConnected",)).start() # delay prevent mixing
-                        self.ap_tracker = False
+                # only play “WifiConnected” when arriving from APWebservice
+                # and both the *previous* and *current* Oradio state are in play/webservice modes
+                
+#                 oradio_log.info(
+#                 "Networking → Internet: prev_state=%s, current_state=%s",
+#                 state_machine.prev_state,
+#                 state_machine.state
+#                 )
+                play_webservice_states = {
+                    "StatePlay",
+                    "StatePreset1",
+                    "StatePreset2",
+                    "StatePreset3",
+                    "StateWebService",
+                }
+                if (
+                    self.ap_tracker and
+                    state_machine.state      in play_webservice_states
+                ):
+                    # delay the tone so it doesn’t clash with any other sounds
+                    threading.Timer(4, sound_player.play, args=("WifiConnected",)).start()
+                    self.ap_tracker = False
 
                 # Send system info to Remote Monitoring Service
                 remote_monitor.send_sys_info()
@@ -651,6 +714,9 @@ oradio_web_service = WebService(shared_queue)
 # instantiate the Networking “manager” the additional Statemachine in this script
 network_mgr = Networking(oradio_web_service, oradio_wifi_service)
 
+# inject the services into the Statemachine
+state_machine.set_services(oradio_web_service)
+state_machine.set_networking(network_mgr)
 # instantiate the process messages
 
 threading.Thread(target=process_messages, args=(shared_queue,), daemon=True).start()  # start messages handler
