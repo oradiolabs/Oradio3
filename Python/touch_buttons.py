@@ -127,7 +127,7 @@ class TouchButtons:
         """Handles long press actions."""
         if self.state_machine:
             if button_name == "Play":
-                self.state_machine.transition("StateWebService")  # Start OradioAP
+                self.state_machine.start_webservice() # Start OradioAP
             else:
                 oradio_log.error("LONG press detected on button: %s (no action)", button_name)
 
