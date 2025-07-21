@@ -243,7 +243,8 @@ if [ "$1" != "--continue" ]; then
 		rpi-lgpio
 		concurrent-log-handler
 		requests
-		nmcli pyalsaaudio
+		nmcli
+		pyalsaaudio
 		vcgencmd
 		watchdog
 		pydantic
