@@ -24,7 +24,7 @@ import json
 import threading
 import subprocess
 import unicodedata
-from mpd import MPDClient, CommandError, ConnectionError, ProtocolError
+from mpd import MPDClient
 
 ##### oradio modules ####################
 from oradio_logging import oradio_log
@@ -67,13 +67,11 @@ class MPDControl:
             try:
                 client.crossfade(CROSSFADE)  # pylint: disable=no-member
                 oradio_log.info("Connected to MPD server and set crossfade to 5s.")
-            except (CommandError, ConnectionError, ProtocolError) as mpd_err:
-                oradio_log.warning("Could not set crossfade: %s", mpd_err)
-            except Exception as unexpected: # pylint: disable=broad-exception-caught
-                oradio_log.error("Unexpected error while setting crossfade: %s", unexpected)
+            except Exception as mpd_err: # pylint: disable=broad-exception-caught
+                oradio_log.error("Error while setting crossfade: %s", mpd_err)
             return client
-        except (ConnectionError, ProtocolError) as con_err:
-            oradio_log.error("Failed to connect to MPD server: %s", con_err)
+        except Exception as ex_err: # pylint: disable=broad-exception-caught
+            oradio_log.error("Failed to connect to MPD server: %s", ex_err)
             return None
 
     def _is_connected(self):
@@ -82,7 +80,7 @@ class MPDControl:
             if self.client:
                 self.client.ping()
                 return True
-        except Exception:
+        except Exception: # pylint: disable=broad-exception-caught
             return False
         return False
 
@@ -108,7 +106,7 @@ class MPDControl:
                         else:
                             # Clear cached error when no error is present
                             self.last_status_error = None
-                    except Exception as ex_err:
+                    except Exception as ex_err: # pylint: disable=broad-exception-caught
                         oradio_log.error("Error checking MPD status: %s", ex_err)
                         self.last_status_error = str(ex_err)
             time.sleep(10)  # Check every 10 seconds
@@ -160,7 +158,7 @@ class MPDControl:
                 self.client.play()
                 oradio_log.debug("Playing: %s", list_name)
 
-            except Exception as ex_err:
+            except Exception as ex_err: # pylint: disable=broad-exception-caught
                 oradio_log.debug("Error playing preset %s: %s", preset, ex_err)
 
     def play(self):
@@ -170,7 +168,7 @@ class MPDControl:
             try:
                 self.client.play()
                 oradio_log.debug("MPD play")
-            except Exception as ex_err:
+            except Exception as ex_err: # pylint: disable=broad-exception-caught
                 oradio_log.error("Error sending play command: %s", ex_err)
 
     def pause(self):
@@ -180,7 +178,7 @@ class MPDControl:
             try:
                 self.client.pause(1)
                 oradio_log.debug("MPD pause")
-            except Exception as ex_err:
+            except Exception as ex_err: # pylint: disable=broad-exception-caught
                 oradio_log.debug("Error sending pause command: %s", ex_err)
 
     def stop(self):
@@ -190,7 +188,7 @@ class MPDControl:
             try:
                 self.client.stop()
                 oradio_log.debug("MPD stop")
-            except Exception as ex_err:
+            except Exception as ex_err: # pylint: disable=broad-exception-caught
                 oradio_log.error("Error sending stop command: %s", ex_err)
 
     def next(self):
@@ -216,7 +214,7 @@ class MPDControl:
                     oradio_log.debug("MPD next")
                 else:
                     oradio_log.debug("Cannot skip track: MPD is not playing.")
-            except Exception as ex_err:
+            except Exception as ex_err: # pylint: disable=broad-exception-caught
                 oradio_log.error("Error sending next command: %s", ex_err)
 
     def update_mpd_database(self):
@@ -264,7 +262,7 @@ class MPDControl:
                 else:
                     oradio_log.debug("MPD database update completed.")
                     break
-        except Exception as ex_err:
+        except Exception as ex_err: # pylint: disable=broad-exception-caught
             oradio_log.error("Error updating MPD database: %s", ex_err)
 
     def start_update_mpd_database_thread(self):
@@ -313,7 +311,7 @@ class MPDControl:
                 if "directory" in entry:
                     folders.append(entry["directory"])
 
-        except Exception as ex_err:
+        except Exception as ex_err: # pylint: disable=broad-exception-caught
             oradio_log.error("Error getting directories: %s", ex_err)
 
         # Sort alphabetically, ignore case
@@ -339,7 +337,7 @@ class MPDControl:
             for entry in playlists:
                 folders.append(entry["playlist"])
 
-        except Exception as ex_err:
+        except Exception as ex_err: # pylint: disable=broad-exception-caught
             oradio_log.error("Error getting playlists: %s", ex_err)
 
         # Sort alphabetically, ignore case
@@ -397,7 +395,7 @@ class MPDControl:
                     # return alphabetically sorted list of songs
                     return sorted(songs, key=lambda x: x['artist'].lower())
 
-        except Exception as ex_err:
+        except Exception as ex_err: # pylint: disable=broad-exception-caught
             oradio_log.error("Error getting songs for '%s': %s", list_name, ex_err)
 
         # Return empty as list is not an known playlist or directory
@@ -453,7 +451,7 @@ class MPDControl:
             # Return list of songs with attributes file, artist, title. Sorted by artist, then title, ignore case
             return sorted(unique, key=lambda x: (x['normalized_artist'], x['normalized_title']))
 
-        except Exception as ex_err:
+        except Exception as ex_err: # pylint: disable=broad-exception-caught
             oradio_log.error("Error searching for songs with pattern '%s' in artist or title attribute: %s", pattern, ex_err)
             return []
 
@@ -495,7 +493,7 @@ class MPDControl:
             ).start()
             oradio_log.debug("Started monitoring removal for song id: %s", inserted_song_id)
 
-        except Exception as ex_err:
+        except Exception as ex_err: # pylint: disable=broad-exception-caught
             oradio_log.error("Error playing song '%s': %s", song, ex_err)
 
     def _remove_song_when_finished(self, inserted_song_id):
@@ -531,7 +529,7 @@ class MPDControl:
                     oradio_log.debug("Deleted song id %s", inserted_song_id)
                 else:
                     oradio_log.debug("Song id %s already removed from the playlist", inserted_song_id)
-        except Exception as ex_err:
+        except Exception as ex_err: # pylint: disable=broad-exception-caught
             oradio_log.error("Error removing song with id '%s': %s", inserted_song_id, ex_err)
 
     def playlist_add(self, playlist, song):
@@ -565,7 +563,7 @@ class MPDControl:
                     # Getting the list of songs for the playlist will update the mpd database
                     self.client.listplaylistinfo(playlist)
             return True
-        except Exception as ex_err:
+        except Exception as ex_err: # pylint: disable=broad-exception-caught
             if song is None:
                 oradio_log.error("Error creating playlist '%s': %s", playlist, ex_err)
             else:
@@ -604,7 +602,7 @@ class MPDControl:
                     # Getting the list of songs for the playlist will update the mpd database
                     self.client.listplaylistinfo(playlist)
             return True
-        except Exception as ex_err:
+        except Exception as ex_err: # pylint: disable=broad-exception-caught
             if song is None:
                 oradio_log.error("Error removing playlist '%s': %s", playlist, ex_err)
             else:
@@ -632,14 +630,13 @@ class MPDControl:
             # Iterate through entries
             for idx, song in enumerate(entries, start=1):
                 file_path = song.get("file", "")
-                title = song.get("title") or song.get("name") or file_path
 
                 if file_path.startswith("http://") or file_path.startswith("https://"):
                     oradio_log.debug("'%s' with playlist '%s' is a web radio", preset, playlist)
                     # Web radio if entry is url, thus a web radio
                     return True
 
-        except Exception as ex_err:
+        except Exception as ex_err: # pylint: disable=broad-exception-caught
             oradio_log.debug("'%s' with playlist '%s' is not a web radio", preset, playlist)
             return False
 
@@ -657,7 +654,7 @@ class MPDControl:
                 return True
             else:
                 return False
-        except Exception as ex_err:
+        except Exception as ex_err: # pylint: disable=broad-exception-caught
             oradio_log.error("Error checking if current song is a web radio: %s", ex_err)
             return False
 
@@ -767,7 +764,7 @@ if __name__ == '__main__':
                 mpd.restart_mpd_service()
             case 12:
                 print("\nListing available stored playlists...\n")
-                mpd._ensure_client()
+                mpd._ensure_client()    # pylint: disable=protected-access
                 with mpd.mpd_lock:
                     playlists = mpd.client.listplaylists()
                 if not playlists:
@@ -793,7 +790,7 @@ if __name__ == '__main__':
 #                         print("Invalid input, please enter a number.")
             case 13:
                 print("\nListing available directories...\n")
-                mpd._ensure_client()
+                mpd._ensure_client()    # pylint: disable=protected-access
                 with mpd.mpd_lock:
                     lsinfo = mpd.client.lsinfo("/")
                 directories = [entry["directory"] for entry in lsinfo if "directory" in entry]
@@ -820,7 +817,7 @@ if __name__ == '__main__':
 #                         print("Invalid input, please enter a number.")
             case 14:
                 print("\nCreating and storing a new playlist...\n")
-                mpd._ensure_client()
+                mpd._ensure_client()    # pylint: disable=protected-access
                 search_query = input("Enter search query (artist or song): ")
                 with mpd.mpd_lock:
                     search_results = mpd.client.search("any", search_query)
@@ -867,7 +864,7 @@ if __name__ == '__main__':
                 print(f"Playlist '{playlist_name}' stored successfully.")
             case 15:
                 print("\nSelect a stored playlist to play...\n")
-                mpd._ensure_client()
+                mpd._ensure_client()    # pylint: disable=protected-access
                 with mpd.mpd_lock:
                     playlists = mpd.client.listplaylists()
                 if not playlists:
@@ -893,7 +890,7 @@ if __name__ == '__main__':
                         print("Invalid input, please enter a number.")
             case 16:
                 print("\nSelect an available directory to play...\n")
-                mpd._ensure_client()
+                mpd._ensure_client()    # pylint: disable=protected-access
                 with mpd.mpd_lock:
                     lsinfo = mpd.client.lsinfo("/")
                 directories = [entry["directory"] for entry in lsinfo if "directory" in entry]
