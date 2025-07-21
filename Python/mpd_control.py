@@ -30,7 +30,7 @@ from mpd import MPDClient
 from oradio_logging import oradio_log
 
 ##### GLOBAL constants ####################
-from oradio_const import *
+from oradio_const import PRESET_FILE_PATH
 
 ##### GLOBAL constants ####################
 CROSSFADE = 5
@@ -64,13 +64,15 @@ class MPDControl:
             oradio_log.info("Connected to MPD server.")
             # set a 5s crossfade on every connection
             try:
-                client.crossfade(CROSSFADE)
+                client.crossfade(CROSSFADE)  # pylint: disable=no-member
                 oradio_log.info("Connected to MPD server and set crossfade to 5s.")
-            except Exception as xf_err:
-                oradio_log.warning("Could not set crossfade: %s", xf_err)
+            except (CommandError, ConnectionError, ProtocolError) as mpd_err:
+                oradio_log.warning("Could not set crossfade: %s", mpd_err)
+            except Exception as unexpected:
+                oradio_log.error("Unexpected error while setting crossfade: %s", unexpected)
             return client
-        except Exception as ex_err:
-            oradio_log.error("Failed to connect to MPD server: %s", ex_err)
+        except (ConnectionError, ProtocolError) as con_err:
+            oradio_log.error("Failed to connect to MPD server: %s", con_err)
             return None
 
     def _is_connected(self):
@@ -124,9 +126,9 @@ class MPDControl:
         Uses MPD's listplaylists to determine whether the preset is a stored playlist or a directory.
         """
         self._ensure_client()
-        playlist_name = self.get_playlist_name(preset, PRESET_FILE_PATH)
+        list_name = self.get_playlist_name(preset, PRESET_FILE_PATH)
 
-        if not playlist_name:
+        if not list_name:
             oradio_log.debug("No playlist found for preset: %s", preset)
             return
 
@@ -138,16 +140,16 @@ class MPDControl:
                 stored_playlists = self.client.listplaylists()
                 stored_playlist_names = [pl.get("playlist") for pl in stored_playlists]
 
-                if playlist_name in stored_playlist_names:
+                if list_name in stored_playlist_names:
                     # Stored playlist: load in saved order
-                    self.client.load(playlist_name)
+                    self.client.load(list_name)
                     self.client.random(0)  # turn OFF random play
                     self.client.repeat(1)  # 0 = play once through; 1 = loop
                     # Store current playlist name
-                    self.current_playlist = playlist_name
+                    self.current_playlist = list_name
                 else:
                     # Directory: add then shuffle/repeat as before
-                    self.client.add(playlist_name)
+                    self.client.add(list_name)
                     self.client.shuffle()  # one-time scramble
                     self.client.random(1)  # enable random as tracks advance
                     self.client.repeat(1)  # loop directory indefinitely
@@ -155,7 +157,7 @@ class MPDControl:
                     self.current_playlist = None
 
                 self.client.play()
-                oradio_log.debug("Playing: %s", playlist_name)
+                oradio_log.debug("Playing: %s", list_name)
 
             except Exception as ex_err:
                 oradio_log.debug("Error playing preset %s: %s", preset, ex_err)
@@ -439,7 +441,7 @@ class MPDControl:
             # Filter songs to be unique based on artist and title
             found = set()
             unique = []
- 
+
             # Collect dataset for filtering and sorting
             for item in songs:
                 artist = item.get("artist")
@@ -549,7 +551,7 @@ class MPDControl:
 
         try:
             with self.mpd_lock:
-                if song == None:
+                if song is None:
                     oradio_log.debug("Attempting to create playlist: '%s'", playlist)
                     # Check if playlist already exists
                     playlists = self.client.listplaylists()
@@ -570,7 +572,7 @@ class MPDControl:
                     self.client.listplaylistinfo(playlist)
             return True
         except Exception as ex_err:
-            if song == None:
+            if song is None:
                 oradio_log.error("Error creating playlist '%s': %s", playlist, ex_err)
             else:
                 oradio_log.error("Error adding song '%s' to playlist '%s': %s", song, playlist, ex_err)
@@ -690,7 +692,7 @@ if __name__ == '__main__':
 
     import random
 
-    input_selection = ("\nSelect a function, input the number:\n"
+    INPUT_SELECTION = ("\nSelect a function, input the number:\n"
                        " 0  - Quit\n"
                        " 1  - Play\n"
                        " 2  - Stop\n"
@@ -714,9 +716,9 @@ if __name__ == '__main__':
 
     while True:
         try:
-            function_nr = int(input(input_selection))
+            function_nr = int(input(INPUT_SELECTION))  # pylint: disable=invalid-name
         except ValueError:
-            function_nr = -1  # Invalid input
+            function_nr = -1  # pylint: disable=invalid-name
 
         match function_nr:
             case 0:
@@ -773,16 +775,16 @@ if __name__ == '__main__':
                 print("\nListing available stored playlists...\n")
                 mpd._ensure_client()
                 with mpd.mpd_lock:
-                    stored_playlists = mpd.client.listplaylists()
-                if not stored_playlists:
+                    playlists = mpd.client.listplaylists()
+                if not playlists:
                     print("No stored playlists found.")
                 else:
-                    for idx, pl in enumerate(stored_playlists, start=1):
+                    for idx, pl in enumerate(playlists, start=1):
                         print(f"{idx}. {pl.get('playlist')}")
 #                     try:
 #                         selection = int(input("\nSelect a playlist by number: "))
-#                         if 1 <= selection <= len(stored_playlists):
-#                             playlist_name = stored_playlists[selection - 1].get('playlist')
+#                         if 1 <= selection <= len(playlists):
+#                             playlist_name = playlists[selection - 1].get('playlist')
 #                             print(f"\nPlaying stored playlist: {playlist_name}\n")
 #                             with mpd.mpd_lock:
 #                                 mpd.client.clear()
@@ -873,16 +875,16 @@ if __name__ == '__main__':
                 print("\nSelect a stored playlist to play...\n")
                 mpd._ensure_client()
                 with mpd.mpd_lock:
-                    stored_playlists = mpd.client.listplaylists()
-                if not stored_playlists:
+                    playlists = mpd.client.listplaylists()
+                if not playlists:
                     print("No stored playlists found.")
                 else:
-                    for idx, pl in enumerate(stored_playlists, start=1):
+                    for idx, pl in enumerate(playlists, start=1):
                         print(f"{idx}. {pl.get('playlist')}")
                     try:
                         selection = int(input("\nSelect a playlist by number: "))
-                        if 1 <= selection <= len(stored_playlists):
-                            playlist_name = stored_playlists[selection - 1].get('playlist')
+                        if 1 <= selection <= len(playlists):
+                            playlist_name = playlists[selection - 1].get('playlist')
                             print(f"\nPlaying stored playlist: {playlist_name}\n")
                             with mpd.mpd_lock:
                                 mpd.client.clear()
