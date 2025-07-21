@@ -342,9 +342,9 @@ class MPDControl:
         # Sort alphabetically, ignore case
         return sorted(folders, key=str.casefold)
 
-    def get_songs(self, list):
+    def get_songs(self, list_name):
         """
-        List the songs in the list.
+        List the songs in list_name
         Return [{file: ..., artist:..., title:...}, ...]
         """
         # Connect if not connected
@@ -362,10 +362,10 @@ class MPDControl:
 
             # Check playlists
             for playlist in playlists:
-                if list == playlist.get('playlist'):
+                if list_name == playlist.get('playlist'):
                     # Get playlist song details; minimize lock to mpd interaction
                     with self.mpd_lock:
-                        details = self.client.listplaylistinfo(list)
+                        details = self.client.listplaylistinfo(list_name)
                     for detail in details:
                         songs.append({
                             'file': detail['file'],
@@ -373,14 +373,14 @@ class MPDControl:
                             'title': detail.get('title', 'Unknown title')
                         })
 
-
-            # return list of songs in order they are listed in the playlist
-            return songs
+                    # return list of songs in order they are listed in the playlist
+                    return songs
 
             # Check directories
             for entry in directories:
+                print("playlist=", entry)
                 # Only consider entries that are directories.
-                if "directory" in entry and list == entry["directory"]:
+                if "directory" in entry and list_name == entry["directory"]:
                     # Get directory song details; minimize lock to mpd interaction
                     with self.mpd_lock:
                         details = self.client.lsinfo(entry["directory"])
@@ -391,11 +391,14 @@ class MPDControl:
                             'title': detail.get('title', 'Unknown title')
                         })
 
-            # return alphabetically sorted list of songs
-            return sorted(songs, key=lambda x: x['artist'].lower())
+                    # return alphabetically sorted list of songs
+                    return sorted(songs, key=lambda x: x['artist'].lower())
 
         except Exception as ex_err:
-            oradio_log.error("Error getting songs for '%s': %s", list, ex_err)
+            oradio_log.error("Error getting songs for '%s': %s", list_name, ex_err)
+
+        # Return empty as list is not an known playlist or directory
+        return songs
 
     def search(self, pattern):
         """
