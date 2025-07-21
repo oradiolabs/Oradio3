@@ -24,7 +24,7 @@ import json
 import threading
 import subprocess
 import unicodedata
-from mpd import MPDClient
+from mpd import MPDClient, CommandError, ConnectionError, ProtocolError
 
 ##### oradio modules ####################
 from oradio_logging import oradio_log
@@ -45,6 +45,7 @@ class MPDControl:
         self.port = port
         self.client = None
         self.current_playlist = None
+        self.last_status_error = None
         self.mpd_lock = threading.Lock()
 
         # Event for cancelling MPD database update
@@ -68,7 +69,7 @@ class MPDControl:
                 oradio_log.info("Connected to MPD server and set crossfade to 5s.")
             except (CommandError, ConnectionError, ProtocolError) as mpd_err:
                 oradio_log.warning("Could not set crossfade: %s", mpd_err)
-            except Exception as unexpected:
+            except Exception as unexpected: # pylint: disable=broad-exception-caught
                 oradio_log.error("Unexpected error while setting crossfade: %s", unexpected)
             return client
         except (ConnectionError, ProtocolError) as con_err:
@@ -442,13 +443,6 @@ class MPDControl:
             found = set()
             unique = []
 
-            # Collect dataset for filtering and sorting
-            for item in songs:
-                artist = item.get("artist")
-                title = item.get("title")
-                normalized__artist = item.get("normalized_artist")
-                normalized__title = item.get("normalized_title")
-
             # Filter songs to be unique based on normalized artist and normalized title
             for item in songs:
                 key = (item['normalized_artist'], item['normalized_title'])
@@ -589,7 +583,7 @@ class MPDControl:
 
         try:
             with self.mpd_lock:
-                if song == None:
+                if song is None:
                     oradio_log.debug("Attempting to remove playlist: '%s'", playlist)
                     playlists = self.client.listplaylists()
                     if any(d.get("playlist") == playlist for d in playlists):
@@ -611,7 +605,7 @@ class MPDControl:
                     self.client.listplaylistinfo(playlist)
             return True
         except Exception as ex_err:
-            if song == None:
+            if song is None:
                 oradio_log.error("Error removing playlist '%s': %s", playlist, ex_err)
             else:
                 oradio_log.error("Error removing song '%s' from playlist '%s': %s", song, playlist, ex_err)
