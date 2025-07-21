@@ -17,5 +17,5 @@ jobs:
         with:
           token: ${{ github.token }}
           repository: ${{ github.repository }}
-          retain_days: 10        # Amount of days used to compare with the retention days of each workflow
+          retain_days: 1         # Amount of days used to compare with the retention days of each workflow
           keep_minimum_runs: 5   # Minimum runs to keep for each workflow
