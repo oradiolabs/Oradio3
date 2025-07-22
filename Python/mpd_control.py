@@ -37,8 +37,10 @@ from oradio_const import PRESET_FILE_PATH
 ##### GLOBAL constants ####################
 CROSSFADE = 5
 
+
 class MPDControl:
     def __init__(self, host: str = "localhost", port: int = 6600):
+
         self.host = host
         self.port = port
         self._crossfade_done = False          
@@ -696,6 +698,30 @@ class MPDControl:
         except json.JSONDecodeError:
             oradio_log.error("Error: Failed to decode JSON. Please check the file's format.")
         return None
+    
+# mpd_control.py
+# —————————————————————————————————————————————————————————————
+# Singleton factory for MPDControl
+#
+# This function ensures that only one MPDControl instance is ever created
+# during the process lifetime. On the first call it constructs and returns
+# the MPDControl (opening the MPD connection); all later calls simply
+# return that same object, preventing duplicate MPDClient connections
+# and redundant setup such as crossfade re-configuration.
+
+_mpd_singleton: MPDControl | None = None
+
+def get_mpd_control(host: str = "localhost", port: int = 6600) -> MPDControl:
+    """
+    Return the one-and-only MPDControl instance.
+    Subsequent calls reuse the same object.
+    """
+    global _mpd_singleton
+    if _mpd_singleton is None:
+        _mpd_singleton = MPDControl(host, port)
+    return _mpd_singleton 
+    
+
 
 # Entry point for stand-alone operation
 if __name__ == '__main__':
