@@ -52,13 +52,13 @@ from oradio_const import (
 )
 
 ##### LOCAL constants ####################
-TIMEOUT  = 10    # Seconds to wait for web server to start/stop
+TIMEOUT  = 10    # Seconds to wait
 
 class UvicornServerThread:
     """Class to manage Uvicorn server running in a thread"""
 
     def __init__(self, app, host=WEB_SERVER_HOST, port=WEB_SERVER_PORT, level="info"):
-        """Class constructor: Store parameters and prepare uvicorn thread""" 
+        """Class constructor: Store parameters and prepare uvicorn thread"""
         self.app = app
         self.host = host
         self.port = port
@@ -129,7 +129,7 @@ class WebServiceMessageHandler:
     """Class to manage message handler running in a thread"""
 
     def __init__(self, rx_queue, tx_queue, label=""):
-        """Class constructor: Store parameters and initialise message handler thread""" 
+        """Class constructor: Store parameters and initialise message handler thread"""
         self.started_event = Event()
         self.stop_event = Event()
         self.message_listener = Thread(
