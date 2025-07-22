@@ -128,7 +128,7 @@ class UvicornServerThread:
 class WebServiceMessageHandler:
     """Class to manage message handler running in a thread"""
 
-    def __init__(self, rx_queue, tx_queue):
+    def __init__(self, rx_queue, tx_queue, label=""):
         """Class constructor: Store parameters and initialise message handler thread""" 
         self.started_event = Event()
         self.stop_event = Event()
@@ -141,6 +141,8 @@ class WebServiceMessageHandler:
                 tx_queue,
             )
         )
+        # Register identifier for multiple instances
+        self.label = label
 
     def start(self):
         """Start the message handler"""
@@ -160,15 +162,17 @@ class WebServiceMessageHandler:
         """
         # Notify the thread is running
         started_event.set()
-        oradio_log.info("Web service is listening for messages")
+        oradio_log.debug("%sListening for messages", self.label)
         while not stop_event.is_set():
             try:
                 # Wait for message. Use timeout to allow checking stop_event
                 message = rx_q.get(block=True, timeout=1)
+                oradio_log.debug("%sReceived: %s", self.label, message)
 #OMJ: This is the place to parse the incoming message before sending a message to control
-                # Put message in queue
-                oradio_log.debug("Forwarding message: %s", message)
-                tx_q.put(message)
+                if tx_q:
+                    # Put message in queue
+                    oradio_log.debug("%sForwarding: %s", self.label, message)
+                    tx_q.put(message)
             except queues.Empty:
                 # Timeout occurred, loop again to check stop_event
                 continue
@@ -189,7 +193,8 @@ class WebService():
         # Initialize queue for receiving messeages
         self.rx_queue = Queue()
 
-        self.message_handler = WebServiceMessageHandler(self.rx_queue, self.tx_queue)
+        # Create message handler
+        self.message_handler = WebServiceMessageHandler(self.rx_queue, self.tx_queue, "WebService: ")
         self.message_handler.start() # Returns after thread has entered its target function
 
         # Register wifi service
@@ -308,26 +313,13 @@ if __name__ == '__main__':
     # import when running stand-alone
     import subprocess
 
-    def _check_messages(queue):
-        """
-        Check if a new message is put into the queue
-        If so, read the message from queue and display it
-        :param queue = the queue to check for
-        """
-        print("\n\033[1;32mListening for web service messages\033[0m")
-        while True:
-            # Wait for message
-            message = queue.get(block=True, timeout=None)
-            # Show message received
-            print(f"\033[1;32mControl message received: '{message}'\033[0m")
-
     # Initialize
     message_queue = Queue()
     web_service = WebService(message_queue)
 
-    # Start  process to monitor the message queue
-    message_listener = Process(target=_check_messages, args=(message_queue,))
-    message_listener.start()
+    # Create message handler. Logging will close color at end of string
+    message_handler = WebServiceMessageHandler(message_queue, None, "\033[1;32mControl: ")
+    message_handler.start() # Returns after thread has entered its target function
 
     # Show menu with test options
     INPUT_SELECTION = ("Select a function, input the number.\n"
@@ -374,5 +366,4 @@ if __name__ == '__main__':
     web_service.message_handler.stop()
 
     # Stop main listening to messages
-    if message_listener:
-        message_listener.kill()
+    message_handler.stop()
