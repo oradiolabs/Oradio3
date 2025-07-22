@@ -28,8 +28,8 @@ Created on December 23, 2024
 """
 import time
 import socket
-from threading import Thread
-from multiprocessing import Process, Queue
+from threading import Thread, Event
+from multiprocessing import Process, Queue, queues
 import uvicorn
 
 ##### oradio modules ####################
@@ -125,6 +125,54 @@ class UvicornServerThread:
         """Check if server is runnning"""
         return self.thread is not None and self.thread.is_alive() and not self.server.should_exit
 
+class WebServiceMessageHandler:
+    """Class to manage message handler running in a thread"""
+    
+    def __init__(self, rx_queue, tx_queue):
+        """Class constructor: Store parameters and initialise message handler thread""" 
+        self.started_event = Event()
+        self.stop_event = Event()
+        self.message_listener = Thread(
+            target=self._check_messages,
+            args=(
+                self.started_event, 
+                self.stop_event, 
+                rx_queue, 
+                tx_queue,
+            )
+        )
+
+    def start(self):
+        """Start the message handler"""
+        self.message_listener.start()
+        self.started_event.wait()
+
+    def stop(self):
+        """Stop the message handler"""
+        self.stop_event.set()  # Signal the thread to stop
+        self.message_listener.join(timeout=TIMEOUT)  # Wait for it to exit or timeout
+
+    def _check_messages(self, started_event, stop_event, rx_q, tx_q):
+        """
+        Check if a new message is put into the queue
+        If so, read the message from queue, display it, and forward it
+        :param queue = the queue to check for
+        """
+        # Notify the thread is running
+        started_event.set()
+        oradio_log.info("Web service is listening for messages")
+        while not self.stop_event.is_set():
+            try:
+                # Wait for message. Use timeout to allow checking stop_event
+                message = rx_q.get(block=True, timeout=1)
+#OMJ: This is the place to parse the incoming message before sending a message to control
+                # Put message in queue
+                oradio_log.debug("Forwarding message: %s", message)
+                tx_q.put(message)
+            except queues.Empty:
+                # Timeout occurred, loop again to check stop_event
+                continue
+
 class WebService():
     """
     Custom process class for the web interface, via the wifi network or own access point as Captive Portal
@@ -141,9 +189,8 @@ class WebService():
         # Initialize queue for receiving messeages
         self.rx_queue = Queue()
 
-        # Start process to monitor the message queue
-        self.message_listener = Process(target=self._check_messages, args=(self.rx_queue, self.tx_queue, ))
-        self.message_listener.start()
+        self.message_handler = WebServiceMessageHandler(self.rx_queue, self.tx_queue)
+        self.message_handler.start() # Returns after thread has entered its target function
 
         # Register wifi service
         self.wifi = WifiService(self.rx_queue)
@@ -156,21 +203,6 @@ class WebService():
 
         # Send initial state and error message
         self._send_message(MESSAGE_NO_ERROR)
-
-    def _check_messages(self, rx_q, tx_q):
-        """
-        Check if a new message is put into the queue
-        If so, read the message from queue, display it, and forward it
-        :param queue = the queue to check for
-        """
-        oradio_log.info("Web service is listening for messages")
-        while True:
-            # Wait for message
-            message = rx_q.get(block=True, timeout=None)
-#OMJ: This is the place to parse the incoming message before sending a message to control
-            # Put message in queue
-            oradio_log.debug("Forwarding message: %s", message)
-            tx_q.put(message)
 
     def _send_message(self, error):
         """
@@ -338,8 +370,9 @@ if __name__ == '__main__':
             case _:
                 print("\nPlease input a valid number\n")
 
-    # Stop listening to messages
-    if web_service.message_listener:
-        web_service.message_listener.kill()
+    # Stop web service message handler
+    web_service.message_handler.stop()
+
+    # Stop main listening to messages
     if message_listener:
         message_listener.kill()
