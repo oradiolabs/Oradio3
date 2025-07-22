@@ -29,7 +29,7 @@ Created on December 23, 2024
 import time
 import socket
 from threading import Thread
-from multiprocessing import Event, Process, Queue
+from multiprocessing import Process, Queue
 import uvicorn
 
 ##### oradio modules ####################
@@ -86,7 +86,7 @@ class UvicornServerThread:
             except OSError:
                 time.sleep(0.1)
         return False
-        
+
     def start(self):
         """Start the server, if not running"""
         if self.thread is None or not self.thread.is_alive():
@@ -110,7 +110,6 @@ class UvicornServerThread:
         if self.thread and self.thread.is_alive():
             oradio_log.debug("Stopping Uvicorn server...")
             self.server.should_exit = True
-            self.thread.join()
             self.thread.join(timeout=TIMEOUT)
             if self.thread.is_alive():
                 oradio_log.warning("Uvicorn server thread did not exit cleanly")
@@ -123,6 +122,7 @@ class UvicornServerThread:
 
     @property
     def is_running(self):
+        """Check if server is runnning"""
         return self.thread is not None and self.thread.is_alive() and not self.server.should_exit
 
 class WebService():
@@ -135,11 +135,18 @@ class WebService():
         """"
         Class constructor: Setup the class
         """
-        # Register queue
-        self.msg_q = queue
+        # Register queue for sending message to controller
+        self.tx_queue = queue
 
-        # Register wifi service and send wifi status message
-        self.wifi = WifiService(self.msg_q)
+        # Initialize queue for receiving messeages
+        self.rx_queue = Queue()
+
+        # Start process to monitor the message queue
+        self.message_listener = Process(target=self._check_messages, args=(self.rx_queue, self.tx_queue, ))
+        self.message_listener.start()
+
+        # Register wifi service
+        self.wifi = WifiService(self.rx_queue)
 
         # Pass the class instance to the web server
         api_app.state.service = self
@@ -149,6 +156,21 @@ class WebService():
 
         # Send initial state and error message
         self._send_message(MESSAGE_NO_ERROR)
+
+    def _check_messages(self, rx_q, tx_q):
+        """
+        Check if a new message is put into the queue
+        If so, read the message from queue, display it, and forward it
+        :param queue = the queue to check for
+        """
+        oradio_log.info("Web service is listening for messages")
+        while True:
+            # Wait for message
+            message = rx_q.get(block=True, timeout=None)
+#OMJ: This is the place to parse the incoming message before sending a message to control
+            # Put message in queue
+            oradio_log.debug("Forwarding message: %s", message)
+            tx_q.put(message)
 
     def _send_message(self, error):
         """
@@ -165,7 +187,7 @@ class WebService():
 
         # Put message in queue
         oradio_log.debug("Send web service message: %s", message)
-        self.msg_q.put(message)
+        self.tx_queue.put(message)
 
     def get_state(self):
         """
@@ -260,13 +282,12 @@ if __name__ == '__main__':
         If so, read the message from queue and display it
         :param queue = the queue to check for
         """
-        print("Listening for messages\n")
-
+        print("\n\033[1;32mListening for web service messages\033[0m")
         while True:
             # Wait for message
             message = queue.get(block=True, timeout=None)
             # Show message received
-            print(f"Message received: '{message}'\n")
+            print(f"\033[1;32mControl message received: '{message}'\033[0m")
 
     # Initialize
     message_queue = Queue()
@@ -318,5 +339,7 @@ if __name__ == '__main__':
                 print("\nPlease input a valid number\n")
 
     # Stop listening to messages
+    if web_service.message_listener:
+        web_service.message_listener.kill()
     if message_listener:
         message_listener.kill()
