@@ -34,12 +34,16 @@ LEDS = {
 }
 
 class LEDControl:
+    """Control LED states"""
+
     def __init__(self):
+        """Class constructor: setup class variables"""
         GPIO.setmode(GPIO.BCM)
-        for name, pin in LEDS.items():
+        for _, pin in LEDS.items():
             GPIO.setup(pin, GPIO.OUT, initial=GPIO.HIGH)
 
         # replace blinking_leds with real Events…
+        self.blinking_leds = {}
         self.blink_stop_events = {}       # map led_name → threading.Event()
         self.blinking_threads = {}        # map led_name → Thread
         oradio_log.debug("LEDControl initialized: All LEDs OFF")
@@ -56,9 +60,9 @@ class LEDControl:
             evt.set()
 
         # block until thread really finishes
-        t = self.blinking_threads.pop(led_name, None)
-        if t:
-            t.join()
+        thread = self.blinking_threads.pop(led_name, None)
+        if thread:
+            thread.join()
 
         # now safe to drive off
         GPIO.output(LEDS[led_name], GPIO.HIGH)
@@ -82,8 +86,8 @@ class LEDControl:
         # stop all threads
         for evt in self.blink_stop_events.values():
             evt.set()
-        for t in self.blinking_threads.values():
-            t.join()
+        for thread in self.blinking_threads.values():
+            thread.join()
         self.blink_stop_events.clear()
         self.blinking_threads.clear()
 
@@ -128,9 +132,9 @@ class LEDControl:
         old_evt = self.blink_stop_events.pop(led_name, None)
         if old_evt:
             old_evt.set()
-        old_t = self.blinking_threads.pop(led_name, None)
-        if old_t:
-            old_t.join()
+        old_thread = self.blinking_threads.pop(led_name, None)
+        if old_thread:
+            old_thread.join()
 
         # if no cycle_time, just turn off
         if not cycle_time:
@@ -154,9 +158,9 @@ class LEDControl:
                     break
             GPIO.output(pin, GPIO.HIGH)
 
-        t = threading.Thread(target=_blink, daemon=True)
-        t.start()
-        self.blinking_threads[led_name] = t
+        thread = threading.Thread(target=_blink, daemon=True)
+        thread.start()
+        self.blinking_threads[led_name] = thread
         oradio_log.debug("%s blinking started: %.3fs cycle", led_name, cycle_time)
 
     def cleanup(self):
@@ -200,7 +204,7 @@ if __name__ == '__main__':
             return None
 
     # Show menu with test options
-    input_selection = ("\nSelect an action for the LED:\n"
+    INPUT_SELECTION = ("\nSelect an action for the LED:\n"
                        " 0 - Back to LED selection\n"  # Instead of quitting
                        " 1 - Turn ON\n"
                        " 2 - Turn OFF\n"
@@ -211,21 +215,21 @@ if __name__ == '__main__':
 
     # User command loop
     while True:
-        led_name = select_led()
-        if led_name == "ALL":
+        led = select_led()
+        if led == "ALL":
             leds.turn_off_all_leds()
             print("\nExecuting: Turn OFF all LEDs\n")
             continue  # Go back to LED selection
 
-        if not led_name:
+        if not led:
             continue  # If invalid LED selection, retry
 
         while True:
             # Get user input
             try:
-                function_nr = int(input(input_selection))
+                function_nr = int(input(INPUT_SELECTION))  # pylint: disable=invalid-name
             except ValueError:
-                function_nr = -1  # Invalid input
+                function_nr = -1  # pylint: disable=invalid-name
 
             # Execute selected function
             match function_nr:
@@ -233,19 +237,19 @@ if __name__ == '__main__':
                     print("\nReturning to LED selection...\n")
                     break  # Go back to LED selection menu
                 case 1:
-                    print(f"\nExecuting: Turn ON {led_name}\n")
-                    leds.turn_on_led(led_name)
+                    print(f"\nExecuting: Turn ON {led}\n")
+                    leds.turn_on_led(led)
                 case 2:
-                    print(f"\nExecuting: Turn OFF {led_name}\n")
-                    leds.turn_off_led(led_name)
+                    print(f"\nExecuting: Turn OFF {led}\n")
+                    leds.turn_off_led(led)
                 case 3:
-                    cycle_time = float(input("Enter blink cycle time (seconds): "))
-                    print(f"\nExecuting: Blinking {led_name} every {cycle_time}s\n")
-                    leds.control_blinking_led(led_name, cycle_time)
+                    cycle = float(input("Enter blink cycle time (seconds): "))
+                    print(f"\nExecuting: Blinking {led} every {cycle}s\n")
+                    leds.control_blinking_led(led, cycle)
                 case 4:
-                    delay = float(input("Enter delay before turning off (seconds): "))
-                    print(f"\nExecuting: Turning ON {led_name} and OFF after {delay} seconds\n")
-                    leds.turn_on_led_with_delay(led_name, delay)
+                    wait = float(input("Enter delay before turning off (seconds): "))
+                    print(f"\nExecuting: Turning ON {led} and OFF after {wait} seconds\n")
+                    leds.turn_on_led_with_delay(led, wait)
                 case 5:
                     print("\nExecuting: Turn OFF all LEDs\n")
                     leds.turn_off_all_leds()
