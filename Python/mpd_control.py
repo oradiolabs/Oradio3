@@ -35,89 +35,110 @@ from oradio_const import PRESET_FILE_PATH
 ##### GLOBAL constants ####################
 CROSSFADE = 5
 
-
 class MPDControl:
-    """
-    Class to manage MPD client connection and control playback safely.
-    """
-    def __init__(self, host="localhost", port=6600):
+    def __init__(self, host: str = "localhost", port: int = 6600):
         self.host = host
         self.port = port
-        self.client = None
+        self._crossfade_done = False          
+        self.client = self._connect()
         self.current_playlist = None
         self.last_status_error = None
         self.mpd_lock = threading.Lock()
-
+        
         # Event for cancelling MPD database update
         self.mpd_update_cancel_event = threading.Event()
+        
+        # start the separate monitor thread
+        t = threading.Thread(target=self._monitor_errors, daemon=True)
+        t.start()
 
-        # Start MPD connection maintenance thread
-        self.connection_thread = threading.Thread(target=self._maintain_connection, daemon=True)
-        self.connection_thread.start()
-
-    def _connect(self):
-        """Connects to the MPD server."""
-        client = MPDClient()
-        client.timeout = 20
-        client.idletimeout = None
+    def _connect(self) -> MPDClient:
+        c = MPDClient()
+        c.timeout = 20
+        c.idletimeout = None
         try:
-            client.connect(self.host, self.port)
-            oradio_log.info("Connected to MPD server.")
-            # set a 5s crossfade on every connection
-            try:
-                client.crossfade(CROSSFADE)  # pylint: disable=no-member
-                oradio_log.info("Connected to MPD server and set crossfade to 5s.")
-            except Exception as mpd_err: # pylint: disable=broad-exception-caught
-                oradio_log.error("Error while setting crossfade: %s", mpd_err)
-            return client
-        except Exception as ex_err: # pylint: disable=broad-exception-caught
-            oradio_log.error("Failed to connect to MPD server: %s", ex_err)
+            c.connect(self.host, self.port)
+            oradio_log.info(f"Connected to MPD at {self.host}:{self.port}")
+
+            # only set CROSSFADE the first time
+            if not self._crossfade_done:
+                try:
+                    c.crossfade(CROSSFADE)
+                    oradio_log.info(f"Set crossfade to {CROSSFADE}s")
+                except Exception as e:
+                    oradio_log.warning(f"Crossfade failed: {e}")
+                else:
+                    self._crossfade_done = True
+
+            return c
+
+        except Exception as e:
+            oradio_log.error(f"MPD connect failed: {e}")
             return None
 
-    def _is_connected(self):
-        """Checks if MPD is connected."""
-        try:
-            if self.client:
-                self.client.ping()
-                return True
-        except Exception: # pylint: disable=broad-exception-caught
+    def _is_connected(self) -> bool:
+        if not self.client:
             return False
-        return False
-
-    def _maintain_connection(self):
-        """Maintains a persistent connection to MPD, reconnecting as needed, and logging errors."""
-        while True:
-            with self.mpd_lock:
-                if not self._is_connected():
-                    oradio_log.info("MPD connection lost. Reconnecting...")
-                    self.client = self._connect()
-                    # Reset cached error on reconnection
-                    self.last_status_error = None
-
-                if self.client:
-                    try:
-                        status = self.client.status()
-                        if "error" in status:
-                            current_error = status.get("error", "")
-                            # Only log if the error has changed
-                            if current_error != self.last_status_error:
-                                oradio_log.error("MPD reported an error: %s", current_error)
-                                self.last_status_error = current_error
-                        else:
-                            # Clear cached error when no error is present
-                            self.last_status_error = None
-                    except Exception as ex_err: # pylint: disable=broad-exception-caught
-                        oradio_log.error("Error checking MPD status: %s", ex_err)
-                        self.last_status_error = str(ex_err)
-            time.sleep(10)  # Check every 10 seconds
-
+        try:
+            self.client.ping()
+            return True
+        except Exception:
+            return False
 
     def _ensure_client(self):
-        """Ensures an active MPD client before sending commands."""
         with self.mpd_lock:
             if not self._is_connected():
-                oradio_log.debug("Reconnecting MPD client...")
+                oradio_log.info("Reconnecting MPD client…")
                 self.client = self._connect()
+                
+    def _monitor_errors(self):
+        """
+        Dedicated MPDClient that:
+          • connects once,
+          • blocks on idle('player'),
+          • on every player‐event does status() and logs any new "error".
+        This never uses self.mpd_lock or your main client.
+        """
+        last_err = None
+
+        while True:
+            try:
+                mon = MPDClient()
+                mon.timeout = None         # block forever in idle()
+                mon.idletimeout = None
+                mon.connect(self.host, self.port)
+                oradio_log.info("MPD‐monitor connected")
+
+                while True:
+                    # wait for any player change (including errors)
+                    mon.idle("player")
+
+                    # immediately pull status
+                    st = mon.status()
+                    err = st.get("error")
+
+                    # if new error → log it
+                    if err and err != last_err:
+                        oradio_log.error("MPD reported error: %s", err)
+                        last_err = err
+
+                    # if error cleared → log that too
+                    elif not err and last_err is not None:
+                        oradio_log.info("MPD error cleared")
+                        last_err = None
+
+            except (ConnectionError, CommandError, Exception) as e:
+                # if the monitor client itself fails, log and retry
+                oradio_log.warning("MPD‐monitor died: %s; reconnecting in 2s", e)
+                last_err = None
+                try:
+                    mon.close()
+                except Exception:
+                    pass
+
+            time.sleep(2)
+
+
 
     def play_preset(self, preset):
         """
