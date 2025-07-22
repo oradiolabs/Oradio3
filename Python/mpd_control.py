@@ -18,6 +18,8 @@ Created on January 10, 2025
 @summary: Oradio MPD control module and playlist test scripts
 
 Update Play_song, did not play immediate when in MPD in pause
+
+Update MPD monitor errors to prevent hangs
 """
 import time
 import json
