@@ -29,7 +29,7 @@ Created on December 23, 2024
 import time
 import socket
 from threading import Thread, Event
-from multiprocessing import Process, Queue, queues
+from multiprocessing import Queue, queues
 import uvicorn
 
 ##### oradio modules ####################
