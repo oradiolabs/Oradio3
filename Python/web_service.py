@@ -127,7 +127,7 @@ class UvicornServerThread:
 
 class WebServiceMessageHandler:
     """Class to manage message handler running in a thread"""
-    
+
     def __init__(self, rx_queue, tx_queue):
         """Class constructor: Store parameters and initialise message handler thread""" 
         self.started_event = Event()
@@ -135,9 +135,9 @@ class WebServiceMessageHandler:
         self.message_listener = Thread(
             target=self._check_messages,
             args=(
-                self.started_event, 
-                self.stop_event, 
-                rx_queue, 
+                self.started_event,
+                self.stop_event,
+                rx_queue,
                 tx_queue,
             )
         )
@@ -161,7 +161,7 @@ class WebServiceMessageHandler:
         # Notify the thread is running
         started_event.set()
         oradio_log.info("Web service is listening for messages")
-        while not self.stop_event.is_set():
+        while not stop_event.is_set():
             try:
                 # Wait for message. Use timeout to allow checking stop_event
                 message = rx_q.get(block=True, timeout=1)
