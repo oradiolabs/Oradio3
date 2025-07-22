@@ -121,7 +121,7 @@ class WifiService():
             # Inform controller of actual state and error
             self._send_message(MESSAGE_NO_ERROR)
             # Return success, so caller can continue
-            return True
+            return
 
         # Configure if starting access point
         if ssid == ACCESS_POINT_SSID:
@@ -148,13 +148,11 @@ class WifiService():
                     self.saved_network = None
 
                 # Return fail, so caller can try to recover
-                return False
+                return
 
         # Removing before adding == replacing the network settings, just in case the password has changed
         # Disconnect and remove the current connection, not trying to reconnect (wifi_disconnect logs and sends message)
-        if not self.wifi_disconnect(False):
-            # Return fail, so caller can continue
-            return False
+        self.wifi_disconnect(False)
 
         # Add network settings to NetworkManager
         if ssid == ACCESS_POINT_SSID:
@@ -178,7 +176,7 @@ class WifiService():
                     self.saved_network = None
 
                 # Return fail, so caller can try to recover
-                return False
+                return
         else:
             # Add network credentials
             if pswd:
@@ -197,16 +195,13 @@ class WifiService():
                 # Inform controller of actual state and error
                 self._send_message(MESSAGE_WIFI_FAIL_CONNECT)
                 # Return fail, so caller can try to recover
-                return False
+                return
 
         # Connecting takes time, can fail: offload to a separate thread
         # ==> Don't use reference so that the python interpreter can garbage collect when thread is done
         threading.Thread(target=self._wifi_connect_thread, args=(ssid,)).start()
 
         oradio_log.info("Connecting to '%s' started", ssid)
-
-        # Return success, so caller can continue
-        return True
 
     def _wifi_connect_thread(self, network):
         """
@@ -261,7 +256,7 @@ class WifiService():
                 # Inform controller of actual state and error
                 self._send_message(MESSAGE_WIFI_FAIL_DISCONNECT)
                 # Return fail, so caller can try to recover
-                return False
+                return
 
             # Cleanup if stopping access point
             if active == ACCESS_POINT_SSID:
@@ -274,7 +269,7 @@ class WifiService():
                     # Send message with current state and error message
                     self._send_message(MESSAGE_WIFI_FAIL_AP_STOP)
                     # Return fail, so caller can try to recover
-                    return False
+                    return
 
                 # Reconnect to saved network (wifi_connect logs and sends message)
                 if reconnect and self.saved_network:
@@ -292,9 +287,6 @@ class WifiService():
 
         # Inform controller of actual state, no error
         self._send_message(MESSAGE_NO_ERROR)
-
-        # Return success, so caller can continue
-        return True
 
 def get_wifi_networks():
     """
@@ -538,25 +530,19 @@ if __name__ == '__main__':
                 network_id = input("Enter SSID of the network to add: ")
                 password = input("Enter password for the network to add (empty for open network): ")
                 if network_id:
-                    if wifi.wifi_connect(network_id, password):
-                        if password:
-                            print(f"\nConnecting to '{network_id}' with password '{password}'. Check messages for result\n")
-                        else:
-                            print(f"\nConnecting to '{network_id}' without password. Check messages for result\n")
+                    wifi.wifi_connect(network_id, password)
+                    if password:
+                        print(f"\nConnecting to '{network_id}' with password '{password}'. Check messages for result\n")
                     else:
-                        print(f"\nFailed to connect to '{network_id}' \n")
+                        print(f"\nConnecting to '{network_id}' without password. Check messages for result\n")
                 else:
                     print("\nNo network given\n")
             case 7:
-                if wifi.wifi_connect(ACCESS_POINT_SSID, None):
-                    print("\nStarting access point. Check messages for result\n")
-                else:
-                    print("\nFailed to start access point\n")
+                print("\nStarting access point. Check messages for result\n")
+                wifi.wifi_connect(ACCESS_POINT_SSID, None)
             case 8:
-                if wifi.wifi_disconnect():
-                    print("\nWiFi disconnected: check messages for behaviour\n")
-                else:
-                    print("\nFailed to disconnect\n")
+                print("\nWiFi disconnected: check messages for result\n")
+                wifi.wifi_disconnect()
             case _:
                 print("\nPlease input a valid number\n")
 
