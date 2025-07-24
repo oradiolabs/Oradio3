@@ -24,9 +24,9 @@ Update MPD monitor errors to prevent hangs
 import time
 import json
 import threading
-#import subprocess
-#import unicodedata
-import socket  
+import subprocess
+import unicodedata
+#import socket  
 from mpd import MPDClient
 
 ##### oradio modules ####################
