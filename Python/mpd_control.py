@@ -26,7 +26,7 @@ import json
 import threading
 import subprocess
 import unicodedata
-from mpd import MPDClient
+from mpd import MPDClient, CommandError, ConnectionError
 
 ##### oradio modules ####################
 from oradio_logging import oradio_log
