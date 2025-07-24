@@ -26,7 +26,7 @@ import json
 import threading
 import subprocess
 import unicodedata
-from mpd import MPDClient, CommandError, ConnectionError
+from mpd import MPDClient, CommandError, ConnectionError as MPDConnectionError
 
 ##### oradio modules ####################
 from oradio_logging import oradio_log
@@ -131,7 +131,7 @@ class MPDControl:
                         oradio_log.info("MPD error cleared")
                         last_err = None
 
-            except (ConnectionError, CommandError, Exception) as e:
+            except (MPDConnectionError, CommandError) as e:
                 # if the monitor client itself fails, log and retry
                 oradio_log.warning("MPD‐monitor died: %s; reconnecting in 2s", e)
                 last_err = None
