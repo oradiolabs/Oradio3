@@ -244,7 +244,6 @@ if [ "$1" != "--continue" ]; then
 		concurrent-log-handler
 		requests
 		nmcli
-		pyalsaaudio
 		vcgencmd
 		watchdog
 		pydantic
