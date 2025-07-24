@@ -24,10 +24,10 @@ Update MPD monitor errors to prevent hangs
 import time
 import json
 import threading
-import subprocess
-import unicodedata
+#import subprocess
+#import unicodedata
 import socket  
-from mpd import MPDClient, CommandError, ConnectionError as MPDConnectionError
+from mpd import MPDClient
 
 ##### oradio modules ####################
 from oradio_logging import oradio_log
@@ -96,84 +96,48 @@ class MPDControl:
                 oradio_log.info("Reconnecting MPD client…")
                 self.client = self._connect()
                 
-#     def _monitor_errors(self):
-#         """
-#         Dedicated MPDClient that:
-#           • connects once,
-#           • blocks on idle('player'),
-#           • on every player‐event does status() and logs any new "error".
-#         This never uses self.mpd_lock or your main client.
-#         """
-#         last_err = None
-# 
-#         while True:
-#             try:
-#                 mon = MPDClient()
-#                 mon.timeout = None         # block forever in idle()
-#                 mon.idletimeout = None
-#                 mon.connect(self.host, self.port)
-#                 oradio_log.info("MPD‐monitor connected")
-# 
-#                 while True:
-#                     # wait for any player change (including errors)
-#                     mon.idle("player")
-# 
-#                     # immediately pull status
-#                     st = mon.status()
-#                     err = st.get("error")
-# 
-#                     # if new error → log it
-#                     if err and err != last_err:
-#                         oradio_log.error("MPD reported error: %s", err)
-#                         last_err = err
-# 
-#                     # if error cleared → log that too
-#                     elif not err and last_err is not None:
-#                         oradio_log.info("MPD error cleared")
-#                         last_err = None
-# 
-#             except (MPDConnectionError, CommandError) as e:
-#                 # if the monitor client itself fails, log and retry
-#                 oradio_log.warning("MPD‐monitor died: %s; reconnecting in 2s", e)
-#                 last_err = None
-#                 try:
-#                     mon.close()
-#                 except Exception:
-#                     pass
-# 
-#             time.sleep(2)
             
     def _monitor_errors(self):
-        last_err = None
+        """
+        Background thread: every 10 s check MPD status, log any new
+        'error' field, and reconnect on failure. Never blocks playback.
+        """
         while True:
             try:
-                mon = MPDClient()
-                mon.timeout = None
-                mon.idletimeout = None
-                mon.connect(self.host, self.port)
-                oradio_log.info("MPD‐monitor connected")
+                # Ensure we have a live connection
+                if not self._is_connected():
+                    oradio_log.info("MPD monitor: reconnecting…")
+                    self.client = self._connect()
+                    # Reset so the first status error gets logged
+                    self.last_status_error = None
 
-                while True:
-                    mon.idle("player")
-                    st  = mon.status()
-                    err = st.get("error")
+                # If we're still not connected, skip this cycle
+                if not self._is_connected():
+                    time.sleep(10)
+                    continue
 
-                    if   err and err != last_err:
-                        oradio_log.error("MPD reported error: %s", err)
-                        last_err = err
-                    elif not err and last_err is not None:
-                        oradio_log.info("MPD error cleared")
-                        last_err = None
+                # Pull status once
+                status = self.client.status()
+                err = status.get("error")
 
-            except (socket.timeout, MPDConnectionError, CommandError) as e:
-                oradio_log.warning("MPD‐monitor died: %s; reconnecting in 2s", e)
-                last_err = None
-                try:
-                    mon.close()
-                except Exception:
-                    pass
+                # New error → log once
+                if err and err != self.last_status_error:
+                    oradio_log.error("MPD reported error: %s", err)
+                    self.last_status_error = err
 
-            time.sleep(2)
+                # Error cleared → log once
+                elif not err and self.last_status_error is not None:
+                    oradio_log.info("MPD error cleared")
+                    self.last_status_error = None
+
+            except Exception as e:
+                # On any exception, drop the client so _is_connected() will fail
+                oradio_log.warning("MPD monitor exception: %s", e)
+                self.client = None
+                self.last_status_error = None
+
+            # Wait a bit before the next check
+            time.sleep(10)
 
 
     def play_preset(self, preset):
