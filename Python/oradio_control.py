@@ -22,6 +22,7 @@ Created on Januari 31`, 2025
 Update for 0.4.0: OradioAP mode
 Update the State machine and added a standard Stress test for statemachine
 Added networking statemachine, to handle various states wifi and Web service
+Removed Bling
 
 """
 import time
