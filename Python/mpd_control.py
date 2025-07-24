@@ -26,6 +26,7 @@ import json
 import threading
 import subprocess
 import unicodedata
+import socket  
 from mpd import MPDClient, CommandError, ConnectionError as MPDConnectionError
 
 ##### oradio modules ####################
@@ -95,44 +96,76 @@ class MPDControl:
                 oradio_log.info("Reconnecting MPD client…")
                 self.client = self._connect()
                 
+#     def _monitor_errors(self):
+#         """
+#         Dedicated MPDClient that:
+#           • connects once,
+#           • blocks on idle('player'),
+#           • on every player‐event does status() and logs any new "error".
+#         This never uses self.mpd_lock or your main client.
+#         """
+#         last_err = None
+# 
+#         while True:
+#             try:
+#                 mon = MPDClient()
+#                 mon.timeout = None         # block forever in idle()
+#                 mon.idletimeout = None
+#                 mon.connect(self.host, self.port)
+#                 oradio_log.info("MPD‐monitor connected")
+# 
+#                 while True:
+#                     # wait for any player change (including errors)
+#                     mon.idle("player")
+# 
+#                     # immediately pull status
+#                     st = mon.status()
+#                     err = st.get("error")
+# 
+#                     # if new error → log it
+#                     if err and err != last_err:
+#                         oradio_log.error("MPD reported error: %s", err)
+#                         last_err = err
+# 
+#                     # if error cleared → log that too
+#                     elif not err and last_err is not None:
+#                         oradio_log.info("MPD error cleared")
+#                         last_err = None
+# 
+#             except (MPDConnectionError, CommandError) as e:
+#                 # if the monitor client itself fails, log and retry
+#                 oradio_log.warning("MPD‐monitor died: %s; reconnecting in 2s", e)
+#                 last_err = None
+#                 try:
+#                     mon.close()
+#                 except Exception:
+#                     pass
+# 
+#             time.sleep(2)
+            
     def _monitor_errors(self):
-        """
-        Dedicated MPDClient that:
-          • connects once,
-          • blocks on idle('player'),
-          • on every player‐event does status() and logs any new "error".
-        This never uses self.mpd_lock or your main client.
-        """
         last_err = None
-
         while True:
             try:
                 mon = MPDClient()
-                mon.timeout = None         # block forever in idle()
+                mon.timeout = None
                 mon.idletimeout = None
                 mon.connect(self.host, self.port)
                 oradio_log.info("MPD‐monitor connected")
 
                 while True:
-                    # wait for any player change (including errors)
                     mon.idle("player")
-
-                    # immediately pull status
-                    st = mon.status()
+                    st  = mon.status()
                     err = st.get("error")
 
-                    # if new error → log it
-                    if err and err != last_err:
+                    if   err and err != last_err:
                         oradio_log.error("MPD reported error: %s", err)
                         last_err = err
-
-                    # if error cleared → log that too
                     elif not err and last_err is not None:
                         oradio_log.info("MPD error cleared")
                         last_err = None
 
-            except (MPDConnectionError, CommandError) as e:
-                # if the monitor client itself fails, log and retry
+            except (socket.timeout, MPDConnectionError, CommandError) as e:
                 oradio_log.warning("MPD‐monitor died: %s; reconnecting in 2s", e)
                 last_err = None
                 try:
@@ -141,7 +174,6 @@ class MPDControl:
                     pass
 
             time.sleep(2)
-
 
 
     def play_preset(self, preset):
