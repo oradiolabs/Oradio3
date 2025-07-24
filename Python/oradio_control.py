@@ -39,7 +39,10 @@ import sys
 ##### oradio modules ####################
 from oradio_logging import oradio_log
 from volume_control import VolumeControl
-from mpd_control import MPDControl
+
+#from mpd_control import MPDControl
+from mpd_control import get_mpd_control
+
 from led_control import LEDControl
 from play_system_sound import PlaySystemSound
 from touch_buttons import TouchButtons
@@ -69,7 +72,9 @@ usb_present_event = threading.Event() # track status USB
 
 
 # Instantiate MPDControl
-mpd = MPDControl()
+#mpd = MPDControl()
+mpd = get_mpd_control()
+
 # Instantiate  led control
 leds = LEDControl()
 # Instantiate sound player
@@ -108,7 +113,7 @@ class StateMachine:
             return
         # Good to go
         oradio_log.debug("Starting WebService: %r", ws)
-        sound_player.play("Attention")
+        leds.control_blinking_led("LEDPlay", 2)
         ws.start()
         
     def transition(self, requested_state):
@@ -413,7 +418,6 @@ class Networking:
                     leds.turn_on_led("LEDPlay")
                 else:
                     leds.control_blinking_led("LEDPlay", 0)
-                sound_player.play("Attention")
                 sound_player.play("OradioAPstopped")
 
                 APWebserviceTracker= True
