@@ -19,7 +19,7 @@ Created on December 23, 2024
 @status:        Development
 @summary:       Defines for oradio scripts
 
-5 may update volume settings to prepare for speaker in production
+25 jul update volume settings to prepare for speaker in production
 """
 
 ################## SYSTEM #############################
@@ -90,7 +90,7 @@ PRESET_FILE_PATH = USB_SYSTEM + "/presets.json"
 ################## VOLUME #############################
 # Raw volume units
 VOLUME_MINIMUM = 105
-VOLUME_MAXIMUM = 200
+VOLUME_MAXIMUM = 215
 # Volume messages
 #OMJ: 'Type' is eigenlijk 'source'
 MESSAGE_TYPE_VOLUME   = "Vol Control message"
