@@ -25,7 +25,7 @@ Created on Januari 17, 2025
 import time
 import threading
 from backlighting import backlighting  # Assuming your code is saved in backlighting.py
-import RPi.GPIO as GPIO
+from RPi import GPIO
 
 # Switch all leds to output high
 LEDS = {
@@ -44,6 +44,7 @@ for name, pin in LEDS.items():
     GPIO.setup(pin, GPIO.OUT, initial=GPIO.HIGH)
 
 def test_backlighting():
+    """Collection of backlighting test functions"""
     lighting = backlighting()
     auto_adjust_thread = None
 
@@ -99,7 +100,7 @@ def test_backlighting():
         # Get user input
         try:
             function_nr = int(input(input_selection))
-        except:
+        except ValueError:
             function_nr = -1
 
         # Execute selected function

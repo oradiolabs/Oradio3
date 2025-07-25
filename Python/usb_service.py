@@ -28,6 +28,8 @@ Created on Januari 17, 2025
 """
 import os
 import json
+from threading import Thread, Event, Lock
+from multiprocessing import Queue, queues
 from watchdog.observers import Observer
 from watchdog.events import PatternMatchingEventHandler
 
@@ -49,7 +51,7 @@ from oradio_const import (
 ##### LOCAL constants ####################
 USB_MONITOR   = "usb_ready"                             # Name of file used to monitor if USB is mounted or not
 USB_WIFI_FILE = USB_MOUNT_POINT + "/wifi_invoer.json"   # File name in USB root with wifi credentials
-
+TIMEOUT       = 10                                      # Seconds to wait
 
 # MONITOR is used to signal mounting/unmounting is complete
 class USBMonitor(PatternMatchingEventHandler):
@@ -71,6 +73,58 @@ class USBMonitor(PatternMatchingEventHandler):
         oradio_log.info("%s deleted", event.src_path)
         self.service._usb_removed()    # pylint: disable=protected-access
 
+class USBServiceMessageHandler:
+    """Class to manage message handler running in a thread"""
+
+    def __init__(self, rx_queue, tx_queue, label=""):
+        """Class constructor: Store parameters and initialise message handler thread"""
+        self.started_event = Event()
+        self.stop_event = Event()
+        self.message_listener = Thread(
+            target=self._check_messages,
+            args=(
+                self.started_event,
+                self.stop_event,
+                rx_queue,
+                tx_queue,
+            )
+        )
+        # Register identifier for multiple instances
+        self.label = label
+
+    def start(self):
+        """Start the message handler"""
+        self.message_listener.start()
+        self.started_event.wait()
+
+    def stop(self):
+        """Stop the message handler"""
+        self.stop_event.set()  # Signal the thread to stop
+        self.message_listener.join(timeout=TIMEOUT)  # Wait for it to exit or timeout
+
+    def _check_messages(self, started_event, stop_event, rx_q, tx_q):
+        """
+        Check if a new message is put into the queue
+        If so, read the message from queue, display it, and forward it
+        :param queue = the queue to check for
+        """
+        # Notify the thread is running
+        started_event.set()
+        oradio_log.debug("%sListening for messages", self.label)
+        while not stop_event.is_set():
+            try:
+                # Wait for message. Use timeout to allow checking stop_event
+                message = rx_q.get(block=True, timeout=1)
+                oradio_log.debug("%sReceived: %s", self.label, message)
+#OMJ: This is the place to parse the incoming message before sending a message to control
+                if tx_q:
+                    # Put message in queue
+                    oradio_log.debug("%sForwarding: %s", self.label, message)
+                    tx_q.put(message)
+            except queues.Empty:
+                # Timeout occurred, loop again to check stop_event
+                continue
+
 class USBService():
     """
     States and functions related to USB drive handling
@@ -78,24 +132,34 @@ class USBService():
     - Functions: Determine USB drive presence, get USB drive label, handle USB drive insertion/removal
     Send messages on state changes
     """
+
     def __init__(self, queue):
+        """"
+        Class constructor: Setup the class
         """
-        Initialize USB state and error
-        Start insert/remove monitor
-        Report to parent process
-        """
-        # Initialize
-        self.msg_q = queue
+        # Register queue for sending message to controller
+        self.tx_queue = queue
+
+        # Initialize queue for receiving messeages
+        self.rx_queue = Queue()
+
+        # Create message handler
+        self.message_handler = USBServiceMessageHandler(self.rx_queue, self.tx_queue, "USBService: ")
+        self.message_handler.start() # Returns after thread has entered its target function
+
+        # For thread-safe state read/write
+        self.state = None
+        self._state_lock = Lock()
 
         # Check if USB is mounted
         if os.path.ismount(USB_MOUNT_POINT):
             # Set USB state
-            self.state = STATE_USB_PRESENT
+            self.set_state(STATE_USB_PRESENT)
             # Handle wifi credentials
             error = self._handle_usb_wifi_credentials()
         else:
             # Set USB state
-            self.state = STATE_USB_ABSENT
+            self.set_state(STATE_USB_ABSENT)
             error = MESSAGE_NO_ERROR
 
         # Set observer to handle USB inserted/removed events
@@ -116,19 +180,23 @@ class USBService():
         # Create message
         message = {
             "type": MESSAGE_USB_TYPE,
-            "state": self.state,
+            "state": self.get_state(),
             "error": error
         }
 
         # Put message in queue
         oradio_log.debug("Send USB service message: %s", message)
-        self.msg_q.put(message)
+        self.tx_queue.put(message)
 
     def get_state(self):
-        """
-        Return usb service status
-        """
-        return self.state
+        """Thread-safe getter for USB state"""
+        with self._state_lock:
+            return self.state
+
+    def set_state(self, new_state):
+        """Thread-safe setter for USB state"""
+        with self._state_lock:
+            self.state = new_state
 
     def _handle_usb_wifi_credentials(self):
         """
@@ -136,7 +204,8 @@ class USBService():
         If exists, then try to connect using the wifi credentials from the file
         """
         # If USB is present look for and parse USB_WIFI_FILE
-        if self.state == STATE_USB_PRESENT:
+        if self.get_state() == STATE_USB_PRESENT:
+            oradio_log.info("Checking for %s", USB_WIFI_FILE)
 
             # Check if wifi credentials file exists in USB drive root
             if not os.path.isfile(USB_WIFI_FILE):
@@ -166,14 +235,14 @@ class USBService():
                 return MESSAGE_USB_ERROR_FILE
 
             # Log wifi credentials found
-            oradio_log.info("USB wifi credentials found: ssid=%s, password=%s", ssid, pswd)
+            oradio_log.info("USB wifi credentials found: ssid=%s", ssid)
 
             # Connect to the wifi network
-            WifiService(self.msg_q).wifi_connect(ssid, pswd)
+            WifiService(self.rx_queue).wifi_connect(ssid, pswd)
 
         else:
             # USB is absent
-            oradio_log.info("USB state '%s': Ignore '%s'", self.state, USB_WIFI_FILE)
+            oradio_log.info("USB state '%s': Ignore '%s'", self.get_state(), USB_WIFI_FILE)
 
         # No issues found
         return MESSAGE_NO_ERROR
@@ -186,7 +255,7 @@ class USBService():
         oradio_log.info("USB inserted")
 
         # Set USB state
-        self.state = STATE_USB_PRESENT
+        self.set_state(STATE_USB_PRESENT)
 
         # Get wifi credentials
         error = self._handle_usb_wifi_credentials()
@@ -202,7 +271,7 @@ class USBService():
         oradio_log.info("USB removed")
 
         # Set state and clear info
-        self.state = STATE_USB_ABSENT
+        self.set_state(STATE_USB_ABSENT)
 
         # send message
         self._send_message(MESSAGE_NO_ERROR)
@@ -210,13 +279,17 @@ class USBService():
     def stop(self):
         """
         Stop the monitor daemon
+        Stop the message handler
         """
         # Only stop if active
         if self.observer:
             self.observer.stop()
-            self.observer.join()
+            self.observer.join(timeout=TIMEOUT)
         else:
             oradio_log.warning("USB service already stopped")
+
+        # Stop web service message handler
+        self.message_handler.stop()
 
         # Log status
         oradio_log.info("USB service stopped")
@@ -224,30 +297,13 @@ class USBService():
 # Entry point for stand-alone operation
 if __name__ == '__main__':
 
-    # import when running stand-alone
-    from multiprocessing import Process, Queue
-
-    def _check_messages(queue):
-        """
-        Check if a new message is put into the queue
-        If so, read the message from queue and display it
-        :param queue = the queue to check for
-        """
-        print("Listening for messages\n")
-
-        while True:
-            # Wait for message
-            message = queue.get(block=True, timeout=None)
-            # Show message received
-            print(f"\nMessage received: '{message}'\n")
-
     # Initialize
     monitor = None  # pylint: disable=invalid-name
     message_queue = Queue()
 
-    # Start  process to monitor the message queue
-    message_listener = Process(target=_check_messages, args=(message_queue,))
-    message_listener.start()
+    # Create message handler. Logging will close color at end of string
+    message_handler = USBServiceMessageHandler(message_queue, None, "\033[1;32mControl: ")
+    message_handler.start() # Returns after thread has entered its target function
 
     # Show menu with test options
     INPUT_SELECTION = ("Select a function, input the number.\n"
@@ -315,6 +371,5 @@ if __name__ == '__main__':
             case _:
                 print("\nPlease input a valid number\n")
 
-    # Stop listening to messages
-    if message_listener:
-        message_listener.kill()
+    # Stop main listening to messages
+    message_handler.stop()

@@ -38,9 +38,6 @@ from wifi_service import WifiService, get_wifi_networks, get_wifi_connection
 ##### oradio modules ####################
 from oradio_logging import oradio_log
 from oradio_utils import run_shell_script
-
-
-#from mpd_control import MPDControl
 from mpd_control import get_mpd_control
 
 ##### GLOBAL constants ####################
@@ -116,7 +113,6 @@ def store_presets(presets):
         oradio_log.error("Failed to write '%s'. error: %s", PRESETS_FILE, ex_err)
 
 # Get mpd functions
-#mpdcontrol = MPDControl()
 mpdcontrol = get_mpd_control()
 
 @api_app.get("/playlists")
