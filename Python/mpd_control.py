@@ -1,3 +1,4 @@
+# pylint: disable=E1101,E1102
 #!/usr/bin/env python3
 """
   ####   #####     ##    #####      #     ####
@@ -18,12 +19,15 @@ Created on January 10, 2025
 @summary: Oradio MPD control module and playlist test scripts
 
 Update Play_song, did not play immediate when in MPD in pause
+
+Update MPD monitor errors to prevent hangs
 """
 import time
 import json
 import threading
 import subprocess
 import unicodedata
+#import socket  
 from mpd import MPDClient
 
 ##### oradio modules ####################
@@ -37,87 +41,105 @@ CROSSFADE = 5
 
 
 class MPDControl:
-    """
-    Class to manage MPD client connection and control playback safely.
-    """
-    def __init__(self, host="localhost", port=6600):
+    def __init__(self, host: str = "localhost", port: int = 6600):
+
         self.host = host
         self.port = port
-        self.client = None
+        self._crossfade_done = False          
+        self.client = self._connect()
         self.current_playlist = None
         self.last_status_error = None
         self.mpd_lock = threading.Lock()
-
+        
         # Event for cancelling MPD database update
         self.mpd_update_cancel_event = threading.Event()
+        
+        # start the separate monitor thread
+        t = threading.Thread(target=self._monitor_errors, daemon=True)
+        t.start()
 
-        # Start MPD connection maintenance thread
-        self.connection_thread = threading.Thread(target=self._maintain_connection, daemon=True)
-        self.connection_thread.start()
-
-    def _connect(self):
-        """Connects to the MPD server."""
-        client = MPDClient()
-        client.timeout = 20
-        client.idletimeout = None
+    def _connect(self) -> MPDClient:
+        c = MPDClient()
+        c.timeout = 20
+        c.idletimeout = None
         try:
-            client.connect(self.host, self.port)
-            oradio_log.info("Connected to MPD server.")
-            # set a 5s crossfade on every connection
-            try:
-                client.crossfade(CROSSFADE)  # pylint: disable=no-member
-                oradio_log.info("Connected to MPD server and set crossfade to 5s.")
-            except Exception as mpd_err: # pylint: disable=broad-exception-caught
-                oradio_log.error("Error while setting crossfade: %s", mpd_err)
-            return client
-        except Exception as ex_err: # pylint: disable=broad-exception-caught
-            oradio_log.error("Failed to connect to MPD server: %s", ex_err)
+            c.connect(self.host, self.port)
+            oradio_log.info(f"Connected to MPD at {self.host}:{self.port}")
+
+            # only set CROSSFADE the first time
+            if not self._crossfade_done:
+                try:
+                    c.crossfade(CROSSFADE)
+                    oradio_log.info(f"Set crossfade to {CROSSFADE}s")
+                except Exception as e:
+                    oradio_log.warning(f"Crossfade failed: {e}")
+                else:
+                    self._crossfade_done = True
+
+            return c
+
+        except Exception as e:
+            oradio_log.error(f"MPD connect failed: {e}")
             return None
 
-    def _is_connected(self):
-        """Checks if MPD is connected."""
-        try:
-            if self.client:
-                self.client.ping()
-                return True
-        except Exception: # pylint: disable=broad-exception-caught
+    def _is_connected(self) -> bool:
+        if not self.client:
             return False
-        return False
-
-    def _maintain_connection(self):
-        """Maintains a persistent connection to MPD, reconnecting as needed, and logging errors."""
-        while True:
-            with self.mpd_lock:
-                if not self._is_connected():
-                    oradio_log.info("MPD connection lost. Reconnecting...")
-                    self.client = self._connect()
-                    # Reset cached error on reconnection
-                    self.last_status_error = None
-
-                if self.client:
-                    try:
-                        status = self.client.status()
-                        if "error" in status:
-                            current_error = status.get("error", "")
-                            # Only log if the error has changed
-                            if current_error != self.last_status_error:
-                                oradio_log.error("MPD reported an error: %s", current_error)
-                                self.last_status_error = current_error
-                        else:
-                            # Clear cached error when no error is present
-                            self.last_status_error = None
-                    except Exception as ex_err: # pylint: disable=broad-exception-caught
-                        oradio_log.error("Error checking MPD status: %s", ex_err)
-                        self.last_status_error = str(ex_err)
-            time.sleep(10)  # Check every 10 seconds
-
+        try:
+            self.client.ping()
+            return True
+        except Exception:
+            return False
 
     def _ensure_client(self):
-        """Ensures an active MPD client before sending commands."""
         with self.mpd_lock:
             if not self._is_connected():
-                oradio_log.debug("Reconnecting MPD client...")
+                oradio_log.info("Reconnecting MPD client…")
                 self.client = self._connect()
+                
+            
+    def _monitor_errors(self):
+        """
+        Background thread: every 10 s check MPD status, log any new
+        'error' field, and reconnect on failure. Never blocks playback.
+        """
+        while True:
+            try:
+                # Ensure we have a live connection
+                if not self._is_connected():
+                    oradio_log.info("MPD monitor: reconnecting…")
+                    self.client = self._connect()
+                    # Reset so the first status error gets logged
+                    self.last_status_error = None
+
+                # If we're still not connected, skip this cycle
+                if not self._is_connected():
+                    time.sleep(10)
+                    continue
+
+                # Pull status once
+                status = self.client.status()
+                err = status.get("error")
+
+                # New error → log once
+                if err and err != self.last_status_error:
+                    oradio_log.error("MPD reported error: %s", err)
+                    self.last_status_error = err
+
+                # Error cleared → log once
+                elif not err and self.last_status_error is not None:
+                    oradio_log.info("MPD error cleared")
+                    self.last_status_error = None
+
+            except Exception as e:
+                # On any exception, drop the client so _is_connected() will fail
+                oradio_log.warning("MPD monitor exception: %s", e)
+                self.client = None
+                self.last_status_error = None
+
+            # Wait a bit before the next check
+            time.sleep(10)
+
 
     def play_preset(self, preset):
         """
@@ -673,6 +695,30 @@ class MPDControl:
         except json.JSONDecodeError:
             oradio_log.error("Error: Failed to decode JSON. Please check the file's format.")
         return None
+    
+# mpd_control.py
+# —————————————————————————————————————————————————————————————
+# Singleton factory for MPDControl
+#
+# This function ensures that only one MPDControl instance is ever created
+# during the process lifetime. On the first call it constructs and returns
+# the MPDControl (opening the MPD connection); all later calls simply
+# return that same object, preventing duplicate MPDClient connections
+# and redundant setup such as crossfade re-configuration.
+
+_mpd_singleton: MPDControl | None = None
+
+def get_mpd_control(host: str = "localhost", port: int = 6600) -> MPDControl:
+    """
+    Return the one-and-only MPDControl instance.
+    Subsequent calls reuse the same object.
+    """
+    global _mpd_singleton
+    if _mpd_singleton is None:
+        _mpd_singleton = MPDControl(host, port)
+    return _mpd_singleton 
+    
+
 
 # Entry point for stand-alone operation
 if __name__ == '__main__':
