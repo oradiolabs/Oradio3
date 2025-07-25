@@ -46,10 +46,10 @@ class backlighting:
         self.INTEGRATION_TIME_300MS = 0x02
         self.MCP4725_ADDR = 0x60
         self.bus = smbus2.SMBus(1)
-        self.lux_min = 0.1
+        self.lux_min = 0.7
         self.lux_mid = 5
         self.lux_max = 20.0
-        self.backlight_min = 3600
+        self.backlight_min = 3800
         self.backlight_mid = 3300
         self.backlight_max = 3000
         self.lux_threshold = 30.0
