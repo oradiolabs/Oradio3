@@ -15,48 +15,12 @@
 		<script>
 			// Convert template variables to javascript
 			var playlists = {{ playlists|tojson }};
-			const directories = {{ directories|tojson }};
 
 			// Global flag indicating playlist is protected
 			let playlistIsProtected = true;
 
-			// Function to submit the changed preset
-			async function savepreset(preset)
-			{
-				// Get notification element
-				const notification = document.getElementById("presets_notification");
-
-				// Set error template
-				const errorMessage = `Koppelen van '${preset}' is mislukt`
-
-				try
-				{
-					// Send presets to server
-					const response = await fetch('/save_preset',
-					{
-						method: 'POST',
-						headers: {'Content-Type': 'application/json'},
-						body: JSON.stringify({"preset": preset, "playlist": document.getElementById(preset).value})
-					});
-
-					// Handle server response
-					if (!response.ok)
-					{
-						const errorData = await response.json();
-						notification.innerHTML = `<p class='error'>${errorData.message || errorMessage}</p>`;
-						notification.style.display = "block";
-					}
-				}
-
-				// Handle server not responding
-				catch (error)
-				{
-					notification.innerHTML = `<p class='error'>${errorMessage}<br>Controleer of de web interface actief is</p>`;
-					notification.style.display = "block";
-				}
-			}
-
 			/*
+			 * Function to get the songs for the selected playlist
 			 * Called:
 			 * - On 'Enter'-key while playlist input has focus
 			 * - On playlist in dropdown selected
@@ -65,53 +29,40 @@
 			 * - Get songs for playlist input
 			 *   - Get playlist input
 			 *   - Validate playlist
-			 *   - Clear notification
 			 *   - Fetch songs for playlist input
-			 *   - Render songs:
-			 *     - Show list of songs or notification if none
-			 *     - Show 'Remove'-button if playlist is not protected
+			 *   - Show list of songs with 'Remove'-button or playlist_notification if none
 			 */
 			async function getPlaylistSongs()
 			{
-				// Get notification element
-				const notification = document.getElementById("playlist_notification");
-
 				// Get playlist input
-				const playlist = document.getElementById("playlist").value.trim();
+				const playlist = document.getElementById("autocomplete-input").value.trim();
 
 				// Get songs list container
-				const songlist = document.getElementById("playlistsongs");
+				const songlist = document.getElementById("playlist-songs");
 
 				// Check for playlist
 				if (!playlist)
 				{
-					// Hide songs list
+					// No playlist: hide songlist
 					songlist.style.display = "none";
 
-					// Clear and hide notification
-					notification.innerHTML = "";
-					notification.style.display = "none";
-
-					// Empty playlist: cannot be modified
-					playlistIsProtected = true;
-
-					// Done: nothing to search for
+					// Done: no playlist to list songs for
 					return;
 				}
 
+				// Get array with only the names of the playlists which are no webradio
+				const nonWebradioPlaylists = playlists.filter(item => !item.webradio).map(item => item.playlist);
+
 				// Check playlist exists
-				if (!playlists.includes(playlist) && !directories.includes(playlist))
+				if (!nonWebradioPlaylists.includes(playlist))
 				{
 					// playlist does not exist: Notify user
 					playlist_notification.innerHTML = `<p class='error'>Speellijst '${playlist}' bestaat niet<br>Voeg toe met de <button class="save-button-tiny"></button>-knop</p>`;
 					playlist_notification.style.display = "block";
 
 					// Hide songs list
-					const songlist = document.getElementById("playlistsongs");
+					const songlist = document.getElementById("playlist-songs");
 					songlist.style.display = "none";
-
-					// New playlist: can be modified
-					playlistIsProtected = false;
 
 					// Done: playlist does not exist
 					return;
@@ -143,42 +94,12 @@
 							songlist.style.display = "none";
 
 							// Notify
-							notification.innerHTML = `<span class='warning'>Speellijst '${playlist}' is leeg</span>`;
-							notification.style.display = "block";
-
-							// playlist is NOT protected, so songlist CAN be modified
-							playlistIsProtected = false;
+							playlist_notification.innerHTML = `<span class='warning'>Speellijst '${playlist}' is leeg</span>`;
+							playlist_notification.innerHTML = `<p class='warning'>Speellijst '${playlist}' bestaat, maar is leeg<br>Zoek liedjes en voeg toe met de <button class="save-button-tiny"></button>-knop</p>`;
+							playlist_notification.style.display = "block";
 
 							// Done: no songs found
 							return;
-						}
-
-						// Check if playlist is directory
-						if (directories.includes(playlist))
-						{
-							// playlist IS protected, so songlist CANNOT be modified
-							playlistIsProtected = true;
-						}
-						// Check if playlist is web radio
-						else if ((/^https?:/.test(songs[0]['file'])))
-						{
-							// Hide songs list
-							songlist.style.display = "none";
-
-							// playlist IS protected, so songlist CANNOT be modified
-							playlistIsProtected = true;
-
-							// Notify
-							notification.innerHTML = `<span class='warning'>Speellijst '${playlist}' is een webradio</span>`;
-							notification.style.display = "block";
-
-							// Done: no songs found
-							return;
-						}
-						else
-						{
-							// playlist is NOT protected, so songlist CAN be modified
-							playlistIsProtected = false;
 						}
 
 						// Get songs container
@@ -199,21 +120,17 @@
 							// Song artist and title
 							li.textContent = `${song.artist} - ${song.title}`;
 
-							// Add button if playlist is editable
-							if (!playlistIsProtected)
-							{
-								// Create button element
-								const button = document.createElement("button");
+							// Create button element
+							const button = document.createElement("button");
 
-								// Readability
-								button.title = "Verwijderen";
+							// Readability
+							button.title = "Verwijderen";
 
-								// Styling
-								button.classList.add("delete-button-small");
+							// Styling
+							button.classList.add("delete-button-small");
 
-								// Add button element to song
-								li.appendChild(button);
-							}
+							// Add button element to song
+							li.appendChild(button);
 
 							// Add song element to songs container
 							ul.appendChild(li);
@@ -222,9 +139,9 @@
 						// Show songs list
 						songlist.style.display = "block";
 
-						// Clear and hide notification
-						notification.innerHTML = "";
-						notification.style.display = "none";
+						// Clear and hide playlist_notification
+						playlist_notification.innerHTML = "";
+						playlist_notification.style.display = "none";
 
 					}
 					else
@@ -233,16 +150,16 @@
 						const errorData = await response.json();
 
 						// Notify
-						notification.innerHTML = `<p class='error'>${errorData.message || errorMessage}</p>`;
-						notification.style.display = "block";
+						playlist_notification.innerHTML = `<p class='error'>${errorData.message || errorMessage}</p>`;
+						playlist_notification.style.display = "block";
 					}
 				}
 
 				// Handle server not responding
 				catch (error)
 				{
-					notification.innerHTML = `<p class='error'>${errorMessage}<br>Controleer of de web interface actief is</p>`;
-					notification.style.display = "block";
+					playlist_notification.innerHTML = `<p class='error'>${errorMessage}<br>Controleer of de web interface actief is</p>`;
+					playlist_notification.style.display = "block";
 				}
 			}
 
@@ -255,22 +172,16 @@
 			 * - Get songs for search input
 			 *   - Get search input
 			 *   - Validate search pattern
-			 *   - Clear notification
 			 *   - Fetch songs for search input
-			 *   - Render songs:
-			 *     - Show list of songs or notification if none
-			 *     - Show 'Add'-button if playlist is not protected
+			 *   - Show list of songs and 'Add'-button or search_notification if none
 			 */
 			async function getSearchSongs()
 			{
-				// Get notification element
-				const notification = document.getElementById("search_notification");
-
 				// Get search input
 				const search = document.getElementById("search").value.trim();
 
 				// Get songs list container
-				const songlist = document.getElementById("searchsongs");
+				const songlist = document.getElementById("search-songs");
 
 				// Check for search pattern
 				if (!search)
@@ -278,9 +189,9 @@
 					// Hide songs list
 					songlist.style.display = "none";
 
-					// Clear and hide notification
-					notification.innerHTML = "";
-					notification.style.display = "none";
+					// Clear and hide search_notification
+					search_notification.innerHTML = "";
+					search_notification.style.display = "none";
 
 					// Done: nothing to search for
 					return;
@@ -293,8 +204,8 @@
 					songlist.style.display = "none";
 
 					// Notify
-					notification.innerHTML = `<span class='warning'>Gebruik een zoekopdracht met minimaal 3 karakters</span>`;
-					notification.style.display = "block";
+					search_notification.innerHTML = `<span class='warning'>Gebruik een zoekopdracht met minimaal 3 karakters</span>`;
+					search_notification.style.display = "block";
 
 					// Done: search pattern too short
 					return;
@@ -326,8 +237,8 @@
 							songlist.style.display = "none";
 
 							// Notify
-							notification.innerHTML = `<span class='warning'>Geen liedjes gevonden met '${search}' in de naam van de artiest of in de titel<br>Gebruik een andere zoekopdracht</span>`;
-							notification.style.display = "block";
+							search_notification.innerHTML = `<span class='warning'>Geen liedjes gevonden met '${search}' in de naam van de artiest of in de titel<br>Gebruik een andere zoekopdracht</span>`;
+							search_notification.style.display = "block";
 
 							// Done: no songs found
 							return;
@@ -351,21 +262,17 @@
 							// Song artist and title
 							li.textContent = `${song.artist} - ${song.title}`;
 
-							// Add button if playlist is not protected
-							if (!playlistIsProtected)
-							{
-								// Create button element
-								const button = document.createElement("button");
+							// Create button element
+							const button = document.createElement("button");
 
-								// Readability
-								button.title = "Toevoegen";
+							// Readability
+							button.title = "Toevoegen";
 
-								// Styling
-								button.classList.add("save-button-small");
+							// Styling
+							button.classList.add("save-button-small");
 
-								// Add button element to song element
-								li.appendChild(button);
-							}
+							// Add button element to song element
+							li.appendChild(button);
 
 							// Add song element to songs container
 							ul.appendChild(li);
@@ -374,9 +281,9 @@
 						// Show songs list
 						songlist.style.display = "block";
 
-						// Clear and hide notification
-						notification.innerHTML = "";
-						notification.style.display = "none";
+						// Clear and hide search_notification
+						search_notification.innerHTML = "";
+						search_notification.style.display = "none";
 					}
 					else
 					{
@@ -384,61 +291,46 @@
 						const errorData = await response.json();
 
 						// Notify
-						notification.innerHTML = `<p class='error'>${errorData.message || errorMessage}</p>`;
-						notification.style.display = "block";
+						search_notification.innerHTML = `<p class='error'>${errorData.message || errorMessage}</p>`;
+						search_notification.style.display = "block";
 					}
 				}
 
 				// Handle server not responding
 				catch (error)
 				{
-					notification.innerHTML = `<p class='error'>${errorMessage}<br>Controleer of de web interface actief is</p>`;
-					notification.style.display = "block";
+					search_notification.innerHTML = `<p class='error'>${errorMessage}<br>Controleer of de web interface actief is</p>`;
+					search_notification.style.display = "block";
 				}
 			}
 
 			// Add song to playlist. Create playlist if it does not exist.
 			async function addSong(songfile)
 			{
-				// Get notification element
-				const notification = document.getElementById("playlist_notification");
-
 				// Get playlist
-				const playlist = document.getElementById("playlist").value.trim();
+				const playlist = document.getElementById("autocomplete-input").value.trim();
 
 				// playlist cannot be empty
 				if (!playlist)
 				{
 					// Notify
-					notification.innerHTML = `<p class='error'>Kies of typ een geldige speellijstnaam</p>`;
-					notification.style.display = "block";
+					playlist_notification.innerHTML = `<p class='error'>Kies of typ een geldige speellijstnaam</p>`;
+					playlist_notification.style.display = "block";
 
 					// Hide songs list
-					const songlist = document.getElementById("playlistsongs");
+					const songlist = document.getElementById("playlist-songs");
 					songlist.style.display = "none";
 
 					// Done: no playlist given
 					return;
 				}
 
-				// playlist cannot be a directory
-				if (directories.includes(playlist))
+				// Get array with only the names of the playlists which are no webradio
+				const nonWebradioPlaylists = playlists.filter(item => !item.webradio).map(item => item.playlist);
+
+				// Ignore if no songfile to add and playlist already exist
+				if (!songfile && nonWebradioPlaylists.includes(playlist))
 				{
-					// Notify
-					notification.innerHTML = `<p class='error'>Speellijst '${playlist}' is beschermd<br>Typ een unieke speellijstnaam</p>`;
-					notification.style.display = "block";
-
-					// Done: playlist is directory
-					return;
-				}
-
-				// Ignore if playlist already exist
-				if (!songfile && playlists.includes(playlist))
-				{
-					// Notify
-					notification.innerHTML = `<p class='error'>Speellijst '${playlist}' bestaat.<br>Typ een unieke speellijstnaam</p>`;
-					notification.style.display = "block";
-
 					// Done: playlist already exists
 					return;
 				}
@@ -454,68 +346,72 @@
 					return;
 
 				// Add playlist if not yet known
-				if (!playlists.includes(playlist))
+				if (!nonWebradioPlaylists.includes(playlist))
 				{
-					// Add playlist
-					playlists.push(playlist);
+					// Add playlist, which is no webradio
+					playlists.push({playlist: playlist, webradio: false});
 
-					// Sort case insensitive
-					playlists.sort((a, b) => a.localeCompare(b, undefined, { sensitivity: 'base' }));
+					// Sort the array case-insensitively based on the 'playlist' property
+					playlists.sort((a, b) => {
+						const playlistA = a.playlist.toLowerCase();
+						const playlistB = b.playlist.toLowerCase();
+
+						if (playlistA < playlistB) {
+							return -1;
+						}
+						if (playlistA > playlistB) {
+							return 1;
+						}
+						return 0;
+					});
+
+					// playlist added: Notify user
+					playlist_notification.innerHTML = `<p class='success'>Speellijst '${playlist}' is toegevoegd<br>Zoek liedjes en voeg toe met de <button class="save-button-tiny"></button>-knop</p>`;
+					playlist_notification.style.display = "block";
+
+					// No playlist: hide songlist
+					document.getElementById("playlist-songs").style.display = "none";
 				}
-
-				// Update song lists
-				getPlaylistSongs();
-				getSearchSongs();
+				else
+				{
+					// Update song lists
+					getPlaylistSongs();
+				}
 			}
 
 			// Remove song from playlist. Remove playlist if no song.
 			async function removeSong(songfile)
 			{
-				// Get notification element
-				const notification = document.getElementById("playlist_notification");
-
 				// Get playlist
-				const playlist = document.getElementById("playlist").value.trim();
+				const playlist = document.getElementById("autocomplete-input").value.trim();
 
 				// playlist cannot be empty
 				if (!playlist)
 				{
 					// Notify
-					notification.innerHTML = `<p class='error'>Kies of typ een geldige speellijstnaam</p>`;
-					notification.style.display = "block";
+					playlist_notification.innerHTML = `<p class='error'>Kies of typ een geldige speellijstnaam</p>`;
+					playlist_notification.style.display = "block";
 
 					// Hide songs list
-					const songlist = document.getElementById("playlistsongs");
+					const songlist = document.getElementById("playlist-songs");
 					songlist.style.display = "none";
 
 					// Done: no playlist given
 					return;
 				}
 
-				// playlist cannot be a directory or web radio
-				if (playlistIsProtected)
-				{
-					// Notify
-					notification.innerHTML = `<p class='error'>Speellijst '${playlist}' is beschermd</p>`;
-					notification.style.display = "block";
-
-					// Hide songs list
-					const songlist = document.getElementById("playlistsongs");
-					songlist.style.display = "none";
-
-					// Done: playlist is directory or web radio
-					return;
-				}
+				// Get array with only the names of the playlists which are no webradio
+				const nonWebradioPlaylists = playlists.filter(item => !item.webradio).map(item => item.playlist);
 
 				// playlist must exist
-				if (!playlists.includes(playlist))
+				if (!nonWebradioPlaylists.includes(playlist))
 				{
 					// Notify
-					notification.innerHTML = `<p class='error'>Speellijst '${playlist}' bestaat niet</p>`;
-					notification.style.display = "block";
+					playlist_notification.innerHTML = `<p class='error'>Speellijst '${playlist}' bestaat niet</p>`;
+					playlist_notification.style.display = "block";
 
 					// Hide songs list
-					const songlist = document.getElementById("playlistsongs");
+					const songlist = document.getElementById("playlist-songs");
 					songlist.style.display = "none";
 
 					// Done: playlist does not exist
@@ -536,22 +432,25 @@
 				if (!songfile)
 				{
 					// Clear playlist input
-					document.getElementById("playlist").value = "";
+					document.getElementById("autocomplete-input").value = "";
 
 					// Remove playlist from playlists
-					playlists = playlists.filter(pl => pl !== playlist);
+					playlists = playlists.filter(item => item.playlist !== playlist);
+
+					// playlist removed: Notify user
+					playlist_notification.innerHTML = `<p class='success'>Speellijst '${playlist}' is verwijderd</p>`;
+					playlist_notification.style.display = "block";
 				}
 
 				// Update song lists
 				getPlaylistSongs();
-				getSearchSongs();
 			}
 
 			// Send playlist and song to server
 			async function modifyPlaylist(action, playlist, songfile, errorMessage)
 			{
-				// Get notification element
-				const notification = document.getElementById("playlist_notification");
+				// Get playlist_notification element
+				const playlist_notification = document.getElementById("playlist_notification");
 
 				try
 				{
@@ -573,8 +472,8 @@
 					{
 						// Notify
 						const errorData = await response.json();
-						notification.innerHTML = `<p class='error'>${errorData.message || errorMessage}</p>`;
-						notification.style.display = "block";
+						playlist_notification.innerHTML = `<p class='error'>${errorData.message || errorMessage}</p>`;
+						playlist_notification.style.display = "block";
 
 						// Fail
 						return false;
@@ -585,8 +484,8 @@
 				catch (error)
 				{
 					// Notify
-					notification.innerHTML = `<p class='error'>${errorMessage}<br>Controleer of de web interface actief is</p>`;
-					notification.style.display = "block";
+					playlist_notification.innerHTML = `<p class='error'>${errorMessage}<br>Controleer of de web interface actief is</p>`;
+					playlist_notification.style.display = "block";
 
 					// Fail
 					return false;
@@ -599,6 +498,7 @@
 				// Set error template
 				const errorMessage = `Er is een fout opgetreden bij het indienen van het te spelen liedje '${songtitle}'`;
 
+				document.getElementById(notification);
 				try
 				{
 					// Submit song to play
@@ -629,6 +529,10 @@
 			// Run when page is loaded
 			document.addEventListener('DOMContentLoaded', function (event)
 			{
+				// Get notification elements
+				const playlist_notification = document.getElementById("playlist_notification");
+				const search_notification = document.getElementById("search_notification");
+
 				// Remove focus
 				setTimeout(() =>
 				{
@@ -638,115 +542,94 @@
 					});
 				}, 0);
 
-				// Create custom select elements dropdown lists with options and actions
-				document.querySelectorAll('.custom-select').forEach(container =>
+				// Create autocomplete dropdown
+				document.getElementById('autocomplete-input').addEventListener('input', function()
 				{
-					const input = container.querySelector('input');
-					const dropdown = container.querySelector('.options');
+					// Get input for case insensitive matching
+					const inputValue = this.value.toLowerCase();
 
-					function showOptions()
+					// Get dropdown element
+					const autocompleteList = document.getElementById('autocomplete-list');
+
+					// Get array with only the names of the playlists which are no webradio
+					const nonWebradioPlaylists = playlists.filter(item => !item.webradio).map(item => item.playlist);
+
+					// Initialize autocomplete list
+					autocompleteList.innerHTML = '';
+
+					// Do nothing if input is empty
+					if (inputValue.length === 0) return;
+
+					// Fill autocomplete list
+					const matches = nonWebradioPlaylists.filter(option => option.toLowerCase().includes(inputValue));
+					matches.forEach(match =>
 					{
-						let options = directories.concat(playlists);
-						options.sort((a, b) => a.toLowerCase().localeCompare(b.toLowerCase()));
-
-						dropdown.innerHTML = '';
-						options.forEach(option =>
+						const div = document.createElement('div');
+						div.textContent = match;
+						div.addEventListener('click', function()
 						{
-							const div = document.createElement('div');
-							div.textContent = option;
+							// Copy the clicked option to the input
+							document.getElementById('autocomplete-input').value = match;
+							autocompleteList.innerHTML = '';
 
-							// Add click event handler
-							div.addEventListener('click', (event) =>
-							{
-								// Cancel the default action that belongs to the event
-								event.preventDefault();
-
-								// Ignore if nothing changed
-								if (input.value !== option)
-								{
-									// Update input with option
-									input.value = option;
-
-									// Hide dropdown with options
-									dropdown.style.display = 'none';
-
-									// Process changed preset
-									if (input.id.includes("preset"))
-										savepreset(input.id)
-
-									// Process changed playlist
-									if (input.id.includes("playlist"))
-									{
-										// Get playlist songs
-										getPlaylistSongs();
-
-										// Update search song list
-										getSearchSongs();
-									}
-								}
-							});
-
-							// Add option to list
-							dropdown.appendChild(div);
-						});
-
-						// Show dropdown
-						dropdown.style.display = 'block';
-					}
-
-					// Show options when input is clicked
-					input.addEventListener("click", (event) =>
-					{
-						// Prevent click from propagating to document
-						event.stopPropagation();
-
-						// Show playlist dropdown
-						showOptions();
-					});
-
-					// Hide options when input loses focus
-					input.addEventListener("focusout", function (event)
-					{
-						// Cancel the default action that belongs to the event
-						event.preventDefault();
-
-						// Delay to allow click on option to be processed
-						setTimeout(() =>
-						{
-							// Hide dropdown
-							dropdown.style.display = "none";
-						}, 300);
-					});
-
-					// Hide options when clicking outside the input or outside the options list
-					document.addEventListener("click", function (event)
-					{
-						if (!container.contains(event.target) && dropdown.style.display == "block")
-							dropdown.style.display = "none";
-					});
-
-					// Control what happens when the Enter-key is pressed in playlist input
-					input.addEventListener("keydown", function (event)
-					{
-						// Check if Enter-key is pressed
-						if (event.key === "Enter")
-						{
-							// Prevent default behavior
-							event.preventDefault();
-
-							// Hide dropdown
-							dropdown.style.display = "none";
-
-							// Get playlist input
-							const playlist = input.value.trim();
-
-							// Get playlist songs
+							// Show playlist songs
 							getPlaylistSongs();
 
-							// Update search song list
-							getSearchSongs();
-						}
+						});
+
+						// Add option
+						autocompleteList.appendChild(div);
+
+						// Show list of matching options
+						autocompleteList.style.display = 'block';
+
 					});
+				});
+
+				// Close the autocomplete list when clicking outside of it
+				document.addEventListener('click', function(event)
+				{
+					if (event.target !== document.getElementById('autocomplete-input'))
+					{
+						// Get dropdown element
+						const autocompleteList = document.getElementById('autocomplete-list');
+
+						// Clear autocomplete list
+						autocompleteList.innerHTML = '';
+
+						// Hide list of matching options
+						autocompleteList.style.display = 'none';
+					}
+				});
+
+				// Click handler for adding or playing song
+				document.getElementById("search-songs").querySelector("ul").addEventListener("click", function(event)
+				{
+					// Get validated LI
+					const li = event.target.closest("li");
+					if (!li) return;
+
+					if (event.target.matches("button"))
+						// Add button clicked
+						addSong(li.id);
+					else
+						// LI clicked
+						playSong(search_notification, li.id, li.textContent);
+				});
+
+				// Click handler for removing or playing song
+				document.getElementById("playlist-songs").querySelector("ul").addEventListener("click", function(event)
+				{
+					// Get validated LI
+					const li = event.target.closest("li");
+					if (!li) return;
+
+					if (event.target.matches("button"))
+						// Delete button clicked
+						removeSong(li.id);
+					else
+						// LI clicked
+						playSong(playlist_notification, li.id, li.textContent);
 				});
 
 				// Control what happens when the Enter-key is pressed in search input
@@ -763,36 +646,6 @@
 					}
 				});
 
-				// Click handler for removing or playing song
-				document.getElementById("playlistsongs").querySelector("ul").addEventListener("click", function(event)
-				{
-					// Get validated LI
-					const li = event.target.closest("li");
-					if (!li) return;
-
-					if (event.target.matches("button"))
-						// Delete button clicked
-						removeSong(li.id);
-					else
-						// LI clicked
-						playSong(playlist_notification, li.id, li.textContent);
-				});
-
-				// Click handler for adding or playing song
-				document.getElementById("searchsongs").querySelector("ul").addEventListener("click", function(event)
-				{
-					// Get validated LI
-					const li = event.target.closest("li");
-					if (!li) return;
-
-					if (event.target.matches("button"))
-						// Add button clicked
-						addSong(li.id);
-					else
-						// LI clicked
-						playSong(search_notification, li.id, li.textContent);
-				});
-
 			});
 		</script>
 
@@ -804,33 +657,13 @@
 			<!-- Show Oradio logo -->
 			<img src="../static/logo.png" class="logo" />
 
-			<!-- Link playlists to presets -->
-			<h1 id="presets">Speellijst aan knop koppelen</h1>
-			{% for preset in presets %}
-				<div class="presets-grid">
-					<div class="preset-label">
-						Voorkeur {{ loop.index }}:
-					</div>
-					<div class="custom-select">
-						<input type="text" id="{{ preset }}" name="{{ preset }}" value="{{ presets[preset] }}" readonly placeholder="-- Kies een speellijst --" />
-						<span class="custom-icon">&#x25BC;</span> <!-- ▼ icon -->
-						<div class="options"></div>
-					</div>
-				</div>
-			{% endfor %}
-
-			<!-- Show notifcations, if any -->
-			<div id="presets_notification" class="notification">
-				<!-- Will be filled by Javascript submitCredentials() -->
-			</div>
-
 			<!-- Manage playlists -->
-			<h1 id="playlists">Speellijsten bekijken / beheren</h1>
+			<h1 id="playlists">Speellijsten beheren</h1>
+
 			<div class="playlists_grid">
 				<div class="custom-select">
-					<input type="text" id="playlist" name="playlist" placeholder="-- Kies een speellijst --" />
-					<span class="custom-icon">&#x25BC;</span> <!-- ▼ icon -->
-					<div id="options" class="options"></div>
+					<input type="text" id="autocomplete-input" placeholder="Typ hier de naam van de speellijst...">
+					<div id="autocomplete-list" class="options"></div>
 				</div>
 				<button class="save-button-large" title="Bewaren" onclick="addSong()"></button>
 				<button class="delete-button-large" title="Verwijderen" onclick="removeSong()"></button>
@@ -842,7 +675,7 @@
 			</div>
 
 			<!-- Show songs in a playlist -->
-			<div id="playlistsongs" class="file-list">
+			<div id="playlist-songs" class="file-list">
 				<ul class="songs">
 				</ul>
 			</div>
@@ -858,7 +691,7 @@
 			</div>
 
 				<!-- Show songs found -->
-			<div id="searchsongs" class="file-list">
+			<div id="search-songs" class="file-list">
 				<ul class="songs">
 				</ul>
 			</div>

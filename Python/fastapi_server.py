@@ -115,16 +115,16 @@ def store_presets(presets):
 # Get mpd functions
 mpdcontrol = get_mpd_control()
 
-@api_app.get("/playlists")
-async def playlists_page(request: Request):
+#### BUTTONS ####################
+
+@api_app.get("/buttons")
+async def buttons_page(request: Request):
     """
     Page managing options to:
       - Assign playlists to presets
       - Show playlist songs
-      - Manage own playlists
-      - Search songs by artist and title tags
     """
-    oradio_log.debug("Serving playlists page")
+    oradio_log.debug("Serving buttons page")
 
     # Return playlist page and presets, directories and playlists as context
     context = {
@@ -132,7 +132,7 @@ async def playlists_page(request: Request):
                 "directories" : mpdcontrol.get_directories(),
                 "playlists"   : mpdcontrol.get_playlists()
             }
-    return templates.TemplateResponse(request=request, name="playlists.html", context=context)
+    return templates.TemplateResponse(request=request, name="buttons.html", context=context)
 
 class ChangedPreset(BaseModel):
     """ Model for playlist asssignment """
@@ -181,22 +181,22 @@ async def save_preset(changedpreset: ChangedPreset):
     else:
         oradio_log.error("Invalid preset '%s'", changedpreset.preset)
 
-class Songs(BaseModel):
-    """ Model for getting songs from mpd """
-    source:  str = None
-    pattern: str = None
+#### PLAYLISTS ##################
 
-# POST endpoint to get songs
-@api_app.post("/get_songs")
-async def get_songs(songs: Songs):
-    """ Handle POST for getting the songs for the given source """
-    oradio_log.debug("Serving songs from '%s' for pattern '%s'", songs.source, songs.pattern)
-    if songs.source == 'playlist':
-        return mpdcontrol.get_songs(songs.pattern)
-    if songs.source == 'search':
-        return mpdcontrol.search(songs.pattern)
-    oradio_log.error("Invalid source '%s'", songs.source)
-    return JSONResponse(status_code=400, content={"message": f"De source '{songs.source}' is ongeldig"})
+@api_app.get("/playlists")
+async def playlists_page(request: Request):
+    """
+    Page managing options to:
+      - Manage own playlists
+      - Search songs by artist and title tags
+    """
+    oradio_log.debug("Serving playlists page")
+
+    # Return playlist page and presets, directories and playlists as context
+    context = {
+                "playlists"   : mpdcontrol.get_playlists()
+            }
+    return templates.TemplateResponse(request=request, name="playlists.html", context=context)
 
 class Modify(BaseModel):
     """ Model for modifying playlist """
@@ -229,6 +229,25 @@ async def playlist_modify(modify: Modify):
         return mpdcontrol.playlist_remove(modify.playlist, modify.song)
     oradio_log.error("Unexpected action '%s'", modify.action)
     return JSONResponse(status_code=400, content={"message": f"De action '{modify.action}' is ongeldig"})
+
+#### SHARED: BUTTONS AND PLAYLISTS
+
+class Songs(BaseModel):
+    """ Model for getting songs from mpd """
+    source:  str = None
+    pattern: str = None
+
+# POST endpoint to get songs
+@api_app.post("/get_songs")
+async def get_songs(songs: Songs):
+    """ Handle POST for getting the songs for the given source """
+    oradio_log.debug("Serving songs from '%s' for pattern '%s'", songs.source, songs.pattern)
+    if songs.source == 'playlist':
+        return mpdcontrol.get_songs(songs.pattern)
+    if songs.source == 'search':
+        return mpdcontrol.search(songs.pattern)
+    oradio_log.error("Invalid source '%s'", songs.source)
+    return JSONResponse(status_code=400, content={"message": f"De source '{songs.source}' is ongeldig"})
 
 class Song(BaseModel):
     """ Model for song """
@@ -383,7 +402,7 @@ async def catch_all(request: Request):
     Any unknown path will return playlists page
     """
     oradio_log.debug("Catchall triggered for path: %s", request.url.path)
-    return RedirectResponse(url='/playlists', status_code=302)
+    return RedirectResponse(url='/buttons', status_code=302)
 
 # Entry point for stand-alone operation
 if __name__ == "__main__":

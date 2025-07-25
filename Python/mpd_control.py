@@ -27,7 +27,7 @@ import json
 import threading
 import subprocess
 import unicodedata
-#import socket  
+#import socket
 from mpd import MPDClient
 
 ##### oradio modules ####################
@@ -45,15 +45,15 @@ class MPDControl:
 
         self.host = host
         self.port = port
-        self._crossfade_done = False          
+        self._crossfade_done = False
         self.client = self._connect()
         self.current_playlist = None
         self.last_status_error = None
         self.mpd_lock = threading.Lock()
-        
+
         # Event for cancelling MPD database update
         self.mpd_update_cancel_event = threading.Event()
-        
+
         # start the separate monitor thread
         t = threading.Thread(target=self._monitor_errors, daemon=True)
         t.start()
@@ -96,8 +96,7 @@ class MPDControl:
             if not self._is_connected():
                 oradio_log.info("Reconnecting MPD client…")
                 self.client = self._connect()
-                
-            
+
     def _monitor_errors(self):
         """
         Background thread: every 10 s check MPD status, log any new
@@ -342,28 +341,41 @@ class MPDControl:
     def get_playlists(self):
         """
         Get available playlists
-        Return case-insensitive sorted list
+        Determine if the list is a web radio or not
+        Return list case-insensitive sorted bij playlist name
         """
         # Connect if not connected
         self._ensure_client()
 
         # Initialize
-        folders = []
+        result = []
 
         # Get playlists
         try:
             with self.mpd_lock:
                 playlists = self.client.listplaylists()
-
-            # Parse playlists for name only
-            for entry in playlists:
-                folders.append(entry["playlist"])
+                # Parse playlists for name and web radio or not
+                for playlist in playlists:
+                    # Get playlist name
+                    playlist_name = playlist.get("playlist", None)
+                    # Check if any element in the playlist is a url, meaning a web radio
+                    webradio = False
+                    for element in self.client.listplaylistinfo(playlist_name):
+                        file_path = element.get("file", "")
+                        if file_path.startswith("http://") or file_path.startswith("https://"):
+                            webradio = True
+                            break
+                    # Add playlist and if webradio or not to result
+                    if webradio:
+                        result.append({"playlist": playlist_name, "webradio": True})
+                    else:
+                        result.append({"playlist": playlist_name, "webradio": False})
 
         except Exception as ex_err: # pylint: disable=broad-exception-caught
             oradio_log.error("Error getting playlists: %s", ex_err)
 
         # Sort alphabetically, ignore case
-        return sorted(folders, key=str.casefold)
+        return sorted(result, key=lambda x: x["playlist"].lower())
 
     def get_songs(self, list_name):
         """
@@ -401,7 +413,6 @@ class MPDControl:
 
             # Check directories
             for entry in directories:
-                print("playlist=", entry)
                 # Only consider entries that are directories.
                 if "directory" in entry and list_name == entry["directory"]:
                     # Get directory song details; minimize lock to mpd interaction
@@ -569,7 +580,7 @@ class MPDControl:
                     oradio_log.debug("Attempting to create playlist: '%s'", playlist)
                     # Check if playlist already exists
                     playlists = self.client.listplaylists()
-                    if any(d.get("playlist") == playlist for d in playlists):
+                    if not any(d.get("playlist") == playlist for d in playlists):
                         # Create playlist and add dummy url
                         self.client.playlistadd(playlist, "https://dummy.mp3")
                         # Delete the dummy → playlist is now empty
@@ -695,7 +706,7 @@ class MPDControl:
         except json.JSONDecodeError:
             oradio_log.error("Error: Failed to decode JSON. Please check the file's format.")
         return None
-    
+
 # mpd_control.py
 # —————————————————————————————————————————————————————————————
 # Singleton factory for MPDControl
@@ -716,8 +727,7 @@ def get_mpd_control(host: str = "localhost", port: int = 6600) -> MPDControl:
     global _mpd_singleton
     if _mpd_singleton is None:
         _mpd_singleton = MPDControl(host, port)
-    return _mpd_singleton 
-    
+    return _mpd_singleton
 
 
 # Entry point for stand-alone operation
