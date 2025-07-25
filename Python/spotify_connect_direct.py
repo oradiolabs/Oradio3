@@ -30,8 +30,6 @@ import subprocess
 import threading
 from multiprocessing import Queue
 
-# to mute the ALSA channel
-import alsaaudio
 
 #### Oradio modules ####
 import oradio_utils
@@ -63,13 +61,6 @@ class SpotifyConnect:
         self.monitor_thread = threading.Thread(target=self.monitor_flags, daemon=True)
         self.monitor_thread.start()
         oradio_log.info("Monitor thread started.")
-
-        # Initialize ALSA Mixer
-        try:
-            self.mixer = alsaaudio.Mixer(ALSA_MIXER_SPOTCON)
-        except alsaaudio.ALSAAudioError as ex_err:
-            oradio_log.error("Error initializing ALSA mixer: %s", ex_err)
-            raise
 
     def _reset_flag(self, filepath):
         """
@@ -130,25 +121,33 @@ class SpotifyConnect:
 
     def play(self):
         """
-        Set the volume of the Spot Con ALSA channel to 100% = UnMute
+        Unmute Spotify Connect by setting ALSA channel to 100%
         """
         try:
-#            subprocess.run(["pkill", "-CONT", "librespot"], check=True)
-            self.mixer.setvolume(100)
-            oradio_log.info("Spotify Connect UnMuted")
+            subprocess.run(
+                ["amixer", "-c", "DigiAMP", "sset", ALSA_MIXER_SPOTCON, "100%"],
+                check=True,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL
+            )
+            oradio_log.info("Spotify Connect UnMuted via amixer")
         except subprocess.CalledProcessError as e:
-            oradio_log.error("Error executing play command: %s", e)
+            oradio_log.error("Error unmuting via amixer: %s", e)
 
     def pause(self):
         """
-        Set the volume of the Spot Con ALSA channel to 0% = Mute 
+        Mute Spotify Connect by setting ALSA channel to 0%
         """
         try:
-       #     subprocess.run(["pkill", "-STOP", "librespot"], check=True)
-            self.mixer.setvolume(0)
-            oradio_log.info("Spotify Connect Muted")
+            subprocess.run(
+                ["amixer", "-c", "DigiAMP", "sset", ALSA_MIXER_SPOTCON, "0%"],
+                check=True,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL
+            )
+            oradio_log.info("Spotify Connect Muted via amixer")
         except subprocess.CalledProcessError as e:
-            oradio_log.error("Error executing pause command: %s", e)
+            oradio_log.error("Error muting via amixer: %s", e)
 
     def get_state(self):
         return {"active": self.active, "playing": self.playing}
