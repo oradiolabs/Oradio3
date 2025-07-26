@@ -82,7 +82,7 @@
 				const playlist = document.getElementById("playlist").value.trim();
 
 				// Get songs list container
-				const songlist = document.getElementById("playlistsongs");
+				const songlist = document.getElementById("playlist-songs");
 
 				// Check for playlist
 				if (!playlist)
@@ -95,24 +95,6 @@
 					notification.style.display = "none";
 
 					// Done: nothing to search for
-					return;
-				}
-
-				// Get array with only the names of the playlists which are no webradio
-				const nonWebradioPlaylists = playlists.filter(item => !item.webradio).map(item => item.playlist);
-
-				// Check playlist exists
-				if (!nonWebradioPlaylists.includes(playlist) && !directories.includes(playlist))
-				{
-					// playlist does not exist: Notify user
-					notification.innerHTML = `<p class='error'>Speellijst '${playlist}' bestaat niet<br>Voeg toe met de <button class="save-button-tiny"></button>-knop</p>`;
-					notification.style.display = "block";
-
-					// Hide songs list
-					const songlist = document.getElementById("playlistsongs");
-					songlist.style.display = "none";
-
-					// Done: playlist does not exist
 					return;
 				}
 
@@ -265,10 +247,9 @@
 
 					function showOptions()
 					{
-						// Get array with only the names of the playlists which are no webradio
-						const nonWebradioPlaylists = playlists.filter(item => !item.webradio).map(item => item.playlist);
-
-						let options = directories.concat(nonWebradioPlaylists);
+						// Get alphabetically sorted array with directories and playlist names
+						const playlistNames = playlists.map(item => item.playlist);	// Result is typeof object
+						let options = directories.concat(playlistNames);			// Treat object as array
 						options.sort((a, b) => a.toLowerCase().localeCompare(b.toLowerCase()));
 
 						dropdown.innerHTML = '';
@@ -366,7 +347,7 @@
 				});
 
 				// Click handler for playing song
-				document.getElementById("playlistsongs").querySelector("ul").addEventListener("click", function(event)
+				document.getElementById("playlist-songs").querySelector("ul").addEventListener("click", function(event)
 				{
 					// Get validated LI
 					const li = event.target.closest("li");
@@ -404,7 +385,7 @@
 
 			<!-- Show notifcations, if any -->
 			<div id="presets_notification" class="notification">
-				<!-- Will be filled by Javascript savePreset() -->
+				<!-- Will be filled by Javascript -->
 			</div>
 
 			<!-- Manage playlists -->
@@ -419,11 +400,11 @@
 
 			<!-- Show notifcations, if any -->
 			<div id="playlist_notification" class="notification">
-				<!-- Will be filled by Javascript getPlaylistSongs() -->
+				<!-- Will be filled by Javascript -->
 			</div>
 
 			<!-- Show songs in a playlist -->
-			<div id="playlistsongs" class="file-list">
+			<div id="playlist-songs" class="file-list">
 				<ul class="songs">
 				</ul>
 			</div>
