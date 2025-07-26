@@ -111,8 +111,8 @@ def menu_playback(wav_paths: list[str]) -> None:
         return
     print("\n--- Afspelen --- (nummer of 'q')")
     while True:
-        for i, p in enumerate(wav_paths, 1):
-            print(f"[{i}] {os.path.basename(p)}")
+        for i, path in enumerate(wav_paths, 1):
+            print(f"[{i}] {os.path.basename(path)}")
         choice = input("Keuze: ").strip().lower()
         if choice == "q":
             break
@@ -126,6 +126,7 @@ def menu_playback(wav_paths: list[str]) -> None:
 # ------------------- MAIN ------------------------------------------
 
 def main() -> None:
+    """Stand-alone interactive loop"""
     logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
 
     if not AZURE_KEY:
@@ -139,13 +140,13 @@ def main() -> None:
         logging.info("Genereer %-25s → %s", fname, text)
         try:
             audio = synthesize(text)
-            with open(path, "wb") as f:
-                f.write(audio)
+            with open(path, "wb") as file:
+                file.write(audio)
             generated.append(path)
-        except RequestException as e:
-            logging.error("HTTP-fout: %s", e)
-        except OSError as e:
-            logging.error("Schrijffout: %s", e)
+        except RequestException as ex_err:
+            logging.error("HTTP-fout: %s", ex_err)
+        except OSError as os_err:
+            logging.error("Schrijffout: %s", os_err)
 
     logging.info("✅  %d bestanden klaar in %s", len(generated), OUTPUT_DIR)
     if generated:
