@@ -67,7 +67,7 @@ class MPDControl:
         client.idletimeout = None
         try:
             client.connect(self.host, self.port)
-            oradio_log.info(f"Connected to MPD at %s:%s", self.host, self.port)
+            oradio_log.info("Connected to MPD at %s:%s", self.host, self.port)
 
             # only set CROSSFADE the first time
             if not self._crossfade_done:
@@ -480,11 +480,11 @@ class MPDControl:
             unique = []
 
             # Filter songs to be unique based on normalized artist and normalized title
-            for item in songs:
-                key = (item['normalized_artist'], item['normalized_title'])
+            for song in songs:
+                key = (song['normalized_artist'], song['normalized_title'])
                 if key not in found:
                     found.add(key)
-                    unique.append(item)
+                    unique.append(song)
 
             # Return list of songs with attributes file, artist, title. Sorted by artist, then title, ignore case
             return sorted(unique, key=lambda x: (x['normalized_artist'], x['normalized_title']))
@@ -556,7 +556,7 @@ class MPDControl:
                             duration = float(duration_str)
                             if elapsed >= duration - 1:
                                 break
-                        except Exception:
+                        except Exception: # pylint: disable=broad-exception-caught
                             pass
             with self.mpd_lock:
                 playlist = self.client.playlistinfo()
@@ -661,20 +661,19 @@ class MPDControl:
             with self.mpd_lock:
                 entries = self.client.listplaylistinfo(playlist)
 
-            # If no entries then not a webradio
-            if not entries:
-                return False
-
             # Iterate through entries
             for song in entries:
                 if song.get("file", "").startswith(("http://", "https://")):
                     oradio_log.debug("'%s' with playlist '%s' is a web radio", preset, playlist)
-                    # Web radio if entry is url, thus a web radio
+                    # Web radio if entry is url
                     return True
 
         except Exception: # pylint: disable=broad-exception-caught
-            oradio_log.debug("'%s' with playlist '%s' is not a web radio", preset, playlist)
-            return False
+            pass
+
+        # No entries or no http(s) or errors all mean 'no web radio'
+        oradio_log.debug("'%s' with playlist '%s' is not a web radio", preset, playlist)
+        return False
 
     def current_is_webradio(self):
         """Returns if current song is a web radio or not"""
@@ -694,7 +693,7 @@ class MPDControl:
     def get_playlist_name(preset_key, filepath):
         """Retrieves the playlist name for a given preset key."""
         try:
-            with open(filepath, 'r') as file:
+            with open(filepath, 'r', encoding='utf-8') as file:
                 presets = json.load(file)
 
             json_key = preset_key.lower()
@@ -723,7 +722,7 @@ def get_mpd_control(host: str = "localhost", port: int = 6600) -> MPDControl:
     Return the one-and-only MPDControl instance.
     Subsequent calls reuse the same object.
     """
-    global _mpd_singleton
+    global _mpd_singleton # pylint: disable=global-statement
     if _mpd_singleton is None:
         _mpd_singleton = MPDControl(host, port)
     return _mpd_singleton
@@ -882,9 +881,9 @@ if __name__ == '__main__':
                     print("No search results found for query:", search_query)
                     continue
                 print("\nSearch results:")
-                for idx, song in enumerate(search_results, start=1):
-                    artist = song.get("artist", "Unknown Artist")
-                    title = song.get("title", song.get("file", "Unknown Title"))
+                for idx, item in enumerate(search_results, start=1):
+                    artist = item.get("artist", "Unknown Artist")
+                    title = item.get("title", item.get("file", "Unknown Title"))
                     print(f"{idx}. {artist} - {title}")
                 selection_input = input("\nEnter song numbers to add (comma-separated): ")
                 try:
@@ -902,9 +901,9 @@ if __name__ == '__main__':
                     print("No valid songs selected.")
                     continue
                 print("\nSelected songs:")
-                for idx, song in enumerate(selected_songs, start=1):
-                    artist = song.get("artist", "Unknown Artist")
-                    title = song.get("title", song.get("file", "Unknown Title"))
+                for idx, item in enumerate(selected_songs, start=1):
+                    artist = item.get("artist", "Unknown Artist")
+                    title = item.get("title", item.get("file", "Unknown Title"))
                     print(f"{idx}. {artist} - {title}")
                 confirm = input("\nIs this selection OK? (y/n): ").lower()
                 if confirm != "y":
@@ -913,8 +912,8 @@ if __name__ == '__main__':
                 list_name = input("Enter the name for the new playlist: ")
                 with mpd.mpd_lock:
                     mpd.client.clear()
-                    for song in selected_songs:
-                        filename = song.get("file")
+                    for item in selected_songs:
+                        filename = item.get("file")
                         if filename:
                             mpd.client.add(filename)
                     mpd.client.save(list_name)
