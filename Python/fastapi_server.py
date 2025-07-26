@@ -312,12 +312,17 @@ async def network_page(request: Request):
         # Return fail, so caller can try to recover
         return JSONResponse(status_code=400, content={"message": response})
 
-    # Return network page and available networks and Spotify name as context
-    context = {
-                "networks": get_wifi_networks(),
-                "spotify": response.strip()
-            }
-    return templates.TemplateResponse(request=request, name="network.html", context=context)
+    # Return network page with Spotify name as context
+    return templates.TemplateResponse(request=request, name="network.html", context={"spotify": response.strip()})
+
+# POST endpoint to get networks
+@api_app.post("/get_networks")
+async def get_networks():
+    """ Handle POST for getting the SSIDs of the active wifi networks """
+    oradio_log.debug("Serving active wifi networks")
+
+    # Return available networks
+    return get_wifi_networks()
 
 class Credentials(BaseModel):
     """ # Model for wifi network credentials """

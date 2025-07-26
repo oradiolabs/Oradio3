@@ -18,11 +18,126 @@
 
 		<script>
 			// Initialize
+			let networks = [];
 			let notification_network;
 			let notification_spotify;
+
 			// Convert template variable to javascript
-			const networks = {{ networks|tojson }};
 			const spotify = {{ spotify|tojson }};
+
+			// Function to get the active wifi networks
+			async function getNetworks()
+			{
+				// Scanning the networks may take a few seconds, so show the waiting indicator
+				show_waiting();
+
+				// Set error template
+				const errorMessage = `Ophalen van de active wifi netwerken is mislukt`;
+
+				try
+				{
+					// Fetch playlist songs
+					const response = await fetch('/get_networks',
+					{
+						method: 'POST',
+						headers: {'Content-Type': 'application/json'}
+					});
+
+					// Handle server response
+					if (response.ok)
+					{
+						// Wait for networks to be returned from server
+						const networks = await response.json();
+
+						// Notify if no songs
+						if (!Array.isArray(networks) || networks.length === 0)
+						{
+							// Notify no networks found
+							notification_network.innerHTML = `<span class='warning'>Geen active netwerken gevonden</span>`;
+						}
+						else
+						{
+							// Clear and hide notification_network
+							notification_network.innerHTML = "";
+
+							// Get network input and options as dropdown
+							const input = document.getElementById('SSIDs');
+							const dropdown = document.getElementById('options');
+
+							let options = networks.map(network => network.ssid);
+							options.sort((a, b) => a.toLowerCase().localeCompare(b.toLowerCase()));
+
+							dropdown.innerHTML = '';
+							options.forEach(option =>
+							{
+								const div = document.createElement('div');
+								div.textContent = option;
+
+								// Add click event handler
+								div.addEventListener('click', (event) =>
+								{
+									// Ignore if nothing changed
+									if (input.value !== option)
+									{
+										// Update input with option
+										input.value = option;
+
+										// Hide dropdown with options
+										dropdown.style.display = 'none';
+
+										// Clear password
+										document.getElementById("pswd").value = "";
+
+										// Delay to allow click on option to be processed
+										setTimeout(() =>
+										{
+											// If a network is entered
+											if (input.value.trim() !== "")
+											{
+												// Check if network needs a password
+												const network = networks.find(n => n.ssid === input.value.trim());
+												if (network)
+													if (network.type === "closed")
+														// Network needs a password
+														document.getElementById("password").style.display = "block"
+													else
+														// Open network, no password needed
+														document.getElementById("password").style.display = "none"
+												else
+													// Unknown network, assume password is needed
+													document.getElementById("password").style.display = "block"
+
+												// Show submit credentials button
+												document.getElementById("submitCredentialsButton").style.display = "block"
+											}
+										}, 300);
+									}
+								});
+
+								// Add option to list
+								dropdown.appendChild(div);
+							});
+						}
+					}
+					else
+					{
+						// Wait for error to be returned from server
+						const errorData = await response.json();
+
+						// Notify
+						notification_network.innerHTML = `<p class='error'>${errorData.message || errorMessage}</p>`;
+					}
+				}
+
+				// Handle server not responding
+				catch (error)
+				{
+					notification_network.innerHTML = `<p class='error'>${errorMessage}<br>Controleer of de web interface actief is</p>`;
+				}
+
+				// Success or fail, hide waiting indicator
+				hide_waiting();
+			}
 
 			// Function to submit the network and password
 			async function submitCredentials(event)
@@ -41,12 +156,12 @@
 					return;
 				}
 
-				// Get password
+				// Get password element
 				const pswd = document.getElementById("pswd").value;
 
-				// Check if network needs a password and if yes, if it is long enough
-				const network = networks.find(n => n.ssid === ssid);
-				if (!network || (network.type === "closed" && pswd.length < 8))
+				// Check password is ok
+				const ignorePswd = (document.getElementById("password").style.display === "none");
+				if (!ignorePswd && pswd.length < 8)
 				{
 					notification_network.innerHTML = `<p class="error">Wachtwoord moet minimaal 8 karakters zijn</p>`;
 					return;
@@ -62,13 +177,13 @@
 					{
 						method: 'POST',
 						headers: {'Content-Type': 'application/json'},
-						body: JSON.stringify({ "ssid": ssid, "pswd": pswd })
+						body: JSON.stringify({"ssid": ssid, "pswd": pswd})
 					});
 
 					// Handle server response
 					if (response.ok)
 					{
-						notification_network.innerHTML = `<p>De huidige verbinding wordt verbroken.</p><p>Oradio probeert te verbinden met '${ssid}'</p>`;
+						notification_network.innerHTML = `<p>De huidige verbinding wordt verbroken</p><p>Oradio probeert te verbinden met '${ssid}'</p>`;
 					}
 					else
 					{
@@ -148,7 +263,7 @@
 			}
 
 			// Run when page is loaded
-			document.addEventListener('DOMContentLoaded', function (event)
+			window.onload = () =>
 			{
 				// Remove focus
 				setTimeout(() =>
@@ -158,6 +273,13 @@
 						input.style.pointerEvents = 'auto';
 					});
 				}, 0);
+
+				// Get network input and options as dropdown
+				const input = document.getElementById('SSIDs');
+				const dropdown = document.getElementById('options');
+
+				// Fetch active networks from server
+				getNetworks();
 
 				// Get notifications
 				notification_network = document.getElementById('notification_network');
@@ -171,102 +293,21 @@
 				notification_network.style.display = "block";
 				notification_spotify.style.display = "block";
 
-				// Create custom select elements dropdown lists with options and actions
-				document.querySelectorAll('.custom-select').forEach(container =>
+				// Show options when input is clicked
+				input.addEventListener("click", (event) =>
 				{
-					const input = container.querySelector('input');
-					const dropdown = container.querySelector('.options');
+					// Prevent click from propagating to document
+					event.stopPropagation();
 
-					function showOptions()
-					{
-						let options = networks.map(network => network.ssid);
-						options.sort((a, b) => a.toLowerCase().localeCompare(b.toLowerCase()));
+					// Show networks dropdown
+					dropdown.style.display = 'block';
+				});
 
-						dropdown.innerHTML = '';
-						options.forEach(option =>
-						{
-							const div = document.createElement('div');
-							div.textContent = option;
-
-							// Add click event handler
-							div.addEventListener('click', (event) =>
-							{
-								// Ignore if nothing changed
-								if (input.value !== option)
-								{
-									// Update input with option
-									input.value = option;
-
-									// Hide dropdown with options
-									dropdown.style.display = 'none';
-								}
-							});
-
-							// Add option to list
-							dropdown.appendChild(div);
-						});
-
-						// Show dropdown
-						dropdown.style.display = 'block';
-					}
-
-					// Show options when input is clicked
-					input.addEventListener("click", (event) =>
-					{
-						// Prevent click from propagating to document
-						event.stopPropagation();
-
-						// Show playlist dropdown
-						showOptions();
-					});
-
-					// Hide options when input loses focus
-					input.addEventListener("focusout", function (event)
-					{
-						// Cancel the default action that belongs to the event
-						event.preventDefault();
-
-						// Clear network notification
-						notification_network.innerHTML = "";
-
-						// Clear password
-						document.getElementById("pswd").value = "";
-
-						// Delay to allow click on option to be processed
-						setTimeout(() =>
-						{
-							// Hide dropdown
-							dropdown.style.display = "none";
-
-							// If a network is entered
-							if (input.value.trim() !== "")
-							{
-								// Check if network needs a password
-								const network = networks.find(n => n.ssid === input.value.trim());
-								if (network)
-									if (network.type === "closed")
-										// Network needs a password
-										document.getElementById("password").style.display = "block"
-									else
-										// Open network, no password needed
-										document.getElementById("password").style.display = "none"
-								else
-									// Unknown network, assume password is needed
-									document.getElementById("password").style.display = "block"
-
-								// Show submit credentials button
-								document.getElementById("submitCredentialsButton").style.display = "block"
-							}
-						}, 300);
-					});
-
-					// Hide options when clicking outside the input or outside the options list
-					document.addEventListener("click", function (event)
-					{
-						if (!container.contains(event.target) && dropdown.style.display == "block")
-							dropdown.style.display = "none";
-					});
-
+				// Hide options when clicking outside the network area
+				document.addEventListener("click", function (event)
+				{
+					if (!dropdown.contains(event.target) && dropdown.style.display == "block")
+						dropdown.style.display = "none";
 				});
 
 				// Clear spotify notification when selecting input
@@ -294,8 +335,7 @@
 						togglePassword.classList.add("fa-eye");
 					}
 				});
-
-			});
+			}
 		</script>
 	</head>
 	<body>
@@ -311,7 +351,7 @@
 				<!-- Network SSID -->
 				<h1 >Verbind Oradio met WiFi-netwerk</h1>
 				<label for="SSIDs">Netwerk:</label>
-				<div class="custom-select">
+				<div id="network" class="custom-select">
 					<input type="text" id="SSIDs" name="SSIDs" placeholder="-- Selecteer of typ uw WiFi-netwerk --" />
 					<span class="custom-icon">&#x25BC;</span> <!-- ▼ icon -->
 					<div id="options" class="options"></div>
@@ -333,8 +373,9 @@
 
 			</form>
 
-			<!-- Separator -->
+			<!-- Separator
 			<div style="height: 30px;">&nbsp;</div>
+			-->
 
 			<form onsubmit="submitSpotify(event)">
 				<!-- Spotify -->

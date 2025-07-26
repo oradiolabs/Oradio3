@@ -300,8 +300,9 @@ def get_wifi_networks():
     # Get available wifi networks
     try:
         oradio_log.debug("Get list of networks broadcasting their ssid")
+        # Force a rescan to get currently active networks
         # nmcli.device.wifi(ifname: str = None, rescan: bool = None) -> List[DeviceWifi]
-        wifi_list = nmcli.device.wifi(None, None)
+        wifi_list = nmcli.device.wifi(None, True)
     except Exception as ex_err:       # pylint: disable=broad-exception-caught
         oradio_log.error("Failed to get wifi networks, error = %s", ex_err)
     else:
