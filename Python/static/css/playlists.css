@@ -11,11 +11,6 @@
  * Colors: https://www.computerhope.com/htmcolor.htm
  */
 
-.presets-grid {
-	display: grid;
-	margin-bottom: 20px;
-	grid-template-columns: 0.5fr 1.5fr
-}
 .playlists_grid {
 	display: grid;
 	margin-bottom: 0;
@@ -25,11 +20,6 @@
 	display: grid;
 	margin-bottom: 0;
 	grid-template-columns: 2.5fr 0.5;
-}
-
-.preset-label {
-	font-weight: bold;
-    align-self: center;
 }
 
 .save-button-large,
@@ -89,30 +79,4 @@
 }
 .save-button-tiny:hover {
 	filter: brightness(100%);
-}
-
-.file-list {
-	display: none;
-	border: 1px solid var(--oradio-border);
-	padding: 0 5px 0 5px;
-	line-height: 1.5;
-	margin: 20px 0 20px 0;
-	border-radius: 5px;
-	background-color: var(--oradio-list);
-	max-height: 200px;
-	overflow-y: auto;
-	-webkit-overflow-scrolling: touch;
-}
-.file-list::-webkit-scrollbar {
-  width: 8px;
-}
-.file-list::-webkit-scrollbar-track {
-  background: var(--oradio-border);
-}
-.file-list::-webkit-scrollbar-thumb {
-  background: var(--oradio-select);
-  border-radius: 4px;
-}
-.file-list::-webkit-scrollbar-thumb:hover {
-  background: var(--oradio-select);
 }

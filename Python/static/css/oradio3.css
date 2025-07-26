@@ -170,6 +170,33 @@ li {
 	color: var(--oradio-error);
 }
 
+.file-list {
+	display: none;
+	border: 1px solid var(--oradio-border);
+	padding: 0 5px 0 5px;
+	line-height: 1.5;
+	margin: 20px 0 20px 0;
+	border-radius: 5px;
+	background-color: var(--oradio-list);
+	max-height: 230px;
+	overflow-y: auto;
+	-webkit-overflow-scrolling: touch;
+}
+
+.file-list::-webkit-scrollbar {
+  width: 8px;
+}
+.file-list::-webkit-scrollbar-track {
+  background: var(--oradio-border);
+}
+.file-list::-webkit-scrollbar-thumb {
+  background: var(--oradio-select);
+  border-radius: 4px;
+}
+.file-list::-webkit-scrollbar-thumb:hover {
+  background: var(--oradio-select);
+}
+
 @media (max-width: 500px) {
 	.container {
 		padding: 15px;
