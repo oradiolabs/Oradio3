@@ -13,11 +13,8 @@
 		<title>Oradio speellijsten</title>
 
 		<script>
-			// Convert template variables to javascript
+			// On loading page convert template variables to javascript
 			var playlists = {{ playlists|tojson }};
-
-			// Global flag indicating playlist is protected
-			let playlistIsProtected = true;
 
 			/*
 			 * Function to get the songs for the selected playlist
@@ -94,7 +91,6 @@
 							songlist.style.display = "none";
 
 							// Notify
-							playlist_notification.innerHTML = `<span class='warning'>Speellijst '${playlist}' is leeg</span>`;
 							playlist_notification.innerHTML = `<p class='warning'>Speellijst '${playlist}' bestaat, maar is leeg<br>Zoek liedjes en voeg toe met de <button class="save-button-tiny"></button>-knop</p>`;
 							playlist_notification.style.display = "block";
 
@@ -278,6 +274,9 @@
 							ul.appendChild(li);
 						});
 
+						// Set the scroll position to the top
+						songlist.scrollTop = 0;
+
 						// Show songs list
 						songlist.style.display = "block";
 
@@ -314,7 +313,7 @@
 				if (!playlist)
 				{
 					// Notify
-					playlist_notification.innerHTML = `<p class='error'>Kies of typ een geldige speellijstnaam</p>`;
+					playlist_notification.innerHTML = `<p class='error'>Kies een bestaande of typ een nieuwe speellijstnaam</p>`;
 					playlist_notification.style.display = "block";
 
 					// Hide songs list
@@ -364,18 +363,21 @@
 						}
 						return 0;
 					});
+				}
 
-					// playlist added: Notify user
+				if (songfile)
+				{
+					// Song added: show song lists
+					getPlaylistSongs();
+				}
+				else
+				{
+					// Playlist added, no song
 					playlist_notification.innerHTML = `<p class='success'>Speellijst '${playlist}' is toegevoegd<br>Zoek liedjes en voeg toe met de <button class="save-button-tiny"></button>-knop</p>`;
 					playlist_notification.style.display = "block";
 
 					// No playlist: hide songlist
 					document.getElementById("playlist-songs").style.display = "none";
-				}
-				else
-				{
-					// Update song lists
-					getPlaylistSongs();
 				}
 			}
 
@@ -574,7 +576,6 @@
 
 							// Show playlist songs
 							getPlaylistSongs();
-
 						});
 
 						// Add option
@@ -599,6 +600,20 @@
 
 						// Hide list of matching options
 						autocompleteList.style.display = 'none';
+					}
+				});
+
+				// Control what happens when the Enter-key is pressed in autocomplete-input
+				document.getElementById("autocomplete-input").addEventListener("keydown", function (event)
+				{
+					// Check if Enter-key is pressed
+					if (event.key === "Enter")
+					{
+						// Prevent default behavior
+						event.preventDefault();
+
+						// Show playlist songs
+						getPlaylistSongs();
 					}
 				});
 
@@ -671,7 +686,7 @@
 
 			<!-- Show notifcations, if any -->
 			<div id="playlist_notification" class="notification">
-				<!-- Will be filled by Javascript submitCredentials() -->
+				<!-- Will be filled by Javascript -->
 			</div>
 
 			<!-- Show songs in a playlist -->
@@ -687,7 +702,7 @@
 
 			<!-- Show notifcations, if any -->
 			<div id="search_notification" class="notification">
-				<!-- Will be filled by Javascript submitCredentials() -->
+				<!-- Will be filled by Javascript -->
 			</div>
 
 				<!-- Show songs found -->
