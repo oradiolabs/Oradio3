@@ -518,6 +518,7 @@ class USB_Media:
             # Force main state to USBAbsent, unless still in startup
             if self.state_machine.state != "StateStartUp":
                 self.state_machine.transition("StateUSBAbsent")
+            mpd.cancel_update()  # cancel if MPD database update runs
         else:
             # USB inserted: only play USBPresent if coming from absent internal state
             if old_state == self.USB_StateAbsent:
@@ -525,6 +526,7 @@ class USB_Media:
             # Transition to Idle after USB is inserted
             if self.state_machine.state != "StateStartUp":
                 self.state_machine.transition("StateIdle")
+            mpd.start_update_mpd_database_thread() # MPD database update
                                   
 #-------------Messages handler: -----------------
             
