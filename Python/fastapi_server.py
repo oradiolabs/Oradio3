@@ -171,12 +171,12 @@ async def save_preset(changedpreset: ChangedPreset):
             # Send message playlist is web radio
             message["state"] = MESSAGE_WEB_SERVICE_PL_WEBRADIO
             oradio_log.debug("Send web service message: %s", message)
-            api_app.state.service.msg_q.put(message)
+            api_app.state.service.tx_queue.put(message)
         else:
             # Send message which playlist has changed
             message["state"] = preset_map[changedpreset.preset]
             oradio_log.debug("Send web service message: %s", message)
-            api_app.state.service.msg_q.put(message)
+            api_app.state.service.tx_queue.put(message)
 
     else:
         oradio_log.error("Invalid preset '%s'", changedpreset.preset)
@@ -272,7 +272,7 @@ async def play_song(song: Song):
 
     # Put message in queue
     oradio_log.debug("Send web service message: %s", message)
-    api_app.state.service.msg_q.put(message)
+    api_app.state.service.tx_queue.put(message)
 
 #### STATUS ####################
 
@@ -436,10 +436,10 @@ if __name__ == "__main__":
         def __init__(self, queue):
             """" Class constructor: Setup the class """
             # Initialize
-            self.msg_q = queue
+            self.tx_queue = queue
 
             # Register wifi service
-            self.wifi = WifiService(self.msg_q)
+            self.wifi = WifiService(self.tx_queue)
 
             # Pass the class instance to the web server
             api_app.state.service = self
