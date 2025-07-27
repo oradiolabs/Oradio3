@@ -672,7 +672,7 @@ class MPDControl:
             pass
 
         # No entries or no http(s) or errors all mean 'no web radio'
-        oradio_log.debug("'%s' with playlist '%s' is not a web radio", preset, playlist)
+        oradio_log.debug("'%s' with playlist '%s' is a playlist", preset, playlist)
         return False
 
     def current_is_webradio(self):
