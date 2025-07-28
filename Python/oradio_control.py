@@ -68,11 +68,7 @@ from usb_service import USBService
 from web_service import WebService
 from wifi_service import WifiService
 
-usb_present_event = threading.Event() # track status USB
-
-
 # Instantiate MPDControl
-#mpd = MPDControl()
 mpd = get_mpd_control()
 
 # Instantiate  led control
@@ -105,17 +101,25 @@ class StateMachine:
     # to start via long-press the webservice indepently from the statemachine
     def start_webservice(self):
         """
-        Trigger the injected WebService to start by long-press).
+        Trigger the injected WebService to start by long-press, but only if USB is present.
         """
         ws = self._websvc
         if ws is None:
             # You tried to start before set_services() was called
             return
+
+        # Guard: only start webservice when USB is present
+        if not hasattr(self, "usb_media_mgr") or \
+           self.usb_media_mgr.state != USB_Media.USB_StatePresent:
+            oradio_log.warning("WebService start blocked (USB absent)")
+            return
+
         # Good to go
         oradio_log.debug("Starting WebService: %r", ws)
         leds.control_blinking_led("LEDPlay", 2)
         ws.start()
         
+
     def transition(self, requested_state):
         oradio_log.debug("Request Transitioning from %s to %s", self.state, requested_state)
 
@@ -138,38 +142,36 @@ class StateMachine:
             requested_state = "StateSpotifyConnect"
 
         # ————————————————————————————————
-        # 3 Switch off Webservice
+        # 3. SWITCH OFF WEB SERVICE IN AP MODE
         # ————————————————————————————————
         if self.network_mgr and self.network_mgr.state == "APWebservice" and requested_state == "StateStop":
             oradio_web_service.stop()
-            return # Switch off the APWebservice and do nothing at the Audio Statemachine
-
+            return
 
         # ————————————————————————————————
-        # 4 BLOCK WEBRADIO PRESETS WHEN NO INTERNET
+        # 4. BLOCK WEBRADIO PRESETS WHEN NO INTERNET
         # ————————————————————————————————
         web_preset_states = {"StatePreset1", "StatePreset2", "StatePreset3"}
         if requested_state in web_preset_states:
-            # map "StatePreset1" → "Preset1"
             preset_key = requested_state.replace("State", "")
-            # only block if this preset is actually a web radio
-            if mpd.preset_is_webradio(preset_key) and network_mgr.state != "Internet":
+            if mpd.preset_is_webradio(preset_key) and self.network_mgr.state != "Internet":
                 oradio_log.info(
                     "Blocked transition to %s: preset is web radio but no Internet",
                     requested_state
                 )
-                threading.Timer(2, sound_player.play, args=("NoInternet",)).start() # delay prevent mixing
+                threading.Timer(2, sound_player.play, args=("NoInternet",)).start()
                 return
 
         # ————————————————————————————————
-        # 5. USB PRESENCE GUARD + COMMIT
+        # 5. USB PRESENCE GUARD + COMMIT (via USB_Media)
         # ————————————————————————————————
-        if usb_present_event.is_set():
-            
+        if self.usb_media_mgr.state == USB_Media.USB_StatePresent:
+            # USB is present → commit the requested state
             self.prev_state = self.state
-            self.state = requested_state
+            self.state      = requested_state
             oradio_log.debug("State changed: %s → %s", self.prev_state, self.state)
         else:
+            # USB absent → block and force the USB‐absent state
             oradio_log.warning("Transition to %s blocked (USB absent)", requested_state)
             if self.state != "StateUSBAbsent":
                 self.prev_state = self.state
@@ -177,15 +179,14 @@ class StateMachine:
                 oradio_log.debug("State set to StateUSBAbsent")
 
         # ————————————————————————————————
-        # 6. SPAWN THREAD FOR THIS REQUEST
+        # 6. SPAWN THREAD FOR THE ACTUAL STATE
         # ————————————————————————————————
-        state_to_handle = requested_state
+        state_to_handle = self.state
         threading.Thread(
             target=self.run_state_method,
-            args=(state_to_handle,)
+            args=(state_to_handle,),
+            daemon=True
         ).start()
-
-
 
     def run_state_method(self, state_to_handle):
 
@@ -258,8 +259,6 @@ class StateMachine:
                 sound_player.play("NoUSB")
                 if self.network_mgr and self.network_mgr.state == "APWebservice":
                     oradio_web_service.stop()
-                self.wait_for_usb_present()
-                self.transition("StateIdle")
 
             elif state_to_handle == "StateStartUp":
                 leds.control_blinking_led("LEDStop", 1)
@@ -281,33 +280,6 @@ class StateMachine:
             elif state_to_handle == "StateError":
                 leds.control_blinking_led("LEDStop", 2)
                 
-
-    def wait_for_usb_present(self):
-        """Waits for the USB to be present, cancels ongoing MPD updates, and restarts MPD if needed."""
-        self.state = "StateWaitForUSBPresent"
-        oradio_log.debug("Waiting for USB to be present...")
-        # Cancel any ongoing MPD database update before waiting
-        mpd.cancel_update()
-        # Wait for the USB event to be set
-        usb_present_event.wait()  # Blocks until the USB is inserted
-        oradio_log.debug("USB is now present, checking MPD state...")
-        # Restart MPD service to ensure a fresh start
-        #    mpd.restart_mpd_service()  # seems not needed when the delay is used
-        # Ensure MPD is ready before starting an update
-        time.sleep(0.2)  # Small delay to allow MPD to recover and before start mpd update
-        # Start MPD database update in a separate thread
-        oradio_log.debug("Starting MPD database update...")
-        sound_player.play("USBPresent")
-        mpd.start_update_mpd_database_thread()
-
-    def update_usb_event(self):
-        usb_state = oradio_usb_service.get_state()  # Using the global instance
-        if usb_state == STATE_USB_PRESENT:
-            oradio_log.debug("USB is present. Setting usb_present_event.")
-            usb_present_event.set()
-        else:
-            oradio_log.debug("USB is absent. Clearing usb_present_event.")
-            usb_present_event.clear()
 
 #------------Networking state machine------------
             
@@ -398,12 +370,14 @@ class Networking:
                     # turn "StatePreset1" → "Preset1"
                     preset_key = curr.replace("State", "")
                     if mpd.preset_is_webradio(preset_key):
-                        mpd.stop()
+#                        mpd.stop()
+                        state_machine.transition("StateIdle")
                         oradio_log.info("Stopped WebRadio preset %s on APWebservice entry", preset_key)
 
                 # 2) Or if we're in plain Play and it's a WebRadio, stop it
                 elif curr == "StatePlay" and mpd.current_is_webradio():
-                    mpd.stop()
+#                    mpd.stop()
+                    state_machine.transition("StateIdle")
                     oradio_log.info("Stopped WebRadio playback on APWebservice entry")
                 
                       
@@ -471,9 +445,89 @@ class Networking:
                 # this covers new_state == "APWebservice" again, or unexpected
                 pass
 
-
-
+#---------------USB_Media state machine-----------------------
             
+class USB_Media:
+    """
+    USB presence handler with two states:
+      • USB_StateAbsent  → forces StateUSBAbsent
+      • USB_StatePresent → plays USBPresent tone when unblocking and transitions to Idle
+
+    External code must call `transition()` on USB events with internal state names.
+    """
+    USB_StateAbsent  = "USB_StateAbsent"
+    USB_StatePresent = "USB_StatePresent"
+
+    def __init__(self, usb_service, state_machine, sound_player):
+        """
+        :param usb_service: USBService instance providing get_state()
+        :param state_machine: StateMachine to drive transitions
+        :param sound_player: PlaySystemSound for USBPresent tone
+        """
+        self.usb_service   = usb_service
+        self.state_machine = state_machine
+        self.sound_player  = sound_player
+
+        # Set initial internal state
+        service_state = self.usb_service.get_state()
+        self.state = (
+            self.USB_StatePresent
+            if service_state == STATE_USB_PRESENT
+            else self.USB_StateAbsent
+        )
+        oradio_log.debug(f"USB_Media init: initial state = {self.state}")
+
+        # Immediately handle initial state
+        threading.Thread(
+            target=self.run_state_method,
+            args=(None, self.state),
+            daemon=True
+        ).start()
+
+    def transition(self, new_state):
+        """
+        Commit transition and run handler.
+        :param new_state: USB_StateAbsent or USB_StatePresent
+        """
+        if new_state not in (self.USB_StateAbsent, self.USB_StatePresent):
+            oradio_log.info(f"USB_Media: invalid transition requested: {new_state}")
+            return
+
+        old_state = self.state
+        if old_state == new_state:
+            oradio_log.debug(f"USB_Media: already in {new_state}, skipping.")
+            return
+
+        self.state = new_state
+        oradio_log.debug(f"USB_Media: state changed {old_state} → {new_state}")
+
+        threading.Thread(
+            target=self.run_state_method,
+            args=(old_state, new_state),
+            daemon=True
+        ).start()
+
+    def run_state_method(self, old_state, new_state):
+        """
+        Handle USB insert/remove in background.
+        :param old_state: previously internal state or None
+        :param new_state: new internal state
+        """
+        oradio_log.info(f"USB_Media handling transition {old_state} → {new_state}")
+        if new_state == self.USB_StateAbsent:
+            # Force main state to USBAbsent, unless still in startup
+            if self.state_machine.state != "StateStartUp":
+                self.state_machine.transition("StateUSBAbsent")
+            mpd.cancel_update()  # cancel if MPD database update runs
+        else:
+            # USB inserted: only play USBPresent if coming from absent internal state
+            if old_state == self.USB_StateAbsent:
+                self.sound_player.play("USBPresent")
+            # Transition to Idle after USB is inserted
+            if self.state_machine.state != "StateStartUp":
+                self.state_machine.transition("StateIdle")
+            mpd.start_update_mpd_database_thread() # MPD database update
+                                  
 #-------------Messages handler: -----------------
             
 # 1) Functions which define the actions for the messages
@@ -487,12 +541,11 @@ def on_volume_changed():
 #-------------------USB---------------------------
 
 def on_usb_absent():
-    usb_present_event.clear()  # Clear the event so wait() will block
-    state_machine.transition("StateUSBAbsent")
+    usb_media_mgr.transition(USB_Media.USB_StateAbsent)
     oradio_log.debug("USB absent acknowlegded")
 
 def on_usb_present():
-    usb_present_event.set()  # Signal that USB is now present
+    usb_media_mgr.transition(USB_Media.USB_StatePresent)
     oradio_log.debug("USB present acknowledged")
 
 #-------------------WIFI--------------------------
@@ -699,18 +752,15 @@ state_machine = StateMachine()
 
 # Instantiate spotify
 spotify_connect = SpotifyConnect(shared_queue)
-spotify_connect.pause()  # pause spotify connect
+
 
 # Initialize the oradio_usb class
 oradio_usb_service = USBService(shared_queue)
 
-# Check status usb
-state_machine.update_usb_event()
-if not usb_present_event.is_set(): # no USB present
-    oradio_log.warning("USB is Absent")
-    state_machine.transition("StateUSBAbsent")   # Go to StateUSBAbsent
-else:
-    state_machine.transition("StateStartUp") #Statemachine in start up mode
+usb_media_mgr = USB_Media(oradio_usb_service, state_machine, sound_player)
+
+# attach it so StateMachine can refer to it as self.usb_media_mgr
+state_machine.usb_media_mgr = usb_media_mgr
 
 # Initialize TouchButtons and pass the state machine
 touch_buttons = TouchButtons(state_machine)
@@ -730,8 +780,11 @@ network_mgr = Networking(oradio_web_service, oradio_wifi_service)
 # inject the services into the Statemachine
 state_machine.set_services(oradio_web_service)
 state_machine.set_networking(network_mgr)
-# instantiate the process messages
 
+# # start the state_machine transition
+state_machine.transition("StateStartUp")
+
+# instantiate the process messages
 threading.Thread(target=process_messages, args=(shared_queue,), daemon=True).start()  # start messages handler
 
 
