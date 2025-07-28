@@ -398,6 +398,9 @@ echo "--------------------------------------------------"
 EOL' -- "$serial"
 fi
 
+# Ensure defined state when booting: service removes /media/usb_ready
+install_resource $RESOURCES_PATH/usb-prepare.service /etc/systemd/system/usb-prepare.service
+
 # Configure the USB mount script
 install_resource $RESOURCES_PATH/usb-mount.sh /usr/local/bin/usb-mount.sh 'sudo chmod +x /usr/local/bin/usb-mount.sh'
 

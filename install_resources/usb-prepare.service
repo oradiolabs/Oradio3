@@ -1,0 +1,17 @@
+# https://manpages.debian.org/testing/systemd/systemd.service.5.en.html
+# Placeholders will be modified by ../oradio_install.sh script
+
+[Unit]
+Description=Early task to delete monitor /media/usb_ready
+# Make sure this runs before udev is launched
+Before=systemd-udevd.service
+DefaultDependencies=no
+After=local-fs.target
+
+[Service]
+Type=oneshot
+ExecStart=/bin/rm -f /media/usb_ready
+
+[Install]
+# Runs early in the boot process
+WantedBy=sysinit.target

@@ -65,12 +65,12 @@ class USBMonitor(PatternMatchingEventHandler):
 
     def on_created(self, event): # when file is created
         # do something, eg. call your function to process the image
-        oradio_log.info("%s created", event.src_path)
+        oradio_log.info("Mount point %s created", event.src_path)
         self.service._usb_inserted()    # pylint: disable=protected-access
 
     def on_deleted(self, event): # when file is deleted
         # do something, eg. call your function to process the image
-        oradio_log.info("%s deleted", event.src_path)
+        oradio_log.info("Mount point %s deleted", event.src_path)
         self.service._usb_removed()    # pylint: disable=protected-access
 
 class USBServiceMessageHandler:
@@ -165,8 +165,9 @@ class USBService():
         # Set observer to handle USB inserted/removed events
         self.observer = Observer()
         event_handler = USBMonitor(self, patterns=[USB_MONITOR])
-        self.observer.schedule(event_handler, path = USB_MOUNT_PATH)
+        self.observer.schedule(event_handler, path = USB_MOUNT_PATH, recursive=False)
         self.observer.start()
+        print(f"Observer for directory '{USB_MOUNT_POINT}' started")
 
         # Send initial state and error message
         self._send_message(error)
