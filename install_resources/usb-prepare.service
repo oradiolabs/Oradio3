@@ -1,0 +1,23 @@
+# https://manpages.debian.org/testing/systemd/systemd.service.5.en.html
+# Placeholders will be modified by ../oradio_install.sh script
+
+[Unit]
+Description=Remove /media/usb_ready before udev
+DefaultDependencies=no
+# Ensure this runs before udev is launched:
+Before=systemd-udevd.service
+
+[Service]
+Type=oneshot
+ExecStart=/bin/bash -c ' \
+	[ -e /media/usb_ready ] && \
+		echo "/media/usb_ready exists: delete it" && \
+		/bin/rm -f /media/usb_ready \
+	|| \
+		echo "/media/usb_ready does not exist: do nothing" \
+'
+RemainAfterExit=yes
+
+[Install]
+# Runs early in the boot process
+WantedBy=local-fs-pre.target

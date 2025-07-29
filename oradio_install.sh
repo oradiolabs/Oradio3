@@ -398,18 +398,11 @@ echo "--------------------------------------------------"
 EOL' -- "$serial"
 fi
 
+# Ensure defined state when booting: service removes /media/usb_ready
+install_resource $RESOURCES_PATH/usb-prepare.service /etc/systemd/system/usb-prepare.service 'sudo systemctl enable usb-prepare.service'
+
 # Configure the USB mount script
 install_resource $RESOURCES_PATH/usb-mount.sh /usr/local/bin/usb-mount.sh 'sudo chmod +x /usr/local/bin/usb-mount.sh'
-
-# Mount USB if present but not mounted
-if [ ! -f /media/usb_ready ]; then
-	# Mount USB partition if present
-	for filename in /dev/sda[1-9]; do
-		if [ -b "$filename" ]; then
-			sudo bash /usr/local/bin/usb-mount.sh add $(basename $filename)
-		fi
-	done
-fi
 
 # Check for USB mount errors and/or warnings
 if [ -f $LOGFILE_USB ]; then
