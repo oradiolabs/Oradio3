@@ -50,9 +50,6 @@ RESOURCES_PATH=$SCRIPT_PATH/install_resources
 mkdir -p $LOGGING_PATH
 mkdir -p $SPOTIFY_PATH
 
-# Define file for flagging if USB is available
-MONITOR_USB="/media/usb_ready"
-
 # Define log files
 LOGFILE_USB=$LOGGING_PATH/usb.log
 LOGFILE_SPOTIFY=$LOGGING_PATH/spotify.log
@@ -104,9 +101,6 @@ function install_resource {
 			sed -i "s/PLACEHOLDER_SPOTIFY_PATH/$replace/g" $1
 			replace=`echo $LOGGING_PATH | sed 's/\//\\\\\//g'`
 			sed -i "s/PLACEHOLDER_LOGGING_PATH/$replace/g" $1
-
-			replace=`echo $MONITOR_USB | sed 's/\//\\\\\//g'`
-			sed -i "s/PLACEHOLDER_MONITOR_USB/$replace/g" $1
 
 			replace=`echo $LOGFILE_USB | sed 's/\//\\\\\//g'`
 			sed -i "s/PLACEHOLDER_LOGFILE_USB/$replace/g" $1
