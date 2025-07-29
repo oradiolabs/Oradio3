@@ -8,12 +8,14 @@ DefaultDependencies=no
 Before=systemd-udevd.service
 
 [Service]
-# Controls where file descriptor 1 (stdout) and 2 (stderr) of the executed processes is connected to
-StandardOutput=append:PLACEHOLDER_LOGFILE_USB
-StandardError=append:PLACEHOLDER_LOGFILE_USB
-
 Type=oneshot
-ExecStart=/bin/bash -c '[ -e PLACEHOLDER_MONITOR_USB ] && echo "PLACEHOLDER_MONITOR_USB exists: delete it" && /bin/rm -f PLACEHOLDER_MONITOR_USB || echo "PLACEHOLDER_MONITOR_USB does not exist: do nothing"'
+ExecStart=/bin/bash -c '
+	if [ -e PLACEHOLDER_MONITOR_USB ]; then
+		echo "PLACEHOLDER_MONITOR_USB exists: delete it"
+		/bin/rm -f PLACEHOLDER_MONITOR_USB
+	else
+		echo "PLACEHOLDER_MONITOR_USB does not exist: do nothing"
+'	
 RemainAfterExit=yes
 
 [Install]
