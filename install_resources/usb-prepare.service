@@ -6,11 +6,12 @@ Description=Early task to delete monitor /media/usb_ready
 # Make sure this runs before udev is launched
 Before=systemd-udevd.service
 DefaultDependencies=no
-After=local-fs.target
+After=sysinit.target
 
 [Service]
 Type=oneshot
 ExecStart=/bin/rm -f /media/usb_ready
+RemainAfterExit=yes
 
 [Install]
 # Runs early in the boot process
