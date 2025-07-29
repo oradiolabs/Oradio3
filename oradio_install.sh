@@ -410,6 +410,18 @@ install_resource $RESOURCES_PATH/usb-prepare.service /etc/systemd/system/usb-pre
 # Configure the USB mount script
 install_resource $RESOURCES_PATH/usb-mount.sh /usr/local/bin/usb-mount.sh 'sudo chmod +x /usr/local/bin/usb-mount.sh'
 
+# Check for USB mount errors and/or warnings
+if [ -f $LOGFILE_USB ]; then
+	MESSAGE_USB=$(cat $LOGFILE_USB | grep "Error")
+	if [ $? -eq 0 ]; then
+		echo -e "${RED}Problem mounting USB: $MESSAGE_USB${NC}"
+	fi
+	MESSAGE_USB=$(cat $LOGFILE_USB | grep "Warning")
+	if [ $? -eq 0 ]; then
+		echo -e "${YELLOW}Problem mounting USB: $MESSAGE_USB${NC}"
+	fi
+fi
+
 # Configure the USB service
 install_resource $RESOURCES_PATH/usb-mount@.service /etc/systemd/system/usb-mount@.service
 
