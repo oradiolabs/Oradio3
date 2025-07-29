@@ -3,9 +3,10 @@
 
 [Unit]
 Description=Early task to delete monitor /media/usb_ready
-# Make sure this runs before udev is launched
+# Ensure this runs before udev is launched:
 Before=systemd-udevd.service
 DefaultDependencies=no
+# Ensure the /media directory is mounted and available:
 After=sysinit.target
 
 [Service]
