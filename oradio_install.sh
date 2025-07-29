@@ -50,6 +50,9 @@ RESOURCES_PATH=$SCRIPT_PATH/install_resources
 mkdir -p $LOGGING_PATH
 mkdir -p $SPOTIFY_PATH
 
+# Define file for flagging if USB is available
+MONITOR_USB="/media/usb_ready"
+
 # Define log files
 LOGFILE_USB=$LOGGING_PATH/usb.log
 LOGFILE_SPOTIFY=$LOGGING_PATH/spotify.log
@@ -101,6 +104,9 @@ function install_resource {
 			sed -i "s/PLACEHOLDER_SPOTIFY_PATH/$replace/g" $1
 			replace=`echo $LOGGING_PATH | sed 's/\//\\\\\//g'`
 			sed -i "s/PLACEHOLDER_LOGGING_PATH/$replace/g" $1
+
+			replace=`echo $MONITOR_USB | sed 's/\//\\\\\//g'`
+			sed -i "s/PLACEHOLDER_MONITOR_USB/$replace/g" $1
 
 			replace=`echo $LOGFILE_USB | sed 's/\//\\\\\//g'`
 			sed -i "s/PLACEHOLDER_LOGFILE_USB/$replace/g" $1
@@ -403,16 +409,6 @@ install_resource $RESOURCES_PATH/usb-prepare.service /etc/systemd/system/usb-pre
 
 # Configure the USB mount script
 install_resource $RESOURCES_PATH/usb-mount.sh /usr/local/bin/usb-mount.sh 'sudo chmod +x /usr/local/bin/usb-mount.sh'
-
-# Mount USB if present but not mounted
-if [ ! -f /media/usb_ready ]; then
-	# Mount USB partition if present
-	for filename in /dev/sda[1-9]; do
-		if [ -b "$filename" ]; then
-			sudo bash /usr/local/bin/usb-mount.sh add $(basename $filename)
-		fi
-	done
-fi
 
 # Configure the USB service
 install_resource $RESOURCES_PATH/usb-mount@.service /etc/systemd/system/usb-mount@.service
