@@ -27,8 +27,8 @@ Added networking statemachine, to handle various states wifi and Web service
 import time
 import threading
 from multiprocessing import Queue
-import subprocess
-import os
+import subprocess # pylint: disable=unused-import
+import os # pylint: disable=unused-import
 import signal
 
 # For stress test
@@ -40,16 +40,48 @@ import sys
 from oradio_logging import oradio_log
 from volume_control import VolumeControl
 
-#from mpd_control import MPDControl
+# from mpd_control import MPDControl
 from mpd_control import get_mpd_control
 
 from led_control import LEDControl
 from play_system_sound import PlaySystemSound
 from touch_buttons import TouchButtons
 from remote_monitoring import RmsService
+from spotify_connect_direct import SpotifyConnect
+from usb_service import USBService
+from web_service import WebService
+from wifi_service import WifiService
 
 ##### GLOBAL constants ####################
-from oradio_const import *
+#from oradio_const import *
+ ##### GLOBAL constants ####################
+from oradio_const import (
+    MESSAGE_NO_ERROR,
+    MESSAGE_SPOTIFY_TYPE,
+    MESSAGE_STATE_CHANGED,
+    MESSAGE_TYPE_VOLUME,
+    MESSAGE_USB_TYPE,
+    MESSAGE_WEB_SERVICE_PL1_CHANGED,
+    MESSAGE_WEB_SERVICE_PL2_CHANGED,
+    MESSAGE_WEB_SERVICE_PL3_CHANGED,
+    MESSAGE_WEB_SERVICE_PL_WEBRADIO,
+    MESSAGE_WEB_SERVICE_PLAYING_SONG,
+    MESSAGE_WEB_SERVICE_TYPE,
+    MESSAGE_WIFI_FAIL_CONNECT,
+    MESSAGE_WIFI_TYPE,
+    SPOTIFY_CONNECT_CONNECTED_EVENT,
+    SPOTIFY_CONNECT_DISCONNECTED_EVENT,
+    SPOTIFY_CONNECT_PAUSED_EVENT,
+    SPOTIFY_CONNECT_PLAYING_EVENT,
+    STATE_USB_ABSENT,
+    STATE_USB_PRESENT,
+    STATE_WEB_SERVICE_ACTIVE,
+    STATE_WEB_SERVICE_IDLE,
+    STATE_WIFI_ACCESS_POINT,
+    STATE_WIFI_CONNECTED,
+    STATE_WIFI_INTERNET,
+    STATE_WIFI_IDLE,
+)
 
 ##### LOCAL constants ####################
 
@@ -57,16 +89,16 @@ from oradio_const import *
 remote_monitor = RmsService()
 
 # Use the spotify_connect_direct
-from spotify_connect_direct import SpotifyConnect
+#from spotify_connect_direct import SpotifyConnect
 
-spotify_connect_connected = threading.Event() # track status Spotify connected
-spotify_connect_playing = threading.Event() # track Spotify playing
-spotify_connect_available = threading.Event() # track Spotify playing & connetyec
+spotify_connect_connected = threading.Event()  # track status Spotify connected
+spotify_connect_playing = threading.Event()  # track Spotify playing
+spotify_connect_available = threading.Event()  # track Spotify playing & connetyec
 
-#-----------------------
-from usb_service import USBService
-from web_service import WebService
-from wifi_service import WifiService
+# -----------------------
+# from usb_service import USBService
+# from web_service import WebService
+# from wifi_service import WifiService
 
 # Instantiate MPDControl
 mpd = get_mpd_control()
@@ -77,27 +109,34 @@ leds = LEDControl()
 sound_player = PlaySystemSound()
 
 
-#----------------------State Machine------------------
+# ----------------------State Machine------------------
+
 
 class StateMachine:
     def __init__(self):
+        """
+        Core application state machine for Oradio, managing transitions between
+        playback, presets, USB insertion/removal, web service, and networking.
+        """
         self.state = "StateStartUp"
         self.prev_state = None
-        
+
         self.task_lock = threading.Lock()
         # placeholders until you wire them in
-        self._websvc    = None
+        self._websvc = None
         self.network_mgr = None
-        
-    def set_networking(self, network_mgr):
+        self.usb_media_mgr = None
+
+    def set_networking(self, net_mgr):
         """Inject the Networking instance so run_state_method can see it."""
-        self.network_mgr = network_mgr    
-  
+        self.network_mgr = net_mgr
+
     def set_services(self, web_service):
         """
         Inject the (already‐constructed) WebService.
         """
-        self._websvc  = web_service
+        self._websvc = web_service
+
     # to start via long-press the webservice indepently from the statemachine
     def start_webservice(self):
         """
@@ -109,8 +148,10 @@ class StateMachine:
             return
 
         # Guard: only start webservice when USB is present
-        if not hasattr(self, "usb_media_mgr") or \
-           self.usb_media_mgr.state != USB_Media.USB_StatePresent:
+        if (
+            not hasattr(self, "usb_media_mgr")
+            or self.usb_media_mgr.state != USB_Media.USB_StatePresent
+        ):
             oradio_log.warning("WebService start blocked (USB absent)")
             return
 
@@ -118,10 +159,11 @@ class StateMachine:
         oradio_log.debug("Starting WebService: %r", ws)
         leds.control_blinking_led("LEDPlay", 2)
         ws.start()
-        
 
     def transition(self, requested_state):
-        oradio_log.debug("Request Transitioning from %s to %s", self.state, requested_state)
+        oradio_log.debug(
+            "Request Transitioning from %s to %s", self.state, requested_state
+        )
 
         # ————————————————————————————————
         # 1. SAME-STATE “NEXT SONG” SHORTCUT
@@ -138,13 +180,19 @@ class StateMachine:
         # 2. SPOTIFY-CONNECT REDIRECT
         # ————————————————————————————————
         if spotify_connect_available.is_set() and requested_state == "StatePlay":
-            oradio_log.debug("Spotify Connect active → redirecting to StateSpotifyConnect")
+            oradio_log.debug(
+                "Spotify Connect active → redirecting to StateSpotifyConnect"
+            )
             requested_state = "StateSpotifyConnect"
 
         # ————————————————————————————————
         # 3. SWITCH OFF WEB SERVICE IN AP MODE
         # ————————————————————————————————
-        if self.network_mgr and self.network_mgr.state == "APWebservice" and requested_state == "StateStop":
+        if (
+            self.network_mgr
+            and self.network_mgr.state == "APWebservice"
+            and requested_state == "StateStop"
+        ):
             oradio_web_service.stop()
             return
 
@@ -154,10 +202,13 @@ class StateMachine:
         web_preset_states = {"StatePreset1", "StatePreset2", "StatePreset3"}
         if requested_state in web_preset_states:
             preset_key = requested_state.replace("State", "")
-            if mpd.preset_is_webradio(preset_key) and self.network_mgr.state != "Internet":
+            if (
+                mpd.preset_is_webradio(preset_key)
+                and self.network_mgr.state != "Internet"
+            ):
                 oradio_log.info(
                     "Blocked transition to %s: preset is web radio but no Internet",
-                    requested_state
+                    requested_state,
                 )
                 threading.Timer(2, sound_player.play, args=("NoInternet",)).start()
                 return
@@ -168,14 +219,14 @@ class StateMachine:
         if self.usb_media_mgr.state == USB_Media.USB_StatePresent:
             # USB is present → commit the requested state
             self.prev_state = self.state
-            self.state      = requested_state
+            self.state = requested_state
             oradio_log.debug("State changed: %s → %s", self.prev_state, self.state)
         else:
             # USB absent → block and force the USB‐absent state
-            oradio_log.warning("Transition to %s blocked (USB absent)", requested_state)
+            oradio_log.info("Transition to %s blocked (USB absent)", requested_state)
             if self.state != "StateUSBAbsent":
                 self.prev_state = self.state
-                self.state      = "StateUSBAbsent"
+                self.state = "StateUSBAbsent"
                 oradio_log.debug("State set to StateUSBAbsent")
 
         # ————————————————————————————————
@@ -183,9 +234,7 @@ class StateMachine:
         # ————————————————————————————————
         state_to_handle = self.state
         threading.Thread(
-            target=self.run_state_method,
-            args=(state_to_handle,),
-            daemon=True
+            target=self.run_state_method, args=(state_to_handle,), daemon=True
         ).start()
 
     def run_state_method(self, state_to_handle):
@@ -201,7 +250,6 @@ class StateMachine:
                 mpd.play()
                 spotify_connect.pause()
                 sound_player.play("Play")
-                
 
             elif state_to_handle == "StatePreset1":
                 leds.turn_on_led("LEDPreset1")
@@ -229,7 +277,12 @@ class StateMachine:
 
             elif state_to_handle == "StateStop":
                 leds.turn_on_led_with_delay("LEDStop", 4)
-                mpd.pause()
+                # smart‐pause: if this is a web-radio stream,
+                # use STOP (clears MPD buffer) instead of PAUSE
+                if mpd.current_is_webradio():
+                    mpd.stop()
+                else:
+                    mpd.pause()
                 spotify_connect.pause()
                 sound_player.play("Stop")
 
@@ -238,7 +291,10 @@ class StateMachine:
                     leds.control_blinking_led("LEDPlay", 2)
                 else:
                     leds.turn_on_led("LEDPlay")
-                mpd.pause()
+                if mpd.current_is_webradio():
+                    mpd.stop()
+                else:
+                    mpd.pause()
                 spotify_connect.play()
                 sound_player.play("Spotify")
 
@@ -253,7 +309,7 @@ class StateMachine:
 
             elif state_to_handle == "StateUSBAbsent":
                 leds.control_blinking_led("LEDStop", 0.7)
-                mpd.pause()
+                mpd.stop()
                 spotify_connect.pause()
                 sound_player.play("Stop")
                 sound_player.play("NoUSB")
@@ -265,7 +321,7 @@ class StateMachine:
                 oradio_log.debug("Starting-up")
                 mpd.pause()
                 spotify_connect.pause()
-                mpd.start_update_mpd_database_thread()
+#                mpd.start_update_mpd_database_thread()
                 time.sleep(2)
                 sound_player.play("StartUp")
                 time.sleep(3)
@@ -273,16 +329,20 @@ class StateMachine:
                 self.transition("StateIdle")
 
             elif state_to_handle == "StateIdle":
-                mpd.pause()
+                if mpd.current_is_webradio():
+                    mpd.stop()
+                else:
+                    mpd.pause()
                 spotify_connect.pause()
                 oradio_log.debug("In Idle state, wait for next step")
 
             elif state_to_handle == "StateError":
                 leds.control_blinking_led("LEDStop", 2)
-                
 
-#------------Networking state machine------------
-            
+
+# ------------Networking state machine------------
+
+
 class Networking:
     """
     Combines web-service + wifi-service into one 4-state machine:
@@ -299,12 +359,12 @@ class Networking:
         # start out in Idle
         self.state = "Idle"
         self.task_lock = threading.Lock()
-        
+
         # track whether we've entered APWebservice and not yet played WifiConnected
         self.ap_tracker = False
 
     def transition(self):
-        ws_state   = self.web_service.get_state()
+        ws_state = self.web_service.get_state()
         wifi_state = self.wifi_service.get_state()
 
         # Map (Wi-Fi, Web-Service) → Networking state:
@@ -315,8 +375,10 @@ class Networking:
         #  • (AccessPoint, Active)                          → APWebservice
         #  • (AccessPoint, Idle)                            → Idle
 
-        if ws_state == STATE_WEB_SERVICE_ACTIVE and \
-           wifi_state == STATE_WIFI_ACCESS_POINT:
+        if (
+            ws_state == STATE_WEB_SERVICE_ACTIVE
+            and wifi_state == STATE_WIFI_ACCESS_POINT
+        ):
             # AP mode + service running
             requested = "APWebservice"
 
@@ -334,13 +396,13 @@ class Networking:
             #   • wifi_state == STATE_WIFI_ACCESS_POINT with WS idle
             requested = "Idle"
 
- #       oradio_log.info("Networking: %s → %s", self.state, requested)
+        #       oradio_log.info("Networking: %s → %s", self.state, requested)
 
         # 2 no‐op if same
         if requested == self.state:
             oradio_log.info("Networking state is already %s", self.state)
             return
-        
+
         # 3 commit new state
         old = self.state
         self.state = requested
@@ -348,21 +410,18 @@ class Networking:
 
         # 4 spawn handler with both old & new
         threading.Thread(
-            target=self.run_state_method,
-            args=(old, requested),
-            daemon=True
+            target=self.run_state_method, args=(old, requested), daemon=True
         ).start()
-
 
     def run_state_method(self, old_state, new_state):
         """
         Perform the needed tasks on entry/exit of APWebservice,
-        
+
         """
         with self.task_lock:
             # Handle APWebservice blinking on entry
             if new_state == "APWebservice":
-                
+
                 # 1) If we're currently in a preset state that is a WebRadio, stop it
                 play_presets = {"StatePreset1", "StatePreset2", "StatePreset3"}
                 curr = state_machine.state
@@ -370,17 +429,19 @@ class Networking:
                     # turn "StatePreset1" → "Preset1"
                     preset_key = curr.replace("State", "")
                     if mpd.preset_is_webradio(preset_key):
-#                        mpd.stop()
+                        #                        mpd.stop()
                         state_machine.transition("StateIdle")
-                        oradio_log.info("Stopped WebRadio preset %s on APWebservice entry", preset_key)
+                        oradio_log.info(
+                            "Stopped WebRadio preset %s on APWebservice entry",
+                            preset_key,
+                        )
 
                 # 2) Or if we're in plain Play and it's a WebRadio, stop it
                 elif curr == "StatePlay" and mpd.current_is_webradio():
-#                    mpd.stop()
+                    #                    mpd.stop()
                     state_machine.transition("StateIdle")
                     oradio_log.info("Stopped WebRadio playback on APWebservice entry")
-                
-                      
+
                 leds.control_blinking_led("LEDPlay", 2)
                 sound_player.play("OradioAPstarted")
                 self.ap_tracker = True
@@ -394,19 +455,19 @@ class Networking:
                     leds.control_blinking_led("LEDPlay", 0)
                 sound_player.play("OradioAPstopped")
 
-                APWebserviceTracker= True
+                self.ap_tracker = False
                 oradio_log.info("Networking left APWebservice state")
 
             if new_state == "Internet":
                 #  play “WifiConnected” only when arriving (some states ago) from APWebservice
                 # only play “WifiConnected” when arriving from APWebservice
                 # and both the *previous* and *current* Oradio state are in play/webservice modes
-                
-#                 oradio_log.info(
-#                 "Networking → Internet: prev_state=%s, current_state=%s",
-#                 state_machine.prev_state,
-#                 state_machine.state
-#                 )
+
+                #                 oradio_log.info(
+                #                 "Networking → Internet: prev_state=%s, current_state=%s",
+                #                 state_machine.prev_state,
+                #                 state_machine.state
+                #                 )
                 play_webservice_states = {
                     "StatePlay",
                     "StatePreset1",
@@ -414,12 +475,11 @@ class Networking:
                     "StatePreset3",
                     "StateWebService",
                 }
-                if (
-                    self.ap_tracker and
-                    state_machine.state      in play_webservice_states
-                ):
+                if self.ap_tracker and state_machine.state in play_webservice_states:
                     # delay the tone so it doesn’t clash with any other sounds
-                    threading.Timer(4, sound_player.play, args=("WifiConnected",)).start()
+                    threading.Timer(
+                        4, sound_player.play, args=("WifiConnected",)
+                    ).start()
                     self.ap_tracker = False
 
                 # Send system info to Remote Monitoring Service
@@ -429,24 +489,32 @@ class Networking:
                 oradio_log.info("Networking is in Internet state")
             else:
                 remote_monitor.heartbeat_stop()  # in all other cases, stop sending heartbeat
-                
+
             if new_state == "ConnectedNoInternet":
                 #  play “WifiNot  Connected” only when arriving from APWebservice
-                play_webservice_states = {"StatePlay", "StatePreset1", "StatePreset2", "StatePreset3", "StateWebService"}
-                if state_machine.state in play_webservice_states: # If in play states,
+                play_webservice_states = {
+                    "StatePlay",
+                    "StatePreset1",
+                    "StatePreset2",
+                    "StatePreset3",
+                    "StateWebService",
+                }
+                if state_machine.state in play_webservice_states:  # If in play states,
                     if self.ap_tracker:
                         sound_player.play("NoInternet")
                         self.ap_tracker = False
                 oradio_log.info("Networking is in Connected No Internet state")
-                
+
             elif new_state == "Idle":
                 oradio_log.info("Networking is in Idle state")
             else:
                 # this covers new_state == "APWebservice" again, or unexpected
                 pass
 
-#---------------USB_Media state machine-----------------------
-            
+
+# ---------------USB_Media state machine-----------------------
+
+
 class USB_Media:
     """
     USB presence handler with two states:
@@ -455,18 +523,21 @@ class USB_Media:
 
     External code must call `transition()` on USB events with internal state names.
     """
-    USB_StateAbsent  = "USB_StateAbsent"
+
+    USB_StateAbsent = "USB_StateAbsent"
     USB_StatePresent = "USB_StatePresent"
 
-    def __init__(self, usb_service, state_machine, sound_player):
+    def __init__(self, usb_service, sm, sp, mpd_client):
         """
         :param usb_service: USBService instance providing get_state()
-        :param state_machine: StateMachine to drive transitions
-        :param sound_player: PlaySystemSound for USBPresent tone
+        :param sm: StateMachine to drive transitions
+        :param sp: PlaySystemSound for USBPresent tone
+        :param mpd_client: object providing cancel_update() and start_update_mpd_database_thread()
         """
-        self.usb_service   = usb_service
-        self.state_machine = state_machine
-        self.sound_player  = sound_player
+        self.usb_service = usb_service
+        self.state_machine = sm
+        self.sound_player = sp
+        self.mpd_client = mpd_client
 
         # Set initial internal state
         service_state = self.usb_service.get_state()
@@ -475,13 +546,11 @@ class USB_Media:
             if service_state == STATE_USB_PRESENT
             else self.USB_StateAbsent
         )
-        oradio_log.debug(f"USB_Media init: initial state = {self.state}")
+        oradio_log.debug("USB_Media init: initial state = %s", self.state)
 
         # Immediately handle initial state
         threading.Thread(
-            target=self.run_state_method,
-            args=(None, self.state),
-            daemon=True
+            target=self.run_state_method, args=(None, self.state), daemon=True
         ).start()
 
     def transition(self, new_state):
@@ -490,21 +559,19 @@ class USB_Media:
         :param new_state: USB_StateAbsent or USB_StatePresent
         """
         if new_state not in (self.USB_StateAbsent, self.USB_StatePresent):
-            oradio_log.info(f"USB_Media: invalid transition requested: {new_state}")
+            oradio_log.info("USB_Media: invalid transition requested: %s", new_state)
             return
 
         old_state = self.state
         if old_state == new_state:
-            oradio_log.debug(f"USB_Media: already in {new_state}, skipping.")
+            oradio_log.debug("USB_Media: already in %s, skipping.", new_state)
             return
 
         self.state = new_state
-        oradio_log.debug(f"USB_Media: state changed {old_state} → {new_state}")
+        oradio_log.debug("USB_Media: state changed %s → %s", old_state, new_state)
 
         threading.Thread(
-            target=self.run_state_method,
-            args=(old_state, new_state),
-            daemon=True
+            target=self.run_state_method, args=(old_state, new_state), daemon=True
         ).start()
 
     def run_state_method(self, old_state, new_state):
@@ -513,12 +580,12 @@ class USB_Media:
         :param old_state: previously internal state or None
         :param new_state: new internal state
         """
-        oradio_log.info(f"USB_Media handling transition {old_state} → {new_state}")
+        oradio_log.info("USB_Media handling transition %s → %s", old_state, new_state)
         if new_state == self.USB_StateAbsent:
             # Force main state to USBAbsent, unless still in startup
             if self.state_machine.state != "StateStartUp":
                 self.state_machine.transition("StateUSBAbsent")
-            mpd.cancel_update()  # cancel if MPD database update runs
+            self.mpd_client.cancel_update()  # cancel if MPD database update runs
         else:
             # USB inserted: only play USBPresent if coming from absent internal state
             if old_state == self.USB_StateAbsent:
@@ -526,69 +593,102 @@ class USB_Media:
             # Transition to Idle after USB is inserted
             if self.state_machine.state != "StateStartUp":
                 self.state_machine.transition("StateIdle")
-            mpd.start_update_mpd_database_thread() # MPD database update
-                                  
-#-------------Messages handler: -----------------
-            
+            self.mpd_client.start_update_mpd_database_thread()  # MPD database update
+
+
+# -------------Messages handler: -----------------
+
 # 1) Functions which define the actions for the messages
 
-#-------------------VOLUME-----------------------
+# -------------------VOLUME-----------------------
+
 
 def on_volume_changed():
     if state_machine.state == "StateStop" or state_machine.state == "StateIdle":
-        state_machine.transition("StatePlay") # Switch Oradio in Play when Volume buttons is turned
+        state_machine.transition(
+            "StatePlay"
+        )  # Switch Oradio in Play when Volume buttons is turned
 
-#-------------------USB---------------------------
+
+# -------------------USB---------------------------
+
 
 def on_usb_absent():
     usb_media_mgr.transition(USB_Media.USB_StateAbsent)
     oradio_log.debug("USB absent acknowlegded")
 
+
 def on_usb_present():
     usb_media_mgr.transition(USB_Media.USB_StatePresent)
     oradio_log.debug("USB present acknowledged")
 
-#-------------------WIFI--------------------------
+
+# -------------------WIFI--------------------------
 
 # All state  wifi and web services changes are handled by the Message handler and Networking_mgr
 
+
 def on_wifi_connected_to_internet():
     oradio_log.debug("Wifi is connected to internet acknowledged")
-    
+
+
 def on_wifi_connected_no_internet():
     oradio_log.debug("Wifi is connected NO internet acknowledged")
+
 
 def on_wifi_not_connected():
     oradio_log.debug("Wifi is NOT connected acknowledged")
 
+
 def on_wifi_access_point():
     oradio_log.debug("Configured as access point acknowledged")
 
+
 def on_wifi_error():
-    play_webservice_states = {"StatePlay", "StatePreset1", "StatePreset2", "StatePreset3", "StateWebService"}
-    if state_machine.state in play_webservice_states: # If in play states,
-        sound_player.play("WifiNotConnected")  # 
+    play_webservice_states = {
+        "StatePlay",
+        "StatePreset1",
+        "StatePreset2",
+        "StatePreset3",
+        "StateWebService",
+    }
+    if state_machine.state in play_webservice_states:  # If in play states,
+        sound_player.play("WifiNotConnected")  #
     oradio_log.debug("Wifi Error acknowledged")
 
-#-------------------WEB---------------------------
+
+# -------------------WEB---------------------------
+
 
 def on_webservice_active():
     oradio_log.debug("WebService active is acknowledged")
 
+
 def on_webservice_idle():
-     oradio_log.debug("WebService idle is acknowledged")
+    oradio_log.debug("WebService idle is acknowledged")
+
 
 def on_webservice_playing_song():
-    spotify_connect.pause() # spotify is on pause and will not work
-    if state_machine.state == "StateStop": # if webservice put songs in queue and plays it
-        state_machine.transition("StatePlaySongWebIF")   #  and if player is switched of, switch it on, otherwise keep state
+    spotify_connect.pause()  # spotify is on pause and will not work
+    if (
+        state_machine.state == "StateStop"
+    ):  # if webservice put songs in queue and plays it
+        state_machine.transition(
+            "StatePlaySongWebIF"
+        )  #  and if player is switched of, switch it on, otherwise keep state
     oradio_log.debug("WebService playing song acknowledged")
 
+
 def on_webservice_pl1_changed():
-    state_machine.transition("StateIdle")  # Step in bewteen if state is the same, preventing Next
+    state_machine.transition(
+        "StateIdle"
+    )  # Step in bewteen if state is the same, preventing Next
     state_machine.transition("StatePreset1")
-    threading.Timer(2, sound_player.play, args=("NewPlaylistPreset",)).start() # to make that first the Preset number is heard
+    threading.Timer(
+        2, sound_player.play, args=("NewPlaylistPreset",)
+    ).start()  # to make that first the Preset number is heard
     oradio_log.debug("WebService on_webservice_pl1_changed acknowledged")
+
 
 def on_webservice_pl2_changed():
     state_machine.transition("StateIdle")
@@ -596,50 +696,60 @@ def on_webservice_pl2_changed():
     threading.Timer(2, sound_player.play, args=("NewPlaylistPreset",)).start()
     oradio_log.debug("WebService on_webservice_pl2_changed acknowledged")
 
+
 def on_webservice_pl3_changed():
     state_machine.transition("StateIdle")
     state_machine.transition("StatePreset3")
     threading.Timer(2, sound_player.play, args=("NewPlaylistPreset",)).start()
     oradio_log.debug("WebService on_webservice_pl3_changed acknowledged")
 
+
 def on_webservice_pl_web_radio_changed():
- #   state_machine.transition("StateIdle")
+    #   state_machine.transition("StateIdle")
     threading.Timer(2, sound_player.play, args=("NewPlaylistWebradio",)).start()
     oradio_log.debug("WebService on_webservice_pl_web_radio_changed acknowledged")
 
-#-------------------SPOTIFY-----------------------
+
+# -------------------SPOTIFY-----------------------
+
 
 def on_spotify_connect_connected():
-    spotify_connect_connected.set() # Signal that spotify_connected is active
+    spotify_connect_connected.set()  # Signal that spotify_connected is active
     update_spotify_connect_available()
     oradio_log.debug("Spotify active is acknowledged")
 
+
 def on_spotify_connect_disconnected():
-    spotify_connect_connected.clear() # Signal that spotify_connected is inactive
+    spotify_connect_connected.clear()  # Signal that spotify_connected is inactive
     update_spotify_connect_available()
     oradio_log.debug("Spotify inactive is acknowledged")
 
+
 # Both can switch the Oradio remotely, which is not in line with "in Control"
 def on_spotify_connect_playing():
-    spotify_connect_connected.set() # Signal that spotify_connected is active
+    spotify_connect_connected.set()  # Signal that spotify_connected is active
     spotify_connect_playing.set()
     update_spotify_connect_available()
     oradio_log.debug("Spotify playing is acknowledged")
 
+
 def on_spotify_connect_paused():
-    spotify_connect_connected.set() # Signal that spotify_connected is active
+    spotify_connect_connected.set()  # Signal that spotify_connected is active
     spotify_connect_playing.clear()
     update_spotify_connect_available()
     oradio_log.debug("Spotify paused is acknowledged")
+
 
 def on_spotify_connect_stopped():
     spotify_connect_playing.clear()
     update_spotify_connect_available()  # simular as stopped
     oradio_log.debug("Spotify stopped is acknowledged")
 
+
 def on_spotify_connect_changed():
     # TBD action
     oradio_log.debug("Spotify changed is acknowledged")
+
 
 def update_spotify_connect_available():
     """
@@ -649,20 +759,26 @@ def update_spotify_connect_available():
     """
     if spotify_connect_connected.is_set() and spotify_connect_playing.is_set():
         spotify_connect_available.set()  # When this is the case, the ON button becomes Spotify Button
-        if state_machine.state in ("StatePlay"):# if Spotify connect is  avalaible Switch to
-            state_machine.transition("StateSpotifyConnect") # Switch to Spotify Connect
+        if state_machine.state in (
+            "StatePlay"
+        ):  # if Spotify connect is  avalaible Switch to
+            state_machine.transition("StateSpotifyConnect")  # Switch to Spotify Connect
     else:
         spotify_connect_available.clear()
-        if state_machine.state == "StateSpotifyConnect": # if Spotify connect is not avalaible
-            state_machine.transition("StateStop") # Switch of as Spotify stops
+        if (
+            state_machine.state == "StateSpotifyConnect"
+        ):  # if Spotify connect is not avalaible
+            state_machine.transition("StateStop")  # Switch of as Spotify stops
 
     oradio_log.info(
-        f"Spotify Connect States - Connected: {spotify_connect_connected.is_set()}, "
-        f"Playing: {spotify_connect_playing.is_set()}, "
-        f"Available: {spotify_connect_available.is_set()}"
+        "Spotify Connect States - Connected: %s, Playing: %s, Available: %s",
+        spotify_connect_connected.is_set(),
+        spotify_connect_playing.is_set(),
+        spotify_connect_available.is_set(),
     )
 
-#2)-----The Handler map, defining message content and the handler funtion---
+
+# 2)-----The Handler map, defining message content and the handler funtion---
 
 HANDLERS = {
     MESSAGE_TYPE_VOLUME: {
@@ -703,8 +819,8 @@ HANDLERS = {
 
 def handle_message(message):
     command_type = message.get("type")
-    state        = message.get("state")
-    error        = message.get("error", None)
+    state = message.get("state")
+    error = message.get("error", None)
 
     handlers = HANDLERS.get(command_type)
     if handlers is None:
@@ -715,8 +831,7 @@ def handle_message(message):
         handler()
     else:
         oradio_log.warning(
-            "Unhandled state '%s' for message type '%s'.",
-            state, command_type
+            "Unhandled state '%s' for message type '%s'.", state, command_type
         )
 
     if error and error != MESSAGE_NO_ERROR:
@@ -724,13 +839,12 @@ def handle_message(message):
             handler()
         else:
             oradio_log.warning(
-                "Unhandled error '%s' for message type '%s'.",
-                error, command_type
+                "Unhandled error '%s' for message type '%s'.", error, command_type
             )
-   # ── after you’ve done your per‐message logic, update Networking ──
+    # ── after you’ve done your per‐message logic, update Networking ──
     if command_type in (MESSAGE_WIFI_TYPE, MESSAGE_WEB_SERVICE_TYPE):
-        network_mgr.transition()            
-    
+        network_mgr.transition()
+
 
 # 3)----------- Process the messages---------
 def process_messages(queue):
@@ -739,13 +853,13 @@ def process_messages(queue):
             msg = queue.get()
             oradio_log.debug("Received message in Queue: %s", msg)
             handle_message(msg)
-    except Exception as ex:
+    except Exception as ex:  # pylint: disable=broad-exception-caught
         oradio_log.error("Unexpected error in process_messages: %s", ex)
 
 
-#------------------Start-up - instantiate and define other modules ------------------------------
+# ------------------Start-up - instantiate and define other modules ------------------------------
 
-shared_queue = Queue() # Create a shared queue
+shared_queue = Queue()  # Create a shared queue
 
 # Instantiate the state machine
 state_machine = StateMachine()
@@ -757,7 +871,7 @@ spotify_connect = SpotifyConnect(shared_queue)
 # Initialize the oradio_usb class
 oradio_usb_service = USBService(shared_queue)
 
-usb_media_mgr = USB_Media(oradio_usb_service, state_machine, sound_player)
+usb_media_mgr = USB_Media(oradio_usb_service, state_machine, sound_player, mpd)
 
 # attach it so StateMachine can refer to it as self.usb_media_mgr
 state_machine.usb_media_mgr = usb_media_mgr
@@ -770,7 +884,7 @@ volume_control = VolumeControl(shared_queue)
 
 # #Initialize the wifi_service
 oradio_wifi_service = WifiService(shared_queue)
-# 
+#
 # #Initialize the web_service
 oradio_web_service = WebService(shared_queue)
 
@@ -785,7 +899,9 @@ state_machine.set_networking(network_mgr)
 state_machine.transition("StateStartUp")
 
 # instantiate the process messages
-threading.Thread(target=process_messages, args=(shared_queue,), daemon=True).start()  # start messages handler
+threading.Thread(
+    target=process_messages, args=(shared_queue,), daemon=True
+).start()  # start messages handler
 
 
 # ——————————————————————————————
@@ -798,26 +914,35 @@ threading.Thread(target=process_messages, args=(shared_queue,), daemon=True).sta
 
 
 STATES = [
-    "StatePlay", "StatePreset1", "StatePreset2", "StatePreset3",
-    "StateStop", "StateSpotifyConnect", "StatePlaySongWebIF",
-    "StateUSBAbsent", "StateStartUp", "StateIdle", "StateWebService"
+    "StatePlay",
+    "StatePreset1",
+    "StatePreset2",
+    "StatePreset3",
+    "StateStop",
+    "StateSpotifyConnect",
+    "StatePlaySongWebIF",
+    "StateUSBAbsent",
+    "StateStartUp",
+    "StateIdle",
+    "StateWebService",
 ]
 
 # Event that, when set, signals the stress loop to stop cleanly
-_stress_stop       = threading.Event()
+_stress_stop = threading.Event()
 
 # Holds the Thread object running the stress loop once it's started;
 # remains None until maybe_start_stress() launches it.
-_stress_thread     = None
+_stress_thread = None
 
 # Simple integer counter tracking how many transitions have been fired
-_stress_count      = 0
+_stress_count = 0
 
 # Lock to synchronize increments of _stress_count between the stress and main threads
 _stress_count_lock = threading.Lock()
 
+
 def _stress_loop(min_d, max_d, max_count):
-    global _stress_count
+    global _stress_count # pylint: disable=global-statement
     while not _stress_stop.is_set():
         nxt = random.choice(STATES)
         with _stress_count_lock:
@@ -831,7 +956,9 @@ def _stress_loop(min_d, max_d, max_count):
 
         # if we've hit the user-supplied maximum, stop
         if max_count is not None and cnt >= max_count:
-            print(f"\n🛑 Reached max_transitions ({max_count}). Stopping stress test 🛑")
+            print(
+                f"\n🛑 Reached max_transitions ({max_count}). Stopping stress test 🛑"
+            )
             _stress_stop.set()
             break
 
@@ -847,17 +974,26 @@ def maybe_start_stress():
     If --stress is passed, start the storm with optional max-transitions,
     and a Q-watcher that stops it early.
     """
-    global _stress_thread
+    global _stress_thread # pylint: disable=global-statement
 
     p = argparse.ArgumentParser(add_help=False)
-    p.add_argument("--stress",           action="store_true",
-                   help="hammer the state machine with random transitions")
-    p.add_argument("--min-delay",        type=float, default=0.1,
-                   help="minimum delay between transitions")
-    p.add_argument("--max-delay",        type=float, default=0.5,
-                   help="maximum delay between transitions")
-    p.add_argument("--max-transitions",  type=int, default=20,
-                   help="stop automatically after this many transitions")
+    p.add_argument(
+        "--stress",
+        action="store_true",
+        help="hammer the state machine with random transitions",
+    )
+    p.add_argument(
+        "--min-delay", type=float, default=0.1, help="minimum delay between transitions"
+    )
+    p.add_argument(
+        "--max-delay", type=float, default=0.5, help="maximum delay between transitions"
+    )
+    p.add_argument(
+        "--max-transitions",
+        type=int,
+        default=20,
+        help="stop automatically after this many transitions",
+    )
     args, _ = p.parse_known_args()
 
     if not args.stress:
@@ -870,7 +1006,7 @@ def maybe_start_stress():
     _stress_thread = threading.Thread(
         target=_stress_loop,
         args=(args.min_delay, args.max_delay, args.max_transitions),
-        daemon=True
+        daemon=True,
     )
     _stress_thread.start()
 
@@ -885,7 +1021,9 @@ def maybe_start_stress():
 
     threading.Thread(target=_stop_on_q, daemon=True).start()
 
-#---END Stress test part
+
+# ---END Stress test part
+
 
 def main():
     try:
@@ -897,9 +1035,8 @@ def main():
     finally:
         try:
             touch_buttons.cleanup()
-        except Exception as ex_err:
+        except Exception as ex_err: # pylint: disable=broad-exception-caught
             oradio_log.error("Error cleaning up touch_buttons: %s", ex_err)
-
 
 
 if __name__ == "__main__":
