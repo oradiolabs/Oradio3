@@ -28,7 +28,7 @@ And a volume controller to set the system sound
 import os
 import subprocess
 import threading
-import queue
+#import queue
 import time
 import random
 
@@ -44,7 +44,7 @@ DEFAULT_MPD_VOLUME       = 100
 DEFAULT_SPOTIFY_VOLUME   = 100
 VOLUME_MPD_SYS_SOUND     = 70
 VOLUME_SPOTIFY_SYS_SOUND = 70
-DEFAULT_SYS_SOUND_VOLUME = 90
+DEFAULT_SYS_SOUND_VOLUME = 70
 
 SOUND_FILES = {
     # Sounds
@@ -112,8 +112,8 @@ class PlaySystemSound:
                 try:
                     self._set_mpd_volume(VOLUME_MPD_SYS_SOUND)
                     self._set_spotify_volume(VOLUME_SPOTIFY_SYS_SOUND)
-                except Exception as e:
-                    oradio_log.error("Error setting system sound volumes: %s", e)
+                except (subprocess.CalledProcessError, OSError) as err:
+                    oradio_log.error("Error setting system sound volumes: %s", err)
             self.active_count += 1
 
         threading.Thread(
@@ -166,8 +166,8 @@ class PlaySystemSound:
                 try:
                     self._set_mpd_volume(DEFAULT_MPD_VOLUME)
                     self._set_spotify_volume(DEFAULT_SPOTIFY_VOLUME)
-                except Exception as e:
-                    oradio_log.error("Error restoring default volumes: %s", e)
+                except (subprocess.CalledProcessError, OSError) as err:
+                    oradio_log.error("Error restoring default volumes: %s", err)
                 self.restore_timer = None
 
     def _play_sound_and_restore(self, sound_key):
@@ -191,8 +191,8 @@ if __name__ == "__main__":
 
     def build_menu():
         menu = "\nSelect a function:\n 0  - Quit\n"
-        for i, k in enumerate(sound_keys, 1):
-            menu += f" {i:<3}- Play {k}\n"
+        for idx, sound_key in enumerate(sound_keys, start=1):
+            menu += f" {idx:<3}- Play {sound_key}\n"
         menu += " 99 - Stress Test (random sounds)\n"
         menu += "100 - Custom Sequence Test (enter 5 sound numbers)\n"
         menu += "Select: "
@@ -208,7 +208,7 @@ if __name__ == "__main__":
             print("\nExiting test program...\n")
             break
 
-        elif 1 <= choice <= len(sound_keys):
+        if 1 <= choice <= len(sound_keys):
             key = sound_keys[choice - 1]
             print(f"\nEnqueue: Play {key}\n")
             sound_player.play(key)
