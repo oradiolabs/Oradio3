@@ -14,7 +14,7 @@ Created on December 23, 2024
 @copyright:     Copyright 2024, Oradio Stichting
 @license:       GNU General Public License (GPL)
 @organization:  Oradio Stichting
-@version:       2
+@version:       3
 @email:         oradioinfo@stichtingoradio.nl
 @status:        Development
 @summary: Class for web interface and Captive Portal
@@ -29,18 +29,24 @@ Created on December 23, 2024
 import time
 import socket
 from threading import Thread, Event
-from multiprocessing import Queue, queues
+from multiprocessing import Queue
 import uvicorn
 
 ##### oradio modules ####################
 from oradio_logging import oradio_log
 from oradio_utils import run_shell_script
 from fastapi_server import api_app
-from wifi_service import WifiService
+from wifi_service import WifiService, get_wifi_connection
 
 ##### GLOBAL constants ####################
 from oradio_const import (
+    RED, GREEN, YELLOW, NC,
+    ACCESS_POINT_HOST,
     ACCESS_POINT_SSID,
+    STATE_WIFI_IDLE,
+    STATE_WIFI_INTERNET,
+    STATE_WIFI_CONNECTED,
+    STATE_WIFI_ACCESS_POINT,
     WEB_SERVER_HOST,
     WEB_SERVER_PORT,
     MESSAGE_WEB_SERVICE_TYPE,
@@ -52,7 +58,59 @@ from oradio_const import (
 )
 
 ##### LOCAL constants ####################
-TIMEOUT  = 10    # Seconds to wait
+TIMEOUT = 30    # Seconds to wait
+
+class WebServiceMessageHandler:
+    """Class to manage message handler running in a thread"""
+
+    def __init__(self, rx_queue, tx_queue):
+        """Class constructor: Store parameters and initialise message handler thread"""
+        self.started_event = Event()
+        self.stop_event = Event()
+        self.message_listener = Thread(
+            target=self._check_messages,
+            args=(
+                self.started_event,
+                self.stop_event,
+                rx_queue,
+                tx_queue,
+            )
+        )
+
+    def start(self):
+        """Start the message handler"""
+        self.message_listener.start()
+        self.started_event.wait()
+
+    def stop(self):
+        """Stop the message handler"""
+        self.stop_event.set()  # Signal the thread to stop
+        self.message_listener.join(timeout=TIMEOUT)  # Wait for it to exit or timeout
+        if self.message_listener.is_alive():
+            oradio_log.warning("WebServiceMessageHandler thread did not exit cleanly")
+
+    def _check_messages(self, started_event, stop_event, rx_q, tx_q):
+        """
+        Check if a new message is put into the queue
+        If so, read the message from queue, display it, and forward it
+        :param queue = the queue to check for
+        """
+        # Notify the thread is running
+        started_event.set()
+        oradio_log.debug("WebService: Listening for messages")
+        while not stop_event.is_set():
+            try:
+                # Wait for message. Use timeout to allow checking stop_event
+                message = rx_q.get(block=True, timeout=1)
+                oradio_log.debug("WebService: Received: %s", message)
+#OMJ: This is the place to parse the incoming message before sending a message to control
+                if tx_q:
+                    # Put message in queue
+                    oradio_log.debug("WebService: Forwarding: %s", message)
+                    tx_q.put(message)
+            except Exception as ex_err: # pylint: disable=broad-exception-caught
+                # Timeout occurred, loop again to check stop_event
+                pass
 
 class UvicornServerThread:
     """Class to manage Uvicorn server running in a thread"""
@@ -125,58 +183,6 @@ class UvicornServerThread:
         """Check if server is runnning"""
         return self.thread is not None and self.thread.is_alive() and not self.server.should_exit
 
-class WebServiceMessageHandler:
-    """Class to manage message handler running in a thread"""
-
-    def __init__(self, rx_queue, tx_queue, label=""):
-        """Class constructor: Store parameters and initialise message handler thread"""
-        self.started_event = Event()
-        self.stop_event = Event()
-        self.message_listener = Thread(
-            target=self._check_messages,
-            args=(
-                self.started_event,
-                self.stop_event,
-                rx_queue,
-                tx_queue,
-            )
-        )
-        # Register identifier for multiple instances
-        self.label = label
-
-    def start(self):
-        """Start the message handler"""
-        self.message_listener.start()
-        self.started_event.wait()
-
-    def stop(self):
-        """Stop the message handler"""
-        self.stop_event.set()  # Signal the thread to stop
-        self.message_listener.join(timeout=TIMEOUT)  # Wait for it to exit or timeout
-
-    def _check_messages(self, started_event, stop_event, rx_q, tx_q):
-        """
-        Check if a new message is put into the queue
-        If so, read the message from queue, display it, and forward it
-        :param queue = the queue to check for
-        """
-        # Notify the thread is running
-        started_event.set()
-        oradio_log.debug("%sListening for messages", self.label)
-        while not stop_event.is_set():
-            try:
-                # Wait for message. Use timeout to allow checking stop_event
-                message = rx_q.get(block=True, timeout=1)
-                oradio_log.debug("%sReceived: %s", self.label, message)
-#OMJ: This is the place to parse the incoming message before sending a message to control
-                if tx_q:
-                    # Put message in queue
-                    oradio_log.debug("%sForwarding: %s", self.label, message)
-                    tx_q.put(message)
-            except queues.Empty:
-                # Timeout occurred, loop again to check stop_event
-                continue
-
 class WebService():
     """
     Custom process class for the web interface, via the wifi network or own access point as Captive Portal
@@ -194,7 +200,7 @@ class WebService():
         self.rx_queue = Queue()
 
         # Create message handler
-        self.message_handler = WebServiceMessageHandler(self.rx_queue, self.tx_queue, "WebService: ")
+        self.message_handler = WebServiceMessageHandler(self.rx_queue, self.tx_queue)
         self.message_handler.start() # Returns after thread has entered its target function
 
         # Register wifi service
@@ -224,7 +230,10 @@ class WebService():
 
         # Put message in queue
         oradio_log.debug("Send web service message: %s", message)
-        self.tx_queue.put(message)
+        if self.tx_queue:
+            self.tx_queue.put(message)
+        else:
+            oradio_log.error("No queue proviced to send web service message")
 
     def get_state(self):
         """
@@ -237,10 +246,12 @@ class WebService():
 
     def start(self):
         """
-        Public function
+        Public function to setup Captive Portal
         Start port redirection
+        Start DNS redirection
         Start the web server
         Setup access point
+        Wait for access point
         """
         # Start web service if not running
         if not self.server.is_running:
@@ -252,22 +263,45 @@ class WebService():
             if not result:
                 oradio_log.error("Error during <%s> to configure port redirection, error = %s", cmd, error)
                 # Send message web server did not start
-#OMJ: state == idle
                 self._send_message(MESSAGE_WEB_SERVICE_FAIL_START)
                 return
 
-            # Start access point, saving current connection if any
+            # Configure DNS redirection
+            oradio_log.debug("Redirect DNS")
+            cmd = "sudo bash -c 'echo \"address=/#/"+ACCESS_POINT_HOST+"\" > /etc/NetworkManager/dnsmasq-shared.d/redirect.conf'"
+            result, error = run_shell_script(cmd)
+            if not result:
+                oradio_log.error("Error during <%s> to configure DNS redirection, error: %s", cmd, error)
+                # Send message with current state and error message
+                self._send_message(MESSAGE_WEB_SERVICE_FAIL_START)
+                # Error, no point continuing
+                return
+
+            # Start access point
             self.wifi.wifi_connect(ACCESS_POINT_SSID, None)
 
             # Start web server
             if not self.server.start():
                 # Send message web server did not start
-#OMJ: state == idle
                 self._send_message(MESSAGE_WEB_SERVICE_FAIL_START)
                 return
 
-            # Send message web server started
-#OMJ: state == active
+            # Wait for wifi to be configured as access point or timeout
+            start_time = time.time()
+            state = self.wifi.get_state()
+            while state != STATE_WIFI_ACCESS_POINT:
+                # Check if the timeout has been reached
+                if time.time() - start_time > TIMEOUT:
+                    oradio_log.error("Timeout waiting for access point to become active")
+                    # Send message web server did not start
+                    self._send_message(MESSAGE_WEB_SERVICE_FAIL_START)
+                    return
+                # Sleep for a short interval to prevent busy-waiting
+                time.sleep(1)
+                # Check active network again
+                state = self.wifi.get_state()
+
+            # Send message captive portal started
             self._send_message(MESSAGE_NO_ERROR)
         else:
             oradio_log.debug("web service is already running")
@@ -278,11 +312,37 @@ class WebService():
         Stop access point
         Set event flag to signal to stop the web server
         Stop port redirection
+        Stop DNS redirection
         """
         if self.server.is_running:
+            # Initialize error message, assume no error
+            err_msg = MESSAGE_NO_ERROR
 
-            # Remove access point, restoring wifi connection if any
-            self.wifi.wifi_disconnect()
+            # Get wifi state
+            state = self.wifi.get_state()
+
+            # Disconnect if access point
+            if state == STATE_WIFI_ACCESS_POINT:
+                self.wifi.wifi_disconnect()
+
+            # Wait for wifi to be anything but access point
+            start_time = time.time()
+            while state not in (STATE_WIFI_IDLE, STATE_WIFI_INTERNET, STATE_WIFI_CONNECTED):
+                # Check if the timeout has been reached
+                if time.time() - start_time > TIMEOUT:
+                    oradio_log.error("Timeout waiting for access point to become inactive")
+                    # Set error message
+                    err_msg = MESSAGE_WEB_SERVICE_FAIL_STOP
+                    break
+                # Sleep for a short interval to prevent busy-waiting
+                time.sleep(1)
+                # Check active network again
+                state = self.wifi.get_state()
+
+            # Stop the web server
+            if not self.server.stop():
+                # Set error message
+                err_msg = MESSAGE_WEB_SERVICE_FAIL_STOP
 
             # Remove port redirection
             oradio_log.debug("Remove port redirection")
@@ -290,20 +350,20 @@ class WebService():
             result, error = run_shell_script(cmd)
             if not result:
                 oradio_log.error("Error during <%s> to remove iptables port redirection, error = %s", cmd, error)
-                # Send state and error message
-#OMJ: state == active
-                self._send_message(MESSAGE_WEB_SERVICE_FAIL_STOP)
+                # Set error message
+                err_msg = MESSAGE_WEB_SERVICE_FAIL_STOP
 
-            # Stop the web server
-            if not self.server.stop():
-                # Send message web server did not stop
-#OMJ: state == active
-                self._send_message(MESSAGE_WEB_SERVICE_FAIL_STOP)
-                return
+            # Remove address redirection
+            oradio_log.debug("Remove DNS redirection")
+            cmd = "sudo rm -rf /etc/NetworkManager/dnsmasq-shared.d/redirect.conf"
+            result, error = run_shell_script(cmd)
+            if not result:
+                oradio_log.error("Error during <%s> to remove DNS redirection, error: %s", cmd, error)
+                # Set error message
+                err_msg = MESSAGE_WEB_SERVICE_FAIL_STOP
 
-            # Send message web server stopped
-#OMJ: state == idle
-            self._send_message(MESSAGE_NO_ERROR)
+            # Send message captive portal stopped
+            self._send_message(err_msg)
         else:
             oradio_log.debug("web service is already stopped")
 
@@ -312,27 +372,46 @@ if __name__ == '__main__':
 
     # import when running stand-alone
     import subprocess
+    from multiprocessing import Process, Queue
+
+    def check_messages(queue):
+        """
+        Check if a new message is put into the queue
+        If so, read the message from queue and display it
+        :param queue = the queue to check for
+        """
+        print("\nMain: Listening for messages")
+
+        while True:
+            # Wait for message
+            message = queue.get(block=True, timeout=None)
+            # Show message received
+            print(f"\nMain: Message received: '{message}'\n")
 
     # Initialize
     message_queue = Queue()
+
+    # Start  process to monitor the message queue
+    message_listener = Process(target=check_messages, args=(message_queue,))
+    message_listener.start()
+
+    # Start web service AFTER starting the queue handler, as web service sends messages
     web_service = WebService(message_queue)
 
-    # Create message handler. Logging will close color at end of string
-    message_handler = WebServiceMessageHandler(message_queue, None, "\033[1;32mControl: ")
-    message_handler.start() # Returns after thread has entered its target function
-
     # Show menu with test options
-    INPUT_SELECTION = ("Select a function, input the number.\n"
+    INPUT_SELECTION = ("\nSelect a function, input the number.\n"
                        " 0-quit\n"
                        " 1-Show ANY web service state\n"
-                       " 2-start web service (long-press-AAN)\n"
-                       " 3-stop web service (any-press-UIT)\n"
+                       " 2-start web service (emulate long-press-AAN)\n"
+                       " 3-stop web service (emulate any-press-UIT)\n"
+                       " 4-start and right away stop web service (test robustness)\n"
+                       " 5-start, connect to wifi, and stop service (emulate web interface submit network)\n"
+                       " 6-get wifi state and connection\n"
                        "select: "
                        )
 
     # User command loop
     while True:
-
         # Get user input
         try:
             function_nr = int(input(INPUT_SELECTION))  # pylint: disable=invalid-name
@@ -359,11 +438,36 @@ if __name__ == '__main__':
             case 3:
                 print("\nStopping the web service...\n")
                 web_service.stop()
+            case 4:
+                print("\nStarting the web service...\n")
+                web_service.start()
+                print("\nStopping the web service...\n")
+                web_service.stop()
+            case 5:
+                name = input("Enter SSID of the network to add: ")
+                password = input("Enter password for the network to add (empty for open network): ")
+                if name:
+                    print("\nStarting the web service...\n")
+                    web_service.start()
+                    print(f"\nConnecting with '{name}'. Check messages for result\n")
+                    web_service.wifi.wifi_connect(name, password)
+                    print("\nStopping the web service...\n")
+                    web_service.stop()
+                else:
+                    print(f"\n{YELLOW}No network given{NC}\n")
+            case 6:
+                print(f"\n{YELLOW}Careful: state may not be correct if wifi is still processing: check messages and run again when in doubt{NC}\n")
+                state = web_service.wifi.get_state()
+                if state == STATE_WIFI_IDLE:
+                    print(f"\nWiFi state: '{state}'\n")
+                else:
+                    print(f"\nWiFi state: '{state}'. Connected with: '{get_wifi_connection()}'\n")
             case _:
-                print("\nPlease input a valid number\n")
+                print(f"\n{YELLOW}Please input a valid number{NC}\n")
 
     # Stop web service message handler
     web_service.message_handler.stop()
 
-    # Stop main listening to messages
-    message_handler.stop()
+    # Stop listening to messages
+    if message_listener:
+        message_listener.kill()
