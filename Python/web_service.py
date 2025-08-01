@@ -30,7 +30,7 @@ import time
 import socket
 from pathlib import Path
 from threading import Thread, Event
-from multiprocessing import Queue
+from multiprocessing import Process, Queue
 import uvicorn
 
 ##### oradio modules ####################
@@ -41,7 +41,8 @@ from wifi_service import WifiService, get_wifi_connection
 
 ##### GLOBAL constants ####################
 from oradio_const import (
-    RED, GREEN, YELLOW, NC,
+#    RED,
+    GREEN, YELLOW, NC,
     ACCESS_POINT_HOST,
     ACCESS_POINT_SSID,
     STATE_WIFI_IDLE,
@@ -109,13 +110,13 @@ class WebServiceMessageHandler:
                 if message.get("state") in (STATE_WIFI_ACCESS_POINT,):
                     oradio_log.debug("WebService: Ignoring: %s", message)
 
-                # Otherwise forward 
+                # Otherwise forward
                 else:
                     if tx_q:
                         # Put message in queue
                         oradio_log.debug("WebService: Forwarding: %s", message)
                         tx_q.put(message)
-            except Exception as ex_err: # pylint: disable=broad-exception-caught
+            except Exception: # pylint: disable=broad-exception-caught
                 # Timeout occurred, loop again to check stop_event
                 pass
 
@@ -264,10 +265,10 @@ class WebService():
         self.wifi.wifi_connect(ACCESS_POINT_SSID, None)
 
         # Get iptables rules
-        cmd = f"sudo bash -c \"iptables-save -t nat\""
+        cmd = "sudo bash -c \"iptables-save -t nat\""
         result, rules = run_shell_script(cmd)
         if not result:
-            oradio_log.error("Error during <%s> to get iptables rules, error = %s", cmd, error)
+            oradio_log.error("Error during <%s> to get iptables rules, error = %s", cmd, rules)
             self._send_message(MESSAGE_WEB_SERVICE_FAIL_START)
             return
 
@@ -343,10 +344,10 @@ class WebService():
             err_msg = MESSAGE_WEB_SERVICE_FAIL_STOP
 
         # Get iptables rules
-        cmd = f"sudo bash -c \"iptables-save -t nat\""
+        cmd = "sudo bash -c \"iptables-save -t nat\""
         result, rules = run_shell_script(cmd)
         if not result:
-            oradio_log.error("Error during <%s> to get iptables rules, error = %s", cmd, error)
+            oradio_log.error("Error during <%s> to get iptables rules, error = %s", cmd, rules)
             err_msg = MESSAGE_WEB_SERVICE_FAIL_STOP
 
         # Remove port redirection
@@ -392,7 +393,6 @@ if __name__ == '__main__':
 
     # import when running stand-alone
     import subprocess
-    from multiprocessing import Process, Queue
 
     def check_messages(queue):
         """
@@ -434,9 +434,9 @@ if __name__ == '__main__':
     while True:
         # Get user input
         try:
-            function_nr = int(input(INPUT_SELECTION))  # pylint: disable=invalid-name
+            function_nr = int(input(INPUT_SELECTION)) # pylint: disable=invalid-name
         except ValueError:
-            function_nr = -1  # pylint: disable=invalid-name
+            function_nr = -1 # pylint: disable=invalid-name
 
         # Execute selected function
         match function_nr:
@@ -466,23 +466,23 @@ if __name__ == '__main__':
                 web_service.stop()
             case 5:
                 name = input("Enter SSID of the network to add: ")
-                password = input("Enter password for the network to add (empty for open network): ")
+                pswrd = input("Enter password for the network to add (empty for open network): ")
                 if name:
                     print("\nStarting the web service...\n")
                     web_service.start()
                     print(f"\nConnecting with '{name}'. Check messages for result\n")
-                    web_service.wifi.wifi_connect(name, password)
+                    web_service.wifi.wifi_connect(name, pswrd)
                     print("\nStopping the web service...\n")
                     web_service.stop()
                 else:
                     print(f"\n{YELLOW}No network given{NC}\n")
             case 6:
                 print(f"\n{YELLOW}Careful: state may not be correct if wifi is still processing: check messages and run again when in doubt{NC}\n")
-                state = web_service.wifi.get_state()
-                if state == STATE_WIFI_IDLE:
-                    print(f"\nWiFi state: '{state}'\n")
+                wifi_state = web_service.wifi.get_state() # pylint: disable=invalid-name
+                if wifi_state == STATE_WIFI_IDLE:
+                    print(f"\nWiFi state: '{wifi_state}'\n")
                 else:
-                    print(f"\nWiFi state: '{state}'. Connected with: '{get_wifi_connection()}'\n")
+                    print(f"\nWiFi state: '{wifi_state}'. Connected with: '{get_wifi_connection()}'\n")
             case _:
                 print(f"\n{YELLOW}Please input a valid number{NC}\n")
 

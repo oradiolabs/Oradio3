@@ -42,8 +42,6 @@ from oradio_const import (
     MESSAGE_WIFI_FAIL_CONFIG,
     MESSAGE_WIFI_FAIL_START_AP,
     MESSAGE_WIFI_FAIL_CONNECT,
-    MESSAGE_WIFI_FAIL_STOP_AP,
-    MESSAGE_WIFI_FAIL_DISCONNECT,
     MESSAGE_NO_ERROR
 )
 
@@ -471,9 +469,9 @@ if __name__ == '__main__':
                 print(f"\nNetworkManager wifi connections: {_networkmanager_list()}\n") # pylint: disable=protected-access
             case 2:
                 name = input("Enter SSID of the network to add: ")
-                password = input("Enter password for the network to add (empty for open network): ")
+                pswrd = input("Enter password for the network to add (empty for open network): ")
                 if name:
-                    if _networkmanager_add(name, password): # pylint: disable=protected-access
+                    if _networkmanager_add(name, pswrd): # pylint: disable=protected-access
                         print(f"\n{GREEN}'{name}' added to NetworkManager{NC}\n")
                     else:
                         print(f"\n{RED}Failed to add '{name}' to NetworkManager{NC}\n")
@@ -494,16 +492,16 @@ if __name__ == '__main__':
             case 5:
                 print(f"\nActive wifi networks: {get_wifi_networks()}\n")
             case 6:
-                state = wifi.get_state()
-                if state == STATE_WIFI_IDLE:
-                    print(f"\nWiFi state: '{state}'\n")
+                wifi_state = wifi.get_state() # pylint: disable=invalid-name
+                if wifi_state == STATE_WIFI_IDLE:
+                    print(f"\nWiFi state: '{wifi_state}'\n")
                 else:
-                    print(f"\nWiFi state: '{state}'. Connected with: '{get_wifi_connection()}'\n")
+                    print(f"\nWiFi state: '{wifi_state}'. Connected with: '{get_wifi_connection()}'\n")
             case 7:
                 name = input("Enter SSID of the network to add: ")
-                password = input("Enter password for the network to add (empty for open network): ")
+                pswrd = input("Enter password for the network to add (empty for open network): ")
                 if name:
-                    wifi.wifi_connect(name, password)
+                    wifi.wifi_connect(name, pswrd)
                     print(f"\nConnecting with '{name}'. Check messages for result\n")
                 else:
                     print(f"\n{YELLOW}No network given{NC}\n")
@@ -514,7 +512,7 @@ if __name__ == '__main__':
             case 9:
                 print("\nWiFi disconnected: check messages for result\n")
                 wifi.wifi_disconnect()
-                print(f"\nDisconnecting. Check messages for result\n")
+                print("\nDisconnecting. Check messages for result\n")
             case _:
                 print(f"\n{YELLOW}Please input a valid number{NC}\n")
 
