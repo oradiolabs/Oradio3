@@ -65,14 +65,8 @@ class WifiService():
         self.msg_q = queue
         self.saved = None
 
-        # Add access point credentials to NetworkManager
-        if not _networkmanager_add(ACCESS_POINT_SSID):
-            error = MESSAGE_WIFI_FAIL_CONFIG
-        else:
-            error = MESSAGE_NO_ERROR
-
         # Send initial state and error message
-        self._send_message(error)
+        self._send_message(MESSAGE_NO_ERROR)
 
     def _send_message(self, error):
         """
@@ -145,7 +139,6 @@ class WifiService():
         # Connecting takes time, can fail: offload to a separate thread
         # ==> Don't use reference so that the python interpreter can garbage collect when thread is done
         threading.Thread(target=self._wifi_connect_thread, args=(ssid,)).start()
-
         oradio_log.info("Connecting to '%s' started", ssid)
 
     def _wifi_connect_thread(self, network):
@@ -167,6 +160,9 @@ class WifiService():
                 err_msg = MESSAGE_WIFI_FAIL_START_AP
             else:
                 err_msg = MESSAGE_WIFI_FAIL_CONNECT
+            # Remove failed network from NetworkManager
+            # Ignore success/fail: err_msg is already FAIL
+            _networkmanager_del(network)
         else:
             oradio_log.info("Connected with '%s'", network)
 
