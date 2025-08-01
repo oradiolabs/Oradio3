@@ -28,6 +28,7 @@ Created on December 23, 2024
 """
 import time
 import socket
+from pathlib import Path
 from threading import Thread, Event
 from multiprocessing import Queue
 import uvicorn
@@ -103,11 +104,17 @@ class WebServiceMessageHandler:
                 # Wait for message. Use timeout to allow checking stop_event
                 message = rx_q.get(block=True, timeout=1)
                 oradio_log.debug("WebService: Received: %s", message)
-#OMJ: This is the place to parse the incoming message before sending a message to control
-                if tx_q:
-                    # Put message in queue
-                    oradio_log.debug("WebService: Forwarding: %s", message)
-                    tx_q.put(message)
+
+                # Prune/filter message
+                if message.get("state") in (STATE_WIFI_ACCESS_POINT,):
+                    oradio_log.debug("WebService: Ignoring: %s", message)
+
+                # Otherwise forward 
+                else:
+                    if tx_q:
+                        # Put message in queue
+                        oradio_log.debug("WebService: Forwarding: %s", message)
+                        tx_q.put(message)
             except Exception as ex_err: # pylint: disable=broad-exception-caught
                 # Timeout occurred, loop again to check stop_event
                 pass
@@ -247,27 +254,39 @@ class WebService():
     def start(self):
         """
         Public function to setup Captive Portal
+        Start wifi access point
         Start port redirection
         Start DNS redirection
         Start the web server
-        Setup access point
         Wait for access point
         """
-        # Start web service if not running
-        if not self.server.is_running:
+        # Start access point
+        self.wifi.wifi_connect(ACCESS_POINT_SSID, None)
 
-            # Set port redirection for all network requests to reach the web service
-            oradio_log.debug("Configure port redirection")
-            cmd = f"sudo bash -c 'iptables -t nat -A PREROUTING -p tcp --dport 80 -j REDIRECT --to-port {WEB_SERVER_PORT}'"
+        # Get iptables rules
+        cmd = f"sudo bash -c \"iptables-save -t nat\""
+        result, rules = run_shell_script(cmd)
+        if not result:
+            oradio_log.error("Error during <%s> to get iptables rules, error = %s", cmd, error)
+            self._send_message(MESSAGE_WEB_SERVICE_FAIL_START)
+            return
+
+        # Configure port redirection
+        oradio_log.debug("Configure port redirection")
+        if f"-A PREROUTING -p tcp -m tcp --dport 80 -j REDIRECT --to-ports {WEB_SERVER_PORT}" not in rules:
+            cmd = (
+                f"sudo iptables -t nat -A PREROUTING "
+                f"-p tcp --dport 80 -j REDIRECT --to-ports {WEB_SERVER_PORT}"
+            )
             result, error = run_shell_script(cmd)
             if not result:
                 oradio_log.error("Error during <%s> to configure port redirection, error = %s", cmd, error)
-                # Send message web server did not start
                 self._send_message(MESSAGE_WEB_SERVICE_FAIL_START)
                 return
 
-            # Configure DNS redirection
-            oradio_log.debug("Redirect DNS")
+        # Configure DNS redirection
+        oradio_log.debug("Redirect DNS")
+        if not Path("/etc/NetworkManager/dnsmasq-shared.d/redirect.conf").exists():
             cmd = "sudo bash -c 'echo \"address=/#/"+ACCESS_POINT_HOST+"\" > /etc/NetworkManager/dnsmasq-shared.d/redirect.conf'"
             result, error = run_shell_script(cmd)
             if not result:
@@ -277,84 +296,74 @@ class WebService():
                 # Error, no point continuing
                 return
 
-            # Start access point
-            self.wifi.wifi_connect(ACCESS_POINT_SSID, None)
+        # Start web server
+        if not self.server.start():
+            # Send message web server did not start
+            self._send_message(MESSAGE_WEB_SERVICE_FAIL_START)
+            return
 
-            # Start web server
-            if not self.server.start():
+        # Wait for wifi to be configured as access point or timeout
+        start_time = time.time()
+        state = self.wifi.get_state()
+        while state != STATE_WIFI_ACCESS_POINT:
+            # Check if the timeout has been reached
+            if time.time() - start_time > TIMEOUT:
+                oradio_log.error("Timeout waiting for access point to become active")
                 # Send message web server did not start
                 self._send_message(MESSAGE_WEB_SERVICE_FAIL_START)
                 return
-
-            # Wait for wifi to be configured as access point or timeout
-            start_time = time.time()
+            # Sleep for a short interval to prevent busy-waiting
+            time.sleep(0.1)
+            # Check active network again
             state = self.wifi.get_state()
-            while state != STATE_WIFI_ACCESS_POINT:
-                # Check if the timeout has been reached
-                if time.time() - start_time > TIMEOUT:
-                    oradio_log.error("Timeout waiting for access point to become active")
-                    # Send message web server did not start
-                    self._send_message(MESSAGE_WEB_SERVICE_FAIL_START)
-                    return
-                # Sleep for a short interval to prevent busy-waiting
-                time.sleep(1)
-                # Check active network again
-                state = self.wifi.get_state()
 
-            # Send message captive portal started
-            self._send_message(MESSAGE_NO_ERROR)
-        else:
-            oradio_log.debug("web service is already running")
+        # Send message captive portal started
+        self._send_message(MESSAGE_NO_ERROR)
 
     def stop(self):
         """
         Public function
-        Stop access point
-        Set event flag to signal to stop the web server
+        Stop access point, if any
+        Stop the web server
         Stop port redirection
         Stop DNS redirection
         """
-        if self.server.is_running:
-            # Initialize error message, assume no error
-            err_msg = MESSAGE_NO_ERROR
+        # Initialize error message, assume no error
+        err_msg = MESSAGE_NO_ERROR
 
-            # Get wifi state
-            state = self.wifi.get_state()
+        # Get wifi state
+        state = self.wifi.get_state()
 
-            # Disconnect if access point
-            if state == STATE_WIFI_ACCESS_POINT:
-                self.wifi.wifi_disconnect()
+        # Disconnect if access point
+        if state == STATE_WIFI_ACCESS_POINT:
+            self.wifi.wifi_disconnect()
 
-            # Wait for wifi to be anything but access point
-            start_time = time.time()
-            while state not in (STATE_WIFI_IDLE, STATE_WIFI_INTERNET, STATE_WIFI_CONNECTED):
-                # Check if the timeout has been reached
-                if time.time() - start_time > TIMEOUT:
-                    oradio_log.error("Timeout waiting for access point to become inactive")
-                    # Set error message
-                    err_msg = MESSAGE_WEB_SERVICE_FAIL_STOP
-                    break
-                # Sleep for a short interval to prevent busy-waiting
-                time.sleep(1)
-                # Check active network again
-                state = self.wifi.get_state()
+        # Stop the web server
+        if not self.server.stop():
+            err_msg = MESSAGE_WEB_SERVICE_FAIL_STOP
 
-            # Stop the web server
-            if not self.server.stop():
-                # Set error message
-                err_msg = MESSAGE_WEB_SERVICE_FAIL_STOP
+        # Get iptables rules
+        cmd = f"sudo bash -c \"iptables-save -t nat\""
+        result, rules = run_shell_script(cmd)
+        if not result:
+            oradio_log.error("Error during <%s> to get iptables rules, error = %s", cmd, error)
+            err_msg = MESSAGE_WEB_SERVICE_FAIL_STOP
 
-            # Remove port redirection
-            oradio_log.debug("Remove port redirection")
-            cmd = f"sudo bash -c 'iptables -t nat -D PREROUTING -p tcp --dport 80 -j REDIRECT --to-port {WEB_SERVER_PORT}'"
+        # Remove port redirection
+        oradio_log.debug("Remove port redirection")
+        if f"-A PREROUTING -p tcp -m tcp --dport 80 -j REDIRECT --to-ports {WEB_SERVER_PORT}" in rules:
+            cmd = (
+                f"sudo iptables -t nat -D PREROUTING "
+                f"-p tcp --dport 80 -j REDIRECT --to-ports {WEB_SERVER_PORT}"
+            )
             result, error = run_shell_script(cmd)
             if not result:
                 oradio_log.error("Error during <%s> to remove iptables port redirection, error = %s", cmd, error)
-                # Set error message
                 err_msg = MESSAGE_WEB_SERVICE_FAIL_STOP
 
-            # Remove address redirection
-            oradio_log.debug("Remove DNS redirection")
+        # Remove address redirection
+        oradio_log.debug("Remove DNS redirection")
+        if Path("/etc/NetworkManager/dnsmasq-shared.d/redirect.conf").exists():
             cmd = "sudo rm -rf /etc/NetworkManager/dnsmasq-shared.d/redirect.conf"
             result, error = run_shell_script(cmd)
             if not result:
@@ -362,10 +371,21 @@ class WebService():
                 # Set error message
                 err_msg = MESSAGE_WEB_SERVICE_FAIL_STOP
 
-            # Send message captive portal stopped
-            self._send_message(err_msg)
-        else:
-            oradio_log.debug("web service is already stopped")
+        # Wait for wifi to be anything but access point
+        start_time = time.time()
+        while state not in (STATE_WIFI_IDLE, STATE_WIFI_INTERNET, STATE_WIFI_CONNECTED):
+            # Check if the timeout has been reached
+            if time.time() - start_time > TIMEOUT:
+                oradio_log.error("Timeout waiting for access point to become inactive")
+                err_msg = MESSAGE_WEB_SERVICE_FAIL_STOP
+                break
+            # Sleep for a short interval to prevent busy-waiting
+            time.sleep(0.1)
+            # Check active network again
+            state = self.wifi.get_state()
+
+        # Send message captive portal stopped
+        self._send_message(err_msg)
 
 # Entry point for stand-alone operation
 if __name__ == '__main__':
@@ -386,7 +406,7 @@ if __name__ == '__main__':
             # Wait for message
             message = queue.get(block=True, timeout=None)
             # Show message received
-            print(f"\nMain: Message received: '{message}'\n")
+            print(f"{GREEN}Main: Message received: '{message}'{NC}\n")
 
     # Initialize
     message_queue = Queue()
@@ -421,8 +441,9 @@ if __name__ == '__main__':
         # Execute selected function
         match function_nr:
             case 0:
-                print("\nStopping the web service...\n")
-                web_service.stop()
+                if web_service.get_state() == STATE_WEB_SERVICE_ACTIVE:
+                    print("\nStopping the web service...\n")
+                    web_service.stop()
                 print("\nExiting test program...\n")
                 break
             case 1:
