@@ -184,7 +184,7 @@ class MPDControl:
                 self.client.play()
                 oradio_log.debug("Playing: %s", playlist_name)
                 return True
-            
+
             except Exception as ex_err: # pylint: disable=broad-exception-caught
                 oradio_log.debug("Error playing preset %s: %s", preset, ex_err)
                 return False
@@ -255,7 +255,7 @@ class MPDControl:
                     oradio_log.debug("Cannot skip track: MPD is not playing.")
             except Exception as ex_err: # pylint: disable=broad-exception-caught
                 oradio_log.error("Error sending next command: %s", ex_err)
-                
+
     def current_queue_filled(self) -> bool:
         """
         Return True if MPD's current queue has at least one item.
@@ -267,8 +267,8 @@ class MPDControl:
                 return False
             try:
                 queue = self.client.playlistinfo()
-            except Exception as e: # pylint: disable=broad-exception-caught
-                oradio_log.warning("current_queue_filled: failed to get playlistinfo: %s", e)
+            except Exception as exc: # pylint: disable=broad-exception-caught
+                oradio_log.warning("current_queue_filled: failed to get playlistinfo: %s", exc)
                 return False
         return bool(queue)
 
