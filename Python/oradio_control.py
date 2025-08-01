@@ -170,11 +170,11 @@ class StateMachine:
         # ————————————————————————————————
         play_states = {"StatePlay", "StatePreset1", "StatePreset2", "StatePreset3"}
         if self.state == requested_state and requested_state in play_states:
-            if not mpd.current_is_webradio():
+            if not mpd.current_is_webradio() and mpd.current_queue_filled():
                 threading.Thread(target=mpd.next).start()
                 sound_player.play("Next")
                 oradio_log.debug("Next song")
-            return
+                return
 
         # ————————————————————————————————
         # 2. SPOTIFY-CONNECT REDIRECT
