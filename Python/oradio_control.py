@@ -204,7 +204,9 @@ class StateMachine:
             preset_key = requested_state.replace("State", "")
             if (
                 mpd.preset_is_webradio(preset_key)
-                and self.network_mgr.state != "Internet"
+#OMJ: check de echte status , niet een pseude
+#                and self.network_mgr.state != "Internet"
+                and oradio_wifi_service.get_state() != STATE_WIFI_INTERNET
             ):
                 oradio_log.info(
                     "Blocked transition to %s: preset is web radio but no Internet",
@@ -360,6 +362,7 @@ class Networking:
         self.state = "Idle"
         self.task_lock = threading.Lock()
 
+#OMJ: No need to track AP anymore
         # track whether we've entered APWebservice and not yet played WifiConnected
         self.ap_tracker = False
 
@@ -375,22 +378,30 @@ class Networking:
         #  • (AccessPoint, Active)                          → APWebservice
         #  • (AccessPoint, Idle)                            → Idle
 
+#OMJ: New:
+        # Map Web-Service → Networking state:
+        #  • Idle                → Idle
+        #  • Active              → APWebservice
+
         if (
             ws_state == STATE_WEB_SERVICE_ACTIVE
-            and wifi_state == STATE_WIFI_ACCESS_POINT
+#OMJ: wifi_state is not relevant anymore
+#            and wifi_state == STATE_WIFI_ACCESS_POINT
         ):
             # AP mode + service running
             requested = "APWebservice"
 
-        elif wifi_state == STATE_WIFI_INTERNET:
-            # normal Wi-Fi client with Internet
-            requested = "Internet"
+#OMJ: wifi_state is not relevant anymore
+#        elif wifi_state == STATE_WIFI_INTERNET:
+#            # normal Wi-Fi client with Internet
+#            requested = "Internet"
 
-        elif wifi_state == STATE_WIFI_CONNECTED:
-            # Wi-Fi client without Internet
-            requested = "ConnectedNoInternet"
+#        elif wifi_state == STATE_WIFI_CONNECTED:
+#            # Wi-Fi client without Internet
+#            requested = "ConnectedNoInternet"
 
         else:
+#OMJ: wifi_state is not relevant anymore
             # covers both:
             #   • wifi_state == STATE_WIFI_IDLE
             #   • wifi_state == STATE_WIFI_ACCESS_POINT with WS idle
@@ -398,7 +409,7 @@ class Networking:
 
         #       oradio_log.info("Networking: %s → %s", self.state, requested)
 
-        # 2 no‐op if same
+        # 2 no-op if same
         if requested == self.state:
             oradio_log.info("Networking state is already %s", self.state)
             return
@@ -455,11 +466,13 @@ class Networking:
                     leds.control_blinking_led("LEDPlay", 0)
                 sound_player.play("OradioAPstopped")
 
+#OMJ: No need to track AP anymore
                 self.ap_tracker = False
                 oradio_log.info("Networking left APWebservice state")
 
+#OMJ: Does this stay here? Is it a state? Why not handle at incoming messages (on_wifi_connected_to_internet)?
             if new_state == "Internet":
-                #  play “WifiConnected” only when arriving (some states ago) from APWebservice
+                # play “WifiConnected” only when arriving (some states ago) from APWebservice
                 # only play “WifiConnected” when arriving from APWebservice
                 # and both the *previous* and *current* Oradio state are in play/webservice modes
 
@@ -490,7 +503,9 @@ class Networking:
             else:
                 remote_monitor.heartbeat_stop()  # in all other cases, stop sending heartbeat
 
-            if new_state == "ConnectedNoInternet":
+#OMJ: Does this stay here? Is it a state? Why not handle at incoming messages (on_wifi_connected_no_internet)?
+#            if new_state == "ConnectedNoInternet":
+            if self.wifi_service.get_state() == STATE_WIFI_CONNECTED:
                 #  play “WifiNot  Connected” only when arriving from APWebservice
                 play_webservice_states = {
                     "StatePlay",
@@ -630,19 +645,54 @@ def on_usb_present():
 
 def on_wifi_connected_to_internet():
     oradio_log.debug("Wifi is connected to internet acknowledged")
-
+#OMJ: to test, needs to be put back in statemachine
+    play_webservice_states = {
+        "StatePlay",
+        "StatePreset1",
+        "StatePreset2",
+        "StatePreset3",
+    }
+    if state_machine.state in play_webservice_states:  # If in play states,
+        # delay the tone so it doesn’t clash with any other sounds
+        threading.Timer(4, sound_player.play, args=("WifiConnected",)).start()
+        # Send system info to Remote Monitoring Service
+        remote_monitor.send_sys_info()
+        # Send heartbeat every hour to Remote Monitoring Service
+        remote_monitor.heartbeat_start()
 
 def on_wifi_connected_no_internet():
     oradio_log.debug("Wifi is connected NO internet acknowledged")
-
+#OMJ: to test, needs to be put back in statemachine
+    play_webservice_states = {
+        "StatePlay",
+        "StatePreset1",
+        "StatePreset2",
+        "StatePreset3",
+    }
+    if state_machine.state in play_webservice_states:  # If in play states,
+        # delay the tone so it doesn’t clash with any other sounds
+        threading.Timer(4, sound_player.play, args=("NoInternet",)).start()
+        # Stop heartbeat to Remote Monitoring Service
+        remote_monitor.heartbeat_stop()
 
 def on_wifi_not_connected():
     oradio_log.debug("Wifi is NOT connected acknowledged")
-
+#OMJ: to test, needs to be put back in statemachine
+    play_webservice_states = {
+        "StatePlay",
+        "StatePreset1",
+        "StatePreset2",
+        "StatePreset3",
+    }
+    if state_machine.state in play_webservice_states:  # If in play states,
+        # delay the tone so it doesn’t clash with any other sounds
+        threading.Timer(4, sound_player.play, args=("WifiNotConnected",)).start()
+        # Stop heartbeat to Remote Monitoring Service
+        remote_monitor.heartbeat_stop()
 
 def on_wifi_access_point():
     oradio_log.debug("Configured as access point acknowledged")
-
+#OMJ: This should not happen anymore
 
 def on_wifi_error():
     play_webservice_states = {
