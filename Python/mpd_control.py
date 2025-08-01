@@ -36,9 +36,9 @@ from oradio_logging import oradio_log
 ##### GLOBAL constants ####################
 from oradio_const import PRESET_FILE_PATH
 
-##### GLOBAL constants ####################
+##### Local constants ####################
 CROSSFADE = 5
-
+DEFAULT_PRESET_KEY = "preset1"  # When the Play button is used and no playlist is in the queue, this one is used
 
 class MPDControl:
     """Class managing MPD behaviour"""
@@ -155,7 +155,7 @@ class MPDControl:
 
         if not playlist_name:
             oradio_log.debug("No playlist found for preset: %s", preset)
-            return
+            return False
 
         with self.mpd_lock:
             try:
@@ -183,19 +183,32 @@ class MPDControl:
 
                 self.client.play()
                 oradio_log.debug("Playing: %s", playlist_name)
+                return True
 
             except Exception as ex_err: # pylint: disable=broad-exception-caught
                 oradio_log.debug("Error playing preset %s: %s", preset, ex_err)
+                return False
+
 
     def play(self):
-        """Plays the current track."""
+        """Plays the current track; if the queue is empty, load the default preset."""
         self._ensure_client()
-        with self.mpd_lock:
-            try:
-                self.client.play()
-                oradio_log.debug("MPD play")
-            except Exception as ex_err: # pylint: disable=broad-exception-caught
-                oradio_log.error("Error sending play command: %s", ex_err)
+        try:
+            if self.current_queue_filled():
+                with self.mpd_lock:
+                    self.client.play()
+                oradio_log.debug("MPD play current playlist")
+                return
+
+            # Queue is empty: load/play default preset (outside lock to avoid deadlock)
+            success = self.play_preset(DEFAULT_PRESET_KEY)
+            if not success:
+                oradio_log.warning("Default preset '%s' failed or was undefined", DEFAULT_PRESET_KEY)
+            else:
+                oradio_log.info("Queue empty; loaded default preset '%s'", DEFAULT_PRESET_KEY)
+
+        except Exception as ex_err:  # pylint: disable=broad-exception-caught
+            oradio_log.error("Error in play(): %s", ex_err)
 
     def pause(self):
         """Pauses playback."""
@@ -242,6 +255,24 @@ class MPDControl:
                     oradio_log.debug("Cannot skip track: MPD is not playing.")
             except Exception as ex_err: # pylint: disable=broad-exception-caught
                 oradio_log.error("Error sending next command: %s", ex_err)
+
+    def current_queue_filled(self) -> bool:
+        """
+        Return True if MPD's current queue has at least one item.
+        Safe: returns False on errors or if not connected.
+        """
+        self._ensure_client()
+        with self.mpd_lock:
+            if not self._is_connected():
+                return False
+            try:
+                queue = self.client.playlistinfo()
+            except Exception as exc: # pylint: disable=broad-exception-caught
+                oradio_log.warning("current_queue_filled: failed to get playlistinfo: %s", exc)
+                return False
+        return bool(queue)
+
+
 
     def update_mpd_database(self):
         """Updates the MPD database with a timeout."""
