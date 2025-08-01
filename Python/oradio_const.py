@@ -75,6 +75,7 @@ MESSAGE_WEB_SERVICE_PL2_CHANGED  = "PL2 playlist changed"
 MESSAGE_WEB_SERVICE_PL3_CHANGED  = "PL3 playlist changed"
 MESSAGE_WEB_SERVICE_PL_WEBRADIO  = "playlist is web radio"
 MESSAGE_WEB_SERVICE_PLAYING_SONG = "web service plays a song"
+MESSAGE_WEB_SERVICE_STOP         = "stop the web server"
 MESSAGE_WEB_SERVICE_FAIL_START   = "web service failed to start"
 MESSAGE_WEB_SERVICE_FAIL_STOP    = "web service failed to stop"
 
