@@ -346,11 +346,10 @@ class StateMachine:
 
 class Networking:
     """
-    Combines web-service + wifi-service into one 4-state machine:
-      • APWebservice
-      • Internet
-      • ConnectedNoInternet
-      • Idle
+    Combines web-service + wifi-service into one 3-state machine:
+      • APWebservice: Oradio AP active
+      • Internet: Wifi connected to Internet
+      • Idle: No connection (to Internet)
     """
 
     def __init__(self, web_service, wifi_service):
@@ -361,25 +360,16 @@ class Networking:
         self.state = "Idle"
         self.task_lock = threading.Lock()
 
-        # track whether we've entered APWebservice and not yet played WifiConnected
-        self.ap_tracker = False
-
     def transition(self):
         ws_state = self.web_service.get_state()
         wifi_state = self.wifi_service.get_state()
+     
+        #Networking StateMachine         StateWeb Service     State_Wifi
+        #APWebservice                   Active                - Not Relevant
+        #Internet                       - Not Relevant        Internet
+        #Idle                           - Not Relevant        Connected or Idle  
 
-        # Map (Wi-Fi, Web-Service) → Networking state:
-        #  • (Idle, Idle) or (Idle, Active)                 → Idle
-        #  • (Internet, Idle) or (Internet, Active)         → Internet
-        #  • (ConnectedNoInternet, Idle) or (ConnectedNoInternet, Active)
-        #                                                    → ConnectedNoInternet
-        #  • (AccessPoint, Active)                          → APWebservice
-        #  • (AccessPoint, Idle)                            → Idle
-
-        if (
-            ws_state == STATE_WEB_SERVICE_ACTIVE
-            and wifi_state == STATE_WIFI_ACCESS_POINT
-        ):
+        if (ws_state == STATE_WEB_SERVICE_ACTIVE):
             # AP mode + service running
             requested = "APWebservice"
 
@@ -387,14 +377,7 @@ class Networking:
             # normal Wi-Fi client with Internet
             requested = "Internet"
 
-        elif wifi_state == STATE_WIFI_CONNECTED:
-            # Wi-Fi client without Internet
-            requested = "ConnectedNoInternet"
-
         else:
-            # covers both:
-            #   • wifi_state == STATE_WIFI_IDLE
-            #   • wifi_state == STATE_WIFI_ACCESS_POINT with WS idle
             requested = "Idle"
 
         #       oradio_log.info("Networking: %s → %s", self.state, requested)
@@ -422,7 +405,7 @@ class Networking:
         with self.task_lock:
             # Handle APWebservice blinking on entry
             if new_state == "APWebservice":
-
+                
                 # 1) If we're currently in a preset state that is a WebRadio, stop it
                 play_presets = {"StatePreset1", "StatePreset2", "StatePreset3"}
                 curr = state_machine.state
@@ -445,7 +428,6 @@ class Networking:
 
                 leds.control_blinking_led("LEDPlay", 2)
                 sound_player.play("OradioAPstarted")
-                self.ap_tracker = True
                 oradio_log.info("Networking entered APWebservice state")
 
             #  Stop blinking only if we just left APWebservice
@@ -455,62 +437,17 @@ class Networking:
                 else:
                     leds.control_blinking_led("LEDPlay", 0)
                 sound_player.play("OradioAPstopped")
-
-                self.ap_tracker = False
                 oradio_log.info("Networking left APWebservice state")
 
             if new_state == "Internet":
-                #  play “WifiConnected” only when arriving (some states ago) from APWebservice
-                # only play “WifiConnected” when arriving from APWebservice
-                # and both the *previous* and *current* Oradio state are in play/webservice modes
-
-                #                 oradio_log.info(
-                #                 "Networking → Internet: prev_state=%s, current_state=%s",
-                #                 state_machine.prev_state,
-                #                 state_machine.state
-                #                 )
-                play_webservice_states = {
-                    "StatePlay",
-                    "StatePreset1",
-                    "StatePreset2",
-                    "StatePreset3",
-                    "StateWebService",
-                }
-                if self.ap_tracker and state_machine.state in play_webservice_states:
-                    # delay the tone so it doesn’t clash with any other sounds
-                    threading.Timer(
-                        4, sound_player.play, args=("WifiConnected",)
-                    ).start()
-                    self.ap_tracker = False
-
-                # Send system info to Remote Monitoring Service
                 remote_monitor.send_sys_info()
                 # Send heartbeat every hour to Remote Monitoring Service
                 remote_monitor.heartbeat_start()
                 oradio_log.info("Networking is in Internet state")
-            else:
+
+            if new_state == "Idle":
                 remote_monitor.heartbeat_stop()  # in all other cases, stop sending heartbeat
-
-            if new_state == "ConnectedNoInternet":
-                #  play “WifiNot  Connected” only when arriving from APWebservice
-                play_webservice_states = {
-                    "StatePlay",
-                    "StatePreset1",
-                    "StatePreset2",
-                    "StatePreset3",
-                    "StateWebService",
-                }
-                if state_machine.state in play_webservice_states:  # If in play states,
-                    if self.ap_tracker:
-                        sound_player.play("NoInternet")
-                        self.ap_tracker = False
-                oradio_log.info("Networking is in Connected No Internet state")
-
-            elif new_state == "Idle":
                 oradio_log.info("Networking is in Idle state")
-            else:
-                # this covers new_state == "APWebservice" again, or unexpected
-                pass
 
 
 # ---------------USB_Media state machine-----------------------
@@ -626,26 +563,23 @@ def on_usb_present():
 
 # -------------------WIFI--------------------------
 
-# All state  wifi and web services changes are handled by the Message handler and Networking_mgr
-
+# Messages when after the closure of the Oradio AP Webservice the Wifi connection is/not made
 
 def on_wifi_connected_to_internet():
     oradio_log.debug("Wifi is connected to internet acknowledged")
+    play_webservice_states = {
+        "StatePlay",
+        "StatePreset1",
+        "StatePreset2",
+        "StatePreset3",
+        "StateWebService",
+    }
+    if state_machine.state in play_webservice_states:  # If in play states,
+        threading.Timer(
+            4, sound_player.play, args=("WifiConnected",)
+        ).start()
 
-
-def on_wifi_connected_no_internet():
-    oradio_log.debug("Wifi is connected NO internet acknowledged")
-
-
-def on_wifi_not_connected():
-    oradio_log.debug("Wifi is NOT connected acknowledged")
-
-
-def on_wifi_access_point():
-    oradio_log.debug("Configured as access point acknowledged")
-
-
-def on_wifi_error():
+def on_wifi_fail_connect():
     play_webservice_states = {
         "StatePlay",
         "StatePreset1",
@@ -656,6 +590,19 @@ def on_wifi_error():
     if state_machine.state in play_webservice_states:  # If in play states,
         sound_player.play("WifiNotConnected")  #
     oradio_log.debug("Wifi Error acknowledged")
+
+#placeholders
+def on_wifi_connected_no_internet():
+    oradio_log.debug("Wifi is connected NO internet acknowledged")
+
+def on_wifi_not_connected():
+    oradio_log.debug("Wifi is NOT connected acknowledged")
+
+def on_wifi_access_point():
+    oradio_log.debug("Configured as access point acknowledged")
+
+
+
 
 
 # -------------------WEB---------------------------
@@ -796,7 +743,7 @@ HANDLERS = {
         STATE_WIFI_INTERNET: on_wifi_connected_to_internet,
         STATE_WIFI_CONNECTED: on_wifi_connected_no_internet,
         STATE_WIFI_ACCESS_POINT: on_wifi_access_point,
-        MESSAGE_WIFI_FAIL_CONNECT: on_wifi_error,
+        MESSAGE_WIFI_FAIL_CONNECT: on_wifi_fail_connect,
     },
     MESSAGE_WEB_SERVICE_TYPE: {
         STATE_WEB_SERVICE_IDLE: on_webservice_idle,

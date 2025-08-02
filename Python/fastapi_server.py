@@ -29,7 +29,7 @@ import json
 from pathlib import Path
 from typing import Optional
 from pydantic import BaseModel
-from fastapi import FastAPI, BackgroundTasks, Request
+from fastapi import FastAPI, Request
 from fastapi.responses import FileResponse, RedirectResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
@@ -51,6 +51,7 @@ from oradio_const import (
     MESSAGE_WEB_SERVICE_PL3_CHANGED,
     MESSAGE_WEB_SERVICE_PL_WEBRADIO,
     MESSAGE_WEB_SERVICE_PLAYING_SONG,
+    MESSAGE_WEB_SERVICE_STOP,
     MESSAGE_NO_ERROR
 )
 ################## USB #############################
@@ -146,7 +147,6 @@ async def save_preset(changedpreset: ChangedPreset):
     oradio_log.debug("Save changed preset '%s' to playlist '%s'", changedpreset.preset, changedpreset.playlist)
 
     # Create message
-    message = {}
     message = {"type": MESSAGE_WEB_SERVICE_TYPE, "error": MESSAGE_NO_ERROR}
 
     # Message state options
@@ -171,12 +171,12 @@ async def save_preset(changedpreset: ChangedPreset):
             # Send message playlist is web radio
             message["state"] = MESSAGE_WEB_SERVICE_PL_WEBRADIO
             oradio_log.debug("Send web service message: %s", message)
-            api_app.state.service.tx_queue.put(message)
+            api_app.state.service.server_q.put(message)
         else:
             # Send message which playlist has changed
             message["state"] = preset_map[changedpreset.preset]
             oradio_log.debug("Send web service message: %s", message)
-            api_app.state.service.tx_queue.put(message)
+            api_app.state.service.server_q.put(message)
 
     else:
         oradio_log.error("Invalid preset '%s'", changedpreset.preset)
@@ -193,9 +193,7 @@ async def playlists_page(request: Request):
     oradio_log.debug("Serving playlists page")
 
     # Return playlist page and presets, directories and playlists as context
-    context = {
-                "playlists"   : mpdcontrol.get_playlists()
-            }
+    context = {"playlists": mpdcontrol.get_playlists()}
     return templates.TemplateResponse(request=request, name="playlists.html", context=context)
 
 class Modify(BaseModel):
@@ -272,7 +270,7 @@ async def play_song(song: Song):
 
     # Put message in queue
     oradio_log.debug("Send web service message: %s", message)
-    api_app.state.service.tx_queue.put(message)
+    api_app.state.service.server_q.put(message)
 
 #### STATUS ####################
 
@@ -331,18 +329,11 @@ class Credentials(BaseModel):
 
 # POST endpoint to connect to wifi network
 @api_app.post("/wifi_connect")
-async def wifi_connect(credentials: Credentials, background_tasks: BackgroundTasks):
+async def wifi_connect(credentials: Credentials):
     """
     Handle POST with wifi network credentials
     Handle connecting in background task, so the POST gets a response
     https://fastapi.tiangolo.com/tutorial/background-tasks/#using-backgroundtasks
-    """
-    # Connect after completing return
-    background_tasks.add_task(wifi_connect_task, credentials)
-
-def wifi_connect_task(credentials: Credentials):
-    """
-    Executes as background task
     """
     oradio_log.debug("trying to connect to ssid=%s", credentials.ssid)
 
@@ -350,8 +341,13 @@ def wifi_connect_task(credentials: Credentials):
     # IMPORTANT: Need to use parent class, as stopping the server will remove local data
     api_app.state.service.wifi.wifi_connect(credentials.ssid, credentials.pswd)
 
-    # Stop the web service
-    api_app.state.service.stop()
+    # Send message to stop the server
+    message = {
+        "type": MESSAGE_WEB_SERVICE_TYPE,
+        "state": MESSAGE_WEB_SERVICE_STOP,
+        "error": MESSAGE_NO_ERROR
+    }
+    api_app.state.service.server_q.put(message)
 
 class Spotify(BaseModel):
     """ # Model for Spotify device name """
@@ -436,10 +432,10 @@ if __name__ == "__main__":
         def __init__(self, queue):
             """" Class constructor: Setup the class """
             # Initialize
-            self.tx_queue = queue
+            self.server_q = queue
 
             # Register wifi service
-            self.wifi = WifiService(self.tx_queue)
+            self.wifi = WifiService(self.server_q)
 
             # Pass the class instance to the web server
             api_app.state.service = self

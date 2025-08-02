@@ -25,6 +25,13 @@ Created on December 23, 2024
 ################## SYSTEM #############################
 import os
 import sys
+
+# Colors
+RED    ='\033[0m\033[1;31m'
+YELLOW ='\033[0m\033[1;93m'
+GREEN  ='\033[0m\033[1;32m'
+NC     ='\033[0m'
+
 # Make Oradio file locations relative
 ORADIO_DIR      = sys.path[0]
 ORADIO_LOG_DIR  = os.path.abspath(ORADIO_DIR + '/../logging')
@@ -37,6 +44,7 @@ MESSAGE_NO_ERROR = "None"
 
 ################## WIFI UTILS #############################
 # Access point
+ACCESS_POINT_HOST = "108.156.60.1"  # wsj.com
 ACCESS_POINT_SSID = "OradioAP"
 # wifi states
 STATE_WIFI_IDLE         = "Wifi is not connected"
@@ -46,10 +54,11 @@ STATE_WIFI_ACCESS_POINT = "Wifi configured as access point"
 # wifi messages
 #OMJ: 'Type' is eigenlijk 'source'
 MESSAGE_WIFI_TYPE            = "Wifi message"
+MESSAGE_WIFI_FAIL_CONFIG     = "Failed to save credentials in NetworkManager"
+MESSAGE_WIFI_FAIL_START_AP   = "Failed to start access point"
 MESSAGE_WIFI_FAIL_CONNECT    = "Wifi failed to connect"
+MESSAGE_WIFI_FAIL_STOP_AP    = "Failed to stop access point"
 MESSAGE_WIFI_FAIL_DISCONNECT = "Wifi failed to disconnect"
-MESSAGE_WIFI_FAIL_AP_START   = "Failed to start access point"
-MESSAGE_WIFI_FAIL_AP_STOP    = "Failed to stop access point"
 
 ################## WEB SERVICE #############################
 # Web server address
@@ -66,6 +75,7 @@ MESSAGE_WEB_SERVICE_PL2_CHANGED  = "PL2 playlist changed"
 MESSAGE_WEB_SERVICE_PL3_CHANGED  = "PL3 playlist changed"
 MESSAGE_WEB_SERVICE_PL_WEBRADIO  = "playlist is web radio"
 MESSAGE_WEB_SERVICE_PLAYING_SONG = "web service plays a song"
+MESSAGE_WEB_SERVICE_STOP         = "stop the web server"
 MESSAGE_WEB_SERVICE_FAIL_START   = "web service failed to start"
 MESSAGE_WEB_SERVICE_FAIL_STOP    = "web service failed to stop"
 
