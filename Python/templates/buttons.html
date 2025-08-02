@@ -368,8 +368,10 @@
 			<!-- Show Oradio logo -->
 			<img src="../static/logo.png" class="logo" />
 
-			<!-- Link playlists to presets -->
+			<!-- Manage presets title bar -->
 			<h1 id="presets">Speellijst aan knop koppelen</h1>
+
+			<!-- Link playlists to presets -->
 			{% for preset in presets %}
 				<div class="presets-grid">
 					<div class="preset-label">
@@ -383,13 +385,15 @@
 				</div>
 			{% endfor %}
 
-			<!-- Show notifcations, if any -->
+			<!-- Show notifcation, if any -->
 			<div id="presets_notification" class="notification">
 				<!-- Will be filled by Javascript -->
 			</div>
 
-			<!-- Manage playlists -->
+			<!-- Show playlist songs title bar -->
 			<h1 id="playlists">Liedjes van speellijst bekijken</h1>
+
+			<!-- Select playlist -->
 			<div class="playlists_grid">
 				<div class="custom-select">
 					<input type="text" id="playlist" name="playlist" readonly placeholder="-- Kies een speellijst --" />
@@ -398,7 +402,7 @@
 				</div>
 			</div>
 
-			<!-- Show notifcations, if any -->
+			<!-- Show notifcation, if any -->
 			<div id="playlist_notification" class="notification">
 				<!-- Will be filled by Javascript -->
 			</div>

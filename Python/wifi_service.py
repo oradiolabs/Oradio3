@@ -104,7 +104,7 @@ class WifiService():
         # Connection to wifi network WITHOUT internet access
         return STATE_WIFI_CONNECTED
 
-    def get_saved_wifi(self):
+    def get_saved_network(self):
         """
         Public function
         Return the ssid of the last wifi connection

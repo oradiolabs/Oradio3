@@ -41,8 +41,7 @@ from wifi_service import WifiService, get_wifi_connection
 
 ##### GLOBAL constants ####################
 from oradio_const import (
-#    RED,
-    GREEN, YELLOW, NC,
+    RED, GREEN, YELLOW, NC,
     ACCESS_POINT_HOST,
     ACCESS_POINT_SSID,
     STATE_WIFI_IDLE,
@@ -478,11 +477,12 @@ if __name__ == '__main__':
                 name = input("Enter SSID of the network to add: ")
                 pswrd = input("Enter password for the network to add (empty for open network): ")
                 if name:
-                    print("\nStarting the web service...\n")
-                    web_service.start()
                     print(f"\nConnecting with '{name}'. Check messages for result\n")
-                    url = "http://127.0.0.1:8000/wifi_connect" # pylint: disable=invalid-name
-                    requests.post(url, json={"ssid": name, "pswd": pswrd}, timeout=TIMEOUT)
+                    url = f"http://{WEB_SERVER_HOST}:{WEB_SERVER_PORT}/wifi_connect" # pylint: disable=invalid-name
+                    try:
+                        requests.post(url, json={"ssid": name, "pswd": pswrd}, timeout=TIMEOUT)
+                    except: # pylint: disable=bare-except
+                        print(f"{RED}Failed to requestr server to start a connection. Make sure you have an active web server{NC}\n")
                 else:
                     print(f"\n{YELLOW}No network given{NC}\n")
             case 6:

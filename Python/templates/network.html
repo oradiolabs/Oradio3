@@ -19,10 +19,12 @@
 		<script>
 			// Initialize
 			let networks = [];
+			let notification_oldssid;
 			let notification_network;
 			let notification_spotify;
 
 			// Convert template variable to javascript
+			const oldssid = {{ oldssid|tojson }};
 			const spotify = {{ spotify|tojson }};
 
 			// Function to get the active wifi networks
@@ -172,6 +174,9 @@
 
 				try
 				{
+					// Show waiting indicator as it will take a few seconds before the connection is lost
+					show_waiting();
+
 					// Send credentials to server
 					const response = await fetch('/wifi_connect',
 					{
@@ -200,6 +205,9 @@
 				{
 					notification_network.innerHTML = `<p class="error">${errorMessage}<br>Controleer of de web interface actief is</p>`;
 				}
+
+				// Hide the waiting indicator, showigg error messages, if any
+				hide_waiting();
 			}
 
 			// Function to submit the Spotify name
@@ -282,14 +290,23 @@
 				getNetworks();
 
 				// Get notifications
+				notification_oldssid = document.getElementById('notification_oldssid');
 				notification_network = document.getElementById('notification_network');
 				notification_spotify = document.getElementById('notification_spotify');
 
 				// Clear old notifications
+				notification_oldssid.innerHTML = "";
 				notification_network.innerHTML = "";
 				notification_spotify.innerHTML = "";
 
+				// Notify which network the Oradio was connected t obefore starting the web interface
+				if (oldssid == "")
+					notification_oldssid.innerHTML = `<p>Oradio was niet verbonden met een WiFi-netwerk</p>`;
+				else
+					notification_oldssid.innerHTML = `<p>Oradio was verbonden met WiFi-netwerk '${oldssid}'</p>`;
+
 				// Show notifications
+				notification_oldssid.style.display = "block";
 				notification_network.style.display = "block";
 				notification_spotify.style.display = "block";
 
@@ -348,8 +365,14 @@
 			<!-- Provide network credentials to connect to -->
 			<form onsubmit="submitCredentials(event)">
 
-				<!-- Network SSID -->
+				<!-- Network title bar -->
 				<h1 >Verbind Oradio met WiFi-netwerk</h1>
+
+				<div id="notification_oldssid" class="notification">
+					<!-- Will be filled by Javascript submitCredentials() -->
+				</div>
+
+				<!-- Network SSID -->
 				<label for="SSIDs">Netwerk:</label>
 				<div id="network" class="custom-select">
 					<input type="text" id="SSIDs" name="SSIDs" readonly placeholder="-- Selecteer of typ uw WiFi-netwerk --" />
@@ -367,21 +390,24 @@
 					<span class="password-toggle-icon oradio-eye"><i class="fa-regular fa-eye"></i></span>
 				</div>
 				<button id="submitCredentialsButton" type="submit" style="display: none">Met netwerk verbinden</button>
+
+				<!-- Show notifcation, if any -->
 				<div id="notification_network" class="notification">
 					<!-- Will be filled by Javascript submitCredentials() -->
 				</div>
 
 			</form>
 
-			<!-- Separator
-			<div style="height: 30px;">&nbsp;</div>
-			-->
-
 			<form onsubmit="submitSpotify(event)">
-				<!-- Spotify -->
+
+				<!-- Spotify title bar -->
 				<h1 >Kies naam in Spotify app</h1>
+
+				<!-- Spotify -->
 				<input id="spotify" type="text" value="{{ spotify }}" placeholder="Voer Spotify naam van deze Oradio in" />
 				<button id="submitSpotifyButton" type="submit">Spotify naam instellen</button>
+
+				<!-- Show notifcation, if any -->
 				<div id="notification_spotify" class="notification">
 					<!-- Will be filled by Javascript submitSpotify() -->
 				</div>
