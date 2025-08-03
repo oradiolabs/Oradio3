@@ -42,6 +42,7 @@ from mpd_control import get_mpd_control
 
 ##### GLOBAL constants ####################
 from oradio_const import (
+    YELLOW, NC,
     USB_SYSTEM,
     WEB_SERVER_HOST,
     WEB_SERVER_PORT,
@@ -310,8 +311,15 @@ async def network_page(request: Request):
         # Return fail, so caller can try to recover
         return JSONResponse(status_code=400, content={"message": response})
 
-    # Return network page with Spotify name as context
-    return templates.TemplateResponse(request=request, name="network.html", context={"spotify": response.strip()})
+    # Get the network Oradio was connected to before starting access point, empty string if None
+    oldssid = api_app.state.service.wifi.get_saved_network() or ""
+
+    # Return network page and saved wifi connection and spotify name as context
+    context = {
+                "oldssid" : oldssid,
+                "spotify" : response.strip()
+            }
+    return templates.TemplateResponse(request=request, name="network.html", context=context)
 
 # POST endpoint to get networks
 @api_app.post("/get_networks")

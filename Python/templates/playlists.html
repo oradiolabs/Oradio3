@@ -672,9 +672,10 @@
 			<!-- Show Oradio logo -->
 			<img src="../static/logo.png" class="logo" />
 
-			<!-- Manage playlists -->
+			<!-- Manage playlist title bar -->
 			<h1 id="playlists">Speellijsten beheren</h1>
 
+			<!-- Manage playlists -->
 			<div class="playlists_grid">
 				<div class="custom-select">
 					<input type="text" id="autocomplete-input" placeholder="Typ hier de naam van de speellijst...">
@@ -684,7 +685,7 @@
 				<button class="delete-button-large" title="Verwijderen" onclick="removeSong()"></button>
 			</div>
 
-			<!-- Show notifcations, if any -->
+			<!-- Show notifcation, if any -->
 			<div id="playlist_notification" class="notification">
 				<!-- Will be filled by Javascript -->
 			</div>
@@ -695,12 +696,14 @@
 				</ul>
 			</div>
 
-			<!-- Search songs by artist or title -->
+			<!-- Search songs title bar -->
 			<h1 id="search_songs">Liedjes zoeken</h1>
+
+			<!-- Search songs by artist or title -->
 			<input style="margin: 0;" id="search" name="search" type="text" placeholder="Typ (deel van) naam van artiest of (deel van) titel" />
 			<button type="text" title="Zoeken" onclick="getSearchSongs()">Zoeken</button>
 
-			<!-- Show notifcations, if any -->
+			<!-- Show notifcation, if any -->
 			<div id="search_notification" class="notification">
 				<!-- Will be filled by Javascript -->
 			</div>
