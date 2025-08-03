@@ -197,6 +197,9 @@
 
 						// Notify
 						notification_network.innerHTML = `<p class="error">${errorData.message || errorMessage}</p>`;
+
+						// Error found: Hide the waiting indicator
+						hide_waiting();
 					}
 				}
 
@@ -204,10 +207,10 @@
 				catch (error)
 				{
 					notification_network.innerHTML = `<p class="error">${errorMessage}<br>Controleer of de web interface actief is</p>`;
-				}
 
-				// Hide the waiting indicator, showigg error messages, if any
-				hide_waiting();
+					// Error found: Hide the waiting indicator
+					hide_waiting();
+				}
 			}
 
 			// Function to submit the Spotify name
@@ -303,7 +306,7 @@
 				if (oldssid == "")
 					notification_oldssid.innerHTML = `<p>Oradio was niet verbonden met een WiFi-netwerk</p>`;
 				else
-					notification_oldssid.innerHTML = `<p>Oradio was verbonden met WiFi-netwerk '${oldssid}'</p>`;
+					notification_oldssid.innerHTML = `<p>Oradio was verbonden met '${oldssid}'</p>`;
 
 				// Show notifications
 				notification_oldssid.style.display = "block";
