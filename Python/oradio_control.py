@@ -28,8 +28,6 @@ Added networking statemachine, to handle various states wifi and Web service
 import time
 import threading
 from multiprocessing import Queue
-import subprocess # pylint: disable=unused-import
-import os # pylint: disable=unused-import
 import signal
 
 # For stress test
