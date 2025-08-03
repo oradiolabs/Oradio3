@@ -28,8 +28,6 @@ Added networking statemachine, to handle various states wifi and Web service
 import time
 import threading
 from multiprocessing import Queue
-import subprocess # pylint: disable=unused-import
-import os # pylint: disable=unused-import
 import signal
 
 # For stress test
@@ -136,7 +134,6 @@ class StateMachine:
         self.task_lock = threading.Lock()
         # placeholders until you wire them in
         self._websvc = None
-        
 
     def set_services(self, web_service):
         """
@@ -166,7 +163,7 @@ class StateMachine:
             ws.start()
 
     def transition(self, requested_state):
-    
+
         oradio_log.debug(
             "Request Transitioning from %s to %s", self.state, requested_state
         )
@@ -378,7 +375,7 @@ def on_usb_present():
     # Transition to Idle after USB is inserted
     if state_machine.state != "StateStartUp":
         state_machine.transition("StateIdle")
-            
+
 # -------------------WIFI--------------------------
 
 # Messages when after the closure of the Oradio AP Webservice the Wifi connection is/not made
@@ -394,7 +391,7 @@ def on_wifi_connected_to_internet():
         threading.Timer(
             4, sound_player.play, args=("WifiConnected",)
         ).start()
-    
+
     remote_monitor.send_sys_info()
     # Send heartbeat every hour to Remote Monitoring Service
     remote_monitor.heartbeat_start()
@@ -405,7 +402,7 @@ def on_wifi_fail_connect():
 #         return  # already marked disconnected; nothing to do
     internet_connected.clear()
     if state_machine.state in PLAY_WEBSERVICE_STATES:  # If in play states,
-        sound_player.play("WifiNotConnected")        
+        sound_player.play("WifiNotConnected")
     remote_monitor.heartbeat_stop()  # in all other cases, stop sending heartbeat
 
 def on_wifi_access_point():
@@ -627,7 +624,7 @@ def process_messages(queue):
         oradio_log.error("Unexpected error in process_messages: %s", ex)
 
 #-------------USB presence sync at start -up---------------------------------------
-        
+
 def sync_usb_presence_from_service():
     """
     One time sync at start-up
@@ -657,10 +654,10 @@ def start_wifi_monitor(interval: float = 5.0):
         while True:
             try:
                 state = oradio_wifi_service.get_state()
-            except Exception as e:
-                oradio_log.error("Error polling Wi-Fi service state: %s", e)
+            except Exception as ex_err: # pylint: disable=broad-exception-caught
+                oradio_log.error("Error polling Wi-Fi service state: %s", ex_err)
                 state = None
-            # debug/status line—can 
+            # debug/status line—can
 #             oradio_log.info(
 #                 "Wi-Fi monitor status: service state=%r, internet_connected=%s",
 #                 state,
@@ -710,7 +707,7 @@ oradio_wifi_service = WifiService(shared_queue)
 oradio_web_service = WebService(shared_queue)
 
 # Start background polling (every 5 seconds) of the Wi-Fi service state.
-start_wifi_monitor() 
+start_wifi_monitor()
 
 # inject the services into the Statemachine
 state_machine.set_services(oradio_web_service)
@@ -721,7 +718,7 @@ state_machine.transition("StateStartUp")
 # instantiate the process messages
 threading.Thread(
     target=process_messages, args=(shared_queue,), daemon=True
-).start()  
+).start()
 
 # ——————————————————————————————
 # STRESS-TEST SETUP
@@ -751,10 +748,10 @@ _stress_stop = threading.Event()
 
 # Holds the Thread object running the stress loop once it's started;
 # remains None until maybe_start_stress() launches it.
-_stress_thread = None
+_stress_thread = None # pylint: disable=invalid-name
 
 # Simple integer counter tracking how many transitions have been fired
-_stress_count = 0
+_stress_count = 0 # pylint: disable=invalid-name
 
 # Lock to synchronize increments of _stress_count between the stress and main threads
 _stress_count_lock = threading.Lock()
@@ -795,25 +792,25 @@ def maybe_start_stress():
     """
     global _stress_thread # pylint: disable=global-statement
 
-    p = argparse.ArgumentParser(add_help=False)
-    p.add_argument(
+    parser = argparse.ArgumentParser(add_help=False)
+    parser.add_argument(
         "--stress",
         action="store_true",
         help="hammer the state machine with random transitions",
     )
-    p.add_argument(
+    parser.add_argument(
         "--min-delay", type=float, default=0.1, help="minimum delay between transitions"
     )
-    p.add_argument(
+    parser.add_argument(
         "--max-delay", type=float, default=0.5, help="maximum delay between transitions"
     )
-    p.add_argument(
+    parser.add_argument(
         "--max-transitions",
         type=int,
         default=20,
         help="stop automatically after this many transitions",
     )
-    args, _ = p.parse_known_args()
+    args, _ = parser.parse_known_args()
 
     if not args.stress:
         return
