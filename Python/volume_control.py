@@ -30,7 +30,13 @@ import smbus2
 from oradio_logging import oradio_log
 
 ##### GLOBAL constants ####################
-from oradio_const import *
+from oradio_const import (
+    VOLUME_MINIMUM,
+    VOLUME_MAXIMUM,
+    MESSAGE_TYPE_VOLUME,
+    MESSAGE_STATE_CHANGED,
+    MESSAGE_NO_ERROR
+)
 
 ##### LOCAL constants ####################
 MCP3021_ADDRESS = 0x4D      # I2C address of MCP3021 ADC
@@ -40,6 +46,7 @@ POLLING_MAX_INTERVAL = 0.3
 ALSA_MIXER_DIGITAL = "Digital"
 
 class VolumeControl:
+    """ Tracks the volume contral setting and sends message when changed """
     def __init__(self, queue=None):
         """ Start volume control thread """
         self.queue = queue
@@ -47,8 +54,8 @@ class VolumeControl:
 
         # Initialize ALSA Mixer
         try:
-            self.mixer = alsaaudio.Mixer(ALSA_MIXER_DIGITAL)
-        except alsaaudio.ALSAAudioError as ex_err:
+            self.mixer = alsaaudio.Mixer(ALSA_MIXER_DIGITAL) # pylint: disable=c-extension-no-member
+        except alsaaudio.ALSAAudioError as ex_err: # pylint: disable=c-extension-no-member
             oradio_log.error("Error initializing ALSA mixer: %s", ex_err)
             raise
 
@@ -76,10 +83,10 @@ class VolumeControl:
     def set_volume(self, volume_raw):
         """ Sets the volume using the ALSA mixer. """
         try:
-            self.mixer.setvolume(volume_raw, units=alsaaudio.VOLUME_UNITS_RAW)
+            self.mixer.setvolume(volume_raw, units=alsaaudio.VOLUME_UNITS_RAW) # pylint: disable=c-extension-no-member
             oradio_log.debug("Volume set to: %s", volume_raw)
 #            print(f"Volume set to: {volume_raw}")  # Print for testing
-        except alsaaudio.ALSAAudioError as ex_err:
+        except alsaaudio.ALSAAudioError as ex_err: # pylint: disable=c-extension-no-member
             oradio_log.error("Error setting volume: %s", ex_err)
 
     def send_message(self, message_type, state):
@@ -89,7 +96,7 @@ class VolumeControl:
                 message = {"type": message_type, "state": state, "error": MESSAGE_NO_ERROR}
                 self.queue.put(message)
                 oradio_log.debug("Message sent to queue: %s", message)
-            except Exception as ex_err:
+            except Exception as ex_err: # pylint: disable=broad-exception-caught
                 oradio_log.error("Error sending message to queue: %s", ex_err)
 
     def volume_adc(self):
@@ -136,8 +143,8 @@ if __name__ == "__main__":
     print("Turn the volume knob and observe ADC values and volume settings.")
     print("Press Ctrl+C to exit.\n")
 
-    queue = Queue()
-    volume_control = VolumeControl(queue)
+    message_queue = Queue()
+    volume_control = VolumeControl(message_queue)
 
     try:
         while True:
