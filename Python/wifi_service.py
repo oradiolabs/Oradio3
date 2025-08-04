@@ -258,7 +258,7 @@ def _get_wifi_password(network):
         oradio_log.error("Error during <%s> to get password for '%s', error: %s", cmd, network, response)
         # Return fail, so caller can try to recover
         return None
-    return response.strip()
+    return response
 
 def _wifi_up(network):
     """
