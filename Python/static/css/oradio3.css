@@ -180,6 +180,7 @@ li {
 	background-color: var(--oradio-list);
 	max-height: 230px;
 	overflow-y: auto;
+	z-index: 10;
 	-webkit-overflow-scrolling: touch;
 }
 
