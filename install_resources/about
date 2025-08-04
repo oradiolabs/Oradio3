@@ -32,6 +32,9 @@ else
     echo -e "${YELLOW}No hardware version info found${NC}"
 fi
 
+# newline
+echo
+
 # Oradio software version info
 if [ -f /var/log/oradio_sw_version.log ]; then
 	echo "Oradio software version info:"

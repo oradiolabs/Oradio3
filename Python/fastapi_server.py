@@ -33,7 +33,7 @@ from fastapi import FastAPI, Request
 from fastapi.responses import FileResponse, RedirectResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
-from wifi_service import WifiService, get_wifi_networks, get_wifi_connection
+from wifi_service import WifiService, get_wifi_networks
 
 ##### oradio modules ####################
 from oradio_logging import oradio_log
@@ -42,7 +42,6 @@ from mpd_control import get_mpd_control
 
 ##### GLOBAL constants ####################
 from oradio_const import (
-    YELLOW, NC,
     USB_SYSTEM,
     WEB_SERVER_HOST,
     WEB_SERVER_PORT,
@@ -58,7 +57,12 @@ from oradio_const import (
 ################## USB #############################
 
 ##### LOCAL constants ####################
+# Location of presets
 PRESETS_FILE = USB_SYSTEM + "/presets.json"
+
+# Locations of system version info
+HARDWARE_VERSION_FILE = "/var/log/oradio_hw_version.log"
+SOFTWARE_VERSION_FILE = "/var/log/oradio_sw_version.log"
 
 # Get the web server app
 api_app = FastAPI()
@@ -275,6 +279,44 @@ async def play_song(song: Song):
 
 #### STATUS ####################
 
+def _get_hw_info():
+    """ Read hardware configuration from file and return as set """
+    # Try to load hardware version info
+    try:
+        with open(HARDWARE_VERSION_FILE, "r", encoding="utf-8") as file:
+            data = json.load(file)
+            hardware_info = {
+                "serial": data.get("serial", "missing serial"),
+                "version": data.get("hw_detected", "missing hw_detected")
+            }
+    except FileNotFoundError:
+        oradio_log.error("Hardware version info '%s' not found", HARDWARE_VERSION_FILE)
+        hardware_info = {"serial": "not found", "version": "not found"}
+    except Exception as ex_err: # pylint: disable=broad-exception-caught
+        oradio_log.error("Failed to read '%s'. error: %s", HARDWARE_VERSION_FILE, ex_err)
+        hardware_info = {"serial": "undefined", "version": "undefined"}
+    # Return sanitized data set
+    return hardware_info
+
+def _get_sw_info():
+    """ Read software configuration from file and return as set """
+    # Try to load software version info
+    try:
+        with open(SOFTWARE_VERSION_FILE, "r", encoding="utf-8") as file:
+            data = json.load(file)
+            software_info = {
+                "serial": data.get("serial", "missing serial"),
+                "version": data.get("gitinfo", "missing gitinfo")
+            }
+    except FileNotFoundError:
+        oradio_log.error("Hardware version info '%s' not found", SOFTWARE_VERSION_FILE)
+        software_info = {"serial": "not found", "version": "not found"}
+    except Exception as ex_err: # pylint: disable=broad-exception-caught
+        oradio_log.error("Failed to read '%s'. error: %s", SOFTWARE_VERSION_FILE, ex_err)
+        software_info = {"serial": "undefined", "version": "undefined"}
+    # Return sanitized data set
+    return software_info
+
 @api_app.get("/status")
 async def status_page(request: Request):
     """ Return status """
@@ -284,13 +326,19 @@ async def status_page(request: Request):
     stream = os.popen('vcgencmd otp_dump | grep "28:" | cut -c 4-')
     serial = stream.read().strip()
 
-    # Get wifi network Oradio is connected to
-    network = get_wifi_connection()
+    # Get hardware and software configuration info
+    hw_info = _get_hw_info()
+
+    # Get software configuration info
+    sw_info = _get_sw_info()
 
     # Return status page and serial and active wifi connection as context
     context = {
-                "serial"  : serial,
-                "network" : network
+                "serial"     : serial,
+                "hw_serial"  : hw_info['serial'],
+                "hw_version" : hw_info['version'],
+                "sw_serial"  : sw_info['serial'],
+                "sw_version" : sw_info['version']
             }
     return templates.TemplateResponse(request=request, name="status.html", context=context)
 
