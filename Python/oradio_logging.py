@@ -26,13 +26,12 @@ Created on Januari 17, 2025
 """
 import os
 import sys
+import queue
 import faulthandler
 import logging as python_logging
 from logging import DEBUG, INFO, WARNING, ERROR
-import logging.handlers
-import queue
-import atexit
 from concurrent_log_handler import ConcurrentRotatingFileHandler
+from vcgencmd import Vcgencmd
 
 ##### oradio modules ####################
 # Functionality needed from other modules is loaded when needed to avoid circular import errors
@@ -42,13 +41,49 @@ from oradio_const import ORADIO_LOG_DIR
 
 ##### LOCAL constants ####################
 ORADIO_LOGGER       = 'oradio'
-ORADIO_LOG_LEVEL    = DEBUG
 ORADIO_LOG_FILE     = ORADIO_LOG_DIR + '/oradio.log'    # Use absolute path to prevent file rotation trouble
 ORADIO_LOG_FILESIZE = 512 * 1024
 ORADIO_LOG_BACKUPS  = 1
+# Add TRACE log level for uvicorn
+TRACE_LOG_NUMBER    = 5
+# System wide log level
+ORADIO_LOG_LEVEL    = DEBUG
 
 # Capture and print low-level crashes
 faulthandler.enable()
+
+def _get_throttled_state_rpi():
+    """
+    Get the state of the throttled flags available in vcgencmd module
+    :return flags = the full throttled state flags of the system in JSON format.
+    This is a bit pattern - a bit being set indicates the following meanings:
+        Bit Meaning
+        0   Under-voltage detected
+        1   Arm frequency capped
+        2   Currently throttled
+        3   Soft temperature limit active
+        16  Under-voltage has occurred
+        17  Arm frequency capping has occurred
+        18  Throttling has occurred
+        19  Soft temperature limit has occurred
+
+        A value of zero indicates that none of the above conditions is true.
+        The last four bits (3..0) are checked and when one of them are set the
+        throttled_state is set to True
+    :return if one of bits is set ==> throttled_state = True, else False
+    """
+    vcgm = Vcgencmd()
+    throttled_state = vcgm.get_throttled()
+    flags = int( throttled_state.get('binary'),2) # convert binary string to integer
+    last_four_bits = flags & 0xF
+    if last_four_bits > 0:
+        # a new flag was set
+        throttled_state = True
+        oradio_log.warning("Oradio is throttled. Flags=%s", flags)
+    else:
+        throttled_state = False
+
+    return throttled_state
 
 class ColorFormatter(python_logging.Formatter):
     """ Use colors to differentiate the different log level messages """
@@ -77,10 +112,8 @@ class ColorFormatter(python_logging.Formatter):
 class ThrottledFilter(python_logging.Filter):
     """ Writing to SD card while throttled may corrupt the SD card """
     def filter(self, record):
-        # Import here to avoid circular import
-        from oradio_utils import get_throttled_state_rpi
         # Get rpi throttled state
-        throttled, flags = get_throttled_state_rpi()
+        throttled = _get_throttled_state_rpi()
         # Do not log if throttled
         return not throttled
 
@@ -94,6 +127,15 @@ class RemoteMonitoringHandler(python_logging.Handler):
 
 # Ensure logging directory exists
 os.makedirs(ORADIO_LOG_DIR, exist_ok=True)
+
+def trace(self, message, *args, **kwargs):
+    """ Registers a new log level TRACE and .trace method for Uvicorn ASGI debugging """
+    if self.isEnabledFor(TRACE_LOG_NUMBER):
+        self._log(TRACE_LOG_NUMBER, message, args, **kwargs) # pylint: disable=protected-access
+
+# Add TRACE log level
+python_logging.addLevelName(TRACE_LOG_NUMBER, "TRACE")
+python_logging.Logger.trace = trace
 
 # Configure Oradio logger
 oradio_log = python_logging.getLogger('oradio')
@@ -128,6 +170,15 @@ if sys.stderr.isatty():
     console_handler.setFormatter(ColorFormatter())
     oradio_log.addHandler(console_handler)
 
+# Apply to Uvicorn loggers
+for name in ("uvicorn", "uvicorn.error", "uvicorn.access"):
+    logger = python_logging.getLogger(name)
+    logger.setLevel(ORADIO_LOG_LEVEL)
+    logger.handlers = []  # Remove Uvicorn's default handlers
+    for handler in oradio_log.handlers:
+        logger.addHandler(handler)
+    logger.propagate = False
+
 # Entry point for stand-alone operation
 if __name__ == '__main__':
 
@@ -138,15 +189,16 @@ if __name__ == '__main__':
     print(f"\nSystem logging level: {ORADIO_LOG_LEVEL}\n")
 
     # Show menu with test options
-    InputSelection = ("Select a function, input the number.\n"
+    INPUT_SELECTION = ("Select a function, input the number.\n"
                        " 0-quit\n"
                        " 1-Test log level DEBUG\n"
                        " 2-Test log level INFO\n"
                        " 3-Test log level WARNING\n"
                        " 4-Test log level ERROR\n"
-                       " 5-Test unhandled exceptions in Process and Thread\n"
-                       " 6-Test unhandled exception in current thread: will exit\n"
-                       " 7-Test segment fault: will exit\n"
+                       " 5-Show throttled status\n"
+                       " 6-Test unhandled exceptions in Process and Thread\n"
+                       " 7-Test unhandled exception in current thread: will exit\n"
+                       " 8-Test segment fault: will exit\n"
                        "select: "
                        )
 
@@ -154,9 +206,9 @@ if __name__ == '__main__':
     while True:
         # Get user input
         try:
-            FunctionNr = int(input(InputSelection))
+            FunctionNr = int(input(INPUT_SELECTION)) # pylint: disable=invalid-name
         except ValueError:
-            FunctionNr = -1
+            FunctionNr = -1 # pylint: disable=invalid-name
 
         # Execute selected function
         match FunctionNr:
@@ -192,20 +244,23 @@ if __name__ == '__main__':
                 oradio_log.warning('This is a warning message')
                 oradio_log.error('This is a error message')
             case 5:
-                def generate_process_exception():
+                print(f"\nChecking if throttled: {_get_throttled_state_rpi()}\n") # pylint: disable=protected-access
+            case 6:
+                def _generate_process_exception():
                     print(10 + 'hello: Process')
                 print("\nGenerate unhandled exception in Process:\n")
-                Process(target=generate_process_exception).start()
-                def generate_thread_exception():
+                Process(target=_generate_process_exception).start()
+                def _generate_thread_exception():
                     print(10 + 'hello: Thread')
                 print("\nGenerate unhandled exception in Thread:\n")
-                Thread(target=generate_thread_exception).start()
-            case 6:
+                Thread(target=_generate_thread_exception).start()
+            case 7:
                 print("\nGenerate unhandled exception in current thread:\n")
                 print(10 + 'hello: current thread')
 
-            case 7:
+            case 8:
                 print("\nGenerate segmentation fault:\n")
-                import ctypes; ctypes.string_at(0)
+                import ctypes
+                ctypes.string_at(0)
             case _:
                 print("\nPlease input a valid number\n")

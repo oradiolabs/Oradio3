@@ -365,7 +365,7 @@ async def network_page(request: Request):
     # Return network page and saved wifi connection and spotify name as context
     context = {
                 "oldssid" : oldssid,
-                "spotify" : response.strip()
+                "spotify" : response
             }
     return templates.TemplateResponse(request=request, name="network.html", context=context)
 
@@ -511,7 +511,7 @@ if __name__ == "__main__":
     web_service = DummyWebService(message_queue)
 
     # Start the web server with log level 'trace'
-    uvicorn.run(api_app, host=WEB_SERVER_HOST, port=WEB_SERVER_PORT, log_level="trace")
+    uvicorn.run(api_app, host=WEB_SERVER_HOST, port=WEB_SERVER_PORT, log_config=None, log_level="trace") # Prevent uvicorn from overriding out log setup
 
     # Stop listening to messages
     if message_listener:
