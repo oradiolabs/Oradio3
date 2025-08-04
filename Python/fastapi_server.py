@@ -33,7 +33,7 @@ from fastapi import FastAPI, Request
 from fastapi.responses import FileResponse, RedirectResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
-from wifi_service import WifiService, get_wifi_networks, get_wifi_connection
+from wifi_service import WifiService, get_wifi_networks
 
 ##### oradio modules ####################
 from oradio_logging import oradio_log
