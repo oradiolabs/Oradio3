@@ -34,7 +34,7 @@ from multiprocessing import Process, Queue
 import uvicorn
 
 ##### oradio modules ####################
-from oradio_logging import oradio_log
+from oradio_logging import oradio_log, ORADIO_LOG_LEVEL
 from oradio_utils import run_shell_script
 from fastapi_server import api_app
 from wifi_service import WifiService, get_wifi_connection
@@ -131,7 +131,7 @@ class WebServiceMessageHandler:
 class UvicornServerThread:
     """Class to manage Uvicorn server running in a thread"""
 
-    def __init__(self, app, host=WEB_SERVER_HOST, port=WEB_SERVER_PORT, level="info"):
+    def __init__(self, app, host=WEB_SERVER_HOST, port=WEB_SERVER_PORT, level=ORADIO_LOG_LEVEL):
         """Class constructor: Store parameters and prepare uvicorn thread"""
         self.app = app
         self.host = host
@@ -165,7 +165,7 @@ class UvicornServerThread:
         """Start the server, if not running"""
         if self.thread is None or not self.thread.is_alive():
             oradio_log.debug("Starting Uvicorn server...")
-            config = uvicorn.Config(self.app, host=self.host, port=self.port, log_level=self.level)
+            config = uvicorn.Config(self.app, host=self.host, port=self.port, log_config=None, log_level=self.level)
             self.server = uvicorn.Server(config)
             self.thread = Thread(target=self._run, daemon=True)
             self.thread.start()
