@@ -7,7 +7,8 @@ nav {
 	border-top: 1px solid var(--oradio-border);
 	position: fixed;
 	height: 90px;
-	width: 440px;
+	width: 100%;				/* Support smaller screens */
+	max-width: 440px;			/* Limit for larger screens */
 	bottom: 0;
 }
 nav a {
@@ -33,7 +34,7 @@ nav a:hover {
 </style>
 
 <!-- Waiting indicator -->
-<img id="waiting", src="../static/waiting.gif" class="waiting" />
+<img id="waiting" src="../static/waiting.gif" class="waiting" />
 
 <!-- Menu bar -->
 <nav>
