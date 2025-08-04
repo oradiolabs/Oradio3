@@ -25,3 +25,18 @@ th, td {
 	width: 300px;
 	
 }
+
+html {
+  -webkit-touch-callout: none;
+  -webkit-user-select: text;
+  -webkit-text-size-adjust: none;
+  -webkit-tap-highlight-color: transparent;
+  -webkit-datetime-detector: none; /* Does not aways work, but save to keep */
+}
+
+a[x-apple-data-detectors] {
+  color: inherit !important;
+  text-decoration: none !important;
+  pointer-events: none !important;
+  cursor: default !important;
+}
