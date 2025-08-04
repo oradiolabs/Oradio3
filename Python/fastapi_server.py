@@ -332,9 +332,6 @@ async def status_page(request: Request):
     # Get software configuration info
     sw_info = _get_sw_info()
 
-    # Get wifi network Oradio is connected to
-    network = get_wifi_connection()
-
     # Return status page and serial and active wifi connection as context
     context = {
                 "serial"     : serial,
