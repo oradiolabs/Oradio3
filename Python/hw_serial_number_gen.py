@@ -74,7 +74,7 @@ def create_hw_serial_file():
     if i2c_device_present(MCP3021_ADDRESS):
         hw_info = {
             "serial": get_europe_time_serial(),  # Timestamp as a serial number
-            "hw_detected": "MCP3021 found at 0x4D"
+            "hw_detected": "MCP3021 @ 0x4D"
         }
 
         # Use temporary file to avoid permission issues
