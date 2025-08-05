@@ -139,6 +139,10 @@ class VolumeControl:
 
 # Test section
 if __name__ == "__main__":
+
+# Most modules use similar code in stand-alone
+# pylint: disable=duplicate-code
+
     print("\nStarting VolumeControl test...\n")
     print("Turn the volume knob and observe ADC values and volume settings.")
     print("Press Ctrl+C to exit.\n")
@@ -153,3 +157,6 @@ if __name__ == "__main__":
         print("\nStopping VolumeControl...")
         volume_control.stop()
         print("Test finished.")
+
+# Restore checking or duplicate code
+# pylint: enable=duplicate-code

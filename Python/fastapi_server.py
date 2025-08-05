@@ -464,6 +464,9 @@ async def catch_all(request: Request):
 # Entry point for stand-alone operation
 if __name__ == "__main__":
 
+# Most modules use similar code in stand-alone
+# pylint: disable=duplicate-code
+
     # import when running stand-alone
     import uvicorn
     from multiprocessing import Process, Queue
@@ -516,3 +519,6 @@ if __name__ == "__main__":
     # Stop listening to messages
     if message_listener:
         message_listener.kill()
+
+# Restore checking or duplicate code
+# pylint: enable=duplicate-code

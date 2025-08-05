@@ -42,6 +42,15 @@ JSON_SCHEMAS_FILE = os.path.realpath(ORADIO_DIR + "/schemas.json")
 # Messages consist of 3 elements: type, state and error
 MESSAGE_NO_ERROR = "None"
 
+################## LED GPIO PINS ##########################
+LEDS = {
+    "LEDPlay":    15,
+    "LEDPreset1": 24,
+    "LEDPreset2": 25,
+    "LEDPreset3":  7,
+    "LEDStop":    23
+}
+
 ################## WIFI UTILS #############################
 # Access point
 ACCESS_POINT_HOST = "108.156.60.1"  # wsj.com

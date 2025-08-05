@@ -25,16 +25,13 @@ Created on Januari 17, 2025
 import time
 import threading
 from RPi import GPIO
+
+##### oradio modules ####################
 from backlighting import Backlighting
 
-# Switch all leds to output high
-LEDS = {
-    "LEDPlay": 15,
-    "LEDPreset1": 24,
-    "LEDPreset2": 25,
-    "LEDPreset3": 7,
-    "LEDStop": 23
-}
+
+##### GLOBAL constants ####################
+from oradio_const import LEDS
 
 # Initialize GPIO
 GPIO.setmode(GPIO.BCM)
@@ -123,4 +120,10 @@ def test_backlighting():
                 print("\nPlease input a valid number\n")
 
 if __name__ == "__main__":
+# Most modules use similar code in stand-alone
+# pylint: disable=duplicate-code
+
     test_backlighting()
+
+# Restore checking or duplicate code
+# pylint: enable=duplicate-code

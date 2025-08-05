@@ -22,16 +22,12 @@ Created on January 29, 2025
 import time
 import threading
 from RPi import GPIO
+
+##### oradio modules ####################
 from oradio_logging import oradio_log
 
-# Global constant for LED GPIO pins
-LEDS = {
-    "LEDPlay": 15,
-    "LEDPreset1": 24,
-    "LEDPreset2": 25,
-    "LEDPreset3": 7,
-    "LEDStop": 23
-}
+##### GLOBAL constants ####################
+from oradio_const import LEDS
 
 class LEDControl:
     """Control LED states"""
@@ -173,6 +169,10 @@ class LEDControl:
 
 # Entry point for stand-alone operation
 if __name__ == '__main__':
+
+# Most modules use similar code in stand-alone
+# pylint: disable=duplicate-code
+
     print("\nStarting LED Control Standalone Test...\n")
 
     # Instantiate LEDControl
@@ -255,3 +255,6 @@ if __name__ == '__main__':
                     leds.turn_off_all_leds()
                 case _:
                     print("\nInvalid selection. Please enter a valid number.\n")
+
+# Restore checking or duplicate code
+# pylint: enable=duplicate-code

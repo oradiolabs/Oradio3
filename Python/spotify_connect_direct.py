@@ -202,6 +202,10 @@ class SpotifyConnect:
             oradio_log.info("Monitoring stopped.")
 
 if __name__ == "__main__":
+
+# Most modules use similar code in stand-alone
+# pylint: disable=duplicate-code
+
     # For testing purposes, create a message queue using multiprocessing.
     msg_queue = Queue()
     spotify = SpotifyConnect(message_queue=msg_queue)
@@ -222,3 +226,6 @@ if __name__ == "__main__":
             break
         else:
             print("Invalid option. Please try again.")
+
+# Restore checking or duplicate code
+# pylint: enable=duplicate-code

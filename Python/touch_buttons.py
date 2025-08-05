@@ -181,6 +181,10 @@ class TouchButtons:
 
 # ------------------ Standalone Test Mode ------------------
 if __name__ == "__main__":
+
+# Most modules use similar code in stand-alone
+# pylint: disable=duplicate-code
+
     LONG = LONG_PRESS_DURATION
 
     print("\nStarting Touch Buttons Test Mode…\n")
@@ -223,4 +227,6 @@ if __name__ == "__main__":
         print("\nExiting test mode…")
     finally:
         tb.cleanup()
-        
+
+# Restore checking or duplicate code
+# pylint: enable=duplicate-code

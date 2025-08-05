@@ -761,6 +761,10 @@ def get_mpd_control(host: str = "localhost", port: int = 6600) -> MPDControl:
 
 # Entry point for stand-alone operation
 if __name__ == '__main__':
+
+# Most modules use similar code in stand-alone
+# pylint: disable=duplicate-code
+
     print("\nStarting MPD Control Standalone Test...\n")
 
     # Instantiate MPDControl
@@ -1015,3 +1019,6 @@ if __name__ == '__main__':
                     print("\nCurrent song is NOT a web radio\n")
             case _:
                 print("\nInvalid selection. Please enter a valid number.\n")
+
+# Restore checking or duplicate code
+# pylint: enable=duplicate-code

@@ -183,6 +183,10 @@ class PlaySystemSound:
 
 # ------------------ TEST SECTION ------------------
 if __name__ == "__main__":
+
+# Most modules use similar code in stand-alone
+# pylint: disable=duplicate-code
+
     print("\nStarting System Sound Player Standalone Test...\n")
 
     volume_control = VolumeControl()
@@ -249,3 +253,6 @@ if __name__ == "__main__":
 
         else:
             print("\nInvalid selection. Please enter a valid number.\n")
+
+# Restore checking or duplicate code
+# pylint: enable=duplicate-code

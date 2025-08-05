@@ -855,6 +855,9 @@ def main():
 
 if __name__ == "__main__":
 
+# Most modules use similar code in stand-alone
+# pylint: disable=duplicate-code
+
     # start stress test if requested via the arguments --stress, otherwise simply skipped
     maybe_start_stress()
 
@@ -863,3 +866,6 @@ if __name__ == "__main__":
 
     # Close using signal to stop threads
     signal.raise_signal(signal.SIGTERM)
+
+# Restore checking or duplicate code
+# pylint: enable=duplicate-code
