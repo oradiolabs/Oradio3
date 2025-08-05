@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/bash
 # Send log files to Oradio Remote Monitoring Service
 
 # Get Oradio serial number

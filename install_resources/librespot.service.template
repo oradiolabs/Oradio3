@@ -14,8 +14,8 @@ StandardError=append:PLACEHOLDER_LOGFILE_SPOTIFY
 ExecStartPre=/usr/bin/amixer -c DigiAMP sset VolumeSpotCon1 0%
 
 # Reset flag files before starting librespot
-ExecStartPre=/bin/bash -c 'echo "0" > PLACEHOLDER_SPOTIFY_PATH/spotactive.flag'
-ExecStartPre=/bin/bash -c 'echo "0" > PLACEHOLDER_SPOTIFY_PATH/spotplaying.flag'
+ExecStartPre=/usr/bin/bash -c 'echo "0" > PLACEHOLDER_SPOTIFY_PATH/spotactive.flag'
+ExecStartPre=/usr/bin/bash -c 'echo "0" > PLACEHOLDER_SPOTIFY_PATH/spotplaying.flag'
 
 ExecStart=/usr/bin/librespot \
     --name Oradio \

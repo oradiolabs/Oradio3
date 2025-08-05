@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/bash
 
 # This script is called from our systemd unit file to mount or unmount a USB partition.
 
@@ -41,7 +41,7 @@ do_mount()
 	fi
 
 	# Create mount point
-	/bin/mkdir -p $MOUNT_POINT
+	/usr/bin/mkdir -p $MOUNT_POINT
 
 	# File system type specific mount options
 	OPTS="rw,relatime,users,gid=100,umask=000,shortname=mixed,utf8=1,flush"
@@ -50,12 +50,12 @@ do_mount()
 	if ! /bin/mount -o $OPTS $PARTITION $MOUNT_POINT; then
 		echo "$(date): Error: Mounting '$PARTITION' (status = $?)"
 		# Cleanup mount point
-		/bin/rm -f $MOUNT_POINT
+		/usr/bin/rm -f $MOUNT_POINT
 		exit 1
 	fi
 
 	# Mount succesful: Create the flag triggering the Python watchdog 
-	/bin/touch $MONITOR
+	/usr/bin/touch $MONITOR
 
 	echo "$(date): Success: Mounted '$PARTITION' at '$MOUNT_POINT'"
 }
@@ -70,16 +70,16 @@ do_unmount()
 	fi
 
 	# Try to unmount the partition
-	if ! /bin/umount -l $PARTITION; then
+	if ! /usr/bin/umount -l $PARTITION; then
 		echo "$(date): Error: Unmounting '$PARTITION' (status = $?)"
 		exit 1
 	fi
 
 	# Delete mount point
-	/bin/rmdir $MOUNT_POINT
+	/usr/bin/rmdir $MOUNT_POINT
 
 	# Delete the flag triggering the Python watchdog 
-	/bin/rm -f $MONITOR
+	/usr/bin/rm -f $MONITOR
 
 	echo "$(date): Success: Unmounted '$PARTITION'"
 }
