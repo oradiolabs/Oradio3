@@ -25,25 +25,33 @@ which puts the status in two files spotactive.flag and spotplaying.flag
 """
 
 import time
-import os
 import subprocess
 import threading
 from multiprocessing import Queue
 
 
 #### Oradio modules ####
-import oradio_utils
-from oradio_const import *
 from oradio_logging import oradio_log
 
-ALSA_MIXER_SPOTCON = "VolumeSpotCon1"
+##### GLOBAL constants ####################
+from oradio_const import (
+    MESSAGE_SPOTIFY_TYPE,
+    MESSAGE_NO_ERROR,
+    SPOTIFY_CONNECT_CONNECTED_EVENT,
+    SPOTIFY_CONNECT_DISCONNECTED_EVENT,
+    SPOTIFY_CONNECT_PLAYING_EVENT,
+    SPOTIFY_CONNECT_PAUSED_EVENT
+)
+
+##### LOCAL constants ####################
 # the first volume controller of Spotify in asound.conf which is put to 0% if state is off
+ALSA_MIXER_SPOTCON = "VolumeSpotCon1"
+# Define the flag file paths as class constants
+ACTIVE_FLAG_FILE  = "/home/pi/Oradio3/Spotify/spotactive.flag"
+PLAYING_FLAG_FILE = "/home/pi/Oradio3/Spotify/spotplaying.flag"
 
 class SpotifyConnect:
-    # Define the flag file paths as class constants.
-    ACTIVE_FLAG_FILE = "/home/pi/Oradio3/Spotify/spotactive.flag"
-    PLAYING_FLAG_FILE = "/home/pi/Oradio3/Spotify/spotplaying.flag"
-
+    """ Basic Spotify functionality based on Librespot service """
     def __init__(self, message_queue=None):
         """
         Initialize with a message queue.
@@ -67,19 +75,19 @@ class SpotifyConnect:
         Writes '0' to the file at 'filepath' to reset the flag.
         """
         try:
-            with open(filepath, "w") as f:
-                f.write("0")
+            with open(filepath, "w", encoding="utf-8") as file:
+                file.write("0")
             oradio_log.info("Successfully reset %s to 0", filepath)
-        except Exception as e:
-            oradio_log.error("Error resetting %s: %s", filepath, e)
+        except Exception as ex_err: # pylint: disable=broad-exception-caught
+            oradio_log.error("Error resetting %s: %s", filepath, ex_err)
 
     def initialize_flags(self):
         """
         Resets both the 'active' and 'playing' flag files to 0.
         This method should be called during initialization.
         """
-        self._reset_flag(self.ACTIVE_FLAG_FILE)
-        self._reset_flag(self.PLAYING_FLAG_FILE)
+        self._reset_flag(ACTIVE_FLAG_FILE)
+        self._reset_flag(PLAYING_FLAG_FILE)
 
 
     def _read_flag(self, filepath):
@@ -88,19 +96,19 @@ class SpotifyConnect:
         otherwise returns False. Returns False if the file cannot be read.
         """
         try:
-            with open(filepath, "r") as f:
-                content = f.read().strip()
+            with open(filepath, "r", encoding="utf-8") as file:
+                content = file.read().strip()
                 return content == "1"
-        except Exception as e:
-            oradio_log.error("Error reading %s: %s", filepath, e)
+        except Exception as ex_err: # pylint: disable=broad-exception-caught
+            oradio_log.error("Error reading %s: %s", filepath, ex_err)
             return False
 
     def update_flags(self):
         """
         Update the 'active' and 'playing' booleans by reading their flag files.
         """
-        self.active = self._read_flag(self.ACTIVE_FLAG_FILE)
-        self.playing = self._read_flag(self.PLAYING_FLAG_FILE)
+        self.active = self._read_flag(ACTIVE_FLAG_FILE)
+        self.playing = self._read_flag(PLAYING_FLAG_FILE)
 
     def send_event(self, event):
         """
@@ -114,7 +122,7 @@ class SpotifyConnect:
                 message = {"type": MESSAGE_SPOTIFY_TYPE, "state": event, "error": MESSAGE_NO_ERROR}
                 self.message_queue.put(message)
                 oradio_log.info("Message sent to queue: %s", message)
-            except Exception as ex_err:
+            except Exception as ex_err: # pylint: disable=broad-exception-caught
                 oradio_log.error("Error sending message to queue: %s", ex_err)
         else:
             oradio_log.error("Message queue is not set. Cannot send event.")
@@ -131,8 +139,8 @@ class SpotifyConnect:
                 stderr=subprocess.DEVNULL
             )
             oradio_log.info("Spotify Connect UnMuted via amixer")
-        except subprocess.CalledProcessError as e:
-            oradio_log.error("Error unmuting via amixer: %s", e)
+        except subprocess.CalledProcessError as ex_err:
+            oradio_log.error("Error unmuting via amixer: %s", ex_err)
 
     def pause(self):
         """
@@ -146,10 +154,11 @@ class SpotifyConnect:
                 stderr=subprocess.DEVNULL
             )
             oradio_log.info("Spotify Connect Muted via amixer")
-        except subprocess.CalledProcessError as e:
-            oradio_log.error("Error muting via amixer: %s", e)
+        except subprocess.CalledProcessError as ex_err:
+            oradio_log.error("Error muting via amixer: %s", ex_err)
 
     def get_state(self):
+        """ Return web service state """
         return {"active": self.active, "playing": self.playing}
 
     def monitor_flags(self, interval=0.5):

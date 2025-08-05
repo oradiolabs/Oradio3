@@ -840,7 +840,6 @@ def maybe_start_stress():
 
 # ---END Stress test part
 
-
 def main():
     try:
         oradio_log.debug("Oradio control main loop running")
@@ -854,12 +853,13 @@ def main():
         except Exception as ex_err: # pylint: disable=broad-exception-caught
             oradio_log.error("Error cleaning up touch_buttons: %s", ex_err)
 
-
 if __name__ == "__main__":
+
     # start stress test if requested via the arguments --stress, otherwise simply skipped
     maybe_start_stress()
 
     # then hand over to your normal main loop
     main()
 
+    # Close using signal to stop threads
     signal.raise_signal(signal.SIGTERM)

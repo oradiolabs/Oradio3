@@ -190,6 +190,7 @@ if __name__ == "__main__":
     sound_keys = list(SOUND_FILES.keys())
 
     def build_menu():
+        """Create stand-alone menu options """
         menu = "\nSelect a function:\n 0  - Quit\n"
         for idx, sound_key in enumerate(sound_keys, start=1):
             menu += f" {idx:<3}- Play {sound_key}\n"
@@ -200,9 +201,9 @@ if __name__ == "__main__":
 
     while True:
         try:
-            choice = int(input(build_menu()))
+            choice = int(input(build_menu())) # pylint: disable=invalid-name
         except ValueError:
-            choice = -1
+            choice = -1 # pylint: disable=invalid-name
 
         if choice == 0:
             print("\nExiting test program...\n")
@@ -216,14 +217,17 @@ if __name__ == "__main__":
         elif choice == 99:
             print("\nExecuting: Stress Test\n")
             def stress_test(player, duration=10):
+                """ Run stress test playing sound files randomly """
                 start = time.time()
                 def rnd():
                     while time.time() - start < duration:
                         player.play(random.choice(sound_keys))
                         time.sleep(random.uniform(0.1, 0.5))
                 threads = [threading.Thread(target=rnd) for _ in range(5)]
-                for t in threads: t.start()
-                for t in threads: t.join()
+                for thread in threads:
+                    thread.start()
+                for thread in threads:
+                    thread.join()
                 print("\nStress test completed.\n")
             stress_test(sound_player)
 
