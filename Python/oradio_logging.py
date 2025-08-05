@@ -144,7 +144,14 @@ oradio_log = python_logging.getLogger('oradio')
 oradio_log.setLevel(ORADIO_LOG_LEVEL)
 
 # Your CLH handler
-clh_handler = ConcurrentRotatingFileHandler(ORADIO_LOG_FILE, 'a+', ORADIO_LOG_FILESIZE, ORADIO_LOG_BACKUPS)
+clh_handler = ConcurrentRotatingFileHandler(
+    filename=ORADIO_LOG_FILE,
+    mode='a+',
+    maxBytes=ORADIO_LOG_FILESIZE,
+    backupCount=ORADIO_LOG_BACKUPS,
+    encoding=None,
+    use_gzip=False
+)
 
 # Explicit queue setup
 log_queue = queue.Queue(maxsize=10000)
