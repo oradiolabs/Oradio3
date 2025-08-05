@@ -18,6 +18,9 @@ Group=PLACEHOLDER_GROUP
 # Clear traceback.log when starting the service
 StandardError=file:PLACEHOLDER_LOGFILE_TRACEBACK
 
+# Remove any residual lock file from previous run
+ExecStartPre=/usr/bin/rm -f PLACEHOLDER_LOGGING_PATH/.__oradio.lock
+
 # Start Oradio
 WorkingDirectory=PLACEHOLDER_PYTHON_PATH
 ExecStart=/home/PLACEHOLDER_USER/.venv/bin/python3 oradio_control.py
