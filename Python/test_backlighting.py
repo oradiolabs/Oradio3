@@ -24,8 +24,8 @@ Created on Januari 17, 2025
 """
 import time
 import threading
-from backlighting import Backlighting  # Assuming your code is saved in backlighting.py
 from RPi import GPIO
+from backlighting import Backlighting
 
 # Switch all leds to output high
 LEDS = {
