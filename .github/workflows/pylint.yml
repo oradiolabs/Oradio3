@@ -49,7 +49,7 @@ jobs:
       # Disable immediate exit on error
       # Use .pylintrc 
       # Prevent MPDClient no-member errors, as they are false positives
-      # Fail on fatal(1), error(2) and usage(32), continue warning(4), refactor(8) and convention(16)
+      # Fail on fatal(1) + error(2) + warning(4) + usage(32), continue on refactor(8) and convention(16)
       run: |
         set +e     
         pylint $(git ls-files '*.py') \
@@ -58,7 +58,7 @@ jobs:
         --output=pylint_result.txt
         status=$?
         echo "Raw pylint exit code: $status"
-        masked=$((status & 35))
+        masked=$((status & 39))
         echo "Masked exit code (fatal, error, usage): $masked"
         exit $masked
       shell: bash
