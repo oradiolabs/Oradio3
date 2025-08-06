@@ -63,6 +63,13 @@ class USBMonitor(PatternMatchingEventHandler):
         super().__init__(*args, **kwargs)
         self.service = service
 
+    #################################################################
+    # REVIEW Henk solve pylint issues for on_created and on_deleted
+    # Reasonn: on_deleted and on_created are public functions, but they call a private function
+    # Proposal is to rename _usb_inserted and _usb_removed to public functions
+    # This is valid as usb_inserted and usb_removed are defined in the USBService class
+    # and are used in this USBMonitor class, so is not a pure "private" function anymore
+    ##############################################################################
     def on_created(self, event): # when file is created
         # do something, eg. call your function to process the image
         oradio_log.info("Mount point %s created", event.src_path)
@@ -194,11 +201,28 @@ class USBService():
         with self._state_lock:
             return self.state
 
+##############################################################################################
+##REVIEW Henk: make this method private, set_state() may be used only inside the class
+############################################################################################## 
     def set_state(self, new_state):
         """Thread-safe setter for USB state"""
         with self._state_lock:
             self.state = new_state
 
+#################################################################################################################
+##REVIEW Henk: Should be in wifi_service, as wifi is responsible of getting the wifi credentials
+# So Wifi service will get credentials either from an access point, or any other input.
+# Proposal is to design a class in wifi_service:
+# Class methods:
+#   get_wifi_file() : 
+#         * during init get the wifi-file is present
+#         * start an observer for monitor for the wifi file
+#               
+# starting/ using an observer pattern to monitor
+# the file location having the wifi info.
+# The observer with a PatternMatchingEventHandler for on_deleted and on_created
+# Priority issue: if an AP is used with new credentials, this will overrule the wifi-file credentials
+###############################################################################################################
     def _handle_usb_wifi_credentials(self):
         """
         Check if wifi credentials are available on the USB drive root folder
