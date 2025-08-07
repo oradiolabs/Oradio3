@@ -9,12 +9,12 @@
   ####   #    #  #    #  #####      #     ####
 
 
-Created on August 5, 2025
+Created on January 17, 2025
 @author:        Henk Stevens & Olaf Mastenbroek & Onno Janssen
-@copyright:     Oradio Stichting
+@copyright:     Copyright 2024, Oradio Stichting
 @license:       GNU General Public License (GPL)
 @organization:  Oradio Stichting
-@version:       1
+@version:       2
 @email:         oradioinfo@stichtingoradio.nl
 @status:        Development
 @summary: Create single source of truth for all modules to get logger
