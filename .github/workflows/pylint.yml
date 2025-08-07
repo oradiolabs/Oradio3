@@ -59,7 +59,7 @@ jobs:
         status=$?
         echo "Raw pylint exit code: $status"
         masked=$((status & 39))
-        echo "Masked exit code (fatal, error, usage): $masked"
+        echo "Masked exit code (fatal, error, warning, usage): $masked"
         exit $masked
       shell: bash
 
