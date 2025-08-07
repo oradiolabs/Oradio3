@@ -26,13 +26,11 @@ Created on January 17, 2025
 """
 import json
 import socket
+import logging
 import subprocess
 from subprocess import run
 from typing import Any, Optional
 from pydantic import BaseModel, create_model
-
-##### oradio modules ####################
-from oradio_logging import oradio_log
 
 ##### GLOBAL constants ####################
 from oradio_const import (
@@ -40,6 +38,10 @@ from oradio_const import (
     MODEL_NAME_NOT_FOUND,
     MODEL_NAME_FOUND
 )
+
+# We cannot use from oradio_logging import oradio_log as this creates a circular import
+# Solution is to get the logger gives us the same logger-object
+oradio_log = logging.getLogger("oradio")
 
 ##### LOCAL constants ####################
 
@@ -143,6 +145,9 @@ def run_shell_script(script):
 
 # Entry point for stand-alone operation
 if __name__ == '__main__':
+
+# Most modules use similar code in stand-alone
+# pylint: disable=duplicate-code
 
     # Show menu with test options
     INPUT_SELECTION = ("Select a function, input the number.\n"

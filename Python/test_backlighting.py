@@ -24,17 +24,14 @@ Created on Januari 17, 2025
 """
 import time
 import threading
-from backlighting import Backlighting  # Assuming your code is saved in backlighting.py
 from RPi import GPIO
 
-# Switch all leds to output high
-LEDS = {
-    "LEDPlay": 15,
-    "LEDPreset1": 24,
-    "LEDPreset2": 25,
-    "LEDPreset3": 7,
-    "LEDStop": 23
-}
+##### oradio modules ####################
+from backlighting import Backlighting
+
+
+##### GLOBAL constants ####################
+from oradio_const import LEDS
 
 # Initialize GPIO
 GPIO.setmode(GPIO.BCM)

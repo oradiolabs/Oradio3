@@ -29,7 +29,7 @@ Created on Januari 17, 2025
 import os
 import json
 from threading import Thread, Event, Lock
-from multiprocessing import Queue, queues
+from multiprocessing import Process, Queue, queues
 from watchdog.observers import Observer
 from watchdog.events import PatternMatchingEventHandler
 
@@ -39,6 +39,7 @@ from wifi_service import WifiService
 
 ##### GLOBAL constants ####################
 from oradio_const import (
+    GREEN, YELLOW, NC,
     USB_MOUNT_PATH,
     USB_MOUNT_POINT,
     MESSAGE_USB_TYPE,
@@ -298,13 +299,30 @@ class USBService():
 # Entry point for stand-alone operation
 if __name__ == '__main__':
 
-    # Initialize
-    monitor = None  # pylint: disable=invalid-name
-    message_queue = Queue()
+# Most modules use similar code in stand-alone
+# pylint: disable=duplicate-code
 
-    # Create message handler. Logging will close color at end of string
-    message_handler = USBServiceMessageHandler(message_queue, None, "\033[1;32mControl: ")
-    message_handler.start() # Returns after thread has entered its target function
+    def check_messages(queue):
+        """
+        Check if a new message is put into the queue
+        If so, read the message from queue and display it
+        :param queue = the queue to check for
+        """
+        print("\nMain: Listening for messages")
+
+        while True:
+            # Wait for message
+            message = queue.get(block=True, timeout=None)
+            # Show message received
+            print(f"{GREEN}Main: Message received: '{message}'{NC}\n")
+
+    # Initialize
+    message_queue = Queue()
+    monitor = None  # pylint: disable=invalid-name
+
+    # Start  process to monitor the message queue
+    message_listener = Process(target=check_messages, args=(message_queue,))
+    message_listener.start()
 
     # Show menu with test options
     INPUT_SELECTION = ("Select a function, input the number.\n"
@@ -370,7 +388,8 @@ if __name__ == '__main__':
                 else:
                     print("\nUSB service not running\n")
             case _:
-                print("\nPlease input a valid number\n")
+                print(f"\n{YELLOW}Please input a valid number{NC}\n")
 
-    # Stop main listening to messages
-    message_handler.stop()
+    # Stop listening to messages
+    if message_listener:
+        message_listener.kill()

@@ -126,6 +126,7 @@ def menu_playback(wav_paths: list[str]) -> None:
 # ------------------- MAIN ------------------------------------------
 
 def main() -> None:
+
     """Stand-alone interactive loop"""
     logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
 

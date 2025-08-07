@@ -412,6 +412,9 @@ def _networkmanager_restart():
 # Entry point for stand-alone operation
 if __name__ == '__main__':
 
+# Most modules use similar code in stand-alone
+# pylint: disable=duplicate-code
+
     # import when running stand-alone
     from multiprocessing import Process, Queue
 
