@@ -160,6 +160,8 @@ class Backlighting:
 
         self.bus.write_i2c_block_data(MCP4725_ADDR, write_command, [high_byte, low_byte])
 
+# REVIEW Onno: Waarom wordt hier if __main__ gedaan? Is overbodig
 if __name__ == "__main__":
+#REVIEW Onno: Gebruik one-liner Backlighting().auto_adjust()
     lighting = Backlighting()
     lighting.auto_adjust()
