@@ -9,7 +9,7 @@
   ####   #    #  #    #  #####      #     ####
 
 
-Created on Juli 12`, 2025
+Created on July 12, 2025
 @author:        Henk Stevens & Olaf Mastenbroek & Onno Janssen
 @copyright:     Copyright 2024, Oradio Stichting
 @license:       GNU General Public License (GPL)
@@ -22,13 +22,13 @@ Created on Juli 12`, 2025
 Update for 0.4.0: OradioAP mode
 
 -------------------------
+# REVIEW Onno: Let's be consisten, Use  English for coding (variable names, function names, ... ) and comments ...
 Genereert WAV-meldingen voor Oradio met Azure-TTS (nl-NL-FennaNeural)
 en biedt een simpel menu om ze af te spelen.
 
 De Fenna-stem ondersteunt géén speaking-styles; we gebruiken alleen
 pitch en spreeksnelheid (prosody). 
 """
-
 from __future__ import annotations
 import logging
 import os
@@ -105,6 +105,7 @@ def synthesize(text: str) -> bytes:
     return response.content
 
 
+# REVIEW Onno: menu_playback is geen onderdeel van het genereren van de audio files. Zou die daarom onder de --- MAIN --- comment verwachten
 def menu_playback(wav_paths: list[str]) -> None:
     """Tekstmenu om WAV’s af te spelen met aplay."""
     if not wav_paths:
@@ -149,9 +150,11 @@ def main() -> None:
             logging.error("Schrijffout: %s", os_err)
 
     logging.info("✅  %d bestanden klaar in %s", len(generated), OUTPUT_DIR)
+# REVIEW Onno: Duidelijker is om menu_playback uit main te halen, na main() aan te roepen
     if generated:
         menu_playback(generated)
 
 
+# REVIEW Onno: Waarom wordt hier if __main__ gedaan? Is overbodig
 if __name__ == "__main__":
     main()
