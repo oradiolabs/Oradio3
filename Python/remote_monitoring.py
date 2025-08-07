@@ -27,10 +27,10 @@ from platform import python_version
 from datetime import datetime
 from threading import Timer
 import subprocess
+import logging
 import requests
 
 ##### oradio modules ####################
-from oradio_logging import oradio_log
 from oradio_utils import check_internet_connection
 
 ##### GLOBAL constants ####################
@@ -54,6 +54,10 @@ REQUEST_TIMEOUT = 30
 
 # Flag to ensure only 1 heartbeat repeat timer is active
 HEARTBEAT_REPEAT_TIMER_IS_RUNNING = False
+
+# We cannot use from oradio_logging import oradio_log as this creates a circular import
+# Solution is to get the logger gives us the same logger-object
+oradio_log = logging.getLogger("oradio")
 
 def _get_serial():
     """ Extract serial from hardware """
@@ -204,7 +208,7 @@ class RmsService():
             oradio_log.error("Unsupported message type: %s", msg_type)
             return
 
-        oradio_log.debug("Sending to ORMS: %s", msg_data)
+        oradio_log.debug("Sending to ORMS: message=%s, files=%s", msg_data, self.send_files)
 
         if not self.send_files:
             # Send message
@@ -237,6 +241,9 @@ class RmsService():
         _handle_response_command(response.text)
 
 if __name__ == "__main__":
+
+# Most modules use similar code in stand-alone
+# pylint: disable=duplicate-code
 
     # Instantiate RMS service
     rms = RmsService()
