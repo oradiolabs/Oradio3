@@ -253,6 +253,3 @@ if __name__ == "__main__":
 
         else:
             print("\nInvalid selection. Please enter a valid number.\n")
-
-# Restore checking or duplicate code
-# pylint: enable=duplicate-code

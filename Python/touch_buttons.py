@@ -153,6 +153,7 @@ class TouchButtons:
         """Invoker for the public long_press_handler attribute."""
         try:
             self.long_press_handler(button_name)
+# REVIEW Onno: Kan er überhaupt een exception optreden? Zo niet , dan is except niet nodig. Zo ja, dan de mogelijke exceptions afvangen
         except Exception:  # pylint: disable=broad-exception-caught
             # Defensive: ensure user-supplied handler failures do not crash the timer path
             oradio_log.exception("Exception in long press handler for %s", button_name)
@@ -181,9 +182,6 @@ class TouchButtons:
 
 # ------------------ Standalone Test Mode ------------------
 if __name__ == "__main__":
-
-# Most modules use similar code in stand-alone
-# pylint: disable=duplicate-code
 
     LONG = LONG_PRESS_DURATION
 
@@ -227,6 +225,3 @@ if __name__ == "__main__":
         print("\nExiting test mode…")
     finally:
         tb.cleanup()
-
-# Restore checking or duplicate code
-# pylint: enable=duplicate-code

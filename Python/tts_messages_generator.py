@@ -127,9 +127,6 @@ def menu_playback(wav_paths: list[str]) -> None:
 
 def main() -> None:
 
-# Most modules use similar code in stand-alone
-# pylint: disable=duplicate-code
-
     """Stand-alone interactive loop"""
     logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
 
@@ -159,6 +156,3 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
-
-# Restore checking or duplicate code
-# pylint: enable=duplicate-code

@@ -393,6 +393,3 @@ if __name__ == '__main__':
     # Stop listening to messages
     if message_listener:
         message_listener.kill()
-
-# Restore checking or duplicate code
-# pylint: enable=duplicate-code

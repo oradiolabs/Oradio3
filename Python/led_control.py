@@ -255,6 +255,3 @@ if __name__ == '__main__':
                     leds.turn_off_all_leds()
                 case _:
                     print("\nInvalid selection. Please enter a valid number.\n")
-
-# Restore checking or duplicate code
-# pylint: enable=duplicate-code

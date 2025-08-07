@@ -181,6 +181,3 @@ if __name__ == '__main__':
                 print(f"\nExpect fail: response={response}, error={error}")
             case _:
                 print("\nPlease input a valid number\n")
-
-# Restore checking or duplicate code
-# pylint: enable=duplicate-code

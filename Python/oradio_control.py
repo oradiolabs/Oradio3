@@ -866,6 +866,3 @@ if __name__ == "__main__":
 
     # Close using signal to stop threads
     signal.raise_signal(signal.SIGTERM)
-
-# Restore checking or duplicate code
-# pylint: enable=duplicate-code

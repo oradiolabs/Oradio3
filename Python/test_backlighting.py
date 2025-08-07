@@ -120,10 +120,4 @@ def test_backlighting():
                 print("\nPlease input a valid number\n")
 
 if __name__ == "__main__":
-# Most modules use similar code in stand-alone
-# pylint: disable=duplicate-code
-
     test_backlighting()
-
-# Restore checking or duplicate code
-# pylint: enable=duplicate-code

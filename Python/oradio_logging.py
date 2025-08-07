@@ -244,6 +244,3 @@ if __name__ == '__main__':
                 ctypes.string_at(0)
             case _:
                 print(f"\n{YELLOW}Please input a valid number{NC}\n")
-
-# Restore checking or duplicate code
-# pylint: enable=duplicate-code

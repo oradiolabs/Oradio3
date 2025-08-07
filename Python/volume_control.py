@@ -45,6 +45,10 @@ POLLING_MIN_INTERVAL = 0.05
 POLLING_MAX_INTERVAL = 0.3
 ALSA_MIXER_DIGITAL = "Digital"
 
+# REVIEW Onno: Is het een optie om checks voor c-extension-no-member in pylintrc uit te schakelen? dan kan het hier weg
+# alsaaudio is a C-extension for which pylint cannot check
+# pylint: disable=c-extension-no-member
+
 class VolumeControl:
     """ Tracks the volume contral setting and sends message when changed """
     def __init__(self, queue=None):
@@ -54,8 +58,8 @@ class VolumeControl:
 
         # Initialize ALSA Mixer
         try:
-            self.mixer = alsaaudio.Mixer(ALSA_MIXER_DIGITAL) # pylint: disable=c-extension-no-member
-        except alsaaudio.ALSAAudioError as ex_err: # pylint: disable=c-extension-no-member
+            self.mixer = alsaaudio.Mixer(ALSA_MIXER_DIGITAL)
+        except alsaaudio.ALSAAudioError as ex_err:
             oradio_log.error("Error initializing ALSA mixer: %s", ex_err)
             raise
 
@@ -83,10 +87,10 @@ class VolumeControl:
     def set_volume(self, volume_raw):
         """ Sets the volume using the ALSA mixer. """
         try:
-            self.mixer.setvolume(volume_raw, units=alsaaudio.VOLUME_UNITS_RAW) # pylint: disable=c-extension-no-member
+            self.mixer.setvolume(volume_raw, units=alsaaudio.VOLUME_UNITS_RAW)
             oradio_log.debug("Volume set to: %s", volume_raw)
 #            print(f"Volume set to: {volume_raw}")  # Print for testing
-        except alsaaudio.ALSAAudioError as ex_err: # pylint: disable=c-extension-no-member
+        except alsaaudio.ALSAAudioError as ex_err:
             oradio_log.error("Error setting volume: %s", ex_err)
 
     def send_message(self, message_type, state):
@@ -96,8 +100,17 @@ class VolumeControl:
                 message = {"type": message_type, "state": state, "error": MESSAGE_NO_ERROR}
                 self.queue.put(message)
                 oradio_log.debug("Message sent to queue: %s", message)
+            # Queue is unbounded, so Full exception will not be raised
+            # message is dict, so TypeError exception will not be raised
+            # if queue is not setup properly you can get NameError:
+            except NameError as ex_err:
+                oradio_log.error("Queue object is not defined: %s", ex_err)
+            except AttributeError as ex_err:
+                oradio_log.error("Queue object not properly initialized: %s", ex_err)
+            # Fallback
+# REVIEW Onno: We already catch the possible exceptions. Can we then skip this broad exception?
             except Exception as ex_err: # pylint: disable=broad-exception-caught
-                oradio_log.error("Error sending message to queue: %s", ex_err)
+                oradio_log.error("Unexpected error sending message to queue: %s", ex_err)
 
     def volume_adc(self):
         """ Monitors the ADC for changes and adjusts the volume accordingly. """
@@ -140,9 +153,6 @@ class VolumeControl:
 # Test section
 if __name__ == "__main__":
 
-# Most modules use similar code in stand-alone
-# pylint: disable=duplicate-code
-
     print("\nStarting VolumeControl test...\n")
     print("Turn the volume knob and observe ADC values and volume settings.")
     print("Press Ctrl+C to exit.\n")
@@ -157,6 +167,3 @@ if __name__ == "__main__":
         print("\nStopping VolumeControl...")
         volume_control.stop()
         print("Test finished.")
-
-# Restore checking or duplicate code
-# pylint: enable=duplicate-code

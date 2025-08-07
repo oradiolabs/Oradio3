@@ -1019,6 +1019,3 @@ if __name__ == '__main__':
                     print("\nCurrent song is NOT a web radio\n")
             case _:
                 print("\nInvalid selection. Please enter a valid number.\n")
-
-# Restore checking or duplicate code
-# pylint: enable=duplicate-code

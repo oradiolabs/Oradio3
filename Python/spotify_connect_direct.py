@@ -226,6 +226,3 @@ if __name__ == "__main__":
             break
         else:
             print("Invalid option. Please try again.")
-
-# Restore checking or duplicate code
-# pylint: enable=duplicate-code

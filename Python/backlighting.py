@@ -161,12 +161,5 @@ class Backlighting:
         self.bus.write_i2c_block_data(MCP4725_ADDR, write_command, [high_byte, low_byte])
 
 if __name__ == "__main__":
-
-# Most modules use similar code in stand-alone
-# pylint: disable=duplicate-code
-
     lighting = Backlighting()
     lighting.auto_adjust()
-
-# Restore checking or duplicate code
-# pylint: enable=duplicate-code
