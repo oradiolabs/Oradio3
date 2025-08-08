@@ -35,8 +35,8 @@ from pydantic import BaseModel, create_model
 ##### GLOBAL constants ####################
 from oradio_const import (
     JSON_SCHEMAS_FILE,
+    MODEL_NAME_FOUND,
     MODEL_NAME_NOT_FOUND,
-    MODEL_NAME_FOUND
 )
 
 # We cannot use from oradio_logging import oradio_log as this creates a circular import
@@ -44,6 +44,37 @@ from oradio_const import (
 oradio_log = logging.getLogger("oradio")
 
 ##### LOCAL constants ####################
+
+def safe_put(queue, item, block=True, timeout=None):
+    """
+    Safely put an item into a multiprocessing.Queue.
+
+    Args:
+        queue (multiprocessing.Queue): The queue.
+        item: The object to put.
+        block (bool): Whether to block if the queue is full.
+        timeout (float|None): Timeout for blocking put.
+
+    Returns:
+        bool: True if the item was put successfully, False otherwise.
+    """
+    try:
+        queue.put(item, block=block, timeout=timeout)
+        return True
+
+    except queue.Full:
+        oradio_log.warning("Queue is full — dropping item: %r", item)
+        return False
+
+    except (OSError, EOFError, ValueError) as ex_err:
+        # Queue closed or broken
+        oradio_log.error("Queue is closed/broken — failed to put item: %r (%s)", item, ex_err)
+        return False
+
+    except AssertionError as ex_err:
+        # Rare internal queue corruption
+        oradio_log.critical("Queue internal error: %s", ex_err, exc_info=True)
+        return False
 
 def is_service_active(service_name):
     """
