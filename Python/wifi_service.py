@@ -22,46 +22,96 @@ Created on December 23, 2024
         https://pypi.org/project/nmcli/
         https://superfastpython.com/multiprocessing-in-python/
 """
-import threading
+import os
+import json
+from multiprocessing import Process, Queue
+from watchdog.observers import Observer
+from watchdog.events import PatternMatchingEventHandler
 import nmcli
 
 ##### oradio modules ####################
-from oradio_utils import check_internet_connection, run_shell_script
+from oradio_utils import check_internet_connection, run_shell_script, safe_put
+from usb_service import USBService
 from oradio_logging import oradio_log
 
 ##### GLOBAL constants ####################
 from oradio_const import (
     RED, GREEN, YELLOW, NC,
+    USB_MOUNT_POINT,
     ACCESS_POINT_HOST,
     ACCESS_POINT_SSID,
+    STATE_USB_PRESENT,
     MESSAGE_WIFI_TYPE,
     STATE_WIFI_IDLE,
     STATE_WIFI_INTERNET,
     STATE_WIFI_CONNECTED,
     STATE_WIFI_ACCESS_POINT,
+    MESSAGE_WIFI_FILE_ERROR,
     MESSAGE_WIFI_FAIL_CONFIG,
     MESSAGE_WIFI_FAIL_START_AP,
     MESSAGE_WIFI_FAIL_CONNECT,
-    MESSAGE_NO_ERROR
+    MESSAGE_UNKNOWN_STATE,
+    MESSAGE_NO_ERROR,
 )
 
 ##### LOCAL constants ####################
+WIFI_MONITOR  = "Wifi_invoer.json"                      # Name of file used to monitor for wifi credentials
+WEB_WIFI_PATH = "/tmp"                                  # Path for web interface file with wifi credentials
+USB_WIFI_FILE = USB_MOUNT_POINT + "/Wifi_invoer.json"   # USB file with wifi credentials
+WEB_WIFI_FILE = WEB_WIFI_PATH + "/Wifi_invoer.json"     # Web file with wifi credentials
+TIMEOUT       = 10                                      # Seconds to wait
 
 class WifiService():
     """
-    States and functions related to wifi handling
+    States and functions related to wifi handling:
     - connected to a wifi network with internet, connected to a wifi network without internet, not connected, acting as access point
     Send messages on state changes
     """
+    class WebMonitor(PatternMatchingEventHandler):
+        """
+        Monitor wifi credentials file created by the web interface
+        """
+        def __init__(self, handler, *args, **kwargs):
+            """Class contructor, including parent class PatternMatchingEventHandler"""
+            super().__init__(*args, **kwargs)
+            self.handler = handler
+
+        def on_created(self, event):
+            """When file is created"""
+            oradio_log.debug("Web interface wifi credentials '%s' created", event.src_path)
+            # Parse file and try to connect
+            self.handler(WEB_WIFI_FILE)
+            # Cleanup: remove file
+            try:
+                os.remove(WEB_WIFI_FILE)
+            except PermissionError:
+                oradio_log.error("Permission denied deleting '%s'", WEB_WIFI_FILE)
+            except OSError as ex_err:
+                oradio_log.error("Error deleting '%s': %s", WEB_WIFI_FILE, ex_err)
+
     def __init__(self, queue):
         """
         Initialize wifi state
-        Setup access point in NetworkManager
         Report state and error to parent process
         """
         # Initialize
-        self.msg_q = queue
         self.saved = None
+        self.queue = queue
+        usb_queue = Queue()
+
+        # Start  process to monitor the USB message queue
+        self.usb_listener = Process(target=self._check_usb_messages, args=(usb_queue,))
+        self.usb_listener.start()
+
+        # Start monitoring USB status
+        self.usb = USBService(usb_queue)
+
+        # Set observer to handle wifi credentials submitted using web interface
+        self.observer = Observer()
+        # Pass private functions as arguments to avoid pylint protected-access warnings
+        event_handler = self.WebMonitor(self._handle_usb_wifi_credentials, patterns=[WIFI_MONITOR])
+        self.observer.schedule(event_handler, path = WEB_WIFI_PATH, recursive=False)
+        self.observer.start()
 
         # Send initial state and error message
         self._send_message(MESSAGE_NO_ERROR)
@@ -79,10 +129,7 @@ class WifiService():
         }
         # Put message in queue
         oradio_log.debug("Send wifi service message: %s", message)
-        if self.msg_q:
-            self.msg_q.put(message)
-        else:
-            oradio_log.error("No queue proviced to send wifi service message")
+        safe_put(self.queue, message)
 
     def get_state(self):
         """
@@ -104,6 +151,65 @@ class WifiService():
         # Connection to wifi network WITHOUT internet access
         return STATE_WIFI_CONNECTED
 
+    def _check_usb_messages(self, queue):
+        """
+        Check if a new message is put into the queue
+        If so, read the message from queue and process it
+        :param queue = the queue to check for
+        """
+        while True:
+            # Wait for message
+            message = queue.get(block=True, timeout=None)
+            # Process message received
+            oradio_log.debug("USB message received: '%s'", message)
+            if message.get("state", MESSAGE_UNKNOWN_STATE) == STATE_USB_PRESENT:
+                if not self._handle_usb_wifi_credentials(USB_WIFI_FILE):
+                    # Parse file and try to connect
+                    self._send_message(MESSAGE_WIFI_FILE_ERROR)
+
+    def _handle_usb_wifi_credentials(self, wifi_file):
+        """
+        Check if wifi credentials are available on the USB drive root folder
+        If exists, then try to connect using the wifi credentials from the file
+        """
+        oradio_log.info("Checking for %s", wifi_file)
+
+        # Check if wifi credentials file exists in USB drive root
+        if not os.path.isfile(wifi_file):
+            oradio_log.debug("'%s' not found", wifi_file)
+            return False
+
+        # Read and parse JSON file
+        with open(wifi_file, "r", encoding="utf-8") as file:
+            try:
+                # Get JSON object as a dictionary
+                data = json.load(file)
+            except json.JSONDecodeError:
+                oradio_log.error("Error parsing '%s'", wifi_file)
+                return False
+
+        # Check if the SSID and PASSWORD keys are present
+        if data and 'SSID' in data.keys() and 'PASSWORD' in data.keys():
+            ssid = data['SSID']
+            pswd = data['PASSWORD']
+        else:
+            oradio_log.error("SSID and/or PASSWORD not found in '%s'", wifi_file)
+            return False
+
+        # Test if ssid is empty or >= 8 characters
+        if 0 < len(pswd) < 8:
+            oradio_log.error("Password must be empty for open network or at least 8 characters for secured network")
+            return False
+
+        # Log wifi credentials found
+        oradio_log.info("USB wifi credentials found: ssid=%s", ssid)
+
+        # Connect to the wifi network
+        self._wifi_connect(ssid, pswd)
+
+        # No issues found
+        return True
+
     def get_saved_network(self):
         """
         Public function
@@ -111,7 +217,7 @@ class WifiService():
         """
         return self.saved
 
-    def wifi_connect(self, ssid, pswd): # pylint: disable=too-many-branches
+    def _wifi_connect(self, ssid, pswd): # pylint: disable=too-many-branches
         """
         Public function
         Create/modify wifi network in NetworkManager
@@ -134,12 +240,12 @@ class WifiService():
             # Error, no point continuing
             return
 
-        # Connecting takes time, can fail: offload to a separate thread
-        # ==> Don't use reference so that the python interpreter can garbage collect when thread is done
-        threading.Thread(target=self._wifi_connect_thread, args=(ssid,)).start()
+        # Connecting takes time, can fail: offload to a separate process
+        # ==> Don't use reference so that the python interpreter can garbage collect when process is done
+        Process(target=self._wifi_connect_process, args=(ssid,)).start()
         oradio_log.info("Connecting to '%s' started", ssid)
 
-    def _wifi_connect_thread(self, network):
+    def _wifi_connect_process(self, network):
         """
         Private function
         Activate the network
@@ -185,6 +291,18 @@ class WifiService():
                 oradio_log.info("Disconnected from: '%s'", active)
         else:
             oradio_log.debug("Already disconnected")
+
+    def _stop(self):
+        """Stop the wifi credentials monitors"""
+        # Stop listening to USB messages
+        if self.usb_listener:
+            self.usb_listener.kill()
+        # Only stop if active
+        if self.observer:
+            self.observer.stop()
+            self.observer.join(timeout=TIMEOUT)
+        # Log status
+        oradio_log.info("wifi service stopped")
 
 def get_wifi_networks():
     """
@@ -398,25 +516,11 @@ def _networkmanager_del(network):
         return False
     return True
 
-def _networkmanager_restart():
-    """
-    Private function
-    Restart NetworkManager forces rescan and reconnect if a known wifi network is in range
-    """
-    cmd = "sudo systemctl restart NetworkManager"
-    result, response = run_shell_script(cmd)
-    if not result:
-        oradio_log.error("Error during <%s> to restart NetworkManager, error: %s", cmd, response)
-        # Return fail, so caller can try to recover
-
 # Entry point for stand-alone operation
 if __name__ == '__main__':
 
 # Most modules use similar code in stand-alone
 # pylint: disable=duplicate-code
-
-    # import when running stand-alone
-    from multiprocessing import Process, Queue
 
     def _check_messages(queue):
         """
@@ -424,100 +528,108 @@ if __name__ == '__main__':
         If so, read the message from queue and display it
         :param queue = the queue to check for
         """
-        print("\nListening for messages")
+        print("\nMain: Listening for messages\n")
 
         while True:
             # Wait for message
             message = queue.get(block=True, timeout=None)
             # Show message received
-            print(f"\nMessage received: '{message}'\n")
+            print(f"\n{GREEN}Main: Message received: '{message}'{NC}\n")
+
+    # Pylint PEP8 limit of max 12 branches is ok to be disabled for test menu
+    def interactive_menu(queue=None):  # pylint: disable=too-many-branches
+        """Show menu with test options"""
+        # Initialize
+        wifi = WifiService(queue)
+
+        # Show menu with test options
+        input_selection = (
+            "Select a function, input the number:\n"
+            " 0-quit\n"
+            " 1-list wifi networks in NetworkManager\n"
+            " 2-add network to NetworkManager\n"
+            " 3-remove network from NetworkManager\n"
+            " 4-list on air wifi networks\n"
+            " 5-get wifi state and connection\n"
+            " 6-connect to wifi network\n"
+            " 7-start access point\n"
+            " 8-disconnect from network\n"
+            "select: "
+        )
+
+        # User command loop
+        while True:
+            # Get user input
+            try:
+                function_nr = int(input(input_selection))
+            except ValueError:
+                function_nr = -1
+            # Execute selected function
+            match function_nr:
+                case 0:
+                    print("\nExiting test program...\n")
+                    # Calling private function for testing is ok
+                    wifi._stop() # pylint: disable=protected-access
+                    break
+                case 1:
+                    print(f"\nNetworkManager wifi connections: {_networkmanager_list()}\n")
+                case 2:
+                    name = input("Enter SSID of the network to add: ")
+                    pswrd = input("Enter password for the network to add (empty for open network): ")
+                    if name:
+                        if _networkmanager_add(name, pswrd):
+                            print(f"\n{GREEN}'{name}' added to NetworkManager{NC}\n")
+                        else:
+                            print(f"\n{RED}Failed to add '{name}' to NetworkManager{NC}\n")
+                    else:
+                        print(f"\n{YELLOW}No network given{NC}\n")
+                case 3:
+                    name = input("Enter network to remove from NetworkManager: ")
+                    if name:
+                        if _networkmanager_del(name):
+                            print(f"\n{GREEN}'{name}' deleted from NetworkManager{NC}\n")
+                        else:
+                            print(f"\n{RED}Failed to delete '{name}' from NetworkManager{NC}\n")
+                    else:
+                        print(f"\n{YELLOW}No network given{NC}\n")
+                case 4:
+                    print(f"\nActive wifi networks: {get_wifi_networks()}\n")
+                case 5:
+                    wifi_state = wifi.get_state()
+                    if wifi_state == STATE_WIFI_IDLE:
+                        print(f"\nWiFi state: '{wifi_state}'\n")
+                    else:
+                        print(f"\nWiFi state: '{wifi_state}'. Connected with: '{get_wifi_connection()}'\n")
+                case 6:
+                    name = input("Enter SSID of the network to add: ")
+                    pswrd = input("Enter password for the network to add (empty for open network): ")
+                    if name:
+                        # Calling private function for testing is ok
+                        wifi._wifi_connect(name, pswrd) # pylint: disable=protected-access
+                        print(f"\nConnecting with '{name}'. Check messages for result\n")
+                    else:
+                        print(f"\n{YELLOW}No network given{NC}\n")
+                case 7:
+                    print("\nStarting access point. Check messages for result\n")
+                    # Calling private function for testing is ok
+                    wifi._wifi_connect(ACCESS_POINT_SSID, None) # pylint: disable=protected-access
+                    print(f"\nConnecting with '{ACCESS_POINT_SSID}'. Check messages for result\n")
+                case 8:
+                    print("\nWiFi disconnected: check messages for result\n")
+                    wifi.wifi_disconnect()
+                    print("\nDisconnecting. Check messages for result\n")
+                case _:
+                    print(f"\n{YELLOW}Please input a valid number{NC}\n")
 
     # Initialize
     message_queue = Queue()
-    wifi = WifiService(message_queue)
 
     # Start  process to monitor the message queue
     message_listener = Process(target=_check_messages, args=(message_queue,))
     message_listener.start()
 
-    # Show menu with test options
-    INPUT_SELECTION = ("\nSelect a function, input the number.\n"
-                       " 0-quit\n"
-                       " 1-list wifi networks in NetworkManager\n"
-                       " 2-add network to NetworkManager\n"
-                       " 3-remove network from NetworkManager\n"
-                       " 4-restart NetworkManager\n"
-                       " 5-list on air wifi networks\n"
-                       " 6-get wifi state and connection\n"
-                       " 7-connect to wifi network\n"
-                       " 8-start access point\n"
-                       " 9-disconnect from network\n"
-                       "select: "
-                       )
-
-    # User command loop
-    while True:
-        # Get user input
-        try:
-            function_nr = int(input(INPUT_SELECTION)) # pylint: disable=invalid-name
-        except ValueError:
-            function_nr = -1 # pylint: disable=invalid-name
-
-        # Execute selected function
-        match function_nr:
-            case 0:
-                print("\nExiting test program...\n")
-                break
-            case 1:
-                print(f"\nNetworkManager wifi connections: {_networkmanager_list()}\n") # pylint: disable=protected-access
-            case 2:
-                name = input("Enter SSID of the network to add: ")
-                pswrd = input("Enter password for the network to add (empty for open network): ")
-                if name:
-                    if _networkmanager_add(name, pswrd): # pylint: disable=protected-access
-                        print(f"\n{GREEN}'{name}' added to NetworkManager{NC}\n")
-                    else:
-                        print(f"\n{RED}Failed to add '{name}' to NetworkManager{NC}\n")
-                else:
-                    print(f"\n{YELLOW}No network given{NC}\n")
-            case 3:
-                name = input("Enter network to remove from NetworkManager: ")
-                if name:
-                    if _networkmanager_del(name): # pylint: disable=protected-access
-                        print(f"\n{GREEN}'{name}' deleted from NetworkManager{NC}\n")
-                    else:
-                        print(f"\n{RED}Failed to delete '{name}' from NetworkManager{NC}\n")
-                else:
-                    print(f"\n{YELLOW}No network given{NC}\n")
-            case 4:
-                print("\nRestart NetworkManager\n")
-                _networkmanager_restart() # pylint: disable=protected-access
-            case 5:
-                print(f"\nActive wifi networks: {get_wifi_networks()}\n")
-            case 6:
-                wifi_state = wifi.get_state() # pylint: disable=invalid-name
-                if wifi_state == STATE_WIFI_IDLE:
-                    print(f"\nWiFi state: '{wifi_state}'\n")
-                else:
-                    print(f"\nWiFi state: '{wifi_state}'. Connected with: '{get_wifi_connection()}'\n")
-            case 7:
-                name = input("Enter SSID of the network to add: ")
-                pswrd = input("Enter password for the network to add (empty for open network): ")
-                if name:
-                    wifi.wifi_connect(name, pswrd)
-                    print(f"\nConnecting with '{name}'. Check messages for result\n")
-                else:
-                    print(f"\n{YELLOW}No network given{NC}\n")
-            case 8:
-                print("\nStarting access point. Check messages for result\n")
-                wifi.wifi_connect(ACCESS_POINT_SSID, None)
-                print(f"\nConnecting with '{ACCESS_POINT_SSID}'. Check messages for result\n")
-            case 9:
-                print("\nWiFi disconnected: check messages for result\n")
-                wifi.wifi_disconnect()
-                print("\nDisconnecting. Check messages for result\n")
-            case _:
-                print(f"\n{YELLOW}Please input a valid number{NC}\n")
+    # Present menu with tests
+    interactive_menu(message_queue)
 
     # Stop listening to messages
     if message_listener:

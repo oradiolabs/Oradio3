@@ -40,7 +40,8 @@ SOUND_FILES_DIR = os.path.realpath(ORADIO_DIR + "/../system_sounds")
 JSON_SCHEMAS_FILE = os.path.realpath(ORADIO_DIR + "/schemas.json")
 
 # Messages consist of 3 elements: type, state and error
-MESSAGE_NO_ERROR = "None"
+MESSAGE_UNKNOWN_STATE = "Unknown"
+MESSAGE_NO_ERROR      = "None"
 
 ################## LED GPIO PINS ##########################
 LEDS = {
@@ -63,6 +64,7 @@ STATE_WIFI_ACCESS_POINT = "Wifi configured as access point"
 # wifi messages
 #OMJ: 'Type' is eigenlijk 'source'
 MESSAGE_WIFI_TYPE            = "Wifi message"
+MESSAGE_WIFI_FILE_ERROR      = "File format error"
 MESSAGE_WIFI_FAIL_CONFIG     = "Failed to save credentials in NetworkManager"
 MESSAGE_WIFI_FAIL_START_AP   = "Failed to start access point"
 MESSAGE_WIFI_FAIL_CONNECT    = "Wifi failed to connect"
@@ -99,8 +101,7 @@ STATE_USB_PRESENT = "USB drive present"
 STATE_USB_ABSENT  = "USB drive absent"
 # USB messages
 #OMJ: 'Type' is eigenlijk 'source'
-MESSAGE_USB_TYPE       = "USB message"
-MESSAGE_USB_ERROR_FILE = "USB file format error"
+MESSAGE_USB_TYPE = "USB message"
 
 ################## AUDIO #############################
 #OMJ: the constant is named path, but points to a file?
