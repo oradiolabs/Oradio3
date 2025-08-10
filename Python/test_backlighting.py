@@ -22,19 +22,17 @@ Created on Januari 17, 2025
     :Install
     :Documentation
 """
+# REVIEW Onno: Waarom is de code hieronder geen onderdeel van backlighting.py, maar een aparte test_backlighting.py? Kan evt met zelfde construct als in hw_serial_number_gen.py
 import time
 import threading
-from backlighting import Backlighting  # Assuming your code is saved in backlighting.py
 from RPi import GPIO
 
-# Switch all leds to output high
-LEDS = {
-    "LEDPlay": 15,
-    "LEDPreset1": 24,
-    "LEDPreset2": 25,
-    "LEDPreset3": 7,
-    "LEDStop": 23
-}
+##### oradio modules ####################
+from backlighting import Backlighting
+
+
+##### GLOBAL constants ####################
+from oradio_const import LEDS
 
 # Initialize GPIO
 GPIO.setmode(GPIO.BCM)
@@ -122,5 +120,6 @@ def test_backlighting():
             case _:
                 print("\nPlease input a valid number\n")
 
+# REVIEW Onno: Waarom wordt hier if __main__ gedaan? Is overbodig
 if __name__ == "__main__":
     test_backlighting()

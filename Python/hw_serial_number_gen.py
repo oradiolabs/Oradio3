@@ -9,7 +9,7 @@
   ####   #    #  #    #  #####      #     ####
 
 
-Created on Januari 31, 2025
+Created on January 31, 2025
 @author:        Henk Stevens & Olaf Mastenbroek & Onno Janssen
 @copyright:     Copyright 2024, Oradio Stichting
 @license:       GNU General Public License (GPL)
@@ -59,6 +59,7 @@ def i2c_device_present(address):
         bus.read_byte(address)  # Attempt to read a byte to verify device presence
         bus.close()
         return True
+# REVIEW Onno: Beter om mogelijke exceptions af te vangen. Als dat niet kan dan comment toevoegen waarom dat niet kan.
     except Exception:   #pylint: disable=broad-exception-caught
         return False
 
@@ -74,7 +75,7 @@ def create_hw_serial_file():
     if i2c_device_present(MCP3021_ADDRESS):
         hw_info = {
             "serial": get_europe_time_serial(),  # Timestamp as a serial number
-            "hw_detected": "MCP3021 found at 0x4D"
+            "hw_detected": "MCP3021 at 0x4D"
         }
 
         # Use temporary file to avoid permission issues
@@ -144,6 +145,7 @@ def interactive_menu():
         else:
             print("Invalid selection. Please try again.")
 
+# REVIEW Onno: Waarom wordt code gedupliceerd?
 def systemd_mode():
     """
     Non-interactive mode for use with systemd.
@@ -155,15 +157,17 @@ def systemd_mode():
     if i2c_device_present(MCP3021_ADDRESS):
         hw_info = {
             "serial": get_europe_time_serial(),
-            "hw_detected": "MCP3021 found at 0x4D"
+            "hw_detected": "MCP3021 at 0x4D"
         }
         os.makedirs(os.path.dirname(LOG_PATH + LOG_FILE), exist_ok=True)
         with open(LOG_PATH + LOG_FILE, "w", encoding='utf-8') as file:
             json.dump(hw_info, file, indent=4)
 
+# REVIEW Onno: Waarom wordt hier if __main__ gedaan? Is overbodig
 if __name__ == "__main__":
     # If running interactively (with a terminal attached), show the menu.
     if sys.stdin.isatty():
         interactive_menu()
     else:
+# REVIEW Onno: Waarom wordt de functie create_hw_serial_file() niet gebruikt?
         systemd_mode()
