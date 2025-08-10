@@ -25,6 +25,13 @@ from RPi import GPIO
 ##### oradio modules ####################
 from oradio_logging import oradio_log
 from play_system_sound import PlaySystemSound
+##############################################################################
+# REVIEW Henk: 
+# only used in module test, so include in the main part
+# example:
+#   if __name__ == "__main__":
+#    from led_control import LEDControl  # Import LED control module
+############################################################################
 from led_control import LEDControl  # Import LED control module
 
 ##### LOCAL constants ####################
@@ -55,6 +62,9 @@ class TouchButtons:
         """
         self.state_machine = state_machine
         self.sound_player = PlaySystemSound()
+        #################################################################################
+        # REVIEW Henk: led_control only used in module test, so create instance there
+        ##################################################################################
         self.led_control = LEDControl()
 
         # Press tracking
@@ -156,7 +166,12 @@ class TouchButtons:
         except Exception:  # pylint: disable=broad-exception-caught
             # Defensive: ensure user-supplied handler failures do not crash the timer path
             oradio_log.exception("Exception in long press handler for %s", button_name)
-
+    ############################################################################################################
+    # REVIEW Henk
+    # The touchbutton should not have any knowledge on statemachine. It only responsibility
+    # is handling the buttons.
+    # Proposal is to use a callback method, with a callback function provided during instance creation
+    ###############################################################################################################
     def _default_long_press_handler(self, button_name):
         """Default long-press behavior if not overridden."""
         if self.state_machine:
@@ -166,7 +181,8 @@ class TouchButtons:
                 oradio_log.info(
                     "LONG press detected on button: %s (no action)", button_name
                 )
-
+    #####################################################################################
+    # REVIEW Henk: This function is not used, so clean-up
     def _blink_led(self):
         """Blinks all LEDs off after a short delay."""
         time.sleep(0.05)

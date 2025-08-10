@@ -1,4 +1,8 @@
 #!/usr/bin/env python3
+################################################################################
+##REVIEW Henk: why is this pylint item disabled, just add the docstring info
+## several class docstrings missing
+###############################################################################
 # pylint: disable=missing-function-docstring
 """
 
@@ -93,6 +97,11 @@ PLAY_WEBSERVICE_STATES = {"StatePlay", "StatePreset1", "StatePreset2", "StatePre
 # And are based upon only the messages and no polling
 # Tested .get_state , especially for wifi service, it can take up to 300 - 500 ms
 
+####################################################################################################
+# REVIEW Henk: proposal is to improve the wifiservice.get_state() to give an immediate respond
+# on the state of Wifi. Then we do not need to Event/Signal primitives for Wifi
+# Or better would be that wifiservice send a message upon changes in the wifi state
+##################################################################################################
 spotify_connect_connected = threading.Event()  # track status Spotify connected
 spotify_connect_playing = threading.Event()  # track Spotify playing
 spotify_connect_available = threading.Event()  # track Spotify playing & connected
@@ -118,6 +127,35 @@ leds = LEDControl()
 # Instantiate sound player
 sound_player = PlaySystemSound()
 
+###########################################################################################################
+## REVIEW Henk : 
+# json.schema's not included for message queues. 
+# Intention of json schema is to declare and define json structures which are use in different modules
+# Here example of using json,schema
+#        
+#        # create a message object based on json schema 
+#        # Load the JSON schema file
+#        with open(JSON_SCHEMAS_FILE) as f:
+#            schemas = json.load(f)
+#        # Dynamically create Pydantic models
+#        models = {name: oradio_utils.json_schema_to_pydantic(name, schema) for name, schema in schemas.items()}
+#        
+#        # create Messages model
+#        Messages = models["Messages"]
+#        #create an instance for this model
+#        self.messages = Messages(type="none", state="none", error="none", data=[])
+#
+#        # define the message model for the put message in the queue         
+#        shared_queue = self.messages.model_dump()
+#
+#  reading the json-based queue:
+#            get_msg = shared_queue.get(block=True, timeout=None)
+#            # port message into json schema
+#            msg = msg_model(**get_msg)
+#            message = msg.model_dump()
+
+######################################################################################################### 
+
 
 # ----------------------State Machine------------------
 
@@ -141,6 +179,10 @@ class StateMachine:
         """
         self._websvc = web_service
         # to start via long-press the webservice indepently from the statemachine
+        
+    ###################################################################################
+    # REVIEW: Henk start_web_service() method should be part of callback from touchbutton
+    #######################################################################################    
     def start_webservice(self):
         """
         Trigger the injected WebService to start by long-press, but only if USB is present.
@@ -149,7 +191,17 @@ class StateMachine:
         if ws is None:
             # You tried to start before set_services() was called
             return
+
         # Guard: only start webservice when USB is present
+        
+        #########################################################################
+        ## REVIEW Henk: check on usb_present is not required.
+        # When usb is not present the statemachine is in state USBAbsent. In this state
+        # it is not possible to start any services. So the <long press ON> would be an event from 
+        # the touchbutton class. To start the web_service the statemachine should be at least in StateIdle.
+        # So in my proposal the touchbutton uses a callback. In callback function there will be guard to check
+        # if this event is allowed in this state.
+        ######################################################################
         if not usb_present.is_set():
             oradio_log.warning("WebService start blocked (USB absent)")
             return
@@ -162,6 +214,12 @@ class StateMachine:
             leds.control_blinking_led("LEDPlay", 2)
             ws.start()
 
+#########################################################################################
+# REVIEW Henk 
+# This is one "big" transition function, with guarding functions, which is called for any transitions
+# The good practice is to have a guarding function for each of the transitions
+# E.G. So for a transition to StatePlay there should be a guarding function for this transition only
+########################################################################################### 
     def transition(self, requested_state):
 
         oradio_log.debug(
@@ -212,6 +270,12 @@ class StateMachine:
         # 5. USB PRESENCE GUARD + COMMIT (via USB_Media)
         # ————————————————————————————————
     #    if usb_present.is_set() or requested_state == "StateStartUp": # to insure start-up
+        ####################################################################################################
+        ## REVIEW Henk: See also remark wrt <sync_usb_presence_from_service()> which in fact is redundant
+        # Proposal is to use following approach:
+        # if usb_present.is_set() ===> 
+        #                replace by if oradio_usb_service.get_state() == STATE_USB_PRESENT
+        ######################################################################################################
         if usb_present.is_set(): # to insure start-up
             # USB is present → commit the requested state
             self.prev_state = self.state
@@ -238,6 +302,11 @@ class StateMachine:
         with self.task_lock:
             leds.turn_off_all_leds()
 
+######################################################################################
+# REVIEW Henk
+# In fact this if-elif structure represent the actions to be performed onEntry
+# Seems OK, no critical guarding functions included
+############################################################################################
             if state_to_handle == "StatePlay":
                 if web_service_active.is_set():
                     leds.control_blinking_led("LEDPlay", 2)
@@ -333,7 +402,9 @@ class StateMachine:
                     mpd.pause()
                 spotify_connect.pause()
                 oradio_log.debug("In Idle state, wait for next step")
-
+########################################################################
+# REVIEW Henk The StateError is not defined/used anywhere
+##########################################################################
             elif state_to_handle == "StateError":
                 leds.control_blinking_led("LEDStop", 2)
 
@@ -344,6 +415,16 @@ class StateMachine:
 
 # -------------------VOLUME-----------------------
 
+#########################################################################
+# REVIEW Henk
+# So these <on_xxxxx> functions represent an event
+# Good practice is to not include actions yet, before the
+# transition function is used. The transition function will check
+# if transition is allowed. When allowed the actions will be processed
+# in the run_state_method()
+############################################################################
+
+# 
 
 def on_volume_changed():
     if state_machine.state in ("StateStop", "StateIdle"):
@@ -354,11 +435,18 @@ def on_volume_changed():
 
 # -------------------USB---------------------------
 
+#########################################################################
+## REVIEW Henk: get usb state is in guarding function, makes the event redundant
+#  see also review on sync_usb_presence_from_service()
+# proposal for code is: 
+#     if not oradio_usb_service.get_state() == STATE_USB_PRESENT
+######################################################################
 
 def on_usb_absent():
     oradio_log.info("USB absent acknowlegded")
     if not usb_present.is_set():
         return
+    ## REVIEW Henk: no actions here, should be in run_state_method()
     usb_present.clear()
     mpd.cancel_update()  # cancel if MPD database update runs
     if state_machine.state != "StateStartUp":
@@ -371,6 +459,15 @@ def on_usb_present():
         return
     usb_present.set()
     sound_player.play("USBPresent")
+    ######################################################################################################################
+    ##REVIEW Henk: controls should not know how music player is working, 
+    # music player (mpd) will know when to update a database
+    # the method name should be different, as it suggests an update.
+    # proposal is to redefine to : mpd.new_music_source()
+    # Background info: let's assume there is a new music player in the future, there might not be a database exposed 
+    # So the abstraction should be that a new music source is found and music player should handle this.
+    #########################################################################################################################
+    ## REVIEW Henk: no actions here, should be in run_state_method()
     mpd.start_update_mpd_database_thread()  # MPD database update
     # Transition to Idle after USB is inserted
     if state_machine.state != "StateStartUp":
@@ -614,6 +711,26 @@ def handle_message(message):
             )
 
 # 3)----------- Process the messages---------
+    #############################################################################
+    ##REVIEW Henk (1): why is the pylint item disabled in method below, please explain, give reason
+    # The except Exception is catching also the unintented exceptions. which is indicated by pylint 
+    # Make it more specific, specify the exception that you anticipate will occur.
+    # All other exceptions may be logged as error.
+    # the Queue class has following exceptions:
+    #  (1) exception queue.Empty: can be prevented by first checkting with queue.empty()
+    #  (2) exception queue.Full: prevent by reading queue fast enought 
+    #  (3) exception queue.ShutDown: queue does not exists anymore
+
+    #############################################################################
+    ##REVIEW Henk (2): The consequence of the <try outside the while loop> is that
+    # This approach catches exceptions that occur during the entire execution of the loop. 
+    # If an error occurs, the thread will exit the loop and terminate.
+    # Probably there will be no errors so risk of thread termination is rahter low
+    # However if <try inside the while loop> the thread will continue and process subsequent
+    # messages even if some messages cause errors.
+
+
+from queue import Empty
 def process_messages(queue):
     try:
         while True:
@@ -623,8 +740,53 @@ def process_messages(queue):
     except Exception as ex:  # pylint: disable=broad-exception-caught
         oradio_log.error("Unexpected error in process_messages: %s", ex)
 
+'''
+REVIEW Henk (1)(2): Here a proposal which template to use for try-except-else-finally
+try:
+       # Some Code.... 
+except:
+       # optional block
+       # Handling of exception (if required)
+else:
+       # execute if no exception
+finally:
+      # Some code .....(always executed)
+
+As the queue handling in the previous code is blocking, the Empty or Full exception will not arise
+For the code this would be my proposal, 
+(1) to prevent pylint issues use <except Empty:>
+(2) Continue after errors with <try inside while loop>:
+
+from queue import Empty
+def process_messages(queue):
+    while True:
+        try:
+            msg = queue.get()
+            oradio_log.debug("Received message in Queue: %s", msg)
+        except Empty:
+            # Queue is empty, continue waiting
+            continue
+        else:
+            handle_message(msg)
+        ### optional ###
+        finally:
+            # This block runs after every iteration of the loop
+            pass
+
+'''
+
+
 #-------------USB presence sync at start -up---------------------------------------
 
+#############################################################################################
+##REVIEW Henk: why is this event handling necessary. 
+# The oradio_usb_service.get_state() could also be part of the transition-guarding
+# In the USB PRESENCE GUARD the usb_present.is_set() is checked, which reflects the 
+# current state of the usb.
+# So we could replace this line with: oradio_usb_service.get_state()
+# See also USB PRESENCE GUARD
+# So this function is redundant and creates extra complexity
+###########################################################################################
 def sync_usb_presence_from_service():
     """
     One time sync at start-up
@@ -642,6 +804,10 @@ def sync_usb_presence_from_service():
         oradio_log.warning("Unexpected USB service state: %r", state)
 
 #------------Monitor Internet, if still a connection has been made-----------------
+#############################################################################################
+##REVIEW Henk: This should be handled by the wifi_service modile
+# Check with Onno, to provide the current service for this
+############################################################################################
 def start_wifi_monitor(interval: float = 5.0):
     """
     Start a daemon thread polling `oradio_wifi_service.get_state()` every `interval` seconds
@@ -653,6 +819,10 @@ def start_wifi_monitor(interval: float = 5.0):
     def _worker():
         while True:
             try:
+                #############################################################################################
+                # REVIEW Henk:  oradio_wifi_service.get_state() has no exception, so try does not make sense
+                # The oradio_wifi_service.get_state() returns a state which should be handled
+                #############################################################################################
                 state = oradio_wifi_service.get_state()
             except Exception as ex_err: # pylint: disable=broad-exception-caught
                 oradio_log.error("Error polling Wi-Fi service state: %s", ex_err)
@@ -694,6 +864,22 @@ oradio_usb_service = USBService(shared_queue)
 # sync the usb_present tracker
 sync_usb_presence_from_service()
 
+
+##############################################################################################
+# REVIEW Henk: From Architectural point of view the Touchbuttons encapsulate the statemachine, which 
+# violate the "seperations of concern". The TouchButtons class would be responsible for both handling button presses 
+# and controlling the state machine. The Touchbuttons is only resposible for touchbuttons and has no knowledge on the statemachine transitions.
+# # advise is to have a loose coupling by using callbacks. The state transitions are handled in main machine. 
+# This makes the code more modular and easier to maintain.
+# Proposal for code:
+# touch_buttons = TouchButtons(callback=state_machine.handle_button_press)
+# Class StateMachine:
+#    # def handle_button_press(self, button_id):
+#         # Determine the new state based on the button_id
+#         new_state = self.determine_new_state(button_id)
+#         self.state_machine.transition(new_state)
+#
+###########################################################################################################  
 # Initialize TouchButtons and pass the state machine
 touch_buttons = TouchButtons(state_machine)
 
@@ -706,6 +892,12 @@ oradio_wifi_service = WifiService(shared_queue)
 # #Initialize the web_service
 oradio_web_service = WebService(shared_queue)
 
+
+#############################################################################################
+##REVIEW Henk: why is this event handling necessary. 
+# it is the responsibility of wifi_service to provide correct state immediately
+# Check with Onno to provide the correct service
+###########################################################################################
 # Start background polling (every 5 seconds) of the Wi-Fi service state.
 start_wifi_monitor()
 
@@ -756,7 +948,11 @@ _stress_count = 0 # pylint: disable=invalid-name
 # Lock to synchronize increments of _stress_count between the stress and main threads
 _stress_count_lock = threading.Lock()
 
-
+###########################################################################
+# REVIEW Henk These functionS are private function for the module test
+# so put them in the main of module test
+# this will solve th pylint issue
+################################################################################
 def _stress_loop(min_d, max_d, max_count):
     global _stress_count # pylint: disable=global-statement
     while not _stress_stop.is_set():
