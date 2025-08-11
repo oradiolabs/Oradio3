@@ -177,7 +177,9 @@ if [ "$1" != "--continue" ]; then
 	LINUX_PACKAGES=(
 		git
 		jq
+		python3-gi
 		python3-dev
+		python3-dbus
 		libasound2-dev
 		libasound2-plugin-equal
 		mpd
