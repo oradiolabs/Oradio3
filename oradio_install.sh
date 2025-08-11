@@ -221,8 +221,8 @@ if [ "$1" != "--continue" ]; then
 
 	# Configure Python virtual environment
 	if [ ! -d ~/.venv ]; then
-		# Prepare python virtual environment
-		python3 -m venv ~/.venv
+		# Prepare python virtual environment including system site packages
+		python3 -m venv --system-site-packages ~/.venv
 
 		# Activate the python virtual environment in current environment
 		source ~/.venv/bin/activate
