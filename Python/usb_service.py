@@ -75,11 +75,11 @@ class USBObserver:
         return cls._instance
 
     def __init__(self, *args, **kwargs):
-         """
+        """
         Initialize the underlying Observer instance once
         *args, **kwargs: Arguments forwarded to the Observer constructor
         """
-       if not self._initialized:
+        if not self._initialized:
             self._observer = Observer(*args, **kwargs)
             self._initialized = True
 
@@ -365,4 +365,4 @@ if __name__ == '__main__':
 
     # Stop listening to messages
     if message_listener:
-        message_listener.kill()
+        message_listener.terminate()
