@@ -27,8 +27,7 @@ Created on January 17, 2025
         https://pypi.org/project/watchdog/
 """
 import os
-from multiprocessing import Process, Queue
-
+from threading import Lock, RLock
 from watchdog.observers import Observer
 from watchdog.events import PatternMatchingEventHandler
 
@@ -53,12 +52,14 @@ TIMEOUT     = 10            # Seconds to wait
 
 class USBObserver:
     """Custom singleton wrapper around Observer."""
-    _instance = None
-    _initialized = False
+    _lock = Lock()       # Class-level lock to make singleton thread-safe
+    _instance = None     # Holds the single instance of this class
+    _initialized = False # Tracks whether __init__ has been run
 
     def __new__(cls, *args, **kwargs):
-        if cls._instance is None:
-            cls._instance = super().__new__(cls)
+        with cls._lock:
+            if cls._instance is None:
+                cls._instance = super().__new__(cls)
         return cls._instance
 
     def __init__(self, *args, **kwargs):
@@ -75,32 +76,43 @@ class USBObserver:
 
 class USBMonitor(PatternMatchingEventHandler):
     """
-    Singleton that holds a subscriber list.
-    Monitor signals when USB mounting/unmounting is ready
-    Calls inserted/removed functions for each subscriber
+    Singleton that monitors USB mount/unmount events
+    Subscribers can register two callbacks:
+      - on_insert(): called when a USB is detected
+      - on_remove(): called when a USB is removed
     """
-    # Initially instance does not exist
-    _instance = None
+    _lock = Lock()       # Class-level lock to make singleton thread-safe
+    _instance = None     # Holds the single instance of this class
+    _initialized = False # Tracks whether __init__ has been run
 
     def __new__(cls, *args, **kwargs):
-        """Check if _instance exists: create if not, return existing if yes"""
-        if cls._instance is None:
-            cls._instance = super().__new__(cls)
+        """
+        Create or return the singleton instance
+        Uses a class-level lock to ensure thread safety during creation
+        """
+        with cls._lock:
+            if cls._instance is None:
+                cls._instance = super().__new__(cls)
         return cls._instance
 
     def __init__(self, **kwargs):
-        """Class contructor, Create subscribers list, register initialized"""
+        """
+        Initialize the singleton (only once)
+        Sets up:
+        - Subscriber list
+        - Initial USB mount state
+        """
         if getattr(self, "_initialized", False):
-            return
+            return  # Already initialized
 
         # Initialize parent event handler
         super().__init__(**kwargs)
 
-        # Initialize subscribers list
-        self._subscribers = []
+        # Lock for subscriber operations
+        self._sub_lock = RLock()
 
-        # Flag to stop initializing more than once
-        self._initialized = True
+        # List of subscriber tuples: (on_insert, on_remove)
+        self._subscribers = []
 
         # Set initial USB mount state - singleton: read/write is thread-safe
         if os.path.ismount(USB_MOUNT_POINT):
@@ -108,50 +120,66 @@ class USBMonitor(PatternMatchingEventHandler):
         else:
             self._state = STATE_USB_ABSENT
 
+        # Flag to stop initializing more than once
+        self._initialized = True
+
     def get_state(self):
-        """Getter for USB state"""
+        """
+        Return the current USB state
+        :return: STATE_USB_PRESENT or STATE_USB_ABSENT
+        """
         return self._state
 
     def subscribe(self, on_insert, on_remove):
-        """Register a new pair of callbacks"""
-        self._subscribers.append((on_insert, on_remove))
+        """
+        Register subscriber callbacks
+        Thread-safe: may be called from multiple threads
+        """
+        with self._sub_lock:
+            self._subscribers.append((on_insert, on_remove))
 
     def unsubscribe(self, on_insert, on_remove):
-        """Remove callbacks"""
-        self._subscribers.remove((on_insert, on_remove))
+        """
+        Remove subscriber callbacks
+        Thread-safe: may be called from multiple threads
+        """
+        with self._sub_lock:
+            self._subscribers.remove((on_insert, on_remove))
 
     def on_created(self, event):
-        """Use subscribers callback when file is created"""
+        """
+        Watchdog callback: called when the USB mount point is created
+        Updates state and triggers all on_insert callbacks
+        """
         oradio_log.debug("Mount point %s created", event.src_path)
-
-        # Set USB state present
+        # set state to PRESENT
         self._state = STATE_USB_PRESENT
-
-        # Trigger callback for each subscriber
+        # Trigger insert callback for each subscriber
         for on_insert, _ in self._subscribers:
             on_insert()
 
     def on_deleted(self, event):
-        """Use subscribers callback when file is removed"""
+        """
+        Watchdog callback: called when the USB mount point is removed
+        Updates state and triggers all on_remove callbacks
+        """
         oradio_log.debug("Mount point %s deleted", event.src_path)
-
-        # Set USB state absent
+        # set state to ABSENT
         self._state = STATE_USB_ABSENT
-
-        # Trigger callback for each subscriber
+        # Trigger remove callback for each subscriber
         for _, on_remove in self._subscribers:
             on_remove()
 
 class USBService:
     """
-    Singleton subclass of Observer.
-    All USBService objects share the same observer thread.
+    Singleton subclass of Observer
+    All USBService objects share the same observer thread
     Send messages on USB drive present/absent state changes
     """
     def __init__(self, queue):
         """"Setup observer and send current state"""
         # Get the shared observer
-        self.observer = USBObserver()
+        self._observer = USBObserver()
 
         # Get the shared monitor
         self._monitor = USBMonitor(patterns=[USB_MONITOR])
@@ -160,59 +188,59 @@ class USBService:
         self._monitor.subscribe(self._usb_inserted, self._usb_removed)
 
         # Only schedule path once to avoid duplicates
-        if not getattr(self.observer, "_usb_scheduled", False):
-            self.observer.schedule(self._monitor, path=USB_MOUNT_PATH, recursive=False)
-            self.observer._usb_scheduled = True
+        if not getattr(self._observer, "_usb_scheduled", False):
+            self._observer.schedule(self._monitor, path=USB_MOUNT_PATH, recursive=False)
+            self._observer._usb_scheduled = True
             # Start the observer once globally
-            if not self.observer.is_alive():
-                self.observer.start()
+            if not self._observer.is_alive():
+                self._observer.start()
 
-        # Register queue for sending message
-        self.queue = queue
+        # Register queue for sending messages
+        self._queue = queue
 
-        # Send initial state and error message
-        self._send_message(MESSAGE_NO_ERROR)
+        # Send initial state
+        self._send_message()
+
+    def close(self):
+        """Unsubscribe from USBMonitor"""
+        self._monitor.unsubscribe(self._usb_inserted, self._usb_removed)
 
     def _usb_inserted(self):
         """Send state message USB drive inserted"""
         oradio_log.info("USB inserted")
         # send message
-        self._send_message(MESSAGE_NO_ERROR)
+        self._send_message()
 
     def _usb_removed(self):
         """Send state message USB drive removed"""
         oradio_log.info("USB removed")
         # send message
-        self._send_message(MESSAGE_NO_ERROR)
+        self._send_message()
 
-    def _send_message(self, error):
-        """
-        Send USB service message
-        :param error: Error message or code to include in the message
-        """
+    def _send_message(self):
+        """Send USB service message"""
         # Create message
         message = {
             "type": MESSAGE_USB_TYPE,
             "state": self.get_state(),
-            "error": error
+            "error": MESSAGE_NO_ERROR
         }
         # Put message in queue
         oradio_log.debug("Send USB service message: %s", message)
-        safe_put(self.queue, message)
+        safe_put(self._queue, message)
 
     def get_state(self):
         """Getter for USB state"""
         return self._monitor.get_state()
-
-    def stop(self):
-        """Unsubscribe callbacks for this service"""
-        self._monitor.unsubscribe(self._usb_inserted, self._usb_removed)
 
 # Entry point for stand-alone operation
 if __name__ == '__main__':
 
 # Most modules use similar code in stand-alone
 # pylint: disable=duplicate-code
+
+    # Imports only relevant when stand-alone
+    from multiprocessing import Process, Queue
 
     def check_messages(queue):
         """
@@ -237,8 +265,8 @@ if __name__ == '__main__':
             " 0-quit\n"
             " 1-Add USBService instance\n"
             " 2-Remove USBService instance\n"
-            " 3-Trigger USB inserted\n"
-            " 4-Trigger USB removed\n"
+            " 3-Simulate USB inserted\n"
+            " 4-Simulate USB removed\n"
             " 5-Get USB state\n"
             "select: "
         )
@@ -258,11 +286,11 @@ if __name__ == '__main__':
                 case 1:
                     print("\nAdd USBService to list\n")
                     usb_services.append(USBService(queue))
-                    print(f"List has {len(usb_services)} instances\n")
+                    print(f"\nList has {len(usb_services)} instances\n")
                 case 2:
                     print("\nDelete USBService from list\n")
                     if usb_services:
-                        usb_services.pop().stop()
+                        usb_services.pop().close()
                         print(f"List has {len(usb_services)} instances\n")
                     else:
                         print(f"{YELLOW}List has no USBService instances{NC}\n")
@@ -284,7 +312,7 @@ if __name__ == '__main__':
                     # As USBMonitor is a singleton we can use it direct
                     print(f"\nUSB state: {USBMonitor().get_state()}\n")
                 case _:
-                    print(f"{YELLOW}Please input a valid number{NC}\n")
+                    print(f"\n{YELLOW}Please input a valid number{NC}\n")
 
     # Initialize
     message_queue = Queue()
