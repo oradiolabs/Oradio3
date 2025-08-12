@@ -224,14 +224,6 @@ class USBService:
         # Send initial USB state message immediately on creation
         self._send_message()
 
-    def close(self):
-        """
-        Clean up resources by unsubscribing callbacks from the USBMonitor
-        Should be called when USBService is no longer needed to prevent memory leaks
-        and stop receiving USB event notifications
-        """
-        self._monitor.unsubscribe(self._usb_inserted, self._usb_removed)
-
     def _usb_inserted(self):
         """
         Callback triggered when USB device is inserted
@@ -271,6 +263,15 @@ class USBService:
         Returns current USB state (e.g., inserted or removed)
         """
         return self._monitor.get_state()
+
+    def close(self):
+        """
+        Clean up resources by unsubscribing callbacks from the USBMonitor
+        Should be called when USBService is no longer needed to prevent memory leaks
+        and stop receiving USB event notifications
+        """
+        self._monitor.unsubscribe(self._usb_inserted, self._usb_removed)
+        oradio_log.info("USB service closed")
 
 # Entry point for stand-alone operation
 if __name__ == '__main__':
@@ -321,6 +322,9 @@ if __name__ == '__main__':
             match function_nr:
                 case 0:
                     print("\nExiting test program...\n")
+                    # Close each USB service instance
+                    for usb_service in usb_services:
+                        usb_service.close()
                     break
                 case 1:
                     print("\nAdd USBService to list\n")
