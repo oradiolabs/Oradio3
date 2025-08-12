@@ -59,6 +59,10 @@ class USBObserver:
     _instance (USBObserver): Singleton instance of this class
     _initialized (bool): Flag indicating whether __init__ has run
     """
+
+# In below code using same construct in multiple modules for singletons
+# pylint: disable=duplicate-code
+
     _lock = Lock()       # Class-level lock to make singleton thread-safe
     _instance = None     # Holds the single instance of this class
     _initialized = False # Tracks whether __init__ has been run
@@ -79,9 +83,16 @@ class USBObserver:
         Initialize the underlying Observer instance once
         *args, **kwargs: Arguments forwarded to the Observer constructor
         """
-        if not self._initialized:
-            self._observer = Observer(*args, **kwargs)
-            self._initialized = True
+        # Prevent re-initialization if the singleton is created again
+        if self._initialized:
+            return  # Avoid re-initialization if already done
+        self._initialized = True
+
+        # Initialize parent/underlying instance
+        self._observer = Observer(*args, **kwargs)
+
+# In above code using same construct in multiple modules for singletons
+# pylint: enable=duplicate-code
 
     def __getattr__(self, name):
         """

@@ -105,14 +105,13 @@ class WifiEventListener:
     for the 'StateChanged' signal on the wireless device interface to track wifi connection state changes
     Runs a GLib main loop in a background thread to handle asynchronous signals without blocking the main application.
     """
-    # Class-level lock to make singleton creation thread-safe
-    _lock = Lock()
 
-    # Holds the single instance of the class
-    _instance = None
+# In below code using same construct in multiple modules for singletons
+# pylint: disable=duplicate-code
 
-    # Tracks if __init__ has already been executed
-    _initialized = False
+   _lock = Lock()       # Class-level lock to make singleton thread-safe
+    _instance = None     # Holds the single instance of this class
+    _initialized = False # Tracks whether __init__ has been run
 
     def __new__(cls, *args, **kwargs):
         """Ensure only one instance of WifiEventListener is created (singleton pattern)"""
@@ -131,6 +130,9 @@ class WifiEventListener:
         if self._initialized:
             return  # Avoid re-initialization if already done
         self._initialized = True
+
+# In above code using same construct in multiple modules for singletons
+# pylint: enable=duplicate-code
 
         # List of subscriber queues to send wifi state messages
         self._subscribers = []
