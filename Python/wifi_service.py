@@ -24,9 +24,9 @@ Created on December 23, 2024
 """
 import os
 import json
-from subprocess import CalledProcessError
 from threading import Thread, Lock
 from multiprocessing import Process, Queue
+from subprocess import CalledProcessError
 import nmcli
 import nmcli._exception as nmcli_exc
 import dbus
@@ -259,7 +259,12 @@ class WifiEventListener:
         Remove a previously registered subscriber queue
         queue (Queue): The queue to unsubscribe
         """
-        self._subscribers.remove(queue)
+        try:
+            self._subscribers.remove(queue)
+        except ValueError:
+            oradio_log.debug("Was already unsubscribed from wifi events")
+        else:
+            oradio_log.info("Stopped listening to wifi events")
 
 class WifiService():
     """
@@ -674,27 +679,17 @@ if __name__ == '__main__':
 # Most modules use similar code in stand-alone
 # pylint: disable=duplicate-code
 
-    # Imports only relevant when stand-alone
-    from multiprocessing import Event
-    from queue import Empty
-
     def _check_messages(queue):
         """
         Check if a new message is put into the queue
         If so, read the message from queue and display it
         :param queue = the queue to check for
         """
-        try:
-            while not stop_event.is_set():
-                try:
-                    # Wait for message with 1s timeout
-                    message = queue.get(block=True, timeout=0.5)
-                    # Show message received
-                    print(f"\n{GREEN}Message received: '{message}'{NC}\n")
-                except Empty:
-                    continue
-        except KeyboardInterrupt:
-            pass
+        while True:
+            # Wait indefinitely until a message arrives from the server/wifi service
+            message = queue.get(block=True, timeout=None)
+            # Show message received
+            print(f"\n{GREEN}Message received: '{message}'{NC}\n")
 
     # Pylint PEP8 ignoring limit of max 12 branches and 50 statement is ok for test menu
     def interactive_menu(queue):    # pylint: disable=too-many-branches, too-many-statements
@@ -726,8 +721,6 @@ if __name__ == '__main__':
                 function_nr = int(input(input_selection))
             except ValueError:
                 function_nr = -1
-            except KeyboardInterrupt:
-                function_nr = 0
             # Execute selected function
             match function_nr:
                 case 0:
@@ -808,7 +801,6 @@ if __name__ == '__main__':
                     print(f"\n{YELLOW}Please input a valid number{NC}\n")
 
     # Initialize
-    stop_event = Event()
     message_queue = Queue()
 
     # Start  process to monitor the message queue
@@ -819,5 +811,4 @@ if __name__ == '__main__':
     interactive_menu(message_queue)
 
     # Stop listening to messages
-    stop_event.set()
-    message_listener.join()
+    message_listener.terminate()

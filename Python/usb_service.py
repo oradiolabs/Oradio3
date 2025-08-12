@@ -281,8 +281,12 @@ class USBService:
         Should be called when USBService is no longer needed to prevent memory leaks
         and stop receiving USB event notifications
         """
-        self._monitor.unsubscribe(self._usb_inserted, self._usb_removed)
-        oradio_log.info("USB service closed")
+        try:
+            self._monitor.unsubscribe(self._usb_inserted, self._usb_removed)
+        except ValueError:
+            oradio_log.debug("Was already unsubscribed from USB service")
+        else:
+            oradio_log.info("Stopped listening to USB events")
 
 # Entry point for stand-alone operation
 if __name__ == '__main__':
@@ -291,8 +295,7 @@ if __name__ == '__main__':
 # pylint: disable=duplicate-code
 
     # Imports only relevant when stand-alone
-    from multiprocessing import Process, Event, Queue
-    from queue import Empty
+    from multiprocessing import Process, Queue
 
     def _check_messages(queue):
         """
@@ -300,17 +303,11 @@ if __name__ == '__main__':
         If so, read the message from queue and display it
         :param queue = the queue to check for
         """
-        try:
-            while not stop_event.is_set():
-                try:
-                    # Wait for message with 1s timeout
-                    message = queue.get(block=True, timeout=0.5)
-                    # Show message received
-                    print(f"\n{GREEN}Message received: '{message}'{NC}\n")
-                except Empty:
-                    continue
-        except KeyboardInterrupt:
-            pass
+        while True:
+            # Wait indefinitely until a message arrives from the server/wifi service
+            message = queue.get(block=True, timeout=None)
+            # Show message received
+            print(f"\n{GREEN}Message received: '{message}'{NC}\n")
 
     def interactive_menu(queue):
         """Show menu with test options"""
@@ -336,8 +333,6 @@ if __name__ == '__main__':
                 function_nr = int(input(input_selection))
             except ValueError:
                 function_nr = -1
-            except KeyboardInterrupt:
-                function_nr = 0
             # Execute selected function
             match function_nr:
                 case 0:
@@ -378,7 +373,6 @@ if __name__ == '__main__':
                     print(f"\n{YELLOW}Please input a valid number{NC}\n")
 
     # Initialize
-    stop_event = Event()
     message_queue = Queue()
 
     # Start  process to monitor the message queue
@@ -389,5 +383,4 @@ if __name__ == '__main__':
     interactive_menu(message_queue)
 
     # Stop listening to messages
-    stop_event.set()
-    message_listener.join()
+    message_listener.terminate()
