@@ -726,6 +726,8 @@ if __name__ == '__main__':
                 function_nr = int(input(input_selection))
             except ValueError:
                 function_nr = -1
+            except KeyboardInterrupt:
+                function_nr = 0
             # Execute selected function
             match function_nr:
                 case 0:
