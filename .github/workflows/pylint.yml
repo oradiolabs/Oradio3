@@ -8,26 +8,24 @@ on:
 jobs:
   lint:
     runs-on: ubuntu-latest
-    strategy:
-      matrix:
-        python-version: ["3.11"]
 
     steps:
     - uses: actions/checkout@v4
 
-    - name: Set up Python ${{ matrix.python-version }}
-      uses: actions/setup-python@v4
-      with:
-        python-version: ${{ matrix.python-version }}
-
-    - name: Install system dependencies for linting
+    - name: Install system dependencies
       run: |
         sudo apt-get update
-        sudo apt-get install -y \
-          libasound2-dev \
-          python3-dbus python3-gi \
-          gir1.2-glib-2.0 \
-          libgirepository1.0-dev
+        sudo apt-get install -y libasound2-dev python3-dbus python3-gi
+
+    - name: Create venv with system packages
+      run: |
+        python3 -m venv --system-site-packages ~/.venv
+        source ~/.venv/bin/activate
+        python -m pip install --upgrade pip
+        pip install pylint smbus2 rpi-lgpio concurrent_log_handler \
+                    requests nmcli vcgencmd watchdog python-mpd2 \
+                    pydantic fastapi JinJa2 uvicorn python-multipart
+        pip install pyalsaaudio --use-pep517
 
     - name: Install Python dependencies for linting
       run: |
@@ -38,13 +36,14 @@ jobs:
                     fastapi JinJa2 uvicorn python-multipart
         pip install pyalsaaudio --use-pep517
 
-    - name: Run pylint
+    - name: Run pylint inside venv
       # Disable immediate exit on error
       # Use .pylintrc 
       # Prevent MPDClient no-member errors, as they are false positives
       # Fail on fatal(1) + error(2) + warning(4) + usage(32), continue on refactor(8) and convention(16)
       run: |
         set +e     
+        source ~/.venv/bin/activate
         pylint $(git ls-files '*.py') \
         --rcfile=.github/workflows/.pylintrc \
         --generated-members=self.client,mpd.client \
