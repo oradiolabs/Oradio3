@@ -71,7 +71,7 @@ class USBObserver:
         """
         Create or return the singleton instance in a thread-safe manner
         *args, **kwargs: Passed to the underlying Observer constructor (only used once)
-        Returns USBObserver: Singleton instance.
+        Returns USBObserver: Singleton instance
         """
         with cls._lock:
             if cls._instance is None:
@@ -98,8 +98,8 @@ class USBObserver:
         """
         Delegate attribute access to the underlying Observer instance
         Called only if the attribute is not found on USBObserver itself
-        name (str): Attribute name to retrieve.
-        Returns: Attribute value from the Observer instance.
+        name (str): Attribute name to retrieve
+        Returns: Attribute value from the Observer instance
         """
         return getattr(self._observer, name)
 
@@ -291,19 +291,26 @@ if __name__ == '__main__':
 # pylint: disable=duplicate-code
 
     # Imports only relevant when stand-alone
-    from multiprocessing import Process, Queue
+    from multiprocessing import Process, Event, Queue
+    from queue import Empty
 
-    def check_messages(queue):
+    def _check_messages(queue):
         """
         Check if a new message is put into the queue
         If so, read the message from queue and display it
         :param queue = the queue to check for
         """
-        while True:
-            # Wait for message
-            message = queue.get(block=True, timeout=None)
-            # Show message received
-            print(f"\n{GREEN}Message received: '{message}'{NC}\n")
+        try:
+            while not stop_event.is_set():
+                try:
+                    # Wait for message with 1s timeout
+                    message = queue.get(block=True, timeout=0.5)
+                    # Show message received
+                    print(f"\n{GREEN}Message received: '{message}'{NC}\n")
+                except Empty:
+                    continue
+        except KeyboardInterrupt:
+            pass
 
     def interactive_menu(queue):
         """Show menu with test options"""
@@ -329,6 +336,8 @@ if __name__ == '__main__':
                 function_nr = int(input(input_selection))
             except ValueError:
                 function_nr = -1
+            except KeyboardInterrupt:
+                function_nr = 0
             # Execute selected function
             match function_nr:
                 case 0:
@@ -369,15 +378,16 @@ if __name__ == '__main__':
                     print(f"\n{YELLOW}Please input a valid number{NC}\n")
 
     # Initialize
+    stop_event = Event()
     message_queue = Queue()
 
     # Start  process to monitor the message queue
-    message_listener = Process(target=check_messages, args=(message_queue,))
+    message_listener = Process(target=_check_messages, args=(message_queue,))
     message_listener.start()
 
     # Present menu with tests
     interactive_menu(message_queue)
 
     # Stop listening to messages
-    if message_listener:
-        message_listener.terminate()
+    stop_event.set()
+    message_listener.join()

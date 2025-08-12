@@ -84,7 +84,7 @@ class SaveWifi:
     def set_saved(cls, value):
         """
         Thread-safe setter to update the saved wifi connection string
-        value (str): The wifi connection string to save.
+        value (str): The wifi connection string to save
         """
         with cls._lock:        # Acquire lock to prevent race conditions
             cls._saved = value
@@ -103,7 +103,7 @@ class WifiEventListener:
     Singleton class that listens for wifi state changes via NetworkManager D-Bus signals
     Connects to the system D-Bus, finds the wifi device managed by NetworkManager, and listens
     for the 'StateChanged' signal on the wireless device interface to track wifi connection state changes
-    Runs a GLib main loop in a background thread to handle asynchronous signals without blocking the main application.
+    Runs a GLib main loop in a background thread to handle asynchronous signals without blocking the main application
     """
 
 # In below code using same construct in multiple modules for singletons
@@ -187,7 +187,7 @@ class WifiEventListener:
     def _wifi_state_changed(self, new_state, _old_state, _reason):
         """
         Callback invoked on wifi device 'StateChanged' signal
-        new_state (int): The new device state.
+        new_state (int): The new device state
         _old_state (int): The previous device state (unused, underscore avoids pylint warning)
         _reason (int): Reason for state change (unused, underscore avoids pylint warning)
         """
@@ -263,17 +263,17 @@ class WifiEventListener:
 
 class WifiService():
     """
-    Handles WiFi state management and connectivity:
-    - Listens to USB messages for WiFi credentials and attempts connection
+    Handles wifi state management and connectivity:
+    - Listens to USB messages for wifi credentials and attempts connection
     - Tracks states: connected with internet, connected without internet, disconnected, acting as access point
-    - Sends messages on WiFi state changes
+    - Sends messages on wifi state changes
     """
     def __init__(self, queue):
         """
-        Initialize WiFi service and its dependencies
-        Start background processes/threads for USB and WiFi monitoring
-        Send initial WiFi state message
-        :param queue: multiprocessing.Queue for sending WiFi state messages
+        Initialize wifi service and its dependencies
+        Start background processes/threads for USB and wifi monitoring
+        Send initial wifi state message
+        :param queue: multiprocessing.Queue for sending wifi state messages
         """
         self.queue = queue
         usb_queue = Queue()
@@ -285,20 +285,20 @@ class WifiService():
         # USBService instance to send USB state updates to usb_queue
         self._usb_service = USBService(usb_queue)
 
-        # Start listening to NetworkManager WiFi state changes
+        # Start listening to NetworkManager wifi state changes
         self.nm_listener = WifiEventListener()
         self.nm_listener.start()
 
-        # Subscribe this service's queue to receive WiFi state updates
+        # Subscribe this service's queue to receive wifi state updates
         self.nm_listener.subscribe(self.queue)
 
-        # Send initial WiFi state and no-error message
+        # Send initial wifi state and no-error message
         self._send_message(MESSAGE_NO_ERROR)
 
     def _check_usb_messages(self, queue):
         """
         Background process to monitor USB messages from the queue
-        On USB present state, check for WiFi credentials on USB drive
+        On USB present state, check for wifi credentials on USB drive
         :param queue: Queue to receive USB messages
         """
         while True:
@@ -312,7 +312,7 @@ class WifiService():
 
     def _handle_usb_wifi_credentials(self):
         """
-        Check for WiFi credentials on USB drive
+        Check for wifi credentials on USB drive
         If found, validate and attempt to connect using those credentials
         """
         oradio_log.info("Checking %s for wifi credentials", USB_WIFI_FILE)
@@ -354,7 +354,7 @@ class WifiService():
 
     def _send_message(self, error):
         """
-        Send a WiFi state message with error info to the parent queue
+        Send a wifi state message with error info to the parent queue
         :param error: Error code or MESSAGE_NO_ERROR if no error
         """
         # Create message
@@ -369,7 +369,7 @@ class WifiService():
 
     def get_state(self):
         """
-        Retrieve the current WiFi connection state
+        Retrieve the current wifi connection state
         :return: One of the STATE_WIFI_* constants
         """
         # Get active wifi connection, if any
@@ -389,9 +389,9 @@ class WifiService():
 
     def wifi_connect(self, ssid, pswd):
         """
-        Add/modify WiFi network config and initiate connection in a background process
-        :param ssid: WiFi network SSID
-        :param pswd: WiFi network password (empty string for open networks)
+        Add/modify wifi network config and initiate connection in a background process
+        :param ssid: wifi network SSID
+        :param pswd: wifi network password (empty string for open networks)
         """
         # Get active wifi connection
         active = get_wifi_connection()
@@ -414,8 +414,8 @@ class WifiService():
 
     def _wifi_connect_process(self, network):
         """
-        Connect to the given WiFi network
-        :param network: SSID of the WiFi network to connect to
+        Connect to the given wifi network
+        :param network: SSID of the wifi network to connect to
         """
         # Connect to network
         if not _wifi_up(network):           # Function includes logging
@@ -426,7 +426,7 @@ class WifiService():
 
     def wifi_disconnect(self):
         """
-        Disconnect the active WiFi connection, if any
+        Disconnect the active wifi connection, if any
         """
         # Get active wifi connection, if any
         active = get_wifi_connection()
@@ -674,19 +674,27 @@ if __name__ == '__main__':
 # Most modules use similar code in stand-alone
 # pylint: disable=duplicate-code
 
+    # Imports only relevant when stand-alone
+    from multiprocessing import Event
+    from queue import Empty
+
     def _check_messages(queue):
         """
         Check if a new message is put into the queue
         If so, read the message from queue and display it
         :param queue = the queue to check for
         """
-        print(f"\n{GREEN}Listening for messages{NC}\n")
-
-        while True:
-            # Wait for message
-            message = queue.get(block=True, timeout=None)
-            # Show message received
-            print(f"\n{GREEN}Message received: '{message}'{NC}\n")
+        try:
+            while not stop_event.is_set():
+                try:
+                    # Wait for message with 1s timeout
+                    message = queue.get(block=True, timeout=0.5)
+                    # Show message received
+                    print(f"\n{GREEN}Message received: '{message}'{NC}\n")
+                except Empty:
+                    continue
+        except KeyboardInterrupt:
+            pass
 
     # Pylint PEP8 ignoring limit of max 12 branches and 50 statement is ok for test menu
     def interactive_menu(queue):    # pylint: disable=too-many-branches, too-many-statements
@@ -798,6 +806,7 @@ if __name__ == '__main__':
                     print(f"\n{YELLOW}Please input a valid number{NC}\n")
 
     # Initialize
+    stop_event = Event()
     message_queue = Queue()
 
     # Start  process to monitor the message queue
@@ -808,5 +817,5 @@ if __name__ == '__main__':
     interactive_menu(message_queue)
 
     # Stop listening to messages
-    if message_listener:
-        message_listener.terminate()
+    stop_event.set()
+    message_listener.join()
