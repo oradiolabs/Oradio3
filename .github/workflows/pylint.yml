@@ -23,7 +23,7 @@ jobs:
       run: |
         sudo apt-get update
         # volume
-        sudo apt-get install libasound2-dev -y
+        sudo apt-get install -y libasound2-dev python3-gi python3-dbus
 
     - name: Install Python dependencies
       run: |
