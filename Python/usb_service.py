@@ -51,26 +51,44 @@ USB_MONITOR = "usb_ready"   # Name of file used to monitor if USB is mounted or 
 TIMEOUT     = 10            # Seconds to wait
 
 class USBObserver:
-    """Custom singleton wrapper around Observer."""
+    """
+    Singleton wrapper around the watchdog Observer
+    Ensures that only one Observer instance exists application-wide,
+    providing thread-safe singleton creation
+    _lock (threading.Lock): Class-level lock for thread-safe singleton instantiation
+    _instance (USBObserver): Singleton instance of this class
+    _initialized (bool): Flag indicating whether __init__ has run
+    """
     _lock = Lock()       # Class-level lock to make singleton thread-safe
     _instance = None     # Holds the single instance of this class
     _initialized = False # Tracks whether __init__ has been run
 
     def __new__(cls, *args, **kwargs):
+        """
+        Create or return the singleton instance in a thread-safe manner
+        *args, **kwargs: Passed to the underlying Observer constructor (only used once)
+        Returns USBObserver: Singleton instance.
+        """
         with cls._lock:
             if cls._instance is None:
                 cls._instance = super().__new__(cls)
         return cls._instance
 
     def __init__(self, *args, **kwargs):
-        if not self._initialized:
+         """
+        Initialize the underlying Observer instance once
+        *args, **kwargs: Arguments forwarded to the Observer constructor
+        """
+       if not self._initialized:
             self._observer = Observer(*args, **kwargs)
             self._initialized = True
 
     def __getattr__(self, name):
         """
-        Automatically forward attribute/method lookups to the underlying Observer
-        This is only called if the attribute isn't found on USBObserver itself
+        Delegate attribute access to the underlying Observer instance
+        Called only if the attribute is not found on USBObserver itself
+        name (str): Attribute name to retrieve.
+        Returns: Attribute value from the Observer instance.
         """
         return getattr(self._observer, name)
 
@@ -78,8 +96,8 @@ class USBMonitor(PatternMatchingEventHandler):
     """
     Singleton that monitors USB mount/unmount events
     Subscribers can register two callbacks:
-      - on_insert(): called when a USB is detected
-      - on_remove(): called when a USB is removed
+     - on_insert(): called when a USB is detected
+     - on_remove(): called when a USB is removed
     """
     _lock = Lock()       # Class-level lock to make singleton thread-safe
     _instance = None     # Holds the single instance of this class
@@ -172,53 +190,71 @@ class USBMonitor(PatternMatchingEventHandler):
 
 class USBService:
     """
-    Singleton subclass of Observer
-    All USBService objects share the same observer thread
-    Send messages on USB drive present/absent state changes
+    USBService manages USB drive presence detection by subscribing
+    to USBMonitor events and sending state messages via a queue
+    Listens for USB mount/unmount events and notifies the registered queue
     """
     def __init__(self, queue):
-        """"Setup observer and send current state"""
-        # Get the shared observer
+        """
+        Sets up shared observer and monitor singletons, subscribes to USB events,
+        schedules monitoring path once globally, and sends initial USB state
+        - queue (queue.Queue): Queue to send USB state messages
+        """
+        # Get the shared observer singleton (handles event watching thread)
         self._observer = USBObserver()
 
-        # Get the shared monitor
+        # Get the shared USB monitor singleton (monitors USB mount/unmount)
         self._monitor = USBMonitor(patterns=[USB_MONITOR])
 
-        # Subscribe callbacks for this service
+        # Subscribe to USB insert/remove events with these callbacks
         self._monitor.subscribe(self._usb_inserted, self._usb_removed)
 
-        # Only schedule path once to avoid duplicates
+        # Schedule the monitor once only on the observer to avoid duplicate watching
         if not getattr(self._observer, "_usb_scheduled", False):
             self._observer.schedule(self._monitor, path=USB_MOUNT_PATH, recursive=False)
             self._observer._usb_scheduled = True
-            # Start the observer once globally
+
+            # Start the observer thread if not already running
             if not self._observer.is_alive():
                 self._observer.start()
 
-        # Register queue for sending messages
+        # Store queue for sending USB state messages asynchronously
         self._queue = queue
 
-        # Send initial state
+        # Send initial USB state message immediately on creation
         self._send_message()
 
     def close(self):
-        """Unsubscribe from USBMonitor"""
+        """
+        Clean up resources by unsubscribing callbacks from the USBMonitor
+        Should be called when USBService is no longer needed to prevent memory leaks
+        and stop receiving USB event notifications
+        """
         self._monitor.unsubscribe(self._usb_inserted, self._usb_removed)
 
     def _usb_inserted(self):
-        """Send state message USB drive inserted"""
+        """
+        Callback triggered when USB device is inserted
+        Logs the event and sends a USB inserted state message
+        """
         oradio_log.info("USB inserted")
         # send message
         self._send_message()
 
     def _usb_removed(self):
-        """Send state message USB drive removed"""
+        """
+        Callback triggered when USB device is removed
+        Logs the event and sends a USB removed state message
+        """
         oradio_log.info("USB removed")
         # send message
         self._send_message()
 
     def _send_message(self):
-        """Send USB service message"""
+        """
+        Compose and send the USB state message to the registered queue
+        The message contains the type, current USB state, and an error code
+        """
         # Create message
         message = {
             "type": MESSAGE_USB_TYPE,
@@ -230,7 +266,10 @@ class USBService:
         safe_put(self._queue, message)
 
     def get_state(self):
-        """Getter for USB state"""
+        """
+        Get the current USB mount state from the USBMonitor
+        Returns current USB state (e.g., inserted or removed)
+        """
         return self._monitor.get_state()
 
 # Entry point for stand-alone operation
