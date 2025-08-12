@@ -40,8 +40,7 @@ SOUND_FILES_DIR = os.path.realpath(ORADIO_DIR + "/../system_sounds")
 JSON_SCHEMAS_FILE = os.path.realpath(ORADIO_DIR + "/schemas.json")
 
 # Messages consist of 3 elements: type, state and error
-MESSAGE_UNKNOWN_STATE = "Unknown"
-MESSAGE_NO_ERROR      = "None"
+MESSAGE_NO_ERROR = "None"
 
 ################## LED GPIO PINS ##########################
 LEDS = {
