@@ -34,9 +34,10 @@ jobs:
       run: |
         python -m pip install --upgrade pip
         pip install pylint
-        pip install smbus2 rpi-lgpio concurrent_log_handler requests nmcli \
-                    vcgencmd watchdog python-mpd2 pyalsaaudio \
-                    pydantic fastapi JinJa2 uvicorn python-multipart
+        pip install smbus2 rpi-lgpio concurrent_log_handler requests \
+                    nmcli vcgencmd watchdog python-mpd2 pydantic \
+                    fastapi JinJa2 uvicorn python-multipart
+        pip install pyalsaaudio --use-pep517
 
     - name: Run pylint
       # Disable immediate exit on error
