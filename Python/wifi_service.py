@@ -109,7 +109,7 @@ class WifiEventListener:
 # In below code using same construct in multiple modules for singletons
 # pylint: disable=duplicate-code
 
-   _lock = Lock()       # Class-level lock to make singleton thread-safe
+    _lock = Lock()       # Class-level lock to make singleton thread-safe
     _instance = None     # Holds the single instance of this class
     _initialized = False # Tracks whether __init__ has been run
 
