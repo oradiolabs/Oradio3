@@ -101,6 +101,7 @@ PLAY_WEBSERVICE_STATES = {"StatePlay", "StatePreset1", "StatePreset2", "StatePre
 # REVIEW Henk: proposal is to improve the wifiservice.get_state() to give an immediate respond
 # on the state of Wifi. Then we do not need to Event/Signal primitives for Wifi
 # Or better would be that wifiservice send a message upon changes in the wifi state
+# Discuss with Onno how to improve this
 ##################################################################################################
 spotify_connect_connected = threading.Event()  # track status Spotify connected
 spotify_connect_playing = threading.Event()  # track Spotify playing
@@ -217,7 +218,8 @@ class StateMachine:
 #########################################################################################
 # REVIEW Henk 
 # This is one "big" transition function, with guarding functions, which is called for any transitions
-# The good practice is to have a guarding function for each of the transitions
+# The good practice is to have a guarding function for each of the transitions which makes it easier to
+# understand and maintain
 # E.G. So for a transition to StatePlay there should be a guarding function for this transition only
 ########################################################################################### 
     def transition(self, requested_state):
@@ -404,6 +406,7 @@ class StateMachine:
                 oradio_log.debug("In Idle state, wait for next step")
 ########################################################################
 # REVIEW Henk The StateError is not defined/used anywhere
+# so clean up this state
 ##########################################################################
             elif state_to_handle == "StateError":
                 leds.control_blinking_led("LEDStop", 2)
@@ -554,6 +557,7 @@ def on_webservice_playing_song():
 def on_webservice_pl1_changed():
     state_machine.transition("StateIdle")
     state_machine.transition("StatePreset1")
+    ## REVIEW Henk: no actions here, should be in run_state_method()
     threading.Timer(2, sound_player.play, args=("NewPlaylistPreset",)).start()
     oradio_log.debug("WebService on_webservice_pl1_changed acknowledged")
 
@@ -561,6 +565,7 @@ def on_webservice_pl1_changed():
 def on_webservice_pl2_changed():
     state_machine.transition("StateIdle")
     state_machine.transition("StatePreset2")
+    ## REVIEW Henk: no actions here, should be in run_state_method()    
     threading.Timer(2, sound_player.play, args=("NewPlaylistPreset",)).start()
     oradio_log.debug("WebService on_webservice_pl2_changed acknowledged")
 
@@ -568,6 +573,7 @@ def on_webservice_pl2_changed():
 def on_webservice_pl3_changed():
     state_machine.transition("StateIdle")
     state_machine.transition("StatePreset3")
+    ## REVIEW Henk: no actions here, should be in run_state_method()    
     threading.Timer(2, sound_player.play, args=("NewPlaylistPreset",)).start()
     oradio_log.debug("WebService on_webservice_pl3_changed acknowledged")
 
@@ -580,6 +586,11 @@ def on_webservice_pl_web_radio_changed():
 
 # -------------------SPOTIFY-----------------------
 
+## REVIEW Henk: will be later on, after requirements&Spec discussion
+# Recommendation is to no use the Event signaling. The spotify_connect module
+# is responsible to give the right state at any moment or send an message via queue
+# on a changed condition in spotify
+##################################################################
 
 def on_spotify_connect_connected():
     spotify_connect_connected.set()  # Signal that spotify_connected is active
@@ -695,6 +706,9 @@ def handle_message(message):
         oradio_log.warning("Unhandled message type: %s", message)
         return
 
+# REVIEW Henk
+# What is this statement doing? Please explain
+#############################################
     if handler := handlers.get(state):
         handler()
     else:
@@ -703,6 +717,10 @@ def handle_message(message):
         )
 
     if error and error != MESSAGE_NO_ERROR:
+        #############################################
+        # REVIEW Henk
+        # What is this statement doing? Please explain
+        #############################################
         if handler := handlers.get(error):
             handler()
         else:
@@ -949,7 +967,7 @@ _stress_count = 0 # pylint: disable=invalid-name
 _stress_count_lock = threading.Lock()
 
 ###########################################################################
-# REVIEW Henk These functionS are private function for the module test
+# REVIEW Henk These functions are private function for the module test
 # so put them in the main of module test
 # this will solve th pylint issue
 ################################################################################
