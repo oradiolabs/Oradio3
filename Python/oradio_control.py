@@ -49,6 +49,7 @@ from remote_monitoring import RmsService
 from spotify_connect_direct import SpotifyConnect
 from usb_service import USBService
 from web_service import WebService
+#OMJ: Zie regel 707-714
 from wifi_service import WifiService
 
 ##### GLOBAL constants ####################
@@ -703,9 +704,9 @@ volume_control = VolumeControl(shared_queue)
 # #Initialize the web_service
 oradio_web_service = WebService(shared_queue)
 
-# #Initialize the wifi_service
-#OMJ: Wordt alleen gebruikt voor de wifi monitor.
+#OMJ: Wifi service wordt alleen gebruikt voor de wifi monitor
 #     web service geeft de wifi messages door.
+#Initialize the wifi_service
 #oradio_wifi_service = WifiService(shared_queue)
 
 # Start background polling (every 5 seconds) of the Wi-Fi service state.
