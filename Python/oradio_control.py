@@ -700,14 +700,17 @@ touch_buttons = TouchButtons(state_machine)
 # Initialize the volume_control, works stand alone, getting messages via the shared_queue
 volume_control = VolumeControl(shared_queue)
 
-# #Initialize the wifi_service
-oradio_wifi_service = WifiService(shared_queue)
-#
 # #Initialize the web_service
 oradio_web_service = WebService(shared_queue)
 
+# #Initialize the wifi_service
+#OMJ: Wordt alleen gebruikt voor de wifi monitor.
+#     web service geeft de wifi messages door.
+#oradio_wifi_service = WifiService(shared_queue)
+
 # Start background polling (every 5 seconds) of the Wi-Fi service state.
-start_wifi_monitor()
+#OMJ: Overbodig, want wifi service stuur messages
+#start_wifi_monitor()
 
 # inject the services into the Statemachine
 state_machine.set_services(oradio_web_service)
