@@ -63,6 +63,7 @@ STATE_WIFI_ACCESS_POINT = "Wifi configured as access point"
 # wifi messages
 #OMJ: 'Type' is eigenlijk 'source'
 MESSAGE_WIFI_TYPE            = "Wifi message"
+MESSAGE_WIFI_FILE_ERROR      = "File format error"
 MESSAGE_WIFI_FAIL_CONFIG     = "Failed to save credentials in NetworkManager"
 MESSAGE_WIFI_FAIL_START_AP   = "Failed to start access point"
 MESSAGE_WIFI_FAIL_CONNECT    = "Wifi failed to connect"
@@ -84,7 +85,6 @@ MESSAGE_WEB_SERVICE_PL2_CHANGED  = "PL2 playlist changed"
 MESSAGE_WEB_SERVICE_PL3_CHANGED  = "PL3 playlist changed"
 MESSAGE_WEB_SERVICE_PL_WEBRADIO  = "playlist is web radio"
 MESSAGE_WEB_SERVICE_PLAYING_SONG = "web service plays a song"
-MESSAGE_WEB_SERVICE_STOP         = "stop the web server"
 MESSAGE_WEB_SERVICE_FAIL_START   = "web service failed to start"
 MESSAGE_WEB_SERVICE_FAIL_STOP    = "web service failed to stop"
 
@@ -99,8 +99,7 @@ STATE_USB_PRESENT = "USB drive present"
 STATE_USB_ABSENT  = "USB drive absent"
 # USB messages
 #OMJ: 'Type' is eigenlijk 'source'
-MESSAGE_USB_TYPE       = "USB message"
-MESSAGE_USB_ERROR_FILE = "USB file format error"
+MESSAGE_USB_TYPE = "USB message"
 
 ################## AUDIO #############################
 #OMJ: the constant is named path, but points to a file?

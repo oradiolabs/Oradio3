@@ -49,7 +49,8 @@ from remote_monitoring import RmsService
 from spotify_connect_direct import SpotifyConnect
 from usb_service import USBService
 from web_service import WebService
-from wifi_service import WifiService
+#OMJ: Zie regel 711-718
+#from wifi_service import WifiService
 
 ##### GLOBAL constants ####################
 #from oradio_const import *
@@ -641,6 +642,8 @@ def sync_usb_presence_from_service():
     else:
         oradio_log.warning("Unexpected USB service state: %r", state)
 
+# pylint: disable=pointless-string-statement
+'''
 #------------Monitor Internet, if still a connection has been made-----------------
 def start_wifi_monitor(interval: float = 5.0):
     """
@@ -678,6 +681,8 @@ def start_wifi_monitor(interval: float = 5.0):
         daemon=True,
         name="WiFiInternetMonitor",
     ).start()
+'''
+# pylint: enable=pointless-string-statement
 
 # ------------------Start-up - instantiate and define other modules ---------------
 
@@ -700,14 +705,17 @@ touch_buttons = TouchButtons(state_machine)
 # Initialize the volume_control, works stand alone, getting messages via the shared_queue
 volume_control = VolumeControl(shared_queue)
 
-# #Initialize the wifi_service
-oradio_wifi_service = WifiService(shared_queue)
-#
 # #Initialize the web_service
 oradio_web_service = WebService(shared_queue)
 
+#OMJ: Wifi service wordt alleen gebruikt voor de wifi monitor
+#     web service geeft de wifi messages door.
+#Initialize the wifi_service
+#oradio_wifi_service = WifiService(shared_queue)
+
 # Start background polling (every 5 seconds) of the Wi-Fi service state.
-start_wifi_monitor()
+#OMJ: Overbodig, want wifi state change messages komen vna wifi service, doorgegeven door web service --> Zie 
+#start_wifi_monitor()
 
 # inject the services into the Statemachine
 state_machine.set_services(oradio_web_service)

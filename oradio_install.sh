@@ -177,7 +177,9 @@ if [ "$1" != "--continue" ]; then
 	LINUX_PACKAGES=(
 		git
 		jq
+		python3-gi
 		python3-dev
+		python3-dbus
 		libasound2-dev
 		libasound2-plugin-equal
 		mpd
@@ -219,8 +221,8 @@ if [ "$1" != "--continue" ]; then
 
 	# Configure Python virtual environment
 	if [ ! -d ~/.venv ]; then
-		# Prepare python virtual environment
-		python3 -m venv ~/.venv
+		# Prepare python virtual environment including system site packages
+		python3 -m venv --system-site-packages ~/.venv
 
 		# Activate the python virtual environment in current environment
 		source ~/.venv/bin/activate

@@ -6,52 +6,44 @@ on:
   workflow_dispatch:
 
 jobs:
-  build:
+  lint:
     runs-on: ubuntu-latest
-    strategy:
-      matrix:
-        python-version: ["3.11"]
+
     steps:
     - uses: actions/checkout@v4
-
-    - name: Set up Python ${{ matrix.python-version }}
-      uses: actions/setup-python@v4
-      with:
-        python-version: ${{ matrix.python-version }}
 
     - name: Install system dependencies
       run: |
         sudo apt-get update
-        # volume
-        sudo apt-get install libasound2-dev -y
+        sudo apt-get install -y libasound2-dev python3-dbus python3-gi
 
-    - name: Install Python dependencies
+    - name: Create venv with system packages
+      run: |
+        python3 -m venv --system-site-packages ~/.venv
+        source ~/.venv/bin/activate
+        python -m pip install --upgrade pip
+        pip install pylint smbus2 rpi-lgpio concurrent_log_handler \
+                    requests nmcli vcgencmd watchdog python-mpd2 \
+                    pydantic fastapi JinJa2 uvicorn python-multipart
+        pip install pyalsaaudio --use-pep517
+
+    - name: Install Python dependencies for linting
       run: |
         python -m pip install --upgrade pip
         pip install pylint
-        # backlighting
-        pip install smbus2 rpi-lgpio
-        # logging
-        pip install concurrent_log_handler requests
-        # network
-        pip install nmcli
-        # utils
-        pip install vcgencmd
-        # usb_service
-        pip install watchdog
-        # audio
-        pip install python-mpd2
+        pip install smbus2 rpi-lgpio concurrent_log_handler requests \
+                    nmcli vcgencmd watchdog python-mpd2 pydantic \
+                    fastapi JinJa2 uvicorn python-multipart
         pip install pyalsaaudio --use-pep517
-        # web_service
-        pip install pydantic fastapi JinJa2 uvicorn python-multipart
 
-    - name: Analysing the code with pylint
+    - name: Run pylint inside venv
       # Disable immediate exit on error
       # Use .pylintrc 
       # Prevent MPDClient no-member errors, as they are false positives
       # Fail on fatal(1) + error(2) + warning(4) + usage(32), continue on refactor(8) and convention(16)
       run: |
         set +e     
+        source ~/.venv/bin/activate
         pylint $(git ls-files '*.py') \
         --rcfile=.github/workflows/.pylintrc \
         --generated-members=self.client,mpd.client \

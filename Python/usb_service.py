@@ -9,12 +9,12 @@
   ####   #    #  #    #  #####      #     ####
 
 
-Created on Januari 17, 2025
+Created on January 17, 2025
 @author:        Henk Stevens & Olaf Mastenbroek & Onno Janssen
 @copyright:     Copyright 2024, Oradio Stichting
 @license:       GNU General Public License (GPL)
 @organization:  Oradio Stichting
-@version:       1
+@version:       2
 @email:         oradioinfo@stichtingoradio.nl
 @status:        Development
 @summary: Class for USB detect, insert, and remove services
@@ -27,274 +27,266 @@ Created on Januari 17, 2025
         https://pypi.org/project/watchdog/
 """
 import os
-import json
-from threading import Thread, Event, Lock
-from multiprocessing import Process, Queue, queues
+from threading import Lock, RLock
 from watchdog.observers import Observer
 from watchdog.events import PatternMatchingEventHandler
 
 ##### oradio modules ####################
 from oradio_logging import oradio_log
-from wifi_service import WifiService
+from oradio_utils import safe_put, run_shell_script
 
 ##### GLOBAL constants ####################
 from oradio_const import (
-    GREEN, YELLOW, NC,
+    RED, GREEN, YELLOW, NC,
     USB_MOUNT_PATH,
     USB_MOUNT_POINT,
     MESSAGE_USB_TYPE,
     STATE_USB_PRESENT,
     STATE_USB_ABSENT,
     MESSAGE_NO_ERROR,
-    MESSAGE_USB_ERROR_FILE
 )
 
 ##### LOCAL constants ####################
-USB_MONITOR   = "usb_ready"                             # Name of file used to monitor if USB is mounted or not
-USB_WIFI_FILE = USB_MOUNT_POINT + "/wifi_invoer.json"   # File name in USB root with wifi credentials
-TIMEOUT       = 10                                      # Seconds to wait
+USB_MONITOR = "usb_ready"   # Name of file used to monitor if USB is mounted or not
+TIMEOUT     = 10            # Seconds to wait
 
-# MONITOR is used to signal mounting/unmounting is complete
+class USBObserver:
+    """
+    Singleton wrapper around the watchdog Observer
+    Ensures that only one Observer instance exists application-wide,
+    providing thread-safe singleton creation
+    _lock (threading.Lock): Class-level lock for thread-safe singleton instantiation
+    _instance (USBObserver): Singleton instance of this class
+    _initialized (bool): Flag indicating whether __init__ has run
+    """
+
+# In below code using same construct in multiple modules for singletons
+# pylint: disable=duplicate-code
+
+    _lock = Lock()       # Class-level lock to make singleton thread-safe
+    _instance = None     # Holds the single instance of this class
+    _initialized = False # Tracks whether __init__ has been run
+
+    def __new__(cls, *args, **kwargs):
+        """
+        Create or return the singleton instance in a thread-safe manner
+        *args, **kwargs: Passed to the underlying Observer constructor (only used once)
+        Returns USBObserver: Singleton instance
+        """
+        with cls._lock:
+            if cls._instance is None:
+                cls._instance = super().__new__(cls)
+        return cls._instance
+
+    def __init__(self, *args, **kwargs):
+        """
+        Initialize the underlying Observer instance once
+        *args, **kwargs: Arguments forwarded to the Observer constructor
+        """
+        # Prevent re-initialization if the singleton is created again
+        if self._initialized:
+            return  # Avoid re-initialization if already done
+        self._initialized = True
+
+        # Initialize parent/underlying instance
+        self._observer = Observer(*args, **kwargs)
+
+# In above code using same construct in multiple modules for singletons
+# pylint: enable=duplicate-code
+
+    def __getattr__(self, name):
+        """
+        Delegate attribute access to the underlying Observer instance
+        Called only if the attribute is not found on USBObserver itself
+        name (str): Attribute name to retrieve
+        Returns: Attribute value from the Observer instance
+        """
+        return getattr(self._observer, name)
+
 class USBMonitor(PatternMatchingEventHandler):
     """
-    Monitor changes to USB mount point
-    Calls inserted/removed functions
+    Singleton that monitors USB mount/unmount events
+    Subscribers can register two callbacks:
+     - on_insert(): called when a USB is detected
+     - on_remove(): called when a USB is removed
     """
-    def __init__(self, service, *args, **kwargs):
-        super().__init__(*args, **kwargs)
-        self.service = service
+    _lock = Lock()       # Class-level lock to make singleton thread-safe
+    _instance = None     # Holds the single instance of this class
+    _initialized = False # Tracks whether __init__ has been run
 
-    def on_created(self, event): # when file is created
-        # do something, eg. call your function to process the image
-        oradio_log.info("Mount point %s created", event.src_path)
-        self.service._usb_inserted()    # pylint: disable=protected-access
-
-    def on_deleted(self, event): # when file is deleted
-        # do something, eg. call your function to process the image
-        oradio_log.info("Mount point %s deleted", event.src_path)
-        self.service._usb_removed()    # pylint: disable=protected-access
-
-class USBServiceMessageHandler:
-    """Class to manage message handler running in a thread"""
-
-    def __init__(self, rx_queue, tx_queue, label=""):
-        """Class constructor: Store parameters and initialise message handler thread"""
-        self.started_event = Event()
-        self.stop_event = Event()
-        self.message_listener = Thread(
-            target=self._check_messages,
-            args=(
-                self.started_event,
-                self.stop_event,
-                rx_queue,
-                tx_queue,
-            )
-        )
-        # Register identifier for multiple instances
-        self.label = label
-
-    def start(self):
-        """Start the message handler"""
-        self.message_listener.start()
-        self.started_event.wait()
-
-    def stop(self):
-        """Stop the message handler"""
-        self.stop_event.set()  # Signal the thread to stop
-        self.message_listener.join(timeout=TIMEOUT)  # Wait for it to exit or timeout
-
-    def _check_messages(self, started_event, stop_event, rx_q, tx_q):
+    def __new__(cls, *args, **kwargs):
         """
-        Check if a new message is put into the queue
-        If so, read the message from queue, display it, and forward it
-        :param queue = the queue to check for
+        Create or return the singleton instance
+        Uses a class-level lock to ensure thread safety during creation
         """
-        # Notify the thread is running
-        started_event.set()
-        oradio_log.debug("%sListening for messages", self.label)
-        while not stop_event.is_set():
-            try:
-                # Wait for message. Use timeout to allow checking stop_event
-                message = rx_q.get(block=True, timeout=1)
-                oradio_log.debug("%sReceived: %s", self.label, message)
-#OMJ: This is the place to parse the incoming message before sending a message to control
-                if tx_q:
-                    # Put message in queue
-                    oradio_log.debug("%sForwarding: %s", self.label, message)
-                    tx_q.put(message)
-            except queues.Empty:
-                # Timeout occurred, loop again to check stop_event
-                continue
+        with cls._lock:
+            if cls._instance is None:
+                cls._instance = super().__new__(cls)
+        return cls._instance
 
-class USBService():
-    """
-    States and functions related to USB drive handling
-    - States: Present/absent, label, wifi credentials from USB_WIFI_FILE in USB root
-    - Functions: Determine USB drive presence, get USB drive label, handle USB drive insertion/removal
-    Send messages on state changes
-    """
-
-    def __init__(self, queue):
-        """"
-        Class constructor: Setup the class
+    def __init__(self, **kwargs):
         """
-        # Register queue for sending message to controller
-        self.tx_queue = queue
+        Initialize the singleton (only once)
+        Sets up:
+        - Subscriber list
+        - Initial USB mount state
+        """
+        if getattr(self, "_initialized", False):
+            return  # Already initialized
 
-        # Initialize queue for receiving messeages
-        self.rx_queue = Queue()
+        # Initialize parent event handler
+        super().__init__(**kwargs)
 
-        # Create message handler
-        self.message_handler = USBServiceMessageHandler(self.rx_queue, self.tx_queue, "USBService: ")
-        self.message_handler.start() # Returns after thread has entered its target function
+        # Lock for subscriber operations
+        self._sub_lock = RLock()
 
-        # For thread-safe state read/write
-        self.state = None
-        self._state_lock = Lock()
+        # List of subscriber tuples: (on_insert, on_remove)
+        self._subscribers = []
 
-        # Check if USB is mounted
+        # Set initial USB mount state - singleton: read/write is thread-safe
         if os.path.ismount(USB_MOUNT_POINT):
-            # Set USB state
-            self.set_state(STATE_USB_PRESENT)
-            # Handle wifi credentials
-            error = self._handle_usb_wifi_credentials()
+            self._state = STATE_USB_PRESENT
         else:
-            # Set USB state
-            self.set_state(STATE_USB_ABSENT)
-            error = MESSAGE_NO_ERROR
+            self._state = STATE_USB_ABSENT
 
-        # Set observer to handle USB inserted/removed events
-        self.observer = Observer()
-        event_handler = USBMonitor(self, patterns=[USB_MONITOR])
-        self.observer.schedule(event_handler, path = USB_MOUNT_PATH, recursive=False)
-        self.observer.start()
-        print(f"Observer for directory '{USB_MOUNT_POINT}' started")
+        # Flag to stop initializing more than once
+        self._initialized = True
 
-        # Send initial state and error message
-        self._send_message(error)
-
-    def _send_message(self, error):
+    def get_state(self):
         """
-        Private function
-        Send USB service message
-        :param error: Error message or code to include in the message
+        Return the current USB state
+        :return: STATE_USB_PRESENT or STATE_USB_ABSENT
+        """
+        return self._state
+
+    def subscribe(self, on_insert, on_remove):
+        """
+        Register subscriber callbacks
+        Thread-safe: may be called from multiple threads
+        """
+        with self._sub_lock:
+            self._subscribers.append((on_insert, on_remove))
+
+    def unsubscribe(self, on_insert, on_remove):
+        """
+        Remove subscriber callbacks
+        Thread-safe: may be called from multiple threads
+        """
+        with self._sub_lock:
+            self._subscribers.remove((on_insert, on_remove))
+
+    def on_created(self, event):
+        """
+        Watchdog callback: called when the USB mount point is created
+        Updates state and triggers all on_insert callbacks
+        """
+        oradio_log.debug("Mount point %s created", event.src_path)
+        # set state to PRESENT
+        self._state = STATE_USB_PRESENT
+        # Trigger insert callback for each subscriber
+        for on_insert, _ in self._subscribers:
+            on_insert()
+
+    def on_deleted(self, event):
+        """
+        Watchdog callback: called when the USB mount point is removed
+        Updates state and triggers all on_remove callbacks
+        """
+        oradio_log.debug("Mount point %s deleted", event.src_path)
+        # set state to ABSENT
+        self._state = STATE_USB_ABSENT
+        # Trigger remove callback for each subscriber
+        for _, on_remove in self._subscribers:
+            on_remove()
+
+class USBService:
+    """
+    USBService manages USB drive presence detection by subscribing
+    to USBMonitor events and sending state messages via a queue
+    Listens for USB mount/unmount events and notifies the registered queue
+    """
+    def __init__(self, queue):
+        """
+        Sets up shared observer and monitor singletons, subscribes to USB events,
+        schedules monitoring path once globally, and sends initial USB state
+        - queue (queue.Queue): Queue to send USB state messages
+        """
+        # Get the shared observer singleton (handles event watching thread)
+        self._observer = USBObserver()
+
+        # Get the shared USB monitor singleton (monitors USB mount/unmount)
+        self._monitor = USBMonitor(patterns=[USB_MONITOR])
+
+        # Subscribe to USB insert/remove events with these callbacks
+        self._monitor.subscribe(self._usb_inserted, self._usb_removed)
+
+        # Schedule the monitor once only on the observer to avoid duplicate watching
+        if not getattr(self._observer, "_usb_scheduled", False):
+            self._observer.schedule(self._monitor, path=USB_MOUNT_PATH, recursive=False)
+            self._observer._usb_scheduled = True
+
+            # Start the observer thread if not already running
+            if not self._observer.is_alive():
+                self._observer.start()
+
+        # Store queue for sending USB state messages asynchronously
+        self._queue = queue
+
+        # Send initial USB state message immediately on creation
+        self._send_message()
+
+    def _usb_inserted(self):
+        """
+        Callback triggered when USB device is inserted
+        Logs the event and sends a USB inserted state message
+        """
+        oradio_log.info("USB inserted")
+        # send message
+        self._send_message()
+
+    def _usb_removed(self):
+        """
+        Callback triggered when USB device is removed
+        Logs the event and sends a USB removed state message
+        """
+        oradio_log.info("USB removed")
+        # send message
+        self._send_message()
+
+    def _send_message(self):
+        """
+        Compose and send the USB state message to the registered queue
+        The message contains the type, current USB state, and an error code
         """
         # Create message
         message = {
             "type": MESSAGE_USB_TYPE,
             "state": self.get_state(),
-            "error": error
+            "error": MESSAGE_NO_ERROR
         }
-
         # Put message in queue
         oradio_log.debug("Send USB service message: %s", message)
-        self.tx_queue.put(message)
+        safe_put(self._queue, message)
 
     def get_state(self):
-        """Thread-safe getter for USB state"""
-        with self._state_lock:
-            return self.state
-
-    def set_state(self, new_state):
-        """Thread-safe setter for USB state"""
-        with self._state_lock:
-            self.state = new_state
-
-    def _handle_usb_wifi_credentials(self):
         """
-        Check if wifi credentials are available on the USB drive root folder
-        If exists, then try to connect using the wifi credentials from the file
+        Get the current USB mount state from the USBMonitor
+        Returns current USB state (e.g., inserted or removed)
         """
-        # If USB is present look for and parse USB_WIFI_FILE
-        if self.get_state() == STATE_USB_PRESENT:
-            oradio_log.info("Checking for %s", USB_WIFI_FILE)
+        return self._monitor.get_state()
 
-            # Check if wifi credentials file exists in USB drive root
-            if not os.path.isfile(USB_WIFI_FILE):
-                oradio_log.debug("'%s' not found", USB_WIFI_FILE)
-                return MESSAGE_NO_ERROR
-
-            # Read and parse JSON file
-            with open(USB_WIFI_FILE, "r", encoding="utf-8") as file:
-                try:
-                    # Get JSON object as a dictionary
-                    data = json.load(file)
-                except json.JSONDecodeError:
-                    oradio_log.error("Error parsing '%s'", USB_WIFI_FILE)
-                    return MESSAGE_USB_ERROR_FILE
-
-            # Check if the SSID and PASSWORD keys are present
-            if data and 'SSID' in data.keys() and 'PASSWORD' in data.keys():
-                ssid = data['SSID']
-                pswd = data['PASSWORD']
-            else:
-                oradio_log.error("SSID and/or PASSWORD not found in '%s'", USB_WIFI_FILE)
-                return MESSAGE_USB_ERROR_FILE
-
-            # Test if ssid is empty or >= 8 characters
-            if 0 < len(pswd) < 8:
-                oradio_log.error("Password must be empty for open network or at least 8 characters for secured network")
-                return MESSAGE_USB_ERROR_FILE
-
-            # Log wifi credentials found
-            oradio_log.info("USB wifi credentials found: ssid=%s", ssid)
-
-            # Connect to the wifi network
-            WifiService(self.rx_queue).wifi_connect(ssid, pswd)
-
+    def close(self):
+        """
+        Clean up resources by unsubscribing callbacks from the USBMonitor
+        Should be called when USBService is no longer needed to prevent memory leaks
+        and stop receiving USB event notifications
+        """
+        try:
+            self._monitor.unsubscribe(self._usb_inserted, self._usb_removed)
+        except ValueError:
+            oradio_log.debug("Was already unsubscribed from USB service")
         else:
-            # USB is absent
-            oradio_log.info("USB state '%s': Ignore '%s'", self.get_state(), USB_WIFI_FILE)
-
-        # No issues found
-        return MESSAGE_NO_ERROR
-
-    def _usb_inserted(self):
-        """
-        Register USB drive inserted, check USB label, handle any wifi credentials
-        Send state message
-        """
-        oradio_log.info("USB inserted")
-
-        # Set USB state
-        self.set_state(STATE_USB_PRESENT)
-
-        # Get wifi credentials
-        error = self._handle_usb_wifi_credentials()
-
-        # send message
-        self._send_message(error)
-
-    def _usb_removed(self):
-        """
-        Register USB drive removed
-        Send state message
-        """
-        oradio_log.info("USB removed")
-
-        # Set state and clear info
-        self.set_state(STATE_USB_ABSENT)
-
-        # send message
-        self._send_message(MESSAGE_NO_ERROR)
-
-    def stop(self):
-        """
-        Stop the monitor daemon
-        Stop the message handler
-        """
-        # Only stop if active
-        if self.observer:
-            self.observer.stop()
-            self.observer.join(timeout=TIMEOUT)
-        else:
-            oradio_log.warning("USB service already stopped")
-
-        # Stop web service message handler
-        self.message_handler.stop()
-
-        # Log status
-        oradio_log.info("USB service stopped")
+            oradio_log.info("Stopped listening to USB events")
 
 # Entry point for stand-alone operation
 if __name__ == '__main__':
@@ -302,94 +294,93 @@ if __name__ == '__main__':
 # Most modules use similar code in stand-alone
 # pylint: disable=duplicate-code
 
-    def check_messages(queue):
+    # Imports only relevant when stand-alone
+    from multiprocessing import Process, Queue
+
+    def _check_messages(queue):
         """
         Check if a new message is put into the queue
         If so, read the message from queue and display it
         :param queue = the queue to check for
         """
-        print("\nMain: Listening for messages")
-
         while True:
-            # Wait for message
+            # Wait indefinitely until a message arrives from the server/wifi service
             message = queue.get(block=True, timeout=None)
             # Show message received
-            print(f"{GREEN}Main: Message received: '{message}'{NC}\n")
+            print(f"\n{GREEN}Message received: '{message}'{NC}\n")
+
+    def interactive_menu(queue):
+        """Show menu with test options"""
+        # Initialize: no services registered
+        usb_services = []
+
+        # Show menu with test options
+        input_selection = (
+            "Select a function, input the number:\n"
+            " 0-quit\n"
+            " 1-Add USBService instance\n"
+            " 2-Remove USBService instance\n"
+            " 3-Simulate USB inserted\n"
+            " 4-Simulate USB removed\n"
+            " 5-Get USB state\n"
+            "select: "
+        )
+
+        # User command loop
+        while True:
+            # Get user input
+            try:
+                function_nr = int(input(input_selection))
+            except ValueError:
+                function_nr = -1
+            # Execute selected function
+            match function_nr:
+                case 0:
+                    print("\nExiting test program...\n")
+                    # Close each USB service instance
+                    for usb_service in usb_services:
+                        usb_service.close()
+                    break
+                case 1:
+                    print("\nAdd USBService to list\n")
+                    usb_services.append(USBService(queue))
+                    print(f"\nList has {len(usb_services)} instances\n")
+                case 2:
+                    print("\nDelete USBService from list\n")
+                    if usb_services:
+                        usb_services.pop().close()
+                        print(f"List has {len(usb_services)} instances\n")
+                    else:
+                        print(f"{YELLOW}List has no USBService instances{NC}\n")
+                case 3:
+                    print("\nSimulate 'USB inserted' event...\n")
+                    # Need to use subprocess because monitor is owned by root
+                    cmd = f"sudo touch {USB_MOUNT_PATH}/{USB_MONITOR}"
+                    result, response = run_shell_script(cmd)
+                    if not result:
+                        print(f"{RED}Error during <%s> to create monitor, error: %s", cmd, response)
+                case 4:
+                    print("\nSimulate 'USB removed' event...\n")
+                    # Need to use subprocess because monitor is owned by root
+                    cmd = f"sudo rm -f {USB_MOUNT_PATH}/{USB_MONITOR}"
+                    result, response = run_shell_script(cmd)
+                    if not result:
+                        print(f"{RED}Error during <%s> to remove monitor, error: %s", cmd, response)
+                case 5:
+                    # As USBMonitor is a singleton we can use it direct
+                    print(f"\nUSB state: {USBMonitor().get_state()}\n")
+                case _:
+                    print(f"\n{YELLOW}Please input a valid number{NC}\n")
 
     # Initialize
     message_queue = Queue()
-    monitor = None  # pylint: disable=invalid-name
 
     # Start  process to monitor the message queue
-    message_listener = Process(target=check_messages, args=(message_queue,))
+    message_listener = Process(target=_check_messages, args=(message_queue,))
     message_listener.start()
 
-    # Show menu with test options
-    INPUT_SELECTION = ("Select a function, input the number.\n"
-                       " 0-quit\n"
-                       " 1-Start USB service\n"
-                       " 2-Trigger USB inserted\n"
-                       " 3-Trigger USB removed\n"
-                       " 4-Get USB state\n"
-                       " 5-Get USB wifi credentials\n"
-                       " 6-stop USB service\n"
-                       "select: "
-                       )
-
-    # User command loop
-    while True:
-
-        # Get user input
-        try:
-            function_nr = int(input(INPUT_SELECTION))  # pylint: disable=invalid-name
-        except ValueError:
-            function_nr = -1  # pylint: disable=invalid-name
-
-        # Execute selected function
-        match function_nr:
-            case 0:
-                print("\nExiting test program...\n")
-                if monitor:
-                    monitor.stop()
-                break
-            case 1:
-                if not monitor:
-                    print("\nStarting the USB service...\n")
-                    monitor = USBService(message_queue)
-                else:
-                    print("\nUSB service already running\n")
-            case 2:
-                if monitor:
-                    print("\nSimulate 'USB inserted' event...\n")
-                    monitor._usb_inserted()     # pylint: disable=protected-access
-                else:
-                    print("\nUSB service not running\n")
-            case 3:
-                if monitor:
-                    print("\nSimulate 'USB removed' event...\n")
-                    monitor._usb_removed()      # pylint: disable=protected-access
-                else:
-                    print("\nUSB service not running\n")
-            case 4:
-                if monitor:
-                    print(f"\nUSB state: {monitor.get_state()}\n")
-                else:
-                    print("\nUSB service not running\n")
-            case 5:
-                if monitor:
-                    print("\nGet USB wifi credentials...\n")
-                    monitor._handle_usb_wifi_credentials()      # pylint: disable=protected-access
-                else:
-                    print("\nUSB service not running\n")
-            case 6:
-                if monitor:
-                    print("\nStopping the USB service...\n")
-                    monitor.stop()
-                else:
-                    print("\nUSB service not running\n")
-            case _:
-                print(f"\n{YELLOW}Please input a valid number{NC}\n")
+    # Present menu with tests
+    interactive_menu(message_queue)
 
     # Stop listening to messages
-    if message_listener:
-        message_listener.kill()
+    message_listener.terminate()

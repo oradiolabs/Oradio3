@@ -34,9 +34,10 @@ from pydantic import BaseModel, create_model
 
 ##### GLOBAL constants ####################
 from oradio_const import (
+    YELLOW, NC,
     JSON_SCHEMAS_FILE,
+    MODEL_NAME_FOUND,
     MODEL_NAME_NOT_FOUND,
-    MODEL_NAME_FOUND
 )
 
 # We cannot use from oradio_logging import oradio_log as this creates a circular import
@@ -45,26 +46,56 @@ oradio_log = logging.getLogger("oradio")
 
 ##### LOCAL constants ####################
 
+def safe_put(queue, item, block=True, timeout=None):
+    """
+    Safely put an item into a multiprocessing.Queue.
+
+    Args:
+        queue (multiprocessing.Queue): The queue.
+        item: The object to put.
+        block (bool): Whether to block if the queue is full.
+        timeout (float|None): Timeout for blocking put.
+
+    Returns:
+        bool: True if the item was put successfully, False otherwise.
+    """
+    try:
+        queue.put(item, block=block, timeout=timeout)
+        return True
+
+    except queue.Full:
+        oradio_log.warning("Queue is full — dropping item: %r", item)
+        return False
+
+    except (OSError, EOFError, ValueError) as ex_err:
+        # Queue closed or broken
+        oradio_log.error("Queue is closed/broken — failed to put item: %r (%s)", item, ex_err)
+        return False
+
+    except AssertionError as ex_err:
+        # Rare internal queue corruption
+        oradio_log.critical("Queue internal error: %s", ex_err, exc_info=True)
+        return False
+
 def is_service_active(service_name):
     """
     Check if systemd service is running
     :param service_name: Name of the service
-    :return: True if service is active, /False otherwise
+    :return: True if service is active, False otherwise
     """
     try:
         # Run systemctl is-active command
         result = subprocess.run(
-            ["sudo","systemctl", "is-active", service_name],
+            ["sudo", "systemctl", "is-active", service_name],
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
             text=True,
             check=False
         )
         return result.stdout.strip() == "active"
-    except Exception as ex_err: # pylint: disable=broad-exception-caught
+    except (FileNotFoundError, PermissionError, subprocess.SubprocessError, OSError) as ex_err:
         oradio_log.error("Error checking %s service, error-status=: %s", service_name, ex_err)
         return False
-
 
 def json_schema_to_pydantic(name: str, schema: dict[str,Any]) -> BaseModel:
     """
@@ -149,35 +180,48 @@ if __name__ == '__main__':
 # Most modules use similar code in stand-alone
 # pylint: disable=duplicate-code
 
-    # Show menu with test options
-    INPUT_SELECTION = ("Select a function, input the number.\n"
-                       " 0-quit\n"
-                       " 1-Show internet connection status\n"
-                       " 2-Run shell script('ls')\n"
-                       " 3-Run shell script('xxx')\n"
-                       "select: "
-                       )
+    def interactive_menu():
+        """Show menu with test options"""
 
-    # User command loop
-    while True:
-        # Get user input
-        try:
-            FunctionNr = int(input(INPUT_SELECTION)) # pylint: disable=invalid-name
-        except ValueError:
-            FunctionNr = -1 # pylint: disable=invalid-name
+        # Show menu with test options
+        input_selection = (
+            "Select a function, input the number.\n"
+            " 0-quit\n"
+            " 1-Show internet connection status\n"
+            " 2-Run shell script('ls')\n"
+            " 3-Run shell script('xxx')\n"
+            "select: "
+        )
 
-        # Execute selected function
-        match FunctionNr:
-            case 0:
-                print("\nExiting test program...\n")
-                break
-            case 1:
-                print(f"\nConnected to internet: {check_internet_connection()}\n")
-            case 2:
-                response, output = run_shell_script("ls")
-                print(f"\nExpect ok: response={response}, output={output}")
-            case 3:
-                response, error = run_shell_script("xxx")
-                print(f"\nExpect fail: response={response}, error={error}")
-            case _:
-                print("\nPlease input a valid number\n")
+        # User command loop
+        while True:
+            # Get user input
+            try:
+                function_nr = int(input(input_selection))
+            except ValueError:
+                function_nr = -1
+
+            # Execute selected function
+            match function_nr:
+                case 0:
+                    print("\nExiting test program...\n")
+                    break
+                case 1:
+                    print(f"\nConnected to internet: {check_internet_connection()}\n")
+                case 2:
+                    response, output = run_shell_script("ls")
+                    if response:
+                        print(f"\nresponse={response}, output={output}")
+                    else:
+                        print(f"\n{YELLOW}Unexpected response: response={response}, output={output}{NC}")
+                case 3:
+                    response, output = run_shell_script("xxx")
+                    if not response:
+                        print(f"\nresponse={response}, output={output}")
+                    else:
+                        print(f"\n{YELLOW}Unexpected response: response={response}, output={output}{NC}")
+                case _:
+                    print("\nPlease input a valid number\n")
+
+    # Present menu with tests
+    interactive_menu()

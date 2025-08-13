@@ -302,11 +302,11 @@
 				notification_network.innerHTML = "";
 				notification_spotify.innerHTML = "";
 
-				// Notify which network the Oradio was connected t obefore starting the web interface
-				if (oldssid == "")
-					notification_oldssid.innerHTML = `<p>Oradio was niet verbonden met een WiFi-netwerk</p>`;
-				else
+				// Notify which network the Oradio was connected to before starting the web interface
+				if (oldssid?.length)		// ?. operatormeans test if variable exists  AND length > 0
 					notification_oldssid.innerHTML = `<p>Oradio was verbonden met '${oldssid}'</p>`;
+				else
+					notification_oldssid.innerHTML = `<p>Oradio was niet verbonden met een WiFi-netwerk</p>`;
 
 				// Show notifications
 				notification_oldssid.style.display = "block";
