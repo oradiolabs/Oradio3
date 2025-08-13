@@ -202,15 +202,16 @@ class WebService():
         # Create the wifi service interface
         self.wifi_service = WifiService(self.incoming_q)
 
-        # Spawn a separate process to continuously monitor incoming messages
-        self.server_listener = Process(target=self._check_server_messages)
-        self.server_listener.start()
-
         # Pass the receiving queue to the web server API
         api_app.state.queue = self.incoming_q
 
-        # Prepare the embedded web server (Uvicorn running in a background thread)
-        self.server = UvicornServerThread(api_app)
+        # Prepare the embedded web server: Uvicorn running in a background thread
+        self.uvicorn_server = UvicornServerThread(api_app)
+
+        # Spawn a separate process to continuously monitor incoming messages
+        # NOTE: last part of __init__, as Process COPIES the variables
+        self.server_listener = Process(target=self._check_server_messages)
+        self.server_listener.start()
 
         # Send initial "no error" state to the controller
         self._send_message(MESSAGE_NO_ERROR)
@@ -228,15 +229,18 @@ class WebService():
             # Default all messages are forwarded
             forward = True
 
-            # Check if message contains wifi credentials (walrus operator assigns and test if true)
+            # Check if message contains wifi credentials (:= operator assigns and test if true)
             if ssid := message.get("ssid"):
-                print(f"{YELLOW}wifi credentials received: try to connect to {ssid}{NC}")
                 # password can be empty for open networks
                 pswd = message.get("pswd", "")
+                # Connect to network with give credentials
                 self.wifi_service.wifi_connect(ssid, pswd)
+                # Stop the Captive Portal service
+                self.stop()
+                # Do not forward this message
                 forward = False
 
-            # Forward the message to the controller's outgoing queue
+            # Forward message to the outgoing queue
             if forward:
                 oradio_log.debug("WebService: Forwarding message: %s", message)
                 safe_put(self.outgoing_q, message)
@@ -263,7 +267,7 @@ class WebService():
         Returns: STATE_WEB_SERVICE_ACTIVE if the server is running,
                  STATE_WEB_SERVICE_IDLE otherwise
         """
-        if self.server and self.server.is_running:
+        if self.uvicorn_server and self.uvicorn_server.is_running:
             return STATE_WEB_SERVICE_ACTIVE
         return STATE_WEB_SERVICE_IDLE
 
@@ -274,7 +278,7 @@ class WebService():
         - wifi access point activation
         - HTTP port redirection (iptables)
         - DNS redirection to the captive portal
-        - Web server startup
+        - uvicorn web server start
         The method blocks until the access point is confirmed active or a timeout occurs
         """
         # Enable wifi access point mode
@@ -314,7 +318,7 @@ class WebService():
                 return
 
         # Start the web server
-        if not self.server.start():
+        if not self.uvicorn_server.start():
             # Send message web server did not start
             self._send_message(MESSAGE_WEB_SERVICE_FAIL_START)
             return
@@ -346,7 +350,7 @@ class WebService():
         Stop the Captive Portal service
         This performs:
         - wifi access point shutdown
-        - Web server stop
+        - uvicorn web server stop
         - Removal of HTTP port redirection
         - Removal of DNS redirection
         The method blocks until the access point is confirmed inactive or a timeout occurs
@@ -359,8 +363,8 @@ class WebService():
         if state == STATE_WIFI_ACCESS_POINT:
             self.wifi_service.wifi_disconnect()
 
-        # Stop the web server
-        if not self.server.stop():
+        # Stop the uvicorn web server
+        if not self.uvicorn_server.stop():
             err_msg = MESSAGE_WEB_SERVICE_FAIL_STOP
 
         # Get current NAT (iptables) configuration
