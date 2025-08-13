@@ -49,7 +49,7 @@ from remote_monitoring import RmsService
 from spotify_connect_direct import SpotifyConnect
 from usb_service import USBService
 from web_service import WebService
-#OMJ: Zie regel 707-714
+#OMJ: Zie regel 711-718
 #from wifi_service import WifiService
 
 ##### GLOBAL constants ####################
@@ -641,6 +641,8 @@ def sync_usb_presence_from_service():
         oradio_log.info("USB presence synced: absent")
     else:
         oradio_log.warning("Unexpected USB service state: %r", state)
+
+# pylint: disable=pointless-string-statement
 '''
 #------------Monitor Internet, if still a connection has been made-----------------
 def start_wifi_monitor(interval: float = 5.0):
@@ -680,6 +682,8 @@ def start_wifi_monitor(interval: float = 5.0):
         name="WiFiInternetMonitor",
     ).start()
 '''
+# pylint: enable=pointless-string-statement
+
 # ------------------Start-up - instantiate and define other modules ---------------
 
 shared_queue = Queue()  # Create a shared queue
