@@ -641,7 +641,7 @@ def sync_usb_presence_from_service():
         oradio_log.info("USB presence synced: absent")
     else:
         oradio_log.warning("Unexpected USB service state: %r", state)
-
+'''
 #------------Monitor Internet, if still a connection has been made-----------------
 def start_wifi_monitor(interval: float = 5.0):
     """
@@ -679,7 +679,7 @@ def start_wifi_monitor(interval: float = 5.0):
         daemon=True,
         name="WiFiInternetMonitor",
     ).start()
-
+'''
 # ------------------Start-up - instantiate and define other modules ---------------
 
 shared_queue = Queue()  # Create a shared queue
@@ -710,7 +710,7 @@ oradio_web_service = WebService(shared_queue)
 #oradio_wifi_service = WifiService(shared_queue)
 
 # Start background polling (every 5 seconds) of the Wi-Fi service state.
-#OMJ: Overbodig, want wifi service stuur messages
+#OMJ: Overbodig, want wifi state change messages komen vna wifi service, doorgegeven door web service --> Zie 
 #start_wifi_monitor()
 
 # inject the services into the Statemachine
