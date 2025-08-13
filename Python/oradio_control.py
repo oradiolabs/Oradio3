@@ -50,7 +50,7 @@ from spotify_connect_direct import SpotifyConnect
 from usb_service import USBService
 from web_service import WebService
 #OMJ: Zie regel 707-714
-from wifi_service import WifiService
+#from wifi_service import WifiService
 
 ##### GLOBAL constants ####################
 #from oradio_const import *
