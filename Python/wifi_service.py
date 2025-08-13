@@ -73,7 +73,7 @@ nmcli_exceptions = tuple(
 
 class SaveWifi:
     """
-    Singleton-style class to store and retrieve the last wifi connection string
+    Singleton-style class to store and retrieve the last wifi connection as a string
     Uses class-level variables and a threading.Lock to ensure thread-safe access
     to the shared data across all instances or direct class usage
     """
@@ -87,7 +87,7 @@ class SaveWifi:
         value (str): The wifi connection string to save
         """
         with cls._lock:        # Acquire lock to prevent race conditions
-            cls._saved = value
+            cls._saved = str(value) if value else ""
 
     @classmethod
     def get_saved(cls):
