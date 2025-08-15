@@ -1,4 +1,9 @@
 # pylint: disable=E1101,E1102
+## REVIEW Henk
+# pylint E1101 : Used when a variable is accessed for a nonexistent member.
+# pylint E1102 : not-callable, when an object being called is a non-callable object
+# Fix these errors, they should not be disabled,or give a reason for disabling
+
 #!/usr/bin/env python3
 """
   ####   #####     ##    #####      #     ####
@@ -42,6 +47,11 @@ DEFAULT_PRESET_KEY = "preset1"  # When the Play button is used and no playlist i
 
 class MPDControl:
     """Class managing MPD behaviour"""
+#######################################################
+# REVIEW Henk:
+# Put "localhost" and port number as local constants, as it is used
+# also at another location in this module
+###############################################################
 
     def __init__(self, host: str = "localhost", port: int = 6600):
         """Class constructor: Initialize class variables"""
@@ -52,6 +62,59 @@ class MPDControl:
         self.current_playlist = None
         self.last_status_error = None
         self.mpd_lock = threading.Lock()
+##########################################################################################
+# REVIEW Henk
+# Not really understand why a lock is necessary for accessing the MPD server.
+# (1) The MPD maintains a single playback state for all connected clients
+# (2) The commands will be processed in the order they are received
+# (3) MPD is a server process and handles all synchronisation internally.
+# (4) MPD protocol is designed to be thread-safe and client-agnostic. 
+#          Commands from clients are processed one at a time
+# (5) No critical sections or locks are required
+# 
+############################################################################################
+
+###############################################################################################
+# REVIEW Henk
+# But if you want to insists on using locks/critical sections for commands to MPD,
+# please be aware of a possible Deadlock, when two processes are using the same
+# instance (client) for MPD.
+# So if oradio_controls is using the MPD client the command will be locked for the time
+# required to process the command. If at same time the fast_api_server is using the same MPD cliemt
+# to use a command, it needs to wait until the running command is ready and has released to lock.
+# However in case the command is not releasing the command processing for any reason, both processes will end
+# up in a deadlock !!!
+# To prevent this a time-out is required. Python’s threading.Lock does not natively support timeouts with the with statement. 
+# However,  we can use lock.acquire(timeout=...) explicitly, together with a feature called context manager to handle this.
+#     Python’s context managers provides a way to automatically set up and clean up resources, 
+#     ensuring they’re properly managed even if errors occur, and making sure to release the "resources" after usage. 
+#     If they are not released then it will lead to resource leakage and may cause system to either slow down or crash.
+#### Here a proposal
+#@contextmanager
+#def lock_with_timeout(lock, timeout):
+#    acquired = lock.acquire(timeout=timeout)
+#    try:
+#        if acquired:
+#            yield
+#            # The validation check passed and didn't raise an exception
+#            # Accordingly, we want to keep the resource, and pass it
+#            # back to our caller
+#        else:
+#            raise RuntimeError("Could not acquire lock within timeout")
+#    finally:
+#        if acquired:
+#            lock.release()
+#
+### Usage
+#lock = threading.Lock()
+#try:
+#    with lock_with_timeout(lock, timeout=5):
+#        # Critical section
+#        print("Lock acquired, doing work...")
+#except RuntimeError as e:
+#    print(e)
+
+
 
         # Event for cancelling MPD database update
         self.mpd_update_cancel_event = threading.Event()
@@ -59,6 +122,25 @@ class MPDControl:
         # start the separate monitor thread
         thread = threading.Thread(target=self._monitor_errors, daemon=True)
         thread.start()
+
+################################################################################################
+## REVIEW Henk : solve the pylint issue, and catch only the relevant exceptions
+# The mpd-server provides following exceptions
+#
+#    mpd.ConnectionError: Raised when there is a failure to connect to the MPD server.
+#    mpd.NotReady: Raised when the MPD server is not ready to accept commands.
+#    mpd.PermissionError: Raised when authentication fails or there are insufficient permissions.
+#    mpd.CommandError: Raised when a command is not understood or fails due to invalid input.
+#    mpd.UnknownResponseError: Raised when the MPD server returns an unexpected response.
+# Recommendation: Create a Wrapper Function
+#    SO create a wrapper function that handles exceptions for any MPD method you want to call.
+#    A class MPDWrapper with methods connect() and exexcute_command() may be helpful.
+#    Example
+#    mpd = MPDWrapper()
+#    # Use the centralized exception handling
+#    mpd.execute_command('play')
+#    mpd.execute_command('add', 'song.mp3')
+####################################################################################################
 
     def _connect(self) -> MPDClient:
         """Connect to MPD service"""
@@ -746,6 +828,19 @@ class MPDControl:
 # return that same object, preventing duplicate MPDClient connections
 # and redundant setup such as crossfade re-configuration.
 
+#################################################################################
+# REVIEW Henk
+# I do not understand the problem with "crossfade" and if a second MPDControl instance would be created
+# e.g. by fastapi_server. Then also the same crossfade would be used.
+# But if you want only one instance to setup the crossfade, you could make it an
+# argument during instantiation of the class. E.g
+# So fastapi_server does not maintain the connection, as it reuses the singleton
+# So in fact the main concern is the crossfade 
+# When the singleton is not used, the second MPD client creates an instance for MPCControl
+# with an init argument : self._crossfade_done = True, so during connect it will not
+# set the crossfade again. 
+# This will eliminate the use of the critical section/locking.
+#####################################################################################
 _mpd_singleton: MPDControl | None = None
 
 def get_mpd_control(host: str = "localhost", port: int = 6600) -> MPDControl:
