@@ -64,25 +64,16 @@ class MPDControl:
         self.mpd_lock = threading.Lock()
 ##########################################################################################
 # REVIEW Henk
-# Not really understand why a lock is necessary for accessing the MPD server.
-# (1) The MPD maintains a single playback state for all connected clients
-# (2) The commands will be processed in the order they are received
-# (3) MPD is a server process and handles all synchronisation internally.
-# (4) MPD protocol is designed to be thread-safe and client-agnostic. 
-#          Commands from clients are processed one at a time
-# (5) No critical sections or locks are required
-# 
-############################################################################################
-
-###############################################################################################
-# REVIEW Henk
-# But if you want to insists on using locks/critical sections for commands to MPD,
-# please be aware of a possible Deadlock, when two processes are using the same
+# The MPD protocol is designed to be thread-safe and client-agnostic. 
+# The commands from clients are processed one at a time
+# In case a sequence of commands is required to be processed after each other
+# a critical section/lock may be a good solution
+# Please be aware of a possible Deadlock, when two processes are using the same
 # instance (client) for MPD.
 # So if oradio_controls is using the MPD client the command will be locked for the time
-# required to process the command. If at same time the fast_api_server is using the same MPD cliemt
+# required to process the commands. If at same time the fast_api_server is using the same MPD cliemt
 # to use a command, it needs to wait until the running command is ready and has released to lock.
-# However in case the command is not releasing the command processing for any reason, both processes will end
+# However in case the MPD command is not releasing, the command processing for any reason, both processes will end
 # up in a deadlock !!!
 # To prevent this a time-out is required. Python’s threading.Lock does not natively support timeouts with the with statement. 
 # However,  we can use lock.acquire(timeout=...) explicitly, together with a feature called context manager to handle this.
@@ -830,16 +821,32 @@ class MPDControl:
 
 #################################################################################
 # REVIEW Henk
-# I do not understand the problem with "crossfade" and if a second MPDControl instance would be created
-# e.g. by fastapi_server. Then also the same crossfade would be used.
-# But if you want only one instance to setup the crossfade, you could make it an
-# argument during instantiation of the class. E.g
-# So fastapi_server does not maintain the connection, as it reuses the singleton
-# So in fact the main concern is the crossfade 
-# When the singleton is not used, the second MPD client creates an instance for MPCControl
-# with an init argument : self._crossfade_done = True, so during connect it will not
-# set the crossfade again. 
-# This will eliminate the use of the critical section/locking.
+# The singleton pattern should be included in the MPCControl class
+# this will also solve the pylint issue
+# Here proposal
+#class MPDControl:
+#    _instance = None  # Class variable to store the single instance
+#
+#    def __new__(cls):
+#        if cls._instance is None:
+#            # If no instance exists, create one using the parent class's __new__
+#            # cls is a convention for class method, it represents the class, not an instance
+#            # the first parameter is the class MPDControl, is passed to __new__
+#            # where a new class object is created
+#            # super() is used to extend and customize the functionality from parent class
+#            cls._instance = super(MPDControl, cls).__new__(cls)
+#        # Return the single instance
+#        return cls._instance
+# So what happens:
+# What happens when you call MPDControl():
+# (1) The __new__ method is called.
+# (2) If cls._instance is None, it creates a new instance using super().__new__(cls) and stores it in cls._instance.
+# (3) On subsequent calls, __new__ simply returns the existing cls._instance instead of creating a new one.
+
+##### example for oradio_control and fastapi_server ####
+# oradio_control: mpd = MPDControl()  # Creates a new instance and stores it in _instance
+# fastapi_server: mpdcontrol = MPDControl()  # Returns the existing _instance
+# 
 #####################################################################################
 _mpd_singleton: MPDControl | None = None
 
