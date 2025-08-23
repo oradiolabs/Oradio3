@@ -130,6 +130,13 @@ class TouchButtons:
         # Immediate feedback (short press semantics)
         self.sound_player.play("Click")
         new_state = f"State{button_name}"
+        ############################################################################################################
+        # REVIEW Henk
+        # The touchbutton should not have any knowledge on statemachine. It only responsibility
+        # is handling of the buttons.
+        # Proposal is to use a callback method, with a callback function provided during instance creation
+        ###############################################################################################################
+
         if self.state_machine:
             self.state_machine.transition(new_state)
 
@@ -170,7 +177,7 @@ class TouchButtons:
     ############################################################################################################
     # REVIEW Henk
     # The touchbutton should not have any knowledge on statemachine. It only responsibility
-    # is handling the buttons.
+    # is handling of the buttons.
     # Proposal is to use a callback method, with a callback function provided during instance creation
     ###############################################################################################################
     def _default_long_press_handler(self, button_name):

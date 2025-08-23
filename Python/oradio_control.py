@@ -320,6 +320,11 @@ class StateMachine:
 
             elif state_to_handle == "StatePreset1":
                 leds.turn_on_led("LEDPreset1")
+                #############################################################################################
+                # REVIEW Henk
+                # The play_preset() function returns a True or False. Is not checked here.
+                # So in case of a False it is necessary to implement an error-handling here!!!
+                ###############################################################################################
                 mpd.play_preset("Preset1")
                 sound_player.play("Preset1")
                 if web_service_active.is_set():
@@ -523,6 +528,7 @@ def on_webservice_active():
     oradio_log.info("WebService active is acknowledged")
     if web_service_active.is_set(): # check already taken the actions
         return
+    ## REVIEW Henk: no actions here, should be in run_state_method()
     web_service_active.set()
     internet_connected.clear()
     leds.control_blinking_led("LEDPlay", 2)
@@ -536,6 +542,7 @@ def on_webservice_idle():
     oradio_log.info("WebService idle is acknowledged")
     if not web_service_active.is_set(): # check already taken the actions
         return
+    ## REVIEW Henk: no actions here, should be in run_state_method()    
     web_service_active.clear()
     if state_machine.state == "StatePlay":
         leds.turn_on_led("LEDPlay")

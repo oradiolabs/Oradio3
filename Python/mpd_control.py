@@ -231,6 +231,14 @@ class MPDControl:
             return False
 
         with self.mpd_lock:
+            ############################################################################
+            # Review Henk
+            # (1) Too many statements within the try: I one fails we do not know which on fails, Try to keep
+            # the try blocks as small as possible. Consider splitting the large try block into 
+            # smaller ones.
+            # (2) avoid using one except for all the statements in try: Catch specific exceptions
+            # to handle errors more precisely.
+            ########################################################################################
             try:
                 self.client.clear()
 
@@ -262,7 +270,13 @@ class MPDControl:
                 oradio_log.debug("Error playing preset %s: %s", preset, ex_err)
                 return False
 
-
+#############################################################################
+# REVIEW Henk
+# play() return is not correctly used.
+# on success there is just a return without a return value that the play was successful 
+# on failure there is also just a return without a return value that the play had an error
+# So the oradio_control may not be aware that the play was successful or not
+###########################################################################################
     def play(self):
         """Plays the current track; if the queue is empty, load the default preset."""
         self._ensure_client()
@@ -283,6 +297,13 @@ class MPDControl:
         except Exception as ex_err:  # pylint: disable=broad-exception-caught
             oradio_log.error("Error in play(): %s", ex_err)
 
+
+#############################################################################
+# REVIEW Henk
+# pause() no return value used for pause being successful or not
+# So the oradio_control may not be aware that the pause was successful or not
+###########################################################################################
+
     def pause(self):
         """Pauses playback."""
         self._ensure_client()
@@ -293,6 +314,12 @@ class MPDControl:
             except Exception as ex_err: # pylint: disable=broad-exception-caught
                 oradio_log.debug("Error sending pause command: %s", ex_err)
 
+#############################################################################
+# REVIEW Henk
+# stop() no return value used for stop being successful or not
+# So the oradio_control may not be aware that the stop was successful or not
+###########################################################################################
+
     def stop(self):
         """Stops playback."""
         self._ensure_client()
@@ -302,10 +329,20 @@ class MPDControl:
                 oradio_log.debug("MPD stop")
             except Exception as ex_err: # pylint: disable=broad-exception-caught
                 oradio_log.error("Error sending stop command: %s", ex_err)
+#############################################################################
+# REVIEW Henk
+# next() no return value used for next being successful or not
+# So the oradio_control may not be aware that the next was successful or not
+###########################################################################################
 
     def next(self):
         """Skips to the next track only if MPD is currently playing."""
         self._ensure_client()
+#############################################################################
+# REVIEW Henk
+# Too many statements within the try-block
+# ###########################################################################################
+
         with self.mpd_lock:
             try:
                 status = self.client.status()
