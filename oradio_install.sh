@@ -248,6 +248,7 @@ if [ "$1" != "--continue" ]; then
 #   Add any additionally required Python modules to 'PYTHON'    #
 #***************************************************************#
 	PYTHON_PACKAGES=(
+		pip
 		python-mpd2
 		smbus2
 		rpi-lgpio
