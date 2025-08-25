@@ -219,17 +219,14 @@ if [ "$1" != "--continue" ]; then
 
 ########## PYTHON BEGIN ##########
 
-	# Configure Python virtual environment
-	if [ ! -d ~/.venv ]; then
-		# Prepare python virtual environment including system site packages
-		python3 -m venv --system-site-packages ~/.venv
+	# Prepare python virtual environment including system site packages
+	python3 -m venv --system-site-packages ~/.venv
 
-		# Activate the python virtual environment in current environment
-		source ~/.venv/bin/activate
+	# Activate the python virtual environment in current environment
+	source ~/.venv/bin/activate
 
-		# Activate python virtual environment when logging in: add if not yet present
-		sudo grep -qxF 'source ~/.venv/bin/activate' ~/.bashrc || echo 'source ~/.venv/bin/activate' >> ~/.bashrc
-	fi
+	# Activate python virtual environment when logging in: add if not yet present
+	sudo grep -qxF 'source ~/.venv/bin/activate' ~/.bashrc || echo 'source ~/.venv/bin/activate' >> ~/.bashrc
 
 	# Progress report
 	echo -e "${GREEN}Python virtual environment configured${NC}"
