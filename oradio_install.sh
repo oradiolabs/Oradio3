@@ -185,6 +185,7 @@ if [ "$1" != "--continue" ]; then
 		mpd
 		mpc
 		iptables
+		raspotify
 	)
 
 	# Fetch list of upgradable packages
@@ -208,7 +209,17 @@ if [ "$1" != "--continue" ]; then
 			fi
 		else
 			echo -e "${YELLOW}$package is missing: installing...${NC}"
-			sudo apt-get install -y $package
+			# raspotify needs to be configured separately
+			if [ "$package" == "raspotify" ];
+			then
+				# Install raspotify which includes librespot
+				curl -sL https://dtcooper.github.io/raspotify/install.sh | sh
+				# Only keep librespot
+				sudo systemctl stop raspotify
+				sudo systemctl disable raspotify
+			else 
+				sudo apt-get install -y $package
+			fi
 		fi
 	done
 
@@ -219,17 +230,14 @@ if [ "$1" != "--continue" ]; then
 
 ########## PYTHON BEGIN ##########
 
-	# Configure Python virtual environment
-	if [ ! -d ~/.venv ]; then
-		# Prepare python virtual environment including system site packages
-		python3 -m venv --system-site-packages ~/.venv
+	# Prepare python virtual environment including system site packages
+	python3 -m venv --system-site-packages ~/.venv
 
-		# Activate the python virtual environment in current environment
-		source ~/.venv/bin/activate
+	# Activate the python virtual environment in current environment
+	source ~/.venv/bin/activate
 
-		# Activate python virtual environment when logging in: add if not yet present
-		sudo grep -qxF 'source ~/.venv/bin/activate' ~/.bashrc || echo 'source ~/.venv/bin/activate' >> ~/.bashrc
-	fi
+	# Activate python virtual environment when logging in: add if not yet present
+	sudo grep -qxF 'source ~/.venv/bin/activate' ~/.bashrc || echo 'source ~/.venv/bin/activate' >> ~/.bashrc
 
 	# Progress report
 	echo -e "${GREEN}Python virtual environment configured${NC}"
@@ -468,23 +476,6 @@ echo -e "${GREEN}Log files rotation configured${NC}"
 
 # Configure Spotify connect
 install_resource $RESOURCES_PATH/spotify_event_handler.sh /usr/local/bin/spotify_event_handler.sh 'sudo chmod +x /usr/local/bin/spotify_event_handler.sh'
-
-# get librespot installed version, if any
-librespot_installed="v"$(/usr/bin/librespot --version 2>/dev/null | awk '{print $2}')
-
-# Get librespot github release version
-librespot_release=$(curl -s https://api.github.com/repos/librespot-org/librespot/releases/latest | grep '"tag_name":' | cut -d '"' -f4)
-
-if [ "$librespot_installed" = "$librespot_release" ]; then
-    echo "librespot is up to date: $librespot_installed"
-else
-	# Install raspotify which also install the librespot
-	curl -sL https://dtcooper.github.io/raspotify/install.sh | sh
-
-	# stop and disable raspotify service, we only need librespot
-	sudo systemctl stop raspotify
-	sudo systemctl disable raspotify
-fi
 
 # Configure the Librespot service
 install_resource $RESOURCES_PATH/librespot.service /etc/systemd/system/librespot.service 'sudo systemctl enable librespot.service'
