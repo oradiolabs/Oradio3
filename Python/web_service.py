@@ -51,7 +51,7 @@ from oradio_const import (
     STATE_WIFI_ACCESS_POINT,
     WEB_SERVER_HOST,
     WEB_SERVER_PORT,
-    MESSAGE_WEB_SERVICE_TYPE,
+    MESSAGE_WEB_SERVICE_SOURCE,
     STATE_WEB_SERVICE_IDLE,
     STATE_WEB_SERVICE_ACTIVE,
     MESSAGE_WEB_SERVICE_FAIL_START,
@@ -252,9 +252,9 @@ class WebService():
         """
         # Build the status message
         message = {
-            "type": MESSAGE_WEB_SERVICE_TYPE,
-            "state": self.get_state(),
-            "error": error
+            "source": MESSAGE_WEB_SERVICE_SOURCE,
+            "state" : self.get_state(),
+            "error" : error
         }
 
         # Send message to the outgoing queue
@@ -322,10 +322,6 @@ class WebService():
             # Send message web server did not start
             self._send_message(MESSAGE_WEB_SERVICE_FAIL_START)
             return
-
-#OMJ: wachten en bericht sturen vervangen door monitor?
-#     of niet, want je wil dat start() pas retourneert als access point actief is
-#     maar dan moet de monitor niet ook een message sturen!
 
         # Wait until wifi is confirmed to be in access point mode, or timeout
         start_time = time.time()
@@ -395,10 +391,6 @@ class WebService():
                 oradio_log.error("Error during <%s> to remove DNS redirection, error: %s", cmd, error)
                 # Set error message
                 err_msg = MESSAGE_WEB_SERVICE_FAIL_STOP
-
-#OMJ: wachten en bericht sturen vervangen door monitor?
-#     of niet, want je wil dat stop() pas retourneert als access point actief is
-#     maar dan moet de monitor niet ook een message sturen!
 
         # Wait until wifi is no longer in access point mode, or timeout
         start_time = time.time()

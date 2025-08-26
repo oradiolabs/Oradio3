@@ -40,7 +40,7 @@ from oradio_const import (
     RED, GREEN, YELLOW, NC,
     USB_MOUNT_PATH,
     USB_MOUNT_POINT,
-    MESSAGE_USB_TYPE,
+    MESSAGE_USB_SOURCE,
     STATE_USB_PRESENT,
     STATE_USB_ABSENT,
     MESSAGE_NO_ERROR,
@@ -256,13 +256,13 @@ class USBService:
     def _send_message(self):
         """
         Compose and send the USB state message to the registered queue
-        The message contains the type, current USB state, and an error code
+        The message contains the source, current USB state, and an error code
         """
         # Create message
         message = {
-            "type": MESSAGE_USB_TYPE,
-            "state": self.get_state(),
-            "error": MESSAGE_NO_ERROR
+            "source": MESSAGE_USB_SOURCE,
+            "state" : self.get_state(),
+            "error" : MESSAGE_NO_ERROR
         }
         # Put message in queue
         oradio_log.debug("Send USB service message: %s", message)
