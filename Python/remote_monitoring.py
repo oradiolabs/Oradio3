@@ -126,13 +126,13 @@ class Heartbeat(Timer):
 
     _lock = Lock()       # Class-level lock to make singleton thread-safe
     _instance = None     # Holds the single instance of this class
-    _initialized = False # Tracks whether __init__ has been run
 
     def __new__(cls, *args, **kwargs):
         """Ensure only one instance of Heartbeat is created (singleton pattern)"""
         with cls._lock:
             if cls._instance is None:
                 cls._instance = super().__new__(cls)
+                cls._instance._initialized = False  # <-- instance attribute
         return cls._instance
 
     def __init__(self, interval, function, args=None, kwargs=None):
@@ -151,15 +151,18 @@ class Heartbeat(Timer):
         while not self.finished.wait(self.interval):
             try:
                 self.function(*self.args, **self.kwargs)
-            except Exception as ex_err:
-                oradio_log_error("Heartbeat execution failed: %s", ex_err)
+            # We don't know what exception the callback can raise, so we need to catch all exceptions as we don't want to stop
+            except Exception as ex_err: # pylint: disable=broad-exception-caught
+                oradio_log.error("Heartbeat execution failed: %s", ex_err)
 
-    def cancel(self):
-        """Stop timer and reset singleton instance"""
-        super().cancel()
-        with self._lock:
-            type(self)._instance = None
-            self._initialized = False
+    @classmethod
+    def stop(cls):
+        """Public method to stop and clear the heartbeat singleton"""
+        if cls._instance:
+            cls._instance.cancel()   # <-- Timer.cancel()
+            with cls._lock:
+                cls._instance._initialized = False
+                cls._instance = None
 
     @classmethod
     def is_running(cls):
@@ -199,7 +202,7 @@ class RmsService():
     def heartbeat_stop(self):
         """ Stop the heartbeat repeat timer and mark as not active """
         if Heartbeat.is_running():
-            Heartbeat._instance.cancel()
+            Heartbeat.stop()
 
     def send_sys_info(self):
         """ Wrapper to simplify oradio control """
