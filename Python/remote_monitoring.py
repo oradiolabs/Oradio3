@@ -155,13 +155,17 @@ class Heartbeat(Timer):
             except Exception as ex_err: # pylint: disable=broad-exception-caught
                 oradio_log.error("Heartbeat execution failed: %s", ex_err)
 
+    def _reset(self):
+        """Reset initialization state (private use)"""
+        self._initialized = False
+
     @classmethod
     def stop(cls):
         """Public method to stop and clear the heartbeat singleton"""
         if cls._instance:
             cls._instance.cancel()   # <-- Timer.cancel()
             with cls._lock:
-                cls._instance._initialized = False
+                cls._instance._reset()
                 cls._instance = None
 
     @classmethod
