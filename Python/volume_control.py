@@ -21,6 +21,7 @@ Created on Januari 27, 2025
 """
 import time
 import threading
+#
 from queue import Queue
 import alsaaudio
 import smbus2
@@ -95,6 +96,16 @@ class VolumeControl:
 
     def send_message(self, message_type, state):
         """ Sends a message to the specified queue. """
+        ####################################################################
+        # REVIEW Henk
+        # Maybe better to use the multiproccesing.queue, as the oradio_control passes
+        # a multiprocessing.queue and not a queue.queue
+        # Probably it will not cause issues, as long as the methods are used correctly
+        # If a multiprocessing.queue is passed to a queue.queue it may introduce unnecessary overhead
+        # and sometimes some checks may fail which are specific for queue.queue and not for
+        # multiprocessing.queue
+        ###################################################################################
+
         if self.queue:
             try:
                 message = {"type": message_type, "state": state, "error": MESSAGE_NO_ERROR}
@@ -103,8 +114,19 @@ class VolumeControl:
             # Queue is unbounded, so Full exception will not be raised
             # message is dict, so TypeError exception will not be raised
             # if queue is not setup properly you can get NameError:
+            
+            #########################################################################################################
+            ##### REVIEW Henk:
+            # If NameError is required to check, do this during the creation of this Class
+            # in the __init__(). You do not want this Exception when sending a message. Can be check 
+            # already much earlier.
+            ##############################################################################################################
             except NameError as ex_err:
                 oradio_log.error("Queue object is not defined: %s", ex_err)
+            ####################################################################################################
+            #### REVIEW Henk:
+            # do  not understand why this exception would appear, as the queue.put() is a correct method to use.
+            ###################################################################################################
             except AttributeError as ex_err:
                 oradio_log.error("Queue object not properly initialized: %s", ex_err)
             # Fallback
