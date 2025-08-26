@@ -34,7 +34,7 @@ from mpd import MPDClient
 from oradio_logging import oradio_log
 
 ##### GLOBAL constants ####################
-from oradio_const import PRESET_FILE_PATH
+from oradio_const import PRESETS_FILE
 
 ##### Local constants ####################
 CROSSFADE = 5
@@ -147,11 +147,11 @@ class MPDControl:
 
     def play_preset(self, preset):
         """
-        Plays a preset using the global PRESET_FILE_PATH.
+        Plays a preset using the global PRESETS_FILE.
         Uses MPD's listplaylists to determine whether the preset is a stored playlist or a directory.
         """
         self._ensure_client()
-        playlist_name = self.get_playlist_name(preset, PRESET_FILE_PATH)
+        playlist_name = self.get_playlist_name(preset, PRESETS_FILE)
 
         if not playlist_name:
             oradio_log.debug("No playlist found for preset: %s", preset)
@@ -685,7 +685,7 @@ class MPDControl:
         """
         # Connect if not connected
         self._ensure_client()
-        playlist = self.get_playlist_name(preset, PRESET_FILE_PATH)
+        playlist = self.get_playlist_name(preset, PRESETS_FILE)
 
         try:
             # Get entries from the specific playlist

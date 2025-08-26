@@ -44,9 +44,10 @@ from wifi_service import get_wifi_networks, get_saved_network
 from oradio_const import (
     GREEN, NC,
     USB_SYSTEM,
+    PRESETS_FILE,
     WEB_SERVER_HOST,
     WEB_SERVER_PORT,
-    MESSAGE_WEB_SERVICE_TYPE,
+    MESSAGE_WEB_SERVICE_SOURCE,
     MESSAGE_WEB_SERVICE_PL_WEBRADIO,
     MESSAGE_WEB_SERVICE_PL1_CHANGED,
     MESSAGE_WEB_SERVICE_PL2_CHANGED,
@@ -58,7 +59,6 @@ from oradio_const import (
 
 ##### LOCAL constants ####################
 WIFI_FILE     = "/tmp/Wifi_invoer.json"             # Web file with wifi credentials
-PRESETS_FILE  = USB_SYSTEM + "/presets.json"        # Location of presets
 EMPTY_PRESETS = {"preset1": "", "preset2": "", "preset3": ""}
 INFO_MISSING  = {"serial": "not found", "version": "not found"}
 INFO_ERROR    = {"serial": "undefined", "version": "undefined"}
@@ -186,7 +186,7 @@ async def save_preset(changedpreset: ChangedPreset):
     """
     oradio_log.debug("Save changed preset '%s' to playlist '%s'", changedpreset.preset, changedpreset.playlist)
 
-    message = {"type": MESSAGE_WEB_SERVICE_TYPE, "error": MESSAGE_NO_ERROR}
+    message = {"source": MESSAGE_WEB_SERVICE_SOURCE, "error": MESSAGE_NO_ERROR}
 
     # Message state options
     preset_map = {
@@ -329,9 +329,9 @@ async def play_song(song: Song):
 
     # Create message
     message = {
-        "type": MESSAGE_WEB_SERVICE_TYPE,
-        "state": MESSAGE_WEB_SERVICE_PLAYING_SONG,
-        "error": MESSAGE_NO_ERROR
+        "source": MESSAGE_WEB_SERVICE_SOURCE,
+        "state" : MESSAGE_WEB_SERVICE_PLAYING_SONG,
+        "error" : MESSAGE_NO_ERROR
     }
 
     # Put message in queue
@@ -493,9 +493,9 @@ async def wifi_connect(credentials: Credentials):
 
     # Send message to web service
     message = {
-        "type": MESSAGE_WEB_SERVICE_TYPE,
-        "ssid": credentials.ssid,
-        "pswd": credentials.pswd
+        "source": MESSAGE_WEB_SERVICE_SOURCE,
+        "ssid"  : credentials.ssid,
+        "pswd"  : credentials.pswd
     }
     safe_put(api_app.state.queue, message)
 
