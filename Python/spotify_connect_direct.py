@@ -35,8 +35,8 @@ from oradio_logging import oradio_log
 
 ##### GLOBAL constants ####################
 from oradio_const import (
-    MESSAGE_SPOTIFY_TYPE,
     MESSAGE_NO_ERROR,
+    MESSAGE_SPOTIFY_SOURCE,
     SPOTIFY_CONNECT_CONNECTED_EVENT,
     SPOTIFY_CONNECT_DISCONNECTED_EVENT,
     SPOTIFY_CONNECT_PLAYING_EVENT,
@@ -114,12 +114,12 @@ class SpotifyConnect:
         """
         Sends an event via the message queue.
         The message is a dictionary containing:
-          - 'type': MESSAGE_SPOTIFY_TYPE (from oradio_const)
-          - 'state': the event state
+          - 'source': MESSAGE_SPOTIFY_SOURCE (from oradio_const)
+          - 'state' : the event state
         """
         if self.message_queue:
             try:
-                message = {"type": MESSAGE_SPOTIFY_TYPE, "state": event, "error": MESSAGE_NO_ERROR}
+                message = {"source": MESSAGE_SPOTIFY_SOURCE, "state": event, "error": MESSAGE_NO_ERROR}
                 self.message_queue.put(message)
                 oradio_log.info("Message sent to queue: %s", message)
             except Exception as ex_err: # pylint: disable=broad-exception-caught

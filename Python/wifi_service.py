@@ -46,7 +46,7 @@ from oradio_const import (
     ACCESS_POINT_HOST,
     ACCESS_POINT_SSID,
     STATE_USB_PRESENT,
-    MESSAGE_WIFI_TYPE,
+    MESSAGE_WIFI_SOURCE,
     STATE_WIFI_IDLE,
     STATE_WIFI_INTERNET,
     STATE_WIFI_CONNECTED,
@@ -191,7 +191,7 @@ class WifiEventListener:
         _old_state (int): The previous device state (unused, underscore avoids pylint warning)
         _reason (int): Reason for state change (unused, underscore avoids pylint warning)
         """
-        message = {"type": MESSAGE_WIFI_TYPE}
+        message = {"source": MESSAGE_WIFI_SOURCE}
 
         # Parse states: only interested in disconnected, failed and connected
         if new_state == NM_DISCONNECTED:
@@ -364,9 +364,9 @@ class WifiService():
         """
         # Create message
         message = {
-            "type": MESSAGE_WIFI_TYPE,
-            "state": self.get_state(),
-            "error": error
+            "source": MESSAGE_WIFI_SOURCE,
+            "state" : self.get_state(),
+            "error" : error
         }
         # Put message in queue
         oradio_log.debug("Send wifi service message: %s", message)

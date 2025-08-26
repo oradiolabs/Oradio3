@@ -39,7 +39,7 @@ SOUND_FILES_DIR = os.path.realpath(ORADIO_DIR + "/../system_sounds")
 
 JSON_SCHEMAS_FILE = os.path.realpath(ORADIO_DIR + "/schemas.json")
 
-# Messages consist of 3 elements: type, state and error
+# Messages consist of 3 elements: source, state and error
 MESSAGE_NO_ERROR = "None"
 
 ################## LED GPIO PINS ##########################
@@ -61,8 +61,7 @@ STATE_WIFI_INTERNET     = "Wifi connected to internet"
 STATE_WIFI_CONNECTED    = "Wifi connected without internet"
 STATE_WIFI_ACCESS_POINT = "Wifi configured as access point"
 # wifi messages
-#OMJ: 'Type' is eigenlijk 'source'
-MESSAGE_WIFI_TYPE            = "Wifi message"
+MESSAGE_WIFI_SOURCE          = "Wifi message"
 MESSAGE_WIFI_FILE_ERROR      = "File format error"
 MESSAGE_WIFI_FAIL_CONFIG     = "Failed to save credentials in NetworkManager"
 MESSAGE_WIFI_FAIL_START_AP   = "Failed to start access point"
@@ -78,8 +77,7 @@ WEB_SERVER_PORT = 8000
 STATE_WEB_SERVICE_IDLE   = "web service is idle"
 STATE_WEB_SERVICE_ACTIVE = "web service is running"
 # Web service messages from service to parent
-#OMJ: 'Type' is eigenlijk 'source'
-MESSAGE_WEB_SERVICE_TYPE         = "web service message"
+MESSAGE_WEB_SERVICE_SOURCE       = "web service message"
 MESSAGE_WEB_SERVICE_PL1_CHANGED  = "PL1 playlist changed"
 MESSAGE_WEB_SERVICE_PL2_CHANGED  = "PL2 playlist changed"
 MESSAGE_WEB_SERVICE_PL3_CHANGED  = "PL3 playlist changed"
@@ -98,29 +96,25 @@ USB_SYSTEM      = USB_MOUNT_POINT + "/Systeem"
 STATE_USB_PRESENT = "USB drive present"
 STATE_USB_ABSENT  = "USB drive absent"
 # USB messages
-#OMJ: 'Type' is eigenlijk 'source'
-MESSAGE_USB_TYPE = "USB message"
+MESSAGE_USB_SOURCE = "USB message"
 
 ################## AUDIO #############################
-#OMJ: the constant is named path, but points to a file?
-PRESET_FILE_PATH = USB_SYSTEM + "/presets.json"
+PRESETS_FILE = USB_SYSTEM + "/presets.json"
 
 ################## VOLUME #############################
 # Raw volume units
 VOLUME_MINIMUM = 105
 VOLUME_MAXIMUM = 215
 # Volume messages
-#OMJ: 'Type' is eigenlijk 'source'
-MESSAGE_TYPE_VOLUME   = "Vol Control message"
-#OMJ: is MESSAGE_VOLUME_CHANGED niet een betere constante?
-MESSAGE_STATE_CHANGED = "Volume changed"
+MESSAGE_VOLUME_SOURCE  = "Vol Control message"
+MESSAGE_VOLUME_CHANGED = "Volume changed"
 
 ################## SYSTEM SOUNDS #############################
 SOUND_FILES_DIR = "/home/pi/Oradio3/system_sounds"
 
 ############# SPOTIFY CONFIG #####################################
-MESSAGE_SPOTIFY_TYPE        = "Spotify message"
-SPOTIFY_EVENT_SOCKET_PORT   = 8010
+MESSAGE_SPOTIFY_SOURCE    = "Spotify message"
+SPOTIFY_EVENT_SOCKET_PORT = 8010
 MPV_SOCKET = "/home/pi/spotify/mpv-socket"
 
 # MPV_PLAYER COMMANDS ####

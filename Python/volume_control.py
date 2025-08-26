@@ -33,8 +33,8 @@ from oradio_logging import oradio_log
 from oradio_const import (
     VOLUME_MINIMUM,
     VOLUME_MAXIMUM,
-    MESSAGE_TYPE_VOLUME,
-    MESSAGE_STATE_CHANGED,
+    MESSAGE_VOLUME_SOURCE,
+    MESSAGE_VOLUME_CHANGED,
     MESSAGE_NO_ERROR
 )
 
@@ -93,11 +93,11 @@ class VolumeControl:
         except alsaaudio.ALSAAudioError as ex_err:
             oradio_log.error("Error setting volume: %s", ex_err)
 
-    def send_message(self, message_type, state):
+    def send_message(self, message_source, state):
         """ Sends a message to the specified queue. """
         if self.queue:
             try:
-                message = {"type": message_type, "state": state, "error": MESSAGE_NO_ERROR}
+                message = {"source": message_source, "state": state, "error": MESSAGE_NO_ERROR}
                 self.queue.put(message)
                 oradio_log.debug("Message sent to queue: %s", message)
             # Queue is unbounded, so Full exception will not be raised
@@ -135,7 +135,7 @@ class VolumeControl:
 #                   print(f"ADC Value: {adc_value}, Volume: {volume}")  # Print for testing
 
                     if polling_interval >= POLLING_MAX_INTERVAL:
-                        self.send_message(MESSAGE_TYPE_VOLUME, MESSAGE_STATE_CHANGED)
+                        self.send_message(MESSAGE_VOLUME_SOURCE, MESSAGE_VOLUME_CHANGED)
 
                     polling_interval = POLLING_MIN_INTERVAL
                 else:

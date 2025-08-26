@@ -56,26 +56,26 @@ from web_service import WebService
 #from oradio_const import *
 from oradio_const import (
     MESSAGE_NO_ERROR,
-    MESSAGE_SPOTIFY_TYPE,
-    MESSAGE_STATE_CHANGED,
-    MESSAGE_TYPE_VOLUME,
-    MESSAGE_USB_TYPE,
+    MESSAGE_VOLUME_SOURCE,
+    MESSAGE_VOLUME_CHANGED,
+    STATE_WEB_SERVICE_IDLE,
+    STATE_WEB_SERVICE_ACTIVE,
     MESSAGE_WEB_SERVICE_PL1_CHANGED,
     MESSAGE_WEB_SERVICE_PL2_CHANGED,
     MESSAGE_WEB_SERVICE_PL3_CHANGED,
     MESSAGE_WEB_SERVICE_PL_WEBRADIO,
     MESSAGE_WEB_SERVICE_PLAYING_SONG,
-    MESSAGE_WEB_SERVICE_TYPE,
-    MESSAGE_WIFI_FAIL_CONNECT,
-    MESSAGE_WIFI_TYPE,
+    MESSAGE_WEB_SERVICE_SOURCE,
+    MESSAGE_SPOTIFY_SOURCE,
     SPOTIFY_CONNECT_CONNECTED_EVENT,
     SPOTIFY_CONNECT_DISCONNECTED_EVENT,
     SPOTIFY_CONNECT_PAUSED_EVENT,
     SPOTIFY_CONNECT_PLAYING_EVENT,
+    MESSAGE_USB_SOURCE,
     STATE_USB_ABSENT,
     STATE_USB_PRESENT,
-    STATE_WEB_SERVICE_ACTIVE,
-    STATE_WEB_SERVICE_IDLE,
+    MESSAGE_WIFI_SOURCE,
+    MESSAGE_WIFI_FAIL_CONNECT,
     STATE_WIFI_ACCESS_POINT,
     STATE_WIFI_CONNECTED,
     STATE_WIFI_INTERNET,
@@ -553,23 +553,23 @@ def update_spotify_connect_available():
 # 2)-----The Handler map, defining message content and the handler funtion---
 
 HANDLERS = {
-    MESSAGE_TYPE_VOLUME: {
-        MESSAGE_STATE_CHANGED: on_volume_changed,
+    MESSAGE_VOLUME_SOURCE: {
+        MESSAGE_VOLUME_CHANGED: on_volume_changed,
         # "Volume error": on_volume_error,
     },
-    MESSAGE_USB_TYPE: {
+    MESSAGE_USB_SOURCE: {
         STATE_USB_ABSENT: on_usb_absent,
         STATE_USB_PRESENT: on_usb_present,
         # "USB error": on_usb_error,
     },
-    MESSAGE_WIFI_TYPE: {
+    MESSAGE_WIFI_SOURCE: {
         STATE_WIFI_IDLE: on_wifi_not_connected,
         STATE_WIFI_INTERNET: on_wifi_connected_to_internet,
         STATE_WIFI_CONNECTED: on_wifi_connected_no_internet,
         STATE_WIFI_ACCESS_POINT: on_wifi_access_point,
         MESSAGE_WIFI_FAIL_CONNECT: on_wifi_fail_connect,
     },
-    MESSAGE_WEB_SERVICE_TYPE: {
+    MESSAGE_WEB_SERVICE_SOURCE: {
         STATE_WEB_SERVICE_IDLE: on_webservice_idle,
         STATE_WEB_SERVICE_ACTIVE: on_webservice_active,
         MESSAGE_WEB_SERVICE_PLAYING_SONG: on_webservice_playing_song,
@@ -579,7 +579,7 @@ HANDLERS = {
         MESSAGE_WEB_SERVICE_PL_WEBRADIO: on_webservice_pl_web_radio_changed,
         # "Webservice error": on_webservice_error,
     },
-    MESSAGE_SPOTIFY_TYPE: {
+    MESSAGE_SPOTIFY_SOURCE: {
         SPOTIFY_CONNECT_CONNECTED_EVENT: on_spotify_connect_connected,
         SPOTIFY_CONNECT_DISCONNECTED_EVENT: on_spotify_connect_disconnected,
         SPOTIFY_CONNECT_PLAYING_EVENT: on_spotify_connect_playing,
@@ -590,20 +590,20 @@ HANDLERS = {
 
 
 def handle_message(message):
-    command_type = message.get("type")
+    command_source = message.get("source")
     state = message.get("state")
     error = message.get("error", None)
 
-    handlers = HANDLERS.get(command_type)
+    handlers = HANDLERS.get(command_source)
     if handlers is None:
-        oradio_log.warning("Unhandled message type: %s", message)
+        oradio_log.warning("Unhandled message source: %s", message)
         return
 
     if handler := handlers.get(state):
         handler()
     else:
         oradio_log.warning(
-            "Unhandled state '%s' for message type '%s'.", state, command_type
+            "Unhandled state '%s' for message source '%s'.", state, command_source
         )
 
     if error and error != MESSAGE_NO_ERROR:
@@ -611,7 +611,7 @@ def handle_message(message):
             handler()
         else:
             oradio_log.warning(
-                "Unhandled error '%s' for message type '%s'.", error, command_type
+                "Unhandled error '%s' for message source '%s'.", error, command_source
             )
 
 # 3)----------- Process the messages---------

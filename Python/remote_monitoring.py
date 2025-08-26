@@ -25,7 +25,7 @@ import glob
 import json
 from platform import python_version
 from datetime import datetime
-from threading import Timer
+from threading import Timer, Lock
 import subprocess
 import logging
 import requests
@@ -118,11 +118,60 @@ def _handle_response_command(response_text):
         except subprocess.CalledProcessError as ex_err:
             oradio_log.error("shell script '%s' exit code: %d\nOutput:\n%s\nError:\n%s", command, ex_err.returncode, ex_err.stdout, ex_err.stderr)
 
-class Hearbeat(Timer):
-    """ Auto-repeating timer """
+class Heartbeat(Timer):
+    """Process-wide singleton auto-repeating timer"""
+
+# In below code using same construct in multiple modules for singletons
+# pylint: disable=duplicate-code
+
+    _lock = Lock()       # Class-level lock to make singleton thread-safe
+    _instance = None     # Holds the single instance of this class
+
+    def __new__(cls, *args, **kwargs):
+        """Ensure only one instance of Heartbeat is created (singleton pattern)"""
+        with cls._lock:
+            if cls._instance is None:
+                cls._instance = super().__new__(cls)
+                cls._instance._initialized = False  # <-- instance attribute
+        return cls._instance
+
+    def __init__(self, interval, function, args=None, kwargs=None):
+        """Initialize Timer"""
+        # Prevent re-initialization if the singleton is created again
+        if self._initialized:
+            return  # Avoid re-initialization if already done
+        super().__init__(interval, function, args=args, kwargs=kwargs)
+        self._initialized = True
+
+# In above code using same construct in multiple modules for singletons
+# pylint: enable=duplicate-code
+
     def run(self):
+        """Start timer singleton instance"""
         while not self.finished.wait(self.interval):
-            self.function(*self.args, **self.kwargs)
+            try:
+                self.function(*self.args, **self.kwargs)
+            # We don't know what exception the callback can raise, so we need to catch all exceptions as we don't want to stop
+            except Exception as ex_err: # pylint: disable=broad-exception-caught
+                oradio_log.error("Heartbeat execution failed: %s", ex_err)
+
+    def reset(self):
+        """Reset initialization state (private use)"""
+        self._initialized = False
+
+    @classmethod
+    def stop(cls):
+        """Public method to stop and clear the heartbeat singleton"""
+        if cls._instance:
+            cls._instance.cancel()   # <-- Timer.cancel()
+            with cls._lock:
+                cls._instance.reset()
+                cls._instance = None
+
+    @classmethod
+    def is_running(cls):
+        """Check if heartbeat is currently active"""
+        return cls._instance is not None and cls._instance.is_alive()
 
 class RmsService():
     """
@@ -137,31 +186,27 @@ class RmsService():
         """
         self.serial = _get_serial()
         self.send_files = None
-        self.heartbeat_timer = None
 
     def heartbeat_start(self):
         """ If not yet active: start the heartbeat repeat timer and mark as active """
-        global HEARTBEAT_REPEAT_TIMER_IS_RUNNING    # pylint:  disable=global-statement
-        if not HEARTBEAT_REPEAT_TIMER_IS_RUNNING:
-
-            # Send HEARTBEAT when starting
-            self.send_message(HEARTBEAT)
-
-            # Send HEARTBEAT every time the timer expires
-            self.heartbeat_timer = Hearbeat(HEARTBEAT_REPEAT_TIME, self.send_message, args=(HEARTBEAT,))
-            self.heartbeat_timer.start()
-
-            # Mark timer active
-            HEARTBEAT_REPEAT_TIMER_IS_RUNNING = True
-        else:
+        if Heartbeat.is_running():
             oradio_log.warning("heartbeat repeat timer already active")
+            return
+
+        # Send HEARTBEAT when starting
+        self.send_message(HEARTBEAT)
+
+        # Start singleton Heartbeat
+        Heartbeat(
+            HEARTBEAT_REPEAT_TIME,
+            self.send_message,
+            args=(HEARTBEAT,)
+        ).start()
 
     def heartbeat_stop(self):
         """ Stop the heartbeat repeat timer and mark as not active """
-        global HEARTBEAT_REPEAT_TIMER_IS_RUNNING    # pylint:  disable=global-statement
-        if HEARTBEAT_REPEAT_TIMER_IS_RUNNING:
-            self.heartbeat_timer.cancel()
-            HEARTBEAT_REPEAT_TIMER_IS_RUNNING = False
+        if Heartbeat.is_running():
+            Heartbeat.stop()
 
     def send_sys_info(self):
         """ Wrapper to simplify oradio control """
