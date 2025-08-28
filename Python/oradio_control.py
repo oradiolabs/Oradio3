@@ -302,6 +302,16 @@ class StateMachine:
     def run_state_method(self, state_to_handle):
 
         with self.task_lock:
+#########################################################################################
+# REVIEW Henk
+# Be careful with using a lock, as a dead-lock can arise
+# Better is to provide also a time-out option,
+# ThePython’s threading.Lock does not natively support timeouts with the with statement. 
+# However,  we can use lock.acquire(timeout=...) explicitly, together with a feature called context manager to handle this.
+#     Python’s context managers provides a way to automatically set up and clean up resources, 
+#     ensuring they’re properly managed even if errors occur, and making sure to release the "resources" after usage. 
+#     If they are not released then it will lead to resource leakage and may cause system to either slow down or crash.
+#############################################################################################
             leds.turn_off_all_leds()
 
 ######################################################################################

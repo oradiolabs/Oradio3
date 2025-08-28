@@ -110,6 +110,15 @@ class PlaySystemSound:
                 self.restore_timer = None
             if self.active_count == 0:
                 try:
+                    #####################################################
+                    # REVIEW Henk
+                    # A <try> on two different functions will give different kind of errors
+                    # Is more complex to handle.
+                    # Better is to have a <try> in the _set_mpd_volume() and a <try> in
+                    # the _set_spotify_volume(), and return True or False in case of an error
+                    # The _set_mpd_volume amd __set_spotify_volume can handle then the
+                    # specific exceptions.
+                    ###############################################################_
                     self._set_mpd_volume(VOLUME_MPD_SYS_SOUND)
                     self._set_spotify_volume(VOLUME_SPOTIFY_SYS_SOUND)
                 except (subprocess.CalledProcessError, OSError) as err:
@@ -144,6 +153,13 @@ class PlaySystemSound:
         )
 
     def _play_sound(self, sound_key):
+        #############################################################
+        # REVIEW Henk
+        # the return statement is used, but no indication if it the method
+        # was successful or not (True/False). 
+        # So would expect a return(True) when subprocess.run was successfull,
+        # and return(False) in both if cases and at the exception
+        ################################################################# 
         try:
             sound_file = SOUND_FILES.get(sound_key)
             if not sound_file:
@@ -164,6 +180,16 @@ class PlaySystemSound:
         with self.batch_lock:
             if self.active_count == 0:
                 try:
+                    #####################################################
+                    # REVIEW Henk
+                    # A <try> on two different functions will give different kind of errors
+                    # Is more complex to handle.
+                    # Better is to have a <try> in the _set_mpd_volume() and a <try> in
+                    # the _set_spotify_volume(), and return True or False in case of an error
+                    # The _set_mpd_volume amd __set_spotify_volume can handle then the
+                    # specific exceptions.
+                    ###############################################################_
+                    
                     self._set_mpd_volume(DEFAULT_MPD_VOLUME)
                     self._set_spotify_volume(DEFAULT_SPOTIFY_VOLUME)
                 except (subprocess.CalledProcessError, OSError) as err:
@@ -173,9 +199,26 @@ class PlaySystemSound:
     def _play_sound_and_restore(self, sound_key):
         try:
             self._play_sound(sound_key)
+            ######################################################
+            # REVIEW Henk
+            # The _play_sound() method already provides a try-except !!
+            # So the try here will always run, without exceptions.
+            # So why a <try> here again. Would be better to have the _play_sound(0 method
+            # to return True or False
+            # In case of a False the "finally:" part can be processed if required
+            #
+            # A try-without-except can sometimes be used in cases when you are
+            # not interested in the exceptions, but still want to cleanup code using the
+            # finally: . , also when there was an exception
+            ##########################################################################
         finally:
             with self.batch_lock:
                 self.active_count -= 1
+                #############################################################################
+                # REVIEW Henk
+                # Question: What happens if _active_count get a negative number by the above statement
+                # Can you give more details in the code what the function of the active_count is?
+                ###############################################################################
                 if self.active_count == 0:
                     # Delay restore by 1s to batch rapid-fire calls
                     self.restore_timer = threading.Timer(0.5, self._restore_volumes)
