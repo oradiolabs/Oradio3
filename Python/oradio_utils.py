@@ -27,6 +27,7 @@ Created on January 17, 2025
 import json
 import socket
 import logging
+import netifaces
 import subprocess
 from subprocess import run
 from typing import Any, Optional
@@ -45,10 +46,10 @@ from oradio_const import (
 oradio_log = logging.getLogger("oradio")
 
 ##### LOCAL constants ####################
+INTERFACE = "wlan0"
 # ping constants
-PING_INTERFACE = "wlan0"
-PING_TIMEOUT   = 1
-PING_HOST      = "8.8.8.8"  # google.com
+PING_TIMEOUT = 1
+PING_HOST    = "8.8.8.8"  # google.com
 # TCP DNS constants
 DNS_TIMEOUT = 3
 DNS_HOST    = ("8.8.8.8", 53)
@@ -159,20 +160,20 @@ def create_json_model(model_name):
 
 def has_internet():
     """
-    Hybrid internet check:
+    Hybrid internet check on wireless interface:
     First check NetworkManager has connection
     Second if connected do ping (fast)
     Third if ping fails do DNS check (robust)
     """
     # First: NetworkManager
-    cmd = "nmcli -t -f DEVICE,STATE device status | grep -q '^wlan0:connected'"
+    cmd = f"nmcli -t -f DEVICE,STATE device status | grep -q '^{INTERFACE}:connected'"
     result, _ = run_shell_script(cmd)
     if not result:
         oradio_log.debug("No network connection")
         return False
 
     # Second: ping
-    cmd = f"ping -c 1 -W {PING_TIMEOUT} {PING_HOST}"
+    cmd = f"ping -I {INTERFACE} -c 1 -W {PING_TIMEOUT} {PING_HOST}"
     result, _ = run_shell_script(cmd)
     if result:
         # Has internet
@@ -181,9 +182,15 @@ def has_internet():
 
     # Third: DNS
     try:
-        with socket.create_connection(DNS_HOST, timeout=DNS_TIMEOUT):
-            return True
-    except OSError:
+        # Get IPv4-address
+        addrs = netifaces.ifaddresses(INTERFACE)
+        src_ip = addrs[netifaces.AF_INET][0]['addr']
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+            sock.bind((src_ip, 0))  # Any source port
+            sock.settimeout(DNS_TIMEOUT)
+            sock.connect(DNS_HOST)
+        return True
+    except (socket.timeout, socket.error, KeyError):
         oradio_log.debug("DNS failed: no internet")
         return False
 
