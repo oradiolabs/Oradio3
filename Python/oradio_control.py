@@ -78,7 +78,6 @@ from oradio_const import (
     MESSAGE_WIFI_FAIL_CONNECT,
     STATE_WIFI_ACCESS_POINT,
     STATE_WIFI_CONNECTED,
-    STATE_WIFI_INTERNET,
     STATE_WIFI_IDLE,
 )
 
@@ -382,10 +381,14 @@ def on_usb_present():
 # Messages when after the closure of the Oradio AP Webservice the Wifi connection is/not made
 
 
-def on_wifi_connected_to_internet():
-    oradio_log.info("Wifi is connected to internet acknowledged")
+#OMJ: wifi checkt niet meer of er wel/geen internet is
+#def on_wifi_connected_to_internet():
+def on_wifi_connected():
+    oradio_log.info("Wifi is connected acknowledged")
 #     if internet_connected.is_set():
 #         return  # already marked disconnected; nothing to do
+#OMJ: Check met oradio_utils.has_internet() wanneer internet ook nodig is
+#     Geen check, dus aanname dat als we met wifi verbonden zijn ook internet toegang hebben
     internet_connected.set()
 
     if state_machine.state in PLAY_WEBSERVICE_STATES:  # If in play states,
@@ -410,8 +413,9 @@ def on_wifi_access_point():
     oradio_log.info("Configured as access point acknowledged")
 #    on_wifi_fail_connect() # do same actions as on_wifi_fail_connect
 
-def on_wifi_connected_no_internet():
-    oradio_log.info("Wifi is connected NO internet acknowledged")
+#OMJ: Niet langer nodig
+#def on_wifi_connected_no_internet():
+#    oradio_log.info("Wifi is connected NO internet acknowledged")
 #    on_wifi_fail_connect() # do same actions as on_wifi_fail_connect
 
 def on_wifi_not_connected():
@@ -564,8 +568,10 @@ HANDLERS = {
     },
     MESSAGE_WIFI_SOURCE: {
         STATE_WIFI_IDLE: on_wifi_not_connected,
-        STATE_WIFI_INTERNET: on_wifi_connected_to_internet,
-        STATE_WIFI_CONNECTED: on_wifi_connected_no_internet,
+#OMJ: Wifi service check niet meer of er wel/geen internet is
+#        STATE_WIFI_INTERNET: on_wifi_connected_to_internet,
+#        STATE_WIFI_CONNECTED: on_wifi_connected_no_internet,
+        STATE_WIFI_CONNECTED: on_wifi_connected,
         STATE_WIFI_ACCESS_POINT: on_wifi_access_point,
         MESSAGE_WIFI_FAIL_CONNECT: on_wifi_fail_connect,
     },

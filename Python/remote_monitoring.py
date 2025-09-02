@@ -31,7 +31,7 @@ import logging
 import requests
 
 ##### oradio modules ####################
-from oradio_utils import check_internet_connection
+from oradio_utils import has_internet
 
 ##### GLOBAL constants ####################
 from oradio_const import ORADIO_LOG_DIR
@@ -218,7 +218,7 @@ class RmsService():
         If connected to the internet: send message to Remote Monitoring Service
         """
         # Messages are lost if not connected to internet
-        if not check_internet_connection():
+        if not has_internet():
             return
 
         # Initialze message to send

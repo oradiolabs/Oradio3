@@ -45,6 +45,13 @@ from oradio_const import (
 oradio_log = logging.getLogger("oradio")
 
 ##### LOCAL constants ####################
+# ping constants
+PING_INTERFACE = "wlan0"
+PING_TIMEOUT   = 1
+PING_HOST      = "8.8.8.8"  # google.com
+# TCP DNS constants
+DNS_TIMEOUT = 3
+DNS_HOST    = ("8.8.8.8", 53)
 
 def safe_put(queue, item, block=True, timeout=None):
     """
@@ -150,15 +157,36 @@ def create_json_model(model_name):
         messages = models[model_name]
     return(status, messages)
 
-def check_internet_connection():
+def has_internet(interface="wlan0"):
     """
-    Check if the system has internet access checking Google DNS
-    :return: True if connected to the internet, False otherwise
+    Hybrid internet check:
+    First check NetworkManager has connection
+    Second if connected do ping (fast)
+    Third if ping fails do DNS check (robust)
     """
+    # First: NetworkManager
+    cmd = "nmcli -t -f DEVICE,STATE device status | grep -q '^wlan0:connected'"
+    result, _ = run_shell_script(cmd)
+    if not result:
+        oradio_log.debug("No network connection")
+        return False
+
+    # Second: ping
+    cmd = f"ping -c 1 -W {PING_TIMEOUT} {PING_HOST}"
+    result, _ = run_shell_script(cmd)
+    if result:
+        # Has internet
+        return True
+    else:
+        oradio_log.debug("ping failed, check DNS")
+        pass
+
+    # Third: DNS
     try:
-        with socket.create_connection(("8.8.8.8", 53), timeout=3):
+        with socket.create_connection(DNS_HOST, timeout=DNS_TIMEOUT):
             return True
     except OSError:
+        oradio_log.debug("DNS failed: no internet")
         return False
 
 def run_shell_script(script):
@@ -170,12 +198,14 @@ def run_shell_script(script):
     oradio_log.debug("Runnning shell script: %s", script)
     process = run(script, shell = True, capture_output = True, encoding = 'utf-8', check = False)
     if process.returncode != 0:
-        oradio_log.error("shell script error: %s", process.stderr)
         return False, process.stderr.strip()
     return True, process.stdout
 
 # Entry point for stand-alone operation
 if __name__ == '__main__':
+
+    # Imports only relevant when stand-alone
+    from oradio_logging import oradio_log
 
 # Most modules use similar code in stand-alone
 # pylint: disable=duplicate-code
@@ -207,19 +237,19 @@ if __name__ == '__main__':
                     print("\nExiting test program...\n")
                     break
                 case 1:
-                    print(f"\nConnected to internet: {check_internet_connection()}\n")
+                    print(f"\nConnected to internet: {has_internet()}\n")
                 case 2:
-                    response, output = run_shell_script("ls")
-                    if response:
-                        print(f"\nresponse={response}, output={output}")
+                    result, response = run_shell_script("ls")
+                    if result:
+                        print(f"\nresult={result}, response={response}")
                     else:
-                        print(f"\n{YELLOW}Unexpected response: response={response}, output={output}{NC}")
+                        print(f"\n{YELLOW}Unexpected result: result={result}, response={response}{NC}")
                 case 3:
-                    response, output = run_shell_script("xxx")
-                    if not response:
-                        print(f"\nresponse={response}, output={output}")
+                    result, response = run_shell_script("xxx")
+                    if not result:
+                        print(f"\nresult={result}, response={response}")
                     else:
-                        print(f"\n{YELLOW}Unexpected response: response={response}, output={output}{NC}")
+                        print(f"\n{YELLOW}Unexpected result: result={result}, response={response}{NC}")
                 case _:
                     print("\nPlease input a valid number\n")
 
