@@ -57,8 +57,7 @@ ACCESS_POINT_HOST = "108.156.60.1"  # wsj.com
 ACCESS_POINT_SSID = "OradioAP"
 # wifi states
 STATE_WIFI_IDLE         = "Wifi is not connected"
-STATE_WIFI_INTERNET     = "Wifi connected to internet"
-STATE_WIFI_CONNECTED    = "Wifi connected without internet"
+STATE_WIFI_CONNECTED    = "Wifi connected"
 STATE_WIFI_ACCESS_POINT = "Wifi configured as access point"
 # wifi messages
 MESSAGE_WIFI_SOURCE          = "Wifi message"

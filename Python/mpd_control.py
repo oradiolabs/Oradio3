@@ -762,6 +762,9 @@ def get_mpd_control(host: str = "localhost", port: int = 6600) -> MPDControl:
 # Entry point for stand-alone operation
 if __name__ == '__main__':
 
+    # Imports only relevant when stand-alone
+    import random
+
 # Most modules use similar code in stand-alone
 # pylint: disable=duplicate-code
 
@@ -769,8 +772,6 @@ if __name__ == '__main__':
 
     # Instantiate MPDControl
     mpd = MPDControl()
-
-    import random
 
     INPUT_SELECTION = ("\nSelect a function, input the number:\n"
                        " 0  - Quit\n"

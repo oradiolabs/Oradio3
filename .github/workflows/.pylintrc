@@ -43,6 +43,8 @@ function-rgx=[a-z_][a-z0-9_]{2,30}$
 [TYPECHECK]
 # Suppress warnings for dynamically defined attributes, e.g., mixins or dynamic classes
 ignore-mixin-members=yes
+# Pylint cannot see the members from C extension modules
+extension-pkg-allow-list=netifaces
 
 [REPORTS]
 # Cleaner output: no full reports, just messages and scores

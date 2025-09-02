@@ -23,7 +23,7 @@ jobs:
         source ~/.venv/bin/activate
         python -m pip install --upgrade pip
         pip install pylint smbus2 rpi-lgpio concurrent_log_handler \
-                    requests nmcli vcgencmd watchdog python-mpd2 \
+                    requests nmcli netifaces vcgencmd watchdog python-mpd2 \
                     pydantic fastapi JinJa2 uvicorn python-multipart
         pip install pyalsaaudio --use-pep517
 

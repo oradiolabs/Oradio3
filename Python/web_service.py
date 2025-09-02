@@ -46,7 +46,6 @@ from oradio_const import (
     ACCESS_POINT_HOST,
     ACCESS_POINT_SSID,
     STATE_WIFI_IDLE,
-    STATE_WIFI_INTERNET,
     STATE_WIFI_CONNECTED,
     STATE_WIFI_ACCESS_POINT,
     WEB_SERVER_HOST,
@@ -394,7 +393,7 @@ class WebService():
 
         # Wait until wifi is no longer in access point mode, or timeout
         start_time = time.time()
-        while state not in (STATE_WIFI_IDLE, STATE_WIFI_INTERNET, STATE_WIFI_CONNECTED):
+        while state not in (STATE_WIFI_IDLE, STATE_WIFI_CONNECTED):
             # Check if the timeout has been reached
             if time.time() - start_time > TIMEOUT:
                 oradio_log.error("Timeout waiting for access point to become inactive")
@@ -429,12 +428,12 @@ class WebService():
 # Entry point for stand-alone operation
 if __name__ == '__main__':
 
-# Most modules use similar code in stand-alone
-# pylint: disable=duplicate-code
-
     # Imports only relevant when stand-alone
     import requests
     import subprocess
+
+# Most modules use similar code in stand-alone
+# pylint: disable=duplicate-code
 
     def _check_messages(queue):
         """

@@ -255,6 +255,7 @@ if [ "$1" != "--continue" ]; then
 		concurrent-log-handler
 		requests
 		nmcli
+		netifaces
 		pyalsaaudio
 		vcgencmd
 		watchdog

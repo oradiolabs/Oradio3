@@ -35,7 +35,7 @@ from dbus.exceptions import DBusException
 from gi.repository import GLib
 
 ##### oradio modules ####################
-from oradio_utils import check_internet_connection, run_shell_script, safe_put
+from oradio_utils import run_shell_script, safe_put
 from usb_service import USBService
 from oradio_logging import oradio_log
 
@@ -48,7 +48,6 @@ from oradio_const import (
     STATE_USB_PRESENT,
     MESSAGE_WIFI_SOURCE,
     STATE_WIFI_IDLE,
-    STATE_WIFI_INTERNET,
     STATE_WIFI_CONNECTED,
     STATE_WIFI_ACCESS_POINT,
     MESSAGE_WIFI_FILE_ERROR,
@@ -209,9 +208,6 @@ class WifiEventListener:
             if active == ACCESS_POINT_SSID:
                 # Connection is access point
                 message["state"] = STATE_WIFI_ACCESS_POINT
-            elif check_internet_connection():
-                # Connection to wifi network with internet access
-                message["state"] = STATE_WIFI_INTERNET
             else:
                 # Connection to wifi network WITHOUT internet access
                 message["state"] = STATE_WIFI_CONNECTED
@@ -386,10 +382,7 @@ class WifiService():
         if active == ACCESS_POINT_SSID:
             # Connection is access point
             return STATE_WIFI_ACCESS_POINT
-        if check_internet_connection():
-            # Connection to wifi network WITH internet access
-            return STATE_WIFI_INTERNET
-        # Connection to wifi network WITHOUT internet access
+        # Connection to wifi network
         return STATE_WIFI_CONNECTED
 
     def wifi_connect(self, ssid, pswd):
