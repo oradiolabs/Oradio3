@@ -157,7 +157,7 @@ def create_json_model(model_name):
         messages = models[model_name]
     return(status, messages)
 
-def has_internet(interface="wlan0"):
+def has_internet():
     """
     Hybrid internet check:
     First check NetworkManager has connection
@@ -177,9 +177,7 @@ def has_internet(interface="wlan0"):
     if result:
         # Has internet
         return True
-    else:
-        oradio_log.debug("ping failed, check DNS")
-        pass
+    oradio_log.debug("ping failed, check DNS")
 
     # Third: DNS
     try:
@@ -203,9 +201,6 @@ def run_shell_script(script):
 
 # Entry point for stand-alone operation
 if __name__ == '__main__':
-
-    # Imports only relevant when stand-alone
-    from oradio_logging import oradio_log
 
 # Most modules use similar code in stand-alone
 # pylint: disable=duplicate-code
