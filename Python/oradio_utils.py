@@ -27,11 +27,11 @@ Created on January 17, 2025
 import json
 import socket
 import logging
-import netifaces
 import subprocess
 from subprocess import run
 from typing import Any, Optional
 from pydantic import BaseModel, create_model
+import netifaces
 
 ##### GLOBAL constants ####################
 from oradio_const import (
