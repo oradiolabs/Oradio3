@@ -163,12 +163,12 @@ if not oradio_log.hasHandlers():
 # Entry point for stand-alone operation
 if __name__ == '__main__':
 
-# Most modules use similar code in stand-alone
-# pylint: disable=duplicate-code
-
     # import when running stand-alone
     from threading import Thread
     from multiprocessing import Process
+
+# Most modules use similar code in stand-alone
+# pylint: disable=duplicate-code
 
     print(f"\nSystem logging level: {ORADIO_LOG_LEVEL}\n")
 
