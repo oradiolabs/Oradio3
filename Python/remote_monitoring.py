@@ -127,7 +127,8 @@ class Heartbeat(Timer):
     _lock = Lock()       # Class-level lock to make singleton thread-safe
     _instance = None     # Holds the single instance of this class
 
-    def __new__(cls, *args, **kwargs):
+    # Underscores mark args and kwargs as 'intentionally unused'
+    def __new__(cls, *_args, **_kwargs):
         """Ensure only one instance of Heartbeat is created (singleton pattern)"""
         with cls._lock:
             if cls._instance is None:

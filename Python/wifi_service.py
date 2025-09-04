@@ -112,7 +112,8 @@ class WifiEventListener:
     _instance = None     # Holds the single instance of this class
     _initialized = False # Tracks whether __init__ has been run
 
-    def __new__(cls, *args, **kwargs):
+    # Underscores mark args and kwargs as 'intentionally unused'
+    def __new__(cls, *_args, **_kwargs):
         """Ensure only one instance of WifiEventListener is created (singleton pattern)"""
         with cls._lock:
             if cls._instance is None:

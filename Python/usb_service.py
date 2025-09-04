@@ -67,7 +67,8 @@ class USBObserver:
     _instance = None     # Holds the single instance of this class
     _initialized = False # Tracks whether __init__ has been run
 
-    def __new__(cls, *args, **kwargs):
+    # Underscores mark args and kwargs as 'intentionally unused'
+    def __new__(cls, *_args, **_kwargs):
         """
         Create or return the singleton instance in a thread-safe manner
         *args, **kwargs: Passed to the underlying Observer constructor (only used once)
@@ -88,11 +89,11 @@ class USBObserver:
             return  # Avoid re-initialization if already done
         self._initialized = True
 
-        # Initialize parent/underlying instance
-        self._observer = Observer(*args, **kwargs)
-
 # In above code using same construct in multiple modules for singletons
 # pylint: enable=duplicate-code
+
+        # Initialize parent/underlying instance
+        self._observer = Observer(*args, **kwargs)
 
     def __getattr__(self, name):
         """
@@ -114,7 +115,8 @@ class USBMonitor(PatternMatchingEventHandler):
     _instance = None     # Holds the single instance of this class
     _initialized = False # Tracks whether __init__ has been run
 
-    def __new__(cls, *args, **kwargs):
+    # Underscores mark args and kwargs as 'intentionally unused'
+    def __new__(cls, *_args, **_kwargs):
         """
         Create or return the singleton instance
         Uses a class-level lock to ensure thread safety during creation

@@ -27,8 +27,7 @@ And a volume controller to set the system sound
 """
 import os
 import subprocess
-import threading
-#import queue
+from threading import Thread, Lock, Timer
 import time
 import random
 
@@ -73,28 +72,37 @@ SOUND_FILES = {
 class PlaySystemSound:
     """
     Singleton class to play system sounds asynchronously in a separate thread,
-    with batch‐ducking of MPD/Spotify volumes and delayed restoration.
+    with batch-ducking of MPD/Spotify volumes and delayed restoration.
     """
+# In below code using same construct in multiple modules for singletons
+# pylint: disable=duplicate-code
 
-    # ——— Singleton machinery ———
-    _instance = None
-    def __new__(cls, audio_device="SysSound_in"):
-        # If no instance exists yet, create one; otherwise return the existing one
-        if cls._instance is None:
-            cls._instance = super().__new__(cls)
+    _lock = Lock()       # Class-level lock to make singleton thread-safe
+    _instance = None     # Holds the single instance of this class
+    _initialized = False # Tracks whether __init__ has been run
+
+    # Underscores marks audio_device 'intentionally unused'
+    def __new__(cls, _audio_device="SysSound_in"):
+        """Ensure only one instance of PlaySystemSound is created (singleton pattern)"""
+        with cls._lock:
+            if cls._instance is None:
+                cls._instance = super().__new__(cls)
         return cls._instance
 
     def __init__(self, audio_device="SysSound_in"):
-        # Only run init once
-        if getattr(self, "_initialized", False):
-            return
+        """Initialize audio device"""
+        # Prevent re-initialization if the singleton is created again
+        if self._initialized:
+            return  # Avoid re-initialization if already done
         self._initialized = True
-    # ——————————————————————————
 
-        self.audio_device = audio_device
-        self.batch_lock     = threading.Lock()
-        self.active_count   = 0
-        self.restore_timer  = None
+# In above code using same construct in multiple modules for singletons
+# pylint: enable=duplicate-code
+
+        self.audio_device  = audio_device
+        self.batch_lock    = Lock()
+        self.active_count  = 0
+        self.restore_timer = None
 
         # Ensure system‐sound channel is at its default level
         self._set_sys_volume(DEFAULT_SYS_SOUND_VOLUME)
@@ -116,7 +124,7 @@ class PlaySystemSound:
                     oradio_log.error("Error setting system sound volumes: %s", err)
             self.active_count += 1
 
-        threading.Thread(
+        Thread(
             target=self._play_sound_and_restore,
             args=(sound_key,),
             daemon=True
@@ -178,7 +186,7 @@ class PlaySystemSound:
                 self.active_count -= 1
                 if self.active_count == 0:
                     # Delay restore by 1s to batch rapid-fire calls
-                    self.restore_timer = threading.Timer(0.5, self._restore_volumes)
+                    self.restore_timer = Timer(0.5, self._restore_volumes)
                     self.restore_timer.start()
 
 # ------------------ TEST SECTION ------------------
@@ -195,11 +203,11 @@ if __name__ == "__main__":
 
     def build_menu():
         """Create stand-alone menu options """
-        menu = "\nSelect a function:\n 0  - Quit\n"
+        menu = "\nSelect a function:\n  0-Quit\n"
         for idx, sound_key in enumerate(sound_keys, start=1):
-            menu += f" {idx:<3}- Play {sound_key}\n"
-        menu += " 99 - Stress Test (random sounds)\n"
-        menu += "100 - Custom Sequence Test (enter 5 sound numbers)\n"
+            menu += f"{idx:>3}-Play {sound_key}\n"
+        menu += " 99-Stress Test (random sounds)\n"
+        menu += "100-Custom Sequence Test (enter 5 sound numbers)\n"
         menu += "Select: "
         return menu
 
@@ -227,7 +235,7 @@ if __name__ == "__main__":
                     while time.time() - start < duration:
                         player.play(random.choice(sound_keys))
                         time.sleep(random.uniform(0.1, 0.5))
-                threads = [threading.Thread(target=rnd) for _ in range(5)]
+                threads = [Thread(target=rnd) for _ in range(5)]
                 for thread in threads:
                     thread.start()
                 for thread in threads:
