@@ -154,7 +154,7 @@ class TouchButtons:
         try:
             self.long_press_handler(button_name)
 # REVIEW Onno: Kan er überhaupt een exception optreden? Zo niet, dan is except niet nodig. Zo ja, dan de mogelijke exceptions afvangen
-        except Exception:
+        except Exception:   # pylint: disable=broad-exception-caught
             # Defensive: ensure user-supplied handler failures do not crash the timer path
             oradio_log.exception("Exception in long press handler for %s", button_name)
 

@@ -211,53 +211,60 @@ if __name__ == "__main__":
         menu += "Select: "
         return menu
 
-    while True:
-        try:
-            choice = int(input(build_menu())) # pylint: disable=invalid-name
-        except ValueError:
-            choice = -1 # pylint: disable=invalid-name
+    def interactive_menu():
+        """Show menu with test options"""
 
-        if choice == 0:
-            print("\nExiting test program...\n")
-            break
+        # User command loop
+        while True:
+            try:
+                choice = int(input(build_menu()))
+            except ValueError:
+                choice = -1
 
-        if 1 <= choice <= len(sound_keys):
-            key = sound_keys[choice - 1]
-            print(f"\nEnqueue: Play {key}\n")
-            sound_player.play(key)
+            if choice == 0:
+                print("\nExiting test program...\n")
+                break
 
-        elif choice == 99:
-            print("\nExecuting: Stress Test\n")
-            def stress_test(player, duration=10):
-                """ Run stress test playing sound files randomly """
-                start = time.time()
-                def rnd():
-                    while time.time() - start < duration:
-                        player.play(random.choice(sound_keys))
-                        time.sleep(random.uniform(0.1, 0.5))
-                threads = [Thread(target=rnd) for _ in range(5)]
-                for thread in threads:
-                    thread.start()
-                for thread in threads:
-                    thread.join()
-                print("\nStress test completed.\n")
-            stress_test(sound_player)
+            if 1 <= choice <= len(sound_keys):
+                key = sound_keys[choice - 1]
+                print(f"\nEnqueue: Play {key}\n")
+                sound_player.play(key)
 
-        elif choice == 100:
-            print("\nCustom Sequence Test selected.")
-            seq_input = input(f"Enter 5 numbers (1–{len(sound_keys)}) separated by spaces: ")
-            nums = seq_input.strip().split()
-            if len(nums) != 5 or not all(n.isdigit() for n in nums):
-                print("Invalid input: need exactly 5 integers.\n")
-                continue
-            indices = [int(n) for n in nums]
-            if not all(1 <= i <= len(sound_keys) for i in indices):
-                print("Numbers out of range.\n")
-                continue
-            seq = [sound_keys[i-1] for i in indices]
-            print(f"Enqueuing sequence: {seq}\n")
-            for k in seq:
-                sound_player.play(k)
+            elif choice == 99:
+                print("\nExecuting: Stress Test\n")
+                def stress_test(player, duration=10):
+                    """ Run stress test playing sound files randomly """
+                    start = time.time()
+                    def rnd():
+                        while time.time() - start < duration:
+                            player.play(random.choice(sound_keys))
+                            time.sleep(random.uniform(0.1, 0.5))
+                    threads = [Thread(target=rnd) for _ in range(5)]
+                    for thread in threads:
+                        thread.start()
+                    for thread in threads:
+                        thread.join()
+                    print("\nStress test completed.\n")
+                stress_test(sound_player)
 
-        else:
-            print("\nInvalid selection. Please enter a valid number.\n")
+            elif choice == 100:
+                print("\nCustom Sequence Test selected.")
+                seq_input = input(f"Enter 5 numbers (1–{len(sound_keys)}) separated by spaces: ")
+                nums = seq_input.strip().split()
+                if len(nums) != 5 or not all(n.isdigit() for n in nums):
+                    print("Invalid input: need exactly 5 integers.\n")
+                    continue
+                indices = [int(n) for n in nums]
+                if not all(1 <= i <= len(sound_keys) for i in indices):
+                    print("Numbers out of range.\n")
+                    continue
+                seq = [sound_keys[i-1] for i in indices]
+                print(f"Enqueuing sequence: {seq}\n")
+                for k in seq:
+                    sound_player.play(k)
+
+            else:
+                print("\nInvalid selection. Please enter a valid number.\n")
+
+    # Present menu with tests
+    interactive_menu()
