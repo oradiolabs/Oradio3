@@ -295,14 +295,14 @@ if __name__ == "__main__":
 
     # Show menu with test options
     INPUT_SELECTION = ("Select a function, input the number.\n"
-                       " 0-quit\n"
-                       " 1-test heartbeat\n"
-                       " 2-test sys_info\n"
-                       " 3-test warning\n"
-                       " 4-test error\n"
-                       " 5-start heartbeat\n"
-                       " 6-stop heartbeat\n"
-                       "select: "
+                       " 0-Quit\n"
+                       " 1-Test heartbeat\n"
+                       " 2-Test sys_info\n"
+                       " 3-Test warning\n"
+                       " 4-Test error\n"
+                       " 5-Start heartbeat\n"
+                       " 6-Stop heartbeat\n"
+                       "Select: "
                        )
 
     # User command loop

@@ -174,7 +174,7 @@ if __name__ == '__main__':
 
     # Show menu with test options
     INPUT_SELECTION = ("Select a function, input the number.\n"
-                       " 0-quit\n"
+                       " 0-Quit\n"
                        " 1-Test log level DEBUG\n"
                        " 2-Test log level INFO\n"
                        " 3-Test log level WARNING\n"
@@ -182,7 +182,7 @@ if __name__ == '__main__':
                        " 5-Test unhandled exceptions in Process and Thread\n"
                        " 6-Test unhandled exception in current thread: will exit\n"
                        " 7-Test segment fault: will exit\n"
-                       "select: "
+                       "Select: "
                        )
 
     # User command loop

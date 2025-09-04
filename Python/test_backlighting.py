@@ -82,13 +82,13 @@ def test_backlighting():
 
     # Show menu with test options
     input_selection = ("Select a function, input the number.\n"
-                       " 0-quit\n"
+                       " 0-Quit\n"
                        " 1-Activate Auto Adjust\n"
                        " 2-Stop Auto Adjust\n"
                        " 3-Turn Off backlight\n"
                        " 4-Set backlight to maximum\n"
                        " 5-Test sensor mode\n"
-                       "select: "
+                       "Select: "
                        )
 
     # User command loop

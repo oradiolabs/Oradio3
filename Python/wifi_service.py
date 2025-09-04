@@ -693,7 +693,7 @@ if __name__ == '__main__':
         # Show menu with test options
         input_selection = (
             "Select a function, input the number:\n"
-            " 0-quit\n"
+            " 0-Quit\n"
             " 1-Add WifiService instance\n"
             " 2-Remove WifiService instance\n"
             " 3-list wifi networks in NetworkManager\n"
@@ -704,7 +704,7 @@ if __name__ == '__main__':
             " 8-connect to wifi network\n"
             " 9-start access point\n"
             "10-disconnect from network\n"
-            "select: "
+            "Select: "
         )
 
         # User command loop

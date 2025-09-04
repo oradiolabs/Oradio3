@@ -218,11 +218,11 @@ if __name__ == '__main__':
         # Show menu with test options
         input_selection = (
             "Select a function, input the number.\n"
-            " 0-quit\n"
+            " 0-Quit\n"
             " 1-Show internet connection status\n"
             " 2-Run shell script('ls')\n"
             " 3-Run shell script('xxx')\n"
-            "select: "
+            "Select: "
         )
 
         # User command loop

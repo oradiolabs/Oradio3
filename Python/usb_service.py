@@ -317,7 +317,7 @@ if __name__ == '__main__':
         # Show menu with test options
         input_selection = (
             "Select a function, input the number:\n"
-            " 0-quit\n"
+            " 0-Quit\n"
             " 1-Add USBService instance\n"
             " 2-Remove USBService instance\n"
             " 3-Simulate USB inserted\n"

@@ -455,14 +455,14 @@ if __name__ == '__main__':
         # Show menu with test options
         input_selection = (
             "Select a function, input the number.\n"
-            " 0-quit\n"
+            " 0-Quit\n"
             " 1-Show ANY web service state\n"
             " 2-start web service (emulate long-press-AAN)\n"
             " 3-stop web service (emulate any-press-UIT)\n"
             " 4-start and right away stop web service (test robustness)\n"
             " 5-start, connect to wifi, stop service (emulate web interface submit network)\n"
             " 6-get wifi state and connection\n"
-            "select: "
+            "Select: "
         )
 
         # User command loop
