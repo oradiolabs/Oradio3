@@ -164,6 +164,7 @@ if not oradio_log.hasHandlers():
 if __name__ == '__main__':
 
     # import when running stand-alone
+    import ctypes
     from threading import Thread
     from multiprocessing import Process
 
@@ -172,75 +173,81 @@ if __name__ == '__main__':
 
     print(f"\nSystem logging level: {ORADIO_LOG_LEVEL}\n")
 
-    # Show menu with test options
-    INPUT_SELECTION = ("Select a function, input the number.\n"
-                       " 0-Quit\n"
-                       " 1-Test log level DEBUG\n"
-                       " 2-Test log level INFO\n"
-                       " 3-Test log level WARNING\n"
-                       " 4-Test log level ERROR\n"
-                       " 5-Test unhandled exceptions in Process and Thread\n"
-                       " 6-Test unhandled exception in current thread: will exit\n"
-                       " 7-Test segment fault: will exit\n"
-                       "Select: "
-                       )
+    def interactive_menu():
+        """Show menu with test options"""
 
-    # User command loop
-    while True:
-        # Get user input
-        try:
-            FunctionNr = int(input(INPUT_SELECTION)) # pylint: disable=invalid-name
-        except ValueError:
-            FunctionNr = -1 # pylint: disable=invalid-name
+        # Show menu with test options
+        input_selection = (
+            "Select a function, input the number.\n"
+            " 0-Quit\n"
+            " 1-Test log level DEBUG\n"
+            " 2-Test log level INFO\n"
+            " 3-Test log level WARNING\n"
+            " 4-Test log level ERROR\n"
+            " 5-Test unhandled exceptions in Process and Thread\n"
+            " 6-Test unhandled exception in current thread: will exit\n"
+            " 7-Test segment fault: will exit\n"
+            "Select: "
+        )
 
-        # Execute selected function
-        match FunctionNr:
-            case 0:
-                print("\nExiting test program...\n")
-                break
-            case 1:
-                oradio_log.setLevel(DEBUG)
-                print(f"\nlogging level: {DEBUG}: Show debug, info, warning and error messages\n")
-                oradio_log.debug('This is a debug message')
-                oradio_log.info('This is a info message')
-                oradio_log.warning('This is a warning message')
-                oradio_log.error('This is a error message')
-            case 2:
-                oradio_log.setLevel(INFO)
-                print(f"\nlogging level: {INFO}: Show info, warning and error messages\n")
-                oradio_log.debug('This is a debug message')
-                oradio_log.info('This is a info message')
-                oradio_log.warning('This is a warning message')
-                oradio_log.error('This is a error message')
-            case 3:
-                oradio_log.setLevel(WARNING)
-                print(f"\nlogging level: {WARNING}: Show warning and error messages\n")
-                oradio_log.debug('This is a debug message')
-                oradio_log.info('This is a info message')
-                oradio_log.warning('This is a warning message')
-                oradio_log.error('This is a error message')
-            case 4:
-                oradio_log.setLevel(ERROR)
-                print(f"\nlogging level: {ERROR}: Show error message\n")
-                oradio_log.debug('This is a debug message')
-                oradio_log.info('This is a info message')
-                oradio_log.warning('This is a warning message')
-                oradio_log.error('This is a error message')
-            case 5:
-                def _generate_process_exception():
-                    print(10 + 'hello: Process')
-                print("\nGenerate unhandled exception in Process:\n")
-                Process(target=_generate_process_exception).start()
-                def _generate_thread_exception():
-                    print(10 + 'hello: Thread')
-                print("\nGenerate unhandled exception in Thread:\n")
-                Thread(target=_generate_thread_exception).start()
-            case 6:
-                print("\nGenerate unhandled exception in current thread:\n")
-                print(10 + 'hello: current thread')
-            case 7:
-                print("\nGenerate segmentation fault:\n")
-                import ctypes
-                ctypes.string_at(0)
-            case _:
-                print(f"\n{YELLOW}Please input a valid number{NC}\n")
+        # User command loop
+        while True:
+            # Get user input
+            try:
+                function_nr = int(input(input_selection))
+            except ValueError:
+                function_nr = -1
+
+            # Execute selected function
+            match function_nr:
+                case 0:
+                    print("\nExiting test program...\n")
+                    break
+                case 1:
+                    oradio_log.setLevel(DEBUG)
+                    print(f"\nlogging level: {DEBUG}: Show debug, info, warning and error messages\n")
+                    oradio_log.debug('This is a debug message')
+                    oradio_log.info('This is a info message')
+                    oradio_log.warning('This is a warning message')
+                    oradio_log.error('This is a error message')
+                case 2:
+                    oradio_log.setLevel(INFO)
+                    print(f"\nlogging level: {INFO}: Show info, warning and error messages\n")
+                    oradio_log.debug('This is a debug message')
+                    oradio_log.info('This is a info message')
+                    oradio_log.warning('This is a warning message')
+                    oradio_log.error('This is a error message')
+                case 3:
+                    oradio_log.setLevel(WARNING)
+                    print(f"\nlogging level: {WARNING}: Show warning and error messages\n")
+                    oradio_log.debug('This is a debug message')
+                    oradio_log.info('This is a info message')
+                    oradio_log.warning('This is a warning message')
+                    oradio_log.error('This is a error message')
+                case 4:
+                    oradio_log.setLevel(ERROR)
+                    print(f"\nlogging level: {ERROR}: Show error message\n")
+                    oradio_log.debug('This is a debug message')
+                    oradio_log.info('This is a info message')
+                    oradio_log.warning('This is a warning message')
+                    oradio_log.error('This is a error message')
+                case 5:
+                    def _generate_process_exception():
+                        print(10 + 'hello: Process')
+                    print("\nGenerate unhandled exception in Process:\n")
+                    Process(target=_generate_process_exception).start()
+                    def _generate_thread_exception():
+                        print(10 + 'hello: Thread')
+                    print("\nGenerate unhandled exception in Thread:\n")
+                    Thread(target=_generate_thread_exception).start()
+                case 6:
+                    print("\nGenerate unhandled exception in current thread:\n")
+                    print(10 + 'hello: current thread')
+                case 7:
+                    print("\nGenerate segmentation fault:\n")
+                    ctypes.string_at(0)
+                case _:
+                    print(f"\n{YELLOW}Please input a valid number{NC}\n")
+
+    # Present menu with tests
+    interactive_menu()
