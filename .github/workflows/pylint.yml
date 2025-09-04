@@ -46,7 +46,6 @@ jobs:
         source ~/.venv/bin/activate
         pylint $(git ls-files '*.py') \
         --rcfile=.github/workflows/.pylintrc \
-        --generated-members=self.client,mpd.client \
         --output=pylint_result.txt
         status=$?
         echo "Raw pylint exit code: $status"
