@@ -3,8 +3,7 @@
 [Unit]
 Description=Oradio Control
 # Dependencies: Oradio needs these services to be started befor being able to run
-Requires=librespot.service
-After=network.target sound.target librespot.service
+After=sound.target
 # must be greater than RestartSec * StartLimitBurst otherwise the service will be restarted indefinitely
 StartLimitInterval=55
 # Try max 5 times
@@ -39,4 +38,4 @@ Restart=always
 RestartSec=10
 
 [Install]
-WantedBy=multi-user.target
+WantedBy=sound.target
