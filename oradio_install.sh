@@ -491,10 +491,10 @@ install_resource $RESOURCES_PATH/send_log_files_to_rms.sh /usr/local/bin/send_lo
 # Install the about script
 install_resource $RESOURCES_PATH/about /usr/local/bin/about 'sudo chmod +x /usr/local/bin/about'
 
-# Configure the autostart service
-install_resource $RESOURCES_PATH/autostart.service /etc/systemd/system/autostart.service 'sudo systemctl enable autostart.service'
+# Configure the Oradio service
+install_resource $RESOURCES_PATH/oradio.service /etc/systemd/system/oradio.service 'sudo systemctl enable oradio.service'
 # Progress report
-echo -e "${GREEN}Autostart Oradio3 on boot configured${NC}"
+echo -e "${GREEN}Oradio3 on boot configured${NC}"
 
 # Stop if any installation failed
 if [ -v INSTALL_ERROR ]; then

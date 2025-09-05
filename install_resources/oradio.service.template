@@ -1,8 +1,10 @@
 # Placeholders will be modified by ../oradio_install.sh script
 
 [Unit]
-Description=Autostart Oradio
-After=multi-user.target
+Description=Oradio Control
+# Dependencies: Oradio needs these services to be started befor being able to run
+Requires=NetworkManager.service mpd.service backlighting.service librespot.service
+After=NetworkManager.service mpd.service backlighting.service librespot.service
 # must be greater than RestartSec * StartLimitBurst otherwise the service will be restarted indefinitely
 StartLimitInterval=55
 # Try max 5 times
