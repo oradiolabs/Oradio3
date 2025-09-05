@@ -16,7 +16,6 @@ ExecStart=/usr/bin/bash -c ' \
 	|| \
 		echo "/media/usb_ready does not exist: do nothing" \
 '
-RemainAfterExit=yes
 
 [Install]
 # Runs early in the boot process
