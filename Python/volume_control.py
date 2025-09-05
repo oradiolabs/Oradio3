@@ -149,6 +149,36 @@ class VolumeControl:
         """ Stops the monitoring thread gracefully. """
         self.running = False
         self.thread.join()
+        
+    def selftest(self) -> bool:
+        """Minimal self-test: one I²C read and a mixer nudge+restore."""
+        ok = True
+        try:
+            adc = self.read_adc()
+            if adc is None:
+                ok = False
+            else:
+                oradio_log.info("VolumeControl selftest: Ok I2C ADC=%d", adc)
+        except Exception as e:
+            oradio_log.error("VolumeControl selftest: I2C error %s", e)
+            ok = False
+
+        try:
+            curr = self.mixer.getvolume()[0]
+            test = max(0, min(100, curr + 2))
+            self.mixer.setvolume(test)
+            readback = self.mixer.getvolume()[0]
+            self.mixer.setvolume(curr)  # restore
+            if abs(readback - test) <= 1:
+                oradio_log.info("VolumeControl selftest: ALSA OK")
+            else:
+                oradio_log.error("VolumeControl selftest: ALSA mismatch")
+                ok = False
+        except Exception as e:
+            oradio_log.error("VolumeControl selftest: ALSA error %s", e)
+            ok = False
+
+        return ok
 
 # Test section
 if __name__ == "__main__":
