@@ -48,14 +48,14 @@ class TouchButtons:
     """Handles GPIO-based touch buttons with debounce, immediate short-press actions,
     and continuous-hold long-press detection optimized for speed."""
 
-    def __init__(self, state_machine=None):
+    def __init__(self, state_machine=None, led_control=None, sound_player=None):
         """
         Initializes the button handler.
         :param state_machine: The state machine instance for handling transitions.
         """
         self.state_machine = state_machine
-        self.sound_player = PlaySystemSound()
-        self.led_control = LEDControl()
+        self.sound_player = sound_player or PlaySystemSound()
+        self.led_control = led_control or LEDControl()
 
         # Press tracking
         self.button_press_times = {}      # For press timestamps
@@ -72,15 +72,18 @@ class TouchButtons:
 
     def _setup_gpio(self):
         """Configures GPIO pins and sets up edge detection (both edges) with a single callback."""
+        GPIO.setwarnings(False)
         GPIO.setmode(GPIO.BCM)
         for pin in BUTTONS.values():
             GPIO.setup(pin, GPIO.IN, pull_up_down=GPIO.PUD_UP)
-            GPIO.add_event_detect(
-                pin,
-                GPIO.BOTH,
-                callback=self._edge_callback,
-                bouncetime=10
-            )
+            try:
+                GPIO.add_event_detect(pin, GPIO.BOTH, callback=self._edge_callback, bouncetime=10)
+            except Exception:
+                try:
+                    GPIO.remove_event_detect(pin)
+                except Exception:
+                    pass
+                GPIO.add_event_detect(pin, GPIO.BOTH, callback=self._edge_callback, bouncetime=10)
 
     def _edge_callback(self, channel):
         """Unified handler for both press (falling) and release (rising) edges."""
@@ -178,6 +181,33 @@ class TouchButtons:
         for timer in list(self.long_press_timers.values()):
             timer.cancel()
         GPIO.cleanup()
+
+    def selftest(self) -> bool:
+        """
+        Minimal self-test:
+          - Reads each configured button pin once
+          - Returns True if all pins give a valid HIGH/LOW
+        """
+        try:
+            for name, pin in BUTTONS.items():
+                level = GPIO.input(pin)
+                if level not in (GPIO.LOW, GPIO.HIGH):
+                    oradio_log.error(
+                        "TouchButtons selftest: invalid level on %s (BCM%d): %r",
+                        name, pin, level
+                    )
+                    return False
+                oradio_log.debug(
+                    "TouchButtons selftest: %s (BCM%d) level=%s",
+                    name, pin, "LOW" if level == GPIO.LOW else "HIGH"
+                )
+            oradio_log.info("TouchButtons selftest OK")
+            return True
+
+        except Exception as e:  # pylint: disable=broad-exception-caught
+            oradio_log.error("TouchButtons selftest FAILED: %s", e)
+            return False
+
 
 
 # ------------------ Standalone Test Mode ------------------
