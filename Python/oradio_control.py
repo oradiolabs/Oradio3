@@ -163,6 +163,13 @@ class StateMachine:
             ws.start()
 
     def transition(self, requested_state):
+        
+            # --- Guard: stay in StateError ---
+        if self.state == "StateError":
+            oradio_log.warning(
+                "Ignoring transition to %s because StateError is active", requested_state
+            )
+            return
 
         oradio_log.debug(
             "Request Transitioning from %s to %s", self.state, requested_state
@@ -335,7 +342,7 @@ class StateMachine:
                 oradio_log.debug("In Idle state, wait for next step")
 
             elif state_to_handle == "StateError":
-                leds.control_blinking_led("LEDStop", 2)
+                leds.control_blinking_led("LEDStop", 1)
 
 
 # -------------Messages handler: -----------------
@@ -697,6 +704,12 @@ shared_queue = Queue()  # Create a shared queue
 # Instantiate the state machine
 state_machine = StateMachine()
 
+# do self test of leds, after StateMachine is started
+if not leds.selftest():
+    oradio_log.critical("LEDControl selftest FAILED")
+    state_machine.transition("StateError")
+
+
 # Instantiate spotify
 spotify_connect = SpotifyConnect(shared_queue)
 
@@ -706,10 +719,16 @@ oradio_usb_service = USBService(shared_queue)
 sync_usb_presence_from_service()
 
 # Initialize TouchButtons and pass the state machine
-touch_buttons = TouchButtons(state_machine)
+touch_buttons = TouchButtons(state_machine, led_control=leds, sound_player=sound_player)
+if not touch_buttons.selftest():
+    oradio_log.critical("TouchButtons selftest FAILED")
+    state_machine.transition("StateError")
 
 # Initialize the volume_control, works stand alone, getting messages via the shared_queue
 volume_control = VolumeControl(shared_queue)
+if not volume_control.selftest():
+    oradio_log.critical("VolumeControl selftest FAILED")
+    state_machine.transition("StateError")
 
 # #Initialize the web_service
 oradio_web_service = WebService(shared_queue)
@@ -858,14 +877,29 @@ def main():
     try:
         oradio_log.debug("Oradio control main loop running")
         while True:
-            time.sleep(1)  # Main loop
+            time.sleep(1)
     except KeyboardInterrupt:
         oradio_log.debug("KeyboardInterrupt detected. Exiting...")
     finally:
+        # Stop background threads gracefully
         try:
-            touch_buttons.cleanup()
-        except Exception as ex_err: # pylint: disable=broad-exception-caught
-            oradio_log.error("Error cleaning up touch_buttons: %s", ex_err)
+            volume_control.stop()
+        except Exception:
+            pass
+        try:
+            # cancel timers in touch_buttons if you want
+            for timer in list(touch_buttons.long_press_timers.values()):
+                timer.cancel()
+        except Exception:
+            pass
+
+        # One global GPIO cleanup at the very end
+        try:
+            import RPi.GPIO as GPIO
+            GPIO.cleanup()
+            oradio_log.debug("Global GPIO cleanup completed")
+        except Exception as ex_err:
+            oradio_log.error("Error in global GPIO cleanup: %s", ex_err)
 
 if __name__ == "__main__":
 
