@@ -3,8 +3,8 @@
 [Unit]
 Description=Oradio Control
 # Dependencies: Oradio needs these services to be started befor being able to run
-Requires=mpd.socket librespot.service
-After=mpd.socket librespot.service
+Requires=librespot.service
+After=librespot.service
 # must be greater than RestartSec * StartLimitBurst otherwise the service will be restarted indefinitely
 StartLimitInterval=55
 # Try max 5 times
