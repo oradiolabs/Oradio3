@@ -160,6 +160,30 @@ class LEDControl:
         thread.start()
         self.blinking_threads[led_name] = thread
         oradio_log.debug("%s blinking started: %.3fs cycle", led_name, cycle_time)
+        
+        
+    def selftest(self) -> bool:
+        """
+        Minimal LED self-test: runs a short sequence
+        LEDStop → LEDPreset3 → LEDPreset2 → LEDPreset1 → LEDPlay,
+        each on for 0.1s. Returns True on success, False if any LED name is invalid.
+        """
+        sequence = ["LEDStop", "LEDPreset3", "LEDPreset2", "LEDPreset1", "LEDPlay"]
+        try:
+            self.turn_off_all_leds()
+            for name in sequence:
+                if name not in LEDS:
+                    oradio_log.error("LEDControl selftest: %s not in LEDS map", name)
+                    return False
+                self.turn_on_led(name)
+                time.sleep(0.1)
+                self.turn_off_all_leds()
+            oradio_log.info("LEDControl selftest OK (ran sequence)")
+            return True
+
+        except Exception as e:  # pylint: disable=broad-exception-caught
+            oradio_log.error("LEDControl selftest FAILED: %s", e)
+            return False
 
     def cleanup(self):
         """Cleans up GPIO on program exit."""
