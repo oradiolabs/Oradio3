@@ -160,8 +160,8 @@ class LEDControl:
         thread.start()
         self.blinking_threads[led_name] = thread
         oradio_log.debug("%s blinking started: %.3fs cycle", led_name, cycle_time)
-        
-        
+
+
     def selftest(self) -> bool:
         """
         Minimal LED self-test: runs a short sequence
@@ -181,25 +181,58 @@ class LEDControl:
             oradio_log.info("LEDControl selftest OK (ran sequence)")
             return True
 
-        except Exception as e:  # pylint: disable=broad-exception-caught
-            oradio_log.error("LEDControl selftest FAILED: %s", e)
+        except Exception as exc:  # pylint: disable=broad-exception-caught
+            oradio_log.error("LEDControl selftest FAILED: %s", exc)
             return False
-
-    def cleanup(self):
-        """Cleans up GPIO on program exit."""
-        self.turn_off_all_leds()
-        self.blinking_leds = {}
-        self.blinking_threads = {}
-        GPIO.cleanup()
-        oradio_log.debug("GPIO cleanup completed")
 
 # Entry point for stand-alone operation
 if __name__ == '__main__':
 
-# Most modules use similar code in stand-alone
-# pylint: disable=duplicate-code
+    # Most modules use similar code in stand-alone
+    # pylint: disable=duplicate-code
 
     print("\nStarting LED Control Standalone Test...\n")
+
+    def _run_led_action_menu(leds: LEDControl, selected_led: str) -> None:
+        """Inner menu to run actions for a selected LED."""
+        input_selection = (
+            "\nSelect an action for the LED:\n"
+            " 0-Return to LED selection\n"
+            f" 1-Turn {selected_led} ON\n"
+            f" 2-Turn {selected_led} OFF\n"
+            f" 3-Blink {selected_led}\n"
+            f" 4-Turn {selected_led} ON and OFF after delay\n"
+            "Select: "
+        )
+        while True:
+            try:
+                function_nr = int(input(input_selection))
+            except ValueError:
+                function_nr = -1
+
+            match function_nr:
+                case 0:
+                    print("\nReturning to LED selection...\n")
+                    return
+                case 1:
+                    print(f"\nExecuting: Turn ON {selected_led}\n")
+                    leds.turn_on_led(selected_led)
+                case 2:
+                    print(f"\nExecuting: Turn OFF {selected_led}\n")
+                    leds.turn_off_led(selected_led)
+                case 3:
+                    cycle = float(input("Enter blink cycle time (seconds): "))
+                    print(f"\nExecuting: Blinking {selected_led} every {cycle}s\n")
+                    leds.control_blinking_led(selected_led, cycle)
+                case 4:
+                    wait = float(input("Enter delay before turning off (seconds): "))
+                    print(f"\nExecuting: Turning ON {selected_led} and OFF after {wait} seconds\n")
+                    leds.turn_on_led_with_delay(selected_led, wait)
+                case 5:
+                    print("\nExecuting: Turn OFF all LEDs\n")
+                    leds.turn_off_all_leds()
+                case _:
+                    print(f"\n{YELLOW}Please input a valid number{NC}")
 
     def interactive_menu():
         """Show menu with test options"""
@@ -207,12 +240,12 @@ if __name__ == '__main__':
         # Instantiate LEDControl
         try:
             leds = LEDControl()
-        except Exception as ex_err: # pylint: disable=broad-exception-caught
+        except (RuntimeError, ValueError) as ex_err:
             print(f"{RED}Initialization failed: {ex_err}{NC}")
             return
 
         # Menu with LED selection options
-        led_options = ["Quit"] + list(LEDS.keys()) + ["Turn all LEDs OFF"]
+        led_options = ["Quit", "Run selftest"] + list(LEDS.keys()) + ["Turn all LEDs OFF"]
 
         # User command loop
         while True:
@@ -229,7 +262,10 @@ if __name__ == '__main__':
                 led_choice = -1
 
             if led_choice == 0:
-                leds.cleanup()
+                # Minimal cleanup here
+                leds.turn_off_all_leds()
+                GPIO.cleanup()
+                print("\nExiting test program\n")
                 break
 
             # Validate led choice
@@ -238,60 +274,21 @@ if __name__ == '__main__':
                 continue
 
             # --- Action selection ---
-
             selected_led = led_options[led_choice]
+
+            if selected_led == "Run selftest":
+                print("\nExecuting: Selftest\n")
+                selftest_ok = leds.selftest()
+                print("Selftest:", "OK" if selftest_ok else "FAILED")
+                continue
 
             if selected_led == "Turn all LEDs OFF":
                 print(f"\nExecuting: {selected_led}\n")
                 leds.turn_off_all_leds()
                 continue
 
-            # Menu with test options for selected LED
-            input_selection = (
-                "\nSelect an action for the LED:\n"
-                " 0-Return to LED selection\n"
-                f" 1-Turn {selected_led} ON\n"
-                f" 2-Turn {selected_led} OFF\n"
-                f" 3-Blink {selected_led}\n"
-                f" 4-Turn {selected_led} ON and OFF after delay\n"
-                "Select: "
-            )
-
-            # User command loop
-            while True:
-
-                # Get user input
-                try:
-                    function_nr = int(input(input_selection))
-                except ValueError:
-                    function_nr = -1
-
-                # Execute selected function
-                match function_nr:
-                    case 0:
-                        print("\nReturning to LED selection...\n")
-                        break
-                    case 1:
-                        print(f"\nExecuting: Turn ON {selected_led}\n")
-                        leds.turn_on_led(selected_led)
-                    case 2:
-                        print(f"\nExecuting: Turn OFF {selected_led}\n")
-                        leds.turn_off_led(selected_led)
-                    case 3:
-                        cycle = float(input("Enter blink cycle time (seconds): "))
-                        print(f"\nExecuting: Blinking {selected_led} every {cycle}s\n")
-                        leds.control_blinking_led(selected_led, cycle)
-                    case 4:
-                        wait = float(input("Enter delay before turning off (seconds): "))
-                        print(f"\nExecuting: Turning ON {selected_led} and OFF after {wait} seconds\n")
-                        leds.turn_on_led_with_delay(selected_led, wait)
-                    case 5:
-                        print("\nExecuting: Turn OFF all LEDs\n")
-                        leds.turn_off_all_leds()
-                    case _:
-                        print(f"\n{YELLOW}Please input a valid number{NC}")
+            # Run the inner action menu (extracted to reduce statement count)
+            _run_led_action_menu(leds, selected_led)
 
     # Present menu with tests
     interactive_menu()
-
-    print("\nExiting test program\n")
