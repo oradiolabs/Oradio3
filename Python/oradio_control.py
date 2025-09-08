@@ -826,30 +826,31 @@ def maybe_start_stress():
 
 # ---END Stress test part
 
-
-def _brutal_exit(reason="SIGINT"):
+def _brutal_exit() -> None:
+    """Terminate the process immediately."""
     try:
-        oradio_log.debug("Brutal exit without GPIO cleanup (%s)", reason)
-    except Exception:
+        oradio_log.debug("Exiting on Ctrl-C")
+    except (NameError, AttributeError):
+        # Logging not available or not initialized
         pass
     os._exit(0)
 
-def _on_sigint(signum, frame):
-    _brutal_exit("SIGINT")
+def main() -> None:
+    """Main loop for oradio_control."""
+    # Handle Ctrl-C manually
+    signal.signal(signal.SIGINT, lambda _signum, _frame: _brutal_exit())
 
-def main():
-    # Only handle Ctrl-C during manual runs
-    signal.signal(signal.SIGINT, _on_sigint)
-
-    try:
-        oradio_log.debug("Oradio control main loop running")
-        while True:
-            time.sleep(1)
-    except KeyboardInterrupt:
-        _brutal_exit("KeyboardInterrupt")
-    finally:
-        _brutal_exit("finally")
+    oradio_log.debug("Oradio control main loop running")
+    while True:
+        time.sleep(1)
 
 if __name__ == "__main__":
+
+    # Most modules use similar code in stand-alone
+    # pylint: disable=duplicate-code
+
+    # start stress test if requested via the arguments --stress, otherwise simply skipped
     maybe_start_stress()
+
+    # then hand over to your normal main loop
     main()
