@@ -23,7 +23,7 @@ Created on Januari 31`, 2025
 Update for 0.4.0: OradioAP mode
 Update the State machine and added a standard Stress test for statemachine
 Added networking statemachine, to handle various states wifi and Web service
-
+Refactored the Volume_control, Touch control, included a selftest. 
 """
 import time
 import threading
@@ -56,8 +56,8 @@ from web_service import WebService
 #from oradio_const import *
 from oradio_const import (
     MESSAGE_NO_ERROR,
-    MESSAGE_VOLUME_SOURCE,
-    MESSAGE_VOLUME_CHANGED,
+#     MESSAGE_VOLUME_SOURCE,
+#     MESSAGE_VOLUME_CHANGED,
     STATE_WEB_SERVICE_IDLE,
     STATE_WEB_SERVICE_ACTIVE,
     MESSAGE_WEB_SERVICE_PL1_CHANGED,
@@ -163,8 +163,11 @@ class StateMachine:
             ws.start()
 
     def transition(self, requested_state):
-        
-            # --- Guard: stay in StateError ---
+
+        # ————————————————————————————————
+        # 0. Guard: stay in StateError
+        # ————————————————————————————————
+
         if self.state == "StateError":
             oradio_log.warning(
                 "Ignoring transition to %s because StateError is active", requested_state
@@ -352,11 +355,11 @@ class StateMachine:
 # -------------------VOLUME-----------------------
 
 
-def on_volume_changed():
-    if state_machine.state in ("StateStop", "StateIdle"):
-        state_machine.transition(
-            "StatePlay"
-        )  # Switch Oradio in Play when Volume buttons is turned
+# def on_volume_changed():
+#     if state_machine.state in ("StateStop", "StateIdle"):
+#         state_machine.transition(
+#             "StatePlay"
+#         )  # Switch Oradio in Play when Volume buttons is turned
 
 
 # -------------------USB---------------------------
@@ -564,10 +567,10 @@ def update_spotify_connect_available():
 # 2)-----The Handler map, defining message content and the handler funtion---
 
 HANDLERS = {
-    MESSAGE_VOLUME_SOURCE: {
-        MESSAGE_VOLUME_CHANGED: on_volume_changed,
-        # "Volume error": on_volume_error,
-    },
+#     MESSAGE_VOLUME_SOURCE: {
+#         MESSAGE_VOLUME_CHANGED: on_volume_changed,
+#         # "Volume error": on_volume_error,
+#     },
     MESSAGE_USB_SOURCE: {
         STATE_USB_ABSENT: on_usb_absent,
         STATE_USB_PRESENT: on_usb_present,
@@ -655,47 +658,6 @@ def sync_usb_presence_from_service():
     else:
         oradio_log.warning("Unexpected USB service state: %r", state)
 
-# pylint: disable=pointless-string-statement
-'''
-#------------Monitor Internet, if still a connection has been made-----------------
-def start_wifi_monitor(interval: float = 5.0):
-    """
-    Start a daemon thread polling `oradio_wifi_service.get_state()` every `interval` seconds
-    (float, in seconds—e.g., 0.5 for half-second) to keep `internet_connected` synced.
-    Sets the event on STATE_WIFI_INTERNET, clears it otherwise. Polling errors are logged but
-    don’t override the last known state. Uncomment the debug line to see raw state and flag.
-    This insures that in case of recovery via a stored credentials the internet is restored
-    """
-    def _worker():
-        while True:
-            try:
-                state = oradio_wifi_service.get_state()
-            except Exception as ex_err: # pylint: disable=broad-exception-caught
-                oradio_log.error("Error polling Wi-Fi service state: %s", ex_err)
-                state = None
-            # debug/status line—can
-#             oradio_log.info(
-#                 "Wi-Fi monitor status: service state=%r, internet_connected=%s",
-#                 state,
-#                 internet_connected.is_set(),
-#             )
-            if state == STATE_WIFI_INTERNET:
-                if not internet_connected.is_set():
-                    internet_connected.set()
-                    oradio_log.info("Detected internet access via Wi-Fi; marked connected")
-            else:
-                if internet_connected.is_set():
-                    internet_connected.clear()
-                    oradio_log.info("Wi-Fi no longer has internet; marked disconnected")
-            time.sleep(interval)
-
-    threading.Thread(
-        target=_worker,
-        daemon=True,
-        name="WiFiInternetMonitor",
-    ).start()
-'''
-# pylint: enable=pointless-string-statement
 
 # ------------------Start-up - instantiate and define other modules ---------------
 
@@ -719,13 +681,13 @@ oradio_usb_service = USBService(shared_queue)
 sync_usb_presence_from_service()
 
 # Initialize TouchButtons and pass the state machine
-touch_buttons = TouchButtons(state_machine, led_control=leds, sound_player=sound_player)
+touch_buttons = TouchButtons(state_machine, sound_player=sound_player)
 if not touch_buttons.selftest():
     oradio_log.critical("TouchButtons selftest FAILED")
     state_machine.transition("StateError")
 
 # Initialize the volume_control, works stand alone, getting messages via the shared_queue
-volume_control = VolumeControl(shared_queue)
+volume_control = VolumeControl(state_machine)
 if not volume_control.selftest():
     oradio_log.critical("VolumeControl selftest FAILED")
     state_machine.transition("StateError")
