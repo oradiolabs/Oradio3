@@ -25,7 +25,8 @@ Update the State machine and added a standard Stress test for statemachine
 Added networking statemachine, to handle various states wifi and Web service
 Refactored the Volume_control, Touch control, included a selftest. 
 """
-import time
+import os, time
+from RPi import GPIO
 import threading
 from multiprocessing import Queue
 import signal
@@ -351,16 +352,6 @@ class StateMachine:
 # -------------Messages handler: -----------------
 
 # 1) Functions which define the actions for the messages
-
-# -------------------VOLUME-----------------------
-
-
-# def on_volume_changed():
-#     if state_machine.state in ("StateStop", "StateIdle"):
-#         state_machine.transition(
-#             "StatePlay"
-#         )  # Switch Oradio in Play when Volume buttons is turned
-
 
 # -------------------USB---------------------------
 
@@ -835,44 +826,30 @@ def maybe_start_stress():
 
 # ---END Stress test part
 
+
+def _brutal_exit(reason="SIGINT"):
+    try:
+        oradio_log.debug("Brutal exit without GPIO cleanup (%s)", reason)
+    except Exception:
+        pass
+    os._exit(0)
+
+def _on_sigint(signum, frame):
+    _brutal_exit("SIGINT")
+
 def main():
+    # Only handle Ctrl-C during manual runs
+    signal.signal(signal.SIGINT, _on_sigint)
+
     try:
         oradio_log.debug("Oradio control main loop running")
         while True:
             time.sleep(1)
     except KeyboardInterrupt:
-        oradio_log.debug("KeyboardInterrupt detected. Exiting...")
+        _brutal_exit("KeyboardInterrupt")
     finally:
-        # Stop background threads gracefully
-        try:
-            volume_control.stop()
-        except Exception:
-            pass
-        try:
-            # cancel timers in touch_buttons if you want
-            for timer in list(touch_buttons.long_press_timers.values()):
-                timer.cancel()
-        except Exception:
-            pass
-
-        # One global GPIO cleanup at the very end
-        try:
-            import RPi.GPIO as GPIO
-            GPIO.cleanup()
-            oradio_log.debug("Global GPIO cleanup completed")
-        except Exception as ex_err:
-            oradio_log.error("Error in global GPIO cleanup: %s", ex_err)
+        _brutal_exit("finally")
 
 if __name__ == "__main__":
-
-# Most modules use similar code in stand-alone
-# pylint: disable=duplicate-code
-
-    # start stress test if requested via the arguments --stress, otherwise simply skipped
     maybe_start_stress()
-
-    # then hand over to your normal main loop
     main()
-
-    # Close using signal to stop threads
-    signal.raise_signal(signal.SIGTERM)
