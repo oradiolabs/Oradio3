@@ -41,20 +41,20 @@ ALSA_MIXER_DIGITAL = "Digital"
 class VolumeControl:
     """Tracks the volume control setting and updates ALSA/state machine on change."""
 
-    def __init__(self, state_machine, i2c_bus: int = 1, mixer_name: str = ALSA_MIXER_DIGITAL) -> None:
+    def __init__(self, state_machine) -> None:
         """Initialize mixer, I²C bus and start the monitoring thread."""
         self.state_machine = state_machine
         self.running = True
 
         # ALSA
         try:
-            self.mixer = alsaaudio.Mixer(mixer_name)
+            self.mixer = alsaaudio.Mixer(ALSA_MIXER_DIGITAL)
         except alsaaudio.ALSAAudioError as ex_err:
-            oradio_log.error("Error initializing ALSA mixer '%s': %s", mixer_name, ex_err)
+            oradio_log.error("Error initializing ALSA mixer '%s': %s", ALSA_MIXER_DIGITAL, ex_err)
             raise
 
         # I²C
-        self.bus = smbus2.SMBus(i2c_bus)
+        self.bus = smbus2.SMBus(1)  # always bus 1
         self._i2c_read_block = self.bus.read_i2c_block_data
         self._adc_addr = MCP3021_ADDRESS
         self._adc_cmd = 0x00
@@ -181,6 +181,7 @@ class VolumeControl:
 
 
 # Standalone test
+
 if __name__ == "__main__":
     class DummyStateMachine:
         """Minimal stand-in state machine for standalone testing."""
@@ -213,4 +214,3 @@ if __name__ == "__main__":
         print("\nStopping VolumeControl...")
         volume_control.stop()
         print("Test finished.")
-        
