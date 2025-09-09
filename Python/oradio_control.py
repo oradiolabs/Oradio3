@@ -26,7 +26,6 @@ Added networking statemachine, to handle various states wifi and Web service
 Refactored the Volume_control, Touch control, included a selftest. 
 """
 import os, time
-from RPi import GPIO
 import threading
 from multiprocessing import Queue
 import signal
