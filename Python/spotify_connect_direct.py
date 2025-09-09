@@ -27,7 +27,9 @@ which puts the status in two files spotactive.flag and spotplaying.flag
 import time
 import subprocess
 import threading
+import os
 from multiprocessing import Queue
+from queue import Full  # for queue-full errors in send_event
 
 
 #### Oradio modules ####
@@ -62,7 +64,7 @@ class SpotifyConnect:
         self.playing = False
         self.message_queue = message_queue
 
-        # Reset flag files to 0 at initialization.
+        # Ensure both flags exist and are reset to "0"
         self.initialize_flags()
 
         # Start monitor_flags in a separate daemon thread.
@@ -72,23 +74,22 @@ class SpotifyConnect:
 
     def _reset_flag(self, filepath):
         """
-        Writes '0' to the file at 'filepath' to reset the flag.
+        Ensure the flag file exists and reset its value to '0'.
         """
         try:
+            os.makedirs(os.path.dirname(filepath), exist_ok=True)
             with open(filepath, "w", encoding="utf-8") as file:
                 file.write("0")
-            oradio_log.info("Successfully reset %s to 0", filepath)
-        except Exception as ex_err: # pylint: disable=broad-exception-caught
+            oradio_log.info("Flag %s ensured and reset to 0", filepath)
+        except OSError as ex_err:
             oradio_log.error("Error resetting %s: %s", filepath, ex_err)
 
     def initialize_flags(self):
         """
-        Resets both the 'active' and 'playing' flag files to 0.
-        This method should be called during initialization.
+        Ensures both 'active' and 'playing' flag files exist and resets them to 0.
         """
-        self._reset_flag(ACTIVE_FLAG_FILE)
-        self._reset_flag(PLAYING_FLAG_FILE)
-
+        for filepath in (ACTIVE_FLAG_FILE, PLAYING_FLAG_FILE):
+            self._reset_flag(filepath)
 
     def _read_flag(self, filepath):
         """
@@ -99,8 +100,11 @@ class SpotifyConnect:
             with open(filepath, "r", encoding="utf-8") as file:
                 content = file.read().strip()
                 return content == "1"
-        except Exception as ex_err: # pylint: disable=broad-exception-caught
-            oradio_log.error("Error reading %s: %s", filepath, ex_err)
+        except FileNotFoundError:
+            oradio_log.warning("Flag file %s not found, treating as '0'", filepath)
+            return False
+        except OSError as ex_err:
+            oradio_log.error("OS error reading %s: %s", filepath, ex_err)
             return False
 
     def update_flags(self):
@@ -122,7 +126,9 @@ class SpotifyConnect:
                 message = {"source": MESSAGE_SPOTIFY_SOURCE, "state": event, "error": MESSAGE_NO_ERROR}
                 self.message_queue.put(message)
                 oradio_log.info("Message sent to queue: %s", message)
-            except Exception as ex_err: # pylint: disable=broad-exception-caught
+            except Full:
+                oradio_log.error("Message queue is full, could not send event")
+            except (OSError, ValueError) as ex_err:
                 oradio_log.error("Error sending message to queue: %s", ex_err)
         else:
             oradio_log.error("Message queue is not set. Cannot send event.")
@@ -163,12 +169,12 @@ class SpotifyConnect:
 
     def monitor_flags(self, interval=0.5):
         """
-        Continuously monitors the flag files and sends events when their
-        values change:
-          - When active_flag goes from 0 to 1, sends SPOTIFY_CONNECT_CONNECTED_EVENT.
-          - When active_flag goes from 1 to 0, sends SPOTIFY_CONNECT_DISCONNECTED_EVENT.
-          - When playing_flag goes from 0 to 1, sends SPOTIFY_CONNECT_PLAYING_EVENT.
-          - When playing_flag goes from 1 to 0, sends SPOTIFY_CONNECT_PAUSED_EVENT.
+        Continuously monitors the flag files and sends events when their values change.
+
+        - When active_flag goes from 0 to 1, sends SPOTIFY_CONNECT_CONNECTED_EVENT.
+        - When active_flag goes from 1 to 0, sends SPOTIFY_CONNECT_DISCONNECTED_EVENT.
+        - When playing_flag goes from 0 to 1, sends SPOTIFY_CONNECT_PLAYING_EVENT.
+        - When playing_flag goes from 1 to 0, sends SPOTIFY_CONNECT_PAUSED_EVENT.
         """
         # Initialize previous states.
         self.update_flags()
@@ -177,26 +183,21 @@ class SpotifyConnect:
         oradio_log.info("Starting flag monitoring.")
         try:
             while True:
-                # Save previous state.
                 prev_active, prev_playing = self.active, self.playing
-                # Update current state.
                 self.update_flags()
 
-                # Check for changes in the active flag.
                 if prev_active != self.active:
                     if self.active:
                         self.send_event(SPOTIFY_CONNECT_CONNECTED_EVENT)
                     else:
                         self.send_event(SPOTIFY_CONNECT_DISCONNECTED_EVENT)
 
-                # Check for changes in the playing flag.
                 if prev_playing != self.playing:
                     if self.playing:
                         self.send_event(SPOTIFY_CONNECT_PLAYING_EVENT)
                     else:
                         self.send_event(SPOTIFY_CONNECT_PAUSED_EVENT)
 
-    #            oradio_log.info("Active Flag: %s | Playing Flag: %s", self.active, self.playing)
                 time.sleep(interval)
         except KeyboardInterrupt:
             oradio_log.info("Monitoring stopped.")
