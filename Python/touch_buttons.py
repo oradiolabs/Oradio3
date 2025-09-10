@@ -20,7 +20,7 @@ Created on April 28, 2025
 
 import time
 import threading
-from typing import Callable, Dict
+from typing import Callable
 
 from RPi import GPIO
 from oradio_logging import oradio_log
@@ -30,7 +30,7 @@ BUTTON_DEBOUNCE_TIME = 500          # ms, ignore rapid repeats
 DEBOUNCE_SECONDS = BUTTON_DEBOUNCE_TIME / 1000.0
 BOUNCE_MS = 10                      # hardware debounce in GPIO.add_event_detect
 
-BUTTONS: Dict[str, int] = {
+BUTTONS: dict[str, int] = {
     "Play": 9,
     "Preset1": 11,
     "Preset2": 5,
@@ -58,8 +58,8 @@ class TouchButtons:
             sound_player: optional object with .play("Click"); if None, a default is tried.
         """
         # Callbacks
-        self._on_press: Dict[str, TouchButtons.OnPress] = on_press or {}
-        self._on_long_press: Dict[str, TouchButtons.OnLongPress] = on_long_press or {}
+        self._on_press: dict[str, TouchButtons.OnPress] = on_press or {}
+        self._on_long_press: dict[str, TouchButtons.OnLongPress] = on_long_press or {}
 
         # Sound player: use injected instance if provided; otherwise try to create one.
         if sound_player is not None:
@@ -74,9 +74,9 @@ class TouchButtons:
                 self.sound_player = None
 
         # Press tracking
-        self.button_press_times: Dict[str, float] = {}   # button -> press start (monotonic)
-        self.last_trigger_times: Dict[str, float] = {}   # button -> last accepted press time
-        self.long_press_timers: Dict[str, threading.Timer] = {}  # button -> Timer
+        self.button_press_times: dict[str, float] = {}   # button -> press start (monotonic)
+        self.last_trigger_times: dict[str, float] = {}   # button -> last accepted press time
+        self.long_press_timers: dict[str, threading.Timer] = {}  # button -> Timer
 
         # Fast channel -> name lookup
         self.gpio_to_button = {pin: name for name, pin in BUTTONS.items()}
