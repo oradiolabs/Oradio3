@@ -557,10 +557,6 @@ def update_spotify_connect_available():
 # 2)-----The Handler map, defining message content and the handler funtion---
 
 HANDLERS = {
-#     MESSAGE_VOLUME_SOURCE: {
-#         MESSAGE_VOLUME_CHANGED: on_volume_changed,
-#         # "Volume error": on_volume_error,
-#     },
     MESSAGE_USB_SOURCE: {
         STATE_USB_ABSENT: on_usb_absent,
         STATE_USB_PRESENT: on_usb_present,
@@ -670,19 +666,67 @@ oradio_usb_service = USBService(shared_queue)
 # sync the usb_present tracker
 sync_usb_presence_from_service()
 
-# Initialize TouchButtons and pass the state machine
-touch_buttons = TouchButtons(state_machine, sound_player=sound_player)
+
+# ----------------- Touch buttons -----------------
+# Thread-safety for transitions (shared with volume callbacks)
+sm_lock = threading.RLock()
+
+def _go(state: str) -> None:
+    with sm_lock:
+        state_machine.transition(state)
+
+# --- Touch button policy wiring ---
+def _on_play_pressed() -> None:    _go("StatePlay")
+def _on_stop_pressed() -> None:    _go("StateStop")
+def _on_preset1_pressed() -> None: _go("StatePreset1")
+def _on_preset2_pressed() -> None: _go("StatePreset2")
+def _on_preset3_pressed() -> None: _go("StatePreset3")
+
+def _on_play_long_pressed(_btn: str) -> None:
+    # Long-press Play starts the web service (guarded by SM + lock)
+    with sm_lock:
+        state_machine.start_webservice()
+# --- end wiring ---
+
+# Initialize TouchButtons with callbacks (reuse the existing sound_player instance)
+touch_buttons = TouchButtons(
+    on_press={
+        "Play": _on_play_pressed,
+        "Stop": _on_stop_pressed,
+        "Preset1": _on_preset1_pressed,
+        "Preset2": _on_preset2_pressed,
+        "Preset3": _on_preset3_pressed,
+    },
+    on_long_press={
+        "Play": _on_play_long_pressed,  # only Play supports long press for now
+    },
+    sound_player=sound_player,  # <-- reuse PlaySystemSound() is already created earlier
+)
+
 if not touch_buttons.selftest():
     oradio_log.critical("TouchButtons selftest FAILED")
     state_machine.transition("StateError")
 
-# Initialize the volume_control, works stand alone, getting messages via the shared_queue
-volume_control = VolumeControl(state_machine)
+# ----------- Volume Control -----------------
+# Use the same lock you defined above for touch callbacks
+# sm_lock = threading.RLock()   # (already defined above)
+
+_SWITCH_ON_FROM = {"StateStop", "StateIdle"}
+
+def _on_volume_changed() -> None:
+    # Guard both the read and the transition
+    with sm_lock:
+        if state_machine.state in _SWITCH_ON_FROM:
+            state_machine.transition("StatePlay")
+
+# Initialize the volume_control with the callback (no SM injection)
+volume_control = VolumeControl(on_change=_on_volume_changed)
+
 if not volume_control.selftest():
     oradio_log.critical("VolumeControl selftest FAILED")
     state_machine.transition("StateError")
 
-# #Initialize the web_service
+# ---------Initialize the web_service---------
 oradio_web_service = WebService(shared_queue)
 
 #OMJ: Wifi service wordt alleen gebruikt voor de wifi monitor
