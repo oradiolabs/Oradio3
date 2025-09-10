@@ -49,6 +49,9 @@ from remote_monitoring import RmsService
 from spotify_connect_direct import SpotifyConnect
 from usb_service import USBService
 from web_service import WebService
+from oradio_utils import has_internet
+
+
 #OMJ: Zie regel 711-718
 #from wifi_service import WifiService
 
@@ -56,8 +59,6 @@ from web_service import WebService
 #from oradio_const import *
 from oradio_const import (
     MESSAGE_NO_ERROR,
-#     MESSAGE_VOLUME_SOURCE,
-#     MESSAGE_VOLUME_CHANGED,
     STATE_WEB_SERVICE_IDLE,
     STATE_WEB_SERVICE_ACTIVE,
     MESSAGE_WEB_SERVICE_PL1_CHANGED,
@@ -88,10 +89,6 @@ PLAY_STATES = {"StatePlay", "StatePreset1", "StatePreset2", "StatePreset3"}
 PLAY_WEBSERVICE_STATES = {"StatePlay", "StatePreset1", "StatePreset2", "StatePreset3", "StateIdle"}
 
 ##################Signal Primitives#########
-# Signal primitives, to track the states of various status
-# These are checked at every state change (button press), using this instead of get.state() is faster
-# And are based upon only the messages and no polling
-# Tested .get_state , especially for wifi service, it can take up to 300 - 500 ms
 
 spotify_connect_connected = threading.Event()  # track status Spotify connected
 spotify_connect_playing = threading.Event()  # track Spotify playing
@@ -101,8 +98,8 @@ spotify_connect_available = threading.Event()  # track Spotify playing & connect
 web_service_active = threading.Event() # Track status web_service
 web_service_active.clear() # Start-up state is no Web service
 
-internet_connected = threading.Event() # Track status wifi internet
-internet_connected.clear()  # Start-up state is no wifi and Internet
+# internet_connected = threading.Event() # Track status wifi internet
+# internet_connected.clear()  # Start-up state is no wifi and Internet
 
 usb_present = threading.Event()
 usb_present.set() # USB present to go over start-up sequence (will be updated after first message of USB service
@@ -208,15 +205,16 @@ class StateMachine:
         # ————————————————————————————————
         # 4. BLOCK WEBRADIO PRESETS WHEN NO INTERNET
         # ————————————————————————————————
-
-        if requested_state not in WEB_PRESET_STATES:
-            pass  # normal flow
-        elif not internet_connected.is_set():
-            preset_key = requested_state[len("State"):]
+        if requested_state in WEB_PRESET_STATES:
+            # Extract preset key, e.g. "StatePreset1" -> "Preset1"
+            preset_key = requested_state[len("State"):]  
+            # Only block when the target preset is a WebRadio preset
             if mpd.preset_is_webradio(preset_key):
-                oradio_log.info("Webradio blocked no Internet")
-                threading.Timer(2, sound_player.play, args=("NoInternet",)).start()
-                return
+                # Use runtime check adds some delay about 0.3s, only when webradio is selected
+                if not has_internet():
+                    oradio_log.info("Webradio blocked: no Internet")
+                    threading.Timer(2, sound_player.play, args=("NoInternet",)).start()
+                    return
 
         # ————————————————————————————————
         # 5. USB PRESENCE GUARD + COMMIT (via USB_Media)
@@ -389,7 +387,7 @@ def on_wifi_connected():
 #         return  # already marked disconnected; nothing to do
 #OMJ: Check met oradio_utils.has_internet() wanneer internet ook nodig is
 #     Geen check, dus aanname dat als we met wifi verbonden zijn ook internet toegang hebben
-    internet_connected.set()
+#     internet_connected.set()
 
     if state_machine.state in PLAY_WEBSERVICE_STATES:  # If in play states,
         threading.Timer(
@@ -404,7 +402,7 @@ def on_wifi_fail_connect():
     oradio_log.info("Wifi fail connect acknowledged")
 #     if not internet_connected.is_set():
 #         return  # already marked disconnected; nothing to do
-    internet_connected.clear()
+#     internet_connected.clear()
     if state_machine.state in PLAY_WEBSERVICE_STATES:  # If in play states,
         sound_player.play("WifiNotConnected")
     remote_monitor.heartbeat_stop()  # in all other cases, stop sending heartbeat
@@ -429,7 +427,7 @@ def on_webservice_active():
     if web_service_active.is_set(): # check already taken the actions
         return
     web_service_active.set()
-    internet_connected.clear()
+ #   internet_connected.clear()
     leds.control_blinking_led("LEDPlay", 2)
     sound_player.play("OradioAPstarted")
     # handle Webradio and Spotify
@@ -653,9 +651,9 @@ shared_queue = Queue()  # Create a shared queue
 state_machine = StateMachine()
 
 # do self test of leds, after StateMachine is started
-if not leds.selftest():
-    oradio_log.critical("LEDControl selftest FAILED")
-    state_machine.transition("StateError")
+# if not leds.selftest():
+#     oradio_log.critical("LEDControl selftest FAILED")
+#     state_machine.transition("StateError")
 
 
 # Instantiate spotify
