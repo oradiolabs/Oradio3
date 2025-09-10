@@ -105,8 +105,8 @@ PRESETS_FILE = USB_SYSTEM + "/presets.json"
 VOLUME_MINIMUM = 105
 VOLUME_MAXIMUM = 215
 # Volume messages
-MESSAGE_VOLUME_SOURCE  = "Vol Control message"
-MESSAGE_VOLUME_CHANGED = "Volume changed"
+# MESSAGE_VOLUME_SOURCE  = "Vol Control message"
+# MESSAGE_VOLUME_CHANGED = "Volume changed"
 
 ################## SYSTEM SOUNDS #############################
 SOUND_FILES_DIR = "/home/pi/Oradio3/system_sounds"

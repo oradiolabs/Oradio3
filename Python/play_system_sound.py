@@ -33,7 +33,6 @@ import random
 
 ##### oradio modules ####################
 from oradio_logging import oradio_log
-from volume_control import VolumeControl
 
 ##### GLOBAL constants ####################
 from oradio_const import SOUND_FILES_DIR
@@ -197,7 +196,6 @@ if __name__ == "__main__":
 
     print("\nStarting System Sound Player Standalone Test...\n")
 
-    volume_control = VolumeControl()
     sound_player = PlaySystemSound()
     sound_keys = list(SOUND_FILES.keys())
 

@@ -864,22 +864,7 @@ if __name__ == '__main__':
                 else:
                     for idx, pl in enumerate(lists, start=1):
                         print(f"{idx}. {pl.get('playlist')}")
-#                     try:
-#                         selection = int(input("\nSelect a playlist by number: "))
-#                         if 1 <= selection <= len(lists):
-#                             list_name = lists[selection - 1].get('playlist')
-#                             print(f"\nPlaying stored playlist: {list_name}\n")
-#                             with mpd.mpd_lock:
-#                                 mpd.client.clear()
-#                                 mpd.client.load(list_name)
-#                                 mpd.client.shuffle()
-#                                 mpd.client.random(1)
-#                                 mpd.client.repeat(1)
-#                                 mpd.client.play()
-#                         else:
-#                             print("Invalid selection.")
-#                     except ValueError:
-#                         print("Invalid input, please enter a number.")
+
             case 13:
                 print("\nListing available directories...\n")
                 mpd._ensure_client()    # pylint: disable=protected-access
@@ -891,22 +876,7 @@ if __name__ == '__main__':
                 else:
                     for idx, d in enumerate(dirs, start=1):
                         print(f"{idx}. {d}")
-#                     try:
-#                         selection = int(input("\nSelect a directory by number: "))
-#                         if 1 <= selection <= len(dirs):
-#                             directory_name = dirs[selection - 1]
-#                             print(f"\nPlaying directory: {directory_name}\n")
-#                             with mpd.mpd_lock:
-#                                 mpd.client.clear()
-#                                 mpd.client.add(directory_name)
-#                                 mpd.client.shuffle()
-#                                 mpd.client.random(1)
-#                                 mpd.client.repeat(1)
-#                                 mpd.client.play()
-#                         else:
-#                             print("Invalid selection.")
-#                     except ValueError:
-#                         print("Invalid input, please enter a number.")
+
             case 14:
                 print("\nCreating and storing a new playlist...\n")
                 mpd._ensure_client()    # pylint: disable=protected-access
