@@ -10,177 +10,168 @@
 
 Created on Februari 1, 2025
 @author:        Henk Stevens & Olaf Mastenbroek & Onno Janssen
-@copyright:     Copyright 2025, Oradio Stichting
-@license:       GNU General Public License (GPL)
-@organization:  Oradio Stichting
-@version:       1
-@email:         oradioinfo@stichtingoradio.nl
-@status:        Development
 @summary:  Spotify Connect
 
-The librespot audio Spotify Connect is (un) muted when Oradio on/off. Connection stays active and music streaming
-The status of the Librespot connection is monitored via Librespot events
-which puts the status in two files spotactive.flag and spotplaying.flag
-
+The librespot audio Spotify Connect is (un) muted when Oradio on/off.
+Connection stays active and music streaming. The status of the Librespot
+connection is monitored via Librespot events which put status in two files:
+spotactive.flag and spotplaying.flag.
 """
 
 import time
 import subprocess
 import threading
-import os
 from multiprocessing import Queue
 from queue import Full  # for queue-full errors in send_event
 
-
-#### Oradio modules ####
+# Oradio modules
 from oradio_logging import oradio_log
 
-##### GLOBAL constants ####################
+# Constants from oradio_const
 from oradio_const import (
     MESSAGE_NO_ERROR,
     MESSAGE_SPOTIFY_SOURCE,
     SPOTIFY_CONNECT_CONNECTED_EVENT,
     SPOTIFY_CONNECT_DISCONNECTED_EVENT,
     SPOTIFY_CONNECT_PLAYING_EVENT,
-    SPOTIFY_CONNECT_PAUSED_EVENT
+    SPOTIFY_CONNECT_PAUSED_EVENT,
 )
 
-##### LOCAL constants ####################
-# the first volume controller of Spotify in asound.conf which is put to 0% if state is off
+# Local constants
 ALSA_MIXER_SPOTCON = "VolumeSpotCon1"
-# Define the flag file paths as class constants
-ACTIVE_FLAG_FILE  = "/home/pi/Oradio3/Spotify/spotactive.flag"
+ACTIVE_FLAG_FILE = "/home/pi/Oradio3/Spotify/spotactive.flag"
 PLAYING_FLAG_FILE = "/home/pi/Oradio3/Spotify/spotplaying.flag"
 
+
 class SpotifyConnect:
-    """ Basic Spotify functionality based on Librespot service """
+    """Basic Spotify functionality based on Librespot service."""
+
     def __init__(self, message_queue=None):
         """
-        Initialize with a message queue.
-        The message_queue is used to send events to oradio_control.py.
-        Also starts monitoring flags in a separate thread.
+        Initialize with a message queue used to send events to oradio_control.py.
+        Starts monitoring flags in a separate thread.
         """
         self.active = False
         self.playing = False
         self.message_queue = message_queue
 
-        # Ensure both flags exist and are reset to "0"
-        self.initialize_flags()
+        # Track whether we've already warned about a missing/unreadable file
+        self._warned_missing = {
+            ACTIVE_FLAG_FILE: False,
+            PLAYING_FLAG_FILE: False,
+        }
 
         # Start monitor_flags in a separate daemon thread.
         self.monitor_thread = threading.Thread(target=self.monitor_flags, daemon=True)
         self.monitor_thread.start()
-        oradio_log.info("Monitor thread started.")
+        oradio_log.info("SpotifyConnect: monitor thread started.")
 
-    def _reset_flag(self, filepath):
-        """
-        Ensure the flag file exists and reset its value to '0'.
-        """
-        try:
-            os.makedirs(os.path.dirname(filepath), exist_ok=True)
-            with open(filepath, "w", encoding="utf-8") as file:
-                file.write("0")
-            oradio_log.info("Flag %s ensured and reset to 0", filepath)
-        except OSError as ex_err:
-            oradio_log.error("Error resetting %s: %s", filepath, ex_err)
+    # ---------- Flag reading ----------
 
-    def initialize_flags(self):
+    def _read_flag(self, filepath: str) -> bool:
         """
-        Ensures both 'active' and 'playing' flag files exist and resets them to 0.
-        """
-        for filepath in (ACTIVE_FLAG_FILE, PLAYING_FLAG_FILE):
-            self._reset_flag(filepath)
-
-    def _read_flag(self, filepath):
-        """
-        Reads the file at 'filepath' and returns True if its content is '1',
-        otherwise returns False. Returns False if the file cannot be read.
+        Read 'filepath' and return True if its trimmed content is '1', else False.
+        If the file is missing or unreadable, return False and warn only once.
         """
         try:
             with open(filepath, "r", encoding="utf-8") as file:
-                content = file.read().strip()
-                return content == "1"
+                return file.read().strip() == "1"
         except FileNotFoundError:
-            oradio_log.warning("Flag file %s not found, treating as '0'", filepath)
+            if not self._warned_missing.get(filepath, False):
+                oradio_log.warning(
+                    "Flag file %s not found; treating as '0' until it appears.", filepath
+                )
+                self._warned_missing[filepath] = True
             return False
         except OSError as ex_err:
-            oradio_log.error("OS error reading %s: %s", filepath, ex_err)
+            if not self._warned_missing.get(filepath, False):
+                oradio_log.warning(
+                    "Could not read flag %s (%s); treating as '0' until readable.",
+                    filepath,
+                    ex_err,
+                )
+                self._warned_missing[filepath] = True
             return False
 
-    def update_flags(self):
-        """
-        Update the 'active' and 'playing' booleans by reading their flag files.
-        """
+    def update_flags(self) -> None:
+        """Update 'active' and 'playing' by reading their flag files."""
         self.active = self._read_flag(ACTIVE_FLAG_FILE)
         self.playing = self._read_flag(PLAYING_FLAG_FILE)
 
-    def send_event(self, event):
-        """
-        Sends an event via the message queue.
-        The message is a dictionary containing:
-          - 'source': MESSAGE_SPOTIFY_SOURCE (from oradio_const)
-          - 'state' : the event state
-        """
-        if self.message_queue:
-            try:
-                message = {"source": MESSAGE_SPOTIFY_SOURCE, "state": event, "error": MESSAGE_NO_ERROR}
-                self.message_queue.put(message)
-                oradio_log.info("Message sent to queue: %s", message)
-            except Full:
-                oradio_log.error("Message queue is full, could not send event")
-            except (OSError, ValueError) as ex_err:
-                oradio_log.error("Error sending message to queue: %s", ex_err)
-        else:
-            oradio_log.error("Message queue is not set. Cannot send event.")
+    # ---------- Events to oradio_control ----------
 
-    def play(self):
+    def send_event(self, event: str) -> None:
         """
-        Unmute Spotify Connect by setting ALSA channel to 100%
+        Send an event via the message queue. The message dict contains:
+          - 'source': MESSAGE_SPOTIFY_SOURCE
+          - 'state' : the event (string)
+          - 'error' : MESSAGE_NO_ERROR
         """
+        if not self.message_queue:
+            oradio_log.error("SpotifyConnect: message queue not set; cannot send event.")
+            return
+
+        try:
+            message = {
+                "source": MESSAGE_SPOTIFY_SOURCE,
+                "state": event,
+                "error": MESSAGE_NO_ERROR,
+            }
+            self.message_queue.put(message)
+            oradio_log.info("SpotifyConnect: message sent to queue: %s", message)
+        except Full:
+            oradio_log.error("SpotifyConnect: message queue is full; event dropped.")
+        except (OSError, ValueError) as ex_err:
+            oradio_log.error("SpotifyConnect: error sending event to queue: %s", ex_err)
+
+    # ---------- Control (mute/unmute) ----------
+
+    def play(self) -> None:
+        """Unmute Spotify Connect by setting ALSA channel to 100%."""
         try:
             subprocess.run(
                 ["amixer", "-c", "DigiAMP", "sset", ALSA_MIXER_SPOTCON, "100%"],
                 check=True,
                 stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL
+                stderr=subprocess.DEVNULL,
             )
-            oradio_log.info("Spotify Connect UnMuted via amixer")
+            oradio_log.info("SpotifyConnect: unmuted via amixer.")
         except subprocess.CalledProcessError as ex_err:
-            oradio_log.error("Error unmuting via amixer: %s", ex_err)
+            oradio_log.error("SpotifyConnect: error unmuting via amixer: %s", ex_err)
 
-    def pause(self):
-        """
-        Mute Spotify Connect by setting ALSA channel to 0%
-        """
+    def pause(self) -> None:
+        """Mute Spotify Connect by setting ALSA channel to 0%."""
         try:
             subprocess.run(
                 ["amixer", "-c", "DigiAMP", "sset", ALSA_MIXER_SPOTCON, "0%"],
                 check=True,
                 stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL
+                stderr=subprocess.DEVNULL,
             )
-            oradio_log.info("Spotify Connect Muted via amixer")
+            oradio_log.info("SpotifyConnect: muted via amixer.")
         except subprocess.CalledProcessError as ex_err:
-            oradio_log.error("Error muting via amixer: %s", ex_err)
+            oradio_log.error("SpotifyConnect: error muting via amixer: %s", ex_err)
 
-    def get_state(self):
-        """ Return web service state """
+    def get_state(self) -> dict:
+        """Return current state as a dict: {'active': bool, 'playing': bool}."""
         return {"active": self.active, "playing": self.playing}
 
-    def monitor_flags(self, interval=0.5):
-        """
-        Continuously monitors the flag files and sends events when their values change.
+    # ---------- Monitor loop ----------
 
-        - When active_flag goes from 0 to 1, sends SPOTIFY_CONNECT_CONNECTED_EVENT.
-        - When active_flag goes from 1 to 0, sends SPOTIFY_CONNECT_DISCONNECTED_EVENT.
-        - When playing_flag goes from 0 to 1, sends SPOTIFY_CONNECT_PLAYING_EVENT.
-        - When playing_flag goes from 1 to 0, sends SPOTIFY_CONNECT_PAUSED_EVENT.
+    def monitor_flags(self, interval: float = 0.5) -> None:
         """
-        # Initialize previous states.
+        Continuously monitor the flag files and send events when values change.
+
+        - active  0→1: SPOTIFY_CONNECT_CONNECTED_EVENT
+        - active  1→0: SPOTIFY_CONNECT_DISCONNECTED_EVENT
+        - playing 0→1: SPOTIFY_CONNECT_PLAYING_EVENT
+        - playing 1→0: SPOTIFY_CONNECT_PAUSED_EVENT
+        """
         self.update_flags()
         prev_active = self.active
         prev_playing = self.playing
-        oradio_log.info("Starting flag monitoring.")
+        oradio_log.info("SpotifyConnect: starting flag monitoring.")
+
         try:
             while True:
                 prev_active, prev_playing = self.active, self.playing
@@ -200,18 +191,15 @@ class SpotifyConnect:
 
                 time.sleep(interval)
         except KeyboardInterrupt:
-            oradio_log.info("Monitoring stopped.")
+            oradio_log.info("SpotifyConnect: monitoring stopped.")
+
 
 if __name__ == "__main__":
-
-# Most modules use similar code in stand-alone
-# pylint: disable=duplicate-code
-
-    # For testing purposes, create a message queue using multiprocessing.
+    # Stand-alone test harness
     msg_queue = Queue()
     spotify = SpotifyConnect(message_queue=msg_queue)
 
-    # Interactive test menu for play and pause commands.
+    # Simple interactive test for amixer control
     while True:
         print("\nSelect an option:")
         print("1. Play (100% volume)")
