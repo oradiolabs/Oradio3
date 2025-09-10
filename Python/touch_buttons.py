@@ -1,6 +1,5 @@
 #!/usr/bin/env python3
 """
-
   ####   #####     ##    #####      #     ####
  #    #  #    #   #  #   #    #     #    #    #
  #    #  #    #  #    #  #    #     #    #    #
@@ -13,26 +12,25 @@ Created on April 28, 2025
 @copyright:     Copyright 2024, Oradio Stichting
 @license:       GNU General Public License (GPL)
 @organization:  Oradio Stichting
-@version:       1
+@version:       3
 @email:         oradioinfo@stichtingoradio.nl
 @status:        Development
-@summary:       Oradio touch buttons module with debounce and standalone test mode and selftest
+@summary:       Oradio touch buttons module with debounce, per-button callbacks, and selftest
 """
 
 import time
 import threading
-from RPi import GPIO
+from typing import Callable, Dict
 
-# oradio modules
+from RPi import GPIO
 from oradio_logging import oradio_log
-from play_system_sound import PlaySystemSound
 
 # -------- LOCAL constants --------
 BUTTON_DEBOUNCE_TIME = 500          # ms, ignore rapid repeats
 DEBOUNCE_SECONDS = BUTTON_DEBOUNCE_TIME / 1000.0
 BOUNCE_MS = 10                      # hardware debounce in GPIO.add_event_detect
 
-BUTTONS = {
+BUTTONS: Dict[str, int] = {
     "Play": 9,
     "Preset1": 11,
     "Preset2": 5,
@@ -44,30 +42,66 @@ LONG_PRESS_DURATION = 6  # seconds
 
 
 class TouchButtons:
-    """Handle GPIO-based touch buttons with debounce, short-press action,
-    and long-press detection. No LED dependency in the class itself.
+    """
+    Handle GPIO-based touch buttons with debounce, short-press callbacks,
+    and long-press callbacks. This class has **no knowledge** of the state machine.
     """
 
-    def __init__(self, state_machine=None, sound_player=None):
-        self.state_machine = state_machine
-        self.sound_player = sound_player or PlaySystemSound()
+    OnPress = Callable[[], None]
+    OnLongPress = Callable[[str], None]  # receives the button name (e.g. "Play")
+
+    def __init__(self, on_press=None, on_long_press=None, sound_player=None) -> None:
+        """
+        Args:
+            on_press: dict mapping button name -> zero-arg callback (short press).
+            on_long_press: dict mapping button name -> callback(button_name) (long press).
+            sound_player: optional object with .play("Click"); if None, a default is tried.
+        """
+        # Callbacks
+        self._on_press: Dict[str, TouchButtons.OnPress] = on_press or {}
+        self._on_long_press: Dict[str, TouchButtons.OnLongPress] = on_long_press or {}
+
+        # Sound player: use injected instance if provided; otherwise try to create one.
+        if sound_player is not None:
+            self.sound_player = sound_player
+        else:  # only to test in stand alone situations
+            try:
+                # Lazy import on purpose: keeps touch_buttons usable without audio backend
+                from play_system_sound import PlaySystemSound  # pylint: disable=import-outside-toplevel
+                self.sound_player = PlaySystemSound()
+            except Exception:  # pylint: disable=broad-exception-caught
+                oradio_log.warning("TouchButtons: sound backend unavailable; disabling click sounds")
+                self.sound_player = None
 
         # Press tracking
-        self.button_press_times = {}     # button -> press start (monotonic)
-        self.last_trigger_times = {}     # button -> last accepted edge time
-        self.long_press_timers = {}      # button -> Timer
-
-        # Public, overridable by test harness:
-        self.long_press_handler = self._default_long_press_handler
+        self.button_press_times: Dict[str, float] = {}   # button -> press start (monotonic)
+        self.last_trigger_times: Dict[str, float] = {}   # button -> last accepted press time
+        self.long_press_timers: Dict[str, threading.Timer] = {}  # button -> Timer
 
         # Fast channel -> name lookup
         self.gpio_to_button = {pin: name for name, pin in BUTTONS.items()}
 
         self._setup_gpio()
 
+    # ---------- Public wiring helpers ----------
+
+    def set_press_callback(self, button_name: str, callback):
+        """Register or clear the short-press callback for a specific button."""
+        if callback is None:
+            self._on_press.pop(button_name, None)
+        else:
+            self._on_press[button_name] = callback
+
+    def set_long_press_callback(self, button_name: str, callback):
+        """Register or clear the long-press callback for a specific button."""
+        if callback is None:
+            self._on_long_press.pop(button_name, None)
+        else:
+            self._on_long_press[button_name] = callback
+
     # ---------- GPIO setup / edge handling ----------
 
-    def _setup_gpio(self):
+    def _setup_gpio(self) -> None:
         """Configure pins and install both-edge detection with single callback."""
         GPIO.setwarnings(False)
         GPIO.setmode(GPIO.BCM)
@@ -78,9 +112,11 @@ class TouchButtons:
                 GPIO.remove_event_detect(pin)
             except RuntimeError:
                 pass
-            GPIO.add_event_detect(pin, GPIO.BOTH, callback=self._edge_callback, bouncetime=BOUNCE_MS)
+            GPIO.add_event_detect(
+                pin, GPIO.BOTH, callback=self._edge_callback, bouncetime=BOUNCE_MS
+            )
 
-    def _edge_callback(self, channel):
+    def _edge_callback(self, channel: int) -> None:
         """Unified handler for both press (falling) and release (rising) edges."""
         button_name = self.gpio_to_button.get(channel)
         if not button_name:
@@ -93,7 +129,7 @@ class TouchButtons:
 
     # ---------- Press / release paths ----------
 
-    def _handle_press(self, channel, button_name):
+    def _handle_press(self, channel: int, button_name: str) -> None:
         """Falling edge: do short-press action and arm long-press timer."""
         now = time.monotonic()
         last = self.last_trigger_times.get(button_name, 0.0)
@@ -108,24 +144,38 @@ class TouchButtons:
         if prev:
             prev.cancel()
 
-        timer = threading.Timer(LONG_PRESS_DURATION, self._long_press_timeout, args=(channel, button_name))
+        timer = threading.Timer(
+            LONG_PRESS_DURATION, self._long_press_timeout, args=(channel, button_name)
+        )
         timer.daemon = True
         self.long_press_timers[button_name] = timer
         timer.start()
 
         # Immediate short-press feedback
-        self.sound_player.play("Click")
-        if self.state_machine:
-            self.state_machine.transition(f"State{button_name}")
+        if self.sound_player:
+            try:
+                self.sound_player.play("Click")
+            except Exception:  # pylint: disable=broad-exception-caught
+                # Don't let sound issues break input handling
+                oradio_log.exception("TouchButtons: click sound failed")
 
-    def _handle_release(self, _channel, button_name):
+        # Invoke short-press callback if present
+        callback = self._on_press.get(button_name)
+        if callback:
+            try:
+                callback()
+            except Exception:  # pylint: disable=broad-exception-caught
+                # Broad on purpose: we don't want a subscriber bug to kill GPIO callback threads.
+                oradio_log.exception("TouchButtons: short-press callback failed for %s", button_name)
+
+    def _handle_release(self, _channel: int, button_name: str) -> None:
         """Rising edge: cancel pending long-press timer (if any)."""
         timer = self.long_press_timers.pop(button_name, None)
         if timer:
             timer.cancel()
         # Short-press behavior already executed on falling edge.
 
-    def _long_press_timeout(self, channel, button_name):
+    def _long_press_timeout(self, channel: int, button_name: str) -> None:
         """Fire long-press if still held after LONG_PRESS_DURATION."""
         if GPIO.input(channel) != GPIO.LOW:
             return  # released during wait; ignore
@@ -133,21 +183,22 @@ class TouchButtons:
         # Disarm any timer entry; we’re executing now
         self.long_press_timers.pop(button_name, None)
 
-        # Run (overridable) handler asynchronously
-        threading.Thread(target=self._run_long_press_handler, args=(button_name,), daemon=True).start()
+        # Run long-press handler asynchronously (don’t block GPIO thread)
+        threading.Thread(
+            target=self._invoke_long_press, args=(button_name,), daemon=True
+        ).start()
 
-    def _run_long_press_handler(self, button_name):
-        """Invoker for the public long_press_handler attribute."""
-        self.long_press_handler(button_name)
-
-    # ---------- Default actions ----------
-
-    def _default_long_press_handler(self, button_name):
-        """Default long-press behavior if not overridden (only Play is bound)."""
-        if self.state_machine and button_name == "Play":
-            self.state_machine.start_webservice()
-        else:
-            oradio_log.info("LONG press on %s (no default action)", button_name)
+    def _invoke_long_press(self, button_name: str) -> None:
+        """Invoker for long-press callbacks."""
+        callback = self._on_long_press.get(button_name)
+        if callback is None:
+            oradio_log.info("LONG press on %s (no callback wired)", button_name)
+            return
+        try:
+            callback(button_name)
+        except Exception:  # pylint: disable=broad-exception-caught
+            # Broad on purpose: external callback error must not kill our worker.
+            oradio_log.exception("TouchButtons: long-press callback failed for %s", button_name)
 
     # ---------- Self-test ----------
 
@@ -158,7 +209,8 @@ class TouchButtons:
                 level = GPIO.input(pin)
                 if level not in (GPIO.LOW, GPIO.HIGH):
                     oradio_log.error(
-                        "TouchButtons selftest: invalid level on %s (BCM%d): %r", name, pin, level
+                        "TouchButtons selftest: invalid level on %s (BCM%d): %r",
+                        name, pin, level
                     )
                     return False
                 oradio_log.debug(
@@ -173,98 +225,70 @@ class TouchButtons:
             return False
 
 
-# ------------------ Standalone Test (compact) ------------------
+# ------------------ Standalone Test (no state machine) ------------------
 if __name__ == "__main__":
     # pylint: disable=missing-class-docstring,missing-function-docstring
     import sys
 
-    # Optional LED support for test mode (narrow exception)
+    # Ensure clean slate before any GPIO users (helps when re-running standalone)
+    try:
+        GPIO.setwarnings(False)
+        GPIO.setmode(GPIO.BCM)
+        GPIO.cleanup()
+    except (RuntimeError, OSError):
+        # Ignore cleanup errors; GPIO may already be in use or not initialized
+        pass
+
+    # Optional LED support for test mode (defensive: don't crash if busy)
     try:
         from led_control import LEDControl
-        LED_CTRL = LEDControl()
+        try:
+            LED_CTRL = LEDControl()
+        except (RuntimeError, OSError) as e:
+            # GPIO busy or HW init error; continue without LEDs in standalone mode
+            print(f"[Standalone] LEDControl unavailable ({e}). Continuing without LEDs.")
+            LED_CTRL = None
     except ImportError:
         LED_CTRL = None
-
-    class DummyStateMachine:
-        def __init__(self):
-            self.state = "StateIdle"
-        def transition(self, new_state):
-            print(f"[DummyStateMachine] Transition: {self.state} → {new_state}")
-            self.state = new_state
-
-    def explain():
-        print(
-            "\nTouchButtons – Standalone Test\n"
-            "1) Self-test\n"
-            "2) Live button test (LED blinks 0.1s if available)\n"
-            "3) Exit\n"
-        )
-
-    def cleanup(touch: TouchButtons):
-        for timer in list(touch.long_press_timers.values()):
-            timer.cancel()
-        GPIO.cleanup()
 
     def led_name(btn: str) -> str:
         return "LED" + btn  # e.g., 'Play' -> 'LEDPlay'
 
-    def blink_led(btn: str):
+    def blink_led(btn: str) -> None:
         if not LED_CTRL:
             return
         LED_CTRL.turn_on_led(led_name(btn))
         time.sleep(0.1)
         LED_CTRL.turn_off_all_leds()
 
-    def do_selftest(touch: TouchButtons):
-        print("\nRunning self-test...")
-        print("✅ PASSED\n" if touch.selftest() else "❌ FAILED\n")
-
-    def do_live_test(touch: TouchButtons):
-        print(
-            "\nLive test: press buttons (Ctrl+C to stop). "
-            "Short/long presses print; LED blinks if present.\n"
-        )
-        # Patch handlers so defaults (that may hit state machine) are bypassed
-        original_long = getattr(touch, "long_press_handler", None)
-        original_press = getattr(touch, "_handle_press")
-
-        def on_long_press(name: str):
-            print(f"[LONG]  {name}")
-            blink_led(name)
-
-        def patched_handle_press(channel, name):
-            original_press(channel, name)  # run normal short-press mechanics
+    def on_press_factory(name: str):
+        def _cb() -> None:
             print(f"[SHORT] {name}")
             blink_led(name)
+        return _cb
 
-        touch.long_press_handler = on_long_press
-        setattr(touch, "_handle_press", patched_handle_press)
+    def on_long_factory(name: str):
+        # inner arg is intentionally ignored -> name is captured from the outer scope
+        def _cb(_: str) -> None:
+            print(f"[LONG]  {name}")
+            blink_led(name)
+        return _cb
 
-        try:
-            while True:
-                time.sleep(0.2)
-        except KeyboardInterrupt:
-            print("\nStopping live test…\n")
-        finally:
-            if original_long is not None:
-                touch.long_press_handler = original_long
-            setattr(touch, "_handle_press", original_press)
+    tb = TouchButtons(
+        on_press={n: on_press_factory(n) for n in BUTTONS},
+        on_long_press={"Play": on_long_factory("Play")},  # demo: only Play has long-press
+    )
 
-    # --- menu ---
-    SM = DummyStateMachine()
-    TB = TouchButtons(state_machine=SM)
-    explain()
+    print("\nTouchButtons – Standalone Test")
+    print("Press buttons (Ctrl+C to exit). Short/long presses print; LED blinks if present.\n")
 
-    while True:
-        choice = input("Select (1=self, 2=live, 3=exit): ").strip()
-        if choice == "1":
-            do_selftest(TB)
-        elif choice == "2":
-            do_live_test(TB)
-        elif choice == "3":
-            break
-        else:
-            print("Invalid option.\n")
-
-    cleanup(TB)
-    sys.exit(0)
+    try:
+        while True:
+            time.sleep(0.2)
+    except KeyboardInterrupt:
+        pass
+    finally:
+        for t in list(tb.long_press_timers.values()):
+            t.cancel()
+        GPIO.cleanup()
+        sys.exit(0)
