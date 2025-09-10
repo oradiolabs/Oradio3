@@ -94,16 +94,14 @@ class SpotifyConnect:
     def _read_flag(self, filepath):
         """
         Reads the file at 'filepath' and returns True if its content is '1',
-        otherwise returns False. If the file is missing, recreate it with '0'.
+        otherwise returns False. Returns False if the file cannot be read.
         """
         try:
             with open(filepath, "r", encoding="utf-8") as file:
                 content = file.read().strip()
                 return content == "1"
         except FileNotFoundError:
-            # Self-heal: recreate as '0' and carry on without warning spam.
-            self._reset_flag(filepath)
-            oradio_log.info("Missing flag %s recreated as '0'", filepath)
+            oradio_log.warning("Flag file %s not found, treating as '0'", filepath)
             return False
         except OSError as ex_err:
             oradio_log.error("OS error reading %s: %s", filepath, ex_err)
