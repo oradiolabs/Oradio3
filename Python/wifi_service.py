@@ -474,11 +474,6 @@ def get_saved_network():
     """
     return SaveWifi.get_saved()
 
-"""
-#OMJ: If nmcli and iw both fail we can try forcing the scan using the NetworkMangage D-Bus API to trigger a scan
-https://gitlab.freedesktop.org/NetworkManager/NetworkManager/-/blob/main/examples/python/gi/show-wifi-networks.py
-"""
-
 def parse_nmcli_output(nmcli_output):
     """Return list of unique, sorted by strongest signal first, network SSIDs with indication if password is required or not"""
     networks_formatted = []
@@ -538,10 +533,12 @@ def get_wifi_networks():
     Get all available wifi networks, except Oradio access points
     NetworkManager provides the networks sorted by signal strength
     :return networks ==> list of network ssid + if password required
+
+    #OMJ: If nmcli and iw both fail we can try forcing the scan using the NetworkMangage D-Bus API to trigger a scan
+    https://gitlab.freedesktop.org/NetworkManager/NetworkManager/-/blob/main/examples/python/gi/show-wifi-networks.py
     """
     # initialize
     networks = []
-    formatted_networks = []
 
     # Get available wifi networks
     try:
