@@ -19,10 +19,22 @@ Created on December 23, 2024
 @status:        Development
 @summary: Class for wifi connectivity services
     :Documentation
+        https://networkmanager.dev/
         https://pypi.org/project/nmcli/
         https://superfastpython.com/multiprocessing-in-python/
+        https://blogs.gnome.org/dcbw/2016/05/16/networkmanager-and-wifi-scans/
+    :Notes
+        Not used:
+            NM can do a connectivity check. See https://wiki.archlinux.org/title/NetworkManager section 4.4
+        Not supported:
+            Connecting to captive portal.
+            Connecting to VPN
+        TODO:
+            Use NetworkManager setting up a wifi hotspot that sets up a local private net, with DHCP and IP forwarding
+            Use: nmcli dev wifi hotspot ifname wlp4s0 ssid test password "test1234"
 """
 import os
+import re
 import json
 from threading import Thread, Lock
 from multiprocessing import Process, Queue
@@ -462,6 +474,65 @@ def get_saved_network():
     """
     return SaveWifi.get_saved()
 
+"""
+#OMJ: If nmcli and iw both fail we can try forcing the scan using the NetworkMangage D-Bus API to trigger a scan
+https://gitlab.freedesktop.org/NetworkManager/NetworkManager/-/blob/main/examples/python/gi/show-wifi-networks.py
+"""
+
+def parse_nmcli_output(nmcli_output):
+    """Return list of unique, sorted by strongest signal first, network SSIDs with indication if password is required or not"""
+    networks_formatted = []
+
+    for network in nmcli_output:
+        # Add unique, ignore own Access Point
+        if (len(network.ssid) != 0 and
+            network.ssid != ACCESS_POINT_SSID and
+            network.ssid not in [n["ssid"] for n in networks_formatted]):
+            networks_formatted.append({"ssid": network.ssid, "type": "closed" if network.security else "open"})
+
+    # List of network SSIDs + password required or not
+    return networks_formatted
+
+def parse_iw_output(iw_output):
+    """Return list of unique, sorted by strongest signal first, network SSIDs with indication if password is required or not"""
+    networks = []
+    networks_formatted = []
+    ssid, signal, security = "", -1000, False
+
+    for line in iw_output.split("\n"):
+        line = line.strip()
+        if line.startswith("BSS"):
+            if ssid:  # Only append if we have an SSID
+                networks.append((ssid, signal, security))
+            ssid, signal, security = "", -1000, False
+        elif "SSID:" in line:
+            ssid = line.split("SSID:")[1].strip()
+        elif "signal:" in line:
+            signal_match = re.search(r"signal:\s+(-?\d+\.\d+) dBm", line)
+            if signal_match:
+                signal = float(signal_match.group(1))
+        elif "capability:" in line:
+            security = "closed" if "Privacy" in line else "open"
+
+    # Append the last network if it exists
+    if ssid:
+        networks.append((ssid, signal, security))
+
+    # Sort by signal strength (strongest first)
+    networks_sorted = sorted(networks, key=lambda x: x[1], reverse=True)
+
+    # Use a set to track added SSIDs
+    seen_ssids = set()
+
+    # Filter unique SSIDs
+    for network in networks_sorted:
+        if network[0] not in seen_ssids:
+            seen_ssids.add(network[0])
+            networks_formatted.append({"ssid": network[0], "type": network[2]})
+
+    # List of network SSIDs + password required or not
+    return networks_formatted
+
 def get_wifi_networks():
     """
     Get all available wifi networks, except Oradio access points
@@ -470,23 +541,37 @@ def get_wifi_networks():
     """
     # initialize
     networks = []
+    formatted_networks = []
 
     # Get available wifi networks
     try:
-        oradio_log.debug("Get list of networks broadcasting their ssid")
+        oradio_log.debug("Scanning for wifi networks...")
         # Force a rescan to get currently active networks
         # nmcli.device.wifi(ifname: str = None, rescan: bool = None) -> List[DeviceWifi]
-        wifi_list = nmcli.device.wifi(None, True)
+        nmcli_output = nmcli.device.wifi(None, True)
     except (*nmcli_exceptions, CalledProcessError, OSError) as ex_err:  # * uses Python’s unpacking to merge them into a flat tuple
-        oradio_log.error("Failed to get wifi networks, error = %s", ex_err)
+        oradio_log.error("Failed to scan with nmcli: %s", ex_err)
     else:
-        for network in wifi_list:
-            # Add unique, ignore own Access Point
-            if (network.ssid != ACCESS_POINT_SSID) and (len(network.ssid) != 0) and (network.ssid not in [n["ssid"] for n in networks]):
-                if network.security:
-                    networks.append({"ssid": network.ssid, "type": "closed"})
-                else:
-                    networks.append({"ssid": network.ssid, "type": "open"})
+        networks = parse_nmcli_output(nmcli_output)
+
+    # It is very unlikely to be in environment without ANY wifi networks
+    if not networks:
+        oradio_log.warning("No networks found using nmcli scan")
+
+    # nmcli scan did not find any wifi networks. Try with iw scan
+    if not networks:
+        oradio_log.warning("Scan with nmcli is empty")
+        cmd = "sudo iw dev wlan0 scan flush"
+        result, response = run_shell_script(cmd)
+        if not result:
+            oradio_log.error("Failed to scan with iw: %s", response)
+            return []
+        # Filter on required info
+        networks = parse_iw_output(response)
+
+    # It is very unlikely to be in environment without ANY wifi networks
+    if not networks:
+        oradio_log.warning("No networks found using iw scan")
 
     # Return list of wifi networks broadcasting their ssid
     return networks
