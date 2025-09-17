@@ -45,7 +45,7 @@ VOLUME_SPOTIFY_SYS_SOUND = 70
 DEFAULT_SYS_SOUND_VOLUME = 70
 
 # Smooth restore configuration
-RESTORE_VOL_TIME = 3.0   # seconds (total duration of the unduck ramp)
+RESTORE_VOL_TIME = 2.0   # seconds (total duration of the unduck ramp)
 RESTORE_VOL_STEP = 2     # percentage points per step during restore
 
 SOUND_FILES = {
@@ -294,7 +294,7 @@ class PlaySystemSound:
                 self.active_count -= 1
                 if self.active_count == 0:
                     # Delay restore by 0.5s to batch rapid-fire calls
-                    self.restore_timer = Timer(0.5, self._restore_volumes)
+                    self.restore_timer = Timer(0.2, self._restore_volumes)
                     self.restore_timer.start()
 
 # ------------------ TEST SECTION ------------------
