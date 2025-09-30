@@ -198,13 +198,21 @@ def run_shell_script(script):
     """
     Simplified shell command execution
     :param script (str) - shell command to execute
-    Returns exit status and output of running the script
+    :return: (success, output) tuple
+             success=True -> output = stdout (stripped)
+             success=False -> output = stderr (stripped)
     """
-    oradio_log.debug("Runnning shell script: %s", script)
-    process = run(script, shell = True, capture_output = True, encoding = 'utf-8', check = False)
+    oradio_log.debug("Running shell script: %s", script)
+    process = run(
+        script,
+        shell = True,
+        capture_output = True,
+        text = True,
+        check = False
+    )
     if process.returncode != 0:
         return False, process.stderr.strip()
-    return True, process.stdout
+    return True, process.stdout.strip()
 
 # Entry point for stand-alone operation
 if __name__ == '__main__':
