@@ -576,30 +576,12 @@ def get_wifi_networks():
 def get_wifi_connection():
     """
     Get active wifi connection
-    :return connection ==> network ID | None
+    :return network ID | None
     """
-    # initialize
-    network = None
-
-    try:
-        # Get all network connections
-        # nmcli.connection() -> List[Connection]
-        connections = nmcli.connection()
-    except (*nmcli_exceptions, CalledProcessError, OSError) as ex_err:  # * uses Python’s unpacking to merge them into a flat tuple
-        oradio_log.error("Failed to get active connection, error = %s", ex_err)
-    else:
-        # Inspect connections
-        for connection in connections:
-            # Ignore access point and only wifi connections with a device can be active
-            if connection.conn_type == "wifi" and connection.device != "--":
-                # Get connection details, inspect GENERAL.STATE
-                details = nmcli.connection.show(connection.name)
-                if details.get("GENERAL.STATE") == "activated":
-                    # Connection is wifi, has device and is activated
-                    network = connection.name
-
-    # Return active network, None if not connected
-    return network
+    # Get the network Oradio was connected to before starting access point, empty string if None
+    cmd = "iw dev wlan0 info | awk '/ssid/ {print $2}' || iwgetid -r wlan0"
+    result, response = run_shell_script(cmd)
+    return str(response) if result else None
 
 def _get_wifi_password(network):
     """
