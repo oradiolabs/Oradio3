@@ -293,7 +293,7 @@ class PlaySystemSound:
             with self.batch_lock:
                 self.active_count -= 1
                 if self.active_count == 0:
-                    # Delay restore by 0.5s to batch rapid-fire calls
+                    # Delay restore by 0.2s to batch rapid-fire calls
                     self.restore_timer = Timer(0.2, self._restore_volumes)
                     self.restore_timer.start()
 
