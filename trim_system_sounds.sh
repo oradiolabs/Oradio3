@@ -12,14 +12,15 @@ if ! [ -d "system_sounds_orig" ]; then
 fi
 
 # Vaste stilte aan eind
-silence=0.1
+silence=0
 
 # Maak output directory
 mkdir -p system_sounds
 
 # Trim sound files
 for f in system_sounds_orig/*.wav; do
-	echo "Verwerk: $f"
+	out="system_sounds/$(basename "$f")"
+	echo "Verwerk: $f en bewaar resultaat als $out"
 
 	# Totale duur in seconden (met decimalen)
 	duration=$(ffprobe -v error -show_entries format=duration \
@@ -38,13 +39,14 @@ for f in system_sounds_orig/*.wav; do
 
 		# Alleen trimmen als er nog iets overblijft (>0.5s)
 		if (( $(echo "$new_duration < $duration" | bc -l) )); then
-			out="system_sounds/$(basename "$f")"
 			echo "  Stilte vanaf ${new_duration}s → knippen tot $duration → $out"
 			ffmpeg -y -i "$f" -t "$new_duration" "$out"
 		else
-			echo "  Bestand $f heeft geen of te korte stilte aan het eind, overslaan."
+			echo "  Bestand $f heeft geen of te korte stilte aan het eind."
+			cp $f $out
 		fi
 	else
-		echo "  Geen stilte gevonden → geen nieuwe file."
+		echo "  Geen stilte gevonden."
+		cp $f $out
 	fi
 done
