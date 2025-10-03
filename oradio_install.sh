@@ -503,6 +503,11 @@ if [ -v INSTALL_ERROR ]; then
 	exit 1
 fi
 
+# Remove silence at end of system sounds
+bash ./trim_system_sounds.sh
+# Progress report
+echo -e "${GREEN}system sounds trimmed${NC}"
+
 ########## CONFIGURATION END ##########
 
 # Progress report
