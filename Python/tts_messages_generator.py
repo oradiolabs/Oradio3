@@ -68,6 +68,7 @@ PROMPTS: dict[str, str] = {
 
 # --------- DIRECTORIES & KEYS --------------------------------------
 
+SCRIPT_DIR   = "/home/pi/Oradio3/install_resources"
 OUTPUT_DIR   = "/home/pi/Oradio3/system_sounds"
 AZURE_KEY    = os.getenv("AZURE_SPEECH_KEY")
 AZURE_REGION = os.getenv("AZURE_REGION", "westeurope")
@@ -138,7 +139,7 @@ def main() -> None:
 
     for fname, text in PROMPTS.items():
         path = os.path.join(OUTPUT_DIR, fname)
-        logging.info("Genereer %-25s → %s", fname, text)
+        logging.info("Genereer %-31s → %s", fname, text)
         try:
             audio = synthesize(text)
             with open(path, "wb") as file:
@@ -149,7 +150,23 @@ def main() -> None:
         except OSError as os_err:
             logging.error("Schrijffout: %s", os_err)
 
-    logging.info("✅  %d bestanden klaar in %s", len(generated), OUTPUT_DIR)
+    logging.info("%d bestanden gegenereerd\n", len(generated))
+
+    # Trim trailing silence
+    cmd = " bash /home/pi/Oradio3/install_resources/trim_system_sounds.sh"
+    process = subprocess.run(
+        cmd,
+        shell = True,
+        capture_output = True,
+        text = True,
+        check = False
+    )
+    if process.returncode != 0:
+        logging.error("scriptfout: %s", process.stderr.strip())
+    logging.info("Trim script resultaat:\n%s\n", process.stdout.strip())
+
+    logging.info("✅  %d bestanden klaar voor gebruik in %s", len(generated), OUTPUT_DIR)
+
     if generated:
         menu_playback(generated)
 
