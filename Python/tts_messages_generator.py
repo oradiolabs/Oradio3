@@ -154,16 +154,10 @@ def main() -> None:
 
     # Trim trailing silence
     cmd = " bash /home/pi/Oradio3/install_resources/trim_system_sounds.sh"
-    process = subprocess.run(
-        cmd,
-        shell = True,
-        capture_output = True,
-        text = True,
-        check = False
-    )
-    if process.returncode != 0:
-        logging.error("scriptfout: %s", process.stderr.strip())
-    logging.info("Trim script resultaat:\n%s\n", process.stdout.strip())
+    proc = subprocess.run(cmd, shell = True, capture_output = True, text = True, check = False)
+    if proc.returncode != 0:
+        logging.error("scriptfout: %s", proc.stderr.strip())
+    logging.info("Trim script resultaat:\n%s\n", proc.stdout.strip())
 
     logging.info("✅  %d bestanden klaar voor gebruik in %s", len(generated), OUTPUT_DIR)
 
