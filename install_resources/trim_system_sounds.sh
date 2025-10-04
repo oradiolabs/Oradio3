@@ -67,7 +67,7 @@ fi
 # ============================================
 EXTRA_SILENCE=0.0			# Extra seconds to keep at the end
 SILENCE_NOISE_LEVEL="-40dB"	# Noise threshold for silence detection
-MIN_SILENCE_DURATION=0.5	# Minimum duration to consider silence
+MIN_SILENCE_DURATION=0.3	# Minimum duration to consider silence
 
 # ============================================
 # Function: process one file in-place
@@ -83,6 +83,8 @@ trim_file() {
 		return
 	fi
 
+	echo "processing: "$(basename "$infile")
+
 	# Total duration in seconds
 	local duration
 	duration=$(ffprobe -v error -show_entries format=duration \
@@ -91,15 +93,19 @@ trim_file() {
 		touch "$marker"
 		return
 	}
+	echo "duration="$duration
 
 	# Detect last silence end time
-	local last_silence_end
-	last_silence_end=$(ffmpeg -i "$infile" -af "silencedetect=noise=$SILENCE_NOISE_LEVEL:d=$MIN_SILENCE_DURATION" \
-						-f null - 2>&1 | grep "silence_end" | tail -n 1 | awk '{print $5}')
+	# Detect last silence start time
+	local last_silence_start
+	last_silence_start=$(ffmpeg -i "$infile" -af "silencedetect=noise=$SILENCE_NOISE_LEVEL:d=$MIN_SILENCE_DURATION" \
+						-f null - 2>&1 | grep "silence_end" | tail -n 1 | awk '{print $NF}')
+	echo "last_silence_start="$last_silence_start
 
-	if [[ -n "$last_silence_end" ]]; then
+	if [[ -n "$last_silence_start" ]]; then
 		local new_duration
-		new_duration=$(echo "$last_silence_end + $EXTRA_SILENCE" | bc -l)
+		new_duration=$(echo "$duration - $last_silence_start + $EXTRA_SILENCE" | bc -l)
+		echo "new_duration="$new_duration
 
 		if (( $(echo "$new_duration > 0 && $new_duration < $duration" | bc -l) )); then
 			printf -v new_duration "%f" "$new_duration"
