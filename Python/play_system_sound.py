@@ -54,7 +54,6 @@ SOUND_FILES = {
     "Stop":    f"{SOUND_FILES_DIR}/UIT.wav",
     "Play":    f"{SOUND_FILES_DIR}/AAN.wav",
     "Click":   f"{SOUND_FILES_DIR}/click.wav",
-    "Attention":   f"{SOUND_FILES_DIR}/Attention.wav",
     # Announcements
     "Preset1":             f"{SOUND_FILES_DIR}/Preset1_melding.wav",
     "Preset2":             f"{SOUND_FILES_DIR}/Preset2_melding.wav",

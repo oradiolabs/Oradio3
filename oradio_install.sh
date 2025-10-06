@@ -80,7 +80,7 @@ unset REBOOT_NEEDED
 # Clear flag indicating installation error
 unset INSTALL_ERROR
 
-# Install file and run follow-up commnand
+# Install file and run follow-up command
 function install_resource {
 	if [ $# -lt 2 ]; then
 		echo -e "${RED}install_resource has too few arguments: '$@'${NC}"
@@ -138,31 +138,28 @@ if [ "$1" != "--continue" ]; then
 
 ########## OS PACKAGES BEGIN ##########
 
-	# Update the package lists if too old
-	MAX_AGE=$((6 * 3600))  # 6 hours in seconds
+	STAMP_FILE="/var/lib/apt/last_update_stamp"
+	MAX_AGE=$((6 * 3600))	# 6 hours in seconds
 
-	# Get the newest modification time from files in the apt lists directory
-	APT_LISTS_DIR="/var/lib/apt/lists"
-	last_update=$(find "$APT_LISTS_DIR" -type f -printf "%T@\\n" 2>/dev/null | sort -n | tail -1)
-
-	# If no update history, run apt-get update
-	if [ -z "$last_update" ]; then
-	  echo "No update history found. Running apt-get update"
-	  sudo apt-get update
+	# Get last time the list was updated, 0 if never
+	if [[ -f "$STAMP_FILE" ]]; then
+		last_update=$(cat "$STAMP_FILE")
 	else
-		# Convert to integer
-		last_update=${last_update%.*}
+		last_update=0
+	fi
 
-		# Get current time
-		current_time=$(date +%s)
-		age=$((current_time - last_update))
+	# Get time since last update
+	current_time=$(date +%s)
+	age=$((current_time - last_update))
 
-		if [ "$age" -gt "$MAX_AGE" ]; then
-		  echo "Last apt-get update was more than 6 hours ago. Running update..."
-		  sudo apt-get update
-		else
-		  echo "apt-get update was run less than 6 hours ago. Skipping."
-		fi
+	# Update lists if to old
+	if (( age > MAX_AGE )); then
+		sudo apt-get update
+		# Save time lists were updated
+		date +%s | sudo tee "$STAMP_FILE" >/dev/null
+		echo -e "${GREEN}APT update completed, stamp file updated${NC}"
+	else
+		echo -e "${GREEN}APT lists are up to date${NC}"
 	fi
 
 	# NOTE: We do not upgrade: https://forums.raspberrypi.com/viewtopic.php?p=2310861&hilit=oradio#p2310861
@@ -502,6 +499,11 @@ if [ -v INSTALL_ERROR ]; then
 	# Stop with error flag
 	exit 1
 fi
+
+# Remove silence at end of system sounds
+bash $RESOURCES_PATH/trim_system_sounds.sh
+# Progress report
+echo -e "${GREEN}System sounds trimmed${NC}"
 
 ########## CONFIGURATION END ##########
 
