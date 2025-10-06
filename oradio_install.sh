@@ -183,8 +183,6 @@ if [ "$1" != "--continue" ]; then
 		mpc
 		iptables
 		raspotify
-		ffmpeg
-		bc
 	)
 
 	# Fetch list of upgradable packages
