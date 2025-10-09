@@ -27,8 +27,8 @@ import json
 import threading
 import subprocess
 import unicodedata
-#import socket
-from mpd import MPDClient
+#from mpd import MPDClient
+from mpd import MPDClient, CommandError
 
 ##### oradio modules ####################
 from oradio_logging import oradio_log
@@ -52,9 +52,6 @@ class MPDControl:
         self.current_playlist = None
         self.last_status_error = None
         self.mpd_lock = threading.Lock()
-
-        # Event for cancelling MPD database update
-        self.mpd_update_cancel_event = threading.Event()
 
         # start the separate monitor thread
         thread = threading.Thread(target=self._monitor_errors, daemon=True)
@@ -272,67 +269,49 @@ class MPDControl:
                 return False
         return bool(queue)
 
+    def update_mpd_database(self, progress_interval=5):
+        """Updates MPD database in a separate thread with progress logging"""
 
+        def _update():
+            # Ensure MPD client is connected
+            self._ensure_client()
 
-    def update_mpd_database(self):
-        """Updates the MPD database with a timeout."""
-        self._ensure_client()
-        # Reset cancellation event at the start of the update
-        self.mpd_update_cancel_event.clear()
-        timeout_seconds = 60  # timeout to stop updating
-        start_time = time.time()
+            try:
+                # Start the database update
+                self.client.update()
+                last_log_time = time.time()
 
-        try:
-            oradio_log.debug("Starting MPD database update...")
-            job_id = self.client.update()
-            oradio_log.debug("Database update job ID: %s", job_id)
+                oradio_log.debug("MPD database update started")
 
-            while True:
-                # Check for cancellation before each iteration
-                if self.mpd_update_cancel_event.is_set():
-                    oradio_log.debug("MPD database update canceled.")
-                    break
+                while True:
+                    # Get the current status of MPD
+                    status = self.client.status()
+                    updating = status.get("updating_db")
 
-                # Check for timeout
-                elapsed = time.time() - start_time
-                if elapsed > timeout_seconds:
-                    oradio_log.debug("MPD database update timed out after %s seconds", timeout_seconds)
-                    break
-
-                status = self.client.status()
-                if "updating_db" in status:
-                    oradio_log.debug("Updating... Job ID: %s", status['updating_db'])
-                    # Sleep in short increments to allow for prompt cancellation and timeout checks
-                    for _ in range(30):
-                        if self.mpd_update_cancel_event.is_set():
-                            oradio_log.debug("MPD database update canceled during sleep.")
-                            break
-                        if time.time() - start_time > timeout_seconds:
-                            oradio_log.debug("MPD database update timed out during sleep after %s seconds.", timeout_seconds)
-                            break
-                        time.sleep(0.2)
-                    if self.mpd_update_cancel_event.is_set():
+                    # If update is complete log indexed files and stop
+                    if not updating or updating == "0":
+                        indexed_files = len(self.client.listallinfo())
+                        oradio_log.debug("MPD database updated; %d files indexed", indexed_files)
                         break
-                    if time.time() - start_time > timeout_seconds:
-                        oradio_log.warning("MPD database update timed out after %s seconds.", timeout_seconds)
-                        break
-                else:
-                    oradio_log.debug("MPD database update completed.")
-                    break
-        except Exception as ex_err: # pylint: disable=broad-exception-caught
-            oradio_log.error("Error updating MPD database: %s", ex_err)
 
-    def start_update_mpd_database_thread(self):
-        """Starts the MPD database update in a separate thread."""
-        update_thread = threading.Thread(target=self.update_mpd_database, daemon=True)
-        update_thread.start()
-        oradio_log.debug("MPD database update thread started.")
-        return update_thread
+                    # Periodically log that the update is still in progress
+                    if time.time() - last_log_time >= progress_interval:
+                        oradio_log.debug("MPD database updating still in progress")
+                        last_log_time = time.time()
 
-    def cancel_update(self):
-        """Cancels the ongoing MPD database update."""
-        self.mpd_update_cancel_event.set()
-        oradio_log.debug("MPD database update cancellation requested.")
+                    # Small sleep to avoid busy-waiting
+                    time.sleep(0.5)
+
+            except (CommandError, ConnectionError) as ex_err:
+                # Log any errors that occur during the update
+                oradio_log.error("Error updating MPD database: %s", ex_err)
+
+        # Start the update in a separate daemon thread so it doesn't block
+        thread = threading.Thread(target=_update, name="MPDUpdateThread", daemon=True)
+        thread.start()
+        return thread
+
+#END-----------------------------
 
     def restart_mpd_service(self):
         """Restarts the MPD service using systemctl."""
@@ -783,16 +762,15 @@ if __name__ == '__main__':
                        " 6  - Play Preset 2\n"
                        " 7  - Play Preset 3\n"
                        " 8  - Update Database\n"
-                       " 9  - Cancel Database Update\n"
-                       "10  - Stress Test\n"
-                       "11  - Restart MPD Service\n"
-                       "12  - List Available Stored Playlists\n"
-                       "13  - List Available Directories\n"
-                       "14  - Create and Store a New Playlist\n"
-                       "15  - Select a Stored Playlist to Play\n"
-                       "16  - Select an Available Directory to Play\n"
-                       "17  - Check if preset is web radio\n"
-                       "18  - Check if current song is web radio\n"
+                       " 9  - Stress Test\n"
+                       "10  - Restart MPD Service\n"
+                       "11  - List Available Stored Playlists\n"
+                       "12  - List Available Directories\n"
+                       "13  - Create and Store a New Playlist\n"
+                       "14  - Select a Stored Playlist to Play\n"
+                       "15  - Select an Available Directory to Play\n"
+                       "16  - Check if preset is web radio\n"
+                       "17  - Check if current song is web radio\n"
                        "Select: ")
 
     while True:
@@ -828,11 +806,8 @@ if __name__ == '__main__':
                 mpd.play_preset("Preset3")
             case 8:
                 print("\nExecuting: Update MPD Database\n")
-                mpd.start_update_mpd_database_thread()
+                mpd.update_mpd_database()
             case 9:
-                print("\nExecuting: Cancel Database Update\n")
-                mpd.cancel_update()
-            case 10:
                 print("\nExecuting: Stress Test\n")
                 def stress_test(mpd_instance, duration=10):
                     """Stress test MPD service by running random commands"""
@@ -851,10 +826,10 @@ if __name__ == '__main__':
                         thread.join()
                     print("\nStress test completed.\n")
                 stress_test(mpd)
-            case 11:
+            case 10:
                 print("\nExecuting: Restart MPD Service\n")
                 mpd.restart_mpd_service()
-            case 12:
+            case 11:
                 print("\nListing available stored playlists...\n")
                 mpd._ensure_client()    # pylint: disable=protected-access
                 with mpd.mpd_lock:
@@ -865,7 +840,7 @@ if __name__ == '__main__':
                     for idx, pl in enumerate(lists, start=1):
                         print(f"{idx}. {pl.get('playlist')}")
 
-            case 13:
+            case 12:
                 print("\nListing available directories...\n")
                 mpd._ensure_client()    # pylint: disable=protected-access
                 with mpd.mpd_lock:
@@ -877,7 +852,7 @@ if __name__ == '__main__':
                     for idx, d in enumerate(dirs, start=1):
                         print(f"{idx}. {d}")
 
-            case 14:
+            case 13:
                 print("\nCreating and storing a new playlist...\n")
                 mpd._ensure_client()    # pylint: disable=protected-access
                 search_query = input("Enter search query (artist or song): ")
@@ -924,7 +899,7 @@ if __name__ == '__main__':
                             mpd.client.add(filename)
                     mpd.client.save(list_name)
                 print(f"Playlist '{list_name}' stored successfully.")
-            case 15:
+            case 14:
                 print("\nSelect a stored playlist to play...\n")
                 mpd._ensure_client()    # pylint: disable=protected-access
                 with mpd.mpd_lock:
@@ -950,7 +925,7 @@ if __name__ == '__main__':
                             print("Invalid selection.")
                     except ValueError:
                         print("Invalid input, please enter a number.")
-            case 16:
+            case 15:
                 print("\nSelect an available directory to play...\n")
                 mpd._ensure_client()    # pylint: disable=protected-access
                 with mpd.mpd_lock:
@@ -977,16 +952,17 @@ if __name__ == '__main__':
                             print("Invalid selection.")
                     except ValueError:
                         print("Invalid input, please enter a number.")
-            case 17:
+            case 16:
                 selection = int(input("\nEnter preset number 1, 2 or 3 to check: "))
                 if mpd.preset_is_webradio(f"preset{selection}"):
                     print(f"\npreset{selection} is a web radio\n")
                 else:
                     print(f"\npreset{selection} is NOT a web radio\n")
-            case 18:
+            case 17:
                 if mpd.current_is_webradio():
                     print("\nCurrent song is a web radio\n")
                 else:
                     print("\nCurrent song is NOT a web radio\n")
+
             case _:
                 print("\nInvalid selection. Please enter a valid number.\n")

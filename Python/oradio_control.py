@@ -393,7 +393,6 @@ def on_usb_absent():
     if not usb_present.is_set():
         return
     usb_present.clear()
-    mpd.cancel_update()  # cancel if MPD database update runs
     if state_machine.state != "StateStartUp":
         state_machine.transition("StateUSBAbsent")
 
@@ -404,7 +403,7 @@ def on_usb_present():
         return
     usb_present.set()
     sound_player.play("USBPresent")
-    mpd.start_update_mpd_database_thread()  # MPD database update
+    mpd.update_mpd_database()  # MPD database update
     # Transition to Idle after USB is inserted
     if state_machine.state != "StateStartUp":
         state_machine.transition("StateIdle")
