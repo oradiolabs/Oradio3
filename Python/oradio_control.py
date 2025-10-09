@@ -99,6 +99,8 @@ remote_monitor = RmsService()
 
 # Instantiate MPDControl
 mpd = get_mpd_control()
+# Wait for MPD database to be updated
+mpd.wait_for_mpd_updated()
 
 #----------GPIO clean up---------
 
@@ -403,7 +405,8 @@ def on_usb_present():
         return
     usb_present.set()
     sound_player.play("USBPresent")
-    mpd.update_mpd_database()  # MPD database update
+    # MPD database update (returns when updated)
+    mpd.update_mpd_database()
     # Transition to Idle after USB is inserted
     if state_machine.state != "StateStartUp":
         state_machine.transition("StateIdle")
@@ -652,6 +655,9 @@ def sync_usb_presence_from_service():
 
 # ------------------Start-up - instantiate and define other modules ---------------
 
+# Wait for MPD database to be updated
+mpd.wait_for_mpd_updated()
+
 shared_queue = Queue()  # Create a shared queue
 
 # Instantiate the state machine
@@ -670,7 +676,6 @@ spotify_connect = SpotifyConnect(shared_queue)
 oradio_usb_service = USBService(shared_queue)
 # sync the usb_present tracker
 sync_usb_presence_from_service()
-
 
 # ----------------- Touch buttons -----------------
 # Thread-safety for transitions (shared with volume callbacks)

@@ -1,4 +1,3 @@
-# pylint: disable=E1101,E1102
 #!/usr/bin/env python3
 """
   ####   #####     ##    #####      #     ####
@@ -272,46 +271,71 @@ class MPDControl:
     def update_mpd_database(self, progress_interval=5):
         """Updates MPD database in a separate thread with progress logging"""
 
-        def _update():
-            # Ensure MPD client is connected
-            self._ensure_client()
+        # Ensure MPD client is connected
+        self._ensure_client()
 
-            try:
-                # Start the database update
-                self.client.update()
-                last_log_time = time.time()
+        try:
+            # Start the database update
+            self.client.update()
+            last_log_time = time.time()
 
-                oradio_log.debug("MPD database update started")
+            oradio_log.debug("MPD database update started")
 
-                while True:
-                    # Get the current status of MPD
-                    status = self.client.status()
-                    updating = status.get("updating_db")
+            while True:
+                # Get the current status of MPD
+                status = self.client.status()
+                updating = status.get("updating_db")
 
-                    # If update is complete log indexed files and stop
-                    if not updating or updating == "0":
-                        indexed_files = len(self.client.listallinfo())
-                        oradio_log.debug("MPD database updated; %d files indexed", indexed_files)
-                        break
+                # If update is complete log indexed files and stop
+                if not updating or updating == "0":
+                    indexed_files = len(self.client.listallinfo())
+                    oradio_log.debug("MPD database updated; %d files indexed", indexed_files)
+                    break
 
-                    # Periodically log that the update is still in progress
-                    if time.time() - last_log_time >= progress_interval:
-                        oradio_log.debug("MPD database updating still in progress")
-                        last_log_time = time.time()
+                # Periodically log that the update is still in progress
+                if time.time() - last_log_time >= progress_interval:
+                    oradio_log.debug("MPD database updating still in progress")
+                    last_log_time = time.time()
 
-                    # Small sleep to avoid busy-waiting
-                    time.sleep(0.5)
+                # Small sleep to avoid busy-waiting
+                time.sleep(0.5)
 
-            except (CommandError, ConnectionError) as ex_err:
-                # Log any errors that occur during the update
-                oradio_log.error("Error updating MPD database: %s", ex_err)
+        except (CommandError, ConnectionError) as ex_err:
+            # Log any errors that occur during the update
+            oradio_log.error("Error updating MPD database: %s", ex_err)
 
-        # Start the update in a separate daemon thread so it doesn't block
-        thread = threading.Thread(target=_update, name="MPDUpdateThread", daemon=True)
-        thread.start()
-        return thread
+    def wait_for_mpd_updated(self, progress_interval=5):
+        """Wait for MPD update to finish"""
+        # Ensure MPD client is connected
+        self._ensure_client()
 
-#END-----------------------------
+        try:
+            last_log_time = time.time()
+
+            oradio_log.debug("Waiting for MPD update to finish")
+
+            # Wait for database update to finish
+            while True:
+
+                # Check the MPD status
+                status = self.client.status()
+                updating = status.get("updating_db")
+
+                if not updating or updating == "0":
+                    # No update in progress, we can exit
+                    break
+
+                # Periodically log that the update is still in progress
+                if time.time() - last_log_time >= progress_interval:
+                    oradio_log.debug("Still waiting for MPD database update to finish")
+                    last_log_time = time.time()
+
+                # Small sleep to prevent busy-waiting
+                time.sleep(0.5)
+
+        except (CommandError, ConnectionError) as ex_err:
+            # Log any errors that occur while waiting
+            oradio_log.error("Error waiting for update to finish: %s", ex_err)
 
     def restart_mpd_service(self):
         """Restarts the MPD service using systemctl."""
