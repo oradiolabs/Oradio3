@@ -22,15 +22,13 @@ Update Play_song, did not play immediate when in MPD in pause
 
 Update MPD monitor errors to prevent hangs
 """
-import os
 import time
 import json
 import threading
 import subprocess
 import unicodedata
 #from mpd import MPDClient
-import asyncio
-from mpd import MPDClient, CommandError, ConnectionError
+from mpd import MPDClient, CommandError
 
 ##### oradio modules ####################
 from oradio_logging import oradio_log
@@ -273,7 +271,7 @@ class MPDControl:
 
     def update_mpd_database(self, progress_interval=5):
         """Updates MPD database in a separate thread with progress logging"""
-        
+
         def _update():
             # Ensure MPD client is connected
             self._ensure_client()
