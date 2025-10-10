@@ -52,7 +52,7 @@ MPD_CROSSFADE = 5   # seconds
 _client = MPDClient()
 _lock = Lock()
 
-class MPDControl_New:
+class MPDControlNew:
     """
     Thread-safe wrapper for an MPD (Music Player Daemon) client
 
@@ -103,7 +103,7 @@ class MPDControl_New:
                 try:
                     # Configure crossfade
                     oradio_log.info("Setting crossfade to %d seconds", self._crossfade)
-                    self._client.crossfade(self._crossfade)
+                    self._client.crossfade(self._crossfade) # pylint: disable=non-member
                 except CommandError as ex_err:
                     # Some MPD versions may not support crossfade
                     oradio_log.error("MPD does not support crossfade: %s", ex_err)
@@ -145,6 +145,7 @@ class MPDControl_New:
                     # MPD command-specific error
                     oradio_log.error("MPD command error: %s", ex_err)
         oradio_log.error("Failed to execute '%s' after %d retries", command_name, retries)
+        return None
 
     # Convenience methods
     def play(self):
@@ -203,17 +204,10 @@ class MPDControl_New:
         """
         return self._execute(command_name, *args, **kwargs)
 
-
 # Create a singleton instance to use in other modules
-mpd_client = MPDControl_New()
-
-
+mpd_client = MPDControlNew()
 
 ### NEW End ##############
-
-
-
-
 
 class MPDControl:
     """Class managing MPD behaviour"""
@@ -322,8 +316,7 @@ class MPDControl:
             oradio_log.debug("MPD play current playlist")
         else:
             # Queue is empty: load/play default preset
-            success = self.play_preset(DEFAULT_PRESET_KEY)
-            if not success:
+            if not self.play_preset(DEFAULT_PRESET_KEY):
                 oradio_log.warning("Default preset '%s' failed or was undefined", DEFAULT_PRESET_KEY)
             else:
                 oradio_log.info("Queue empty; loaded default preset '%s'", DEFAULT_PRESET_KEY)
@@ -359,6 +352,9 @@ class MPDControl:
                     oradio_log.debug("Cannot skip track: MPD is not playing.")
             except Exception as ex_err: # pylint: disable=broad-exception-caught
                 oradio_log.error("Error sending next command: %s", ex_err)
+
+    def clear(self):
+        mpd_client.clear()
 
     def update_mpd_database(self, progress_interval=5):
         """Updates MPD database with progress logging"""
@@ -841,19 +837,20 @@ if __name__ == '__main__':
                        " 2  - Stop\n"
                        " 3  - Pause\n"
                        " 4  - Next Track\n"
-                       " 5  - Play Preset 1\n"
-                       " 6  - Play Preset 2\n"
-                       " 7  - Play Preset 3\n"
-                       " 8  - Update Database\n"
-                       " 9  - Stress Test\n"
-                       "10  - Restart MPD Service\n"
-                       "11  - List Available Stored Playlists\n"
-                       "12  - List Available Directories\n"
-                       "13  - Create and Store a New Playlist\n"
-                       "14  - Select a Stored Playlist to Play\n"
-                       "15  - Select an Available Directory to Play\n"
-                       "16  - Check if preset is web radio\n"
-                       "17  - Check if current song is web radio\n"
+                       " 5  - Clear\n"
+                       " 6  - Play Preset 1\n"
+                       " 7  - Play Preset 2\n"
+                       " 8  - Play Preset 3\n"
+                       " 9  - Update Database\n"
+                       "10  - Stress Test\n"
+                       "11  - Restart MPD Service\n"
+                       "12  - List Available Stored Playlists\n"
+                       "13  - List Available Directories\n"
+                       "14  - Create and Store a New Playlist\n"
+                       "15  - Select a Stored Playlist to Play\n"
+                       "16  - Select an Available Directory to Play\n"
+                       "17  - Check if preset is web radio\n"
+                       "18  - Check if current song is web radio\n"
                        "Select: ")
 
     while True:
@@ -879,18 +876,21 @@ if __name__ == '__main__':
                 print("\nExecuting: Next Track\n")
                 mpd.next()
             case 5:
+                print("\nExecuting: Clear\n")
+                mpd.clear()
+            case 6:
                 print("\nExecuting: Play Preset 1\n")
                 mpd.play_preset("Preset1")
-            case 6:
+            case 7:
                 print("\nExecuting: Play Preset 2\n")
                 mpd.play_preset("Preset2")
-            case 7:
+            case 8:
                 print("\nExecuting: Play Preset 3\n")
                 mpd.play_preset("Preset3")
-            case 8:
+            case 9:
                 print("\nExecuting: Update MPD Database\n")
                 mpd.update_mpd_database()
-            case 9:
+            case 10:
                 print("\nExecuting: Stress Test\n")
                 def stress_test(mpd_instance, duration=10):
                     """Stress test MPD service by running random commands"""
@@ -909,10 +909,10 @@ if __name__ == '__main__':
                         thread.join()
                     print("\nStress test completed.\n")
                 stress_test(mpd)
-            case 10:
+            case 11:
                 print("\nExecuting: Restart MPD Service\n")
                 mpd.restart_mpd_service()
-            case 11:
+            case 12:
                 print("\nListing available stored playlists...\n")
                 mpd._ensure_client()    # pylint: disable=protected-access
                 with mpd.mpd_lock:
@@ -922,8 +922,7 @@ if __name__ == '__main__':
                 else:
                     for idx, pl in enumerate(lists, start=1):
                         print(f"{idx}. {pl.get('playlist')}")
-
-            case 12:
+            case 13:
                 print("\nListing available directories...\n")
                 mpd._ensure_client()    # pylint: disable=protected-access
                 with mpd.mpd_lock:
@@ -934,8 +933,7 @@ if __name__ == '__main__':
                 else:
                     for idx, d in enumerate(dirs, start=1):
                         print(f"{idx}. {d}")
-
-            case 13:
+            case 14:
                 print("\nCreating and storing a new playlist...\n")
                 mpd._ensure_client()    # pylint: disable=protected-access
                 search_query = input("Enter search query (artist or song): ")
@@ -982,7 +980,7 @@ if __name__ == '__main__':
                             mpd.client.add(filename)
                     mpd.client.save(list_name)
                 print(f"Playlist '{list_name}' stored successfully.")
-            case 14:
+            case 15:
                 print("\nSelect a stored playlist to play...\n")
                 mpd._ensure_client()    # pylint: disable=protected-access
                 with mpd.mpd_lock:
@@ -1008,7 +1006,7 @@ if __name__ == '__main__':
                             print("Invalid selection.")
                     except ValueError:
                         print("Invalid input, please enter a number.")
-            case 15:
+            case 16:
                 print("\nSelect an available directory to play...\n")
                 mpd._ensure_client()    # pylint: disable=protected-access
                 with mpd.mpd_lock:
@@ -1035,17 +1033,16 @@ if __name__ == '__main__':
                             print("Invalid selection.")
                     except ValueError:
                         print("Invalid input, please enter a number.")
-            case 16:
+            case 17:
                 selection = int(input("\nEnter preset number 1, 2 or 3 to check: "))
                 if mpd.preset_is_webradio(f"preset{selection}"):
                     print(f"\npreset{selection} is a web radio\n")
                 else:
                     print(f"\npreset{selection} is NOT a web radio\n")
-            case 17:
+            case 18:
                 if mpd.current_is_webradio():
                     print("\nCurrent song is a web radio\n")
                 else:
                     print("\nCurrent song is NOT a web radio\n")
-
             case _:
                 print("\nInvalid selection. Please enter a valid number.\n")
