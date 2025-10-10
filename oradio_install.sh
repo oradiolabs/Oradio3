@@ -466,10 +466,11 @@ install_resource $RESOURCES_PATH/asound.conf /etc/asound.conf \
 install_resource $RESOURCES_PATH/mpd.conf /etc/mpd.conf 'sudo systemctl enable mpd.service'
 # Start mpd service and wait for MPD to be updated"
 sudo systemctl start mpd.service
-while ! systemctl is-active --quiet mpd.service; do
-	sleep 0.5
+#until mpc status >/dev/null 2>&1; do
+until mpc status; do
+    sleep 0.2
 done
-echo "MPD is now running"
+echo "MPD is ready"
 mpc update >/dev/null
 echo -n "Updating MPD."
 while mpc status | grep -iq "updating"; do
@@ -520,4 +521,4 @@ echo -e "${GREEN}Installation completed. Rebooting to start Oradio3${NC}"
 sleep 3
 
 # Reboot to start Oradio3
-sudo reboot
+#sudo reboot
