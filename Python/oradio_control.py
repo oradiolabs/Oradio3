@@ -99,8 +99,6 @@ remote_monitor = RmsService()
 
 # Instantiate MPDControl
 mpd = get_mpd_control()
-# Wait for MPD database to be updated
-mpd.wait_for_mpd_updated()
 
 #----------GPIO clean up---------
 
@@ -405,8 +403,6 @@ def on_usb_present():
         return
     usb_present.set()
     sound_player.play("USBPresent")
-    # MPD database update (returns when updated)
-    mpd.update_mpd_database()
     # Transition to Idle after USB is inserted
     if state_machine.state != "StateStartUp":
         state_machine.transition("StateIdle")
@@ -654,9 +650,6 @@ def sync_usb_presence_from_service():
 
 
 # ------------------Start-up - instantiate and define other modules ---------------
-
-# Wait for MPD database to be updated
-mpd.wait_for_mpd_updated()
 
 shared_queue = Queue()  # Create a shared queue
 
