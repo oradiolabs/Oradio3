@@ -403,6 +403,9 @@ def on_usb_present():
         return
     usb_present.set()
     sound_player.play("USBPresent")
+#OMJ: update kan lang duren. Hoe geven we dat aan? Dat de gebruiker weet dat hij even moet wachten?
+    # Ensure MPD database is updated
+    mpd.update_mpd_database()
     # Transition to Idle after USB is inserted
     if state_machine.state != "StateStartUp":
         state_machine.transition("StateIdle")

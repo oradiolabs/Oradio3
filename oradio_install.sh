@@ -474,17 +474,14 @@ until mpc status >/dev/null 2>&1; do
 done
 echo "MPD is ready"
 
-# Check if USB present
-if [[ -d "/media/oradio" ]]; then
-	# Update MPD database and wait until updated
-	mpc update >/dev/null
-	echo -n "Updating MPD."
-	while mpc status | grep -iq "updating"; do
-		echo -n "."
-		sleep 1
-	done
-	echo " Updated"
-fi
+# Update MPD database and wait until updated
+mpc update >/dev/null
+echo -n "Updating MPD."
+while mpc status | grep -iq "updating"; do
+	echo -n "."
+	sleep 1
+done
+echo " Updated"
 
 # Progress report
 echo -e "${GREEN}Audio installed and configured${NC}"
