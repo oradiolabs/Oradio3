@@ -19,9 +19,9 @@
 ########## INITIALIZE BEGIN ##########
 
 # Color definitions
-RED='\033[0m\033[1;31m'
-YELLOW='\033[0m\033[1;93m'
-GREEN='\033[0m\033[1;32m'
+RED='\033[1;31m'
+YELLOW='\033[1;93m'
+GREEN='\033[1;32m'
 NC='\033[0m'
 
 # The script uses bash constructs
@@ -157,11 +157,10 @@ if [ "$1" != "--continue" ]; then
 		sudo apt-get update
 		# Save time lists were updated
 		date +%s | sudo tee "$STAMP_FILE" >/dev/null
-		echo -e "${GREEN}APT update completed, stamp file updated${NC}"
+		echo -e "${GREEN}Package lists updated, stamp file updated${NC}"
 	else
-		echo -e "${GREEN}APT lists are up to date${NC}"
+		echo -e "${GREEN}Package lists are up to date${NC}"
 	fi
-
 	# NOTE: We do not upgrade: https://forums.raspberrypi.com/viewtopic.php?p=2310861&hilit=oradio#p2310861
 
 ########## OS PACKAGES END ##########
@@ -169,7 +168,7 @@ if [ "$1" != "--continue" ]; then
 ########## ORADIO3 LINUX PACKAGES BEGIN ##########
 
 #***************************************************************#
-#   Add any additionally required packages to 'PACKAGES'        #
+#   Add any additionally required packages to 'LINUX_PACKAGES'  #
 #***************************************************************#
 	LINUX_PACKAGES=(
 		git
