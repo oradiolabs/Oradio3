@@ -1,7 +1,7 @@
 # Placeholders will be modified by ../oradio_install.sh script
 
 [Unit]
-Description=Autostart Oradio
+Description=Oradio
 After=multi-user.target
 # must be greater than RestartSec * StartLimitBurst otherwise the service will be restarted indefinitely
 StartLimitInterval=55

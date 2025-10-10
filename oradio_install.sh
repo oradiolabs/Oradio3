@@ -467,22 +467,24 @@ install_resource $RESOURCES_PATH/asound.conf /etc/asound.conf \
 		'amixer -c 0 cset name="Digital Playback Volume" 120'
 # Configure mpd music library location and start service at boot
 install_resource $RESOURCES_PATH/mpd.conf /etc/mpd.conf 'sudo systemctl enable mpd.service'
-# Start mpd service
+# Start mpd service and wait until ready
 sudo systemctl start mpd.service
-echo -n "Waiting for MPD to respond."
 until mpc status >/dev/null 2>&1; do
-	echo -n "."
     sleep 0.2
 done
 echo "MPD is ready"
-# Update MPD database
-mpc update >/dev/null
-echo -n "Updating MPD."
-while mpc status | grep -iq "updating"; do
-	echo -n "."
-	sleep 1
-done
-echo " Updated"
+
+# Check if USB present
+if [[ -d "/media/oradio" ]]; then
+	# Update MPD database and wait until updated
+	mpc update >/dev/null
+	echo -n "Updating MPD."
+	while mpc status | grep -iq "updating"; do
+		echo -n "."
+		sleep 1
+	done
+	echo " Updated"
+fi
 
 # Progress report
 echo -e "${GREEN}Audio installed and configured${NC}"
@@ -494,23 +496,22 @@ echo -e "${GREEN}Log files rotation configured${NC}"
 
 # Configure Spotify connect
 install_resource $RESOURCES_PATH/spotify_event_handler.sh /usr/local/bin/spotify_event_handler.sh 'sudo chmod +x /usr/local/bin/spotify_event_handler.sh'
-
 # Configure the Librespot service
 install_resource $RESOURCES_PATH/librespot.service /etc/systemd/system/librespot.service 'sudo systemctl enable librespot.service'
-
 # Progress report
 echo -e "${GREEN}Spotify connect functionality is installed and configured${NC}"
 
 # Install the send_log_files_to_rms script
 install_resource $RESOURCES_PATH/send_log_files_to_rms.sh /usr/local/bin/send_log_files_to_rms.sh 'sudo chmod +x /usr/local/bin/send_log_files_to_rms.sh'
-
 # Install the about script
 install_resource $RESOURCES_PATH/about /usr/local/bin/about 'sudo chmod +x /usr/local/bin/about'
-
-# Configure the autostart service
-install_resource $RESOURCES_PATH/autostart.service /etc/systemd/system/autostart.service 'sudo systemctl enable autostart.service'
 # Progress report
-echo -e "${GREEN}Autostart Oradio3 on boot configured${NC}"
+echo -e "${GREEN}Support tools installed${NC}"
+
+# Configure the oradio service
+install_resource $RESOURCES_PATH/oradio.service /etc/systemd/system/oradio.service 'sudo systemctl enable oradio.service'
+# Progress report
+echo -e "${GREEN}Start Oradio3 on boot configured${NC}"
 
 # Stop if any installation failed
 if [ -v INSTALL_ERROR ]; then
