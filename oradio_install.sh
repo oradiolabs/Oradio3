@@ -464,6 +464,15 @@ install_resource $RESOURCES_PATH/asound.conf /etc/asound.conf \
 		'amixer -c 0 cset name="Digital Playback Volume" 120'
 # Configure mpd music library location and start service at boot
 install_resource $RESOURCES_PATH/mpd.conf /etc/mpd.conf 'sudo systemctl enable mpd.service'
+# Start mpd service and wait for MPD to be updated"
+sudo systemctl start mpd.service
+mpc update >/dev/null
+echo -n "Updating MPD"
+while mpc status | grep -iq "updating"; do
+	echo -n "."
+	sleep 1
+done
+
 # Progress report
 echo -e "${GREEN}Audio installed and configured${NC}"
 
