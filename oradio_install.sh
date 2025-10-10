@@ -412,6 +412,15 @@ install_resource $RESOURCES_PATH/usb-prepare.service /etc/systemd/system/usb-pre
 # Configure the USB mount script
 install_resource $RESOURCES_PATH/usb-mount.sh /usr/local/bin/usb-mount.sh 'sudo chmod +x /usr/local/bin/usb-mount.sh'
 
+# Configure the USB service
+install_resource $RESOURCES_PATH/usb-mount@.service /etc/systemd/system/usb-mount@.service
+
+# Install rules if new or changed and reload to activate
+install_resource $RESOURCES_PATH/99-local.rules /etc/udev/rules.d/99-local.rules
+
+# Mount USB device
+sudo udevadm trigger --subsystem-match=block --action=add
+
 # Check for USB mount errors and/or warnings
 if [ -f $LOGFILE_USB ]; then
 	MESSAGE_USB=$(cat $LOGFILE_USB | grep "Error")
@@ -423,12 +432,6 @@ if [ -f $LOGFILE_USB ]; then
 		echo -e "${YELLOW}Problem mounting USB: $MESSAGE_USB${NC}"
 	fi
 fi
-
-# Configure the USB service
-install_resource $RESOURCES_PATH/usb-mount@.service /etc/systemd/system/usb-mount@.service
-
-# Install rules if new or changed and reload to activate
-install_resource $RESOURCES_PATH/99-local.rules /etc/udev/rules.d/99-local.rules
 
 # Progress report
 echo -e "${GREEN}USB functionalty loaded and configured. System automounts USB drives on '/media'${NC}"
@@ -464,13 +467,15 @@ install_resource $RESOURCES_PATH/asound.conf /etc/asound.conf \
 		'amixer -c 0 cset name="Digital Playback Volume" 120'
 # Configure mpd music library location and start service at boot
 install_resource $RESOURCES_PATH/mpd.conf /etc/mpd.conf 'sudo systemctl enable mpd.service'
-# Start mpd service and wait for MPD to be updated"
+# Start mpd service
 sudo systemctl start mpd.service
-#until mpc status >/dev/null 2>&1; do
-until mpc status; do
+echo -n "Waiting for MPD to respond."
+until mpc status >/dev/null 2>&1; do
+	echo -n "."
     sleep 0.2
 done
 echo "MPD is ready"
+# Update MPD database
 mpc update >/dev/null
 echo -n "Updating MPD."
 while mpc status | grep -iq "updating"; do
