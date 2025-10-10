@@ -52,10 +52,6 @@ class MPDControl:
         self.last_status_error = None
         self.mpd_lock = threading.Lock()
 
-        # start the separate monitor thread
-        thread = threading.Thread(target=self._monitor_errors, daemon=True)
-        thread.start()
-
     def _connect(self) -> MPDClient:
         """Connect to MPD service"""
         client = MPDClient()
@@ -97,49 +93,6 @@ class MPDControl:
             if not self._is_connected():
                 oradio_log.info("Reconnecting MPD client…")
                 self.client = self._connect()
-
-    def _monitor_errors(self):
-        """
-        Background thread: every 10 s check MPD status, log any new
-        'error' field, and reconnect on failure. Never blocks playback.
-        """
-        while True:
-            try:
-                # Ensure we have a live connection
-                if not self._is_connected():
-                    oradio_log.info("MPD monitor: reconnecting…")
-                    self.client = self._connect()
-                    # Reset so the first status error gets logged
-                    self.last_status_error = None
-
-                # If we're still not connected, skip this cycle
-                if not self._is_connected():
-                    time.sleep(10)
-                    continue
-
-                # Pull status once
-                status = self.client.status()
-                err = status.get("error")
-
-                # New error → log once
-                if err and err != self.last_status_error:
-                    oradio_log.error("MPD reported error: %s", err)
-                    self.last_status_error = err
-
-                # Error cleared → log once
-                elif not err and self.last_status_error is not None:
-                    oradio_log.info("MPD error cleared")
-                    self.last_status_error = None
-
-            except Exception as ex_err: # pylint: disable=broad-exception-caught
-                # On any exception, drop the client so _is_connected() will fail
-                oradio_log.warning("MPD monitor exception: %s", ex_err)
-                self.client = None
-                self.last_status_error = None
-
-            # Wait a bit before the next check
-            time.sleep(10)
-
 
     def play_preset(self, preset):
         """
@@ -269,7 +222,7 @@ class MPDControl:
         return bool(queue)
 
     def update_mpd_database(self, progress_interval=5):
-        """Updates MPD database in a separate thread with progress logging"""
+        """Updates MPD database with progress logging"""
 
         # Ensure MPD client is connected
         self._ensure_client()
@@ -303,39 +256,6 @@ class MPDControl:
         except (CommandError, ConnectionError) as ex_err:
             # Log any errors that occur during the update
             oradio_log.error("Error updating MPD database: %s", ex_err)
-
-    def wait_for_mpd_updated(self, progress_interval=5):
-        """Wait for MPD update to finish"""
-        # Ensure MPD client is connected
-        self._ensure_client()
-
-        try:
-            last_log_time = time.time()
-
-            oradio_log.debug("Waiting for MPD update to finish")
-
-            # Wait for database update to finish
-            while True:
-
-                # Check the MPD status
-                status = self.client.status()
-                updating = status.get("updating_db")
-
-                if not updating or updating == "0":
-                    # No update in progress, we can exit
-                    break
-
-                # Periodically log that the update is still in progress
-                if time.time() - last_log_time >= progress_interval:
-                    oradio_log.debug("Still waiting for MPD database update to finish")
-                    last_log_time = time.time()
-
-                # Small sleep to prevent busy-waiting
-                time.sleep(0.5)
-
-        except (CommandError, ConnectionError) as ex_err:
-            # Log any errors that occur while waiting
-            oradio_log.error("Error waiting for update to finish: %s", ex_err)
 
     def restart_mpd_service(self):
         """Restarts the MPD service using systemctl."""
