@@ -466,12 +466,17 @@ install_resource $RESOURCES_PATH/asound.conf /etc/asound.conf \
 install_resource $RESOURCES_PATH/mpd.conf /etc/mpd.conf 'sudo systemctl enable mpd.service'
 # Start mpd service and wait for MPD to be updated"
 sudo systemctl start mpd.service
+while ! systemctl is-active --quiet mpd.service; do
+	sleep 0.5
+done
+echo "MPD is now running"
 mpc update >/dev/null
-echo -n "Updating MPD"
+echo -n "Updating MPD."
 while mpc status | grep -iq "updating"; do
 	echo -n "."
 	sleep 1
 done
+echo " Updated"
 
 # Progress report
 echo -e "${GREEN}Audio installed and configured${NC}"
