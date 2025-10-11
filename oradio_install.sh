@@ -50,6 +50,17 @@ RESOURCES_PATH=$SCRIPT_PATH/install_resources
 mkdir -p $LOGGING_PATH
 mkdir -p $SPOTIFY_PATH
 
+# Ensure Spotify flag files exist with default '0'
+for flag in spotactive.flag spotplaying.flag; do
+    if [ ! -f "$SPOTIFY_PATH/$flag" ]; then
+        echo "0" > "$SPOTIFY_PATH/$flag"
+    fi
+done
+# Make sure ownership/permissions are sane
+chown "$(id -un)":"$(id -gn)" "$SPOTIFY_PATH"/spot*.flag 2>/dev/null || true
+chmod 664 "$SPOTIFY_PATH"/spot*.flag 2>/dev/null || true
+
+
 # Define log files
 LOGFILE_USB=$LOGGING_PATH/usb.log
 LOGFILE_SPOTIFY=$LOGGING_PATH/spotify.log
