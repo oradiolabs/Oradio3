@@ -172,6 +172,7 @@ class StateMachine:
             "StateIdle": self._state_idle,
             "StateError": self._state_error,
         }
+        self._delayed_timers = {}  # key -> Timer
 
     def set_services(self, web_service):
         """Inject the (already-constructed) WebService instance."""
@@ -251,6 +252,30 @@ class StateMachine:
             target=self.run_state_method, args=(self.state,), daemon=True
         ).start()
 
+    # ---- delayed-transition helpers ----
+    def _cancel_all_delayed(self):
+        """Cancel and clear all pending delayed transitions."""
+        for timer in self._delayed_timers.values():
+            try:
+                timer.cancel()
+            except (RuntimeError, ValueError):
+                pass
+        self._delayed_timers.clear()
+
+    def _arm_delayed_transition(self, key: str, delay_s: float, target_state: str):
+        """Schedule an interruptible delayed transition; replaces any existing with same key."""
+        old = self._delayed_timers.pop(key, None)
+        if old is not None:
+            try:
+                old.cancel()
+            except (RuntimeError, ValueError) as err:
+                oradio_log.debug("Failed to cancel previous timer: %s", err)
+
+        timer = threading.Timer(delay_s, lambda: self.transition(target_state))
+        timer.daemon = True
+        self._delayed_timers[key] = timer
+        timer.start()
+
     def transition(self, requested_state: str) -> None:
         """Request a transition; applies guards and spawns the handler."""
         if self.state == "StateError":
@@ -258,6 +283,8 @@ class StateMachine:
             return
 
         oradio_log.debug("Request Transitioning from %s to %s", self.state, requested_state)
+
+        self._cancel_all_delayed()
 
         if self._same_state_next_song(requested_state):
             return
@@ -323,6 +350,11 @@ class StateMachine:
             mpd.pause()
         spotify_connect.pause()
         sound_player.play("Stop")
+        # Schedule interruptible transition to Idle after 4 seconds (non-blocking)
+        oradio_log.debug("Stop: scheduling transition to Idle in 4 s (interruptible)")
+        self._arm_delayed_transition("StopToIdle", 4.0, "StateIdle")
+        # handler returns immediately; task_lock released, UI remains responsive
+
 
     def _state_spotify_connect(self):
         if web_service_active.is_set():
@@ -359,11 +391,9 @@ class StateMachine:
         oradio_log.debug("Starting-up")
         mpd.pause()
         spotify_connect.pause()
-        time.sleep(2)
         sound_player.play("StartUp")
-        time.sleep(3)
-        oradio_log.debug("Starting-up Completed")
-        self.transition("StateIdle")
+        oradio_log.debug("Startup: scheduling transition to Idle in 5 s")
+        self._arm_delayed_transition("StartupToIdle", 5.0, "StateIdle")
 
     def _state_idle(self):
         if web_service_active.is_set():
@@ -725,7 +755,8 @@ if not touch_buttons.selftest():
 # Use the same lock you defined above for touch callbacks
 # sm_lock = threading.RLock()   # (already defined above)
 
-_SWITCH_ON_FROM = {"StateStop", "StateIdle"}
+#_SWITCH_ON_FROM = {"StateStop", "StateIdle"}
+_SWITCH_ON_FROM = {"StateIdle"}
 
 def _on_volume_changed() -> None:
     # Guard both the read and the transition
