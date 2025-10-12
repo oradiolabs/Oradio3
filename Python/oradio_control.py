@@ -320,7 +320,7 @@ class StateMachine:
 
     def _state_preset1(self):
         leds.turn_on_led("LEDPreset1")
-        mpd.play_preset("Preset1")
+        mpd.play("Preset1")
         sound_player.play("Preset1")
         if web_service_active.is_set():
             leds.control_blinking_led("LEDPlay", 2)
@@ -328,7 +328,7 @@ class StateMachine:
 
     def _state_preset2(self):
         leds.turn_on_led("LEDPreset2")
-        mpd.play_preset("Preset2")
+        mpd.play("Preset2")
         sound_player.play("Preset2")
         if web_service_active.is_set():
             leds.control_blinking_led("LEDPlay", 2)
@@ -336,7 +336,7 @@ class StateMachine:
 
     def _state_preset3(self):
         leds.turn_on_led("LEDPreset3")
-        mpd.play_preset("Preset3")
+        mpd.play("Preset3")
         sound_player.play("Preset3")
         if web_service_active.is_set():
             leds.control_blinking_led("LEDPlay", 2)

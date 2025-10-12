@@ -42,11 +42,12 @@ DEFAULT_PRESET_KEY = "preset1"  # When the Play button is used and no playlist i
 
 ### NEW Begin ##############
 
-MPD_HOST = "localhost"
-MPD_PORT = 6600
-MPD_RETRY_DELAY = 1 # seconds
-MPD_CONNECT_RETRIES = 3
-MPD_CROSSFADE = 5   # seconds
+MPD_HOST       = "localhost"
+MPD_PORT       = 6600
+MPD_DELAY      = 1          # seconds
+MPD_RETRIES    = 3
+MPD_CROSSFADE  = 5          # seconds
+DEFAULT_PRESET = "Preset1"  # For when the Play button is used and no playlist in the queue
 
 # Internal client and lock (hidden)
 _client = MPDClient()
@@ -55,10 +56,8 @@ _lock = Lock()
 class MPDControlNew:
     """
     Thread-safe wrapper for an MPD (Music Player Daemon) client
-
     This class ensures that all MPD commands are executed safely in a multi-threaded environment
     It also automatically reconnects if the connection to the MPD server is lost
-
     Attributes:
         _host (str): MPD server hostname
         _port (int): MPD server port
@@ -66,10 +65,9 @@ class MPDControlNew:
         _lock (threading.Lock): Lock to ensure thread-safe access
         _client (MPDClient): Internal MPD client instance
     """
-    def __init__(self, host=MPD_HOST, port=MPD_PORT, retry_delay=MPD_RETRY_DELAY, crossfade=MPD_CROSSFADE):
+    def __init__(self, host=MPD_HOST, port=MPD_PORT, retry_delay=MPD_DELAY, crossfade=MPD_CROSSFADE):
         """
         Initialize the ThreadSafeMPD client and connect to the MPD server
-
         Args:
             host (str): MPD server hostname
             port (int): MPD server port
@@ -82,12 +80,9 @@ class MPDControlNew:
         self._client = MPDClient()
         self._retry_delay = retry_delay
         self._crossfade = crossfade
-
+        self._current_playlist = None
         # Connect to MPD service
         self._connect_client()
-
-        self.current_playlist = None
-        self.last_status_error = None
 
     def _connect_client(self):
         """
@@ -112,19 +107,16 @@ class MPDControlNew:
                 oradio_log.error("MPD connection failed. Retry")
                 time.sleep(self._retry_delay)
 
-    def _execute(self, command_name, *args, retries=MPD_CONNECT_RETRIES, **kwargs):
+    def _execute(self, command_name, *args, retries=MPD_RETRIES, **kwargs):
         """
         Execute an MPD command in a thread-safe manner with automatic reconnect
-
         Args:
             command_name (str): Name of the MPD command to execute
             *args: Positional arguments to pass to the MPD command
             retries (int): Number of reconnect attempts if the connection fails
             **kwargs: Keyword arguments to pass to the MPD command
-
         Returns:
             The result of the MPD command
-
         Logs errors:
             ConnectionError: If the command cannot be executed after the specified retries
             CommandError: If the MPD server returns an error for the command
@@ -147,30 +139,88 @@ class MPDControlNew:
         oradio_log.error("Failed to execute '%s' after %d retries", command_name, retries)
         return None
 
-    # Convenience methods
-    def play(self):
-        """Start or resume playback"""
-        return self._execute("play")
+    # Generic access if needed
+    def command(self, command_name, *args, **kwargs):
+        """
+        Execute any arbitrary MPD command not covered by convenience methods
+        Args:
+            command_name (str): Name of the MPD command
+            *args: Positional arguments
+            **kwargs: Keyword arguments
+        Returns:
+            The result of the MPD command
+        """
+        return self._execute(command_name, *args, **kwargs)
 
-    def playlistinfo(self):
-        """Return the list of all songs in the playlist of MPD"""
-        return self._execute("playlistinfo")
+    # Convenience methods
+    def play(self, preset=None):
+        """Start or resume playback"""
+
+        # Determine what to play
+        if preset is None:
+            if self._execute("playlistinfo"):
+                # Play current playlist
+                self._execute("play")
+                oradio_log.debug("Play current playlist")
+                return
+            else:
+                # Play default preset playlist
+                oradio_log.debug("No current playlist, using default preset %s", DEFAULT_PRESET)
+                preset = DEFAULT_PRESET
+
+        # Clear the current playlist/queue
+        self._execute("clear")
+
+        # Get playlist linked to preset
+        playlist_name = get_playlist_name(preset, PRESETS_FILE)
+        print(f"playlist_name='{playlist_name}'")
+        if not playlist_name:
+            oradio_log.debug("No playlist found for preset: %s", preset)
+            return None
+
+        # Get list of names of the playlist in the playlist directory
+        stored_playlists = self._execute("listplaylists")
+        playlist_names = [pl.get("playlist") for pl in stored_playlists]
+
+        if playlist_name in playlist_names:
+            # Playlist: load in saved order
+            self._execute("load", playlist_name)
+            self._execute("random", 0)      # Sets random state to sequential
+            self._execute("repeat", 1)      # Sets repeat state to loop
+            # Store current playlist name
+            self._current_playlist = playlist_name
+        else:
+            # Directory: add and shuffle
+            self._execute("add", playlist_name)
+            self._execute("shuffle")        # Shuffles the current playlist
+            self._execute("random", 1)      # Sets random state to random
+            self._execute("repeat", 1)      # Sets repeat state to loop
+            # Clear current playlist name
+            self._current_playlist = None
+
+        # Play configured playlist
+        self._execute("play")
+        oradio_log.debug("Playing: %s", playlist_name)
 
     def pause(self):
         """Pause playback"""
         return self._execute("pause")
 
+    def next(self):
+        """Skip to the next track"""
+        return self._execute("next")
+
     def stop(self):
         """Stop playback"""
         return self._execute("stop")
 
+    def clear(self):
+        """Clear the current playlist/queue"""
+        return self._execute("clear")
+
     def status(self):
         """Return the current status of MPD"""
         return self._execute("status")
-
-    def next(self):
-        """Skip to the next track"""
-        return self._execute("next")
 
     def previous(self):
         """Return to the previous track"""
@@ -179,30 +229,24 @@ class MPDControlNew:
     def add(self, uri):
         """
         Add a song or playlist to the current queue
-
         Args:
             uri (str): The URI or path of the song/playlist to add
         """
         return self._execute("add", uri)
 
-    def clear(self):
-        """Clear the current playlist/queue"""
-        return self._execute("clear")
-
-    # Generic access if needed
-    def command(self, command_name, *args, **kwargs):
-        """
-        Execute any arbitrary MPD command not covered by convenience methods
-
-        Args:
-            command_name (str): Name of the MPD command
-            *args: Positional arguments
-            **kwargs: Keyword arguments
-
-        Returns:
-            The result of the MPD command
-        """
-        return self._execute(command_name, *args, **kwargs)
+@staticmethod
+def get_playlist_name(preset_key, filepath):
+    """Retrieves the playlist name for a given preset key"""
+    try:
+        with open(filepath, 'r', encoding='utf-8') as file:
+            presets = json.load(file)
+        json_key = preset_key.lower()
+        return presets.get(json_key, None)
+    except FileNotFoundError:
+        oradio_log.error("File not found at %s", filepath)
+    except json.JSONDecodeError:
+        oradio_log.error("Failed to JSON decode %s", filepath)
+    return None
 
 # Create a singleton instance to use in other modules
 mpd_client = MPDControlNew()
@@ -264,68 +308,17 @@ class MPDControl:
                 oradio_log.info("Reconnecting MPD client…")
                 self.client = self._connect()
 
-    def play_preset(self, preset):
-        """
-        Plays a preset using the global PRESETS_FILE
-        Uses MPD's listplaylists to determine whether the preset is a stored playlist or a directory
-        """
-        self._ensure_client()
-        playlist_name = self.get_playlist_name(preset, PRESETS_FILE)
-
-        if not playlist_name:
-            oradio_log.debug("No playlist found for preset: %s", preset)
-            return False
-
-        with self.mpd_lock:
-            try:
-                self.client.clear()
-
-                # Retrieve stored playlists from MPD
-                stored_playlists = self.client.listplaylists()
-                stored_playlist_names = [pl.get("playlist") for pl in stored_playlists]
-
-                if playlist_name in stored_playlist_names:
-                    # Stored playlist: load in saved order
-                    self.client.load(playlist_name)
-                    self.client.random(0)  # turn OFF random play
-                    self.client.repeat(1)  # 0 = play once through; 1 = loop
-                    # Store current playlist name
-                    self.current_playlist = playlist_name
-                else:
-                    # Directory: add then shuffle/repeat as before
-                    self.client.add(playlist_name)
-                    self.client.shuffle()  # one-time scramble
-                    self.client.random(1)  # enable random as tracks advance
-                    self.client.repeat(1)  # loop directory indefinitely
-                    # Clear current playlist name
-                    self.current_playlist = None
-
-                self.client.play()
-                oradio_log.debug("Playing: %s", playlist_name)
-                return True
-
-            except Exception as ex_err: # pylint: disable=broad-exception-caught
-                oradio_log.debug("Error playing preset %s: %s", preset, ex_err)
-                return False
-
-
-    def play(self):
-        """Plays the current track; if the queue is empty, load the default preset"""
-        if mpd_client.playlistinfo():
-            mpd_client.play()
-            oradio_log.debug("MPD play current playlist")
-        else:
-            # Queue is empty: load/play default preset
-            if not self.play_preset(DEFAULT_PRESET_KEY):
-                oradio_log.warning("Default preset '%s' failed or was undefined", DEFAULT_PRESET_KEY)
-            else:
-                oradio_log.info("Queue empty; loaded default preset '%s'", DEFAULT_PRESET_KEY)
+    def play(self, preset=None):
+        mpd_client.play(preset)
 
     def pause(self):
         mpd_client.pause()
 
     def stop(self):
         mpd_client.stop()
+
+    def clear(self):
+        mpd_client.clear()
 
     def next(self):
         """Skips to the next track only if MPD is currently playing."""
@@ -352,9 +345,6 @@ class MPDControl:
                     oradio_log.debug("Cannot skip track: MPD is not playing.")
             except Exception as ex_err: # pylint: disable=broad-exception-caught
                 oradio_log.error("Error sending next command: %s", ex_err)
-
-    def clear(self):
-        mpd_client.clear()
 
     def update_mpd_database(self, progress_interval=5):
         """Updates MPD database with progress logging"""
@@ -834,9 +824,9 @@ if __name__ == '__main__':
     INPUT_SELECTION = ("\nSelect a function, input the number:\n"
                        " 0  - Quit\n"
                        " 1  - Play\n"
-                       " 2  - Stop\n"
-                       " 3  - Pause\n"
-                       " 4  - Next Track\n"
+                       " 2  - Pause\n"
+                       " 3  - Next Track\n"
+                       " 4  - Stop\n"
                        " 5  - Clear\n"
                        " 6  - Play Preset 1\n"
                        " 7  - Play Preset 2\n"
@@ -867,26 +857,26 @@ if __name__ == '__main__':
                 print("\nExecuting: Play\n")
                 mpd.play()
             case 2:
-                print("\nExecuting: Stop\n")
-                mpd.stop()
-            case 3:
                 print("\nExecuting: Pause\n")
                 mpd.pause()
-            case 4:
+            case 3:
                 print("\nExecuting: Next Track\n")
                 mpd.next()
+            case 4:
+                print("\nExecuting: Stop\n")
+                mpd.stop()
             case 5:
                 print("\nExecuting: Clear\n")
                 mpd.clear()
             case 6:
                 print("\nExecuting: Play Preset 1\n")
-                mpd.play_preset("Preset1")
+                mpd.play("Preset1")
             case 7:
                 print("\nExecuting: Play Preset 2\n")
-                mpd.play_preset("Preset2")
+                mpd.play("Preset2")
             case 8:
                 print("\nExecuting: Play Preset 3\n")
-                mpd.play_preset("Preset3")
+                mpd.play("Preset3")
             case 9:
                 print("\nExecuting: Update MPD Database\n")
                 mpd.update_mpd_database()
