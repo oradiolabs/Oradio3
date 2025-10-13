@@ -37,7 +37,7 @@ from fastapi.templating import Jinja2Templates
 ##### oradio modules ####################
 from oradio_logging import oradio_log
 from oradio_utils import run_shell_script, safe_put
-from mpd_control import get_mpd_control
+from mpd_control import mpd_client, get_mpd_control
 from wifi_service import get_wifi_networks, get_saved_network
 
 ##### GLOBAL constants ####################
@@ -206,7 +206,7 @@ async def save_preset(changedpreset: ChangedPreset):
         # Store presets
         _store_presets(presets)
 
-        if mpdcontrol.preset_is_webradio(changedpreset.preset):
+        if mpdcontrol.is_webradio(preset=changedpreset.preset):
             # Send message playlist is web radio
             message["state"] = MESSAGE_WEB_SERVICE_PL_WEBRADIO
             oradio_log.debug("Send web service message: %s", message)
