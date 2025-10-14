@@ -41,6 +41,7 @@ from oradio_const import (
 ##### Local constants ####################
 MPD_HOST       = "localhost"
 MPD_PORT       = 6600
+MPD_RETRIES    = 3
 MPD_DELAY      = 1          # seconds
 MPD_CROSSFADE  = 5          # seconds
 DEFAULT_PRESET = "Preset1"  # For when the Play button is used and no playlist in the queue
@@ -69,15 +70,11 @@ class MPDControl:
         self._host = host
         self._port = port
         self._lock = Lock()
-        self._client = MPDClient()
         self._retry_delay = retry_delay
         self._crossfade = crossfade
+        self._client = MPDClient()
 
-        # Connect to MPD service
-        with self._lock:
-            self._connect_client()
-
-    def _connect_client(self, retries=5):
+    def _connect_client(self, retries=MPD_RETRIES):
         """
         Establish a connection to the MPD (Music Player Daemon) server and configure crossfade
         Args:
@@ -101,7 +98,7 @@ class MPDControl:
                 oradio_log.error("MPD connection failed. Retry %d/%d", ex_err, attempt, retries)
                 time.sleep(self._retry_delay)
 
-    def _execute(self, command_name, *args, retries=3, **kwargs):
+    def _execute(self, command_name, *args, retries=MPD_RETRIES, **kwargs):
         """
         Execute an MPD command in a thread-safe manner with automatic reconnect
         Args:
@@ -119,9 +116,9 @@ class MPDControl:
                     func = getattr(self._client, command_name)
                     return func(*args, **kwargs)
                 except (MPDConnectionError, BrokenPipeError) as ex_err:
-#TODO: Waarom wordt verbinding verbroken?
                     attempt += 1
-                    oradio_log.info("MPD connection lost (%s). Retry connecting %d/%d", ex_err, attempt, retries)
+# NOTE: In mpd.conf the connection_timeout is set to 1 year (i.e. forever). So a lost connection should not happen...
+                    oradio_log.warning("MPD connection lost (%s). Retry connecting %d/%d", ex_err, attempt, retries)
                     self._connect_client()
                 except CommandError as ex_err:
                     # MPD command-specific error
