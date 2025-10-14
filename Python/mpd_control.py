@@ -98,7 +98,7 @@ class MPDControl:
                 break   # Success
             except MPDConnectionError as ex_err:
                 attempt+= 1
-                oradio_log.error("MPD connection failed. Retry %d/%d: %s", attempt, retries, ex_err)
+                oradio_log.error("MPD connection failed. Retry %d/%d", ex_err, attempt, retries)
                 time.sleep(self._retry_delay)
 
     def _execute(self, command_name, *args, retries=3, **kwargs):
@@ -121,12 +121,13 @@ class MPDControl:
                 except (MPDConnectionError, BrokenPipeError) as ex_err:
 #TODO: Waarom wordt verbinding verbroken?
                     attempt += 1
-                    oradio_log.info("MPD connection lost (%s). Retry connecting %d/%d: %s", attempt, retries, ex_err)
+                    oradio_log.info("MPD connection lost (%s). Retry connecting %d/%d", ex_err, attempt, retries)
                     self._connect_client()
                 except CommandError as ex_err:
                     # MPD command-specific error
                     oradio_log.error("MPD command error: %s", ex_err)
         oradio_log.error("Failed to execute '%s' after %d retries", command_name, retries)
+        return None
 
     # Convenience methods
     def play(self, preset=None):
