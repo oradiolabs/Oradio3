@@ -37,8 +37,8 @@ from fastapi.templating import Jinja2Templates
 ##### oradio modules ####################
 from oradio_logging import oradio_log
 from oradio_utils import run_shell_script, safe_put
-from mpd_control import mpd_client, get_mpd_control
 from wifi_service import get_wifi_networks, get_saved_network
+from mpd_control import mpd_client
 
 ##### GLOBAL constants ####################
 from oradio_const import (
@@ -137,9 +137,6 @@ def _store_presets(presets):
             json.dump({"preset1": presets['preset1'], "preset2": presets['preset2'], "preset3": presets['preset3']}, file, indent=4)
     except IOError as ex_err:
         oradio_log.error("Failed to write '%s'. error: %s", PRESETS_FILE, ex_err)
-
-# Get mpd functions
-mpdcontrol = get_mpd_control()
 
 #### BUTTONS ####################
 
@@ -262,14 +259,14 @@ async def playlist_modify(modify: Modify):
             oradio_log.debug("Create playlist: '%s'", modify.playlist)
         else:
             oradio_log.debug("Add song '%s' to playlist '%s'", modify.song, modify.playlist)
-        return mpd_client.playlist_add(modify.playlist, modify.song)
+        return mpd_client.add(modify.playlist, modify.song)
 
     if modify.action == 'Remove':
         if modify.song is None:
             oradio_log.debug("Delete playlist: '%s'", modify.playlist)
         else:
             oradio_log.debug("Delete song '%s' from playlist '%s'", modify.song, modify.playlist)
-        return mpd_client.playlist_remove(modify.playlist, modify.song)
+        return mpd_client.remove(modify.playlist, modify.song)
 
     oradio_log.error("Unexpected action '%s'", modify.action)
     return JSONResponse(status_code=400, content={"message": f"De action '{modify.action}' is ongeldig"})
@@ -299,7 +296,7 @@ async def get_songs(songs: Songs):
         return mpd_client.get_songs(songs.pattern)
 
     if songs.source == 'search':
-        return mpdcontrol.search(songs.pattern)
+        return mpd_client.search(songs.pattern)
 
     oradio_log.error("Invalid source '%s'", songs.source)
     return JSONResponse(status_code=400, content={"message": f"De source '{songs.source}' is ongeldig"})
@@ -325,7 +322,7 @@ async def play_song(song: Song):
     oradio_log.debug("play song: '%s'", song.song)
 
     # Call MPD to play selected song
-    mpdcontrol.play_song(song.song)
+    mpd_client.play_song(song.song)
 
     # Create message
     message = {

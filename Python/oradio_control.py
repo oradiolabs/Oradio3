@@ -37,7 +37,7 @@ from multiprocessing import Queue
 
 from oradio_logging import oradio_log
 from volume_control import VolumeControl
-from mpd_control import mpd_client, get_mpd_control
+from mpd_control import mpd_client
 from led_control import LEDControl
 from play_system_sound import PlaySystemSound
 from touch_buttons import TouchButtons
@@ -96,9 +96,6 @@ usb_present.set() # USB present to go over start-up sequence (will be updated af
 
 # Instantiate remote monitor
 remote_monitor = RmsService()
-
-# Instantiate MPDControl
-mpd = get_mpd_control()
 
 #----------GPIO clean up---------
 
