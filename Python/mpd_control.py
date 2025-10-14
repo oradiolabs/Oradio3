@@ -18,7 +18,7 @@ Created on January 10, 2025
 @summary:       Oradio MPD control module
     - Thread-safe access with _lock
     - Automatic reconnect if MPD is down or connection drops
-    - Retries commands up to retries times before raising a ConnectionError
+    - Retries commands up to retries times before raising a MPDConnectionError
 """
 import os
 import time
@@ -27,7 +27,7 @@ import threading
 import subprocess
 import unicodedata
 from threading import Lock
-from mpd import MPDClient, CommandError, ConnectionError
+from mpd import MPDClient, CommandError, ConnectionError as MPDConnectionError
 
 ##### oradio modules ####################
 from oradio_logging import oradio_log
@@ -36,16 +36,13 @@ from oradio_logging import oradio_log
 from oradio_const import (
     RED, GREEN, YELLOW, NC,
     PRESETS_FILE,
+    USB_MUSIC,
 )
 
 ##### Local constants ####################
-
-### NEW Begin ##############
-
 MPD_HOST       = "localhost"
 MPD_PORT       = 6600
 MPD_DELAY      = 1          # seconds
-MPD_RETRIES    = 3
 MPD_CROSSFADE  = 5          # seconds
 DEFAULT_PRESET = "Preset1"  # For when the Play button is used and no playlist in the queue
 
@@ -80,7 +77,6 @@ class MPDControlNew:
         self._client = MPDClient()
         self._retry_delay = retry_delay
         self._crossfade = crossfade
-
         # Connect to MPD service
         self._connect_client()
 
@@ -91,6 +87,7 @@ class MPDControlNew:
         Retry until a connection is established
         """
         while True:
+#TODO: Voeg retries en fail to
             try:
                 # Connect to MPD service
                 oradio_log.info("Connecting to MPD service on %s:%s", self._host, self._port)
@@ -98,16 +95,16 @@ class MPDControlNew:
                 try:
                     # Configure crossfade
                     oradio_log.info("Setting crossfade to %d seconds", self._crossfade)
-                    self._client.crossfade(self._crossfade) # pylint: disable=non-member
+                    self._client.crossfade(self._crossfade) # pylint: disable=no-member
                 except CommandError as ex_err:
                     # Some MPD versions may not support crossfade
                     oradio_log.error("MPD does not support crossfade: %s", ex_err)
                 break
-            except ConnectionError:
+            except MPDConnectionError:
                 oradio_log.error("MPD connection failed. Retry")
                 time.sleep(self._retry_delay)
 
-    def _execute(self, command_name, *args, retries=MPD_RETRIES, **kwargs):
+    def _execute(self, command_name, *args, retries=3, **kwargs):
         """
         Execute an MPD command in a thread-safe manner with automatic reconnect
         Args:
@@ -118,20 +115,19 @@ class MPDControlNew:
         Returns:
             The result of the MPD command
         Logs errors:
-            ConnectionError: If the command cannot be executed after the specified retries
+            MPDConnectionError: If the command cannot be executed after the specified retries
             CommandError: If the MPD server returns an error for the command
         """
         attempt = 0
         while attempt < retries:
             with self._lock:
                 try:
-                    oradio_log.debug("Execute MPD function '%s'", command_name)
                     func = getattr(self._client, command_name)
                     return func(*args, **kwargs)
-                except (ConnectionError, BrokenPipeError):
+                except (MPDConnectionError, BrokenPipeError):
                     # Reconnect and retry
 #TODO: Waarom wordt verbinding verbroken?
-                    oradio_log.warning("Reconnecting to MPD service")
+                    oradio_log.info("Reconnecting to MPD service")
                     self._connect_client()
                     attempt += 1
                 except CommandError as ex_err:
@@ -140,19 +136,6 @@ class MPDControlNew:
         oradio_log.error("Failed to execute '%s' after %d retries", command_name, retries)
         return None
 
-    # Generic access if needed
-    def command(self, command_name, *args, **kwargs):
-        """
-        Execute any arbitrary MPD command not covered by convenience methods
-        Args:
-            command_name (str): Name of the MPD command
-            *args: Positional arguments
-            **kwargs: Keyword arguments
-        Returns:
-            The result of the MPD command
-        """
-        return self._execute(command_name, *args, **kwargs)
-
     # Convenience methods
     def play(self, preset=None):
         """
@@ -160,8 +143,7 @@ class MPDControlNew:
         Args:
             preset (str): The playlist of the preset to play
         """
-#TODO: Also handle playing song(string)
-
+#TODO: Also handle play song?
         # Determine what to play
         if preset is None:
             if self._execute("playlistinfo"):
@@ -169,10 +151,9 @@ class MPDControlNew:
                 self._execute("play")
                 oradio_log.debug("Play current playlist")
                 return
-            else:
-                # Play default preset playlist
-                oradio_log.debug("No current playlist, using default preset %s", DEFAULT_PRESET)
-                preset = DEFAULT_PRESET
+            # Play default preset playlist
+            oradio_log.debug("No current playlist, using default preset %s", DEFAULT_PRESET)
+            preset = DEFAULT_PRESET
 
         # Clear the current playlist/queue
         self._execute("clear")
@@ -205,14 +186,20 @@ class MPDControlNew:
         oradio_log.debug("Playing: %s", playlist_name)
 
     def pause(self):
-        """Pause playback"""
-        status = self.status()
-        if status.get("state") == "play":
-            self._execute("pause")
+        """Pause playback if playing"""
+        status = self._execute("status")
+
+        if status.get("state") != "play":
+            oradio_log.debug("Ignore pause because not playing")
+            return
+
+        # Pause play
+        self._execute("pause")
+        oradio_log.debug("Playback paused")
 
     def next(self):
         """Skip to the next song in the current playlist or directory if playing and not a web radio"""
-        status = self.status()
+        status = self._execute("status")
 
         if status.get("state") != "play":
             oradio_log.debug("Ignore next because not playing")
@@ -242,28 +229,32 @@ class MPDControlNew:
 
             # Reload playlist in case it changed via web interface
             self._execute("clear")
-            self._execute("load", self._current_playlist)
+            self._execute("load", listname)
 
             # Play the next song
             self._execute("play", next_index)
-            oradio_log.debug("Skipped to next song in playlist '%s', index %d", 
-                             self._current_playlist, next_index)
+            oradio_log.debug("Skipped to next song in playlist '%s', index %d", listname, next_index)
         else:
             # Playing a directory: just send MPD 'next' command
             self._execute("next")
             oradio_log.debug("Skipped to next song in directory using MPD 'next' command")
 
     def stop(self):
-        """Stop playback"""
+        """Stop playback if playing"""
+        status = self._execute("status")
+
+        if status.get("state") != "play":
+            oradio_log.debug("Ignore stop because not playing")
+            return
+
+        # Stop play
         self._execute("stop")
+        oradio_log.debug("Playback stopped")
 
     def clear(self):
-        """Clear the current playlist/queue"""
+        """Clear the current queue"""
         self._execute("clear")
-
-    def status(self):
-        """Return the current status of MPD"""
-        return self._execute("status")
+        oradio_log.debug("Current playback queue cleared")
 
     def add(self, uri):
         """
@@ -273,32 +264,155 @@ class MPDControlNew:
         """
         return self._execute("add", uri)
 
-    def is_webradio(self, preset=None):
+    def playlist_add(self, playlist, song):
         """
-        Check if the current song or given preset is a web radio stream
+        Create a playlist if it does not exist, and optionally add a song to it
         Args:
-            preset (str, optional): Preset name to check. If None, checks the currently playing song
+            playlist (str): Name of the playlist to create or modify
+            song (str | None): Song URL or file to add. If None, only create the playlist
+        """
+        # Validate playlist
+        if not playlist:  # catches '', None, False, etc.
+            oradio_log.error("Playlist name cannot be empty or None")
+            return
+
+        # Check if playlist exists
+        playlists = self._execute("listplaylists")
+        exists = any(p.get("playlist") == playlist for p in playlists)
+
+        # Create playlist if it does not exist
+        if not exists:
+            oradio_log.debug("Creating playlist '%s'", playlist)
+            # Add dummy song to initialize playlist
+            self._execute("playlistadd", playlist, "https://dummy.mp3")
+            # Remove dummy to leave playlist empty
+            self._execute("playlistdelete", playlist, 0)
+            oradio_log.debug("Playlist '%s' created", playlist)
+        else:
+            oradio_log.debug("Playlist '%s' already exists", playlist)
+
+        # Add song if provided
+        if song:
+            # Validate song
+            print("file to check=", os.path.join(USB_MUSIC, song))
+            if not os.path.isfile(os.path.join(USB_MUSIC, song)):
+                oradio_log.error("Song file does not exist: %s", song)
+            else:
+                oradio_log.debug("Adding song '%s' to playlist '%s'", song, playlist)
+                self._execute("playlistadd", playlist, song)
+                # Refresh MPD playlist info
+                self._execute("listplaylistinfo", playlist)
+                oradio_log.debug("Song '%s' added to playlist '%s'", song, playlist)
+
+    def playlist_remove(self, playlist, song):
+        """
+        Remove a song from a playlist, or delete the entire playlist
+        Args:
+            playlist (str): Name of the playlist to modify
+            song (str | None): Song to remove. If None, deletes the entire playlist
+        """
+        # Validate playlist
+        if not playlist:  # catches '', None, False, etc.
+            oradio_log.error("Playlist name cannot be empty or None")
+            return
+
+        if not song:
+            # Delete the playlist
+            oradio_log.debug("Attempting to remove playlist '%s'", playlist)
+            playlists = self._execute("listplaylists")
+            if any(p.get("playlist") == playlist for p in playlists):
+                self._execute("rm", playlist)
+                oradio_log.debug("Playlist '%s' removed", playlist)
+            else:
+                oradio_log.warning("Playlist '%s' does not exist", playlist)
+
+        else:
+            # Remove a single song
+            oradio_log.debug("Attempting to remove song '%s' from playlist '%s'", song, playlist)
+            items = self._execute("listplaylist", playlist)
+            # Find the index safely
+            index = next((i for i, s in enumerate(items) if s == song), None)
+            # Validate song
+            if index is None:
+                oradio_log.warning("Song '%s' not found in playlist '%s'", song, playlist)
+            else:
+                self._execute("playlistdelete", playlist, index)
+                oradio_log.debug("Song '%s' removed from playlist '%s'", song, playlist)
+                # Refresh MPD playlist info
+                self._execute("listplaylistinfo", playlist)
+
+    def update_database(self, progress_interval=5):
+        """
+        Update the MPD database with progress logging
+        It waits until the update is complete
+        Args:
+            progress_interval (int, optional): Time in seconds between progress log messages
+        Returns:
+            None
+        """
+        # Start the database update
+        self._execute("update")
+        oradio_log.debug("MPD database update started")
+
+        # Wait and show progress until MPD database updated
+        last_log_time = time.time()
+        while True:
+            # Get the current status of MPD
+            status = self._execute("status")
+            updating = status.get("updating_db")
+
+            # If update is complete log indexed files and stop
+            if not updating or updating == "0":
+                indexed_files = len(self._execute("listallinfo"))
+                oradio_log.debug("MPD database updated; %d files indexed", indexed_files)
+                break
+
+            # Periodically log that the update is still in progress
+            if time.time() - last_log_time >= progress_interval:
+                oradio_log.debug("MPD database updating still in progress")
+                last_log_time = time.time()
+
+            # Small sleep to avoid busy-waiting
+            time.sleep(0.5)
+
+    def is_webradio(self, preset=None, listname=None):
+        """
+        Check if a prest or list is a web radio URL
+        Rules:
+            - If both `preset` and `listname` are None → check currently playing song
+            - If only `preset` is set → check that preset list
+            - If only `listname` is set → check that list
+            - If both are set → invalid input → log error and return False
+        Args:
+            preset (str, optional): Preset name to check
+            listname (str, optional): list name to check
         Returns:
             bool: True if the song or preset is a web radio (URL starts with 'http://' or 'https://'), False otherwise
         """
+        if preset and listname:
         # Check if current queue is a web radio
-        if preset is None:
+            oradio_log.error("Invalid parameters: both 'preset' and 'listname' were provided")
+            return False
+
+        if preset is None and listname is None:
             current_song = self._execute("currentsong") or {}
             file_uri = current_song.get("file", "")
             return file_uri.startswith(("http://", "https://"))
 
-        # Get listname for given preset
-        listname = _get_preset_listname(preset, PRESETS_FILE)
-        if not listname:
-            oradio_log.info("Preset '%s' has no playlist", preset)
-            return False
+        if listname is None:
 
-        # Check if listname is a stored playlist
-        playlists = self._execute("listplaylists") or []
-        playlist_names = [pl.get("playlist") for pl in playlists if "playlist" in pl]
-        if listname not in playlist_names:
-            oradio_log.debug("'%s' not found in playlists", listname)
-            return False
+            # Get listname for given preset
+            listname = _get_preset_listname(preset, PRESETS_FILE)
+            if not listname:
+                oradio_log.info("Preset '%s' has no playlist", preset)
+                return False
+
+            # Check if listname is a stored playlist
+            playlists = self._execute("listplaylists") or []
+            playlist_names = [pl.get("playlist") for pl in playlists if "playlist" in pl]
+            if listname not in playlist_names:
+                oradio_log.debug("'%s' not found in playlists", listname)
+                return False
 
         # Get songs in that playlist
         songs = self._execute("listplaylist", listname) or []
@@ -320,6 +434,96 @@ class MPDControlNew:
             # Return name of last directory
             return os.path.basename(os.path.dirname(info[0]["file"]))
         return None
+
+    def get_directories(self):
+        """
+        Get available directories
+        Returns a case-insensitive sorted list of directory names
+        """
+        # Initialize
+        folders = []
+
+        # Get directories
+        directories = self._execute("listfiles")
+
+        # Extract valid directory names
+        folders = [
+            entry["directory"]
+            for entry in directories
+            if isinstance(entry, dict) and "directory" in entry
+        ]
+
+        # Sort case-insensitive alphabetically sorted list
+        return sorted(folders, key=str.casefold)
+
+    def get_playlists(self):
+        """
+        Get available playlists
+        Determines if each playlist is a web radio or not
+        Returns a case-insensitive, alphabetically sorted list of dictionaries with keys 'playlist' and 'webradio'
+        """
+        # Get playlists form MPD
+        playlists = self._execute("listplaylists")
+
+        # Extract valid playlist names
+        result = [
+            {
+                "playlist": p["playlist"],
+                "webradio": self.is_webradio(listname=p["playlist"])
+            }
+            for p in playlists
+            if isinstance(p, dict) and p.get("playlist")
+        ]
+
+        # Sort case-insensitive alphabetically sorted list
+        return sorted(result, key=lambda x: x["playlist"].casefold())
+
+    def get_songs(self, listname):
+        """
+        List songs from a playlist or a directory
+        If `listname` matches a known playlist, returns the songs in playlist order
+        If it matches a directory, returns songs sorted alphabetically by artist
+        If not found, returns an empty list
+        Args:
+            listname (str): Name of the playlist or directory
+        Returns:
+            list[dict]: List of song dictionaries with keys:
+                        - 'file' (str)
+                        - 'artist' (str, defaults to 'Unknown artist')
+                        - 'title' (str, defaults to 'Unknown title')
+        """
+        songs = []
+
+        # Check playlists
+        for playlist in self._execute("listplaylists"):
+            if listname == playlist.get("playlist"):
+                details = self._execute("listplaylistinfo", listname)
+                songs = [
+                    {
+                        "file": d.get("file", ""),
+                        "artist": d.get("artist", "Unknown artist"),
+                        "title": d.get("title", "Unknown title"),
+                    }
+                    for d in details
+                ]
+                return songs  # Preserve playlist order
+
+        # Check directories
+        for entry in self._execute("listfiles"):
+            if entry.get("directory") == listname:
+                details = self._execute("lsinfo", listname)
+                songs = [
+                    {
+                        "file": d.get("file", ""),
+                        "artist": d.get("artist", "Unknown artist"),
+                        "title": d.get("title", "Unknown title"),
+                    }
+                    for d in details
+                ]
+                return sorted(songs, key=lambda x: x["artist"].casefold())  # Alphabetical by artist
+
+        # Return empty as list is not a known playlist or directory
+        return []
 
 @staticmethod
 def _get_preset_listname(preset_key, filepath):
@@ -401,178 +605,6 @@ class MPDControl:
             if not self._is_connected():
                 oradio_log.info("Reconnecting MPD client…")
                 self.client = self._connect()
-
-    def update_mpd_database(self, progress_interval=5):
-        """Updates MPD database with progress logging"""
-
-        # Ensure MPD client is connected
-        self._ensure_client()
-
-        try:
-            # Start the database update
-            self.client.update()
-            last_log_time = time.time()
-
-            oradio_log.debug("MPD database update started")
-
-            while True:
-                # Get the current status of MPD
-                status = self.client.status()
-                updating = status.get("updating_db")
-
-                # If update is complete log indexed files and stop
-                if not updating or updating == "0":
-                    indexed_files = len(self.client.listallinfo())
-                    oradio_log.debug("MPD database updated; %d files indexed", indexed_files)
-                    break
-
-                # Periodically log that the update is still in progress
-                if time.time() - last_log_time >= progress_interval:
-                    oradio_log.debug("MPD database updating still in progress")
-                    last_log_time = time.time()
-
-                # Small sleep to avoid busy-waiting
-                time.sleep(0.5)
-
-        except (CommandError, ConnectionError) as ex_err:
-            # Log any errors that occur during the update
-            oradio_log.error("Error updating MPD database: %s", ex_err)
-
-    def restart_mpd_service(self):
-        """Restarts the MPD service using systemctl."""
-        try:
-            subprocess.run(
-                ["sudo", "systemctl", "restart", "mpd"],
-                capture_output=True,
-                text=True,
-                check=True
-            )
-            oradio_log.debug("MPD service restarted successfully.")
-        except subprocess.CalledProcessError as ex_err:
-            oradio_log.error("Error restarting MPD service: %s", ex_err.stderr)
-
-    def get_directories(self):
-        """
-        Get available directories
-        Return case-insensitive sorted list
-        """
-        # Connect if not connected
-        self._ensure_client()
-
-        # Initialize
-        folders = []
-
-        # Get directories
-        try:
-            with self.mpd_lock:
-                directories = self.client.listfiles()
-
-            # Parse directories for name only; only include if "directory" key exists
-            for entry in directories:
-                if "directory" in entry:
-                    folders.append(entry["directory"])
-
-        except Exception as ex_err: # pylint: disable=broad-exception-caught
-            oradio_log.error("Error getting directories: %s", ex_err)
-
-        # Sort alphabetically, ignore case
-        return sorted(folders, key=str.casefold)
-
-    def get_playlists(self):
-        """
-        Get available playlists
-        Determine if the list is a web radio or not
-        Return list case-insensitive sorted bij playlist name
-        """
-        # Connect if not connected
-        self._ensure_client()
-
-        # Initialize
-        result = []
-
-        # Get playlists
-        try:
-            with self.mpd_lock:
-                playlists = self.client.listplaylists()
-                # Parse playlists for name and web radio or not
-                for playlist in playlists:
-                    # Get playlist name
-                    playlist_name = playlist.get("playlist", None)
-                    # Check if any element in the playlist is a url, meaning a web radio
-                    webradio = False
-                    for element in self.client.listplaylistinfo(playlist_name):
-                        file_path = element.get("file", "")
-                        if file_path.startswith(("http://", "https://")):
-                            webradio = True
-                            break
-                    # Add playlist and if webradio or not to result
-                    if webradio:
-                        result.append({"playlist": playlist_name, "webradio": True})
-                    else:
-                        result.append({"playlist": playlist_name, "webradio": False})
-
-        except Exception as ex_err: # pylint: disable=broad-exception-caught
-            oradio_log.error("Error getting playlists: %s", ex_err)
-
-        # Sort alphabetically, ignore case
-        return sorted(result, key=lambda x: x["playlist"].lower())
-
-    def get_songs(self, playlist_name):
-        """
-        List the songs in playlist_name
-        Return [{file: ..., artist:..., title:...}, ...]
-        """
-        # Connect if not connected
-        self._ensure_client()
-
-        # Initialize
-        songs = []
-
-        # Get songs
-        try:
-            # Get playlists and directories
-            with self.mpd_lock:
-                playlists = self.client.listplaylists()
-                directories = self.client.listfiles()
-
-            # Check playlists
-            for playlist in playlists:
-                if playlist_name == playlist.get('playlist'):
-                    # Get playlist song details; minimize lock to mpd interaction
-                    with self.mpd_lock:
-                        details = self.client.listplaylistinfo(playlist_name)
-                    for detail in details:
-                        songs.append({
-                            'file': detail['file'],
-                            'artist': detail.get('artist', 'Unknown artist'),
-                            'title': detail.get('title', 'Unknown title')
-                        })
-
-                    # return list of songs in order they are listed in the playlist
-                    return songs
-
-            # Check directories
-            for entry in directories:
-                # Only consider entries that are directories
-                if "directory" in entry and playlist_name == entry["directory"]:
-                    # Get directory song details; minimize lock to mpd interaction
-                    with self.mpd_lock:
-                        details = self.client.lsinfo(entry["directory"])
-                    for detail in details:
-                        songs.append({
-                            'file': detail['file'],
-                            'artist': detail.get('artist', 'Unknown artist'),
-                            'title': detail.get('title', 'Unknown title')
-                        })
-
-                    # return alphabetically sorted list of songs
-                    return sorted(songs, key=lambda x: x['artist'].lower())
-
-        except Exception as ex_err: # pylint: disable=broad-exception-caught
-            oradio_log.error("Error getting songs for '%s': %s", playlist_name, ex_err)
-
-        # Return empty as list is not an known playlist or directory
-        return songs
 
     def search(self, pattern):
         """
@@ -705,98 +737,6 @@ class MPDControl:
         except Exception as ex_err: # pylint: disable=broad-exception-caught
             oradio_log.error("Error removing song with id '%s': %s", inserted_song_id, ex_err)
 
-    def playlist_add(self, playlist, song):
-        """
-        Create playlist if not exist
-        Add song to playlist
-        Return success | fail
-        """
-        # Connect if not connected
-        self._ensure_client()
-
-        try:
-            with self.mpd_lock:
-                if song is None:
-                    oradio_log.debug("Attempting to create playlist: '%s'", playlist)
-                    # Check if playlist already exists
-                    playlists = self.client.listplaylists()
-                    if not any(d.get("playlist") == playlist for d in playlists):
-                        # Create playlist and add dummy url
-                        self.client.playlistadd(playlist, "https://dummy.mp3")
-                        # Delete the dummy → playlist is now empty
-                        self.client.playlistdelete(playlist, 0)
-                        oradio_log.debug("Created playlist '%s'", playlist)
-                    else:
-                        oradio_log.warning("Playlist '%s' already exists", playlist)
-                else:
-                    oradio_log.debug("Attempting to add song '%s' to playlist: '%s'", song, playlist)
-                    # Add song to playlist, creating playlist if it does not exist
-                    self.client.playlistadd(playlist, song)
-                    oradio_log.debug("Song '%s' added to playlist '%s'", song, playlist)
-                    # Getting the list of songs for the playlist will update the mpd database
-                    self.client.listplaylistinfo(playlist)
-            return True
-        except Exception as ex_err: # pylint: disable=broad-exception-caught
-            if song is None:
-                oradio_log.error("Error creating playlist '%s': %s", playlist, ex_err)
-            else:
-                oradio_log.error("Error adding song '%s' to playlist '%s': %s", song, playlist, ex_err)
-            return False
-
-    def playlist_remove(self, playlist, song):
-        """
-        Remove song from playlist
-        Remove playlist
-        Return success | fail
-        """
-        # Connect if not connected
-        self._ensure_client()
-
-        try:
-            with self.mpd_lock:
-                if song is None:
-                    oradio_log.debug("Attempting to remove playlist: '%s'", playlist)
-                    playlists = self.client.listplaylists()
-                    if any(d.get("playlist") == playlist for d in playlists):
-                        # Delete playlist
-                        self.client.rm(playlist)
-                        oradio_log.debug("Playlist '%s' removed", playlist)
-                    else:
-                        oradio_log.warning("Playlist '%s' does not exist", playlist)
-                else:
-                    oradio_log.debug("Attempting to remove song '%s' from playlist: '%s'", song, playlist)
-                    # Get playlist songs
-                    items = self.client.listplaylist(playlist)
-                    # Find index of song in playlist
-                    index = items.index(song)
-                    # Remove song from playlist
-                    self.client.playlistdelete(playlist, index)
-                    oradio_log.debug("Song '%s' removed from playlist '%s'", song, playlist)
-                    # Getting the list of songs for the playlist will update the mpd database
-                    self.client.listplaylistinfo(playlist)
-            return True
-        except Exception as ex_err: # pylint: disable=broad-exception-caught
-            if song is None:
-                oradio_log.error("Error removing playlist '%s': %s", playlist, ex_err)
-            else:
-                oradio_log.error("Error removing song '%s' from playlist '%s': %s", song, playlist, ex_err)
-            return False
-
-    @staticmethod
-    def _get_playlist_name(preset_key, filepath):
-        """Retrieves the playlist name for a given preset key."""
-        try:
-            with open(filepath, 'r', encoding='utf-8') as file:
-                presets = json.load(file)
-
-            json_key = preset_key.lower()
-            return presets.get(json_key, None)
-
-        except FileNotFoundError:
-            oradio_log.error("Error: File not found at %s", filepath)
-        except json.JSONDecodeError:
-            oradio_log.error("Error: Failed to decode JSON. Please check the file's format.")
-        return None
 
 # mpd_control.py
 # —————————————————————————————————————————————————————————————
@@ -826,235 +766,197 @@ if __name__ == '__main__':
 
     # Imports only relevant when stand-alone
     import random
+    from oradio_utils import run_shell_script
 
 # Most modules use similar code in stand-alone
 # pylint: disable=duplicate-code
 
-    print("\nStarting MPD Control Standalone Test...\n")
+    # Pylint PEP8 ignoring limit of max 12 branches and 50 statement is ok for test menu
+    def interactive_menu():     # pylint: disable=too-many-branches, too-many-statements
+        """Show menu with test options"""
+        # Instantiate MPDControl
+        mpd = MPDControl()
 
-    # Instantiate MPDControl
-    mpd = MPDControl()
+        input_selection = (
+            "\nSelect a function, input the number:\n"
+            " 0  - Quit\n"
+            " 1  - Play\n"
+            " 2  - Pause\n"
+            " 3  - Next\n"
+            " 4  - Stop\n"
+            " 5  - Clear\n"
+            " 6  - Play Preset 1\n"
+            " 7  - Play Preset 2\n"
+            " 8  - Play Preset 3\n"
+            " 9  - Update Database\n"
+            "10  - Restart MPD Service\n"
+            "11  - List directories\n"
+            "12  - List playlists\n"
+            "13  - List playlist songs\n"
+            "14  - Add (song to) a playlist\n"
+            "15  - Remove (song from) a playlist\n"
 
-    INPUT_SELECTION = (
-        "\nSelect a function, input the number:\n"
-        " 0  - Quit\n"
-        " 1  - Play\n"
-        " 2  - Pause\n"
-        " 3  - Next\n"
-        " 4  - Stop\n"
-        " 5  - Clear\n"
-        " 6  - Status\n"
-        " 7  - Play Preset 1\n"
-        " 8  - Play Preset 2\n"
-        " 9  - Play Preset 3\n"
-        "10  - Update Database\n"
-        "11  - Stress Test\n"
-        "12  - Restart MPD Service\n"
-        "13  - List Available Stored Playlists\n"
-        "14  - List Available Directories\n"
-        "15  - Create and Store a New Playlist\n"
-        "16  - Select a Stored Playlist to Play\n"
-        "17  - Select an Available Directory to Play\n"
-        "18  - Check if preset is web radio\n"
-        "19  - Check if current song is web radio\n"
-        "Select: "
-    )
+            "16  - Select a Stored Playlist to Play\n"
+            "17  - Select an Available Directory to Play\n"
 
-    while True:
-        try:
-            function_nr = int(input(INPUT_SELECTION))
-        except ValueError:
-            function_nr = -1
+            "18  - Check if preset is web radio\n"
+            "19  - Check if current song is web radio\n"
+            "Select: "
+        )
 
-        match function_nr:
-            case 0:
-                print("\nExiting test program...\n")
-                break
-            case 1:
-                print(f"\nExecuting: Play.\n")
-                mpd_client.play()
-            case 2:
-                print(f"\nExecuting: Pause.\n")
-                mpd_client.pause()
-            case 3:
-                print(f"\nExecuting: Next.\n")
-                mpd_client.next()
-            case 4:
-                print(f"\nExecuting: Stop.\n")
-                mpd_client.stop()
-            case 5:
-                print(f"\nExecuting: Clear.\n")
-                mpd_client.clear()
-            case 6:
-                print(f"\nExecuting: Status. result={mpd_client.status()}\n")
-            case 7:
-                print("\nExecuting: Play Preset 1\n")
-                mpd_client.play(preset="Preset1")
-            case 8:
-                print("\nExecuting: Play Preset 2\n")
-                mpd_client.play(preset="Preset2")
-            case 9:
-                print("\nExecuting: Play Preset 3\n")
-                mpd_client.play(preset="Preset3")
-            case 10:
-                print("\nExecuting: Update MPD Database\n")
-                mpd.update_mpd_database()
-            case 11:
-                print("\nExecuting: Stress Test\n")
-                def stress_test(mpd_instance, duration=10):
-                    """Stress test MPD service by running random commands"""
-                    start_time = time.time()
-                    commands = [mpd_instance.play, mpd_instance.pause, mpd_instance.next, mpd_instance.stop]
-                    def random_action():
-                        """Run random command for a period of time"""
-                        while time.time() - start_time < duration:
-                            action = random.choice(commands)
-                            action()
-                            time.sleep(random.uniform(0.1, 0.5))
-                    thread_list = [threading.Thread(target=random_action) for _ in range(5)]
-                    for thread in thread_list:
-                        thread.start()
-                    for thread in thread_list:
-                        thread.join()
-                    print("\nStress test completed.\n")
-                stress_test(mpd)
-            case 12:
-                print("\nExecuting: Restart MPD Service\n")
-                mpd.restart_mpd_service()
-            case 13:
-                print("\nListing available stored playlists...\n")
-                mpd._ensure_client()    # pylint: disable=protected-access
-                with mpd.mpd_lock:
-                    lists = mpd.client.listplaylists()
-                if not lists:
-                    print("No stored playlists found.")
-                else:
-                    for idx, pl in enumerate(lists, start=1):
-                        print(f"{idx}. {pl.get('playlist')}")
-            case 14:
-                print("\nListing available directories...\n")
-                mpd._ensure_client()    # pylint: disable=protected-access
-                with mpd.mpd_lock:
-                    lsinfo = mpd.client.lsinfo("/")
-                dirs = [entry["directory"] for entry in lsinfo if "directory" in entry]
-                if not dirs:
-                    print("No directories found.")
-                else:
-                    for idx, d in enumerate(dirs, start=1):
-                        print(f"{idx}. {d}")
-            case 15:
-                print("\nCreating and storing a new playlist...\n")
-                mpd._ensure_client()    # pylint: disable=protected-access
-                search_query = input("Enter search query (artist or song): ")
-                with mpd.mpd_lock:
-                    search_results = mpd.client.search("any", search_query)
-                if not search_results:
-                    print("No search results found for query:", search_query)
-                    continue
-                print("\nSearch results:")
-                for idx, item in enumerate(search_results, start=1):
-                    artist = item.get("artist", "Unknown Artist")
-                    title = item.get("title", item.get("file", "Unknown Title"))
-                    print(f"{idx}. {artist} - {title}")
-                selection_input = input("\nEnter song numbers to add (comma-separated): ")
-                try:
-                    selections = [int(num.strip()) for num in selection_input.split(",")]
-                except ValueError:
-                    print("Invalid input. Please enter numbers separated by commas.")
-                    continue
-                selected_songs = []
-                for num in selections:
-                    if 1 <= num <= len(search_results):
-                        selected_songs.append(search_results[num-1])
+        while True:
+            try:
+                function_nr = int(input(input_selection))
+            except ValueError:
+                function_nr = -1
+
+            match function_nr:
+                case 0:
+                    print("\nExiting test program...\n")
+                    break
+                case 1:
+                    print(f"\nExecuting: Play.\n")
+                    mpd_client.play()
+                case 2:
+                    print(f"\nExecuting: Pause.\n")
+                    mpd_client.pause()
+                case 3:
+                    print(f"\nExecuting: Next.\n")
+                    mpd_client.next()
+                case 4:
+                    print(f"\nExecuting: Stop.\n")
+                    mpd_client.stop()
+                case 5:
+                    print(f"\nExecuting: Clear.\n")
+                    mpd_client.clear()
+                case 6:
+                    print("\nExecuting: Play Preset 1\n")
+                    mpd_client.play(preset="Preset1")
+                case 7:
+                    print("\nExecuting: Play Preset 2\n")
+                    mpd_client.play(preset="Preset2")
+                case 8:
+                    print("\nExecuting: Play Preset 3\n")
+                    mpd_client.play(preset="Preset3")
+                case 9:
+                    print("\nExecuting: Update MPD Database\n")
+                    mpd_client.update_database()
+                case 10:
+                    print("\nExecuting: Restart MPD Service\n")
+                    result, response = run_shell_script("sudo systemctl restart mpd.service")
+                    if not result:
+                        print(f"\n{RED}Failed to restart MPD service: {response}${NC}\n")
                     else:
-                        print(f"Number {num} is out of range, ignoring.")
-                if not selected_songs:
-                    print("No valid songs selected.")
-                    continue
-                print("\nSelected songs:")
-                for idx, item in enumerate(selected_songs, start=1):
-                    artist = item.get("artist", "Unknown Artist")
-                    title = item.get("title", item.get("file", "Unknown Title"))
-                    print(f"{idx}. {artist} - {title}")
-                confirm = input("\nIs this selection OK? (y/n): ").lower()
-                if confirm != "y":
-                    print("Playlist creation canceled.")
-                    continue
-                list_name = input("Enter the name for the new playlist: ")
-                with mpd.mpd_lock:
-                    mpd.client.clear()
-                    for item in selected_songs:
-                        filename = item.get("file")
-                        if filename:
-                            mpd.client.add(filename)
-                    mpd.client.save(list_name)
-                print(f"Playlist '{list_name}' stored successfully.")
-            case 16:
-                print("\nSelect a stored playlist to play...\n")
-                mpd._ensure_client()    # pylint: disable=protected-access
-                with mpd.mpd_lock:
-                    lists = mpd.client.listplaylists()
-                if not lists:
-                    print("No stored playlists found.")
-                else:
-                    for idx, pl in enumerate(lists, start=1):
-                        print(f"{idx}. {pl.get('playlist')}")
-                    try:
-                        selection = int(input("\nSelect a playlist by number: "))
-                        if 1 <= selection <= len(lists):
-                            list_name = lists[selection - 1].get('playlist')
-                            print(f"\nPlaying stored playlist: {list_name}\n")
-                            with mpd.mpd_lock:
-                                mpd.client.clear()
-                                mpd.client.load(list_name)
-                                mpd.client.shuffle()
-                                mpd.client.random(1)
-                                mpd.client.repeat(1)
-                                mpd.client.play()
-                        else:
-                            print("Invalid selection.")
-                    except ValueError:
-                        print("Invalid input, please enter a number.")
-            case 17:
-                print("\nSelect an available directory to play...\n")
-                mpd._ensure_client()    # pylint: disable=protected-access
-                with mpd.mpd_lock:
-                    lsinfo = mpd.client.lsinfo("/")
-                dirs = [entry["directory"] for entry in lsinfo if "directory" in entry]
-                if not dirs:
-                    print("No directories found.")
-                else:
-                    for idx, d in enumerate(dirs, start=1):
-                        print(f"{idx}. {d}")
-                    try:
-                        selection = int(input("\nSelect a directory by number: "))
-                        if 1 <= selection <= len(dirs):
-                            directory_name = dirs[selection - 1]
-                            print(f"\nPlaying directory: {directory_name}\n")
-                            with mpd.mpd_lock:
-                                mpd.client.clear()
-                                mpd.client.add(directory_name)
-                                mpd.client.shuffle()
-                                mpd.client.random(1)
-                                mpd.client.repeat(1)
-                                mpd.client.play()
-                        else:
-                            print("Invalid selection.")
-                    except ValueError:
-                        print("Invalid input, please enter a number.")
-            case 18:
-                selection = input("\nEnter preset number 1, 2 or 3 to check: ")
-                if selection.isdigit() and int(selection) in range(1, 4):
-                    if mpd_client.is_webradio(preset=f"Preset{selection}"):
-                        print(f"\nPreset{selection} playlist is a web radio\n")
+                        print(f"\nMPD service restarted successfully\n")
+                case 11:
+                    print("\nListing directories:")
+                    dirs = mpd_client.get_directories()
+                    if not dirs:
+                        print(f"{YELLOW}No directories found{NC}")
                     else:
-                        print(f"\nPreset{selection} playlist is NOT a web radio\n")
-                else:
-                    print(f"\n{YELLOW}Invalid preset. Please enter a valid number{NC}\n")
-            case 19:
-                if mpd_client.is_webradio():
-                    print("\nCurrent playlist is a web radio\n")
-                else:
-                    print("\nCurrent playlist is NOT a web radio\n")
-            case _:
-                print("\nInvalid selection. Please enter a valid number.\n")
+                        for idx, d in enumerate(dirs, start=1):
+                            print(f"{idx:>2}. {d}")
+                case 12:
+                    print("\nListing playlists:")
+                    lists = mpd_client.get_playlists()
+                    if not lists:
+                        print(f"{YELLOW}No playlists found{NC}")
+                    else:
+                        for idx, pl in enumerate(lists, start=1):
+                            webradio_tag = "(webradio)" if pl.get("webradio") else ""
+                            print(f"{idx:>2}. {pl.get('playlist')} {webradio_tag}")
+                case 13:
+                    print("\nListing songs")
+                    selection = input("Enter playlist or directory: ")
+                    songs = mpd_client.get_songs(selection)
+                    if not songs:
+                        print(f"No songs found for list {selection}")
+                    else:
+                        for idx, s in enumerate(songs, start=1):
+                            print(f"{idx:>3}. {s}")
+                case 14:
+                    print("\nAdd (song to) a playlist")
+                    name = input("Enter playlist name: ")
+                    song = input("Enter playlist song (playlist/songfile): ")
+                    mpd_client.playlist_add(name, song)
+                case 15:
+                    print("\Remove (song from) a playlist")
+                    name = input("Enter playlist name: ")
+                    song = input("Enter playlist song (playlist/songfile): ")
+                    mpd_client.playlist_remove(name, song)
+
+
+                case 16:
+                    print("\nSelect a stored playlist to play...\n")
+                    mpd._ensure_client()    # pylint: disable=protected-access
+                    with mpd.mpd_lock:
+                        lists = mpd.client.listplaylists()
+                    if not lists:
+                        print("No stored playlists found.")
+                    else:
+                        for idx, pl in enumerate(lists, start=1):
+                            print(f"{idx}. {pl.get('playlist')}")
+                        try:
+                            selection = int(input("\nSelect a playlist by number: "))
+                            if 1 <= selection <= len(lists):
+                                list_name = lists[selection - 1].get('playlist')
+                                print(f"\nPlaying stored playlist: {list_name}\n")
+                                with mpd.mpd_lock:
+                                    mpd.client.clear()
+                                    mpd.client.load(list_name)
+                                    mpd.client.shuffle()
+                                    mpd.client.random(1)
+                                    mpd.client.repeat(1)
+                                    mpd.client.play()
+                            else:
+                                print("Invalid selection.")
+                        except ValueError:
+                            print("Invalid input, please enter a number.")
+                case 17:
+                    print("\nSelect an available directory to play...\n")
+                    mpd._ensure_client()    # pylint: disable=protected-access
+                    with mpd.mpd_lock:
+                        lsinfo = mpd.client.lsinfo("/")
+                    dirs = [entry["directory"] for entry in lsinfo if "directory" in entry]
+                    if not dirs:
+                        print("No directories found.")
+                    else:
+                        for idx, d in enumerate(dirs, start=1):
+                            print(f"{idx}. {d}")
+                        try:
+                            selection = int(input("\nSelect a directory by number: "))
+                            if 1 <= selection <= len(dirs):
+                                directory_name = dirs[selection - 1]
+                                print(f"\nPlaying directory: {directory_name}\n")
+                                with mpd.mpd_lock:
+                                    mpd.client.clear()
+                                    mpd.client.add(directory_name)
+                                    mpd.client.shuffle()
+                                    mpd.client.random(1)
+                                    mpd.client.repeat(1)
+                                    mpd.client.play()
+                            else:
+                                print("Invalid selection.")
+                        except ValueError:
+                            print("Invalid input, please enter a number.")
+
+
+                case 18:
+                    selection = input("\nEnter preset number 1, 2 or 3 to check: ")
+                    if selection.isdigit() and int(selection) in range(1, 4):
+                        if mpd_client.is_webradio(preset=f"Preset{selection}"):
+                            print(f"\nPreset{selection} playlist is a web radio\n")
+                        else:
+                            print(f"\nPreset{selection} playlist is NOT a web radio\n")
+                    else:
+                        print(f"\n{YELLOW}Invalid preset. Please enter a valid number{NC}\n")
+                case 19:
+                    if mpd_client.is_webradio():
+                        print("\nCurrent playlist is a web radio\n")
+                    else:
+                        print("\nCurrent playlist is NOT a web radio\n")
+                case _:
+                    print(f"\n{YELLOW}Please input a valid number{NC}\n")
+
+    # Present menu with tests
+    interactive_menu()

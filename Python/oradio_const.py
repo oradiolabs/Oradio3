@@ -27,9 +27,9 @@ import os
 import sys
 
 # Colors
-RED    ='\033[0m\033[1;31m'
-YELLOW ='\033[0m\033[1;93m'
-GREEN  ='\033[0m\033[1;32m'
+RED    ='\033[1;31m'
+YELLOW ='\033[1;93m'
+GREEN  ='\033[1;32m'
 NC     ='\033[0m'
 
 # Make Oradio file locations relative

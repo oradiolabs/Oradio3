@@ -157,8 +157,8 @@ async def buttons_page(request: Request):
     # Return playlist page and presets, directories and playlists as context
     context = {
         "presets"     : _load_presets(),
-        "directories" : mpdcontrol.get_directories(),
-        "playlists"   : mpdcontrol.get_playlists()
+        "directories" : mpd_client.get_directories(),
+        "playlists"   : mpd_client.get_playlists()
     }
     return templates.TemplateResponse(request=request, name="buttons.html", context=context)
 
@@ -206,7 +206,7 @@ async def save_preset(changedpreset: ChangedPreset):
         # Store presets
         _store_presets(presets)
 
-        if mpdcontrol.is_webradio(preset=changedpreset.preset):
+        if mpd_client.is_webradio(preset=changedpreset.preset):
             # Send message playlist is web radio
             message["state"] = MESSAGE_WEB_SERVICE_PL_WEBRADIO
             oradio_log.debug("Send web service message: %s", message)
@@ -233,7 +233,7 @@ async def playlists_page(request: Request):
     """
     oradio_log.debug("Serving playlists page")
 
-    context = {"playlists": mpdcontrol.get_playlists()}
+    context = {"playlists": mpd_client.get_playlists()}
     return templates.TemplateResponse(request=request, name="playlists.html", context=context)
 
 class Modify(BaseModel):
@@ -262,14 +262,14 @@ async def playlist_modify(modify: Modify):
             oradio_log.debug("Create playlist: '%s'", modify.playlist)
         else:
             oradio_log.debug("Add song '%s' to playlist '%s'", modify.song, modify.playlist)
-        return mpdcontrol.playlist_add(modify.playlist, modify.song)
+        return mpd_client.playlist_add(modify.playlist, modify.song)
 
     if modify.action == 'Remove':
         if modify.song is None:
             oradio_log.debug("Delete playlist: '%s'", modify.playlist)
         else:
             oradio_log.debug("Delete song '%s' from playlist '%s'", modify.song, modify.playlist)
-        return mpdcontrol.playlist_remove(modify.playlist, modify.song)
+        return mpd_client.playlist_remove(modify.playlist, modify.song)
 
     oradio_log.error("Unexpected action '%s'", modify.action)
     return JSONResponse(status_code=400, content={"message": f"De action '{modify.action}' is ongeldig"})
@@ -296,7 +296,7 @@ async def get_songs(songs: Songs):
     oradio_log.debug("Serving songs from '%s' for pattern '%s'", songs.source, songs.pattern)
 
     if songs.source == 'playlist':
-        return mpdcontrol.get_songs(songs.pattern)
+        return mpd_client.get_songs(songs.pattern)
 
     if songs.source == 'search':
         return mpdcontrol.search(songs.pattern)

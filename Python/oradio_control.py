@@ -202,8 +202,7 @@ class StateMachine:
     def _same_state_next_song(self, requested_state: str) -> bool:
         """If already in the same PLAY_* state, advance to next song and return True."""
         if self.state == requested_state and requested_state in PLAY_STATES:
-            if not mpd_client.is_webradio() and mpd.current_queue_filled():
-#                threading.Thread(target=mpd.next).start()
+            if not mpd_client.is_webradio():
                 mpd_client.next()
                 sound_player.play("Next")
                 oradio_log.debug("Next song")
@@ -436,7 +435,7 @@ def on_usb_present():
     sound_player.play("USBPresent")
 #OMJ: update kan lang duren. Hoe geven we dat aan? Dat de gebruiker weet dat hij even moet wachten?
     # Ensure MPD database is updated
-    mpd.update_mpd_database()
+    mpd_client.update_database()
     # Transition to Idle after USB is inserted
     if state_machine.state != "StateStartUp":
         state_machine.transition("StateIdle")
