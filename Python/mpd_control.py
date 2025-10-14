@@ -45,37 +45,6 @@ MPD_DELAY      = 1          # seconds
 MPD_CROSSFADE  = 5          # seconds
 DEFAULT_PRESET = "Preset1"  # For when the Play button is used and no playlist in the queue
 
-'''
-    def _connect(self) -> MPDClient:
-        """Connect to MPD service"""
-        client = MPDClient()
-        client.timeout = 20
-        client.idletimeout = None
-        try:
-            client.connect(self.host, self.port)
-            oradio_log.info("Connected to MPD at %s:%s", self.host, self.port)
-
-            # only set crossfade the first time
-            if not self._crossfade_done:
-                try:
-                    client.crossfade(MPD_CROSSFADE)
-                    oradio_log.info("Set crossfade to %ss", MPD_CROSSFADE)
-                except Exception as mpd_err: # pylint: disable=broad-exception-caught
-                    oradio_log.warning("Crossfade failed: %s", mpd_err)
-                else:
-                    self._crossfade_done = True
-
-            return client
-
-        except Exception as con_err: # pylint: disable=broad-exception-caught
-            oradio_log.error("MPD connect failed: %s", con_err)
-            return None
-'''
-
-# Internal client and lock (hidden)
-_client = MPDClient()
-_lock = Lock()
-
 class MPDControl:
     """
     Thread-safe wrapper for an MPD (Music Player Daemon) client
@@ -103,31 +72,33 @@ class MPDControl:
         self._client = MPDClient()
         self._retry_delay = retry_delay
         self._crossfade = crossfade
-        # Connect to MPD service
-        self._connect_client()
 
-    def _connect_client(self):
+        # Connect to MPD service
+        with self._lock:
+            self._connect_client()
+
+    def _connect_client(self, retries=5):
         """
-        Connect to the MPD service
-        Set crossfade to blend the end of the current track with the beginning of the next track
-        Retry until a connection is established
+        Establish a connection to the MPD (Music Player Daemon) server and configure crossfade
+        Args:
+            retries (int, optional): Maximum number of attempts to connect before giving up
         """
-        while True:
-#TODO: Voeg retries en fail to
+        attempt = 0
+        while attempt < retries:
             try:
-                # Connect to MPD service
                 oradio_log.info("Connecting to MPD service on %s:%s", self._host, self._port)
                 self._client.connect(self._host, self._port)
+
+                oradio_log.info("Setting crossfade to %d seconds", self._crossfade)
                 try:
-                    # Configure crossfade
-                    oradio_log.info("Setting crossfade to %d seconds", self._crossfade)
                     self._client.crossfade(self._crossfade) # pylint: disable=no-member
                 except CommandError as ex_err:
-                    # Some MPD versions may not support crossfade
-                    oradio_log.error("MPD does not support crossfade: %s", ex_err)
-                break
-            except MPDConnectionError:
-                oradio_log.error("MPD connection failed. Retry")
+                    oradio_log.warning("MPD does not support crossfade: %s", ex_err)
+
+                break   # Success
+            except MPDConnectionError as ex_err:
+                attempt+= 1
+                oradio_log.error("MPD connection failed. Retry %d/%d: %s", attempt, retries, ex_err)
                 time.sleep(self._retry_delay)
 
     def _execute(self, command_name, *args, retries=3, **kwargs):
@@ -140,9 +111,6 @@ class MPDControl:
             **kwargs: Keyword arguments to pass to the MPD command
         Returns:
             The result of the MPD command
-        Logs errors:
-            MPDConnectionError: If the command cannot be executed after the specified retries
-            CommandError: If the MPD server returns an error for the command
         """
         attempt = 0
         while attempt < retries:
@@ -150,17 +118,15 @@ class MPDControl:
                 try:
                     func = getattr(self._client, command_name)
                     return func(*args, **kwargs)
-                except (MPDConnectionError, BrokenPipeError):
-                    # Reconnect and retry
+                except (MPDConnectionError, BrokenPipeError) as ex_err:
 #TODO: Waarom wordt verbinding verbroken?
-                    oradio_log.info("Reconnecting to MPD service")
-                    self._connect_client()
                     attempt += 1
+                    oradio_log.info("MPD connection lost (%s). Retry connecting %d/%d: %s", attempt, retries, ex_err)
+                    self._connect_client()
                 except CommandError as ex_err:
                     # MPD command-specific error
                     oradio_log.error("MPD command error: %s", ex_err)
         oradio_log.error("Failed to execute '%s' after %d retries", command_name, retries)
-        return None
 
     # Convenience methods
     def play(self, preset=None):
