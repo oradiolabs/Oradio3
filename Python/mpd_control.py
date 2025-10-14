@@ -24,7 +24,6 @@ import os
 import time
 import json
 import threading
-import subprocess
 import unicodedata
 from threading import Lock
 from mpd import MPDClient, CommandError, ConnectionError as MPDConnectionError
@@ -34,7 +33,7 @@ from oradio_logging import oradio_log
 
 ##### GLOBAL constants ####################
 from oradio_const import (
-    RED, GREEN, YELLOW, NC,
+    RED, YELLOW, NC,
     PRESETS_FILE,
     USB_MUSIC,
 )
@@ -77,7 +76,7 @@ DEFAULT_PRESET = "Preset1"  # For when the Play button is used and no playlist i
 _client = MPDClient()
 _lock = Lock()
 
-class MPDControlNew:
+class MPDControl:
     """
     Thread-safe wrapper for an MPD (Music Player Daemon) client
     This class ensures that all MPD commands are executed safely in a multi-threaded environment
@@ -186,7 +185,6 @@ class MPDControlNew:
 
         # Get playlist linked to preset
         playlist_name = _get_preset_listname(preset, PRESETS_FILE)
-        print(f"playlist_name='{playlist_name}'")
         if not playlist_name:
             oradio_log.debug("No playlist found for preset: %s", preset)
             return
@@ -220,7 +218,6 @@ class MPDControlNew:
         """
         oradio_log.debug("Attempting to play song: %s", song)
         status = self._execute("status")
-        state = status.get("state", "stop")
         current_index = int(status.get("song", -1))
 
         # Add the new song to the playlist and get its unique song ID
@@ -236,7 +233,7 @@ class MPDControlNew:
 
         # Move the new song to the target position if needed
         if new_index != target_index:
-            self.client.move(new_index, target_index)
+            self._execute("move", new_index, target_index)
 
         # Start playback of the inserted song
         self._execute("play", target_index)
@@ -281,8 +278,8 @@ class MPDControlNew:
                     duration = float(parts[1])
                     if elapsed >= duration - 0.5:
                         break
-                except Exception:
-                    oradio_log.warning("Failed to parse time for song id %s: '%s'", inserted_song_id, time_str)
+                except (AttributeError, ValueError) as ex_err:
+                    oradio_log.warning("Failed to parse time for song id %s: '%s' (%s)", inserted_song_id, time_str, ex_err)
 
         # After finishing, remove the song from the playlist if still present
         playlist = self._execute("playlistinfo")
@@ -692,24 +689,20 @@ def _get_preset_listname(preset_key, filepath):
     return None
 
 # Create a singleton instance to use in other modules
-mpd_client = MPDControlNew()
+mpd_client = MPDControl()
 
 # Entry point for stand-alone operation
 if __name__ == '__main__':
 
     # Imports only relevant when stand-alone
-    import random
     from oradio_utils import run_shell_script
 
 # Most modules use similar code in stand-alone
 # pylint: disable=duplicate-code
 
     # Pylint PEP8 ignoring limit of max 12 branches and 50 statement is ok for test menu
-    def interactive_menu():     # pylintxxx: disable=too-many-branches, too-many-statements
+    def interactive_menu():     # pylintxx: disable=too-many-branches, too-many-statements
         """Show menu with test options"""
-        # Instantiate MPDControl
-        mpd = MPDControl()
-
         input_selection = (
             "\nSelect a function, input the number:\n"
             " 0  - Quit\n"
@@ -773,34 +766,34 @@ if __name__ == '__main__':
                     mpd_client.play(preset="Preset3")
                 case 9:
                     print("\nListing directories:")
-                    dirs = mpd_client.get_directories()
-                    if not dirs:
+                    results = mpd_client.get_directories()
+                    if not results:
                         print(f"{YELLOW}No directories found{NC}")
                     else:
-                        for idx, dir in enumerate(dirs, start=1):
-                            print(f"{idx:>2}. {dir}")
+                        for idx, result in enumerate(results, start=1):
+                            print(f"{idx:>2}. {result}")
                 case 10:
                     print("\nPlay directory: to be implemented")
                 case 11:
                     print("\nListing playlists:")
-                    lists = mpd_client.get_playlists()
-                    if not lists:
+                    results = mpd_client.get_playlists()
+                    if not results:
                         print(f"{YELLOW}No playlists found{NC}")
                     else:
-                        for idx, playlist in enumerate(lists, start=1):
-                            webradio_tag = "(webradio)" if playlist.get("webradio") else ""
-                            print(f"{idx:>2}. {pl.get('playlist')} {webradio_tag}")
+                        for idx, result in enumerate(results, start=1):
+                            webradio_tag = "(webradio)" if result.get("webradio") else ""
+                            print(f"{idx:>2}. {result.get('playlist')} {webradio_tag}")
                 case 12:
                     print("\nPlay directory: to be implemented")
                 case 13:
                     print("\nListing songs")
                     selection = input("Enter playlist or directory: ")
-                    songs = mpd_client.get_songs(selection)
-                    if not songs:
+                    results = mpd_client.get_songs(selection)
+                    if not results:
                         print(f"No songs found for list {selection}")
                     else:
-                        for idx, song in enumerate(songs, start=1):
-                            print(f"{idx:>3}. {song}")
+                        for idx, result in enumerate(results, start=1):
+                            print(f"{idx:>3}. {result}")
                 case 14:
                     print("\nAdd (song to) a playlist")
                     name = input("Enter playlist name: ")
@@ -814,9 +807,9 @@ if __name__ == '__main__':
                 case 16:
                     print("\nSearch song(s)")
                     pattern = input("Enter search pattern: ")
-                    songs = mpd_client.search(pattern)
-                    for idx, song in enumerate(songs, start=1):
-                        print(f"{idx:>2}. {song.get('artist')} - {song.get('title')}")
+                    results = mpd_client.search(pattern)
+                    for idx, result in enumerate(results, start=1):
+                        print(f"{idx:>2}. {result.get('artist')} - {result.get('title')}")
                 case 17:
                     print("\nPlay a song (to be implemented)")
                 case 18:
@@ -848,3 +841,6 @@ if __name__ == '__main__':
 
     # Present menu with tests
     interactive_menu()
+
+# Restore temporarily disabled pylint duplicate code check
+# pylint: enable=duplicate-code

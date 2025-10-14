@@ -341,3 +341,6 @@ if __name__ == "__main__":
                 rms.heartbeat_stop()
             case _:
                 print("\nPlease input a valid number\n")
+
+# Restore temporarily disabled pylint duplicate code check
+# pylint: enable=duplicate-code

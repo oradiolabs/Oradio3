@@ -615,3 +615,6 @@ if __name__ == '__main__':
         # Stop listening to messages
         stop_event.set()
         message_listener.join()
+
+# Restore temporarily disabled pylint duplicate code check
+# pylint: enable=duplicate-code
