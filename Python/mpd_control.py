@@ -15,7 +15,10 @@ Created on January 10, 2025
 @version:       2
 @email:         oradioinfo@stichtingoradio.nl
 @status:        Development
-@summary:       Oradio MPD control module
+@references:
+    https://python-mpd2.readthedocs.io/en/latest/topics/commands.html
+@summary:
+    Oradio MPD control module
     - Thread-safe access with _lock
     - Automatic reconnect if MPD is down or connection drops
     - Retries commands up to retries times before raising a MPDConnectionError
@@ -93,9 +96,9 @@ class MPDControl:
                     oradio_log.warning("MPD does not support crossfade: %s", ex_err)
 
                 break   # Success
-            except MPDConnectionError as ex_err:
+            except MPDConnectionError:
                 attempt+= 1
-                oradio_log.error("MPD connection failed. Retry %d/%d", ex_err, attempt, retries)
+                oradio_log.error("MPD connection failed. Retry %d/%d", attempt, retries)
                 time.sleep(self._retry_delay)
 
     def _execute(self, command_name, *args, retries=MPD_RETRIES, **kwargs):
