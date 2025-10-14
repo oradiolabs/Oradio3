@@ -472,6 +472,11 @@ sudo systemctl start mpd.service
 until mpc status >/dev/null 2>&1; do
     sleep 0.2
 done
+# Stop mpd socket, prevent automatic startup at boot and ensure no other service or dependency can start it
+sudo systemctl stop mpd.socket
+sudo systemctl disable mpd.socket
+sudo systemctl mask mpd.socket
+sudo rm /lib/systemd/system/mpd.socket
 echo "MPD is ready"
 
 # Update MPD database and wait until updated
