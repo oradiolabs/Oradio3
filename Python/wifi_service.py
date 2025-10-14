@@ -750,7 +750,7 @@ if __name__ == '__main__':
             print(f"\n{GREEN}Message received: '{message}'{NC}\n")
 
     # Pylint PEP8 ignoring limit of max 12 branches and 50 statement is ok for test menu
-    def interactive_menu(queue):    # pylintxx: disable=too-many-branches, too-many-statements
+    def interactive_menu(queue):    # pylint: disable=too-many-branches, too-many-statements
         """Show menu with test options"""
         # Initialize: no services registered
         wifi_services = []

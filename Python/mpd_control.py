@@ -701,32 +701,32 @@ if __name__ == '__main__':
 # pylint: disable=duplicate-code
 
     # Pylint PEP8 ignoring limit of max 12 branches and 50 statement is ok for test menu
-    def interactive_menu():     # pylintxx: disable=too-many-branches, too-many-statements
+    def interactive_menu():     # pylint: disable=too-many-branches, too-many-statements
         """Show menu with test options"""
         input_selection = (
             "\nSelect a function, input the number:\n"
-            " 0  - Quit\n"
-            " 1  - Play\n"
-            " 2  - Pause\n"
-            " 3  - Next\n"
-            " 4  - Stop\n"
-            " 5  - Clear\n"
-            " 6  - Play Preset 1\n"
-            " 7  - Play Preset 2\n"
-            " 8  - Play Preset 3\n"
-            " 9  - List directories\n"
-            "10  - Play a directory\n"
-            "11  - List playlists\n"
-            "12  - Play a playlist\n"
-            "13  - List playlist songs\n"
-            "14  - Add (song to) a playlist\n"
-            "15  - Remove (song from) a playlist\n"
-            "16  - Search song(s)\n"
-            "17  - Play a song\n"
-            "18  - Check if preset is web radio\n"
-            "19  - Check if current song is web radio\n"
-            "20  - Update Database\n"
-            "21  - Restart MPD Service\n"
+            " 0-Quit\n"
+            " 1-Play\n"
+            " 2-Pause\n"
+            " 3-Next\n"
+            " 4-Stop\n"
+            " 5-Clear\n"
+            " 6-Play Preset 1\n"
+            " 7-Play Preset 2\n"
+            " 8-Play Preset 3\n"
+            " 9-List directories\n"
+            "10-Play a directory\n"
+            "11-List playlists\n"
+            "12-Play a playlist\n"
+            "13-List playlist songs\n"
+            "14-Add (song to) a playlist\n"
+            "15-Remove (song from) a playlist\n"
+            "16-Search song(s)\n"
+            "17-Play a song\n"
+            "18-Check if preset is web radio\n"
+            "19-Check if current song is web radio\n"
+            "20-Update Database\n"
+            "21-Restart MPD Service\n"
             "Select: "
         )
 
@@ -835,7 +835,7 @@ if __name__ == '__main__':
                     if not result:
                         print(f"\n{RED}Failed to restart MPD service: {response}${NC}\n")
                     else:
-                        print(f"\nMPD service restarted successfully\n")
+                        print("\nMPD service restarted successfully\n")
                 case _:
                     print(f"\n{YELLOW}Please input a valid number{NC}\n")
 

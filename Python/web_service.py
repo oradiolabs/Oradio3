@@ -447,7 +447,8 @@ if __name__ == '__main__':
             # Show message received
             print(f"\n{GREEN}Message received: '{message}'{NC}\n")
 
-    def interactive_menu(queue):
+    # Pylint PEP8 ignoring limit of max 12 branches is ok for test menu
+    def interactive_menu(queue):    # pylint: disable=too-many-branches
         """Show menu with test options"""
         # Initialize
         web_service = WebService(queue)
