@@ -26,7 +26,7 @@ NC='\033[0m'
 
 # The script uses bash constructs
 if [ -z "$BASH" ]; then
-    echo "${RED}This script requires bash${NC}"
+	echo "${RED}This script requires bash${NC}"
 	exit 1
 fi
 
@@ -46,11 +46,8 @@ SPOTIFY_PATH=$SCRIPT_PATH/Spotify
 # Location of files to install
 RESOURCES_PATH=$SCRIPT_PATH/install_resources
 
-# Ensure required directories exist
-mkdir -p $LOGGING_PATH
-mkdir -p $SPOTIFY_PATH
-
-# Define log files
+# Ensure directory exists and define log files
+mkdir -p "$LOGGING_PATH" || { echo -e "${RED}Failed to create directory $LOGGING_PATH${NC}"; exit 1; }
 LOGFILE_USB=$LOGGING_PATH/usb.log
 LOGFILE_SPOTIFY=$LOGGING_PATH/spotify.log
 LOGFILE_INSTALL=$LOGGING_PATH/install.log
@@ -87,7 +84,6 @@ function install_resource {
 		# Stop with error flag
 		INSTALL_ERROR=1
 	else
-
 		if [ -f $1.template ]; then
 			# Create by replacing placeholders
 			cp $1.template $1
@@ -194,12 +190,14 @@ if [ "$1" != "--continue" ]; then
 	done
 
 	# Ensure Linux packages are installed and up-to-date
+	unset REBUILD_PYTHON_ENV
 	for package in "${LINUX_PACKAGES[@]}"; do
 		if dpkg -s "$package" &>/dev/null; then
 			# Check if installed package can be upgraded
 			if [[ ${UPGRADABLE_MAP["$package"]+_} ]]; then
 				echo -e "${YELLOW}$package is outdated: upgrading...${NC}"
 				sudo apt-get install -y $package
+				REBUILD_PYTHON_ENV=1
 			else
 				echo "$package is up-to-date"
 			fi
@@ -215,6 +213,7 @@ if [ "$1" != "--continue" ]; then
 				sudo systemctl disable raspotify
 			else 
 				sudo apt-get install -y $package
+				REBUILD_PYTHON_ENV=1
 			fi
 		fi
 	done
@@ -226,8 +225,10 @@ if [ "$1" != "--continue" ]; then
 
 ########## PYTHON BEGIN ##########
 
-	# Prepare python virtual environment including system site packages
-	python3 -m venv --system-site-packages ~/.venv
+	# If needed, prepare python virtual environment including system site packages
+	if [ -n "${REBUILD_PYTHON_ENV:-}" ]; then
+		python3 -m venv --system-site-packages ~/.venv
+	fi
 
 	# Activate the python virtual environment in current environment
 	source ~/.venv/bin/activate
@@ -500,6 +501,16 @@ echo -e "${GREEN}Log files rotation configured${NC}"
 install_resource $RESOURCES_PATH/spotify_event_handler.sh /usr/local/bin/spotify_event_handler.sh 'sudo chmod +x /usr/local/bin/spotify_event_handler.sh'
 # Configure the Librespot service
 install_resource $RESOURCES_PATH/librespot.service /etc/systemd/system/librespot.service 'sudo systemctl enable librespot.service'
+# Ensure Spotify directory and flag files exist with default '0' and correct ownership and permissions
+mkdir -p "$SPOTIFY_PATH" || { echo -e "${RED}Failed to create directory $SPOTIFY_PATH${NC}"; exit 1; }
+for flag in spotactive.flag spotplaying.flag; do
+	file="$SPOTIFY_PATH/$flag"
+	if [ ! -f "$file" ]; then
+		echo "0" >"$file" || { echo -e "${RED}Failed to write $file${NC}"; exit 1; }
+		chown "$(id -un):$(id -gn)" "$file" 2>/dev/null || { echo -e "${RED}chown failed for $file${NC}"; exit 1; }
+		chmod 644 "$file" 2>/dev/null || { echo -e "${RED}chmod failed for $file${NC}"; exit 1; }
+	fi
+done
 # Progress report
 echo -e "${GREEN}Spotify connect functionality is installed and configured${NC}"
 

@@ -66,32 +66,34 @@ class SpotifyConnect:
         self.monitor_thread.start()
         oradio_log.info("SpotifyConnect: monitor thread started.")
 
-    # ---------- Flag reading ----------
 
     def _read_flag(self, filepath: str) -> bool:
         """
-        Read 'filepath' and return True if its trimmed content is '1', else False.
-        If the file is missing or unreadable, return False and warn only once.
+        Return True iff the file's trimmed content is '1'.
+        If the file is missing/unreadable, return False and log a one-time INFO.
+        Once the file becomes readable again, clear the warning latch.
         """
         try:
-            with open(filepath, "r", encoding="utf-8") as file:
-                return file.read().strip() == "1"
-        except FileNotFoundError:
+            with open(filepath, "r", encoding="utf-8") as flag_file:
+                value = flag_file.read().strip() == "1"
+            # If it was missing before and now it's back, clear the latch (optional)
+            if self._warned_missing.get(filepath, False):
+                oradio_log.info("Flag file %s available again.", filepath)
+                self._warned_missing[filepath] = False
+            return value
+
+        except (FileNotFoundError, OSError) as ex:
+            # Log only once per filepath, at INFO level (no ERRORs sent to ORMS)
             if not self._warned_missing.get(filepath, False):
-                oradio_log.warning(
-                    "Flag file %s not found; treating as '0' until it appears.", filepath
-                )
-                self._warned_missing[filepath] = True
-            return False
-        except OSError as ex_err:
-            if not self._warned_missing.get(filepath, False):
-                oradio_log.warning(
-                    "Could not read flag %s (%s); treating as '0' until readable.",
+                oradio_log.info(
+                    "Flag file %s not readable (%s); treating as '0' until it appears.",
                     filepath,
-                    ex_err,
+                    ex,
                 )
                 self._warned_missing[filepath] = True
             return False
+
+
 
     def update_flags(self) -> None:
         """Update 'active' and 'playing' by reading their flag files."""
