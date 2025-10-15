@@ -81,7 +81,7 @@ class MPDControl:
 
         # Connect to MPD service
         with self._lock:
-           self._connect_client()
+            self._connect_client()
 
     def _connect_client(self, retries=MPD_RETRIES):
         """
