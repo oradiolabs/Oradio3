@@ -2,9 +2,8 @@
 
 [Unit]
 Description=Oradio
-After=librespot.service
+After=multi-user.target librespot.service
 Requires=librespot.service
-After=multi-user.target
 # must be greater than RestartSec * StartLimitBurst otherwise the service will be restarted indefinitely
 StartLimitInterval=55
 # Try max 5 times
@@ -34,7 +33,6 @@ ExecStopPost=-/usr/bin/bash -c  'curl -s \
 									https://oradiolabs.nl/rms/receive.php \
 								'
 
-RemainAfterExit=true
 Restart=always
 RestartSec=10
 
