@@ -471,15 +471,18 @@ install_resource $RESOURCES_PATH/mpd.conf /etc/mpd.conf 'sudo systemctl enable m
 # Start mpd service and wait until ready
 sudo systemctl start mpd.service
 until mpc status >/dev/null 2>&1; do
-    sleep 0.2
+	sleep 0.2
 done
-# Stop mpd socket, prevent automatic startup at boot and ensure no other service or dependency can start it
-sudo systemctl stop mpd.socket
-sudo systemctl disable mpd.socket
-sudo systemctl mask mpd.socket
-sudo rm /lib/systemd/system/mpd.socket
-echo "MPD is ready"
-
+# Stop the service/socket if running
+if [ "$(systemctl is-active mpd.socket 2>/dev/null)" != "inactive" ]; then
+	sudo systemctl stop mpd.socket
+fi
+# Disable if enabled, prevents automatic startup at boot
+if [ "$(systemctl is-enabled mpd.socket 2>/dev/null)" != "masked" ]; then
+	sudo systemctl disable mpd.socket
+	sudo systemctl mask mpd.socket
+fi
+sudo rm -f /lib/systemd/system/mpd.socket
 # Update MPD database and wait until updated
 mpc update >/dev/null
 echo -n "Updating MPD."
@@ -488,7 +491,6 @@ while mpc status | grep -iq "updating"; do
 	sleep 1
 done
 echo " Updated"
-
 # Progress report
 echo -e "${GREEN}Audio installed and configured${NC}"
 
