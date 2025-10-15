@@ -103,7 +103,7 @@ PRESETS_FILE = USB_SYSTEM + "/presets.json"
 ################## VOLUME #############################
 # Raw volume units
 VOLUME_MINIMUM = 105
-VOLUME_MAXIMUM = 215
+VOLUME_MAXIMUM = 207 # 207 is the max
 # Volume messages
 # MESSAGE_VOLUME_SOURCE  = "Vol Control message"
 # MESSAGE_VOLUME_CHANGED = "Volume changed"
