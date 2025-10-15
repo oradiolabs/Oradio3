@@ -19,14 +19,14 @@
 ########## INITIALIZE BEGIN ##########
 
 # Color definitions
-RED='\033[0m\033[1;31m'
-YELLOW='\033[0m\033[1;93m'
-GREEN='\033[0m\033[1;32m'
+RED='\033[1;31m'
+YELLOW='\033[1;93m'
+GREEN='\033[1;32m'
 NC='\033[0m'
 
 # The script uses bash constructs
 if [ -z "$BASH" ]; then
-    echo "${RED}This script requires bash${NC}"
+	echo "${RED}This script requires bash${NC}"
 	exit 1
 fi
 
@@ -46,22 +46,8 @@ SPOTIFY_PATH=$SCRIPT_PATH/Spotify
 # Location of files to install
 RESOURCES_PATH=$SCRIPT_PATH/install_resources
 
-# Ensure required directories exist
-mkdir -p $LOGGING_PATH
-mkdir -p $SPOTIFY_PATH
-
-# Ensure Spotify flag files exist with default '0'
-for flag in spotactive.flag spotplaying.flag; do
-    if [ ! -f "$SPOTIFY_PATH/$flag" ]; then
-        echo "0" > "$SPOTIFY_PATH/$flag"
-    fi
-done
-# Make sure ownership/permissions are sane
-chown "$(id -un)":"$(id -gn)" "$SPOTIFY_PATH"/spot*.flag 2>/dev/null || true
-chmod 664 "$SPOTIFY_PATH"/spot*.flag 2>/dev/null || true
-
-
-# Define log files
+# Ensure directory exists and define log files
+mkdir -p "$LOGGING_PATH" || { echo -e "${RED}Failed to create directory $LOGGING_PATH${NC}"; exit 1; }
 LOGFILE_USB=$LOGGING_PATH/usb.log
 LOGFILE_SPOTIFY=$LOGGING_PATH/spotify.log
 LOGFILE_INSTALL=$LOGGING_PATH/install.log
@@ -98,7 +84,6 @@ function install_resource {
 		# Stop with error flag
 		INSTALL_ERROR=1
 	else
-
 		if [ -f $1.template ]; then
 			# Create by replacing placeholders
 			cp $1.template $1
@@ -168,11 +153,10 @@ if [ "$1" != "--continue" ]; then
 		sudo apt-get update
 		# Save time lists were updated
 		date +%s | sudo tee "$STAMP_FILE" >/dev/null
-		echo -e "${GREEN}APT update completed, stamp file updated${NC}"
+		echo -e "${GREEN}Package lists updated, stamp file updated${NC}"
 	else
-		echo -e "${GREEN}APT lists are up to date${NC}"
+		echo -e "${GREEN}Package lists are up to date${NC}"
 	fi
-
 	# NOTE: We do not upgrade: https://forums.raspberrypi.com/viewtopic.php?p=2310861&hilit=oradio#p2310861
 
 ########## OS PACKAGES END ##########
@@ -180,7 +164,7 @@ if [ "$1" != "--continue" ]; then
 ########## ORADIO3 LINUX PACKAGES BEGIN ##########
 
 #***************************************************************#
-#   Add any additionally required packages to 'PACKAGES'        #
+#   Add any additionally required packages to 'LINUX_PACKAGES'  #
 #***************************************************************#
 	LINUX_PACKAGES=(
 		git
@@ -206,12 +190,14 @@ if [ "$1" != "--continue" ]; then
 	done
 
 	# Ensure Linux packages are installed and up-to-date
+	unset REBUILD_PYTHON_ENV
 	for package in "${LINUX_PACKAGES[@]}"; do
 		if dpkg -s "$package" &>/dev/null; then
 			# Check if installed package can be upgraded
 			if [[ ${UPGRADABLE_MAP["$package"]+_} ]]; then
 				echo -e "${YELLOW}$package is outdated: upgrading...${NC}"
 				sudo apt-get install -y $package
+				REBUILD_PYTHON_ENV=1
 			else
 				echo "$package is up-to-date"
 			fi
@@ -227,6 +213,7 @@ if [ "$1" != "--continue" ]; then
 				sudo systemctl disable raspotify
 			else 
 				sudo apt-get install -y $package
+				REBUILD_PYTHON_ENV=1
 			fi
 		fi
 	done
@@ -238,8 +225,10 @@ if [ "$1" != "--continue" ]; then
 
 ########## PYTHON BEGIN ##########
 
-	# Prepare python virtual environment including system site packages
-	python3 -m venv --system-site-packages ~/.venv
+	# If needed, prepare python virtual environment including system site packages
+	if [ -n "${REBUILD_PYTHON_ENV:-}" ]; then
+		python3 -m venv --system-site-packages ~/.venv
+	fi
 
 	# Activate the python virtual environment in current environment
 	source ~/.venv/bin/activate
@@ -424,6 +413,12 @@ install_resource $RESOURCES_PATH/usb-prepare.service /etc/systemd/system/usb-pre
 # Configure the USB mount script
 install_resource $RESOURCES_PATH/usb-mount.sh /usr/local/bin/usb-mount.sh 'sudo chmod +x /usr/local/bin/usb-mount.sh'
 
+# Configure the USB service
+install_resource $RESOURCES_PATH/usb-mount@.service /etc/systemd/system/usb-mount@.service
+
+# Install rules if new or changed and reload to activate
+install_resource $RESOURCES_PATH/99-local.rules /etc/udev/rules.d/99-local.rules
+
 # Check for USB mount errors and/or warnings
 if [ -f $LOGFILE_USB ]; then
 	MESSAGE_USB=$(cat $LOGFILE_USB | grep "Error")
@@ -435,12 +430,6 @@ if [ -f $LOGFILE_USB ]; then
 		echo -e "${YELLOW}Problem mounting USB: $MESSAGE_USB${NC}"
 	fi
 fi
-
-# Configure the USB service
-install_resource $RESOURCES_PATH/usb-mount@.service /etc/systemd/system/usb-mount@.service
-
-# Install rules if new or changed and reload to activate
-install_resource $RESOURCES_PATH/99-local.rules /etc/udev/rules.d/99-local.rules
 
 # Progress report
 echo -e "${GREEN}USB functionalty loaded and configured. System automounts USB drives on '/media'${NC}"
@@ -486,23 +475,32 @@ echo -e "${GREEN}Log files rotation configured${NC}"
 
 # Configure Spotify connect
 install_resource $RESOURCES_PATH/spotify_event_handler.sh /usr/local/bin/spotify_event_handler.sh 'sudo chmod +x /usr/local/bin/spotify_event_handler.sh'
-
 # Configure the Librespot service
 install_resource $RESOURCES_PATH/librespot.service /etc/systemd/system/librespot.service 'sudo systemctl enable librespot.service'
-
+# Ensure Spotify directory and flag files exist with default '0' and correct ownership and permissions
+mkdir -p "$SPOTIFY_PATH" || { echo -e "${RED}Failed to create directory $SPOTIFY_PATH${NC}"; exit 1; }
+for flag in spotactive.flag spotplaying.flag; do
+	file="$SPOTIFY_PATH/$flag"
+	if [ ! -f "$file" ]; then
+		echo "0" >"$file" || { echo -e "${RED}Failed to write $file${NC}"; exit 1; }
+		chown "$(id -un):$(id -gn)" "$file" 2>/dev/null || { echo -e "${RED}chown failed for $file${NC}"; exit 1; }
+		chmod 644 "$file" 2>/dev/null || { echo -e "${RED}chmod failed for $file${NC}"; exit 1; }
+	fi
+done
 # Progress report
 echo -e "${GREEN}Spotify connect functionality is installed and configured${NC}"
 
 # Install the send_log_files_to_rms script
 install_resource $RESOURCES_PATH/send_log_files_to_rms.sh /usr/local/bin/send_log_files_to_rms.sh 'sudo chmod +x /usr/local/bin/send_log_files_to_rms.sh'
-
 # Install the about script
 install_resource $RESOURCES_PATH/about /usr/local/bin/about 'sudo chmod +x /usr/local/bin/about'
+# Progress report
+echo -e "${GREEN}Support tools installed${NC}"
 
-# Configure the autostart service
+# Configure the oradio service
 install_resource $RESOURCES_PATH/autostart.service /etc/systemd/system/autostart.service 'sudo systemctl enable autostart.service'
 # Progress report
-echo -e "${GREEN}Autostart Oradio3 on boot configured${NC}"
+echo -e "${GREEN}Start Oradio3 on boot configured${NC}"
 
 # Stop if any installation failed
 if [ -v INSTALL_ERROR ]; then
