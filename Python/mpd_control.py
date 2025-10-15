@@ -58,12 +58,13 @@ class MPDControl:
         _host (str): MPD server hostname
         _port (int): MPD server port
         _retry_delay (float): Delay in seconds between reconnect attempts
+        _crossfade (int): Crossfade time in seconds
         _lock (threading.Lock): Lock to ensure thread-safe access
         _client (MPDClient): Internal MPD client instance
     """
     def __init__(self, host=MPD_HOST, port=MPD_PORT, retry_delay=MPD_DELAY, crossfade=MPD_CROSSFADE):
         """
-        Initialize the ThreadSafeMPD client and connect to the MPD server
+        Initialize the MPDControl client and connect to the MPD server
         Args:
             host (str): MPD server hostname
             port (int): MPD server port
@@ -72,10 +73,15 @@ class MPDControl:
         """
         self._host = host
         self._port = port
-        self._lock = Lock()
         self._retry_delay = retry_delay
         self._crossfade = crossfade
+        self._lock = Lock()
         self._client = MPDClient()
+        self._connected = False
+
+        # Connect to MPD service
+        with self._lock:
+           self._connect_client()
 
     def _connect_client(self, retries=MPD_RETRIES):
         """
@@ -83,23 +89,23 @@ class MPDControl:
         Args:
             retries (int, optional): Maximum number of attempts to connect before giving up
         """
-        attempt = 0
-        while attempt < retries:
+        for attempt in range(1, retries + 1):
             try:
                 oradio_log.info("Connecting to MPD service on %s:%s", self._host, self._port)
                 self._client.connect(self._host, self._port)
-
                 oradio_log.info("Setting crossfade to %d seconds", self._crossfade)
                 try:
                     self._client.crossfade(self._crossfade) # pylint: disable=no-member
                 except CommandError as ex_err:
                     oradio_log.warning("MPD does not support crossfade: %s", ex_err)
-
-                break   # Success
-            except MPDConnectionError:
-                attempt+= 1
-                oradio_log.error("MPD connection failed. Retry %d/%d", attempt, retries)
+                # Connected to MPD service
+                self._connected = True
+                return
+            except MPDConnectionError as ex_err:
+                oradio_log.error("MPD connection failed (%s). Retry %d/%d", ex_err, attempt, retries)
+                self._connected = False
                 time.sleep(self._retry_delay)
+        oradio_log.error("Failed to connect to MPD after %s attempts", retries)
 
     def _execute(self, command_name, *args, retries=MPD_RETRIES, **kwargs):
         """
@@ -112,22 +118,28 @@ class MPDControl:
         Returns:
             The result of the MPD command
         """
-        attempt = 0
-        while attempt < retries:
+        for attempt in range(1, retries + 1):
             with self._lock:
                 try:
                     func = getattr(self._client, command_name)
                     return func(*args, **kwargs)
                 except (MPDConnectionError, BrokenPipeError) as ex_err:
-                    attempt += 1
-# NOTE: In mpd.conf the connection_timeout is set to 1 year (i.e. forever). So a lost connection should not happen...
+                    # NOTE: Normally MPD stays connected indefinitely (timeout ~1 year), but we still handle this defensively
                     oradio_log.warning("MPD connection lost (%s). Retry connecting %d/%d", ex_err, attempt, retries)
                     self._connect_client()
                 except CommandError as ex_err:
                     # MPD command-specific error
                     oradio_log.error("MPD command error: %s", ex_err)
+                    return None
+                except AttributeError:
+                    oradio_log.error("Invalid MPD command: '%s'", command_name)
+                    return None
         oradio_log.error("Failed to execute '%s' after %d retries", command_name, retries)
         return None
+
+    def is_connected(self):
+        """Return True if the client is currently connected"""
+        return self._connected
 
     # Convenience methods
     def play(self, preset=None):
