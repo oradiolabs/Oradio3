@@ -36,7 +36,7 @@ from oradio_logging import oradio_log
 
 ##### GLOBAL constants ####################
 from oradio_const import (
-    RED, GREEN, YELLOW, NC,
+    RED, YELLOW, NC,
     PRESETS_FILE,
     USB_MUSIC,
 )
@@ -126,24 +126,26 @@ class MPDControl:
         # Main idle loop
         while True:
             try:
-                events = listener_client.idle()  # blocks until MPD sends events
+                # blocks until MPD sends events
+                # Keep it simple: no need to use _execute(), as listener is only user
+                events = listener_client.idle() # pylint: disable=no-member
                 for event in events:
                     detail = MPD_EVENT_ACTIONS.get(event, "Unknown event")
                     oradio_log.debug("MPD event: %s → detail: %s", event, detail)
                     # Check errors on MPD events
                     try:
-                        status = listener_client.status()
+                        # Keep it simple: no need to use _execute(), as listener is only user
+                        status = listener_client.status()   # pylint: disable=no-member
                         if status and "error" in status:
                             oradio_log.warning("MPD error detected: %s", status['error'])
                     except CommandError as ex_err:
                         oradio_log.error("Error fetching status: %s", ex_err)
-
-
             except MPDConnectionError as ex_err:
                 oradio_log.warning("Listener connection lost, reconnecting: %s", ex_err)
                 while not self._connect_to_mpd(listener_client, log_prefix="Listener"):
                     time.sleep(MPD_RETRY_DELAY)
-            except Exception as ex_err:
+            # We want to know if the listener fails and why
+            except Exception as ex_err: # pylint: disable=broad-exception-caught
                 oradio_log.error("Listener error: %s", ex_err)
                 time.sleep(1)
 
@@ -170,8 +172,8 @@ class MPDControl:
             The result of the MPD command, or None if an error occurs.
         """
         for attempt in range(1, MPD_RETRIES + 1):
-            # Try to lock, timeout if waiting too long (:= means assign && test)
-            if (acquired := self._lock.acquire(timeout=LOCK_TIMEOUT)):
+            # Try to lock, timeout if waiting too long
+            if self._lock.acquire(timeout=LOCK_TIMEOUT):    # pylint: disable=consider-using-with
                 try:
                     func = getattr(self._client, command_name)
                     return func(*args, **kwargs)
