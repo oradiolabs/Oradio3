@@ -47,29 +47,34 @@ MPD_PORT       = 6600
 MPD_RETRIES    = 3
 MPD_DELAY      = 1          # seconds
 MPD_CROSSFADE  = 5          # seconds
+LOCK_TIMEOUT   = 5          # seconds
 DEFAULT_PRESET = "Preset1"  # For when the Play button is used and no playlist in the queue
 
 class MPDControl:
     """
-    Thread-safe wrapper for an MPD (Music Player Daemon) client
-    This class ensures that all MPD commands are executed safely in a multi-threaded environment
-    It also automatically reconnects if the connection to the MPD server is lost
+    Thread-safe wrapper for an MPD (Music Player Daemon) client.
+
+    Ensures that all MPD commands are executed safely in a multi-threaded
+    environment. Automatically reconnects if the connection to the MPD server
+    is lost.
+
     Attributes:
-        _host (str): MPD server hostname
-        _port (int): MPD server port
-        _retry_delay (float): Delay in seconds between reconnect attempts
-        _crossfade (int): Crossfade time in seconds
-        _lock (threading.Lock): Lock to ensure thread-safe access
-        _client (MPDClient): Internal MPD client instance
+        _host (str): MPD server hostname.
+        _port (int): MPD server port.
+        _retry_delay (float): Delay in seconds between reconnect attempts.
+        _crossfade (int): Crossfade time in seconds between tracks.
+        _lock (threading.Lock): Lock to ensure thread-safe access.
+        _client (MPDClient): Internal MPD client instance.
     """
     def __init__(self, host=MPD_HOST, port=MPD_PORT, retry_delay=MPD_DELAY, crossfade=MPD_CROSSFADE):
         """
-        Initialize the MPDControl client and connect to the MPD server
+       Initialize the MPDControl client and connect to the MPD server.
+
         Args:
-            host (str): MPD server hostname
-            port (int): MPD server port
-            retry_delay (float): Delay between reconnect attempts in seconds
-            crossfade (int): Number of seconds for crossfade between tracks
+            host (str): MPD server hostname.
+            port (int): MPD server port.
+            retry_delay (float): Delay between reconnect attempts in seconds.
+            crossfade (int): Number of seconds for crossfade between tracks.
         """
         self._host = host
         self._port = port
@@ -80,25 +85,21 @@ class MPDControl:
         self._connected = False
 
         # Connect to MPD service
-        with self._lock:
-            self._connect_client()
+        self._connect_client()
 
     def _connect_client(self, retries=MPD_RETRIES):
         """
-        Establish a connection to the MPD (Music Player Daemon) server and configure crossfade
+        Establish a connection to the MPD server and configure crossfade.
+
         Args:
-            retries (int, optional): Maximum number of attempts to connect before giving up
+            retries (int, optional): Maximum number of attempts to connect before giving up.
         """
         for attempt in range(1, retries + 1):
             try:
                 oradio_log.info("Connecting to MPD service on %s:%s", self._host, self._port)
                 self._client.connect(self._host, self._port)
                 oradio_log.info("Setting crossfade to %d seconds", self._crossfade)
-                try:
-                    self._client.crossfade(self._crossfade) # pylint: disable=no-member
-                except CommandError as ex_err:
-                    oradio_log.warning("MPD does not support crossfade: %s", ex_err)
-                # Connected to MPD service
+                self._execute("crossfade", self._crossfade)
                 self._connected = True
                 return
             except MPDConnectionError as ex_err:
@@ -107,19 +108,22 @@ class MPDControl:
                 time.sleep(self._retry_delay)
         oradio_log.error("Failed to connect to MPD after %s attempts", retries)
 
-    def _execute(self, command_name, *args, retries=MPD_RETRIES, **kwargs):
+    def _execute(self, command_name, *args, retries=MPD_RETRIES, lock_timeout=LOCK_TIMEOUT, **kwargs):
         """
-        Execute an MPD command in a thread-safe manner with automatic reconnect
+        Execute an MPD command in a thread-safe manner with automatic reconnect.
+
         Args:
-            command_name (str): Name of the MPD command to execute
-            *args: Positional arguments to pass to the MPD command
-            retries (int): Number of reconnect attempts if the connection fails
-            **kwargs: Keyword arguments to pass to the MPD command
+            command_name (str): Name of the MPD command to execute.
+            *args: Positional arguments to pass to the MPD command.
+            retries (int, optional): Number of reconnect attempts if the connection fails.
+            **kwargs: Keyword arguments to pass to the MPD command.
+
         Returns:
-            The result of the MPD command
+            The result of the MPD command, or None if an error occurs.
         """
         for attempt in range(1, retries + 1):
-            with self._lock:
+            # Try to lock, timeout if waiting too long (:= means assign && test)
+            if (acquired := self._lock.acquire(timeout=lock_timeout)):
                 try:
                     func = getattr(self._client, command_name)
                     return func(*args, **kwargs)
@@ -134,19 +138,36 @@ class MPDControl:
                 except AttributeError:
                     oradio_log.error("Invalid MPD command: '%s'", command_name)
                     return None
+                finally:
+                    self._lock.release()
+            else:
+                oradio_log.warning("Attempt %d/%d: failed to acquire lock within %d seconds", attempt, retries, lock_timeout)
         oradio_log.error("Failed to execute '%s' after %d retries", command_name, retries)
         return None
 
     def is_connected(self):
-        """Return True if the client is currently connected"""
+        """
+        Check whether the client is currently connected to MPD.
+
+        Returns:
+            bool: True if connected, False otherwise.
+        """
         return self._connected
 
     # Convenience methods
     def play(self, preset=None):
         """
-        Start or resume playback
+        Start or resume playback.
+
+        If a preset is provided, plays the associated playlist.
+        If no preset is provided, resumes the current playlist or defaults
+        to the default preset if none is playing.
+
         Args:
-            preset (str): The playlist of the preset to play
+            preset (str, optional): The playlist preset to play.
+
+        Returns:
+            bool: True if playback started, False if the preset playlist was not found.
         """
         # Determine what to play
         if preset is None:
@@ -154,7 +175,7 @@ class MPDControl:
                 # Play current playlist
                 self._execute("play")
                 oradio_log.debug("Play current playlist")
-                return
+                return True
             # Play default preset playlist
             oradio_log.debug("No current playlist, using default preset %s", DEFAULT_PRESET)
             preset = DEFAULT_PRESET
@@ -166,10 +187,10 @@ class MPDControl:
         playlist_name = _get_preset_listname(preset, PRESETS_FILE)
         if not playlist_name:
             oradio_log.debug("No playlist found for preset: %s", preset)
-            return
+            return False
 
-        # Get list of names of the playlist in the playlist directory
-        stored_playlists = self._execute("listplaylists")
+        # Get list of names of the playlist in the playlist directory, empty on error
+        stored_playlists = self._execute("listplaylists") or []
         playlist_names = [pl.get("playlist") for pl in stored_playlists]
 
         if playlist_name in playlist_names:
@@ -187,17 +208,26 @@ class MPDControl:
         # Play configured playlist
         self._execute("play")
         oradio_log.debug("Playing: %s", playlist_name)
+        return True
 
     def play_song(self, song):
         """
-        Play song once immediately without clearing the current queue
-        Once the song finishes it is removed from the queue
+        Play a single song immediately without clearing the current queue.
+
+        The song is inserted after the currently playing song. Once finished,
+        it is automatically removed from the playlist.
+
         Args:
-            song (str): The URI or path of the song to play
+            song (str): The URI or file path of the song to play.
         """
         oradio_log.debug("Attempting to play song: %s", song)
-        status = self._execute("status")
-        current_index = int(status.get("song", -1))
+
+        # Get current song index safely
+        status = self._execute("status") or {}
+        try:
+            current_index = int(status.get("song", -1))
+        except (ValueError, TypeError):
+            current_index = -1
 
         # Add the new song to the playlist and get its unique song ID
         inserted_song_id = self._execute("addid", song)
@@ -205,12 +235,14 @@ class MPDControl:
             oradio_log.error("Failed to add song: %s", song)
             return
 
-        playlist = self._execute("playlistinfo")
-        new_index = len(playlist) - 1  # Index of the newly added song
+        # Ensure the song has been registered in playlist
+        playlist = self._execute("playlistinfo") or []
+        new_index = next((i for i, s in enumerate(playlist) if int(s.get("id", -1)) == inserted_song_id), len(playlist)-1)
+
         # Determine where to insert: right after the current song, or at start if none
         target_index = current_index + 1 if current_index >= 0 else 0
 
-        # Move the new song to the target position if needed
+        # Move the new song to the target position if necessary
         if new_index != target_index:
             self._execute("move", new_index, target_index)
 
@@ -228,17 +260,20 @@ class MPDControl:
 
     def _remove_song_when_finished(self, inserted_song_id):
         """
-        Monitor a specific song in the playlist and remove it after it finishes
+        Monitor a song and remove it after it finishes.
+
+        Uses MPD 'idle' to efficiently wait for the song to end.
+
         Args:
-            inserted_song_id (int): The MPD song ID of the song to monitor and remove
+            inserted_song_id (int): The MPD song ID to monitor and remove.
         """
         oradio_log.debug("Monitoring song id %s until finish", inserted_song_id)
 
-        # Poll MPD status periodically until the song finishes or is skipped
+        # Wait until the song finishes or is skipped
         while True:
             time.sleep(0.5)  # Poll twice per second for responsiveness
 
-            status = self._execute("status")
+            status = self._execute("status") or {}
             current_song_id = int(status.get("songid", -1))
 
             # Exit if current song changed
@@ -261,15 +296,17 @@ class MPDControl:
                     oradio_log.warning("Failed to parse time for song id %s: '%s' (%s)", inserted_song_id, time_str, ex_err)
 
         # After finishing, remove the song from the playlist if still present
-        playlist = self._execute("playlistinfo")
+        playlist = self._execute("playlistinfo") or []
         if any(int(song.get("id", -1)) == inserted_song_id for song in playlist):
             self._execute("deleteid", inserted_song_id)
-            oradio_log.debug("Deleted song id %s", inserted_song_id)
+            oradio_log.debug("Remove song id %s", inserted_song_id)
         else:
-            oradio_log.debug("Song id %s already removed from playlist", inserted_song_id)
+            oradio_log.debug("Song id %s already removed", inserted_song_id)
 
     def pause(self):
-        """Pause playback if playing"""
+        """
+        Pause playback if a song is currently playing.
+        """
         status = self._execute("status")
 
         if status.get("state") != "play":
@@ -281,7 +318,12 @@ class MPDControl:
         oradio_log.debug("Playback paused")
 
     def next(self):
-        """Skip to the next song in the current playlist or directory if playing and not a web radio"""
+        """
+        Skip to the next song in the current playlist or directory.
+
+        If a web radio is currently playing, the skip is ignored.
+        Wraps around if the current playlist ends.
+        """
         status = self._execute("status")
 
         if status.get("state") != "play":
@@ -323,7 +365,9 @@ class MPDControl:
             oradio_log.debug("Skipped to next song in directory using MPD 'next' command")
 
     def stop(self):
-        """Stop playback if playing"""
+        """
+        Stop playback if a song is currently playing.
+        """
         status = self._execute("status")
 
         if status.get("state") != "play":
@@ -335,16 +379,19 @@ class MPDControl:
         oradio_log.debug("Playback stopped")
 
     def clear(self):
-        """Clear the current queue"""
+        """
+        Clear the current MPD playlist/queue.
+        """
         self._execute("clear")
         oradio_log.debug("Current playback queue cleared")
 
     def add(self, playlist, song):
         """
-        Create a playlist if it does not exist, and optionally add a song to it
+        Create a playlist if it does not exist, and optionally add a song to it.
+
         Args:
-            playlist (str): Name of the playlist to create or modify
-            song (str | None): Song URL or file to add. If None, only create the playlist
+            playlist (str): Name of the playlist to create or modify.
+            song (str | None): Song URL or file to add. If None, only create the playlist.
         """
         # Validate playlist
         if not playlist:  # catches '', None, False, etc.
@@ -381,10 +428,11 @@ class MPDControl:
 
     def remove(self, playlist, song):
         """
-        Remove a song from a playlist, or delete the entire playlist
+        Remove a song from a playlist, or delete the entire playlist.
+
         Args:
-            playlist (str): Name of the playlist to modify
-            song (str | None): Song to remove. If None, deletes the entire playlist
+            playlist (str): Name of the playlist to modify.
+            song (str | None): Song to remove. If None, deletes the entire playlist.
         """
         # Validate playlist
         if not playlist:  # catches '', None, False, etc.
@@ -418,12 +466,10 @@ class MPDControl:
 
     def update_database(self, progress_interval=5):
         """
-        Update the MPD database with progress logging
-        It waits until the update is complete
+        Update the MPD database and log progress.
+
         Args:
-            progress_interval (int, optional): Time in seconds between progress log messages
-        Returns:
-            None
+            progress_interval (int, optional): Time in seconds between progress log messages.
         """
         # Start the database update
         self._execute("update")
@@ -452,17 +498,20 @@ class MPDControl:
 
     def is_webradio(self, preset=None, listname=None):
         """
-        Check if a prest or list is a web radio URL
+        Check if a preset or list is a web radio URL.
+
         Rules:
             - If both `preset` and `listname` are None → check currently playing song
             - If only `preset` is set → check that preset list
             - If only `listname` is set → check that list
-            - If both are set → invalid input → log error and return False
+            - If both are set → invalid input
+
         Args:
-            preset (str, optional): Preset name to check
-            listname (str, optional): list name to check
+            preset (str, optional): Preset name to check.
+            listname (str, optional): Playlist or directory name to check.
+
         Returns:
-            bool: True if the song or preset is a web radio (URL starts with 'http://' or 'https://'), False otherwise
+            bool: True if the song or preset is a web radio URL, False otherwise.
         """
         if preset and listname:
         # Check if current queue is a web radio
@@ -500,9 +549,10 @@ class MPDControl:
 
     def _get_current_listname(self):
         """
-        Return the name of the current playlist or directory in MPD
+        Return the name of the current playlist or directory.
+
         Returns:
-            str | None: Name of the current playlist or directory, or None if the queue is empty
+            str | None: Name of the current playlist or directory, or None if the queue is empty.
         """
         info = self._execute("playlistinfo")
         if info:
@@ -512,8 +562,10 @@ class MPDControl:
 
     def get_directories(self):
         """
-        Get available directories
-        Returns a case-insensitive sorted list of directory names
+        Retrieve available directories from MPD.
+
+        Returns:
+            list[str]: Case-insensitive, alphabetically sorted list of directory names.
         """
         # Initialize
         folders = []
@@ -533,9 +585,11 @@ class MPDControl:
 
     def get_playlists(self):
         """
-        Get available playlists
-        Determines if each playlist is a web radio or not
-        Returns a case-insensitive, alphabetically sorted list of dictionaries with keys 'playlist' and 'webradio'
+        Retrieve available playlists from MPD.
+
+        Returns:
+            list[dict]: Case-insensitive sorted list of dicts with keys:
+                        'playlist' (str) and 'webradio' (bool).
         """
         # Get playlists form MPD
         playlists = self._execute("listplaylists")
@@ -555,17 +609,14 @@ class MPDControl:
 
     def get_songs(self, listname):
         """
-        List songs from a playlist or a directory
-        If `listname` matches a known playlist, returns the songs in playlist order
-        If it matches a directory, returns songs sorted alphabetically by artist
-        If not found, returns an empty list
+        List songs from a playlist or directory.
+
         Args:
-            listname (str): Name of the playlist or directory
+            listname (str): Name of the playlist or directory.
+
         Returns:
             list[dict]: List of song dictionaries with keys:
-                        - 'file' (str)
-                        - 'artist' (str, defaults to 'Unknown artist')
-                        - 'title' (str, defaults to 'Unknown title')
+                        'file' (str), 'artist' (str), 'title' (str).
         """
         songs = []
 
@@ -602,18 +653,27 @@ class MPDControl:
 
     def search(self, pattern):
         """
-        Search for songs matching the given pattern in either artist or title
-        - Removes duplicate songs (case- and accent-insensitive)
-        - Returns a list of dictionaries: [{'file': ..., 'artist': ..., 'title': ...}, ...]
-        - Results are sorted alphabetically by artist, then title
+        Search for songs by artist or title, removing duplicates.
+
         Args:
-            pattern (str): The search string to match against artist or title
+            pattern (str): Search string to match against artist or title.
+
         Returns:
-            list[dict]: List of unique song dictionaries with 'file', 'artist', and 'title' keys
+            list[dict]: Unique songs sorted by normalized artist and title. Each dict has keys:
+                        'file', 'artist', 'title'.
         """
 
         def _normalize(text: str):
-            """Lowercase, trim, and remove diacritics from a string for normalized comparison"""
+            """
+            Normalize a string for comparison by removing case and diacritics.
+
+            Args:
+                text (str): The input string to normalize.
+
+            Returns:
+                str: A normalized version of the input string suitable for
+                     case- and accent-insensitive comparison.
+            """
             text = text.strip().lower()
             text = unicodedata.normalize('NFD', text)
             return ''.join(c for c in text if unicodedata.category(c) != 'Mn')
@@ -649,12 +709,14 @@ class MPDControl:
 @staticmethod
 def _get_preset_listname(preset_key, filepath):
     """
-    Retrieve the playlist name associated with a given preset key from a JSON file
+    Retrieve the playlist name associated with a given preset key from a JSON file.
+
     Args:
-        preset_key (str): The preset key for case insensitive look up
-        filepath (str): Path to the JSON file containing preset mappings
+        preset_key (str): The preset key to look up (case-insensitive).
+        filepath (str): Path to the JSON file containing preset mappings.
+
     Returns:
-        str | None: The playlist name if found, otherwise None
+        str | None: The playlist name if found, otherwise None.
     """
     try:
         with open(filepath, 'r', encoding='utf-8') as file:
