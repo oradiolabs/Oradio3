@@ -21,7 +21,7 @@ Created on January 10, 2025
     Oradio MPD control module
     - Thread-safe access with _lock
     - Automatic reconnect if MPD is down or connection drops
-    - Retries commands up to retries times before raising a MPDConnectionError
+    - Retries commands up to MPD_RETRIES times before raising a MPDConnectionError
 """
 import os
 import time
@@ -36,19 +36,33 @@ from oradio_logging import oradio_log
 
 ##### GLOBAL constants ####################
 from oradio_const import (
-    RED, YELLOW, NC,
+    RED, GREEN, YELLOW, NC,
     PRESETS_FILE,
     USB_MUSIC,
 )
 
 ##### Local constants ####################
-MPD_HOST       = "localhost"
-MPD_PORT       = 6600
-MPD_RETRIES    = 3
-MPD_DELAY      = 1          # seconds
-MPD_CROSSFADE  = 5          # seconds
-LOCK_TIMEOUT   = 5          # seconds
-DEFAULT_PRESET = "Preset1"  # For when the Play button is used and no playlist in the queue
+MPD_HOST        = "localhost"
+MPD_PORT        = 6600
+MPD_RETRIES     = 3
+MPD_RETRY_DELAY = 1          # seconds
+MPD_CROSSFADE   = 5          # seconds
+LOCK_TIMEOUT    = 5          # seconds
+DEFAULT_PRESET  = "Preset1"  # For when the Play button is used and no playlist in the queue
+# Mapping of MPD idle events to typical client actions
+MPD_EVENT_ACTIONS = {
+    "database": "Database changed",                      # Consider updating your local song cache, e.g., client.listall() or client.list()
+    "update": "Database update in progress or finished", # May want to refresh local state if needed
+    "stored_playlist": "Stored playlist changed",        # Refresh playlist info, e.g., client.listplaylists()
+    "playlist": "Current playlist changed",              # Query client.playlistinfo() or client.playlistid()
+    "player": "Playback state changed",                  # Query client.status() and client.currentsong()
+    "mixer": "Volume/crossfade changed",                 # Query client.status() for volume or crossfade
+    "output": "Output devices changed",                  # Query client.outputs()
+    "options": "Global options changed",                 # Query client.status() (repeat, random, single, consume)
+    "sticker": "Song sticker changed",                   # Query client.sticker_list() if you use stickers
+    "subscription": "Subscription state changed",        # Typically used with mpd-subscribe
+    "message": "Message sent via MPD",                   # rarely used, may need client.readmessages() if implemented
+}
 
 class MPDControl:
     """
@@ -59,77 +73,111 @@ class MPDControl:
     is lost.
 
     Attributes:
-        _host (str): MPD server hostname.
-        _port (int): MPD server port.
-        _retry_delay (float): Delay in seconds between reconnect attempts.
-        _crossfade (int): Crossfade time in seconds between tracks.
         _lock (threading.Lock): Lock to ensure thread-safe access.
         _client (MPDClient): Internal MPD client instance.
     """
-    def __init__(self, host=MPD_HOST, port=MPD_PORT, retry_delay=MPD_DELAY, crossfade=MPD_CROSSFADE):
+    def __init__(self):
         """
-       Initialize the MPDControl client and connect to the MPD server.
+        Initialize the MPDControl client and connect to the MPD server.
+        """
+        self._lock = Lock()
+        # Connect to MPD service
+        self._connected = False
+        self._client = MPDClient()
+        self._connect_client()
+        # Start listener thread
+        self._listener_thread = threading.Thread(target=self._mpd_event_listener, daemon=True)
+        self._listener_thread.start()
+
+    def _connect_to_mpd(self, client, log_prefix):
+        """
+        Attempt to connect an MPDClient instance with retries.
 
         Args:
-            host (str): MPD server hostname.
-            port (int): MPD server port.
-            retry_delay (float): Delay between reconnect attempts in seconds.
-            crossfade (int): Number of seconds for crossfade between tracks.
+            client (MPDClient): The MPD client to connect.
+            log_prefix (str): Prefix for logging, useful to differentiate main client vs listener.
+        Returns:
+            bool: True if connected, False if all retries failed.
         """
-        self._host = host
-        self._port = port
-        self._retry_delay = retry_delay
-        self._crossfade = crossfade
-        self._lock = Lock()
-        self._client = MPDClient()
-        self._connected = False
+        for attempt in range(1, MPD_RETRIES + 1):
+            try:
+                oradio_log.info("%s connecting to MPD service on %s:%s", log_prefix, MPD_HOST, MPD_PORT)
+                client.connect(MPD_HOST, MPD_PORT)
+                oradio_log.info("%s connected to MPD", log_prefix)
+                return True
+            except MPDConnectionError as ex_err:
+                oradio_log.warning("%s connection failed (%s). Retry %d/%d", log_prefix, ex_err, attempt, MPD_RETRIES)
+                time.sleep(MPD_RETRY_DELAY)
+        oradio_log.error("%s failed to connect to MPD after %d attempts", log_prefix, MPD_RETRIES)
+        return False
 
-        # Connect to MPD service
-        self._connect_client()
+    def _mpd_event_listener(self):
+        """
+        Stand-alone listener to MPD events.
+        Logs events and automatically reconnects if needed.
+        """
+        oradio_log.debug("MPD event listener thread started")
+        listener_client = MPDClient()
 
-    def _connect_client(self, retries=MPD_RETRIES):
+        # Connect listener using shared helper
+        if not self._connect_to_mpd(listener_client, log_prefix="Listener"):
+            return  # give up if listener cannot connect
+
+        # Main idle loop
+        while True:
+            try:
+                events = listener_client.idle()  # blocks until MPD sends events
+                for event in events:
+                    detail = MPD_EVENT_ACTIONS.get(event, "Unknown event")
+                    oradio_log.debug("MPD event: %s → detail: %s", event, detail)
+                    # Check errors on MPD events
+                    try:
+                        status = listener_client.status()
+                        if status and "error" in status:
+                            oradio_log.warning("MPD error detected: %s", status['error'])
+                    except CommandError as ex_err:
+                        oradio_log.error("Error fetching status: %s", ex_err)
+
+
+            except MPDConnectionError as ex_err:
+                oradio_log.warning("Listener connection lost, reconnecting: %s", ex_err)
+                while not self._connect_to_mpd(listener_client, log_prefix="Listener"):
+                    time.sleep(MPD_RETRY_DELAY)
+            except Exception as ex_err:
+                oradio_log.error("Listener error: %s", ex_err)
+                time.sleep(1)
+
+    def _connect_client(self):
         """
         Establish a connection to the MPD server and configure crossfade.
-
-        Args:
-            retries (int, optional): Maximum number of attempts to connect before giving up.
         """
-        for attempt in range(1, retries + 1):
-            try:
-                oradio_log.info("Connecting to MPD service on %s:%s", self._host, self._port)
-                self._client.connect(self._host, self._port)
-                oradio_log.info("Setting crossfade to %d seconds", self._crossfade)
-                self._execute("crossfade", self._crossfade)
-                self._connected = True
-                return
-            except MPDConnectionError as ex_err:
-                oradio_log.error("MPD connection failed (%s). Retry %d/%d", ex_err, attempt, retries)
-                self._connected = False
-                time.sleep(self._retry_delay)
-        oradio_log.error("Failed to connect to MPD after %s attempts", retries)
+        if self._connect_to_mpd(self._client, log_prefix="Oradio"):
+            self._execute("crossfade", MPD_CROSSFADE)
+            self._connected = True
+        else:
+            self._connected = False
 
-    def _execute(self, command_name, *args, retries=MPD_RETRIES, lock_timeout=LOCK_TIMEOUT, **kwargs):
+    def _execute(self, command_name, *args, **kwargs):
         """
         Execute an MPD command in a thread-safe manner with automatic reconnect.
 
         Args:
             command_name (str): Name of the MPD command to execute.
             *args: Positional arguments to pass to the MPD command.
-            retries (int, optional): Number of reconnect attempts if the connection fails.
             **kwargs: Keyword arguments to pass to the MPD command.
 
         Returns:
             The result of the MPD command, or None if an error occurs.
         """
-        for attempt in range(1, retries + 1):
+        for attempt in range(1, MPD_RETRIES + 1):
             # Try to lock, timeout if waiting too long (:= means assign && test)
-            if (acquired := self._lock.acquire(timeout=lock_timeout)):
+            if (acquired := self._lock.acquire(timeout=LOCK_TIMEOUT)):
                 try:
                     func = getattr(self._client, command_name)
                     return func(*args, **kwargs)
                 except (MPDConnectionError, BrokenPipeError) as ex_err:
                     # NOTE: Normally MPD stays connected indefinitely (timeout ~1 year), but we still handle this defensively
-                    oradio_log.warning("MPD connection lost (%s). Retry connecting %d/%d", ex_err, attempt, retries)
+                    oradio_log.warning("Connection to MPD lost (%s). Retry connecting %d/%d", ex_err, attempt, MPD_RETRIES)
                     self._connect_client()
                 except CommandError as ex_err:
                     # MPD command-specific error
@@ -141,8 +189,8 @@ class MPDControl:
                 finally:
                     self._lock.release()
             else:
-                oradio_log.warning("Attempt %d/%d: failed to acquire lock within %d seconds", attempt, retries, lock_timeout)
-        oradio_log.error("Failed to execute '%s' after %d retries", command_name, retries)
+                oradio_log.warning("Attempt %d/%d: failed to acquire lock within %d seconds", attempt, MPD_RETRIES, LOCK_TIMEOUT)
+        oradio_log.error("Failed to execute '%s' after %d retries", command_name, MPD_RETRIES)
         return None
 
     def is_connected(self):
