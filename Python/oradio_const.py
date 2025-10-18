@@ -27,16 +27,14 @@ import os
 import sys
 
 # Colors
-RED    ='\033[0m\033[1;31m'
-YELLOW ='\033[0m\033[1;93m'
-GREEN  ='\033[0m\033[1;32m'
+RED    ='\033[1;31m'
+YELLOW ='\033[1;93m'
+GREEN  ='\033[1;32m'
 NC     ='\033[0m'
 
 # Make Oradio file locations relative
-ORADIO_DIR      = sys.path[0]
-ORADIO_LOG_DIR  = os.path.abspath(ORADIO_DIR + '/../logging')
-SOUND_FILES_DIR = os.path.realpath(ORADIO_DIR + "/../system_sounds")
-
+ORADIO_DIR        = sys.path[0]
+ORADIO_LOG_DIR    = os.path.abspath(ORADIO_DIR + '/../logging')
 JSON_SCHEMAS_FILE = os.path.realpath(ORADIO_DIR + "/schemas.json")
 
 # Messages consist of 3 elements: source, state and error
@@ -109,7 +107,7 @@ VOLUME_MAXIMUM = 215
 # MESSAGE_VOLUME_CHANGED = "Volume changed"
 
 ################## SYSTEM SOUNDS #############################
-SOUND_FILES_DIR = "/home/pi/Oradio3/system_sounds"
+SOUND_FILES_DIR = os.path.realpath(ORADIO_DIR + "/../system_sounds")
 
 ############# SPOTIFY CONFIG #####################################
 MESSAGE_SPOTIFY_SOURCE    = "Spotify message"

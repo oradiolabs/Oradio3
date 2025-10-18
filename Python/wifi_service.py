@@ -870,3 +870,6 @@ if __name__ == '__main__':
 
     # Stop listening to messages
     message_listener.terminate()
+
+# Restore temporarily disabled pylint duplicate code check
+# pylint: enable=duplicate-code

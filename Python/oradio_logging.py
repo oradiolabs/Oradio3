@@ -251,3 +251,6 @@ if __name__ == '__main__':
 
     # Present menu with tests
     interactive_menu()
+
+# Restore temporarily disabled pylint duplicate code check
+# pylint: enable=duplicate-code

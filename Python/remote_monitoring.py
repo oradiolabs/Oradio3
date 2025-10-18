@@ -291,53 +291,62 @@ if __name__ == "__main__":
 # Most modules use similar code in stand-alone
 # pylint: disable=duplicate-code
 
-    # Instantiate RMS service
-    rms = RmsService()
+    # Pylint PEP8 ignoring limit of max 12 branches and 50 statement is ok for test menu
+    def interactive_menu():     # pylintxx: disable=too-many-branches, too-many-statements
+        """Show menu with test options"""
+        # Instantiate RMS service
+        rms = RmsService()
 
-    # Show menu with test options
-    INPUT_SELECTION = ("Select a function, input the number.\n"
-                       " 0-Quit\n"
-                       " 1-Test heartbeat\n"
-                       " 2-Test sys_info\n"
-                       " 3-Test warning\n"
-                       " 4-Test error\n"
-                       " 5-Start heartbeat\n"
-                       " 6-Stop heartbeat\n"
-                       "Select: "
-                       )
+        input_selection = (
+            "Select a function, input the number.\n"
+            " 0-Quit\n"
+            " 1-Test heartbeat\n"
+            " 2-Test sys_info\n"
+            " 3-Test warning\n"
+            " 4-Test error\n"
+            " 5-Start heartbeat\n"
+            " 6-Stop heartbeat\n"
+            "Select: "
+        )
 
-    # User command loop
-    while True:
+        # User command loop
+        while True:
 
-        # Get user input
-        try:
-            FUNCTION_NR = int(input(INPUT_SELECTION))
-        except ValueError:
-            FUNCTION_NR = -1
+            # Get user input
+            try:
+                function_nr = int(input(input_selection))
+            except ValueError:
+                function_nr = -1
 
-        # Execute selected function
-        match FUNCTION_NR:
-            case 0:
-                print("\nExiting test program...\n")
-                rms.heartbeat_stop()
-                break
-            case 1:
-                print("\nSend HEARTBEAT test message to Remote Monitoring Service...\n")
-                rms.send_message(HEARTBEAT)
-            case 2:
-                print("\nSend SYS_INFO test message to Remote Monitoring Service...\n")
-                rms.send_sys_info()
-            case 3:
-                print("\nSend WARNING test message to Remote Monitoring Service...\n")
-                rms.send_message(WARNING, 'test warning message', 'filename:lineno')
-            case 4:
-                print("\nSend ERROR test message to Remote Monitoring Service...\n")
-                rms.send_message(ERROR, 'test error message', 'filename:lineno')
-            case 5:
-                print("\nStart heartbeat... Check ORMS for heartbeats\n")
-                rms.heartbeat_start()
-            case 6:
-                print("\nStop heartbeat...\n")
-                rms.heartbeat_stop()
-            case _:
-                print("\nPlease input a valid number\n")
+            # Execute selected function
+            match function_nr:
+                case 0:
+                    print("\nExiting test program...\n")
+                    rms.heartbeat_stop()
+                    break
+                case 1:
+                    print("\nSend HEARTBEAT test message to Remote Monitoring Service...\n")
+                    rms.send_message(HEARTBEAT)
+                case 2:
+                    print("\nSend SYS_INFO test message to Remote Monitoring Service...\n")
+                    rms.send_sys_info()
+                case 3:
+                    print("\nSend WARNING test message to Remote Monitoring Service...\n")
+                    rms.send_message(WARNING, 'test warning message', 'filename:lineno')
+                case 4:
+                    print("\nSend ERROR test message to Remote Monitoring Service...\n")
+                    rms.send_message(ERROR, 'test error message', 'filename:lineno')
+                case 5:
+                    print("\nStart heartbeat... Check ORMS for heartbeats\n")
+                    rms.heartbeat_start()
+                case 6:
+                    print("\nStop heartbeat...\n")
+                    rms.heartbeat_stop()
+                case _:
+                    print("\nPlease input a valid number\n")
+
+    # Present menu with tests
+    interactive_menu()
+
+# Restore temporarily disabled pylint duplicate code check
+# pylint: enable=duplicate-code

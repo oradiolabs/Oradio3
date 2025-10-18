@@ -419,6 +419,9 @@ install_resource $RESOURCES_PATH/usb-mount@.service /etc/systemd/system/usb-moun
 # Install rules if new or changed and reload to activate
 install_resource $RESOURCES_PATH/99-local.rules /etc/udev/rules.d/99-local.rules
 
+# Mount USB device
+sudo udevadm trigger --subsystem-match=block --action=add
+
 # Check for USB mount errors and/or warnings
 if [ -f $LOGFILE_USB ]; then
 	MESSAGE_USB=$(cat $LOGFILE_USB | grep "Error")
@@ -465,6 +468,29 @@ install_resource $RESOURCES_PATH/asound.conf /etc/asound.conf \
 		'amixer -c 0 cset name="Digital Playback Volume" 120'
 # Configure mpd music library location and start service at boot
 install_resource $RESOURCES_PATH/mpd.conf /etc/mpd.conf 'sudo systemctl enable mpd.service'
+# Start mpd service and wait until ready
+sudo systemctl start mpd.service
+until mpc status >/dev/null 2>&1; do
+	sleep 0.2
+done
+# Stop the service/socket if running
+if [ "$(systemctl is-active mpd.socket 2>/dev/null)" != "inactive" ]; then
+	sudo systemctl stop mpd.socket
+fi
+# Disable if enabled, prevents automatic startup at boot
+if [ "$(systemctl is-enabled mpd.socket 2>/dev/null)" != "masked" ]; then
+	sudo systemctl disable mpd.socket
+	sudo systemctl mask mpd.socket
+fi
+sudo rm -f /lib/systemd/system/mpd.socket
+# Update MPD database and wait until updated
+mpc update >/dev/null
+echo -n "Updating MPD."
+while mpc status | grep -iq "updating"; do
+	echo -n "."
+	sleep 1
+done
+echo " Updated"
 # Progress report
 echo -e "${GREEN}Audio installed and configured${NC}"
 
@@ -498,7 +524,7 @@ install_resource $RESOURCES_PATH/about /usr/local/bin/about 'sudo chmod +x /usr/
 echo -e "${GREEN}Support tools installed${NC}"
 
 # Configure the oradio service
-install_resource $RESOURCES_PATH/autostart.service /etc/systemd/system/autostart.service 'sudo systemctl enable autostart.service'
+install_resource $RESOURCES_PATH/oradio.service /etc/systemd/system/oradio.service 'sudo systemctl enable oradio.service'
 # Progress report
 echo -e "${GREEN}Start Oradio3 on boot configured${NC}"
 

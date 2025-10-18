@@ -37,8 +37,8 @@ from fastapi.templating import Jinja2Templates
 ##### oradio modules ####################
 from oradio_logging import oradio_log
 from oradio_utils import run_shell_script, safe_put
-from mpd_control import get_mpd_control
 from wifi_service import get_wifi_networks, get_saved_network
+from mpd_control import mpd_client
 
 ##### GLOBAL constants ####################
 from oradio_const import (
@@ -138,9 +138,6 @@ def _store_presets(presets):
     except IOError as ex_err:
         oradio_log.error("Failed to write '%s'. error: %s", PRESETS_FILE, ex_err)
 
-# Get mpd functions
-mpdcontrol = get_mpd_control()
-
 #### BUTTONS ####################
 
 @api_app.get("/buttons")
@@ -157,8 +154,8 @@ async def buttons_page(request: Request):
     # Return playlist page and presets, directories and playlists as context
     context = {
         "presets"     : _load_presets(),
-        "directories" : mpdcontrol.get_directories(),
-        "playlists"   : mpdcontrol.get_playlists()
+        "directories" : mpd_client.get_directories(),
+        "playlists"   : mpd_client.get_playlists()
     }
     return templates.TemplateResponse(request=request, name="buttons.html", context=context)
 
@@ -206,7 +203,7 @@ async def save_preset(changedpreset: ChangedPreset):
         # Store presets
         _store_presets(presets)
 
-        if mpdcontrol.preset_is_webradio(changedpreset.preset):
+        if mpd_client.is_webradio(preset=changedpreset.preset):
             # Send message playlist is web radio
             message["state"] = MESSAGE_WEB_SERVICE_PL_WEBRADIO
             oradio_log.debug("Send web service message: %s", message)
@@ -233,7 +230,7 @@ async def playlists_page(request: Request):
     """
     oradio_log.debug("Serving playlists page")
 
-    context = {"playlists": mpdcontrol.get_playlists()}
+    context = {"playlists": mpd_client.get_playlists()}
     return templates.TemplateResponse(request=request, name="playlists.html", context=context)
 
 class Modify(BaseModel):
@@ -262,14 +259,14 @@ async def playlist_modify(modify: Modify):
             oradio_log.debug("Create playlist: '%s'", modify.playlist)
         else:
             oradio_log.debug("Add song '%s' to playlist '%s'", modify.song, modify.playlist)
-        return mpdcontrol.playlist_add(modify.playlist, modify.song)
+        return mpd_client.add(modify.playlist, modify.song)
 
     if modify.action == 'Remove':
         if modify.song is None:
             oradio_log.debug("Delete playlist: '%s'", modify.playlist)
         else:
             oradio_log.debug("Delete song '%s' from playlist '%s'", modify.song, modify.playlist)
-        return mpdcontrol.playlist_remove(modify.playlist, modify.song)
+        return mpd_client.remove(modify.playlist, modify.song)
 
     oradio_log.error("Unexpected action '%s'", modify.action)
     return JSONResponse(status_code=400, content={"message": f"De action '{modify.action}' is ongeldig"})
@@ -296,10 +293,10 @@ async def get_songs(songs: Songs):
     oradio_log.debug("Serving songs from '%s' for pattern '%s'", songs.source, songs.pattern)
 
     if songs.source == 'playlist':
-        return mpdcontrol.get_songs(songs.pattern)
+        return mpd_client.get_songs(songs.pattern)
 
     if songs.source == 'search':
-        return mpdcontrol.search(songs.pattern)
+        return mpd_client.search(songs.pattern)
 
     oradio_log.error("Invalid source '%s'", songs.source)
     return JSONResponse(status_code=400, content={"message": f"De source '{songs.source}' is ongeldig"})
@@ -325,7 +322,7 @@ async def play_song(song: Song):
     oradio_log.debug("play song: '%s'", song.song)
 
     # Call MPD to play selected song
-    mpdcontrol.play_song(song.song)
+    mpd_client.play_song(song.song)
 
     # Create message
     message = {
@@ -618,3 +615,6 @@ if __name__ == '__main__':
         # Stop listening to messages
         stop_event.set()
         message_listener.join()
+
+# Restore temporarily disabled pylint duplicate code check
+# pylint: enable=duplicate-code
