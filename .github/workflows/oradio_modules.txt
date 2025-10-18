@@ -1,0 +1,17 @@
+ruff
+pylint
+python-mpd2
+smbus2
+rpi-lgpio
+concurrent_log_handler
+requests
+nmcli
+netifaces
+pyalsaaudio
+vcgencmd
+watchdog
+pydantic
+fastapi
+JinJa2
+uvicorn
+python-multipart
