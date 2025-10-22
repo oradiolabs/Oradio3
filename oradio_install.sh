@@ -409,19 +409,14 @@ fi
 
 # Ensure defined state when booting: service removes /media/usb_ready
 install_resource $RESOURCES_PATH/usb-prepare.service /etc/systemd/system/usb-prepare.service 'sudo systemctl enable usb-prepare.service'
-
 # Configure the USB mount script
 install_resource $RESOURCES_PATH/usb-mount.sh /usr/local/bin/usb-mount.sh 'sudo chmod +x /usr/local/bin/usb-mount.sh'
-
 # Configure the USB service
 install_resource $RESOURCES_PATH/usb-mount@.service /etc/systemd/system/usb-mount@.service
-
 # Install rules if new or changed and reload to activate
-install_resource $RESOURCES_PATH/99-local.rules /etc/udev/rules.d/99-local.rules
-
+install_resource $RESOURCES_PATH/99-local.rules /etc/udev/rules.d/99-local.rules 'sudo udevadm control --reload-rules'
 # Mount USB device
 sudo udevadm trigger --subsystem-match=block --action=add
-
 # Check for USB mount errors and/or warnings
 if [ -f $LOGFILE_USB ]; then
 	MESSAGE_USB=$(cat $LOGFILE_USB | grep "Error")
@@ -433,7 +428,11 @@ if [ -f $LOGFILE_USB ]; then
 		echo -e "${YELLOW}Problem mounting USB: $MESSAGE_USB${NC}"
 	fi
 fi
-
+# Verify USB is available
+if [ ! -d "/media/oradio" ]; then
+	echo -e "${RED}Oradio USB not inserted or not mounted${NC}"
+	exit 1
+fi
 # Progress report
 echo -e "${GREEN}USB functionalty loaded and configured. System automounts USB drives on '/media'${NC}"
 
