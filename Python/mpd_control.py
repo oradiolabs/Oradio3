@@ -29,7 +29,7 @@ import json
 import threading
 import unicodedata
 from threading import Lock
-from mpd import MPDClient, CommandError, ConnectionError as MPDConnectionError
+from mpd import MPDClient, CommandError, ProtocolError, ConnectionError as MPDConnectionError
 
 ##### oradio modules ####################
 from oradio_logging import oradio_log
@@ -177,9 +177,9 @@ class MPDControl:
                 try:
                     func = getattr(self._client, command_name)
                     return func(*args, **kwargs)
-                except (MPDConnectionError, BrokenPipeError) as ex_err:
+                except (MPDConnectionError, ProtocolError, BrokenPipeError) as ex_err:
                     # NOTE: Normally MPD stays connected indefinitely (timeout ~1 year), but we still handle this defensively
-                    oradio_log.warning("Connection to MPD lost (%s). Retry connecting %d/%d", ex_err, attempt, MPD_RETRIES)
+                    oradio_log.warning("Connection to MPD lost or invalid protocol (%s). Retry connecting %d/%d", ex_err, attempt, MPD_RETRIES)
                     self._connect_client()
                 except CommandError as ex_err:
                     # MPD command-specific error
