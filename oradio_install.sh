@@ -196,23 +196,22 @@ if [ "$1" != "--continue" ]; then
 			# Check if installed package can be upgraded
 			if [[ ${UPGRADABLE_MAP["$package"]+_} ]]; then
 				echo -e "${YELLOW}$package is outdated: upgrading...${NC}"
-				sudo apt-get install -y $package
+				sudo apt-get install -y "$package"
 				REBUILD_PYTHON_ENV=1
 			else
 				echo "$package is up-to-date"
 			fi
 		else
 			echo -e "${YELLOW}$package is missing: installing...${NC}"
-			# raspotify needs to be configured separately
-			if [ "$package" == "raspotify" ];
-			then
+			if [ "$package" == "raspotify" ]; then
+				# raspotify needs to be configured separately
 				# Install raspotify which includes librespot
 				curl -sL https://dtcooper.github.io/raspotify/install.sh | sh
 				# Only keep librespot
 				sudo systemctl stop raspotify
 				sudo systemctl disable raspotify
-			else 
-				sudo apt-get install -y $package
+			else
+				sudo apt-get install -y "$package"
 				REBUILD_PYTHON_ENV=1
 			fi
 		fi
@@ -409,31 +408,12 @@ fi
 
 # Ensure defined state when booting: service removes /media/usb_ready
 install_resource $RESOURCES_PATH/usb-prepare.service /etc/systemd/system/usb-prepare.service 'sudo systemctl enable usb-prepare.service'
-
 # Configure the USB mount script
 install_resource $RESOURCES_PATH/usb-mount.sh /usr/local/bin/usb-mount.sh 'sudo chmod +x /usr/local/bin/usb-mount.sh'
-
 # Configure the USB service
 install_resource $RESOURCES_PATH/usb-mount@.service /etc/systemd/system/usb-mount@.service
-
 # Install rules if new or changed and reload to activate
 install_resource $RESOURCES_PATH/99-local.rules /etc/udev/rules.d/99-local.rules
-
-# Mount USB device
-sudo udevadm trigger --subsystem-match=block --action=add
-
-# Check for USB mount errors and/or warnings
-if [ -f $LOGFILE_USB ]; then
-	MESSAGE_USB=$(cat $LOGFILE_USB | grep "Error")
-	if [ $? -eq 0 ]; then
-		echo -e "${RED}Problem mounting USB: $MESSAGE_USB${NC}"
-	fi
-	MESSAGE_USB=$(cat $LOGFILE_USB | grep "Warning")
-	if [ $? -eq 0 ]; then
-		echo -e "${YELLOW}Problem mounting USB: $MESSAGE_USB${NC}"
-	fi
-fi
-
 # Progress report
 echo -e "${GREEN}USB functionalty loaded and configured. System automounts USB drives on '/media'${NC}"
 
@@ -468,29 +448,6 @@ install_resource $RESOURCES_PATH/asound.conf /etc/asound.conf \
 		'amixer -c 0 cset name="Digital Playback Volume" 120'
 # Configure mpd music library location and start service at boot
 install_resource $RESOURCES_PATH/mpd.conf /etc/mpd.conf 'sudo systemctl enable mpd.service'
-# Start mpd service and wait until ready
-sudo systemctl start mpd.service
-until mpc status >/dev/null 2>&1; do
-	sleep 0.2
-done
-# Stop the service/socket if running
-if [ "$(systemctl is-active mpd.socket 2>/dev/null)" != "inactive" ]; then
-	sudo systemctl stop mpd.socket
-fi
-# Disable if enabled, prevents automatic startup at boot
-if [ "$(systemctl is-enabled mpd.socket 2>/dev/null)" != "masked" ]; then
-	sudo systemctl disable mpd.socket
-	sudo systemctl mask mpd.socket
-fi
-sudo rm -f /lib/systemd/system/mpd.socket
-# Update MPD database and wait until updated
-mpc update >/dev/null
-echo -n "Updating MPD."
-while mpc status | grep -iq "updating"; do
-	echo -n "."
-	sleep 1
-done
-echo " Updated"
 # Progress report
 echo -e "${GREEN}Audio installed and configured${NC}"
 

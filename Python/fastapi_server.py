@@ -38,7 +38,7 @@ from fastapi.templating import Jinja2Templates
 from oradio_logging import oradio_log
 from oradio_utils import run_shell_script, safe_put
 from wifi_service import get_wifi_networks, get_saved_network
-from mpd_control import mpd_client
+from mpd_control import MPDControl
 
 ##### GLOBAL constants ####################
 from oradio_const import (
@@ -65,6 +65,10 @@ INFO_ERROR    = {"serial": "undefined", "version": "undefined"}
 # Locations of system version info
 HARDWARE_VERSION_FILE = "/var/log/oradio_hw_version.log"
 SOFTWARE_VERSION_FILE = "/var/log/oradio_sw_version.log"
+
+# Initialise MPD client
+oradio_log.info("fastapi initialising MPDControl")
+mpd_client = MPDControl()
 
 # Get the web server app
 api_app = FastAPI()
