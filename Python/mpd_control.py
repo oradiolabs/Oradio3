@@ -146,22 +146,20 @@ class MPDListener:
                     # Check errors on MPD events
                     try:
                         status = listener_client.status()   # pylint: disable=no-member
-                        if status:
-                            oradio_log.debug("MPD event: %s → status: %s", event, status)
-                            if "error" in status:
-                                oradio_log.warning("MPD error detected: %s", status['error'])
+                        if status and "error" in status:
+                            oradio_log.warning("MPD error detected: %s", status['error'])
                     except CommandError as ex_err:
                         oradio_log.error("Error fetching status for event '%s': %s", event, ex_err)
             except (MPDConnectionError, ProtocolError, BrokenPipeError) as ex_err:
                 # NOTE: Normally MPD stays connected indefinitely (timeout ~1 year), but we still handle this defensively
-                oradio_log.warning("Listener: Connection to MPD lost or invalid protocol (%s). Retry connecting %d/%d", ex_err, attempt, MPD_RETRIES)
+                oradio_log.warning("Listener: Connection to MPD lost or invalid protocol (%s). Retrying...", ex_err)
                 while not _connect_to_mpd(listener_client, log_prefix="Listener"):
                     time.sleep(MPD_RETRY_DELAY)
             # We want to know if the listener fails and why
             except Exception as ex_err: # pylint: disable=broad-exception-caught
                 oradio_log.error("Listener error: %s", ex_err)
                 time.sleep(1)
-    
+
 class MPDControl:
     """
     Thread-safe wrapper for an MPD (Music Player Daemon) client.
@@ -952,9 +950,8 @@ def _get_preset_listname(preset_key, filepath):
         value = presets.get(preset_key)
         if isinstance(value, str) and value.strip():
             return value.strip()
-        else:
-            oradio_log.debug("Preset '%s' not found or invalid in %s", preset_key, filepath)
-            return None
+        oradio_log.debug("Preset '%s' not found or invalid in %s", preset_key, filepath)
+        return None
     except FileNotFoundError:
         oradio_log.error("File not found at %s", filepath)
     except json.JSONDecodeError:
