@@ -37,7 +37,7 @@ from multiprocessing import Queue
 
 from oradio_logging import oradio_log
 from volume_control import VolumeControl
-from mpd_control import mpd_client
+from mpd_control import MPDControl
 from led_control import LEDControl
 from play_system_sound import PlaySystemSound
 from touch_buttons import TouchButtons
@@ -96,6 +96,10 @@ usb_present.set() # USB present to go over start-up sequence (will be updated af
 
 # Instantiate remote monitor
 remote_monitor = RmsService()
+
+# Initialise MPD client
+oradio_log.info("oradio_control initialising MPDControl")
+mpd_client = MPDControl()
 
 #----------GPIO clean up---------
 
@@ -690,7 +694,6 @@ state_machine = StateMachine()
 # if not leds.selftest():
 #     oradio_log.critical("LEDControl selftest FAILED")
 #     state_machine.transition("StateError")
-
 
 # Instantiate spotify
 spotify_connect = SpotifyConnect(shared_queue)
