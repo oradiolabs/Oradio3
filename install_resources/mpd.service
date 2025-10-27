@@ -2,15 +2,13 @@
 Description=Music Player Daemon
 Documentation=man:mpd(1) man:mpd.conf(5)
 Documentation=file:///usr/share/doc/mpd/html/user.html
-After=sound.target
+After=network.target sound.target
 
 [Service]
 Type=notify
 EnvironmentFile=/etc/default/mpd
-ExecStart=/usr/bin/mpd --systemd $MPDCONF
-# Restart service 5 seconds after it crashed
-Restart=on-failure
-RestartSec=5s
+# Force use of /etc/mpd.conf
+ExecStart=/usr/bin/mpd --systemd /etc/mpd.conf
 
 # Enable this setting to ask systemd to watch over MPD, see
 # systemd.service(5).  This is disabled by default because it causes
@@ -32,9 +30,9 @@ NoNewPrivileges=yes
 ProtectKernelTunables=yes
 ProtectControlGroups=yes
 ProtectKernelModules=yes
-# AF_NETLINK is required by libsmbclient, or it will exit() .. *sigh*
 RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX AF_NETLINK
 RestrictNamespaces=yes
 
 [Install]
 WantedBy=multi-user.target
+Also=mpd.socket
