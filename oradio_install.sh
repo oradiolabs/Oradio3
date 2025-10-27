@@ -60,10 +60,10 @@ exec > >(tee -a $LOGFILE_INSTALL) 2>&1
 trap 'exec > /dev/tty 2>&1; wait' EXIT
 
 # Script is for Bookworm 64bit Lite
-BOOKWORM64="Debian GNU/Linux 12 (bookworm)"
+TARGETOS="Debian GNU/Linux 13 (trixie)"
 OSVERSION=$(lsb_release -a | grep "Description:" | cut -d$'\t' -f2)
-if [ "$OSVERSION" != "$BOOKWORM64" ]; then
-	echo -e "${RED}Unsupported OS version: $OSVERSION${NC}"
+if [ "$OSVERSION" != "$TARGETOS" ]; then
+	echo -e "${RED}Invalid OS version: $OSVERSION${NC}"
 	# Stop with error flag
 	exit 1
 fi
@@ -393,17 +393,19 @@ EOL' -- "$gitdate" "$gitinfo"
 # Progress report
 echo -e "${GREEN}Oradio software version log configured${NC}"
 
-# Show Raspberry Pi serial number on login
+# Show Raspberry Pi serial number and SW version on login
 if ! grep -q "Serial number: " /etc/bash.bashrc; then
-	# Get Oradio3 serial number
-	serial=$(vcgencmd otp_dump | grep "28:" | cut -c 4-)
 	sudo bash -c 'cat << EOL >> /etc/bash.bashrc 
-# Show Oradio3 serial number on login
 echo "--------------------------------------------------"
-echo "Serial number: $1"
-echo "SW version: \$(cat /var/log/oradio_sw_version.log | jq -r ".gitinfo")"
+# Get Oradio3 serial number and software version
+echo "Serial number: \$(vcgencmd otp_dump | grep "28:" | cut -c 4-)"
+if [ -f /var/log/oradio_sw_version.log ]; then
+        echo "SW version: \$(cat /var/log/oradio_sw_version.log | jq -r ".gitinfo")"
+else
+        echo "SW version: Unknown (No 'oradio_sw_version.log')"
+fi
 echo "--------------------------------------------------"
-EOL' -- "$serial"
+EOL'
 fi
 
 # Ensure defined state when booting: service removes /media/usb_ready
@@ -425,14 +427,14 @@ install_resource $RESOURCES_PATH/modules /etc/modules
 # Progress report
 echo -e "${GREEN}i2c installed and configured${NC}"
 
-# Configure the hw_version service
+# Configure the hw_version service to start on boot
 if [ ! -f /var/log/oradio_hw_version.log ]; then
 	install_resource $RESOURCES_PATH/hw_version.service /etc/systemd/system/hw_version.service 'sudo systemctl enable hw_version.service'
 fi
 # Progress report
 echo -e "${GREEN}Oradio3 hardware version log configured${NC}"
 
-# Configure the backlighting service
+# Configure the backlighting service to start on boot
 install_resource $RESOURCES_PATH/backlighting.service /etc/systemd/system/backlighting.service 'sudo systemctl enable backlighting.service'
 # Progress report
 echo -e "${GREEN}Backlighting installed and configured${NC}"
@@ -446,8 +448,10 @@ install_resource $RESOURCES_PATH/asound.conf /etc/asound.conf \
 		'speaker-test -D SoftVolSysSound -c2 >/dev/null 2>&1' \
 		'speaker-test -D SoftVolMPD -c2 >/dev/null 2>&1' \
 		'amixer -c 0 cset name="Digital Playback Volume" 120'
-# Configure mpd music library location and start service at boot
-install_resource $RESOURCES_PATH/mpd.conf /etc/mpd.conf 'sudo systemctl enable mpd.service'
+# Configure MPD
+install_resource $RESOURCES_PATH/mpd.conf /etc/mpd.conf
+# Configure the MPD service to start on boot
+install_resource $RESOURCES_PATH/mpd.service /var/lib/systemd/system/mpd.service 'sudo systemctl enable mpd.service'
 # Progress report
 echo -e "${GREEN}Audio installed and configured${NC}"
 
@@ -458,7 +462,7 @@ echo -e "${GREEN}Log files rotation configured${NC}"
 
 # Configure Spotify connect
 install_resource $RESOURCES_PATH/spotify_event_handler.sh /usr/local/bin/spotify_event_handler.sh 'sudo chmod +x /usr/local/bin/spotify_event_handler.sh'
-# Configure the Librespot service
+# Configure the Librespot service to start on boot
 install_resource $RESOURCES_PATH/librespot.service /etc/systemd/system/librespot.service 'sudo systemctl enable librespot.service'
 # Ensure Spotify directory and flag files exist with default '0' and correct ownership and permissions
 mkdir -p "$SPOTIFY_PATH" || { echo -e "${RED}Failed to create directory $SPOTIFY_PATH${NC}"; exit 1; }
@@ -480,7 +484,7 @@ install_resource $RESOURCES_PATH/about /usr/local/bin/about 'sudo chmod +x /usr/
 # Progress report
 echo -e "${GREEN}Support tools installed${NC}"
 
-# Configure the oradio service
+# Configure the oradio service to start on boot
 install_resource $RESOURCES_PATH/oradio.service /etc/systemd/system/oradio.service 'sudo systemctl enable oradio.service'
 # Progress report
 echo -e "${GREEN}Start Oradio3 on boot configured${NC}"
