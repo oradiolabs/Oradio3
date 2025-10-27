@@ -598,7 +598,7 @@ class MPDControl:
             if not listname:
                 oradio_log.warning("Preset %s not found in presets file", preset)
                 continue
-            oradio_log.debug("Updating MPD database for '%s' for preset '%s"', listname, preset)
+            oradio_log.debug("Updating MPD database for prset '%s' with list '%s'", preset, listname)
             _ = self._execute("update", listname)
 
         # Start the database update for the rest
