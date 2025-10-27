@@ -64,8 +64,10 @@ MPD_EVENT_ACTIONS = {
     "message": "Message sent via MPD",                   # rarely used, may need client.readmessages() if implemented
 }
 
+# -----Helper functions --------------
+
 @staticmethod
-def _connect_to_mpd(client, log_prefix):
+def _connect_to_mpd(client: MPDClient, log_prefix: str) -> bool:
     """
     Attempt to connect an MPDClient instance with retries.
     Args:
@@ -85,6 +87,61 @@ def _connect_to_mpd(client, log_prefix):
             time.sleep(MPD_RETRY_DELAY)
     oradio_log.error("%s failed to connect to MPD after %d attempts", log_prefix, MPD_RETRIES)
     return False
+
+@staticmethod
+def _get_preset_listname(preset_key: str, filepath: str) -> str | None:
+    """
+    Retrieve the playlist name associated with a given preset key from a JSON file.
+    Args:
+        preset_key (str): The preset key to look up (case-insensitive).
+        filepath (str): Path to the JSON file containing preset mappings.
+    Returns:
+        str | None: The playlist name if found, otherwise None.
+    """
+    if not (isinstance(preset_key, str) and preset_key.strip()):
+        oradio_log.debug("Invalid preset key: %r", preset_key)
+        return None
+
+    preset_key = preset_key.strip().lower()
+
+    try:
+        with open(filepath, 'r', encoding='utf-8') as file:
+            presets = json.load(file)
+            if not isinstance(presets, dict):
+                oradio_log.error("Invalid JSON format in %s: expected dict", filepath)
+                return None
+
+    except FileNotFoundError:
+        oradio_log.error("File not found at %s", filepath)
+        return None
+    except json.JSONDecodeError:
+        oradio_log.error("Failed to JSON decode %s", filepath)
+        return None
+
+    # Safely return value if string
+    value = presets.get(preset_key)
+    if isinstance(value, str) and value.strip():
+        return value.strip()
+
+    oradio_log.debug("Preset '%s' not found or invalid in %s", preset_key, filepath)
+    return None
+
+@staticmethod
+def _safe(value: str, fallback: str) -> str:
+    """Return value if a non-empty string, else fallback."""
+    # Protect against values like: None, "", " ", 0, [], {}
+    return value.strip() if isinstance(value, str) and value.strip() else fallback
+
+@staticmethod
+def _normalize(text: str) -> str:
+    """Normalize a string for comparison by removing case and diacritics."""
+    if not isinstance(text, str):
+        return ""
+    text = text.strip().lower()
+    text = unicodedata.normalize('NFD', text)
+    return ''.join(c for c in text if unicodedata.category(c) != 'Mn')
+
+# -----MPD Event Listener -----------
 
 class MPDListener:
     """Singleton class that listens for MPD events and logs any errors."""
@@ -122,6 +179,11 @@ class MPDListener:
         """
         Efficient MPD event listener using idle, batching multiple events for reduced overhead.
         Logs events and automatically reconnects if needed.
+        Note: 
+            The MPDClient class from the python-mpd2 package methods,
+            but these are dynamically added via __getattr__,
+            and Type checkers cannot detect these dynamically added methods.
+            Therefore, pylint thinks the method doesn't exist—even though they do.
         """
         oradio_log.debug("MPD event listener thread started")
         listener_client = MPDClient()
@@ -143,7 +205,7 @@ class MPDListener:
                 # Handle database updates once
                 if "database" in event_set:
                     try:
-                        all_files = listener_client.listallinfo()
+                        all_files = listener_client.listallinfo()   # pylint: disable=no-member
                         oradio_log.info("MPD database updated; %d files indexed", len(all_files))
                     except Exception as ex_err:
                         oradio_log.error("Failed to fetch database info: %s", ex_err)
@@ -151,8 +213,8 @@ class MPDListener:
                 # Handle playlist and player events once per batch
                 if event_set & {"playlist", "player"}:
                     try:
-                        status = listener_client.status()
-                        current_song = listener_client.currentsong()
+                        status = listener_client.status()   # pylint: disable=no-member
+                        current_song = listener_client.currentsong()    # pylint: disable=no-member
                         oradio_log.debug("Batched update - Status: %s, Current song: %s", status, current_song)
                     except CommandError as ex_err:
                         oradio_log.error("Failed to fetch status/song info: %s", ex_err)
@@ -170,6 +232,12 @@ class MPDListener:
             except Exception as ex_err:
                 oradio_log.error("Unexpected listener error: %s", ex_err)
                 time.sleep(1)
+
+
+# Start MPD Listener daemon
+_mpd_listener = MPDListener()
+
+# -----MPD Control ------------------
 
 class MPDControl:
     """
@@ -327,9 +395,9 @@ class MPDControl:
 
         # Ensure the song has been registered in playlist
         playlist = self._execute("playlistinfo") or []
-        for i, song in enumerate(playlist):
-            if int(song.get("id", -1)) == int(inserted_song_id):
-                new_index = i
+        for idx, sng in enumerate(playlist):
+            if int(sng.get("id", -1)) == int(inserted_song_id):
+                new_index = idx
                 break
         # The for ... else pattern ensures that the else is only executed if the for loop is not broken (i.e., no match is found)
         else:
@@ -754,12 +822,6 @@ class MPDControl:
             oradio_log.warning("Empty or None listname received")
             return []
 
-        # Helper to sanitize artist/title
-        def _safe(value, fallback):
-            """Return value if a non-empty string, else fallback."""
-            # Protect against values like: None, "", " ", 0, [], {}
-            return value if isinstance(value, str) and value.strip() else fallback
-
         # Check playlists
         playlists = self._execute("listplaylists") or []
         for playlist in playlists:
@@ -819,15 +881,6 @@ class MPDControl:
             list[dict]: Unique songs sorted by normalized artist and title. Each dict has keys:
                         'file', 'artist', 'title'.
         """
-
-        def _normalize(text: str) -> str:
-            """Normalize a string for comparison by removing case and diacritics."""
-            if not isinstance(text, str):
-                return ""
-            text = text.strip().lower()
-            text = unicodedata.normalize('NFD', text)
-            return ''.join(c for c in text if unicodedata.category(c) != 'Mn')
-
         if not pattern or not isinstance(pattern, str) or not pattern.strip():
             oradio_log.debug("Empty or invalid search pattern: %s", pattern)
             return []
@@ -870,43 +923,6 @@ class MPDControl:
 
         # Sort by normalized artist and title for case- and accent-insensitive order
         return sorted(unique_songs, key=lambda x: (x['normalized_artist'], x['normalized_title']))
-
-@staticmethod
-def _get_preset_listname(preset_key, filepath):
-    """
-    Retrieve the playlist name associated with a given preset key from a JSON file.
-    Args:
-        preset_key (str): The preset key to look up (case-insensitive).
-        filepath (str): Path to the JSON file containing preset mappings.
-    Returns:
-        str | None: The playlist name if found, otherwise None.
-    """
-    if not preset_key or not isinstance(preset_key, str) or not preset_key.strip():
-        oradio_log.debug("Invalid preset key: %r", preset_key)
-        return None
-
-    preset_key = preset_key.strip().lower()
-
-    try:
-        with open(filepath, 'r', encoding='utf-8') as file:
-            presets = json.load(file)
-            if not isinstance(presets, dict):
-                oradio_log.error("Invalid JSON format in %s: expected dict", filepath)
-                return None
-        # Safely return value if string
-        value = presets.get(preset_key)
-        if isinstance(value, str) and value.strip():
-            return value.strip()
-        oradio_log.debug("Preset '%s' not found or invalid in %s", preset_key, filepath)
-        return None
-    except FileNotFoundError:
-        oradio_log.error("File not found at %s", filepath)
-    except json.JSONDecodeError:
-        oradio_log.error("Failed to JSON decode %s", filepath)
-    return None
-
-# Start MPD Listener daemon
-_mpd_listener = MPDListener()
 
 # Entry point for stand-alone operation
 if __name__ == '__main__':
