@@ -36,15 +36,13 @@ from fastapi.templating import Jinja2Templates
 
 ##### oradio modules ####################
 from oradio_logging import oradio_log
-from oradio_utils import run_shell_script, safe_put
+from oradio_utils import run_shell_script, safe_put, load_presets, store_presets
 from wifi_service import get_wifi_networks, get_saved_network
 from mpd_control import MPDControl
 
 ##### GLOBAL constants ####################
 from oradio_const import (
     GREEN, NC,
-    USB_SYSTEM,
-    PRESETS_FILE,
     WEB_SERVER_HOST,
     WEB_SERVER_PORT,
     MESSAGE_WEB_SERVICE_SOURCE,
@@ -89,59 +87,6 @@ async def favicon():
     """ Handle default browser request for /favicon.ico """
     return FileResponse(os.path.dirname(__file__) + '/static/favicon.ico')
 
-#### PLAYLISTS ####################
-
-def _load_presets():
-    """
-    Load presets from the JSON file specified by PRESETS_FILE
-    First checks if the parent directory of the presets file exists and is a directory
-    - If not, logs an error and returns empty presets
-    Then tries to open and load the JSON data from the file
-    - If the file is not found, logs a warning and returns empty presets
-    - If there are errors reading or parsing the file, logs an error and returns empty presets
-    Returns: A dictionary with the loaded presets, or an empty presets dictionary if errors occur
-    """
-    presets_path = Path(PRESETS_FILE)
-
-    # Check if the parent directory of the presets file exists and is a directory
-    if not presets_path.parent.is_dir():
-        oradio_log.error("USB system path '%s' does not exist or is not a directory", presets_path.parent)
-        return EMPTY_PRESETS
-
-    try:
-        # Attempt to open the presets file and load it as JSON
-        with presets_path.open("r", encoding="utf-8") as file:
-            return json.load(file)
-    except FileNotFoundError:
-        # File does not exist; log a warning and return empty presets
-        oradio_log.warning("Presets file '%s' not found", presets_path)
-    except (json.JSONDecodeError, PermissionError, OSError) as ex:
-        # Error reading or parsing the file; log an error and return empty presets
-        oradio_log.error("Failed to read '%s'. error: %s", presets_path, ex)
-
-    # On any failure, return the default empty presets
-    return EMPTY_PRESETS
-
-def _store_presets(presets):
-    """
-    Save the provided presets dictionary to the presets.json file in the USB_SYSTEM folder
-    presets (dict): A dictionary containing keys 'preset1', 'preset2', 'preset3' with playlist values
-     - Creates the USB_SYSTEM directory if it does not exist
-     - Logs errors if directory creation or file writing fails
-    """
-    try:
-        # Ensure the USB_SYSTEM directory exists, create if necessary
-        Path(USB_SYSTEM).mkdir(parents=True, exist_ok=True)
-    except FileExistsError as ex_err:
-        oradio_log.error("'%s' does not exist. Presets cannot be saved. error: %s", USB_SYSTEM, ex_err)
-
-    try:
-        # Write the presets dictionary to the JSON file with indentation for readability
-        with open(PRESETS_FILE, "w", encoding="utf-8") as file:
-            json.dump({"preset1": presets['preset1'], "preset2": presets['preset2'], "preset3": presets['preset3']}, file, indent=4)
-    except IOError as ex_err:
-        oradio_log.error("Failed to write '%s'. error: %s", PRESETS_FILE, ex_err)
-
 #### BUTTONS ####################
 
 @api_app.get("/buttons")
@@ -157,7 +102,7 @@ async def buttons_page(request: Request):
 
     # Return playlist page and presets, directories and playlists as context
     context = {
-        "presets"     : _load_presets(),
+        "presets"     : load_presets(),
         "directories" : mpd_client.get_directories(),
         "playlists"   : mpd_client.get_playlists()
     }
@@ -180,7 +125,7 @@ async def save_preset(changedpreset: ChangedPreset):
     changedpreset (ChangedPreset): Contains the preset identifier and the playlist to assign
      - Loads current presets
      - Updates the specified preset with the new playlist
-     - Saves the updated presets back to storage
+     - Stores the updated presets
      - Sends a notification message to the web service queue about the change
      - Handles web radio presets differently by sending a specific state message
      - Logs errors if the preset identifier is invalid
@@ -198,15 +143,17 @@ async def save_preset(changedpreset: ChangedPreset):
 
     if changedpreset.preset in preset_map:
         # load presets
-        presets = _load_presets()
+        presets = load_presets()
 
         # Modify preset
         presets[changedpreset.preset] = changedpreset.playlist
         oradio_log.debug("Preset '%s' playlist changed to '%s'", changedpreset.preset, changedpreset.playlist)
 
         # Store presets
-        _store_presets(presets)
+        store_presets(presets)
 
+#TODO: Should oradio_control check if changed preset is a webradio?
+#      Or if not, send message which preset has changed and is now a webradio or not
         if mpd_client.is_webradio(preset=changedpreset.preset):
             # Send message playlist is web radio
             message["state"] = MESSAGE_WEB_SERVICE_PL_WEBRADIO

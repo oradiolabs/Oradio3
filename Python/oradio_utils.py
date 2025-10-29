@@ -31,6 +31,7 @@ import subprocess
 from subprocess import run
 from typing import Any, Optional
 from pydantic import BaseModel, create_model
+from pathlib import Path
 import netifaces
 
 ##### GLOBAL constants ####################
@@ -39,6 +40,8 @@ from oradio_const import (
     JSON_SCHEMAS_FILE,
     MODEL_NAME_FOUND,
     MODEL_NAME_NOT_FOUND,
+    PRESETS_FILE,
+    USB_SYSTEM,
 )
 
 # We cannot use from oradio_logging import oradio_log as this creates a circular import
@@ -213,6 +216,79 @@ def run_shell_script(script):
     if process.returncode != 0:
         return False, process.stderr.strip()
     return True, process.stdout.strip()
+
+def load_presets() -> dict[str, str]:
+    """
+    Retrieve the playlist names associated with the presets from a JSON file.
+
+    Returns:
+        dict[str, str]: A dictionary mapping lowercase preset_key -> listname.
+                        If a preset value is missing or invalid, listname will be an empty string "".
+                        Keys are normalized to lowercase for case-insensitive lookup.
+    """
+    try:
+        with open(PRESETS_FILE, 'r', encoding='utf-8') as file:
+            presets = json.load(file)
+            if not isinstance(presets, dict):
+                oradio_log.error("Invalid JSON format in %s: expected dict", PRESETS_FILE)
+                return {}
+    except FileNotFoundError:
+        oradio_log.error("File not found at %s", PRESETS_FILE)
+        return {}
+    except json.JSONDecodeError:
+        oradio_log.error("Failed to JSON decode %s", PRESETS_FILE)
+        return {}
+
+    # Ensure all expected keys exist and are normalized
+    presets_dict = {}
+    for key in ["preset1", "preset2", "preset3"]:
+        # Fetch raw value from JSON, default to empty string if missing
+        raw_value = presets.get(key, "")
+
+        # Normalize the listname: strip whitespace if string, else empty string
+        listname = raw_value.strip() if isinstance(raw_value, str) and raw_value.strip() else ""
+        if not listname:
+            oradio_log.warning("Preset '%s' is missing or has an empty listname in %s", key, PRESETS_FILE)
+
+        # Store in dictionary using lowercase key for case-insensitive lookups
+        presets_dict[key.lower()] = listname
+
+    oradio_log.debug("Presets loaded (case-insensitive): %s", presets_dict)
+    return presets_dict
+
+def store_presets(presets: dict[str, str]):
+    """
+    Save the provided presets dictionary to the presets.json file in the USB_SYSTEM folder.
+
+    Args:
+        presets (dict): Dictionary containing keys 'preset1', 'preset2', 'preset3' with playlist values.
+    """
+    # Ensure the USB_SYSTEM directory exists
+    try:
+        Path(USB_SYSTEM).mkdir(parents=True, exist_ok=True)
+    except OSError as ex_err:
+        oradio_log.error("Presets cannot be saved. Error: %s", ex_err)
+        return
+
+    # Prepare the data to save, ensuring all expected keys exist
+    data_to_save = {}
+    for key in ["preset1", "preset2", "preset3"]:
+        # Fetch raw value from JSON, default to empty string if missing
+        raw_value = presets.get(key, "")
+
+        # Normalize the listname: strip whitespace if string, else empty string
+        listname = raw_value.strip() if isinstance(raw_value, str) and raw_value.strip() else ""
+
+        # Store in dictionary using lowercase key for case-insensitive lookups
+        data_to_save[key] = listname
+
+    # Write the JSON file
+    try:
+        with open(PRESETS_FILE, "w", encoding="utf-8") as file:
+            json.dump(data_to_save, file, indent=4)
+        oradio_log.debug("Presets '%s' successfully saved to %s", data_to_save, PRESETS_FILE)
+    except IOError as ex_err:
+        oradio_log.error("Failed to write presets to '%s'. Error: %s", PRESETS_FILE, ex_err)
 
 # Entry point for stand-alone operation
 if __name__ == '__main__':
