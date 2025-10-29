@@ -100,6 +100,8 @@ remote_monitor = RmsService()
 # Initialise MPD client
 oradio_log.info("oradio_control initialising MPDControl")
 mpd_client = MPDControl()
+# Update MPD database - happens in separate thread
+mpd_client.update_database()
 
 #----------GPIO clean up---------
 
