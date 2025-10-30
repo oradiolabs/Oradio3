@@ -29,7 +29,6 @@ from mpd import MPDClient, CommandError, ProtocolError, ConnectionError as MPDCo
 
 ##### oradio modules ####################
 from oradio_logging import oradio_log
-from oradio_utils import load_presets
 
 ##### Local constants ####################
 MPD_HOST        = "localhost"
@@ -58,21 +57,35 @@ class MPDEventMonitor:
     - Listens for events in a background thread
     - Logs errors, database updates, and playlist/player info
     """
-    _instance = None
-    _lock = threading.Lock()
 
-    def __new__(cls, *args, **kwargs) -> "MPDEventMonitor":
-        """Enforce the singleton pattern."""
+# In below code using same construct in multiple modules for singletons
+# pylint: disable=duplicate-code
+
+    _lock = Lock()       # Class-level lock to make singleton thread-safe
+    _instance = None     # Holds the single instance of this class
+    _initialized = False # Tracks whether __init__ has been run
+
+    # Underscores mark args and kwargs as 'intentionally unused'
+    def __new__(cls, *_args, **_kwargs):
+        """Ensure only one instance of MPDEventMonitor is created (singleton pattern)"""
         with cls._lock:
             if cls._instance is None:
-                cls._instance = super().__new__(cls)
+                cls._instance = super(MPDEventMonitor, cls).__new__(cls)
         return cls._instance
 
-    def __init__(self) -> None:
-        """Initialize the MPDEventMonitor instance and start the listener."""
-        if hasattr(self, "_initialized") and self._initialized:
-            return
+    def __init__(self):
+        """
+        Initialize the listener by setting up the D-Bus main loop integration,
+        connecting to the system bus, finding the wifi device, and subscribing
+        to the 'StateChanged' signal
+        """
+        # Prevent re-initialization if the singleton is created again
+        if self._initialized:
+            return  # Avoid re-initialization if already done
         self._initialized = True
+
+# In above code using same construct in multiple modules for singletons
+# pylint: enable=duplicate-code
 
         self._client = MPDClient()
         self._connect_client()
@@ -86,6 +99,9 @@ class MPDEventMonitor:
         self.running = False
 
 # -----Helper methods----------------
+
+# In below code using same construct in mpd_control module
+# pylint: disable=duplicate-code
 
     def _connect_client(self) -> None:
         """
@@ -151,6 +167,9 @@ class MPDEventMonitor:
         # All retries failed
         oradio_log.error("Failed to execute MPD command '%s' after %d retries", command, MPD_RETRIES)
         return None
+
+# In above code using same construct in mpd_control module
+# pylint: enable=duplicate-code
 
     def _build_initial_snapshot(self) -> None:
         """Build the initial snapshot of the MPD database (directory -> files)."""

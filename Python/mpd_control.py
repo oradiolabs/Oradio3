@@ -76,6 +76,9 @@ class MPDControl:
 
 # -----Helper functions--------------
 
+# In below code using same construct in mpd_control module
+# pylint: disable=duplicate-code
+
     def _connect_client(self) -> None:
         """
         Attempt to establish a connection to the MPD server with retry logic.
@@ -143,6 +146,9 @@ class MPDControl:
         # All retries failed
         oradio_log.error("Failed to execute MPD command '%s' after %d retries", command, MPD_RETRIES)
         return None
+
+# In above code using same construct in mpd_control module
+# pylint: enable=duplicate-code
 
     def update_database(self) -> None:
         """
