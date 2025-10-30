@@ -21,7 +21,6 @@ Created on January 10, 2025
 
 @summary:
     Oradio MPD control module
-    - Thread-safe access with _lock
     - Automatic reconnect if MPD is down or connection drops
     - Retries commands logging error on failure
     Terminology:
@@ -34,10 +33,8 @@ Created on January 10, 2025
 """
 import os
 import time
-import json
 import threading
 import unicodedata
-from pathlib import Path
 from mpd import MPDClient, CommandError, ProtocolError, ConnectionError as MPDConnectionError
 
 ##### oradio modules ####################
@@ -62,8 +59,8 @@ DEFAULT_PRESET  = "Preset1" # For when the Play button is used and no playlist i
 
 class MPDControl:
     """
-    Thread-safe wrapper for an MPD (Music Player Daemon) client.
-    Ensures that all MPD commands are executed safely in a multi-threaded environment.
+    Wrapper for an MPD (Music Player Daemon) client.
+    Ensures that all MPD commands are executed safely.
     Automatically reconnects if the connection to the MPD server is lost.
     """
     def __init__(self) -> None:
@@ -108,7 +105,7 @@ class MPDControl:
 
     def _execute(self, command: str, *args, **kwargs) -> object | None:
         """
-        Execute an MPD command in a thread-safe and fault-tolerant manner.
+        Execute an MPD command in a fault-tolerant manner.
         - Validates the command before execution.
         - Automatically reconnects and retries on connection-related errors.
         - Gracefully handles invalid or failed MPD commands.
@@ -148,9 +145,6 @@ class MPDControl:
         return None
 
     def update_database(self) -> None:
-#TODO: Log the number of entries added/removed from the database as result of this update:
-#       1) monitor mpd 'database' event: Check which directory has changed by how many entries
-#       2) Run update in separate thread, wait for complete and log number of changes to directory
         """
         Update the MPD music database in two stages:
         - Update all preset-linked directories first (for faster preset access).
@@ -480,7 +474,6 @@ class MPDControl:
 
             oradio_log.debug("Song '%s' added to playlist '%s'", song, playlist)
 
-
     def remove(self, playlist: str, song: str | None) -> None:
         """
         Remove a song from a playlist or delete the entire playlist.
@@ -554,25 +547,22 @@ class MPDControl:
 
 # -----Informative functions---------
 
-#REVIEW Onno: remove the preset option. The caller can get the info from oradio_utils.load_presets()
-    def is_webradio(self, preset=None, mpdlist=None):
+    def is_webradio(self, preset: str = None, mpdlist: str = None) -> bool:
         """
-        Check if a preset or list is a web radio URL.
+        Determine if the current song, a preset, or a playlist corresponds to a web radio URL.
+        - Both 'preset' and 'mpdlist' provided → invalid, return False.
+        - Neither provided → check the currently playing song.
+        - Only 'preset' provided → resolve it to a playlist.
+        - Only 'mpdlist' provided → check that playlist.
 
         Args:
-            preset (str, optional): Preset name to check.
-            mpdlist (str, optional): Playlist or directory name to check.
-
-        Rules:
-            - Both args set → invalid
-            - Both args None → check currently playing song
-            - Only preset → check that preset list
-            - Only mpdlist → check that list
+            preset (str): Name of the preset to check. Default is None.
+            mpdlist (str): Name of the playlist to check. Default is None.
 
         Returns:
-            bool: True if the song or preset is a web radio URL, False otherwise.
+            bool: True if the song or playlist starts with "http://" or "https://", False otherwise.
         """
-        # Input validation
+        # Invalid input: both preset and mpdlist cannot be provided
         if preset and mpdlist:
             oradio_log.error("Invalid parameters: both 'preset' and 'mpdlist' provided")
             return False
@@ -586,7 +576,7 @@ class MPDControl:
                 return False
             return file_uri.lower().startswith(("http://", "https://"))
 
-        # Case 2: resolve mpdlist from preset if needed
+        # Case 2: resolve mpdlist from preset
         if preset:
             presets_map = load_presets()
             mpdlist = presets_map.get(preset.lower())
@@ -658,16 +648,16 @@ class MPDControl:
 
         # Collect valid playlists
         result = []
-        for pl in playlists:
+        for playlist in playlists:
             # Skip entries that are not dictionaries
-            if not isinstance(pl, dict):
-                oradio_log.debug("Skipping invalid playlist entry: %s", pl)
+            if not isinstance(playlist, dict):
+                oradio_log.debug("Skipping invalid playlist entry: %s", playlist)
                 continue
 
             # Extract the playlist name and skip empty or None names
-            name = pl.get("playlist")
+            name = playlist.get("playlist")
             if not name or not name.strip():
-                oradio_log.debug("Skipping empty playlist entry: %s", pl)
+                oradio_log.debug("Skipping empty playlist entry: %s", playlist)
                 continue
 
             # Add the playlist entry dictionary
@@ -807,9 +797,6 @@ class MPDControl:
 # Entry point for stand-alone operation
 if __name__ == '__main__':
 
-    # Imports only relevant when stand-alone
-    from oradio_utils import run_shell_script
-
 # Most modules use similar code in stand-alone
 # pylint: disable=duplicate-code
 
@@ -836,7 +823,6 @@ if __name__ == '__main__':
             "15-Check if preset is web radio\n"
             "16-Check if current song is web radio\n"
             "17-Update Database\n"
-            "18-Restart MPD Service\n"
             "Select: "
         )
 
@@ -939,13 +925,6 @@ if __name__ == '__main__':
                 case 17:
                     print("\nExecuting: Update MPD Database\n")
                     mpd_client.update_database()
-                case 18:
-                    print("\nExecuting: Restart MPD Service\n")
-                    result, response = run_shell_script("sudo systemctl restart mpd.service")
-                    if not result:
-                        print(f"\n{RED}Failed to restart MPD service: {response}${NC}\n")
-                    else:
-                        print(f"\n{GREEN}MPD service restarted successfully{NC}\n")
                 case _:
                     print(f"\n{YELLOW}Please input a valid number{NC}\n")
 
