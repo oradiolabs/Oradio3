@@ -152,9 +152,8 @@ async def save_preset(changedpreset: ChangedPreset):
         # Store presets
         store_presets(presets)
 
-#TODO: Should oradio_control check if changed preset is a webradio?
-#      Or if not, send message which preset has changed and is now a webradio or not
-        if mpd_client.is_webradio(preset=changedpreset.preset):
+#REVIEW Onno: Send only which preset has changed, let oradio_control check if changed preset is a webradio or not
+        if mpd_client.is_webradio(mpdlist=changedpreset.playlist):
             # Send message playlist is web radio
             message["state"] = MESSAGE_WEB_SERVICE_PL_WEBRADIO
             oradio_log.debug("Send web service message: %s", message)
