@@ -23,7 +23,7 @@ Created on January 10, 2025
 """
 import os
 import time
-import threading
+from threading import Thread, Lock
 from collections import defaultdict
 from mpd import MPDClient, CommandError, ProtocolError, ConnectionError as MPDConnectionError
 
@@ -91,12 +91,12 @@ class MPDEventMonitor:
         self._connect_client()
 
         # Snapshot of MPD database: directory -> set of file paths
-        self.snapshot = defaultdict(set)
+        self._snapshot = defaultdict(set)
         self._build_initial_snapshot()
 
         # Background thread for monitoring MPD events
-        self.thread = threading.Thread(target=self._listen, daemon=True)
-        self.running = False
+        self._thread = Thread(target=self._listen, daemon=True)
+        self._running = False
 
 # -----Helper methods----------------
 
@@ -176,7 +176,7 @@ class MPDEventMonitor:
         for song in self._execute("listall"):
             if 'file' in song:
                 directory = os.path.dirname(song['file'])
-                self.snapshot[directory].add(song['file'])
+                self._snapshot[directory].add(song['file'])
 
     def _handle_database_update(self) -> (dict, dict):
         """
@@ -200,9 +200,9 @@ class MPDEventMonitor:
                 current_snapshot[directory].add(song['file'])
 
         # Compare old and new snapshots
-        all_dirs = set(self.snapshot.keys()) | set(current_snapshot.keys())
+        all_dirs = set(self._snapshot.keys()) | set(current_snapshot.keys())
         for directory in all_dirs:
-            old_songs = self.snapshot.get(directory, set())
+            old_songs = self._snapshot.get(directory, set())
             new_songs = current_snapshot.get(directory, set())
             added = new_songs - old_songs
             removed = old_songs - new_songs
@@ -212,7 +212,7 @@ class MPDEventMonitor:
                 removed_per_dir[directory] = removed
 
         # Update the snapshot
-        self.snapshot = current_snapshot
+        self._snapshot = current_snapshot
         return added_per_dir, removed_per_dir
 
 # -----Listener----------------------
@@ -225,8 +225,8 @@ class MPDEventMonitor:
         - Logs database updates
         - Logs playlist/player info if no error
         """
-        self.running = True
-        while self.running:
+        self._running = True
+        while self._running:
 
             # Block until one or more events occur
             events = self._execute("idle")
@@ -273,14 +273,14 @@ class MPDEventMonitor:
 
     def start(self) -> None:
         """Start the background listener thread if not already running."""
-        if not self.thread.is_alive():
-            self.thread.start()
+        if not self._thread.is_alive():
+            self._thread.start()
             oradio_log.info("MPD Event Monitor started")
 
     def stop(self) -> None:
         """Stop the background listener thread and wait for it to terminate."""
-        self.running = False
-        self.thread.join(timeout=2)
+        self._running = False
+        self._thread.join(timeout=2)
         oradio_log.info("MPD Event Monitor stopped")
 
 # Create singleton monitor running in background
