@@ -30,8 +30,8 @@ import logging
 import subprocess
 from subprocess import run
 from typing import Any, Optional
-from pydantic import BaseModel, create_model
 from pathlib import Path
+from pydantic import BaseModel, create_model
 import netifaces
 
 ##### GLOBAL constants ####################
