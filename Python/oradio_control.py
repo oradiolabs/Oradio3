@@ -47,6 +47,12 @@ from usb_service import USBService
 from web_service import WebService
 from oradio_utils import has_internet
 
+# Optional: Manage MPD events monitoring in the background
+from mpd_monitor import mpd_monitor
+# Start MPD event monitor
+mpd_monitor.start()
+# Stop MPD event monitor
+# mpd_monitor.stop()
 
 ##### GLOBAL constants ####################
 #from oradio_const import *
