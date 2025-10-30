@@ -31,12 +31,6 @@ from mpd import MPDClient, CommandError, ProtocolError, ConnectionError as MPDCo
 from oradio_logging import oradio_log
 from oradio_utils import load_presets
 
-##### GLOBAL constants ####################
-from oradio_const import (
-    GREEN, RED, YELLOW, NC,
-    USB_MUSIC,
-)
-
 ##### Local constants ####################
 MPD_HOST        = "localhost"
 MPD_PORT        = 6600
@@ -224,31 +218,27 @@ class MPDEventMonitor:
                 continue
 
             event_set = set(events)
-            detail_map: dict = {event: MPD_EVENT_ACTIONS.get(event, "Unknown event") for event in events}
+            detail_map = {event: MPD_EVENT_ACTIONS.get(event, "Unknown event") for event in events}
 
             # Fetch status once for the whole batch
-            status: dict = self._execute("status") or {}
-            error_msg: str = status.get("error", "")
-            state: str = status.get("state", "")
+            status = self._execute("status") or {}
 
             # Log each event
             for event, detail in detail_map.items():
                 oradio_log.info("MPD event: %s → %s", event, detail)
 
             # Log status error once if present
-            if error_msg:
-                oradio_log.error("MPD reported an error during events %s: %s", ", ".join(events), error_msg)
+            if status.get("error", ""):
+                oradio_log.error("MPD reported an error during events %s: %s", ", ".join(events), status.get("error", ""))
                 time.sleep(1)
                 continue  # Skip further processing if error exists
 
-            oradio_log.debug("MPD state for events %s: %s", ", ".join(events), state)
+            oradio_log.debug("MPD state for events %s: %s", ", ".join(events), status.get("state", ""))
 
             # Handle playlist/player events
             if event_set & {"playlist", "player"}:
                 current_song: dict = self._execute("currentsong") or {}
-                artist: str = current_song.get("artist", "")
-                title: str = current_song.get("title", "")
-                oradio_log.debug("Current song: %s - %s", artist, title)
+                oradio_log.debug("Current song: %s - %s", current_song.get("artist", ""), current_song.get("title", ""))
 
             # Handle database events
             if "database" in event_set:
@@ -288,5 +278,3 @@ if __name__ == '__main__':
     except KeyboardInterrupt:
         mpd_monitor.stop()
     print("Exiting MPD event monitor")
-
-

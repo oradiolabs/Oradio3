@@ -38,6 +38,7 @@ from multiprocessing import Queue
 from oradio_logging import oradio_log
 from volume_control import VolumeControl
 from mpd_control import MPDControl
+from mpd_monitor import mpd_monitor     # Optional: MPD events monitoring in the background
 from led_control import LEDControl
 from play_system_sound import PlaySystemSound
 from touch_buttons import TouchButtons
@@ -46,13 +47,6 @@ from spotify_connect_direct import SpotifyConnect
 from usb_service import USBService
 from web_service import WebService
 from oradio_utils import has_internet
-
-# Optional: Manage MPD events monitoring in the background
-from mpd_monitor import mpd_monitor
-# Start MPD event monitor
-mpd_monitor.start()
-# Stop MPD event monitor
-# mpd_monitor.stop()
 
 ##### GLOBAL constants ####################
 #from oradio_const import *
@@ -102,6 +96,11 @@ usb_present.set() # USB present to go over start-up sequence (will be updated af
 
 # Instantiate remote monitor
 remote_monitor = RmsService()
+
+oradio_log.info("Start MPD event monitoring")
+mpd_monitor.start()
+# oradio_log.info("Stop MPD event monitoring")
+# mpd_monitor.stop()
 
 # Initialise MPD client
 oradio_log.info("oradio_control initialising MPDControl")

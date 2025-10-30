@@ -43,7 +43,7 @@ from oradio_utils import load_presets
 
 ##### GLOBAL constants ####################
 from oradio_const import (
-    GREEN, RED, YELLOW, NC,
+    GREEN, YELLOW, NC,
     USB_MUSIC,
 )
 
@@ -562,49 +562,54 @@ class MPDControl:
         Returns:
             bool: True if the song or playlist starts with "http://" or "https://", False otherwise.
         """
-        # Invalid input: both preset and mpdlist cannot be provided
+        # Initialize result to False by default
+        result = False
+
+        # Case: both preset and mpdlist provided → invalid input
         if preset and mpdlist:
             oradio_log.error("Invalid parameters: both 'preset' and 'mpdlist' provided")
-            return False
+            return result
 
-        # Case 1: neither preset nor mpdlist → check current song
+        # Case: neither preset nor mpdlist provided → check currently playing song
         if not preset and not mpdlist:
             current_song = self._execute("currentsong") or {}
             file_uri = current_song.get("file")
-            if not isinstance(file_uri, str):
+            if isinstance(file_uri, str):
+                result = file_uri.lower().startswith(("http://", "https://"))
+            else:
                 oradio_log.debug("Current song missing or invalid file: %r", file_uri)
-                return False
-            return file_uri.lower().startswith(("http://", "https://"))
+            return result
 
-        # Case 2: resolve mpdlist from preset
+        # Case: preset provided → resolve it to a playlist
         if preset:
             presets_map = load_presets()
             mpdlist = presets_map.get(preset.lower())
             if not mpdlist:
                 oradio_log.warning("No playlist found for preset: %s", preset)
-                return False
+                return result
 
-        # Verify playlist exists
+        # Verify the playlist exists
         playlists = self._execute("listplaylists") or []
         valid_names = {p.get("playlist") for p in playlists if isinstance(p, dict) and p.get("playlist")}
         if mpdlist not in valid_names:
             oradio_log.debug("mpdlist '%s' not found in playlists", mpdlist)
-            return False
+            return result
 
-        # Get first song from playlist
+        # Get the first song from the playlist
         songs = self._execute("listplaylist", mpdlist) or []
         if not songs:
             oradio_log.debug("Playlist '%s' is empty", mpdlist)
-            return False
+            return result
 
         first_song = songs[0]
         file_uri = first_song.get("file") if isinstance(first_song, dict) else first_song
-        if not isinstance(file_uri, str):
-            oradio_log.debug("Unexpected song entry type in '%s': %r", mpdlist, file_uri)
-            return False
 
-        # Check if URL is web radio
-        return file_uri.lower().startswith(("http://", "https://"))
+        # Check if the first song is a web radio URL
+        if isinstance(file_uri, str):
+            result = file_uri.lower().startswith(("http://", "https://"))
+        else:
+            oradio_log.debug("Unexpected song entry type in '%s': %r", mpdlist, file_uri)
+        return result
 
     def get_directories(self) -> list[str]:
         """
