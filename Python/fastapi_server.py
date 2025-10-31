@@ -64,7 +64,11 @@ HARDWARE_VERSION_FILE = "/var/log/oradio_hw_version.log"
 SOFTWARE_VERSION_FILE = "/var/log/oradio_sw_version.log"
 
 # Initialise MPD client
-oradio_log.info("fastapi initialising MPDControl")
+oradio_log.info("Initialising MPDControl")
+#REVIEW Onno:
+# Each thread/process should have its own MPDControl instance.
+# A global instance may cause concurrent access conflicts with the MPD service.
+# MPDControl includes built-in safeguards against improper use, so this works.
 mpd_client = MPDControl()
 
 # Get the web server app
