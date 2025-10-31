@@ -168,9 +168,19 @@ class MPDControl:
                 # Execute the MPD command
                 return function(*args, **kwargs)
 
-            except CommandError as ex_err:
-                # Command invalid; connection is still alive
-                oradio_log.error("MPD command '%s' failed: %s", command, ex_err)
+            except CommandError as ex_cmd:
+                # Handle logical errors that can safely be ignored
+                ignored_errors = [
+                    "Not playing",
+                    "Already stopped",
+                    "Already paused"
+                ]
+                msg = str(ex_cmd)
+                if any(err in msg for err in ignored_errors):
+                    oradio_log.debug("Ignoring logical error: '%s' for command '%s'", msg, command)
+                else:
+                    # Invalid command
+                    oradio_log.error("MPD command '%s' failed: %s", command, ex_cmd)
                 return None
 
             except (MPDConnectionError, ProtocolError, BrokenPipeError, ConnectionResetError) as ex_err:
@@ -399,62 +409,27 @@ class MPDControl:
     def pause(self) -> None:
         """
         Pause playback if a song is currently playing.
-        - If playback is not active, does nothing.
+        - Safely ignores cases when playback is inactive or a web radio is playing.
+        - Relies on _execute() to handle expected MPD logical errors.
         """
-        # Get current MPD status
-        status = self._execute("status") or {}
-        state = status.get("state", "").lower()
-
-        # Ignore if not currently playing
-        if state != "play":
-            oradio_log.debug("Ignore pause: not currently playing (state=%s)", state)
-            return
-
-        # Send 'pause' command to MPD
         _ = self._execute("pause")
         oradio_log.debug("Playback paused")
 
     def next(self) -> None:
         """
         Skip to the next song in the current playlist or directory.
-        - If playback is not active, the skip is ignored.
-        - If a web radio is currently playing, the skip is ignored.
-        - If a song is playing in a playlist or directory, skips to the next song.
-        - If the current song is the last in the playlist and repeat is enabled, wraps to the first song.
+        - Wraps around if repeat is enabled.
+        - Safely ignores cases when playback is inactive or a web radio is playing.
+        - Relies on _execute() to handle expected MPD logical errors.
         """
-        # Get current MPD status
-        status = self._execute("status") or {}
-        state = status.get("state", "").lower()
-
-        # Ignore if not currently playing
-        if state != "play":
-            oradio_log.debug("Ignore next: not currently playing (state=%s)", state)
-            return
-
-        # Ignore if webradio is playing
-        if self.is_webradio():
-            oradio_log.debug("Ignore next: current item is a web radio")
-            return
-
-        # Play next song, wrapping around if repeat is enabled
         _ = self._execute("next")
         oradio_log.debug("Skipped to next song")
 
     def stop(self) -> None:
         """
-        Stop playback if a song is currently playing.
-        - If playback is not active, does nothing.
+        - Safely ignores cases when playback is inactive or a web radio is playing.
+        - Relies on _execute() to handle expected MPD logical errors.
         """
-        # Get current MPD status
-        status = self._execute("status") or {}
-        state = status.get("state", "").lower()
-
-        # Ignore if not currently playing
-        if state != "play":
-            oradio_log.debug("Ignore stop: not currently playing (state=%s)", state)
-            return
-
-        # Send 'stop' command to MPD
         _ = self._execute("stop")
         oradio_log.debug("Playback stopped")
 
@@ -463,7 +438,7 @@ class MPDControl:
         Clear the current MPD playlist or playback queue.
         - Removes all songs from the current playlist/queue.
         """
-        # Send 'clear' command to MPD to remove all items from the playlist
+        # Remove all items from the playlist
         _ = self._execute("clear")
         oradio_log.debug("Current playback queue cleared")
 
