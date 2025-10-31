@@ -83,7 +83,7 @@ class MPDControl:
     def _is_connected(self):
         """Return True if client is connected to MPD, False otherwise."""
         try:
-            self._client.ping()
+            self._client.ping() # pylint: disable=no-member
             return True
         except (MPDConnectionError, BrokenPipeError, OSError):
             return False
