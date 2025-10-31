@@ -451,7 +451,7 @@ install_resource $RESOURCES_PATH/asound.conf /etc/asound.conf \
 # Configure MPD
 install_resource $RESOURCES_PATH/mpd.conf /etc/mpd.conf
 # Configure the MPD service to start on boot
-install_resource $RESOURCES_PATH/mpd.service /var/lib/systemd/system/mpd.service 'sudo systemctl enable mpd.service'
+install_resource $RESOURCES_PATH/mpd.service /lib/systemd/system/mpd.service 'sudo systemctl enable mpd.service'
 # Progress report
 echo -e "${GREEN}Audio installed and configured${NC}"
 
