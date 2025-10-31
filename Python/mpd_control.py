@@ -51,7 +51,7 @@ from oradio_const import (
 MPD_HOST        = "localhost"
 MPD_PORT        = 6600
 MPD_RETRIES     = 3
-MPD_RETRY_DELAY = 0.5       # seconds
+MPD_BACKOFF     = 1         # seconds
 MPD_CROSSFADE   = 5         # seconds
 LOCK_TIMEOUT    = 5         # seconds
 DEFAULT_PRESET  = "Preset1" # For when the Play button is used and no playlist in the queue
@@ -73,7 +73,6 @@ class MPDControl:
         """
         self._lock = Lock()
         self._client = MPDClient()
-        self._connected = False     # Track connection state
         self._connect_client()      # Connect on init
 
 # -----Helper functions--------------
@@ -81,44 +80,55 @@ class MPDControl:
 # In below code using same construct in mpd_control module
 # pylint: disable=duplicate-code
 
+    def _is_connected(self):
+        """Return True if client is connected to MPD, False otherwise."""
+        try:
+            self._client.ping()
+            return True
+        except (MPDConnectionError, BrokenPipeError, OSError):
+            return False
+
     def _connect_client(self) -> None:
         """
-        Attempt to establish a connection to the MPD server with retry logic.
-        - Skips connect if already connected.
-        - Retries up to MPD_RETRIES times on actual connection failure.
-        - Uses exponential backoff for retry delays.
-        - Sets crossfade after successful connection.
+        Establish a connection to MPD with retries and exponential backoff.
+        - Safely disconnects stale connections.
+        - Retries up to MPD_RETRIES times on failure.
+        - Sets crossfade after a successful connection.
         """
         for attempt in range(1, MPD_RETRIES + 1):
             try:
-                # Only connect if not already connected
-                if not self._connected:
-                    # Attempt to connect to the MPD server
+                # Disconnect stale connection if ping fails
+                if not self._is_connected():
+                    try:
+                        self._client.disconnect()
+                        oradio_log.debug("Disconnected stale MPD connection before reconnect")
+                    except MPDConnectionError:
+                        # Already disconnected, safe to ignore
+                        pass
+
+                # Connect if not connected
+                if not self._is_connected():
                     self._client.connect(MPD_HOST, MPD_PORT)
-                    self._connected = True
                     oradio_log.info("Connected to MPD on %s:%s", MPD_HOST, MPD_PORT)
                 else:
                     oradio_log.debug("MPD client already connected, skipping connect")
 
-                # Set crossfade (avoid recursive reconnect)
-                _ = self._execute("crossfade", MPD_CROSSFADE, allow_reconnect=False)
+                # Set crossfade
+                self._execute("crossfade", MPD_CROSSFADE, allow_reconnect=False)
                 oradio_log.info("MPD crossfade set to %d", MPD_CROSSFADE)
 
-                return  # Connection successful, exit method
+                return  # Connection successful
 
-            except MPDConnectionError as ex_err:
-                # Connection failed; mark as disconnected
-                self._connected = False
-                # Wait and retry using exponential backoff
-                delay = MPD_RETRY_DELAY * (2 ** (attempt - 1))
-                oradio_log.warning("Connection attempt %d/%d failed (%s). Retrying in %.1f seconds...", attempt, MPD_RETRIES, ex_err, delay)
-                sleep(delay)
+            except (MPDConnectionError, BrokenPipeError, OSError) as ex_err:
+                # Wait and retry
+                oradio_log.warning("Connection attempt %d/%d failed (%s). Retrying...", attempt, MPD_RETRIES, ex_err)
 
             except Exception as ex_unexpected:  # pylint: disable=broad-exception-caught
                 # Catch-all for unexpected errors
-                self._connected = False
                 oradio_log.exception("Unexpected error during MPD connection attempt %d/%d: %s", attempt, MPD_RETRIES, ex_unexpected)
-                sleep(MPD_RETRY_DELAY * (2 ** (attempt - 1)))
+
+            # Avoid hammering the MPD server
+            sleep(MPD_BACKOFF)
 
         # All retries exhausted
         oradio_log.error("Failed to connect to MPD after %d attempts", MPD_RETRIES)
@@ -129,7 +139,6 @@ class MPDControl:
         - Retries only on actual lost connections.
         - ProtocolErrors are handled intelligently.
         - Supports lock timeout to prevent deadlocks.
-        - Uses exponential backoff for retries.
         Args:
             command (str): MPD command to execute.
             *args: Positional arguments.
@@ -146,11 +155,12 @@ class MPDControl:
         for attempt in range(1, MPD_RETRIES + 1):
             acquired = False
             try:
-                # Acquire lock with timeout
-                acquired = self._lock.acquire(timeout=LOCK_TIMEOUT)
+                # Acquire lock with timeout (therefore not using 'with')
+                acquired = self._lock.acquire(timeout=LOCK_TIMEOUT) # pylint: disable=consider-using-with
                 if not acquired:
                     oradio_log.warning("Timeout waiting for MPD lock (attempt %d/%d, command '%s')", attempt, MPD_RETRIES, command)
-                    sleep(MPD_RETRY_DELAY * (2 ** (attempt - 1)))
+                    # Avoid hammering the MPD server
+                    sleep(MPD_BACKOFF)
                     continue
 
                 oradio_log.debug("Executing MPD command '%s' (attempt %d/%d)", command, attempt, MPD_RETRIES)
@@ -163,25 +173,12 @@ class MPDControl:
                 oradio_log.error("MPD command '%s' failed: %s", command, ex_err)
                 return None
 
-            except (MPDConnectionError, BrokenPipeError, ConnectionResetError) as ex_err:
-                # Connection lost; mark disconnected
-                self._connected = False
-                oradio_log.warning("MPD connection lost during '%s' (%s). Retry %d/%d...", command, ex_err, attempt, MPD_RETRIES)
+            except (MPDConnectionError, ProtocolError, BrokenPipeError, ConnectionResetError) as ex_err:
+                oradio_log.warning("MPD connection error '%s' for command '%s'. Retry %d/%d...", ex_err, command, attempt, MPD_RETRIES)
                 if allow_reconnect:
                     self._connect_client()
-                sleep(MPD_RETRY_DELAY * (2 ** (attempt - 1)))
-
-            except ProtocolError as ex_err:
-                # Only reconnect if the connection is actually dead
-                if not self._connected:
-                    oradio_log.warning("ProtocolError indicates lost connection during '%s' (%s). Reconnecting...", command, ex_err)
-                    if allow_reconnect:
-                        self._connect_client()
-                    sleep(MPD_RETRY_DELAY * (2 ** (attempt - 1)))
-                else:
-                    # Connection alive; fail command without reconnect
-                    oradio_log.error("ProtocolError while executing '%s', connection appears alive: %s", command, ex_err)
-                    return None
+                # Avoid hammering the MPD server
+                sleep(MPD_BACKOFF)
 
             except Exception as ex_unexpected:  # pylint: disable=broad-exception-caught
                 # Unexpected runtime error
