@@ -172,12 +172,10 @@ class MPDControl:
                 # Handle logical errors that can safely be ignored
                 ignored_errors = [
                     "Not playing",
-                    "Already stopped",
-                    "Already paused"
                 ]
                 msg = str(ex_cmd)
                 if any(err in msg for err in ignored_errors):
-                    oradio_log.debug("Ignoring logical error: '%s' for command '%s'", msg, command)
+                    oradio_log.warning("Ignoring logical error: '%s' for command '%s'", msg, command)
                 else:
                     # Invalid command
                     oradio_log.error("MPD command '%s' failed: %s", command, ex_cmd)
@@ -406,30 +404,65 @@ class MPDControl:
         else:
             oradio_log.debug("Song id %s already removed", inserted_song_id)
 
+
     def pause(self) -> None:
         """
         Pause playback if a song is currently playing.
-        - Safely ignores cases when playback is inactive or a web radio is playing.
-        - Relies on _execute() to handle expected MPD logical errors.
+        - If playback is not active, does nothing.
         """
+        # Get current MPD status
+        status = self._execute("status") or {}
+        state = status.get("state", "").lower()
+
+        # Ignore if not currently playing
+        if state != "play":
+            oradio_log.debug("Ignore pause: not currently playing (state=%s)", state)
+            return
+
+        # Pause playback
         _ = self._execute("pause")
         oradio_log.debug("Playback paused")
 
     def next(self) -> None:
         """
         Skip to the next song in the current playlist or directory.
-        - Wraps around if repeat is enabled.
-        - Safely ignores cases when playback is inactive or a web radio is playing.
+        - If playback is not active, the skip is ignored.
+        - If a web radio is currently playing, the skip is ignored.
         - Relies on _execute() to handle expected MPD logical errors.
         """
+        # Get current MPD status
+        status = self._execute("status") or {}
+        state = status.get("state", "").lower()
+
+        # Ignore if not currently playing
+        if state != "play":
+            oradio_log.debug("Ignore next: not currently playing (state=%s)", state)
+            return
+
+        # Ignore if webradio is playing
+        if self.is_webradio():
+            oradio_log.debug("Ignore next: current item is a web radio")
+            return
+
+        # Play next song, wrapping around if repeat is enabled
         _ = self._execute("next")
         oradio_log.debug("Skipped to next song")
 
     def stop(self) -> None:
         """
-        - Safely ignores cases when playback is inactive or a web radio is playing.
-        - Relies on _execute() to handle expected MPD logical errors.
+        Stop playback if a song is currently playing.
+        - If playback is not active, does nothing.
         """
+        # Get current MPD status
+        status = self._execute("status") or {}
+        state = status.get("state", "").lower()
+
+        # Ignore if not currently playing
+        if state != "play":
+            oradio_log.debug("Ignore stop: not currently playing (state=%s)", state)
+            return
+
+        # Stop playback
         _ = self._execute("stop")
         oradio_log.debug("Playback stopped")
 
