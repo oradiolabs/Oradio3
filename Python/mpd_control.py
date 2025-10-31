@@ -28,13 +28,11 @@ Created on January 10, 2025
     - playlist/playlists: collection(s) which can be created, saved, edited and deleted
     - mpdlist/mpdlists: the combination of directories and playlists
     - current: the directory/playlist in the playback queue
-    Notes:
-    - No lock required, as every class instance has its own connection and no parallism
 """
-import os
-import time
-import threading
-import unicodedata
+from os import path
+from time import sleep
+from threading import Thread, Lock
+from unicodedata import normalize, category
 from mpd import MPDClient, CommandError, ProtocolError, ConnectionError as MPDConnectionError
 
 ##### oradio modules ####################
@@ -53,6 +51,7 @@ MPD_PORT        = 6600
 MPD_RETRIES     = 3
 MPD_RETRY_DELAY = 1         # seconds
 MPD_CROSSFADE   = 5         # seconds
+LOCK_TIMEOUT    = 5         # seconds
 DEFAULT_PRESET  = "Preset1" # For when the Play button is used and no playlist in the queue
 
 # -----MPD Control ------------------
@@ -70,6 +69,7 @@ class MPDControl:
         Attributes:
             _client (MPDClient): Internal MPD client instance.
         """
+        self._lock = Lock()
         # Connect to MPD service
         self._client = MPDClient()
         self._connect_client()
@@ -101,7 +101,7 @@ class MPDControl:
             except MPDConnectionError as ex_err:
                 # Log the failure and retry after a delay
                 oradio_log.warning("Connection to MPD failed (%s). Retry %d/%d", ex_err, attempt, MPD_RETRIES)
-                time.sleep(MPD_RETRY_DELAY)
+                sleep(MPD_RETRY_DELAY)
 
         # If all retries fail, log a final error
         oradio_log.error("Failed to connect to MPD after %d attempts", MPD_RETRIES)
@@ -112,6 +112,7 @@ class MPDControl:
         - Validates the command before execution.
         - Automatically reconnects and retries on connection-related errors.
         - Gracefully handles invalid or failed MPD commands.
+        - Implements exponential backoff for retry delays.
 
         Args:
             command (str): The name of the MPD command to execute.
@@ -121,27 +122,41 @@ class MPDControl:
         Returns:
             The result of the MPD command, or None if an error occurs after all retries.
         """
+        # Retrieve the MPD command method dynamically
+        function = getattr(self._client, command, None)
+        if not callable(function):
+            oradio_log.error("Invalid MPD command: '%s'", command)
+            return None
+
         for attempt in range(1, MPD_RETRIES + 1):
+            acquired = False
             try:
-                # Retrieve the MPD command method dynamically
-                function = getattr(self._client, command, None)
-                if not callable(function):
-                    oradio_log.error("Invalid MPD command: '%s'", command)
-                    return None
+                # Attempt to acquire the lock with timeout
+                acquired = self._lock.acquire(timeout=LOCK_TIMEOUT)     # pylint: disable=consider-using-with
+                if not acquired:
+                    oradio_log.warning("Timeout waiting for MPD lock (attempt %d/%d, command '%s')", attempt, MPD_RETRIES, command)
+                    sleep(MPD_RETRY_DELAY)
+                    continue    # Try again next loop iteration
+
+                oradio_log.debug("Executing MPD command '%s' (attempt %d/%d)", command, attempt, MPD_RETRIES)
 
                 # Execute the MPD command safely
                 return function(*args, **kwargs)
 
             except CommandError as ex_err:
-                # MPD command-specific failure (e.g., invalid args)
+                # Non-recoverable MPD command failure (e.g. invalid args)
                 oradio_log.error("MPD command error: %s", ex_err)
                 return None
 
             except (MPDConnectionError, ProtocolError, BrokenPipeError) as ex_err:
-                # Connection issue — log and retry after reconnect
-                oradio_log.warning("MPD connection or protocol error (%s). Retry %d/%d", ex_err, attempt, MPD_RETRIES)
+                # Recoverable connection error — reconnect and retry
+                oradio_log.warning("MPD connection or protocol error during '%s' (%s). Retrying %d/%d...", command, ex_err, attempt, MPD_RETRIES)
                 self._connect_client()
-                time.sleep(MPD_RETRY_DELAY)  # brief pause before retrying
+                sleep(MPD_RETRY_DELAY)  # brief pause before retrying
+
+            finally:
+                if acquired:
+                    self._lock.release()
 
         # All retries failed
         oradio_log.error("Failed to execute MPD command '%s' after %d retries", command, MPD_RETRIES)
@@ -291,7 +306,7 @@ class MPDControl:
         oradio_log.debug("Started playback at index %d for song id %s", target_index, inserted_song_id)
 
         # Start background thread to remove the song once finished
-        threading.Thread(
+        Thread(
             target=self._remove_song_when_finished,
             args=(inserted_song_id,),
             daemon=True
@@ -315,7 +330,7 @@ class MPDControl:
 
         # Wait until the song finishes or is skipped
         while True:
-            time.sleep(0.5)  # Poll twice per second
+            sleep(0.5)  # Poll twice per second
 
             status = self._execute("status") or {}
             try:
@@ -465,10 +480,10 @@ class MPDControl:
 
             # Remove leading/trailing whitespace and add path
             song = song.strip()
-            song_path = os.path.join(USB_MUSIC, song)
+            song_path = path.join(USB_MUSIC, song)
 
             # Verify song file exists before adding
-            if not os.path.isfile(song_path):
+            if not path.isfile(song_path):
                 oradio_log.error("Song file does not exist: %s", song_path)
                 return
 
@@ -762,8 +777,8 @@ class MPDControl:
             if not isinstance(text, str):
                 return ""
             text = text.strip().lower()
-            text = unicodedata.normalize('NFD', text)
-            return ''.join(c for c in text if unicodedata.category(c) != 'Mn')
+            text = normalize('NFD', text)
+            return ''.join(c for c in text if category(c) != 'Mn')
 
         # Return empty list if the pattern is empty, not a string, or only whitespace
         if not pattern or not isinstance(pattern, str) or not pattern.strip():
