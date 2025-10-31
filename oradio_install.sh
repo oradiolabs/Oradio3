@@ -346,7 +346,7 @@ else # Execute if this script IS automatically started after reboot
 ########## REBOOT RUN BEGIN ##########
 
 	# Progress report
-	echo -e "${GREEN}$(date +'%Y-%m-%d %H:%M:%S'): Continue after reboot${NC}"
+	echo -e "${GREEN}$(date +'%Y-%m-%d %H:%M:%S'): Continueing after reboot${NC}"
 
 	# Restore normal behaviour after reboot
 	sudo sed -i "\#^bash $SCRIPT_PATH/$SCRIPT_NAME --continue\$#d" ~/.bashrc
