@@ -772,7 +772,7 @@ class MPDControl:
                         'file', 'artist', 'title', 'normalized_artist', 'normalized_title'.
         """
         # Helper function
-        def normalize(text: str) -> str:
+        def _normalize(text: str) -> str:
             """Normalize a string for comparison by removing case and diacritics."""
             if not isinstance(text, str):
                 return ""
@@ -802,9 +802,9 @@ class MPDControl:
             {
                 'file': result['file'],
                 'artist': result.get('artist', "Unknown artist"),
-                'normalized_artist': normalize(result.get('artist', "Unknown artist")),
+                'normalized_artist': _normalize(result.get('artist', "Unknown artist")),
                 'title': result.get('title', "Unknown title"),
-                'normalized_title': normalize(result.get('title', "Unknown title")),
+                'normalized_title': _normalize(result.get('title', "Unknown title")),
             }
             for result in results
         ]
