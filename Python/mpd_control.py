@@ -219,7 +219,7 @@ class MPDControl:
 
         # Stage 1: Update MPD database for each preset's directory (if it exists)
         for preset, mpdlist in presets.items():
-            if mpdlist and any(mpdlist.lower() == d.lower() for d in directories):
+            if mpdlist and mpdlist in directories:
                 _ = self._execute("update", mpdlist)
                 oradio_log.debug("Updating MPD database for preset '%s' (directory: '%s')", preset, mpdlist)
             else:
