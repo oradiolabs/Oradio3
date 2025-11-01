@@ -450,6 +450,8 @@ install_resource $RESOURCES_PATH/asound.conf /etc/asound.conf \
 		'amixer -c 0 cset name="Digital Playback Volume" 120'
 # Configure MPD
 install_resource $RESOURCES_PATH/mpd.conf /etc/mpd.conf
+# Install empty MPD database (prevents MPD updating when starting
+install_resource $RESOURCES_PATH/mpd.database /var/lib/mpd/tag_cache
 # Configure the MPD service to start on boot
 install_resource $RESOURCES_PATH/mpd.service /lib/systemd/system/mpd.service 'sudo systemctl enable mpd.service'
 # Progress report
