@@ -56,29 +56,19 @@ MPD_CROSSFADE   = 5         # seconds
 LOCK_TIMEOUT    = 5         # seconds
 DEFAULT_PRESET  = "Preset1" # For when the Play button is used and no playlist in the queue
 
-# -----MPD Control ------------------
-
-class MPDControl:
+class MPDBase:
     """
-    Wrapper for an MPD (Music Player Daemon) client.
-    Ensures that all MPD commands are executed safely.
-    Automatically reconnects if the connection to the MPD server is lost.
+    Thread-safe base class for interacting with an MPD (Music Player Daemon) server.
+    - Automatic connection and reconnection to the MPD server.
+    - Retry logic with backoff for commands and connections.
+    - Safe execution of MPD commands with optional auto-reconnect.
+    - Locking to prevent concurrent access from multiple threads.
+    - Logging of commands, connection attempts, and errors.
     """
     def __init__(self) -> None:
-        """
-        Initialize the MPDControl client and connect to the MPD server.
-
-        Attributes:
-            _client (MPDClient): Internal MPD client instance.
-        """
+        """Initialize the MPDBase class and connect to the MPD server."""
         self._lock = Lock()
         self._client = MPDClient()
-        self._connect_client()      # Connect on init
-
-# -----Helper functions--------------
-
-# In below code using same construct in mpd_control module
-# pylint: disable=duplicate-code
 
     def _is_connected(self):
         """Return True if client is connected to MPD, False otherwise."""
@@ -88,12 +78,13 @@ class MPDControl:
         except (MPDConnectionError, BrokenPipeError, OSError):
             return False
 
-    def _connect_client(self) -> None:
+    def _connect_client(self, crossfade: int | None) -> None:
         """
-        Establish a connection to MPD with retries and exponential backoff.
-        - Safely disconnects stale connections.
-        - Retries up to MPD_RETRIES times on failure.
-        - Sets crossfade after a successful connection.
+        Establish a connection to MPD with retries and backoff.
+        Optionally sets the crossfade value after a successful connection.
+
+        Args:
+            crossfade (int | None): Crossfade value to set (seconds). If None, skip setting crossfade.
         """
         for attempt in range(1, MPD_RETRIES + 1):
             try:
@@ -113,9 +104,10 @@ class MPDControl:
                 else:
                     oradio_log.debug("MPD client already connected, skipping connect")
 
-                # Set crossfade
-                self._execute("crossfade", MPD_CROSSFADE, allow_reconnect=False)
-                oradio_log.info("MPD crossfade set to %d", MPD_CROSSFADE)
+                # Set crossfade if specified
+                if crossfade is not None:
+                    self._execute("crossfade", crossfade, allow_reconnect=False)
+                    oradio_log.info("MPD crossfade set to %d", crossfade)
 
                 return  # Connection successful
 
@@ -202,8 +194,21 @@ class MPDControl:
         oradio_log.error("Failed to execute MPD command '%s' after %d retries", command, MPD_RETRIES)
         return None
 
-# In above code using same construct in mpd_control module
-# pylint: enable=duplicate-code
+# -----MPD Control ------------------
+
+class MPDControl(MPDBase):
+    """
+    Wrapper for an MPD (Music Player Daemon) client.
+    Ensures that all MPD commands are executed safely.
+    Automatically reconnects if the connection to the MPD server is lost.
+    """
+    def __init__(self) -> None:
+        """Initialize the MPDControl client and connect to the MPD server."""
+        # Execute MPDBase __init__
+        super().__init__()
+
+        # Connect client and set crossfade
+        self._connect_client(crossfade=MPD_CROSSFADE)
 
     def update_database(self) -> None:
         """
@@ -406,7 +411,7 @@ class MPDControl:
         playlist = self._execute("playlistinfo") or []
         for song in playlist:
             if isinstance(song, dict) and int(song.get("id", -1)) == inserted_song_id:
-                self._execute("deleteid", inserted_song_id)
+                _ = self._execute("deleteid", inserted_song_id)
                 oradio_log.debug("Removed song id %s from playlist", inserted_song_id)
                 break
         else:

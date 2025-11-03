@@ -29,6 +29,7 @@ from mpd import MPDClient, CommandError, ProtocolError, ConnectionError as MPDCo
 
 ##### oradio modules ####################
 from oradio_logging import oradio_log
+from mpd_control import MPDBase
 
 ##### Local constants ####################
 MPD_HOST     = "localhost"
@@ -51,7 +52,7 @@ MPD_EVENT_ACTIONS = {
     "message": "Message sent via MPD",                   # rarely used, may need client.readmessages() if implemented
 }
 
-class MPDEventMonitor:
+class MPDEventMonitor(MPDBase):
     """
     Singleton class that monitors MPD (Music Player Daemon) events.
     - Maintains a snapshot of the MPD database (directory -> files)
@@ -75,23 +76,17 @@ class MPDEventMonitor:
         return cls._instance
 
     def __init__(self):
-        """
-        Initialize the listener by setting up the D-Bus main loop integration,
-        connecting to the system bus, finding the wifi device, and subscribing
-        to the 'StateChanged' signal
-        """
+        """Initialize the MPDMonitor client and connect to the MPD server."""
         # Prevent re-initialization if the singleton is created again
         if self._initialized:
             return  # Avoid re-initialization if already done
         self._initialized = True
 
-# In above code using same construct in multiple modules for singletons
-# pylint: enable=duplicate-code
+        # Execute MPDBase __init__
+        super().__init__()
 
-        self._lock = Lock()
-        self._client = MPDClient()
-        self._connected = False     # Track connection state
-        self._connect_client()      # Connect on init
+        # Connect client without crossfade
+        self._connect_client(crossfade=None)
 
         # Snapshot of MPD database: directory -> set of file paths
         self._snapshot = defaultdict(set)
@@ -102,117 +97,6 @@ class MPDEventMonitor:
         self._running = False
 
 # -----Helper methods----------------
-
-# In below code using same construct in mpd_control module
-# pylint: disable=duplicate-code
-
-    def _is_connected(self) -> bool:
-        """Return True if client is connected to MPD, False otherwise."""
-        try:
-            self._client.ping() # pylint: disable=no-member
-            return True
-        except (MPDConnectionError, BrokenPipeError, OSError):
-            return False
-
-    def _connect_client(self) -> None:
-        """
-        Establish a connection to MPD with retries and exponential backoff.
-        - Safely disconnects stale connections.
-        - Retries up to MPD_RETRIES times on failure.
-        """
-        for attempt in range(1, MPD_RETRIES + 1):
-            try:
-                # Disconnect stale connection if ping fails
-                if not self._is_connected():
-                    try:
-                        self._client.disconnect()
-                        oradio_log.debug("Disconnected stale MPD connection before reconnect")
-                    except MPDConnectionError:
-                        # Already disconnected, safe to ignore
-                        pass
-
-                # Connect if not connected
-                if not self._is_connected():
-                    self._client.connect(MPD_HOST, MPD_PORT)
-                    oradio_log.info("Connected to MPD on %s:%s", MPD_HOST, MPD_PORT)
-                else:
-                    oradio_log.debug("MPD client already connected, skipping connect")
-
-                return  # Connection successful
-
-            except (MPDConnectionError, BrokenPipeError, OSError) as ex_err:
-                # Wait and retry
-                oradio_log.warning("Connection attempt %d/%d failed (%s). Retrying...", attempt, MPD_RETRIES, ex_err)
-
-            except Exception as ex_unexpected:  # pylint: disable=broad-exception-caught
-                # Catch-all for unexpected errors
-                oradio_log.exception("Unexpected error during MPD connection attempt %d/%d: %s", attempt, MPD_RETRIES, ex_unexpected)
-
-            # Avoid hammering the MPD server
-            sleep(MPD_BACKOFF)
-
-        # All retries exhausted
-        oradio_log.error("Failed to connect to MPD after %d attempts", MPD_RETRIES)
-
-    def _execute(self, command: str, *args, **kwargs) -> object | None:
-        """
-        Execute an MPD command safely and efficiently.
-        - Retries only on actual lost connections.
-        - ProtocolErrors are handled intelligently.
-        - Supports lock timeout to prevent deadlocks.
-        Args:
-            command (str): MPD command to execute.
-            *args: Positional arguments.
-            **kwargs: Keyword arguments.
-        Returns:
-            Result of the command, or None if all retries fail.
-        """
-        function = getattr(self._client, command, None)
-        if not callable(function):
-            oradio_log.error("Invalid MPD command: '%s'", command)
-            return None
-
-        for attempt in range(1, MPD_RETRIES + 1):
-            acquired = False
-            try:
-                # Acquire lock with timeout (therefore not using 'with')
-                acquired = self._lock.acquire(timeout=LOCK_TIMEOUT) # pylint: disable=consider-using-with
-                if not acquired:
-                    oradio_log.warning("Timeout waiting for MPD lock (attempt %d/%d, command '%s')", attempt, MPD_RETRIES, command)
-                    sleep(MPD_BACKOFF)
-                    continue
-
-                oradio_log.debug("Executing MPD command '%s' (attempt %d/%d)", command, attempt, MPD_RETRIES)
-
-                # Execute the MPD command
-                return function(*args, **kwargs)
-
-            except CommandError as ex_err:
-                # Command invalid; connection is still alive
-                oradio_log.error("MPD command '%s' failed: %s", command, ex_err)
-                return None
-
-            except (MPDConnectionError, ProtocolError, BrokenPipeError, ConnectionResetError) as ex_err:
-                oradio_log.warning("MPD connection error '%s' for command '%s'. Retry %d/%d...", ex_err, command, attempt, MPD_RETRIES)
-                self._connect_client()
-                sleep(MPD_BACKOFF)
-
-            except Exception as ex_unexpected:  # pylint: disable=broad-exception-caught
-                # Unexpected runtime error
-                oradio_log.exception("Unexpected error executing MPD command '%s': %s", command, ex_unexpected)
-                return None
-
-            finally:
-                # Release lock if acquired
-                if acquired:
-                    self._lock.release()
-
-        # All retries exhausted
-        oradio_log.error("Failed to execute MPD command '%s' after %d retries", command, MPD_RETRIES)
-        return None
-
-# In above code using same construct in mpd_control module
-# pylint: enable=duplicate-code
 
     def _build_initial_snapshot(self) -> None:
         """Build the initial snapshot of the MPD database (directory -> files)."""
