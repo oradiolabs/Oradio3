@@ -244,20 +244,20 @@ class MPDControl:
         # Get current playlist info
         current_playlist_info = self._execute("playlistinfo") or []
 
-        # Case 1: preset provided → validate and use it
+        # Case 1: validate and use preset if provided
         if preset:
             if not isinstance(preset, str) or not preset.strip():
                 oradio_log.error("Invalid preset provided: %r", preset)
                 return
             preset = preset.strip()
 
-        # Case 2: no preset, but current playlist exists → resume
+        # Case 2: no preset, resume current playlist if exists
         elif current_playlist_info:
             _ = self._execute("play")
             oradio_log.debug("Resumed current playlist")
             return
 
-        # Case 3: no preset and no current playlist → fallback to default preset
+        # Case 3: fallback to default preset if no preset and no current playlist
         else:
             preset = DEFAULT_PRESET
             oradio_log.debug("No current playlist, using default preset '%s'", preset)
@@ -268,8 +268,10 @@ class MPDControl:
         # Resolve preset to playlist or directory
         presets = load_presets()
         playlist_name = presets.get(preset.lower())
+
+        # Do nothing if no playlist_name is set
         if not playlist_name:
-            oradio_log.warning("No playlist found for preset: %s", preset)
+            oradio_log.warning("Preset '%s' does not resolve to a playlist", preset)
             return
 
         # Check if playlist exists in MPD playlists
@@ -279,19 +281,25 @@ class MPDControl:
             if isinstance(name, dict) and name.get("playlist")
         ]
 
+        directories = self.get_directories()
+
         if playlist_name in playlist_names:
             # Playlist exists → load sequentially
             _ = self._execute("load", playlist_name)
             _ = self._execute("random", 0)
             _ = self._execute("repeat", 1)
             oradio_log.debug("Loaded playlist '%s'", playlist_name)
-        else:
+        elif playlist_name in directories:
             # Directory → add all songs and shuffle
             _ = self._execute("add", playlist_name)
             _ = self._execute("shuffle")
             _ = self._execute("random", 1)
             _ = self._execute("repeat", 1)
             oradio_log.debug("Added directory '%s' and shuffled", playlist_name)
+        else:
+            # Neither playlist nor directory found
+            oradio_log.warning("Playlist or directory '%s' not found for preset '%s'", playlist_name, preset)
+            return
 
         # Start playback
         _ = self._execute("play")
@@ -403,7 +411,6 @@ class MPDControl:
                 break
         else:
             oradio_log.debug("Song id %s already removed", inserted_song_id)
-
 
     def pause(self) -> None:
         """
