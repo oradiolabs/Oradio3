@@ -112,7 +112,7 @@ class MPDBase:
 
                 # Set crossfade if specified
                 if self._crossfade is not None:
-                    self._execute("crossfade", self._crossfade, allow_reconnect=False)
+                    _ = self._execute("crossfade", self._crossfade, allow_reconnect=False)
                     oradio_log.info("MPD crossfade set to %d", self._crossfade)
 
                 return  # Connection successful
