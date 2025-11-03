@@ -15,7 +15,49 @@
 # @version:       1
 # @email:         info@stichtingoradio.nl
 # @status:        Development
-#TODO: Add link/description how to generate ENCRYPTED RCLOUD CONFIG block
+################################################################################
+# HOW TO CREATE OR REPLACE THE ENCRYPTED RCLOUD CONFIG BLOCK
+# ------------------------------------------------------------------------------
+# Purpose:
+#   The installer embeds an AES-256-CBC encrypted copy of the full rclone.conf.
+#   During installation, it decrypts this block (using a password) to recreate:
+#       /home/pi/.config/rclone/rclone.conf
+#   providing secure SharePoint/OneDrive access without storing plaintext tokens.
+#
+# Process summary:
+#   rclone.conf  (working file with valid SharePoint credentials)
+#        ↓ encrypt (OpenSSL AES-256-CBC + PBKDF2 + base64)
+#   sharepoint.conf.enc  (encrypted text block)
+#        ↓ paste block into installer between BEGIN/END markers
+#   installer decrypts → rclone.conf → used by USB update
+#
+# Step-by-step (on a secure development system):
+#
+#   1. Confirm rclone works:
+#        rclone lsd stichtingsharepoint:
+#
+#   2. Copy the full config:
+#        cp /home/pi/.config/rclone/rclone.conf sharepoint.conf
+#
+#   3. Encrypt it:
+#        openssl enc -aes-256-cbc -pbkdf2 -salt -in sharepoint.conf \
+#            -out sharepoint.conf.enc -base64
+#
+#      → You will be prompted for a password. Keep this secret and consistent
+#        with the one used by the installer.
+#
+#   4. Test decryption:
+#        openssl enc -d -aes-256-cbc -pbkdf2 -base64 -in sharepoint.conf.enc
+#
+#   5. Paste the entire base64 block (including trailing ==) into the installer:
+#        -----BEGIN ENCRYPTED RCLOUD CONFIG-----
+#        <paste here>
+#        -----END ENCRYPTED RCLOUD CONFIG-----
+#
+#   6. Delete plaintext after encryption:
+#        shred -u sharepoint.conf  ||  rm -f sharepoint.conf
+#
+################################################################################
 
 ##### Initialize #####################
 
