@@ -43,11 +43,18 @@ do_mount()
 	# Create mount point
 	/usr/bin/mkdir -p $MOUNT_POINT
 
-	# File system type specific mount options
-	OPTS="rw,relatime,users,gid=100,umask=000,shortname=mixed,utf8=1,flush"
+	# File system mount options reducing risk of data loss:
+	# rw: read/write mode
+	# users: allows non-root mounting/unmounting
+	# gid=100, umask=000: sets ownership and permissions
+	# utf8=1: ensures filenames are UTF-8 encoded
+	# noatime: No access time updates; eliminates extra writes
+	# flush: ensures FAT table and metadata are written promptly
+	# sync: writes all file data immediately
+	OPTS="rw,users,gid=100,umask=000,utf8=1,noatime,flush,sync"
 
 	# Try to mount the partition
-	if ! /bin/mount -o $OPTS $PARTITION $MOUNT_POINT; then
+	if ! /bin/mount -t vfat -o $OPTS $PARTITION $MOUNT_POINT; then
 		echo "$(date): Error: Mounting '$PARTITION' (status = $?)"
 		# Cleanup mount point
 		/usr/bin/rm -f $MOUNT_POINT
