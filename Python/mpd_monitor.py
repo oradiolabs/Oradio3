@@ -25,7 +25,6 @@ from os import path
 from time import sleep
 from threading import Thread, Lock
 from collections import defaultdict
-from mpd import MPDClient, CommandError, ProtocolError, ConnectionError as MPDConnectionError
 
 ##### oradio modules ####################
 from oradio_logging import oradio_log
@@ -82,11 +81,8 @@ class MPDEventMonitor(MPDBase):
             return  # Avoid re-initialization if already done
         self._initialized = True
 
-        # Execute MPDBase __init__
-        super().__init__()
-
-        # Connect client without crossfade
-        self._connect_client(crossfade=None)
+        # Execute MPDBase __init__ without crossfade
+        super().__init__(crossfade=None)
 
         # Snapshot of MPD database: directory -> set of file paths
         self._snapshot = defaultdict(set)

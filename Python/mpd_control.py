@@ -65,10 +65,19 @@ class MPDBase:
     - Locking to prevent concurrent access from multiple threads.
     - Logging of commands, connection attempts, and errors.
     """
-    def __init__(self) -> None:
-        """Initialize the MPDBase class and connect to the MPD server."""
+    def __init__(self, crossfade: int | None) -> None:
+        """
+        Initialize the MPDBase class and connect to the MPD server.
+
+        Args:
+            crossfade (int | None): Optional crossfade value in seconds.
+                                    If None, crossfade will not be set.
+        """
         self._lock = Lock()
+        self._crossfade = crossfade
         self._client = MPDClient()
+        self._connect_client()
+
 
     def _is_connected(self):
         """Return True if client is connected to MPD, False otherwise."""
@@ -78,13 +87,10 @@ class MPDBase:
         except (MPDConnectionError, BrokenPipeError, OSError):
             return False
 
-    def _connect_client(self, crossfade: int | None) -> None:
+    def _connect_client(self) -> None:
         """
         Establish a connection to MPD with retries and backoff.
         Optionally sets the crossfade value after a successful connection.
-
-        Args:
-            crossfade (int | None): Crossfade value to set (seconds). If None, skip setting crossfade.
         """
         for attempt in range(1, MPD_RETRIES + 1):
             try:
@@ -105,9 +111,9 @@ class MPDBase:
                     oradio_log.debug("MPD client already connected, skipping connect")
 
                 # Set crossfade if specified
-                if crossfade is not None:
-                    self._execute("crossfade", crossfade, allow_reconnect=False)
-                    oradio_log.info("MPD crossfade set to %d", crossfade)
+                if self._crossfade is not None:
+                    self._execute("crossfade", self._crossfade, allow_reconnect=False)
+                    oradio_log.info("MPD crossfade set to %d", self._crossfade)
 
                 return  # Connection successful
 
@@ -131,11 +137,13 @@ class MPDBase:
         - Retries only on actual lost connections.
         - ProtocolErrors are handled intelligently.
         - Supports lock timeout to prevent deadlocks.
+
         Args:
             command (str): MPD command to execute.
             *args: Positional arguments.
             allow_reconnect (bool): Prevent recursive reconnects.
             **kwargs: Keyword arguments.
+
         Returns:
             Result of the command, or None if all retries fail.
         """
@@ -204,11 +212,8 @@ class MPDControl(MPDBase):
     """
     def __init__(self) -> None:
         """Initialize the MPDControl client and connect to the MPD server."""
-        # Execute MPDBase __init__
-        super().__init__()
-
-        # Connect client and set crossfade
-        self._connect_client(crossfade=MPD_CROSSFADE)
+        # Execute MPDBase __init__ with crossfade
+        super().__init__(crossfade=MPD_CROSSFADE)
 
     def update_database(self) -> None:
         """
