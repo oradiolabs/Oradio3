@@ -30,9 +30,9 @@ Created on January 10, 2025
     - current: the directory/playlist in the playback queue
 """
 from time import sleep
-# Lock is not needed if MPDControl is correctly used per thread/process; included here as a safeguard against incorrect usage
-from threading import Thread, Lock
-# Use MPDConnectionError here because Python's built-in ConnectionError differs from the ConnectionError raised by the mpd2 library
+# Lock added as a safeguard; unnecessary if MPDControl is used correctly per thread/process
+from threading import Lock
+# Use MPDConnectionError because mpd2 raises a different ConnectionError than Python's built-in one
 from mpd import MPDClient, CommandError, ProtocolError, ConnectionError as MPDConnectionError
 
 ##### oradio modules ####################

@@ -23,9 +23,11 @@ def singleton(cls) -> object:
     """
     Thread-safe singleton decorator for any class.
 
-    Ensures that a class only ever has **one instance**. Thread-safe using a lock.
+    Ensures that a class only ever has **one instance**. and is thread-safe using a lock.
     @wrap() ensures that the wrapper looks and behaves like the original function or method.
     Guarantees that the class's __init__ method runs **only once**, even if the class is instantiated multiple times.
+
+    MOTE: Single underscore indicates internal use; accessing it here is intentional for the decorator.
 
     Args:
         cls: The class to decorate.
@@ -36,9 +38,12 @@ def singleton(cls) -> object:
     Usage:
         @singleton
         class MyClass:
+            pass
     """
-    cls._instance = None  # Store the singleton instance
-    cls._lock = Lock()    # Lock for thread-safety
+    # pylint: disable=protected-access
+    cls._instance = None  # Store the singleton instance (per class)
+    cls._lock = Lock()    # Lock to make instance creation thread-safe
+    # pylint: enable=protected-access
 
     # Save the original __init__ method
     original_init = cls.__init__
@@ -46,8 +51,9 @@ def singleton(cls) -> object:
     @wraps(cls.__init__)
     def init_once(self, *args, **kwargs):
         """
-        Replacement __init__ that runs only once.
+        Replacement __init__ that runs only once per once.
         """
+        # pylint: disable=protected-access
         # Check if the instance has already been initialized
         if getattr(self, "_initialized", False):
             return  # Skip re-initialization
@@ -55,6 +61,7 @@ def singleton(cls) -> object:
         original_init(self, *args, **kwargs)
         # Mark as initialized
         self._initialized = True
+        # pylint: enable=protected-access
 
     # Replace the class's __init__ with our wrapper
     cls.__init__ = init_once
@@ -65,12 +72,14 @@ def singleton(cls) -> object:
         Wrapper function that controls instance creation.
         Implements double-checked locking for thread safety.
         """
+        # pylint: disable=protected-access
         if cls._instance is None:
             # Acquire the lock before creating the instance
             with cls._lock:
                 if cls._instance is None:   # Double-check inside the lock
                     cls._instance = cls(*args, **kwargs)
         return cls._instance
+        # pylint: enable=protected-access
 
     return wrapper
 
