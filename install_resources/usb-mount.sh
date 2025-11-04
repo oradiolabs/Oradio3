@@ -48,10 +48,11 @@ do_mount()
 	# users: allows non-root mounting/unmounting
 	# gid=100, umask=000: sets ownership and permissions
 	# utf8=1: ensures filenames are UTF-8 encoded
-	# noatime: No access time updates; eliminates extra writes
+	# noatime: prevents file access times from being updated every time
+	# nodiratime: prevents directory access times from being updated every time
 	# flush: ensures FAT table and metadata are written promptly
 	# sync: writes all file data immediately
-	OPTS="rw,users,gid=100,umask=000,utf8=1,noatime,flush,sync"
+	OPTS="rw,users,gid=100,umask=000,utf8=1,noatime,nodiratime,flush,sync"
 
 	# Try to mount the partition
 	if ! /bin/mount -t vfat -o $OPTS $PARTITION $MOUNT_POINT; then
