@@ -69,7 +69,7 @@ oradio_log.info("Initialising MPDControl")
 # Each thread/process should have its own MPDControl instance.
 # A global instance may cause concurrent access conflicts with the MPD service.
 # MPDControl includes built-in safeguards against improper use, so this works.
-mpd_client = MPDControl()
+mpd_control = MPDControl()
 
 # Get the web server app
 api_app = FastAPI()
@@ -106,8 +106,8 @@ async def buttons_page(request: Request):
     # Return playlist page and presets, directories and playlists as context
     context = {
         "presets"     : load_presets(),
-        "directories" : mpd_client.get_directories(),
-        "playlists"   : mpd_client.get_playlists()
+        "directories" : mpd_control.get_directories(),
+        "playlists"   : mpd_control.get_playlists()
     }
     return templates.TemplateResponse(request=request, name="buttons.html", context=context)
 
@@ -156,7 +156,7 @@ async def save_preset(changedpreset: ChangedPreset):
         store_presets(presets)
 
 #REVIEW Onno: Send only which preset has changed, let oradio_control check if changed preset is a webradio or not
-        if mpd_client.is_webradio(mpdlist=changedpreset.playlist):
+        if mpd_control.is_webradio(mpdlist=changedpreset.playlist):
             # Send message playlist is web radio
             message["state"] = MESSAGE_WEB_SERVICE_PL_WEBRADIO
             oradio_log.debug("Send web service message: %s", message)
@@ -183,7 +183,7 @@ async def playlists_page(request: Request):
     """
     oradio_log.debug("Serving playlists page")
 
-    context = {"playlists": mpd_client.get_playlists()}
+    context = {"playlists": mpd_control.get_playlists()}
     return templates.TemplateResponse(request=request, name="playlists.html", context=context)
 
 class Modify(BaseModel):
@@ -212,14 +212,14 @@ async def playlist_modify(modify: Modify):
             oradio_log.debug("Create playlist: '%s'", modify.playlist)
         else:
             oradio_log.debug("Add song '%s' to playlist '%s'", modify.song, modify.playlist)
-        return mpd_client.add(modify.playlist, modify.song)
+        return mpd_control.add(modify.playlist, modify.song)
 
     if modify.action == 'Remove':
         if modify.song is None:
             oradio_log.debug("Delete playlist: '%s'", modify.playlist)
         else:
             oradio_log.debug("Delete song '%s' from playlist '%s'", modify.song, modify.playlist)
-        return mpd_client.remove(modify.playlist, modify.song)
+        return mpd_control.remove(modify.playlist, modify.song)
 
     oradio_log.error("Unexpected action '%s'", modify.action)
     return JSONResponse(status_code=400, content={"message": f"De action '{modify.action}' is ongeldig"})
@@ -246,10 +246,10 @@ async def get_songs(songs: Songs):
     oradio_log.debug("Serving songs from '%s' for pattern '%s'", songs.source, songs.pattern)
 
     if songs.source == 'playlist':
-        return mpd_client.get_songs(songs.pattern)
+        return mpd_control.get_songs(songs.pattern)
 
     if songs.source == 'search':
-        return mpd_client.search(songs.pattern)
+        return mpd_control.search(songs.pattern)
 
     oradio_log.error("Invalid source '%s'", songs.source)
     return JSONResponse(status_code=400, content={"message": f"De source '{songs.source}' is ongeldig"})
@@ -275,7 +275,7 @@ async def play_song(song: Song):
     oradio_log.debug("play song: '%s'", song.song)
 
     # Call MPD to play selected song
-    mpd_client.play_song(song.song)
+    mpd_control.play_song(song.song)
 
     # Create message
     message = {
