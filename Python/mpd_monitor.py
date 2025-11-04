@@ -23,19 +23,16 @@ Created on January 10, 2025
 """
 from os import path
 from time import sleep
+from functools import wraps
 from threading import Thread, Lock
 from collections import defaultdict
 
 ##### oradio modules ####################
 from oradio_logging import oradio_log
-from mpd_control import MPDBase
+from singleton import singleton
+from mpd_base import MPDBase
 
 ##### Local constants ####################
-MPD_HOST     = "localhost"
-MPD_PORT     = 6600
-MPD_RETRIES  = 3
-MPD_BACKOFF  = 1    # seconds
-LOCK_TIMEOUT = 5    # seconds
 # Mapping of MPD idle events to typical client actions
 MPD_EVENT_ACTIONS = {
     "database": "Database changed",                      # Consider updating your local song cache, e.g., client.listall() or client.list()
@@ -51,6 +48,7 @@ MPD_EVENT_ACTIONS = {
     "message": "Message sent via MPD",                   # rarely used, may need client.readmessages() if implemented
 }
 
+@singleton
 class MPDEventMonitor(MPDBase):
     """
     Singleton class that monitors MPD (Music Player Daemon) events.
@@ -58,31 +56,10 @@ class MPDEventMonitor(MPDBase):
     - Listens for events in a background thread
     - Logs errors, database updates, and playlist/player info
     """
-
-# In below code using same construct in multiple modules for singletons
-# pylint: disable=duplicate-code
-
-    _lock = Lock()       # Class-level lock to make singleton thread-safe
-    _instance = None     # Holds the single instance of this class
-    _initialized = False # Tracks whether __init__ has been run
-
-    # Underscores mark args and kwargs as 'intentionally unused'
-    def __new__(cls, *_args, **_kwargs):
-        """Ensure only one instance of MPDEventMonitor is created (singleton pattern)"""
-        with cls._lock:
-            if cls._instance is None:
-                cls._instance = super(MPDEventMonitor, cls).__new__(cls)
-        return cls._instance
-
     def __init__(self):
         """Initialize the MPDMonitor client and connect to the MPD server."""
-        # Prevent re-initialization if the singleton is created again
-        if self._initialized:
-            return  # Avoid re-initialization if already done
-        self._initialized = True
-
-        # Execute MPDBase __init__ without crossfade
-        super().__init__(crossfade=None)
+        # First, initialize the base class
+        super().__init__()
 
         # Snapshot of MPD database: directory -> set of file paths
         self._snapshot = defaultdict(set)
@@ -209,12 +186,12 @@ class MPDEventMonitor(MPDBase):
 # Entry point for stand-alone operation
 if __name__ == '__main__':
 
-    monitor = MPDEventMonitor()
+    mpd_monitor = MPDEventMonitor()
     print("Running MPD event monitor")
-    monitor.start()
+    mpd_monitor.start()
     try:
         while True:
             sleep(1)
     except KeyboardInterrupt:
-        monitor.stop()
+        mpd_monitor.stop()
     print("Exiting MPD event monitor")
