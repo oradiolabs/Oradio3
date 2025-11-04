@@ -83,6 +83,9 @@ SCRIPT_PATH=$( cd -- "$( dirname -- "${BASH_SOURCE}" )" &> /dev/null && pwd )
 # Working directory
 cd $SCRIPT_PATH
 
+# Logfile capturing rclone output
+LOGFILE="rclone.log"
+
 echo -e "${GREEN}$(date +'%Y-%m-%d %H:%M:%S'): Starting synchronizing SharePoint content to USB${NC}"
 
 # Check for internet connection
@@ -177,22 +180,39 @@ echo -e "${GREEN}rclone installed and up to date${NC}"
 RCLONE_TMP="/tmp/rclone.tmp"
 RCLONE_CFG="/tmp/rclone.cfg"
 
-# Cleanup on exit
-trap '
-	# Clear sensitive variable if set
-	unset PW 2>/dev/null
+function cleanup {
+    # Clear sensitive variable if set
+    unset PW 2>/dev/null
 
-	echo "Cleaning up temporary files..."
+    # Log exit
+    printf "\n${YELLOW}%s${NC}\n" "$(date +'%Y-%m-%d %H:%M:%S'): Synchronizing SharePoint content to USB stopped"
 
-	# Loop through all RCLONE_* variables
-	for var in $(compgen -v RCLONE_); do
+	# Safely remove RCLONE_* files
+	compgen -v | grep '^RCLONE_' | while IFS= read -r var; do
 		val="${!var}"
 		if [ -n "$val" ] && [ -f "$val" ]; then
 			rm -f "$val"
-			echo "deleted $val"
+			echo "Removed $val\n"
 		fi
 	done
-' EXIT
+
+    # Restore services
+    if ((${#STOPPED_SERVICES[@]} > 0)); then
+        printf "${GREEN}%s${NC}\n" "Restarting previously stopped services..."
+        for (( idx=${#STOPPED_SERVICES[@]}-1; idx>=0; idx-- )); do
+            service="${STOPPED_SERVICES[idx]}"
+            echo -e "${YELLOW}%s${NC}\n" "Starting $service service..."
+            if sudo systemctl start "$service" >/dev/null 2>&1; then
+                echo -e "${GREEN}%s${NC}\n" "$service service started successfully"
+            else
+                echo -e "${RED}%s${NC}\n" "Failed to start $service service"
+            fi
+        done
+    fi
+}
+
+# Set trap
+trap cleanup EXIT
 
 echo "Setting up Sharepoint configuration..."
 
@@ -342,7 +362,7 @@ fi
 # --checksum				Compares files by checksum
 # --delete-during			Deletes files during transfer (faster)
 # --exclude ...				Skips unwanted files
-rclone sync "$SHAREPOINT" "$MOUNTPOINT" \
+if rclone sync "$SHAREPOINT" "$MOUNTPOINT" \
 	--config "$RCLONE_CFG" \
 	--stats=1s \
 	--stats-one-line \
@@ -351,30 +371,18 @@ rclone sync "$SHAREPOINT" "$MOUNTPOINT" \
 	--checksum \
 	--delete-during \
 	--exclude "System Volume Information/**" \
-	$DRYRUN_FLAG
-
-echo -e "${GREEN}USB content updated successfully${NC}"
+	$DRYRUN_FLAG; then
+	echo -e "${GREEN}rclone sync completed successfully${NC}" | tee -a "$LOGFILE"
+else
+	RC=$?
+	echo -e "${RED}rclone sync failed with exit code $RC${NC}" | tee -a "$LOGFILE" >&2
+fi
 
 ##### Finalize #######################
 
-# Restart services only if any were stopped earlier
-if ((${#STOPPED_SERVICES[@]} > 0)); then
-	echo -e "${GREEN}Restarting previously stopped services...${NC}"
-	# Loop from last index to first
-	for (( idx=${#STOPPED_SERVICES[@]}-1; idx>=0; idx-- )); do
-		service="${STOPPED_SERVICES[idx]}"
-		echo -e "${YELLOW}Starting $service service...${NC}"
-		if sudo systemctl start "$service" >/dev/null 2>&1; then
-			echo -e "${GREEN}$service service started successfully${NC}"
-		else
-			echo -e "${RED}Failed to start $service service${NC}"
-		fi
-	done
-fi
-
 # Print a final message depending on dry-run
 if [[ -n "$DRYRUN_FLAG" ]]; then
-	echo -e "${GREEN}Finished checking SharePoint content versus USB (dry-run, no changes made)${NC}"
+	echo -e "${GREEN}$(date +'%Y-%m-%d %H:%M:%S'): Finished checking SharePoint content versus USB (dry-run, no changes made)${NC}"
 else
-	echo -e "${GREEN}Finished synchronizing SharePoint content to USB${NC}"
+	echo -e "${GREEN}$(date +'%Y-%m-%d %H:%M:%S'): Finished synchronizing SharePoint content to USB${NC}"
 fi
