@@ -38,7 +38,7 @@ from multiprocessing import Queue
 from oradio_logging import oradio_log
 from volume_control import VolumeControl
 from mpd_control import MPDControl
-from mpd_monitor import MPDEventMonitor     # Optional: MPD events monitoring in the background
+from mpd_monitor import MPDMonitor     # Optional: MPD events monitoring in the background
 from led_control import LEDControl
 from play_system_sound import PlaySystemSound
 from touch_buttons import TouchButtons
@@ -98,7 +98,7 @@ usb_present.set() # USB present to go over start-up sequence (will be updated af
 remote_monitor = RmsService()
 
 oradio_log.info("Start MPD event monitoring")
-mpd_monitor = MPDEventMonitor()
+mpd_monitor = MPDMonitor()
 mpd_monitor.start()
 # oradio_log.info("Stop MPD event monitoring")
 # mpd_monitor.stop()

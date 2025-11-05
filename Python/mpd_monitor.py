@@ -48,7 +48,7 @@ MPD_EVENT_ACTIONS = {
 }
 
 @singleton
-class MPDEventMonitor(MPDBase):
+class MPDMonitor(MPDBase):
     """
     Singleton class that monitors MPD (Music Player Daemon) events.
     - Maintains a snapshot of the MPD database (directory -> files)
@@ -72,7 +72,7 @@ class MPDEventMonitor(MPDBase):
 
     def _build_initial_snapshot(self) -> None:
         """Build the initial snapshot of the MPD database (directory -> files)."""
-        for song in self._execute("listall"):
+        for song in self._execute("listall") or []:
             if 'file' in song:
                 directory = path.dirname(song['file'])
                 self._snapshot[directory].add(song['file'])
@@ -185,7 +185,7 @@ class MPDEventMonitor(MPDBase):
 # Entry point for stand-alone operation
 if __name__ == '__main__':
 
-    mpd_monitor = MPDEventMonitor()
+    mpd_monitor = MPDMonitor()
     print("Running MPD event monitor")
     mpd_monitor.start()
     try:
