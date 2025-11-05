@@ -70,51 +70,24 @@ YELLOW='\033[1;93m'
 GREEN='\033[1;32m'
 NC='\033[0m'
 
+#---------- Ensure using bash ----------
+
 # The script uses bash constructs
 if [ -z "$BASH" ]; then
 	echo "${RED}This script requires bash${NC}"
 	exit 1
 fi
 
-# Get the script name and path
-SCRIPT_NAME=$(basename $BASH_SOURCE)
-SCRIPT_PATH=$( cd -- "$( dirname -- "${BASH_SOURCE}" )" &> /dev/null && pwd )
+#---------- Ensure connected to internet ----------
 
-# Working directory
-cd $SCRIPT_PATH
-
-# Logfile capturing rclone output
-LOGFILE="rclone.log"
-
-echo -e "${GREEN}$(date +'%Y-%m-%d %H:%M:%S'): Starting synchronizing SharePoint content to USB${NC}"
-
-# Check for internet connection
 if ! ping -c1 -W2 8.8.8.8 >/dev/null 2>&1; then
 	echo -e "${RED}No internet connection${NC}"
 	exit 1
 fi
 
-# List of services to manage
-SERVICES=("oradio" "mpd")
+#---------- Ensure USB is present and ready ----------
 
-# Initialize array to track which services were stopped
-STOPPED_SERVICES=()
-
-# Stop running services
-for service in "${SERVICES[@]}"; do
-	if systemctl is-active --quiet "$service"; then
-		echo -e "${YELLOW}Stopping $service service...${NC}"
-		if sudo systemctl stop "$service" >/dev/null 2>&1; then
-			echo -e "${YELLOW}$service service stopped. Will be restarted later.${NC}"
-			STOPPED_SERVICES+=("$service")
-		else
-			echo -e "${RED}Failed to stop $service service${NC}"
-		fi
-	fi
-done
-
-# Define source and destination
-SHAREPOINT="stichtingsharepoint:Docs_StichtingOradio/Music_Read_Only/Oradio3USB"
+# Define USB location
 MOUNTPOINT="/media/oradio"
 
 # Check USB present
@@ -122,6 +95,24 @@ if ! mountpoint -q "$MOUNTPOINT"; then
 	echo -e "${RED}USB is missing${NC}"
 	exit 1
 fi
+
+# Get device and options for the mount point
+read -r DEVICE OPTIONS < <(findmnt -n -o SOURCE,OPTIONS "$MOUNTPOINT")
+
+# Unmount the device
+sudo umount "$DEVICE" 2>/dev/null
+
+# Mount with specified options
+OPTS="rw,users,uid=0,gid=100,fmask=111,dmask=000,utf8=1"
+if ! sudo mount -t vfat -o "$OPTS" "$DEVICE" "$MOUNTPOINT"; then
+	echo -e "${RED}Failed to mount $DEVICE to $MOUNTPOINT${NC}"
+	exit 1
+fi
+
+# Set ownership and group of USB content to root:users
+sudo chown -R root:users "$MOUNTPOINT"
+
+#---------- Ensure rclone is installed and up to date ----------
 
 # Install rsync if missing or upgrade if out of date
 STAMP_FILE="/var/lib/apt/last_update_stamp"
@@ -143,9 +134,9 @@ if (( age > MAX_AGE )); then
 	sudo apt-get update
 	# Save time lists were updated
 	date +%s | sudo tee "$STAMP_FILE" >/dev/null
-	echo -e "${GREEN}Package lists updated, stamp file updated${NC}"
+	echo "Package lists updated, stamp file updated"
 else
-	echo -e "${GREEN}Package lists are up to date${NC}"
+	echo "Package lists are up to date"
 fi
 # NOTE: We do not upgrade: https://forums.raspberrypi.com/viewtopic.php?p=2310861&hilit=oradio#p2310861
 
@@ -173,39 +164,42 @@ else
 fi
 
 # Progress report
-echo -e "${GREEN}rclone installed and up to date${NC}"
+echo "rclone installed and up to date"
 
-##### Configure rclone ###############
-
-RCLONE_TMP="/tmp/rclone.tmp"
-RCLONE_CFG="/tmp/rclone.cfg"
+#---------- Configure cleanup and restore on exit ----------
 
 function cleanup {
+    # Log exit
+    echo -e "\nCleanup on exit:"
+
     # Clear sensitive variable if set
     unset PW 2>/dev/null
 
-    # Log exit
-    printf "\n${YELLOW}%s${NC}\n" "$(date +'%Y-%m-%d %H:%M:%S'): Synchronizing SharePoint content to USB stopped"
-
 	# Safely remove RCLONE_* files
 	compgen -v | grep '^RCLONE_' | while IFS= read -r var; do
-		val="${!var}"
-		if [ -n "$val" ] && [ -f "$val" ]; then
-			rm -f "$val"
-			echo "Removed $val\n"
-		fi
+		[ -z "$var" ] && continue
+		val="${!var:-}"  # default to empty if somehow undefined
+		[ -n "$val" ] && [ -f "$val" ] && rm -f "$val" && echo " - Removed $val"
 	done
+
+	# Unmount the device
+	sudo umount "$DEVICE" 2>/dev/null
+	# Mount with saved options
+	if ! sudo mount -t vfat -o "$OPTIONS" "$DEVICE" "$MOUNTPOINT"; then
+		echo -e "${RED}Failed to mount $DEVICE to $MOUNTPOINT${NC}"
+	fi
+    echo " - Remounted USB"
 
     # Restore services
     if ((${#STOPPED_SERVICES[@]} > 0)); then
-        printf "${GREEN}%s${NC}\n" "Restarting previously stopped services..."
+        echo "Restarting previously stopped services..."
         for (( idx=${#STOPPED_SERVICES[@]}-1; idx>=0; idx-- )); do
             service="${STOPPED_SERVICES[idx]}"
-            echo -e "${YELLOW}%s${NC}\n" "Starting $service service..."
+            echo "Starting $service service...$"
             if sudo systemctl start "$service" >/dev/null 2>&1; then
-                echo -e "${GREEN}%s${NC}\n" "$service service started successfully"
+                echo " - $service service started successfully"
             else
-                echo -e "${RED}%s${NC}\n" "Failed to start $service service"
+                echo -e "${RED}Failed to start $service service${NC}"
             fi
         done
     fi
@@ -214,7 +208,30 @@ function cleanup {
 # Set trap
 trap cleanup EXIT
 
-echo "Setting up Sharepoint configuration..."
+#---------- Stop services using the USB ----------
+
+# List of services to manage
+SERVICES=("oradio" "mpd")
+
+# Initialize array to track which services were stopped
+STOPPED_SERVICES=()
+
+# Stop running services
+for service in "${SERVICES[@]}"; do
+	if systemctl is-active --quiet "$service"; then
+		if sudo systemctl stop "$service" >/dev/null 2>&1; then
+			echo -e "${YELLOW}$service service stopped. Will be restarted later.${NC}"
+			STOPPED_SERVICES+=("$service")
+		else
+			echo -e "${RED}Failed to stop $service service${NC}"
+		fi
+	fi
+done
+
+#---------- Prepare rclone environment ----------
+
+RCLONE_TMP="/tmp/rclone.tmp"
+RCLONE_CFG="/tmp/rclone.cfg"
 
 # Paste your encrypted block (from sharepoint.conf.enc) between the markers below
 cat <<'ENCRYPTED' > "$RCLONE_TMP"
@@ -335,16 +352,13 @@ fi
 
 # Test rclone connection
 if rclone --config "$RCLONE_CFG" lsd stichtingsharepoint: >/dev/null; then
-	echo -e "${GREEN}SharePoint connection verified successfully${NC}"
+	echo "SharePoint connection verified successfully"
 else
 	echo -e "${RED}Could not verify SharePoint connection. Check credentials or network${NC}"
 	exit 1
 fi
 
-echo -e "${GREEN}Sharepoint configuration installed successfully${NC}"
-
-##### Clone Sharepoint content #######
-
+# Prompt for overwrite or check only
 read -r -p "Run in dry-run mode? [y/N]: " answer
 if [[ "$answer" =~ ^[Yy]$ ]]; then
 	DRYRUN_FLAG="--dry-run"
@@ -353,6 +367,16 @@ else
     DRYRUN_FLAG=""
 	echo -e "${YELLOW}Dry-run mode disabled: USB content will be overwritten${NC}"
 fi
+
+#---------- rclone SharePoint content with USB ----------
+
+# Logfile capturing rclone output
+LOGFILE="rclone.log"
+
+# Define source and destination
+SHAREPOINT="stichtingsharepoint:Docs_StichtingOradio/Music_Read_Only/Oradio3USB"
+
+echo "$(date +'%Y-%m-%d %H:%M:%S'): Start synchronizing SharePoint content to USB" | tee -a "$LOGFILE"
 
 # Run the sync with options:
 # --progress				Shows live progress (interactive)
@@ -372,17 +396,12 @@ if rclone sync "$SHAREPOINT" "$MOUNTPOINT" \
 	--delete-during \
 	--exclude "System Volume Information/**" \
 	$DRYRUN_FLAG; then
-	echo -e "${GREEN}rclone sync completed successfully${NC}" | tee -a "$LOGFILE"
+	if [[ -n "$DRYRUN_FLAG" ]]; then
+		echo -e "${GREEN}$(date +'%Y-%m-%d %H:%M:%S'): Finished checking SharePoint content versus USB${NC} - ${YELLOW}dry-run, no changes made${NC}" | tee -a "$LOGFILE"
+	else
+		echo -e "${GREEN}$(date +'%Y-%m-%d %H:%M:%S'): Finished synchronizing SharePoint content to USB${NC}" | tee -a "$LOGFILE"
+	fi
 else
 	RC=$?
-	echo -e "${RED}rclone sync failed with exit code $RC${NC}" | tee -a "$LOGFILE" >&2
-fi
-
-##### Finalize #######################
-
-# Print a final message depending on dry-run
-if [[ -n "$DRYRUN_FLAG" ]]; then
-	echo -e "${GREEN}$(date +'%Y-%m-%d %H:%M:%S'): Finished checking SharePoint content versus USB (dry-run, no changes made)${NC}"
-else
-	echo -e "${GREEN}$(date +'%Y-%m-%d %H:%M:%S'): Finished synchronizing SharePoint content to USB${NC}"
+	echo -e "${RED}$(date +'%Y-%m-%d %H:%M:%S'): rclone sync failed with exit code $RC${NC}" | tee -a "$LOGFILE" >&2
 fi
