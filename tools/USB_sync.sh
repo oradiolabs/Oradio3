@@ -195,7 +195,6 @@ function cleanup {
         echo "Restarting previously stopped services..."
         for (( idx=${#STOPPED_SERVICES[@]}-1; idx>=0; idx-- )); do
             service="${STOPPED_SERVICES[idx]}"
-            echo "Starting $service service...$"
             if sudo systemctl start "$service" >/dev/null 2>&1; then
                 echo " - $service service started successfully"
             else
