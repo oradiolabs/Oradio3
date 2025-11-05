@@ -46,13 +46,16 @@ do_mount()
 	# File system mount options reducing risk of data loss:
 	# rw: read/write mode
 	# users: allows non-root mounting/unmounting
-	# gid=100, umask=000: sets ownership and permissions
+	# uid=0: sets ownership to root
+	# gid=100: sets group to all users
+	# fmask=111: sets file permissions to read+write
+	# dmask=000: sets directory permissions to read+write+execute
 	# utf8=1: ensures filenames are UTF-8 encoded
 	# noatime: prevents file access times from being updated every time
 	# nodiratime: prevents directory access times from being updated every time
 	# flush: ensures FAT table and metadata are written promptly
 	# sync: writes all file data immediately
-	OPTS="rw,users,gid=100,umask=000,utf8=1,noatime,nodiratime,flush,sync"
+	OPTS="rw,users,uid=0,gid=100,fmask=111,dmask=000,utf8=1,noatime,nodiratime,flush,sync"
 
 	# Try to mount the partition
 	if ! /bin/mount -t vfat -o $OPTS $PARTITION $MOUNT_POINT; then
