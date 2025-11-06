@@ -140,9 +140,35 @@ fi
 
 #---------- 3. Configure cleanup and restore on exit ----------
 
+# Global flag to indicate cleanup already done
+CLEANUP_DONE=false
+
 function cleanup {
-    # Log exit
-    echo -e "\nCleanup on exit:"
+
+	local signal="${1:-EXIT}"	# trap signal: EXIT, INT, TERM
+	local exitcode="${2:-0}"	# optional exit code for EXIT
+
+    # Reset terminal
+    stty sane
+
+	# Skip if cleanup already ran
+	if $CLEANUP_DONE; then
+		return
+	fi
+	CLEANUP_DONE=true
+
+	# Handle signal messages
+	case "$signal" in
+		INT)
+			echo -e "\n${RED}CTRL-C: Cleanup on exit:${NC}" 
+			;;
+		TERM)
+			echo -e "\n${RED}SIGNAL: Cleanup on exit:${NC}" 
+			;;
+		EXIT)
+			echo "Cleanup on exit (code $exitcode)"
+			;;
+	esac
 
     # Clear sensitive variable if set
     unset PW
@@ -190,8 +216,14 @@ function cleanup {
 	fi
 }
 
-# Set trap for cleanup on script exit
-trap cleanup EXIT
+# EXIT trap for normal exit
+trap 'EXITCODE=$?; cleanup EXIT $EXITCODE' EXIT
+
+# INT trap for Ctrl+C
+trap 'cleanup INT; exit 130' INT
+
+# TERM trap (optional)
+trap 'cleanup TERM; exit 143' TERM
 
 #---------- 4. Stop services using the USB ----------
 
