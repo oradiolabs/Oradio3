@@ -70,7 +70,7 @@ YELLOW='\033[1;93m'
 GREEN='\033[1;32m'
 NC='\033[0m'
 
-#---------- Ensure using bash ----------
+#---------- 1. Ensure using bash ----------
 
 # The script uses bash constructs
 if [ -z "$BASH" ]; then
@@ -78,39 +78,12 @@ if [ -z "$BASH" ]; then
 	exit 1
 fi
 
-#---------- Ensure connected to internet ----------
+#---------- 2. Ensure connected to internet ----------
 
 if ! ping -c1 -W2 8.8.8.8 >/dev/null 2>&1; then
 	echo -e "${RED}No internet connection${NC}"
 	exit 1
 fi
-
-#---------- Ensure USB is present and ready ----------
-
-# Define USB location
-MOUNTPOINT="/media/oradio"
-
-# Check USB present
-if ! mountpoint -q "$MOUNTPOINT"; then
-	echo -e "${RED}USB is missing${NC}"
-	exit 1
-fi
-
-# Get device and options for the mount point
-read -r DEVICE OPTIONS < <(findmnt -n -o SOURCE,OPTIONS "$MOUNTPOINT")
-
-# Unmount the device
-sudo umount "$DEVICE" 2>/dev/null
-
-# Mount with specified options
-OPTS="rw,users,uid=0,gid=100,fmask=111,dmask=000,utf8=1"
-if ! sudo mount -t vfat -o "$OPTS" "$DEVICE" "$MOUNTPOINT"; then
-	echo -e "${RED}Failed to mount $DEVICE to $MOUNTPOINT${NC}"
-	exit 1
-fi
-
-# Set ownership and group of USB content to root:users
-sudo chown -R root:users "$MOUNTPOINT"
 
 #---------- Ensure rclone is installed and up to date ----------
 
@@ -166,48 +139,62 @@ fi
 # Progress report
 echo "rclone installed and up to date"
 
-#---------- Configure cleanup and restore on exit ----------
+#---------- 3. Configure cleanup and restore on exit ----------
 
 function cleanup {
     # Log exit
     echo -e "\nCleanup on exit:"
 
     # Clear sensitive variable if set
-    unset PW 2>/dev/null
+    unset PW
 
-	# Safely remove RCLONE_* files
-	compgen -v | grep '^RCLONE_' | while IFS= read -r var; do
-		[ -z "$var" ] && continue
-		val="${!var:-}"  # default to empty if somehow undefined
-		[ -n "$val" ] && [ -f "$val" ] && rm -f "$val" && echo " - Removed $val"
-	done
-
-	# Unmount the device
-	sudo umount "$DEVICE" 2>/dev/null
-	# Mount with saved options
-	if ! sudo mount -t vfat -o "$OPTIONS" "$DEVICE" "$MOUNTPOINT"; then
-		echo -e "${RED}Failed to mount $DEVICE to $MOUNTPOINT${NC}"
+	# Safely remove all RCLONE_* files
+	rclone_vars=$(compgen -v | grep '^RCLONE_' || true)  # safe even if no matches
+	if [ -n "$rclone_vars" ]; then
+		while IFS= read -r var; do
+			val="${!var:-}"          # safe default if unset
+			if [ -n "$val" ] && [ -f "$val" ]; then
+				rm -f "$val" && echo " - Removed $val"
+			fi
+		done <<< "$rclone_vars"
+	else
+		echo "No temporrary files removed"
 	fi
-    echo " - Remounted USB"
 
-    # Restore services
-    if ((${#STOPPED_SERVICES[@]} > 0)); then
-        echo "Restarting previously stopped services..."
-        for (( idx=${#STOPPED_SERVICES[@]}-1; idx>=0; idx-- )); do
-            service="${STOPPED_SERVICES[idx]}"
-            if sudo systemctl start "$service" >/dev/null 2>&1; then
-                echo " - $service service started successfully"
-            else
-                echo -e "${RED}Failed to start $service service${NC}"
-            fi
-        done
-    fi
+	# Safely remount USB
+	if  [[ -n "${OPTIONS:-}" && -n "${DEVICE:-}" && -b "${DEVICE:-}" && -n "${MOUNTPOINT:-}" ]]; then
+		# Unmount silently, ignoring errors if not mounted
+		sudo umount "$DEVICE" 2>/dev/null || true
+
+		# Attempt to mount the device with the provided options
+		if sudo mount -t vfat -o "$OPTIONS" "$DEVICE" "$MOUNTPOINT"; then
+			echo " - USB device successfully remounted"
+		else
+			echo -e "${RED}Failed to mount $DEVICE to $MOUNTPOINT${NC}"
+		fi
+	else
+		echo "USB not remounted"
+	fi
+
+	# Restore services safely
+	if [ "${STOPPED_SERVICES+set}" = set ] && [ "${#STOPPED_SERVICES[@]}" -gt 0 ]; then
+		for (( idx=${#STOPPED_SERVICES[@]}-1; idx>=0; idx-- )); do
+			service="${STOPPED_SERVICES[idx]}"
+			if sudo systemctl start "$service" >/dev/null 2>&1; then
+				echo " - $service service started successfully"
+			else
+				echo -e "${RED}Failed to start $service${NC}"
+			fi
+		done
+	else
+		echo "No services restarted"
+	fi
 }
 
-# Set trap
+# Set trap for cleanup on script exit
 trap cleanup EXIT
 
-#---------- Stop services using the USB ----------
+#---------- 4. Stop services using the USB ----------
 
 # List of services to manage
 SERVICES=("oradio" "mpd")
@@ -223,11 +210,51 @@ for service in "${SERVICES[@]}"; do
 			STOPPED_SERVICES+=("$service")
 		else
 			echo -e "${RED}Failed to stop $service service${NC}"
+			exit 1
 		fi
 	fi
 done
 
-#---------- Prepare rclone environment ----------
+#---------- 5. Ensure USB is present and ready ----------
+
+# Define USB location
+MOUNTPOINT="/media/oradio"
+
+# Check USB present
+if ! mountpoint -q "$MOUNTPOINT"; then
+	echo -e "${RED}USB is missing${NC}"
+	exit 1
+fi
+
+# Get device and options for the mount point
+read -r DEVICE OPTIONS < <(findmnt -n -o SOURCE,OPTIONS "$MOUNTPOINT" || true)
+
+# Ensure DEVICE is set and exists
+if [[ -z "${DEVICE:-}" || ! -b "${DEVICE:-}" ]]; then
+	echo -e "${RED}USB device not found or invalid${NC}"
+	exit 1
+fi
+
+# Ensure OPTIONS is set
+if [[ -z "${OPTIONS:-}" ]]; then
+	echo -e "${RED}Mount options could not be determined${NC}"
+	exit 1
+fi
+
+# Unmount silently, ignoring errors if not mounted
+sudo umount "$DEVICE" 2>/dev/null || true
+
+# Mount with desired options
+OPTS="rw,users,uid=0,gid=100,fmask=111,dmask=000,utf8=1"
+if ! sudo mount -t vfat -o "$OPTS" "$DEVICE" "$MOUNTPOINT"; then
+	echo -e "${RED}Failed to mount $DEVICE to $MOUNTPOINT${NC}"
+	exit 1
+fi
+
+# Force ownership and group of USB content to root:users
+sudo chown -R root:users "$MOUNTPOINT"
+
+#---------- 6. Prepare rclone environment ----------
 
 RCLONE_TMP="/tmp/rclone.tmp"
 RCLONE_CFG="/tmp/rclone.cfg"
@@ -367,10 +394,11 @@ else
 	echo -e "${YELLOW}Dry-run mode disabled: USB content will be overwritten${NC}"
 fi
 
-#---------- rclone SharePoint content with USB ----------
+#---------- 7. rclone SharePoint content with USB ----------
 
-# Logfile capturing rclone output
+# Create empty log file capturing rclone output
 LOGFILE="rclone.log"
+: > "$LOGFILE"
 
 # Define source and destination
 SHAREPOINT="stichtingsharepoint:Docs_StichtingOradio/Music_Read_Only/Oradio3USB"
@@ -395,12 +423,16 @@ if rclone sync "$SHAREPOINT" "$MOUNTPOINT" \
 	--delete-during \
 	--exclude "System Volume Information/**" \
 	$DRYRUN_FLAG; then
+	# Send colored output to terminal, plain to logfile
 	if [[ -n "$DRYRUN_FLAG" ]]; then
-		echo -e "${GREEN}$(date +'%Y-%m-%d %H:%M:%S'): Finished checking SharePoint content versus USB${NC} - ${YELLOW}dry-run, no changes made${NC}" | tee -a "$LOGFILE"
+		echo -e "$(date +'%Y-%m-%d %H:%M:%S'): Finished checking SharePoint content versus USB - dry-run, no changes made" >> "$LOGFILE"
+		echo -e "${GREEN}$(date +'%Y-%m-%d %H:%M:%S'): Finished checking SharePoint content versus USB${NC} - ${YELLOW}dry-run, no changes made${NC}"
 	else
-		echo -e "${GREEN}$(date +'%Y-%m-%d %H:%M:%S'): Finished synchronizing SharePoint content to USB${NC}" | tee -a "$LOGFILE"
+		echo -e "$(date +'%Y-%m-%d %H:%M:%S'): Finished synchronizing SharePoint content to USB" >> "$LOGFILE"
+		echo -e "${GREEN}$(date +'%Y-%m-%d %H:%M:%S'): Finished synchronizing SharePoint content to USB${NC}"
 	fi
 else
 	RC=$?
-	echo -e "${RED}$(date +'%Y-%m-%d %H:%M:%S'): rclone sync failed with exit code $RC${NC}" | tee -a "$LOGFILE" >&2
+	echo -e "$(date +'%Y-%m-%d %H:%M:%S'): rclone sync failed with exit code $RC" >> "$LOGFILE"
+	echo -e "${RED}$(date +'%Y-%m-%d %H:%M:%S'): rclone sync failed with exit code $RC${NC}"
 fi
