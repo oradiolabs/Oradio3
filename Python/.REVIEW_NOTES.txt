@@ -1,0 +1,58 @@
+mpd_control.py:
+V 1 - Refactored code zit in trixie_mpd branch
+V 2 - mpd_client singleton moet eruit
+V 3 - Listener moet aparte singleton class worden
+V 4 - functies die waarde retourneren maar deze genegeerd wordt moeten _ = <functie>  gebruiken om te laten zien dat negeren bewust is
+V 5 - LET OP: bovenstaande heeft ook impact op radio_control.py en fastapi_server.py
+V 6 - Probleem in _remove_song_when_finished(), met een if conditie waarbij een int() met een string vergeleken wordt: de "deleteid" wordt niet uitgevoerd
+V 7 - Hetzelfde probleem in play_song(), ook een int()/String compare. Graag ook de single-line-code minder complex maken door meerdere code regels er aan te wijden. De code is dan beter leesbaar en te begrijpen. Ik heb voorbeeld toegevoegd.
+V 8 - Probleem met twee self._execute() die bijelkaar gevoegd worden. Gaat fout als er None terugkomt==> TypeError
+  9 - Groene tekst als een module test optie een succes oplevert.
+
+Henk: Rework controle over mpd_control.py op branch <trixie_mpd>
+1 - Rework akkoord
+2 - Rework akkoord.
+3 - Rework: probeer een base-class te gebruiken om code duplicatie te voorkomen. Nog niet akkoord.
+4 - Rework: op regel 401 staat nog een self._execute("deleteid", inserted_song_id) zonder de _ = self._execute()
+      Als deze wordt aangepast, dan akkoord.
+5 - Nog niet gecontroleerd!!
+6 - Rework akkoord
+7 - Rework akkoord
+8 - Rework akkoord
+9 - Rework akkoord
+
+Onno: Updates nav rework controle op branch <trixie_mpd>
+3 - Aangepast. MPDBase zit in mpd_control.py, mpd_monitor importeert hem
+4 - Aangepast
+9 - Olaf maakt test module mpd_control_test.py
+
+Henk: Update controle
+3 - Rework akkoord.
+4 - Nog eentje over het hoofd gezien op regel 115:  self._execute("crossfade", self._crossfade, allow_reconnect=False)
+9 - Akkoord, dan gaan we die als die klaar is ook reviewen
+
+Onno: Updates nav update controle
+4 - Aangepast
+10 - Verhuis MPDBase naar eigen file mpd_base.py, laat mpd_control.p en mpd_monito.py die importeren
+11 - Gebruik 'Singleton metaclass' in mpd_monitor.py (later ook in andere modules waar Singleton gebruikt wordt)
+
+Henk: Update controle
+4 - Akkoord
+10 - Akkoord
+11 - Akkoord
+Review/Rework conclusie: Rework akkoord en hiermee review afgesloten.
+
+-------------
+
+backlighting.py, hw_serial_number_gen.py en volume_control.py:
+- Gebruiken I2C maar weten dat niet van elkaar, waardoor conflicten kunnen ontstaan: Refactor
+- Backlighting is nu een systemd service, is dan handiger om te verhuizen naar oradio.service
+- hw_serial_number_gen is een service, let op dat die draait voordat oradio service start
+
+led_control.py, test_backlighting.py en touch_buttons.py:
+- Gebruiken GPIO maar weten dat niet van elkaar, waardoor conflicten kunnen ontstaan: Refactor
+- test_backlighting.py verhuizen naar backlighting.py in stand-alone mode
+
+hw_serial_number_gen.py:
+- Nu is HW identifier hard coded. Moet dynamisch worden, want we hebben verschillende hw versies
+- Willen we een 'echt' versienummer maken in plaats van huidige string?
