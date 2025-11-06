@@ -83,6 +83,8 @@ fi
 if ! ping -c1 -W2 8.8.8.8 >/dev/null 2>&1; then
 	echo -e "${RED}No internet connection${NC}"
 	exit 1
+else
+	echo "Connected to Internet"
 fi
 
 #---------- Ensure rclone is installed and up to date ----------
@@ -107,7 +109,7 @@ if (( age > MAX_AGE )); then
 	sudo apt-get update
 	# Save time lists were updated
 	date +%s | sudo tee "$STAMP_FILE" >/dev/null
-	echo "Package lists updated, stamp file updated"
+	echo "Package lists updated"
 else
 	echo "Package lists are up to date"
 fi
@@ -135,9 +137,6 @@ else
 	echo -e "${YELLOW}rclone is missing: installing...${NC}"
 	sudo apt-get install -y "rclone"
 fi
-
-# Progress report
-echo "rclone installed and up to date"
 
 #---------- 3. Configure cleanup and restore on exit ----------
 
