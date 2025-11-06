@@ -44,15 +44,24 @@ Review/Rework conclusie: Rework akkoord en hiermee review afgesloten.
 
 -------------
 
-backlighting.py, hw_serial_number_gen.py en volume_control.py:
+I2C:
+backlighting.py, test_backlighting.py, hw_serial_number_gen.py en volume_control.py:
 - Gebruiken I2C maar weten dat niet van elkaar, waardoor conflicten kunnen ontstaan: Refactor
 - Backlighting is nu een systemd service, is dan handiger om te verhuizen naar oradio.service
+- test_backlighting.py testen verhuizen naar backlighting.py in stand-alone mode
 - hw_serial_number_gen is een service, let op dat die draait voordat oradio service start
-
-led_control.py, test_backlighting.py en touch_buttons.py:
-- Gebruiken GPIO maar weten dat niet van elkaar, waardoor conflicten kunnen ontstaan: Refactor
-- test_backlighting.py verhuizen naar backlighting.py in stand-alone mode
 
 hw_serial_number_gen.py:
 - Nu is HW identifier hard coded. Moet dynamisch worden, want we hebben verschillende hw versies
 - Willen we een 'echt' versienummer maken in plaats van huidige string?
+
+-------------
+
+GPIO:
+led_control.py en touch_buttons.py:
+- Gebruiken GPIO maar weten dat niet van elkaar, waardoor conflicten kunnen ontstaan: Refactor
+
+-------------
+
+...
+
