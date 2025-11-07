@@ -47,9 +47,9 @@ MPD_RETRIES  = 3
 MPD_BACKOFF  = 1    # seconds
 LOCK_TIMEOUT = 5    # seconds
 
-class MPDBase:
+class MPDService:
     """
-    Thread-safe base class for interacting with an MPD (Music Player Daemon) server.
+    Thread-safe class for interacting with an MPD (Music Player Daemon) server.
     - Automatic connection and reconnection to the MPD server.
     - Retry logic with backoff for commands and connections.
     - Safe execution of MPD commands with optional auto-reconnect.
@@ -58,7 +58,7 @@ class MPDBase:
     """
     def __init__(self, crossfade: int | None = None) -> None:
         """
-        Initialize the MPDBase class and connect to the MPD server.
+        Initialize the MPDService class and connect to the MPD server.
 
         Args:
             crossfade (int | None): Optional crossfade value in seconds.
@@ -211,11 +211,11 @@ class MPDBase:
 # Entry point for stand-alone operation
 if __name__ == '__main__':
 
-    # Initialise MPD base
-    mpd_base = MPDBase()
+    # Initialise MPD service
+    mpd_service = MPDService()
 
     # Print MPD info
-    info = mpd_base.get_stats()
-    print("\nRunning MPDBase standalone - MPD info:")
+    info = mpd_service.get_stats()
+    print("\nRunning MPDService standalone - MPD info:")
     for key, value in info.items():
         print(f"{key:>20} : {value}")

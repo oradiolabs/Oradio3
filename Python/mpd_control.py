@@ -37,7 +37,7 @@ from unicodedata import normalize, category
 ##### oradio modules ####################
 from oradio_logging import oradio_log
 from oradio_utils import load_presets
-from mpd_base import MPDBase
+from mpd_service import MPDService
 
 ##### GLOBAL constants ####################
 from oradio_const import (
@@ -49,7 +49,7 @@ from oradio_const import (
 MPD_CROSSFADE  = 5          # seconds
 DEFAULT_PRESET = "Preset1"  # For when the Play button is used and no playlist in the queue
 
-class MPDControl(MPDBase):
+class MPDControl(MPDService):
     """
     Wrapper for an MPD (Music Player Daemon) client.
     Ensures that all MPD commands are executed safely.
@@ -57,7 +57,7 @@ class MPDControl(MPDBase):
     """
     def __init__(self) -> None:
         """Initialize the MPDControl client and connect to the MPD server."""
-        # Execute MPDBase __init__ with crossfade
+        # Execute MPDService __init__ with crossfade
         super().__init__(crossfade=MPD_CROSSFADE)
 
     def update_database(self) -> None:
