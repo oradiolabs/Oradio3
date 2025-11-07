@@ -29,7 +29,7 @@ from collections import defaultdict
 ##### oradio modules ####################
 from oradio_logging import oradio_log
 from singleton import singleton
-from mpd_base import MPDBase
+from mpd_service import MPDService
 
 ##### Local constants ####################
 # Mapping of MPD idle events to typical client actions
@@ -48,7 +48,7 @@ MPD_EVENT_ACTIONS = {
 }
 
 @singleton
-class MPDMonitor(MPDBase):
+class MPDMonitor(MPDService):
     """
     Singleton class that monitors MPD (Music Player Daemon) events.
     - Maintains a snapshot of the MPD database (directory -> files)
@@ -57,7 +57,7 @@ class MPDMonitor(MPDBase):
     """
     def __init__(self):
         """Initialize the MPDMonitor client and connect to the MPD server."""
-        # First, initialize the base class
+        # Execute MPDService __init__
         super().__init__()
 
         # Snapshot of MPD database: directory -> set of file paths
