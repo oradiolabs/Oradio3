@@ -57,7 +57,7 @@ class MPDMonitor(MPDService):
     """
     def __init__(self):
         """Initialize the MPDMonitor client and connect to the MPD server."""
-        # Execute MPDService __init__ with crossfade
+        # Execute MPDService __init__
         super().__init__()
 
         # Snapshot of MPD database: directory -> set of file paths
