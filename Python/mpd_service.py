@@ -20,7 +20,7 @@ Created on January 10, 2025
     https://python-mpd2.readthedocs.io/
 
 @summary:
-    Oradio MPD control module
+    Oradio MPD service module
     - Automatic reconnect if MPD is down or connection drops
     - Retries commands logging error on failure
     Terminology:
