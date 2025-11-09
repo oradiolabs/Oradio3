@@ -757,12 +757,14 @@ if __name__ == '__main__':
         # Initialise MPD client
         mpd_client = MPDControl()
 
+        # User command loop
         while True:
             try:
                 function_nr = int(input(input_selection))
             except ValueError:
                 function_nr = -1
 
+            # Execute selected function
             match function_nr:
                 case 0:
                     print("\nExiting test program...\n")
