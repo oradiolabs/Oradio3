@@ -36,6 +36,7 @@ import time
 from multiprocessing import Queue
 
 from oradio_logging import oradio_log
+from backlighting import Backlighting
 from volume_control import VolumeControl
 from mpd_control import MPDControl
 from mpd_monitor import MPDMonitor     # Optional: MPD events monitoring in the background
@@ -96,6 +97,12 @@ usb_present.set() # USB present to go over start-up sequence (will be updated af
 
 # Instantiate remote monitor
 remote_monitor = RmsService()
+
+oradio_log.info("Start backlighting")
+backlighting = Backlighting()
+backlighting.start()
+# oradio_log.info("Stop backlighting")
+# backlighting.stop()
 
 oradio_log.info("Start MPD event monitoring")
 mpd_monitor = MPDMonitor()
@@ -770,18 +777,19 @@ if not touch_buttons.selftest():
 #_SWITCH_ON_FROM = {"StateStop", "StateIdle"}
 _SWITCH_ON_FROM = {"StateIdle"}
 
+#REVIEW Onno: Waarom introduceren we hier gebruik van callback voor een service ipv de message queue?
 def _on_volume_changed() -> None:
     # Guard both the read and the transition
     with sm_lock:
         if state_machine.state in _SWITCH_ON_FROM:
             state_machine.transition("StatePlay")
 
-# Initialize the volume_control with the callback (no SM injection)
+oradio_log.info("Start volume_control")
+#REVIEW: Waarom callback ipv message?
 volume_control = VolumeControl(on_change=_on_volume_changed)
-
-if not volume_control.selftest():
-    oradio_log.critical("VolumeControl selftest FAILED")
-    state_machine.transition("StateError")
+volume_control.start()
+# oradio_log.info("Stop volume control")
+# volume_control.stop()
 
 # ---------Initialize the web_service---------
 oradio_web_service = WebService(shared_queue)
