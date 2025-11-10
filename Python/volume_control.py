@@ -49,13 +49,52 @@ POLLING_MAX_INTERVAL = 0.3
 POLLING_STEP         = 0.01
 ALSA_MIXER_DIGITAL   = "Digital"
 
+# ALSA abstraction
+class AlsaVolume:
+    """
+    Wrapper class for ALSA Mixer.
+    
+    Handles setting volume in raw units safely and avoids unnecessary ALSA calls.
+    """
+    def __init__(self, mixer_name: str = ALSA_MIXER_DIGITAL) -> None:
+        try:
+            self.mixer = Mixer(mixer_name)
+        except ALSAAudioError as ex_err:
+            oradio_log.error("Error initializing ALSA mixer '%s': %s", mixer_name, ex_err)
+            self.mixer = None  # ALSA not available
+        self._last_set_raw = None  # Cache last set value to prevent redundant ALSA calls
+
+    def set(self, raw_value: int) -> None:
+        """
+        Set mixer volume in raw units.
+        
+        Args:
+            raw_value: The raw volume value to set.
+        """
+        if not self.mixer:
+            return  # Mixer unavailable
+
+        # Clamp value within allowed min/max range
+        clamped = max(VOLUME_MINIMUM, min(VOLUME_MAXIMUM, raw_value))
+
+        # Skip ALSA call if value hasn't changed
+        if self._last_set_raw == clamped:
+            return
+
+        try:
+            self.mixer.setvolume(clamped, units=VOLUME_UNITS_RAW)
+        except ALSAAudioError as ex_err:
+            oradio_log.error("Error setting ALSA volume: %s", ex_err)
+        else:
+            self._last_set_raw = clamped
+            oradio_log.debug("Volume set to: %s", clamped)
+
 class VolumeControl:
-    """Tracks the volume control setting and updates ALSA; emits a callback on change."""
+    """
+    Tracks an ADC volume knob, updates ALSA, and triggers a callback on significant changes.
+    """
 
-    # callback type (zero-arg: just "changed")
-    OnChange = Callable[[], None]
-
-    def __init__(self, on_change: OnChange | None = None) -> None:
+    def __init__(self, on_change=None) -> None:
         """
         Initialize I²C bus, callback and mixer.
 
@@ -67,29 +106,17 @@ class VolumeControl:
         # Get I2C r/w methods
         self._i2c_service = I2CService()
 
-#REVIEW: Waarom callback gebruiken? Waarom is state change zo tijd-kritisch dat een callback nodig is en een message te langzaam is?
-#           - Alle tijd-kritische zaken worden lokaal afgehandeld
-#           - We zouden toch messages gebruiken om tussen modules te communiceren?
-#           - Wat is performance verschil tussen messages en callbacks?
+#REVIEW: Waarom is state change zo tijd-kritisch dat een callback nodig is en een message te langzaam is?
         self._on_change = on_change
-        self.running = True
 
-#REVIEW: Stop ALSA functies in eigen class die, net als in mpd_service, de no-member issues oplost
-        # ALSA
-        try:
-            self.mixer = Mixer(ALSA_MIXER_DIGITAL)
-        except ALSAAudioError as ex_err:
-            oradio_log.error("Error initializing ALSA mixer '%s': %s", ALSA_MIXER_DIGITAL, ex_err)
-
-        # Cache the last raw volume we actually set, to avoid ALSA churn
-        self._last_set_raw = None
+        # ALSA wrapper
+        self._alsa = AlsaVolume()
 
         # Thread is created dynamically on `start()` to allow restartability
-        self._thread = None
         self._running = Event()
+        self._thread = None
 
-
-    # ---------- callback wiring ----------
+# -----Helper methods----------------
 
     def _emit_change(self) -> None:
         """Call the change callback (if any); never let errors kill the ADC thread."""
@@ -105,60 +132,54 @@ class VolumeControl:
             # the traceback and continue, preserving device responsiveness.
             oradio_log.error("Volume change callback failed")
 
-# -----Helper methods----------------
-
     def _read_adc(self) -> int | None:
         """
-        Fast read of 10-bit value from MCP3021.
-        Returns 0..1023 or None.
+        Read a 10-bit value from the MCP3021 ADC.
+        
+        Returns:
+            ADC value 0..1023, or None if reading fails.
         """
         # Get ADC value - volume knob position
         data = self._i2c_service.read_block(MCP3021_ADDRESS, READ_DATA_REGISTER, 2)
         if not data:
             return None
-#REVIEW: Waarom niet hier de ADC waarde naar volume converteren?
+
+        # Combine the 2 bytes into a 10-bit value
         return ((data[0] & 0x3F) << 6) | (data[1] >> 2)
 
-    def _set_volume(self, value: int) -> None:
-        """Set the ALSA mixer volume in RAW units (no-op if unchanged)."""
+    def _set_volume(self, adc_value: int) -> None:
+        """
+        Update ALSA volume based on ADC reading and trigger callback.
+        
+        Args:
+            adc_value: Current ADC reading
+        """
+        if adc_value is None:
+            return
 
         # Scale ADC (0..1023) to [VOLUME_MINIMUM..VOLUME_MAXIMUM]
         span = VOLUME_MAXIMUM - VOLUME_MINIMUM
-        volume = int(round(VOLUME_MINIMUM + (value * span) / 1023))
+        volume = int(round(VOLUME_MINIMUM + (adc_value * span) / 1023))
 
-        # Limit balue to sit between min and max volume levels
-        clamped = max(VOLUME_MINIMUM, min(VOLUME_MAXIMUM, int(volume)))
-
-        # avoid ALSA churn on identical values
-        if self._last_set_raw is not None and clamped == self._last_set_raw:
-            return
+        # Set ALSA volume
+        self._alsa.set(volume)
 
         # SoC: just signal; policy lives in the subscriber
         self._emit_change()
-
-        # Set ALSA volume
-        try:
-            self.mixer.setvolume(clamped, units=VOLUME_UNITS_RAW)
-        except ALSAAudioError as ex_err:
-            oradio_log.error("Error setting volume: %s", ex_err)
-
-        # store volumen setting for future comparison
-        self._last_set_raw = clamped
-
-        oradio_log.debug("Volume set to: %s", clamped)
 
 # -----Core methods----------------
 
     def _volume_manager(self) -> None:
         """
-        Monitor the ADC and adjust the volume; emit a change event on user change.
+        Thread function: continuously polls ADC and updates volume.
+        - Adaptive polling for faster response when the knob is turned and slower idle polling.
         """
-        # Initialize ALSA to the knob's position
+        # Initialize ALSA to knob's current position
         adc_value = self._read_adc()
         self._set_volume(adc_value)
 
         # Initial state
-        previous_adc_value = self._read_adc() or 0
+        previous_adc = self._read_adc() or 0
 
         # Start with 'slow' polling
         polling_interval = POLLING_MAX_INTERVAL
@@ -166,22 +187,21 @@ class VolumeControl:
         # Volume adjustment loop
         while self._running.is_set():
 
-            # Get knob position
+            # Get knob's current position
             adc_value = self._read_adc()
             if adc_value is None:
                 oradio_log.warning("ADC read failed. Retrying...")
                 sleep(polling_interval)
                 continue
 
-            # Check if knob is sufficiently turned
-            if abs(adc_value - previous_adc_value) > ADC_UPDATE_TOLERANCE:
-                previous_adc_value = adc_value
+            # Check if knob moved significantly
+            if abs(adc_value - previous_adc) > ADC_UPDATE_TOLERANCE:
+                previous_adc = adc_value
 
                 # Set volume level
                 self._set_volume(adc_value)
 
-                # Manipulate polling for fast reponse while knob is being turned, slower if not
-                polling_interval = POLLING_MIN_INTERVAL
+                polling_interval = POLLING_MIN_INTERVAL     # Fast polling while turning
             else:
                 polling_interval = min(polling_interval + POLLING_STEP, POLLING_MAX_INTERVAL)
 
