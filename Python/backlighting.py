@@ -179,14 +179,14 @@ class Backlighting:
         oradio_log.debug("Backlight manager thread started")
 
         # Initial state
-        self._running = True
         current_backlight_value = float(BACKLIGHT_MIN)  # use float for smooth updates
         prev_dac_value = int(round(current_backlight_value))
 
         # Apply starting brightness
         self._write_dac(prev_dac_value)
 
-        # Backlight adjutment loop
+        # Backlight adjustment loop
+        self._running = True
         while self._running:
 
             # Read ambient light
