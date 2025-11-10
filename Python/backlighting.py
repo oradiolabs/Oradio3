@@ -1,6 +1,5 @@
 #!/usr/bin/env python3
 """
-
   ####   #####     ##    #####      #     ####
  #    #  #    #   #  #   #    #     #    #    #
  #    #  #    #  #    #  #    #     #    #    #
@@ -14,152 +13,316 @@ Created on Januari 17, 2025
 @copyright:     Copyright 2024, Oradio Stichting
 @license:       GNU General Public License (GPL)
 @organization:  Oradio Stichting
-@version:       1
+@version:       2
 @email:         oradioinfo@stichtingoradio.nl
 @status:        Development
-@summary: Class to run the backlighting service. Measure the light level and adapt the backlightingMCP4725
-Update, such that it starts always with low backlighting level
+@summary: 
+    Class to run the backlighting service.
+    - Measure the light level and adapt the backlighting MCP4725
+    - Update, such that it starts always with low backlighting level
+@references:
+    
 """
-import time
-import smbus2
+from time import sleep
+from threading import Thread
 
-##### LOCAL constants ####################
-TSL2591_ADDR = 0x29
-ENABLE_REG = 0x00
-CONTROL_REG = 0x01
-VISIBLE_LIGHT_LOW = 0x14
+##### oradio modules ####################
+from oradio_logging import oradio_log
+from i2c_service import I2CService
+
+##### GLOBAL constants ####################
+from oradio_const import (
+    YELLOW, NC,
+)
+
+##### Local constants ####################
+# TSL2591 - Ambient Light Sensor
+TSL2591_ADDRESS    = 0x29
+ENABLE_REGISTER    = 0x00
+CONTROL_REGISTER   = 0x01
+VISIBLE_LIGHT_LOW  = 0x14
 VISIBLE_LIGHT_HIGH = 0x15
-COMMAND_BIT = 0xA0
-ENABLE_POWER_ON = 0x01
-ENABLE_ALS = 0x02
-GAIN_MEDIUM = 0x10
-INTEGRATION_TIME_300MS = 0x02
-MCP4725_ADDR = 0x60
-LUX_MIN = 0.7
-LUX_MID = 5
-LUX_MAX = 20.0
-BACKLIGHT_OFF = 4095
-BACKLIGHT_MIN = 3800
-BACKLIGHT_MID = 3300
-BACKLIGHT_MAX = 3000
-LUX_THRESHOLD = 30.0
-GAIN_SCALE = 25
-INTEGRATION_TIME_SCALE = 300 / 100
+COMMAND_BIT        = 0xA0
+ENABLE_POWER_ON    = 0x01
+ENABLE_ALS         = 0x02
+GAIN_MEDIUM        = 0x10
+INTEGRATION_TIME   = 0x02   # 300ms
+# MCP4725 - D/A Converter
+MCP4725_ADDRESS = 0x60
+SAVE_PERSISTENT = 0x60
+SAVE_VOLATILE   = 0x40
+LUX_MIN         = 0.7
+LUX_MID         = 5
+LUX_MAX         = 20.0
+BACKLIGHT_OFF   = 4095
+BACKLIGHT_MIN   = 3800
+BACKLIGHT_MID   = 3300
+BACKLIGHT_MAX   = 3000
+LUX_THRESHOLD   = 30.0
+GAIN_SCALE      = 25
+TIME_SCALE      = 300 / 100
+# Constants controlling transition smoothness
+TRANSITION_TIME  = 10.0     # seconds for full transition
+ADJUST_INTERVAL  = 0.5      # seconds between updates
+CHANGE_THRESHOLD = 5        # minimum DAC change to write
 
 class Backlighting:
     """
-    Controls the Oradio backlight
-    The auto_adjust function works independently
-    It is intended to be used as a system service
+    Controls the Oradio backlight using a TSL2591 light sensor and MCP4725 DAC.
+    - Automatically adjusts backlighting based on ambient light.
+    - Supports turning off, setting maximum, and reading sensor values.
+    - Runs the auto-adjust in a background thread for continuous operation.
     """
-    def __init__(self):
+    def __init__(self) -> None:
         """
-        Initializes Oradio backlight register settings
+        Initializes backlighting settings:
+        - Default backlight value is set between min and max.
+        - Writes default OFF value to DAC EEPROM (persistent).
+        - Prepares the background thread for auto-adjust.
+        - Initializes the light sensor.
         """
-        self.bus = smbus2.SMBus(1)
-        self.prev_raw_visible_light = 0
-        self.current_backlight_value = (BACKLIGHT_MIN + BACKLIGHT_MAX) // 2
-        self.steps_remaining = 0
-        self.step_size = 0
-        self.running = False  # Flag to control the auto_adjust loop
+        # Get I2Cr/w methods
+        self._i2c_service = I2CService()
 
-        # Write 4095 to EEPROM so that default from boot is all the leds are switched off
-        self.write_dac_to_eeprom(BACKLIGHT_OFF)
+        # Thread is created dynamically on `start()` to allow restartability
+        self._thread = None
+        self._running = False
 
-    def write_register(self, register, value):
-        """ Write value to register """
-        self.bus.write_byte_data(TSL2591_ADDR, COMMAND_BIT | register, value)
+#REVIEW: Eenemalig.Naar oradio_install.sh om slijtage eeprom te voorkomen?
+        # Ensure all LEDs are off at boot, stored persistently in DAC EEPROM
+        self._write_dac(BACKLIGHT_OFF, eeprom=True)
 
-    def read_register(self, register):
-        """ Read value from register """
-        return self.bus.read_byte_data(TSL2591_ADDR, COMMAND_BIT | register)
+        # Initialize light sensor hardware
+        self._initialize_sensor()
 
-    def read_two_registers(self, register_low, register_high):
-        """ Read value from register ;ow-high pair """
-        low = self.read_register(register_low)
-        high = self.read_register(register_high)
+# -----Helper methods----------------
+
+    def _write_dac(self, value: int, eeprom: bool = False) -> None:
+        """
+        Write a 12-bit value to the MCP4725 DAC.
+        
+        Args:
+            value (int): DAC output value (0–4095)
+            eeprom (bool): If True, store value in EEPROM (persistent after reboot)
+                           If False, fast write without EEPROM storage
+        """
+        # Convert a 12-bit DAC value into high and low bytes for I2C transmission.
+        value = max(0, min(BACKLIGHT_OFF, value))  # Clamp value to valid range
+        high_byte = (value >> 4) & 0xFF            # 8 most significant bits
+        low_byte = (value << 4) & 0xFF             # 4 least significant bits shifted
+
+        command = SAVE_PERSISTENT if eeprom else SAVE_VOLATILE
+        self._i2c_service.write_block(MCP4725_ADDRESS, command, [high_byte, low_byte])
+
+    def _initialize_sensor(self) -> None:
+        """Initialize TSL2591 light sensor registers for ALS (ambient light sensing)."""
+        # Power on and enable ALS
+        self._i2c_service.write_byte(TSL2591_ADDRESS, COMMAND_BIT | ENABLE_REGISTER, ENABLE_POWER_ON | ENABLE_ALS)
+        sleep(0.1)
+        # Set gain and integration time
+        self._i2c_service.write_byte(TSL2591_ADDRESS, COMMAND_BIT | CONTROL_REGISTER, GAIN_MEDIUM | INTEGRATION_TIME)
+
+    def _read_visible_light(self) -> int | None:
+        """
+        Read visible light level as a 16-bit word from sensor.
+
+        Returns:
+            int: Raw visible light value.
+        """
+        low = self._i2c_service.read_byte(TSL2591_ADDRESS, COMMAND_BIT | VISIBLE_LIGHT_LOW)
+        high = self._i2c_service.read_byte(TSL2591_ADDRESS, COMMAND_BIT | VISIBLE_LIGHT_HIGH)
+        if low is None or high is None:
+            return None
         return (high << 8) | low
 
-    def initialize_sensor(self):
-        """ Initialize light sensor """
-        self.write_register(ENABLE_REG, ENABLE_POWER_ON | ENABLE_ALS)
-        time.sleep(0.1)
-        self.write_register(CONTROL_REG, GAIN_MEDIUM | INTEGRATION_TIME_300MS)
+    def _calculate_lux(self, raw_value) -> float:
+        """
+        Convert raw sensor reading to lux.
 
-    def calculate_lux(self, raw_value):
-        """ Calculate lux level """
-        return raw_value / (GAIN_SCALE * INTEGRATION_TIME_SCALE)
+        Args:
+            raw_value (int): Raw sensor reading from TSL2591.
 
-    def read_visible_light(self):
-        """ Read light level """
-        return self.read_two_registers(VISIBLE_LIGHT_LOW, VISIBLE_LIGHT_HIGH)
+        Returns:
+            float: Calculated lux value.
+        """
+        return raw_value / (GAIN_SCALE * TIME_SCALE)
 
-    def write_dac(self, value):
-        """Write a 12-bit value to the MCP4725 DAC (without EEPROM storage)."""
-        value = max(0, min(BACKLIGHT_OFF, value))  # Ensure value is within range
+    def _interpolate_backlight(self, lux) -> int:
+        """
+        Map lux value to appropriate backlight DAC value.
 
-        high_byte = (value >> 4) & 0xFF   # 8 most significant bits
-        low_byte = (value << 4) & 0xFF    # 4 least significant bits shifted
+        Args:
+            lux (float): Current light level in lux.
 
-        write_command = 0x40  # Fast mode write to DAC (no EEPROM storage)
-
-        self.bus.write_i2c_block_data(MCP4725_ADDR, write_command, [high_byte, low_byte])
-
-    def interpolate_backlight(self, lux):
-        """ Calculate backlight setting based on light sensor value """
+        Returns:
+            int: DAC value for backlight brightness.
+        """
         if lux < LUX_MIN:
             return BACKLIGHT_OFF
         if lux >= LUX_MAX:
             return BACKLIGHT_MAX
         if LUX_MIN <= lux <= LUX_MID:
+            # Linear interpolation between MIN and MID
             scale = (lux - LUX_MIN) / (LUX_MID - LUX_MIN)
             return int(BACKLIGHT_MIN + scale * (BACKLIGHT_MID - BACKLIGHT_MIN))
+        # Linear interpolation between MID and MAX
         scale = (lux - LUX_MID) / (LUX_MAX - LUX_MID)
         return int(BACKLIGHT_MID + scale * (BACKLIGHT_MAX - BACKLIGHT_MID))
 
-    def auto_adjust(self):
-        """ Autonomous backlight control """
-        self.initialize_sensor()
-        self.write_dac(BACKLIGHT_MIN)
-        self.running = True  # Set the running flag to True
+# -----Core methods----------------
 
-        while self.running:
-            raw_visible_light = self.read_visible_light()
+    def _backlight_manager(self) -> None:
+        """
+        Background thread that adjusts the backlight smoothly.
+        Only starts adjusting if the change exceeds a threshold.
+        """
+        oradio_log.debug("Backlight manager thread started")
 
-            if abs(raw_visible_light - self.prev_raw_visible_light) / max(self.prev_raw_visible_light, 1) * 100 > LUX_THRESHOLD:
-                self.prev_raw_visible_light = raw_visible_light
-                lux = self.calculate_lux(raw_visible_light)
-                target_backlight_value = self.interpolate_backlight(lux)
-                self.steps_remaining = 30
-                self.step_size = (target_backlight_value - self.current_backlight_value) / self.steps_remaining
+        # Initial state
+        self._running = True
+        current_backlight_value = float(BACKLIGHT_MIN)  # use float for smooth updates
+        prev_dac_value = int(round(current_backlight_value))
 
-            if self.steps_remaining > 0:
-                self.current_backlight_value += self.step_size
-                self.write_dac(int(self.current_backlight_value))
-                self.steps_remaining -= 1
-            time.sleep(0.5)
+        # Apply starting brightness
+        self._write_dac(prev_dac_value)
+
+        # Backlight adjutment loop
+        while self._running:
+
+            # Read ambient light
+            raw_visible_light = self._read_visible_light()
+            if raw_visible_light is None:
+                sleep(ADJUST_INTERVAL)
+                continue
+
+            # Convert to lux and compute desired backlight
+            lux = self._calculate_lux(raw_visible_light)
+            target_backlight_value = self._interpolate_backlight(lux)
+
+            # Smooth transition toward target
+            delta = target_backlight_value - current_backlight_value
+            current_backlight_value += delta * (ADJUST_INTERVAL / TRANSITION_TIME)
+
+            # Convert to DAC int and write only if change exceeds threshold
+            dac_value = int(round(current_backlight_value))
+            if abs(dac_value - prev_dac_value) >= CHANGE_THRESHOLD:
+                self._write_dac(dac_value)
+                prev_dac_value = dac_value
+
+            sleep(ADJUST_INTERVAL)
+
+        oradio_log.debug("Backlight manager thread stopped")
+
+# -----Public methods----------------
+
+    def start(self) -> None:
+        """Start the backlighting auto-adjust thread if not already running."""
+        if self._thread and self._thread.is_alive():
+            oradio_log.debug("Backlight manager thread already running")
+            return
+
+        # Create and start thread
+        self._thread = Thread(target=self._backlight_manager, daemon=True)
+        self._thread.start()
+
+    def stop(self) -> None:
+        """Stop the backlighting auto-adjust thread and wait for it to terminate."""
+        if self._thread and self._thread.is_alive():
+            self._running = False
+            # Avoid hanging forever if the thread is stuck in I/O
+            self._thread.join(timeout=2)
+        else:
+            oradio_log.debug("Backlight manager thread not running")
 
     def off(self):
-        """ Stop the auto_adjust loop and turn the backlight off """
-        self.running = False
-        self.write_dac(BACKLIGHT_OFF)  # Set backlight to max (off)
+        """Stop auto-adjust thread if any, and turn off backlight."""
+        self.stop()
+        self._write_dac(BACKLIGHT_OFF)
 
     def maximum(self):
-        """ Stop the auto_adjust loop and turn the backlight on """
-        self.running = False
-        self.write_dac(BACKLIGHT_MAX)  # Set backlight to max (off)
+        """Stop auto-adjust thread if any, and set backlight to maximum."""
+        self.stop()
+        self._write_dac(BACKLIGHT_MAX)
 
-    def write_dac_to_eeprom(self, value):
-        """ Write DAC value and store in EEPROM (persistent after reboot) """
-        value = max(0, min(BACKLIGHT_OFF, value))  # Ensure value is within range
+    def read_sensor(self) -> tuple:
+        """
+        Return the current sensor readings and corresponding DAC value.
+        - Wrapper accessing internal methods while running stand-alone
 
-        high_byte = (value >> 4) & 0xFF   # 8 most significant bits
-        low_byte = (value << 4) & 0xFF    # 4 least significant bits shifted
+        Returns:
+            tuple[int, float, int]: (raw_visible_light, lux, interpolated DAC value)
+        """
+        raw = self._read_visible_light()
+        lux = self._calculate_lux(raw)
+        dac = self._interpolate_backlight(lux)
+        return raw, lux, dac
 
-        write_command = 0x60  # Write to DAC and store in EEPROM
+# Entry point for stand-alone operation
+if __name__ == '__main__':
 
-        self.bus.write_i2c_block_data(MCP4725_ADDR, write_command, [high_byte, low_byte])
+# Most modules use similar code in stand-alone
+# pylint: disable=duplicate-code
 
-if __name__ == "__main__":
-    lighting = Backlighting()
-    lighting.auto_adjust()
+    def interactive_menu():
+        """Show menu with test options"""
+
+        # Show menu with test options
+        input_selection = (
+            "\nSelect a function, input the number.\n"
+            " 0-Quit\n"
+            " 1-Start Auto Adjust\n"
+            " 2-Stop Auto Adjust\n"
+            " 3-Turn OFF backlight\n"
+            " 4-Turn ON backlight\n"
+            " 5-Test sensor mode\n"
+            "Select: "
+        )
+
+        # Initialise backlighting
+        backlighting = Backlighting()
+
+        # User command loop
+        while True:
+            try:
+                function_nr = int(input(input_selection))
+            except ValueError:
+                function_nr = -1
+
+            # Execute selected function
+            match function_nr:
+                case 0:
+                    break
+                case 1:
+                    print("Starting backlighting auto-adjust...")
+                    backlighting.start()
+                case 2:
+                    print("Stopping backlighting auto-adjust...")
+                    backlighting.stop()
+                case 3:
+                    print("Turning OFF backlight...")
+                    backlighting.off()
+                case 4:
+                    print("Turning ON backlight...")
+                    backlighting.maximum()
+                case 5:
+                    print("Testing sensor mode... Press Ctrl+C to return to the main menu")
+                    try:
+                        # Print raw visible light, calculated lux, and DAC value every 2 seconds
+                        while True:
+                            raw, lux, dac = backlighting.read_sensor()
+                            print(f"Raw Visible Light: {raw}, Lux: {lux:.2f}, DAC Value: {dac}")
+                            sleep(2)
+                    except KeyboardInterrupt:
+                        print("\nReturning to main menu...\n")
+                case _:
+                    print(f"\n{YELLOW}Please input a valid number{NC}\n")
+
+    print("\nStarting Backlighting test program...\n")
+
+    # Present menu with tests
+    interactive_menu()
+
+    print("\nExiting Backlighting test program...\n")
+
+# Restore temporarily disabled pylint duplicate code check
+# pylint: enable=duplicate-code
