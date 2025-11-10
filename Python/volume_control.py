@@ -23,7 +23,9 @@ from time import sleep
 #REVIEW: Is callback nodig?
 from typing import Callable
 from threading import Thread, Event
-from alsaaudio import Mixer, ALSAAudioError, VOLUME_UNITS_RAW
+# The alsaaudio module is a C extension, which pylint often analyze correctly.
+# So, pylint thinks the names don’t exist, even though at runtime they do.
+from alsaaudio import Mixer, ALSAAudioError, VOLUME_UNITS_RAW   # pylint: disable=no-name-in-module
 
 ##### oradio modules ####################
 from oradio_logging import oradio_log
@@ -46,7 +48,6 @@ POLLING_MIN_INTERVAL = 0.05
 POLLING_MAX_INTERVAL = 0.3
 POLLING_STEP         = 0.01
 ALSA_MIXER_DIGITAL   = "Digital"
-
 
 class VolumeControl:
     """Tracks the volume control setting and updates ALSA; emits a callback on change."""
