@@ -24,7 +24,7 @@ Created on Januari 17, 2025
     
 """
 from time import sleep
-from threading import Thread
+from threading import Thread, Event
 
 ##### oradio modules ####################
 from oradio_logging import oradio_log
@@ -84,16 +84,16 @@ class Backlighting:
         # Get I2C r/w methods
         self._i2c_service = I2CService()
 
-        # Thread is created dynamically on `start()` to allow restartability
-        self._thread = None
-        self._running = False
-
-#REVIEW: Eenemalig.Naar oradio_install.sh om slijtage eeprom te voorkomen?
+#REVIEW: Eenemalig. Naar oradio_install.sh om slijtage eeprom te voorkomen
         # Ensure all LEDs are off at boot, stored persistently in DAC EEPROM
         self._write_dac(BACKLIGHT_OFF, eeprom=True)
 
         # Initialize light sensor hardware
         self._initialize_sensor()
+
+        # Thread is created dynamically on `start()` to allow restartability
+        self._thread = None
+        self._running = Event()
 
 # -----Helper methods----------------
 
@@ -174,10 +174,8 @@ class Backlighting:
     def _backlight_manager(self) -> None:
         """
         Background thread that adjusts the backlight smoothly.
-        Only starts adjusting if the change exceeds a threshold.
+        Adjusts if the change exceeds the threshold.
         """
-        oradio_log.debug("Backlight manager thread started")
-
         # Initial state
         current_backlight_value = float(BACKLIGHT_MIN)  # use float for smooth updates
         prev_dac_value = int(round(current_backlight_value))
@@ -186,8 +184,7 @@ class Backlighting:
         self._write_dac(prev_dac_value)
 
         # Backlight adjustment loop
-        self._running = True
-        while self._running:
+        while self._running.is_set():
 
             # Read ambient light
             raw_visible_light = self._read_visible_light()
@@ -206,33 +203,43 @@ class Backlighting:
             # Convert to DAC int and write only if change exceeds threshold
             dac_value = int(round(current_backlight_value))
             if abs(dac_value - prev_dac_value) >= CHANGE_THRESHOLD:
-                self._write_dac(dac_value)
                 prev_dac_value = dac_value
 
-            sleep(ADJUST_INTERVAL)
+                # Set backlighting level
+                self._write_dac(dac_value)
 
-        oradio_log.debug("Backlight manager thread stopped")
+            sleep(ADJUST_INTERVAL)
 
 # -----Public methods----------------
 
     def start(self) -> None:
         """Start the backlighting auto-adjust thread if not already running."""
         if self._thread and self._thread.is_alive():
-            oradio_log.debug("Backlight manager thread already running")
+            oradio_log.debug("Volume manager thread already running")
             return
+
+        # signal: start volume manager thread
+        self._running.set()
 
         # Create and start thread
         self._thread = Thread(target=self._backlight_manager, daemon=True)
         self._thread.start()
 
+        oradio_log.debug("Backlight manager thread started")
+
     def stop(self) -> None:
-        """Stop the backlighting auto-adjust thread and wait for it to terminate."""
-        if self._thread and self._thread.is_alive():
-            self._running = False
-            # Avoid hanging forever if the thread is stuck in I/O
-            self._thread.join(timeout=2)
-        else:
+        """Stop the volumne control thread and wait for it to terminate."""
+        if not self._thread or not self._thread.is_alive():
             oradio_log.debug("Backlight manager thread not running")
+            return
+
+        # signal: stop volume manager thread
+        self._running.clear()
+
+        # Avoid hanging forever if the thread is stuck in I/O
+        self._thread.join(timeout=2)
+
+        oradio_log.debug("Backlight manager thread stopped")
 
     def off(self):
         """Stop auto-adjust thread if any, and turn off backlight."""
