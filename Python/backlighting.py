@@ -51,16 +51,13 @@ INTEGRATION_TIME   = 0x02   # 300ms
 MCP4725_ADDRESS = 0x60
 SAVE_PERSISTENT = 0x60
 SAVE_VOLATILE   = 0x40
-LUX_MIN         = 0.7
-LUX_MID         = 5
-LUX_MAX         = 20.0
+ALS_MIN         = 52.5  # LUX_MIN( 0.7) * GAIN_SCALE(25) * TIME_SCALE(300/100)
+ALS_MID         = 375   # LUX_MID( 5.0) * GAIN_SCALE(25) * TIME_SCALE(300/100)
+ALS_MAX         = 1500  # LUX_MAX(20.0) * GAIN_SCALE(25) * TIME_SCALE(300/100)
 BACKLIGHT_OFF   = 4095
 BACKLIGHT_MIN   = 3800
 BACKLIGHT_MID   = 3300
 BACKLIGHT_MAX   = 3000
-LUX_THRESHOLD   = 30.0
-GAIN_SCALE      = 25
-TIME_SCALE      = 300 / 100
 # Constants controlling transition smoothness
 TRANSITION_TIME  = 10.0     # seconds for full transition
 ADJUST_INTERVAL  = 0.5      # seconds between updates
@@ -135,39 +132,25 @@ class Backlighting:
             return None
         return (high << 8) | low
 
-    def _calculate_lux(self, raw_value) -> float:
+    def _interpolate_backlight(self, als_value) -> int:
         """
-        Convert raw sensor reading to lux.
+        Map als_value to appropriate backlight DAC value.
 
         Args:
-            raw_value (int): Raw sensor reading from TSL2591.
-
-        Returns:
-            float: Calculated lux value.
-        """
-        return raw_value / (GAIN_SCALE * TIME_SCALE)
-
-    def _interpolate_backlight(self, lux) -> int:
-        """
-        Map lux value to appropriate backlight DAC value.
-
-        Args:
-            lux (float): Current light level in lux.
+            als_value (int): Current ambient light sensor level.
 
         Returns:
             int: DAC value for backlight brightness.
         """
-        if lux < LUX_MIN:
+        if als_value < ALS_MIN:
             return BACKLIGHT_OFF
-        if lux >= LUX_MAX:
+        if als_value >= ALS_MAX:
             return BACKLIGHT_MAX
-        if LUX_MIN <= lux <= LUX_MID:
+        if als_value <= ALS_MID:
             # Linear interpolation between MIN and MID
-            scale = (lux - LUX_MIN) / (LUX_MID - LUX_MIN)
-            return int(BACKLIGHT_MIN + scale * (BACKLIGHT_MID - BACKLIGHT_MIN))
+            return int(BACKLIGHT_MIN + (als_value - ALS_MIN) * (BACKLIGHT_MID - BACKLIGHT_MIN) / (ALS_MID - ALS_MIN))
         # Linear interpolation between MID and MAX
-        scale = (lux - LUX_MID) / (LUX_MAX - LUX_MID)
-        return int(BACKLIGHT_MID + scale * (BACKLIGHT_MAX - BACKLIGHT_MID))
+        return int(BACKLIGHT_MID + (als_value - ALS_MID) * (BACKLIGHT_MAX - BACKLIGHT_MID) / (ALS_MAX - ALS_MID))
 
 # -----Core methods----------------
 
@@ -192,9 +175,8 @@ class Backlighting:
                 sleep(ADJUST_INTERVAL)
                 continue
 
-            # Convert to lux and compute desired backlight
-            lux = self._calculate_lux(raw_visible_light)
-            target_backlight_value = self._interpolate_backlight(lux)
+            # Convert to desired backlight
+            target_backlight_value = self._interpolate_backlight(raw_visible_light)
 
             # Smooth transition toward target
             delta = target_backlight_value - current_backlight_value
@@ -260,8 +242,8 @@ class Backlighting:
             tuple[int, float, int]: (raw_visible_light, lux, interpolated DAC value)
         """
         raw = self._read_visible_light()
-        lux = self._calculate_lux(raw)
-        dac = self._interpolate_backlight(lux)
+        lux = raw / 75  # GAIN_SCALE(25) * TIME_SCALE(300/100)
+        dac = self._interpolate_backlight(raw)
         return raw, lux, dac
 
 # Entry point for stand-alone operation
