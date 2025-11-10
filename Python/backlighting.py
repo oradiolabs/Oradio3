@@ -81,7 +81,7 @@ class Backlighting:
         - Prepares the background thread for auto-adjust.
         - Initializes the light sensor.
         """
-        # Get I2Cr/w methods
+        # Get I2C r/w methods
         self._i2c_service = I2CService()
 
         # Thread is created dynamically on `start()` to allow restartability
