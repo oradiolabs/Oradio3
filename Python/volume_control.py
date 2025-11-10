@@ -20,8 +20,6 @@ Created on January 27, 2025
 @references:
 """
 from time import sleep
-#REVIEW: Is callback nodig?
-from typing import Callable
 from threading import Thread, Event
 # The alsaaudio module is a C extension, which pylint often analyze correctly.
 # So, pylint thinks the names don’t exist, even though at runtime they do.
