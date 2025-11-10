@@ -20,20 +20,18 @@ Created on January 27, 2025
 @references:
 """
 from time import sleep
-from threading import Thread
 #REVIEW: Is callback nodig?
 from typing import Callable
+from threading import Thread, Event
 from alsaaudio import Mixer, ALSAAudioError, VOLUME_UNITS_RAW
 
 ##### oradio modules ####################
 from oradio_logging import oradio_log
-from i2c_servicie import I2CService
+from i2c_service import I2CService
 
 ##### GLOBAL constants ####################
 from oradio_const import (
     YELLOW, NC,
-#    MESSAGE_VOLUME_SOURCE,
-#    MESSAGE_VOLUME_CHANGED,
 )
 
 ##### Local constants ####################
@@ -68,7 +66,7 @@ class VolumeControl:
         # Get I2C r/w methods
         self._i2c_service = I2CService()
 
-#REVIEW: Waarom callback gebruiken?
+#REVIEW: Waarom callback gebruiken? Waarom is state change zo tijd-kritisch dat een callback nodig is en een message te langzaam is?
 #           - Alle tijd-kritische zaken worden lokaal afgehandeld
 #           - We zouden toch messages gebruiken om tussen modules te communiceren?
 #           - Wat is performance verschil tussen messages en callbacks?
@@ -78,8 +76,8 @@ class VolumeControl:
 #REVIEW: Stop ALSA functies in eigen class die, net als in mpd_service, de no-member issues oplost
         # ALSA
         try:
-            self.mixer = alsaaudio.Mixer(ALSA_MIXER_DIGITAL)
-        except alsaaudio.ALSAAudioError as ex_err:
+            self.mixer = Mixer(ALSA_MIXER_DIGITAL)
+        except ALSAAudioError as ex_err:
             oradio_log.error("Error initializing ALSA mixer '%s': %s", ALSA_MIXER_DIGITAL, ex_err)
 
         # Cache the last raw volume we actually set, to avoid ALSA churn
@@ -87,7 +85,8 @@ class VolumeControl:
 
         # Thread is created dynamically on `start()` to allow restartability
         self._thread = None
-        self._running = False
+        self._running = Event()
+
 
     # ---------- callback wiring ----------
 
@@ -103,92 +102,89 @@ class VolumeControl:
             # provided by the orchestrating module. Any exception raised there
             # should NOT kill the ADC thread (which is critical for UX). We log
             # the traceback and continue, preserving device responsiveness.
-            oradio_log.exception("Volume change callback failed")
+            oradio_log.error("Volume change callback failed")
 
 # -----Helper methods----------------
 
-    def _clamp_raw(self, value: int) -> int:
-        """Clamp a raw mixer value to [VOLUME_MINIMUM..VOLUME_MAXIMUM]."""
-        return max(VOLUME_MINIMUM, min(VOLUME_MAXIMUM, int(value)))
+    def _read_adc(self) -> int | None:
+        """
+        Fast read of 10-bit value from MCP3021.
+        Returns 0..1023 or None.
+        """
+        # Get ADC value - volume knob position
+        data = self._i2c_service.read_block(MCP3021_ADDRESS, READ_DATA_REGISTER, 2)
+        if not data:
+            return None
+#REVIEW: Waarom niet hier de ADC waarde naar volume converteren?
+        return ((data[0] & 0x3F) << 6) | (data[1] >> 2)
 
-    def _set_raw_volume(self, value: int) -> None:
+    def _set_volume(self, value: int) -> None:
         """Set the ALSA mixer volume in RAW units (no-op if unchanged)."""
-        clamped = self._clamp_raw(value)
-#REVIEW: 3e check op 'voldoende change'
+
+        # Scale ADC (0..1023) to [VOLUME_MINIMUM..VOLUME_MAXIMUM]
+        span = VOLUME_MAXIMUM - VOLUME_MINIMUM
+        volume = int(round(VOLUME_MINIMUM + (value * span) / 1023))
+
+        # Limit balue to sit between min and max volume levels
+        clamped = max(VOLUME_MINIMUM, min(VOLUME_MAXIMUM, int(volume)))
+
+        # avoid ALSA churn on identical values
         if self._last_set_raw is not None and clamped == self._last_set_raw:
-            return  # avoid ALSA churn on identical values
+            return
+
+        # SoC: just signal; policy lives in the subscriber
+        self._emit_change()
+
+        # Set ALSA volume
         try:
             self.mixer.setvolume(clamped, units=VOLUME_UNITS_RAW)
         except ALSAAudioError as ex_err:
             oradio_log.error("Error setting volume: %s", ex_err)
+
+        # store volumen setting for future comparison
         self._last_set_raw = clamped
+
         oradio_log.debug("Volume set to: %s", clamped)
-
-    def _read_adc(self) -> int | None:
-        """Fast read of 10-bit value from MCP3021. Returns 0..1023 or None."""
-        data = self._i2c_service.read_block(MCP3021_ADDRESS, READ_DATA_REGISTER, 2)
-        if data:
-            return ((data[0] & 0x3F) << 6) | (data[1] >> 2)
-        return None
-
-    def _scale_adc_to_volume(self, adc_value: int) -> int:
-        """Scale raw ADC (0..1023) to [VOLUME_MINIMUM..VOLUME_MAXIMUM]."""
-        if adc_value < 0:
-            adc_value = 0
-        elif adc_value > 1023:
-            adc_value = 1023
-        span = VOLUME_MAXIMUM - VOLUME_MINIMUM
-        return int(round(VOLUME_MINIMUM + (adc_value * span) / 1023))
 
 # -----Core methods----------------
 
     def _volume_manager(self) -> None:
-        """Monitor the ADC and adjust the volume; emit a change event on user change."""
-        oradio_log.debug("Volume manager thread started")
+        """
+        Monitor the ADC and adjust the volume; emit a change event on user change.
+        """
+        # Initialize ALSA to the knob's position
+        adc_value = self._read_adc()
+        self._set_volume(adc_value)
 
         # Initial state
-        self._running = True
         previous_adc_value = self._read_adc() or 0
-        polling_interval = POLLING_MAX_INTERVAL
-        first_run = True
 
-        while self._running:
+        # Start with 'slow' polling
+        polling_interval = POLLING_MAX_INTERVAL
+
+        # Volume adjustment loop
+        while self._running.is_set():
+
+            # Get knob position
             adc_value = self._read_adc()
             if adc_value is None:
                 oradio_log.warning("ADC read failed. Retrying...")
                 sleep(polling_interval)
                 continue
 
-            raw_volume = self._scale_adc_to_volume(adc_value)
-            clamped_raw = self._clamp_raw(raw_volume)
-
-#REVIEW: Waarom hier en niet voor de while loop?
-            if first_run:
-                # Initialize ALSA to the knob's position
-                self._set_raw_volume(clamped_raw)
-                oradio_log.debug("Initial volume set to: %s", clamped_raw)
-                first_run = False
-#REVIEW: 1e check op 'voldoende change'
-            elif abs(adc_value - previous_adc_value) > ADC_UPDATE_TOLERANCE:
+            # Check if knob is sufficiently turned
+            if abs(adc_value - previous_adc_value) > ADC_UPDATE_TOLERANCE:
                 previous_adc_value = adc_value
 
-                # Only touch ALSA (and emit) if the effective RAW value changes
-#REVIEW: 2e check op 'voldoende change'
-               before = self._last_set_raw
-                self._set_raw_volume(clamped_raw)
-                after = self._last_set_raw
+                # Set volume level
+                self._set_volume(adc_value)
 
-                if after is not None and after != before:
-                    # SoC: just signal; policy lives in the subscriber
-                    self._emit_change()
-
+                # Manipulate polling for fast reponse while knob is being turned, slower if not
                 polling_interval = POLLING_MIN_INTERVAL
             else:
                 polling_interval = min(polling_interval + POLLING_STEP, POLLING_MAX_INTERVAL)
 
             sleep(polling_interval)
-
-        oradio_log.debug("Volume manager thread stopped")
 
 # -----Public methods----------------
 
@@ -198,19 +194,28 @@ class VolumeControl:
             oradio_log.debug("Volume manager thread already running")
             return
 
+        # signal: start volume manager thread
+        self._running.set()
+
         # Create and start thread
         self._thread = Thread(target=self._volume_manager, daemon=True)
         self._thread.start()
 
+        oradio_log.debug("Volume manager thread started")
+
     def stop(self) -> None:
         """Stop the volumne control thread and wait for it to terminate."""
-        if self._thread and self._thread.is_alive():
-            self._running = False
-            # Avoid hanging forever if the thread is stuck in I/O
-            self._thread.join(timeout=2)
-        else:
+        if not self._thread or not self._thread.is_alive():
             oradio_log.debug("Volume manager thread not running")
+            return
 
+        # signal: stop volume manager thread
+        self._running.clear()
+
+        # Avoid hanging forever if the thread is stuck in I/O
+        self._thread.join(timeout=2)
+
+        oradio_log.debug("Volume manager thread stopped")
 
 # Entry point for stand-alone operation
 if __name__ == "__main__":
