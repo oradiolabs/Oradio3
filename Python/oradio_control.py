@@ -100,9 +100,6 @@ remote_monitor = RmsService()
 
 oradio_log.info("Start backlighting")
 backlighting = Backlighting()
-backlighting.start()
-# oradio_log.info("Stop backlighting")
-# backlighting.stop()
 
 oradio_log.info("Start MPD event monitoring")
 mpd_monitor = MPDMonitor()
@@ -787,9 +784,6 @@ def _on_volume_changed() -> None:
 oradio_log.info("Start volume_control")
 #REVIEW: Waarom callback ipv message?
 volume_control = VolumeControl(on_change=_on_volume_changed)
-volume_control.start()
-# oradio_log.info("Stop volume control")
-# volume_control.stop()
 
 # ---------Initialize the web_service---------
 oradio_web_service = WebService(shared_queue)

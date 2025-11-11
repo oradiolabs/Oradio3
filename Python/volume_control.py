@@ -46,6 +46,8 @@ POLLING_MIN_INTERVAL = 0.05
 POLLING_MAX_INTERVAL = 0.3
 POLLING_STEP         = 0.01
 ALSA_MIXER_DIGITAL   = "Digital"
+# Timeout for thread to respond (seconds)
+THREAD_TIMEOUT = 3
 
 # ALSA abstraction
 class AlsaVolume:
@@ -113,6 +115,9 @@ class VolumeControl:
         # Thread is created dynamically on `start()` to allow restartability
         self._running = Event()
         self._thread = None
+
+        # Start volume manager thread
+        self.start()
 
 # -----Helper methods----------------
 
@@ -182,6 +187,9 @@ class VolumeControl:
         # Start with 'slow' polling
         polling_interval = POLLING_MAX_INTERVAL
 
+        # signal: start volume manager thread
+        self._running.set()
+
         # Volume adjustment loop
         while self._running.is_set():
 
@@ -213,14 +221,16 @@ class VolumeControl:
             oradio_log.debug("Volume manager thread already running")
             return
 
-        # signal: start volume manager thread
-        self._running.set()
-
         # Create and start thread
         self._thread = Thread(target=self._volume_manager, daemon=True)
         self._thread.start()
 
-        oradio_log.debug("Volume manager thread started")
+        # Check if thread started
+        if self._running.wait(timeout=THREAD_TIMEOUT):
+            oradio_log.info("Volume manager thread started")
+        else:
+            oradio_log.error("Timed out: Volume manager thread not started")
+
 
     def stop(self) -> None:
         """Stop the volumne control thread and wait for it to terminate."""
@@ -232,9 +242,12 @@ class VolumeControl:
         self._running.clear()
 
         # Avoid hanging forever if the thread is stuck in I/O
-        self._thread.join(timeout=2)
+        self._thread.join(timeout=THREAD_TIMEOUT)
 
-        oradio_log.debug("Volume manager thread stopped")
+        if self._thread.is_alive():
+            oradio_log.error("Join timed out: volume manager thread is still running")
+        else:
+            oradio_log.info("Volume manager thread stopped")
 
 # Entry point for stand-alone operation
 if __name__ == "__main__":

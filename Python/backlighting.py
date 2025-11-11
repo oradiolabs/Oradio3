@@ -62,6 +62,8 @@ BACKLIGHT_MAX   = 3000
 TRANSITION_TIME  = 10.0     # seconds for full transition
 ADJUST_INTERVAL  = 0.5      # seconds between updates
 CHANGE_THRESHOLD = 5        # minimum DAC change to write
+# Timeout for thread to respond (seconds)
+THREAD_TIMEOUT = 3
 
 class Backlighting:
     """
@@ -91,6 +93,9 @@ class Backlighting:
         # Thread is created dynamically on `start()` to allow restartability
         self._thread = None
         self._running = Event()
+
+        # Start backlight manager thread
+        self.start()
 
 # -----Helper methods----------------
 
@@ -166,6 +171,9 @@ class Backlighting:
         # Apply starting brightness
         self._write_dac(prev_dac_value)
 
+        # signal: start volume manager thread
+        self._running.set()
+
         # Backlight adjustment loop
         while self._running.is_set():
 
@@ -200,14 +208,15 @@ class Backlighting:
             oradio_log.debug("Volume manager thread already running")
             return
 
-        # signal: start volume manager thread
-        self._running.set()
-
         # Create and start thread
         self._thread = Thread(target=self._backlight_manager, daemon=True)
         self._thread.start()
 
-        oradio_log.debug("Backlight manager thread started")
+        # Check if thread started
+        if self._running.wait(timeout=THREAD_TIMEOUT):
+            oradio_log.info("Backlight manager thread started")
+        else:
+            oradio_log.error("Timed out: Backlight manager thread not started")
 
     def stop(self) -> None:
         """Stop the volumne control thread and wait for it to terminate."""
@@ -219,9 +228,12 @@ class Backlighting:
         self._running.clear()
 
         # Avoid hanging forever if the thread is stuck in I/O
-        self._thread.join(timeout=2)
+        self._thread.join(timeout=THREAD_TIMEOUT)
 
-        oradio_log.debug("Backlight manager thread stopped")
+        if self._thread.is_alive():
+            oradio_log.error("Join timed out: backlight manager thread is still running")
+        else:
+            oradio_log.info("Backlight manager thread stopped")
 
     def off(self):
         """Stop auto-adjust thread if any, and turn off backlight."""
