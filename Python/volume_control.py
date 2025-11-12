@@ -28,10 +28,14 @@ from alsaaudio import Mixer, ALSAAudioError, VOLUME_UNITS_RAW   # pylint: disabl
 ##### oradio modules ####################
 from oradio_logging import oradio_log
 from i2c_service import I2CService
+from oradio_utils import safe_put
 
 ##### GLOBAL constants ####################
 from oradio_const import (
-    YELLOW, NC,
+    GREEN, YELLOW, NC,
+    MESSAGE_VOLUME_SOURCE,
+    MESSAGE_VOLUME_CHANGED,
+    MESSAGE_NO_ERROR,
 )
 
 ##### Local constants ####################
@@ -94,7 +98,7 @@ class VolumeControl:
     Tracks an ADC volume knob, updates ALSA, and triggers a callback on significant changes.
     """
 
-    def __init__(self, on_change=None) -> None:
+    def __init__(self, queue) -> None:
         """
         Initialize I²C bus, callback and mixer.
 
@@ -106,8 +110,11 @@ class VolumeControl:
         # Get I2C r/w methods
         self._i2c_service = I2CService()
 
-#REVIEW: Waarom is state change zo tijd-kritisch dat een callback nodig is en een message te langzaam is?
-        self._on_change = on_change
+        # Store queue for sending volume change messages asynchronously
+        self._queue = queue
+
+        # Start ready to send notification
+        self._armed = True
 
         # ALSA wrapper
         self._alsa = AlsaVolume()
@@ -121,19 +128,9 @@ class VolumeControl:
 
 # -----Helper methods----------------
 
-    def _emit_change(self) -> None:
-        """Call the change callback (if any); never let errors kill the ADC thread."""
-        callback = self._on_change
-        if callback is None:
-            return
-        try:
-            callback()
-        except Exception:  # pylint: disable=broad-exception-caught
-            # We deliberately keep this broad here: the callback is external code
-            # provided by the orchestrating module. Any exception raised there
-            # should NOT kill the ADC thread (which is critical for UX). We log
-            # the traceback and continue, preserving device responsiveness.
-            oradio_log.error("Volume change callback failed")
+    def arm(self) -> None:
+        """Allow notification to happen."""
+        self._armed = True
 
     def _read_adc(self) -> int | None:
         """
@@ -167,9 +164,6 @@ class VolumeControl:
         # Set ALSA volume
         self._alsa.set(volume)
 
-        # SoC: just signal; policy lives in the subscriber
-        self._emit_change()
-
 # -----Core methods----------------
 
     def _volume_manager(self) -> None:
@@ -178,11 +172,10 @@ class VolumeControl:
         - Adaptive polling for faster response when the knob is turned and slower idle polling.
         """
         # Initialize ALSA to knob's current position
-        adc_value = self._read_adc()
-        self._set_volume(adc_value)
-
-        # Initial state
-        previous_adc = self._read_adc() or 0
+        previous_adc = self._read_adc()
+        if previous_adc is None:
+            oradio_log.error("ADC read failed")
+        self._set_volume(previous_adc)  # None is ignored
 
         # Start with 'slow' polling
         polling_interval = POLLING_MAX_INTERVAL
@@ -204,8 +197,24 @@ class VolumeControl:
             if abs(adc_value - previous_adc) > ADC_UPDATE_TOLERANCE:
                 previous_adc = adc_value
 
+
                 # Set volume level
                 self._set_volume(adc_value)
+
+                # Notify only once
+                if self._armed:
+                    self._armed = False
+
+                    # Create message
+                    message = {
+                        "source": MESSAGE_VOLUME_SOURCE,
+                        "state" : MESSAGE_VOLUME_CHANGED,
+                        "error" : MESSAGE_NO_ERROR
+                    }
+
+                    # Put message in queue
+                    oradio_log.debug("Send volume changed message: %s", message)
+                    safe_put(self._queue, message)
 
                 polling_interval = POLLING_MIN_INTERVAL     # Fast polling while turning
             else:
@@ -252,15 +261,25 @@ class VolumeControl:
 # Entry point for stand-alone operation
 if __name__ == "__main__":
 
+    # Imports only relevant when stand-alone
+    from multiprocessing import Process, Queue
+
 # Most modules use similar code in stand-alone
 # pylint: disable=duplicate-code
 
-    def _on_volume_changed() -> None:
-        # In production, oradio_control wires a callback that checks the SM state.
-        # Here we just show that the callback fires.
-        print("[Standalone] Volume change detected → (would trigger StatePlay in main app)")
+    def _check_messages(queue):
+        """
+        Check if a new message is put into the queue
+        If so, read the message from queue and display it
+        :param queue = the queue to check for
+        """
+        while True:
+            # Wait indefinitely until a message arrives from the server/wifi service
+            message = queue.get(block=True, timeout=None)
+            # Show message received
+            print(f"\n{GREEN}Message received: '{message}'{NC}\n")
 
-    def interactive_menu():
+    def interactive_menu(queue):
         """Show menu with test options"""
 
         # Show menu with test options
@@ -269,11 +288,12 @@ if __name__ == "__main__":
             " 0-Quit\n"
             " 1-Start volume control\n"
             " 2-Stop volume control\n"
+            " 3-Set volume knob notification\n"
             "Select: "
         )
 
         # Initialise backlighting
-        volume_control = VolumeControl(on_change=_on_volume_changed)
+        volume_control = VolumeControl(queue)
 
         # User command loop
         while True:
@@ -291,15 +311,28 @@ if __name__ == "__main__":
                     print("Turn volume knob to observe changes")
                     volume_control.start()
                 case 2:
-                    print("\nStopping volume control...\n")
+                    print("\nStopping volume control...")
                     volume_control.stop()
+                case 3:
+                    print("\nSet volume knob notification...")
+                    volume_control.arm()
                 case _:
                     print(f"\n{YELLOW}Please input a valid number{NC}\n")
 
     print("\nStarting VolumeControl test program...\n")
 
+    # Initialize
+    message_queue = Queue()
+
+    # Start  process to monitor the message queue
+    message_listener = Process(target=_check_messages, args=(message_queue,))
+    message_listener.start()
+
     # Present menu with tests
-    interactive_menu()
+    interactive_menu(message_queue)
+
+    # Stop listening to messages
+    message_listener.terminate()
 
     print("\nExiting VolumeControl test program...\n")
 

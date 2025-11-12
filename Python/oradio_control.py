@@ -53,6 +53,8 @@ from oradio_utils import has_internet
 #from oradio_const import *
 from oradio_const import (
     MESSAGE_NO_ERROR,
+    MESSAGE_VOLUME_SOURCE,
+    MESSAGE_VOLUME_CHANGED,
     STATE_WEB_SERVICE_IDLE,
     STATE_WEB_SERVICE_ACTIVE,
     MESSAGE_WEB_SERVICE_PL1_CHANGED,
@@ -365,6 +367,8 @@ class StateMachine:
             mpd_control.stop()
         else:
             mpd_control.pause()
+        # Listen for volume changed notifications
+        volume_control.arm()
         spotify_connect.pause()
         sound_player.play("Stop")
         # Schedule interruptible transition to Idle after 4 seconds (non-blocking)
@@ -432,8 +436,14 @@ class StateMachine:
 
 # 1) Functions which define the actions for the messages
 
-# -------------------USB---------------------------
+# -------------------VOLUME------------------------
 
+def on_volume_changed() -> None:
+    oradio_log.info("Volume changed acknowlegded")
+    if state_machine.state in {"StateIdle"}:
+        state_machine.transition("StatePlay")
+
+# -------------------USB---------------------------
 
 def on_usb_absent():
     oradio_log.info("USB absent acknowlegded")
@@ -442,7 +452,6 @@ def on_usb_absent():
     usb_present.clear()
     if state_machine.state != "StateStartUp":
         state_machine.transition("StateUSBAbsent")
-
 
 def on_usb_present():
     oradio_log.info("USB present acknowledged")
@@ -606,6 +615,9 @@ def update_spotify_available():
 # 2)-----The Handler map, defining message content and the handler funtion---
 
 HANDLERS = {
+    MESSAGE_VOLUME_SOURCE: {
+        MESSAGE_VOLUME_CHANGED: on_volume_changed,
+    },
     MESSAGE_USB_SOURCE: {
         STATE_USB_ABSENT: on_usb_absent,
         STATE_USB_PRESENT: on_usb_present,
@@ -768,22 +780,8 @@ if not touch_buttons.selftest():
     state_machine.transition("StateError")
 
 # ----------- Volume Control -----------------
-# Use the same lock you defined above for touch callbacks
-# sm_lock = threading.RLock()   # (already defined above)
 
-#_SWITCH_ON_FROM = {"StateStop", "StateIdle"}
-_SWITCH_ON_FROM = {"StateIdle"}
-
-#REVIEW Onno: Waarom introduceren we hier gebruik van callback voor een service ipv de message queue?
-def _on_volume_changed() -> None:
-    # Guard both the read and the transition
-    with sm_lock:
-        if state_machine.state in _SWITCH_ON_FROM:
-            state_machine.transition("StatePlay")
-
-oradio_log.info("Start volume_control")
-#REVIEW: Waarom callback ipv message?
-volume_control = VolumeControl(on_change=_on_volume_changed)
+volume_control = VolumeControl(shared_queue)
 
 # ---------Initialize the web_service---------
 oradio_web_service = WebService(shared_queue)
