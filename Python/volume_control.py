@@ -240,7 +240,6 @@ class VolumeControl:
         else:
             oradio_log.error("Timed out: Volume manager thread not started")
 
-
     def stop(self) -> None:
         """Stop the volumne control thread and wait for it to terminate."""
         if not self._thread or not self._thread.is_alive():
