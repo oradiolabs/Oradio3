@@ -367,15 +367,12 @@ class StateMachine:
             mpd_control.stop()
         else:
             mpd_control.pause()
-        # Listen for volume changed notifications
-        volume_control.arm()
         spotify_connect.pause()
         sound_player.play("Stop")
         # Schedule interruptible transition to Idle after 4 seconds (non-blocking)
         oradio_log.debug("Stop: scheduling transition to Idle in 4 s (interruptible)")
         self._arm_delayed_transition("StopToIdle", 4.0, "StateIdle")
         # handler returns immediately; task_lock released, UI remains responsive
-
 
     def _state_spotify_connect(self):
         if web_service_active.is_set():
@@ -417,6 +414,8 @@ class StateMachine:
         self._arm_delayed_transition("StartupToIdle", 5.0, "StateIdle")
 
     def _state_idle(self):
+        # Listen for volume changed notifications
+        volume_control.arm()
         if web_service_active.is_set():
             leds.control_blinking_led("LEDPlay", 2)
         if mpd_control.is_webradio():
