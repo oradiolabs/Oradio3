@@ -34,7 +34,7 @@ from mpd_service import MPDService
 
 ##### GLOBAL constants ####################
 from oradio_const import (
-    GREEN, YELLOW, RED, NC,
+    YELLOW, NC,
 )
 
 ##### Local constants ####################
@@ -205,9 +205,6 @@ if __name__ == "__main__":
             "Select: "
         )
 
-        # Initialise backlighting
-        mpd_monitor = MPDMonitor()
-
         # User command loop
         while True:
             try:
@@ -221,7 +218,8 @@ if __name__ == "__main__":
                     break
                 case 1:
                     print("\nTriggering MPD database update event...")
-                    _ = MPDService()._execute("update")
+                    # Accessing a protected function is acceptable for testing
+                    _ = MPDService()._execute("update") # pylint: disable=protected-access
                 case _:
                     print(f"\n{YELLOW}Please input a valid number{NC}\n")
 
