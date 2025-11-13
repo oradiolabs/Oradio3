@@ -105,9 +105,6 @@ backlighting = Backlighting()
 
 oradio_log.info("Start MPD event monitoring")
 mpd_monitor = MPDMonitor()
-mpd_monitor.start()
-# oradio_log.info("Stop MPD event monitoring")
-# mpd_monitor.stop()
 
 # Initialise MPD client
 oradio_log.info("Initialising MPDControl")
