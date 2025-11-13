@@ -90,6 +90,7 @@ class MPDService:
                 if not self._is_connected():
                     try:
                         self._client.disconnect()
+                        oradio_log.debug("Disconnected stale MPD connection before reconnect")
                     except MPDConnectionError:
                         # Already disconnected, safe to ignore
                         pass
@@ -153,6 +154,8 @@ class MPDService:
                     # Avoid hammering the MPD server
                     sleep(MPD_BACKOFF)
                     continue
+
+                oradio_log.debug("Executing MPD command '%s' (attempt %d/%d)", command, attempt, MPD_RETRIES)
 
                 # Execute the MPD command
                 return function(*args, **kwargs)

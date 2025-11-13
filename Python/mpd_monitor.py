@@ -23,19 +23,13 @@ Created on January 10, 2025
 """
 from os import path
 from time import sleep
-from threading import Thread, Event
+from threading import Thread
 from collections import defaultdict
 
 ##### oradio modules ####################
 from oradio_logging import oradio_log
 from singleton import singleton
 from mpd_service import MPDService
-
-
-##### GLOBAL constants ####################
-from oradio_const import (
-    YELLOW, NC,
-)
 
 ##### Local constants ####################
 # Mapping of MPD idle events to typical client actions
@@ -52,8 +46,6 @@ MPD_EVENT_ACTIONS = {
     "subscription": "Subscription state changed",        # Typically used with mpd-subscribe
     "message": "Message sent via MPD",                   # rarely used, may need client.readmessages() if implemented
 }
-# Timeout for thread to respond (seconds)
-THREAD_TIMEOUT = 3
 
 @singleton
 class MPDMonitor(MPDService):
@@ -72,18 +64,9 @@ class MPDMonitor(MPDService):
         self._snapshot = defaultdict(set)
         self._build_initial_snapshot()
 
-        # Thread is created dynamically on `start()` to allow restartability
-        self._running = Event()
-
-        # Create and start thread
+        # Background thread for monitoring MPD events
         self._thread = Thread(target=self._listen, daemon=True)
-        self._thread.start()
-
-        # Check if thread started
-        if self._running.wait(timeout=THREAD_TIMEOUT):
-            oradio_log.info("MPD monitor thread started")
-        else:
-            oradio_log.error("Timed out: MPD monitor thread not started")
+        self._running = False
 
 # -----Helper methods----------------
 
@@ -141,11 +124,8 @@ class MPDMonitor(MPDService):
         - Logs database updates
         - Logs playlist/player info if no error
         """
-        # signal: start MPD monitor thread
-        self._running.set()
-
-        # Monitor events loop
-        while self._running.is_set():
+        self._running = True
+        while self._running:
 
             # Block until one or more events occur
             events = self._execute("idle")
@@ -188,47 +168,29 @@ class MPDMonitor(MPDService):
 
             sleep(1)
 
+# -----Public methods----------------
+
+    def start(self) -> None:
+        """Start the background listener thread if not already running."""
+        if not self._thread.is_alive():
+            self._thread.start()
+            oradio_log.info("MPD Event Monitor started")
+
+    def stop(self) -> None:
+        """Stop the background listener thread and wait for it to terminate."""
+        self._running = False
+        self._thread.join(timeout=2)
+        oradio_log.info("MPD Event Monitor stopped")
+
 # Entry point for stand-alone operation
-if __name__ == "__main__":
+if __name__ == '__main__':
 
-# Most modules use similar code in stand-alone
-# pylint: disable=duplicate-code
-
-    def interactive_menu():
-        """Show menu with test options"""
-
-        # Show menu with test options
-        input_selection = (
-            "\nSelect a function, input the number.\n"
-            " 0-Quit\n"
-            " 1-Trigger database update event\n"
-            "Select: "
-        )
-
-        # User command loop
+    mpd_monitor = MPDMonitor()
+    print("Running MPD event monitor")
+    mpd_monitor.start()
+    try:
         while True:
-            try:
-                function_nr = int(input(input_selection))
-            except ValueError:
-                function_nr = -1
-
-            # Execute selected function
-            match function_nr:
-                case 0:
-                    break
-                case 1:
-                    print("\nTriggering MPD database update event...")
-                    # Accessing a protected function is acceptable for testing
-                    _ = MPDService()._execute("update") # pylint: disable=protected-access
-                case _:
-                    print(f"\n{YELLOW}Please input a valid number{NC}\n")
-
-    print("\nStarting MPD monitor test program...\n")
-
-    # Present menu with tests
-    interactive_menu()
-
-    print("\nExiting MPD monitor test program...\n")
-
-# Restore temporarily disabled pylint duplicate code check
-# pylint: enable=duplicate-code
+            sleep(1)
+    except KeyboardInterrupt:
+        mpd_monitor.stop()
+    print("Exiting MPD event monitor")
