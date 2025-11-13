@@ -29,8 +29,8 @@ Created on January 10, 2025
     - mpdlist/mpdlists: the combination of directories and playlists
     - current: the directory/playlist in the playback queue
 """
-from os import path
 from time import sleep
+from os import path, sep
 from threading import Thread
 from unicodedata import normalize, category
 
@@ -89,30 +89,74 @@ class MPDControl(MPDService):
     def play(self, preset: str | None = None) -> None:
         """
         Start or resume playback.
-        - If a preset is provided, play the associated playlist.
-        - If no preset is provided, resume the current playlist.
-        - If no current playlist exists, play the default preset playlist.
+        - If no preset given and queue is filled:
+          - Ignore if already playing
+          - Resume play if playback is paused
+          - Play first song if stopped and queue is playlist
+          - Play random song if stopped and queue is directory
+        - If queue is empty use preset, or preset1 if preset=None:
+          - Ignore if playlist of preset1 is empty or webradio
+          - Play first song of playlist if preset1 is linked to a playlist
+          - Play random song of playlist if preset1 is linked to a directory
 
         Args:
             preset (str | None): Optional playlist preset to play.
         """
-        # Get current playlist info
-        current_playlist_info = self._execute("playlistinfo") or []
+        # Get songs in the queue
+        songs_in_queue = self._execute("playlistinfo") or []
 
-        # Case 1: validate and use preset if provided
+        # No preset and queue filled: resume current playlist
+        if preset is None and songs_in_queue:
+
+            # Get current MPD status
+            status = self._execute("status") or {}
+
+            # Get MPD state
+            state = status.get("state", "").lower()
+
+            # Ignore if already playing
+            if state == "play":
+                oradio_log.debug("Playing current playlist")
+                return
+
+            # Resume if paused
+            if state == "pause":
+                oradio_log.debug("Resuming current playlist")
+                _ = self._execute("play")
+                return
+
+            # Get MPD playlist name
+            playlist = status.get("lastloadedplaylist")
+
+            # Play first song if queue is a playlist
+            if state == "stop" and playlist:
+                oradio_log.debug("Play first song of playlist '%s'", playlist)
+                _ = self._execute("play", 0)
+
+            # Play random song if queue is a directory
+            else:
+                # songs_in_queue is not empty
+                first_song = songs_in_queue[0]
+                first_path = first_song.get("file")
+                # Get the parent directory of the file
+                parent_dir = path.dirname(first_path)
+                # Get the last part of the parent directory (the "B" in A/B/C.mp3)
+                directory = path.basename(parent_dir)
+                oradio_log.debug("Play random song of directory '%s'", directory)
+                _ = self._execute("shuffle")
+                _ = self._execute("play")
+
+            # Done for filled queue
+            return
+
+        # Validate and use preset if provided
         if preset:
             if not isinstance(preset, str) or not preset.strip():
                 oradio_log.error("Invalid preset provided: %r", preset)
                 return
             preset = preset.strip()
 
-        # Case 2: no preset, resume current playlist if exists
-        elif current_playlist_info:
-            _ = self._execute("play")
-            oradio_log.debug("Resumed current playlist")
-            return
-
-        # Case 3: fallback to default preset if no preset and no current playlist
+        # Fallback to default preset if no preset and no current playlist
         else:
             preset = DEFAULT_PRESET
             oradio_log.debug("No current playlist, using default preset '%s'", preset)
@@ -122,10 +166,10 @@ class MPDControl(MPDService):
 
         # Resolve preset to playlist or directory
         presets = load_presets()
-        playlist_name = presets.get(preset.lower())
+        listname = presets.get(preset.lower())
 
-        # Do nothing if no playlist_name is set
-        if not playlist_name:
+        # Do nothing if no listname is set
+        if not listname:
             oradio_log.warning("Preset '%s' does not resolve to a playlist", preset)
             return
 
@@ -138,27 +182,27 @@ class MPDControl(MPDService):
 
         directories = self.get_directories()
 
-        if playlist_name in playlist_names:
+        if listname in playlist_names:
             # Playlist exists → load sequentially
-            _ = self._execute("load", playlist_name)
+            _ = self._execute("load", listname)
             _ = self._execute("random", 0)
             _ = self._execute("repeat", 1)
-            oradio_log.debug("Loaded playlist '%s'", playlist_name)
-        elif playlist_name in directories:
+            oradio_log.debug("Loaded playlist '%s'", listname)
+        elif listname in directories:
             # Directory → add all songs and shuffle
-            _ = self._execute("add", playlist_name)
+            _ = self._execute("add", listname)
             _ = self._execute("shuffle")
-            _ = self._execute("random", 1)
+            _ = self._execute("random", 0)
             _ = self._execute("repeat", 1)
-            oradio_log.debug("Added directory '%s' and shuffled", playlist_name)
+            oradio_log.debug("Added directory '%s' and shuffled", listname)
         else:
             # Neither playlist nor directory found
-            oradio_log.warning("Playlist or directory '%s' not found for preset '%s'", playlist_name, preset)
+            oradio_log.warning("Playlist or directory '%s' not found for preset '%s'", listname, preset)
             return
 
         # Start playback
         _ = self._execute("play")
-        oradio_log.debug("Playback started for: %s", playlist_name)
+        oradio_log.debug("Playback started for: %s", listname)
 
     def play_song(self, song: str) -> None:
         """
@@ -757,12 +801,14 @@ if __name__ == '__main__':
         # Initialise MPD client
         mpd_client = MPDControl()
 
+        # User command loop
         while True:
             try:
                 function_nr = int(input(input_selection))
             except ValueError:
                 function_nr = -1
 
+            # Execute selected function
             match function_nr:
                 case 0:
                     print("\nExiting test program...\n")
