@@ -29,8 +29,8 @@ Created on January 10, 2025
     - mpdlist/mpdlists: the combination of directories and playlists
     - current: the directory/playlist in the playback queue
 """
+from os import path
 from time import sleep
-from os import path, sep
 from threading import Thread
 from unicodedata import normalize, category
 
@@ -135,11 +135,8 @@ class MPDControl(MPDService):
 
             # Play random song if queue is a directory
             else:
-                # songs_in_queue is not empty
-                first_song = songs_in_queue[0]
-                first_path = first_song.get("file")
-                # Get the parent directory of the file
-                parent_dir = path.dirname(first_path)
+                # songs_in_queue is not empty, so ok to get the parent directory of the first song
+                parent_dir = path.dirname(songs_in_queue[0].get("file"))
                 # Get the last part of the parent directory (the "B" in A/B/C.mp3)
                 directory = path.basename(parent_dir)
                 oradio_log.debug("Play random song of directory '%s'", directory)
@@ -185,20 +182,22 @@ class MPDControl(MPDService):
         if listname in playlist_names:
             # Playlist exists → load sequentially
             _ = self._execute("load", listname)
-            _ = self._execute("random", 0)
-            _ = self._execute("repeat", 1)
             oradio_log.debug("Loaded playlist '%s'", listname)
         elif listname in directories:
             # Directory → add all songs and shuffle
             _ = self._execute("add", listname)
             _ = self._execute("shuffle")
-            _ = self._execute("random", 0)
-            _ = self._execute("repeat", 1)
             oradio_log.debug("Added directory '%s' and shuffled", listname)
         else:
             # Neither playlist nor directory found
             oradio_log.warning("Playlist or directory '%s' not found for preset '%s'", listname, preset)
             return
+
+        # Shuffle handles directories being played randomly
+        _ = self._execute("random", 0)
+
+        # Never stop playing music
+        _ = self._execute("repeat", 1)
 
         # Start playback
         _ = self._execute("play")
