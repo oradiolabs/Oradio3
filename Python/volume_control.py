@@ -128,7 +128,7 @@ class VolumeControl:
 
 # -----Helper methods----------------
 
-    def arm(self) -> None:
+    def set_notify(self) -> None:
         """Allow notification to happen."""
         self._armed = True
 
@@ -314,7 +314,7 @@ if __name__ == "__main__":
                     volume_control.stop()
                 case 3:
                     print("\nSet volume knob notification...")
-                    volume_control.arm()
+                    volume_control.set_notify()
                 case _:
                     print(f"\n{YELLOW}Please input a valid number{NC}\n")
 

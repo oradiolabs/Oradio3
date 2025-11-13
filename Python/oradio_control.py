@@ -415,7 +415,7 @@ class StateMachine:
 
     def _state_idle(self):
         # Listen for volume changed notifications
-        volume_control.arm()
+        volume_control.set_notify()
         if web_service_active.is_set():
             leds.control_blinking_led("LEDPlay", 2)
         if mpd_control.is_webradio():
