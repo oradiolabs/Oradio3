@@ -59,6 +59,8 @@ BACKLIGHT_MIN   = 3800
 BACKLIGHT_MID   = 3300
 BACKLIGHT_MAX   = 3000
 # Constants controlling transition smoothness
+# Backlight level is adjusted in TRANSITION_TIME / ADJUST_INTERVAL steps
+# Make sure these steps small enough to not be noticable to the user
 TRANSITION_TIME  = 10.0     # seconds for full transition
 ADJUST_INTERVAL  = 0.5      # seconds between updates
 CHANGE_THRESHOLD = 5        # minimum DAC change to write
