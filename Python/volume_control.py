@@ -61,12 +61,18 @@ class AlsaVolume:
     Handles setting volume in raw units safely and avoids unnecessary ALSA calls.
     """
     def __init__(self, mixer_name: str = ALSA_MIXER_DIGITAL) -> None:
+        """Initialize an ALSA mixer. If ALSA is not available or the mixer fails to initialize, self._mixer is set to None."""
+        self._mixer = None          # Mixer object, or None if initialization fails
+        self._last_set_raw = None   # Cache last set value to avoid redundant ALSA calls
+
         try:
-            self.mixer = Mixer(mixer_name)
+            # Attempt to initialize the ALSA mixer
+            self._mixer = Mixer(mixer_name)
         except ALSAAudioError as ex_err:
+            # ALSA not available or mixer initialization failed
             oradio_log.error("Error initializing ALSA mixer '%s': %s", mixer_name, ex_err)
-            self.mixer = None  # ALSA not available
-        self._last_set_raw = None  # Cache last set value to prevent redundant ALSA calls
+            # ALSA mixer is not available
+            self._mixer = None
 
     def set(self, raw_value: int) -> None:
         """
@@ -75,8 +81,9 @@ class AlsaVolume:
         Args:
             raw_value: The raw volume value to set.
         """
-        if not self.mixer:
-            return  # Mixer unavailable
+        if not self._mixer:
+            oradio_log.error("ALSA mixer unavailable")
+            return
 
         # Clamp value within allowed min/max range
         clamped = max(VOLUME_MINIMUM, min(VOLUME_MAXIMUM, raw_value))
@@ -86,7 +93,7 @@ class AlsaVolume:
             return
 
         try:
-            self.mixer.setvolume(clamped, units=VOLUME_UNITS_RAW)
+            self._mixer.setvolume(clamped, units=VOLUME_UNITS_RAW)
         except ALSAAudioError as ex_err:
             oradio_log.error("Error setting ALSA volume: %s", ex_err)
         else:
