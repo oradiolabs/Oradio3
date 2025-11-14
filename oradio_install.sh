@@ -376,6 +376,15 @@ sudo sed -i "s/^#allow-interfaces=.*/allow-interfaces=eth0,wlan0/g" /etc/avahi/a
 # Progress report
 echo -e "${GREEN}Wifi is enabled and network domain is set to '${HOSTNAME}.local'${NC}"
 
+# Comment any active AcceptEnv lines in main config
+sudo sed -Ei '/^[[:space:]]*AcceptEnv/ s/^[[:space:]]*/#/' /etc/ssh/sshd_config
+# reload sshd with changed config
+sudo systemctl reload ssh
+# Set safe system-wide defaults
+sudo update-locale LANG=C.UTF-8 LC_CTYPE=C.UTF-8
+# Progress report
+echo -e "${GREEN}Fix installed for \"-bash: warning: setlocale ...\" when SSH-ing from macOS${NC}"
+
 # Get date and time of git last update
 gitdate=$(git log -1 --format=%cd --date=format:'%Y-%m-%d-%H-%M-%S')
 # Get info about installed Oradio3 version
