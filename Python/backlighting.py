@@ -85,7 +85,7 @@ class Backlighting:
         # Get I2C r/w methods
         self._i2c_service = I2CService()
 
-#REVIEW: Eenemalig. Naar oradio_install.sh om slijtage eeprom te voorkomen
+#REVIEW: One-time action. Move to oradio_install.sh to prevent EEPROM wear
         # Ensure all LEDs are off at boot, stored persistently in DAC EEPROM
         self._write_dac(BACKLIGHT_OFF, eeprom=True)
 
