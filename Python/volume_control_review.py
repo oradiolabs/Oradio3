@@ -52,6 +52,9 @@ POLLING_STEP         = 0.01
 ALSA_MIXER_DIGITAL   = "Digital"
 # Timeout for thread to respond (seconds)
 THREAD_TIMEOUT = 3
+#### Review Henk ###############################################################
+# Algemene opmerking: Graag methods met een True/False of een status return value
+#################################################################################
 
 # ALSA abstraction
 class AlsaVolume:
@@ -63,6 +66,10 @@ class AlsaVolume:
     def __init__(self, mixer_name: str = ALSA_MIXER_DIGITAL) -> None:
         try:
             self.mixer = Mixer(mixer_name)
+            ### Review Henk:
+            # De Mixer geeft een lijst van alsa-cards terug. Lijst kan ook leeg zijn.
+            # Ik weet niet of dat een error is. Een lege lijst is geen error, lijkt me.
+            # #########################################################################
         except ALSAAudioError as ex_err:
             oradio_log.error("Error initializing ALSA mixer '%s': %s", mixer_name, ex_err)
             self.mixer = None  # ALSA not available
@@ -74,8 +81,13 @@ class AlsaVolume:
         
         Args:
             raw_value: The raw volume value to set.
+            Review Henk
+            Specify the allowed range of raw_value={VOLUME_MINIMUM...VOLUME_MAXIMUM}
         """
         if not self.mixer:
+            ### Review Henk
+            # error log missing
+            ############################
             return  # Mixer unavailable
 
         # Clamp value within allowed min/max range
@@ -83,6 +95,13 @@ class AlsaVolume:
 
         # Skip ALSA call if value hasn't changed
         if self._last_set_raw == clamped:
+            ## Review Henk
+            # Er wordt None terug gegeven. In principe is deze None anders dan als er een fout is
+            # Nu is het een indicatie dat er geen aanpassing nodig is.
+            # Misschien toch beter om een return value af te spreken
+            # "SET_ACK"= set uitgevoerd
+            # "SET_FAIL"= fout tijdens uitvoering van set
+            # "SET_NOCHANGE" = niet nodig om set uit te voeren
             return
 
         try:
@@ -163,6 +182,9 @@ class VolumeControl:
 
         # Set ALSA volume
         self._alsa.set(volume)
+        ### Review Henk ######################################################
+        # de self._alsa.set() kan een None teruggeven. Wordt niet op getest.
+        # ###################################################################
 
 # -----Core methods----------------
 
@@ -239,6 +261,9 @@ class VolumeControl:
             oradio_log.info("Volume manager thread started")
         else:
             oradio_log.error("Timed out: Volume manager thread not started")
+        #### Review Henk
+        # Wat te doen als de error zich voordoet. Return (error-code) ??
+        ##########################################################################
 
     def stop(self) -> None:
         """Stop the volumne control thread and wait for it to terminate."""
