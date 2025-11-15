@@ -27,7 +27,7 @@ Created on January 17, 2025
         https://pypi.org/project/watchdog/
 """
 import os
-from threading import Lock, RLock
+from threading import RLock
 from watchdog.observers import Observer
 from watchdog.events import PatternMatchingEventHandler
 
