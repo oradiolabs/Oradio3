@@ -23,7 +23,7 @@ def singleton(cls) -> object:
     """Make a class a thread-safe singleton by patching its __new__ and __init__.
 
     This decorator installs:
-     - a class-level __instance and __lock
+     - a class-level instance and lock
      - a __new__ that ensures only one instance is created (double-checked locking)
      - an __init__ wrapper that runs the original __init__ only once
 
@@ -33,9 +33,8 @@ def singleton(cls) -> object:
     The decorator returns the original class (not a wrapper), so subclassing and
     isinstance() behavior remain normal.
     """
-    # Use name-mangled "private" attributes to avoid pylint protected-access
-    cls.__instance = None  # Store the singleton instance (per class)
-    cls.__lock = Lock()    # Lock to make instance creation thread-safe
+    cls.instance = None  # Store the singleton instance (per class)
+    cls.lock = Lock()    # Lock to make instance creation thread-safe
 
     # Save the original __init__ method
     original_init = getattr(cls, "__init__", lambda self, *a, **k: None)
@@ -55,13 +54,13 @@ def singleton(cls) -> object:
 
     @wraps(getattr(cls, "__new__", object.__new__))
     def new_singleton(subcls, *args, **kwargs): # pylint: disable=unused-argument
-        # Double-checked locking on class-level __instance
-        if subcls.__instance is None:
-            with subcls.__lock:
-                if subcls.__instance is None:
+        # Double-checked locking on class-level instance
+        if subcls.instance is None:
+            with subcls.lock:
+                if subcls.instance is None:
                     # Use super(subcls, subcls).__new__(subcls) to get raw instance
-                    subcls.__instance = object.__new__(subcls)
-        return subcls.__instance
+                    subcls.instance = object.__new__(subcls)
+        return subcls.instance
 
     # Patch class in-place
     cls.__new__ = new_singleton
