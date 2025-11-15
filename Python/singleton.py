@@ -20,68 +20,52 @@ from threading import Lock
 from functools import wraps
 
 def singleton(cls) -> object:
+    """Make a class a thread-safe singleton by patching its __new__ and __init__.
+
+    This decorator installs:
+     - a class-level _instance and _lock
+     - a __new__ that ensures only one instance is created (double-checked locking)
+     - an __init__ wrapper that runs the original __init__ only once
+
+    Key safety detail: checks and sets the '_initialized' flag via __dict__
+    to avoid triggering user-defined __getattr__ during initialization.
+
+    The decorator returns the original class (not a wrapper), so subclassing and
+    isinstance() behavior remain normal.
     """
-    Thread-safe singleton decorator for any class.
-
-    Ensures that a class only ever has **one instance**. and is thread-safe using a lock.
-    @wrap() ensures that the wrapper looks and behaves like the original function or method.
-    Guarantees that the class's __init__ method runs **only once**, even if the class is instantiated multiple times.
-
-    MOTE: Single underscore indicates internal use; accessing it here is intentional for the decorator.
-
-    Args:
-        cls: The class to decorate.
-
-    Returns:
-        object: The singleton instance of the decorated class.
-
-    Usage:
-        @singleton
-        class MyClass:
-            pass
-    """
-    # pylint: disable=protected-access
     cls._instance = None  # Store the singleton instance (per class)
     cls._lock = Lock()    # Lock to make instance creation thread-safe
-    # pylint: enable=protected-access
 
     # Save the original __init__ method
-    original_init = cls.__init__
+    original_init = getattr(cls, "__init__", lambda self, *a, **k: None)
 
-    @wraps(cls.__init__)
+    @wraps(original_init)
     def init_once(self, *args, **kwargs):
-        """
-        Replacement __init__ that runs only once per once.
-        """
-        # pylint: disable=protected-access
-        # Check if the instance has already been initialized
-        if getattr(self, "_initialized", False):
+        """Replacement __init__ that runs only once per once."""
+        # Use __dict__ to avoid invoking __getattr__
+        if self.__dict__.get("_initialized", False):
             return  # Skip re-initialization
+
         # Call the original __init__
         original_init(self, *args, **kwargs)
-        # Mark as initialized
-        self._initialized = True
-        # pylint: enable=protected-access
 
-    # Replace the class's __init__ with our wrapper
+        # Mark initialized via __dict__ to avoid __getattr__ recursion
+        self.__dict__["_initialized"] = True
+
+    @wraps(getattr(cls, "__new__", object.__new__))
+    def new_singleton(subcls, *args, **kwargs):
+        # Double-checked locking on class-level _instance
+        if subcls._instance is None:
+            with subcls._lock:
+                if subcls._instance is None:
+                    # Use super(subcls, subcls).__new__(subcls) to get raw instance
+                    subcls._instance = super(cls, subcls).__new__(subcls)
+        return subcls._instance
+
+    # Patch class in-place
+    cls.__new__ = new_singleton
     cls.__init__ = init_once
-
-    @wraps(cls)
-    def wrapper(*args, **kwargs):
-        """
-        Wrapper function that controls instance creation.
-        Implements double-checked locking for thread safety.
-        """
-        # pylint: disable=protected-access
-        if cls._instance is None:
-            # Acquire the lock before creating the instance
-            with cls._lock:
-                if cls._instance is None:   # Double-check inside the lock
-                    cls._instance = cls(*args, **kwargs)
-        return cls._instance
-        # pylint: enable=protected-access
-
-    return wrapper
+    return cls
 
 # Entry point for stand-alone operation
 if __name__ == '__main__':
