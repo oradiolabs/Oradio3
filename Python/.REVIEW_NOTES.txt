@@ -21,6 +21,10 @@ YYYY-MM-DD======================================================================
 - i2c_service.py review:
 1 - Overweeg een retry mechanisme voor write_byte() en write_block().
 
+- backlighting.py review
+1 - r88 - Ik snap de opmerking over EEPROM wear-out niet. Er wordt slechts 1x naar EEPROM geschreven nl bij opstarten
+2 - r231 - de stop() method docstring is niet correct: Stop the Backlight manager ipv volume control
+
 2025-11-15============================================================================================================================
 
 - usb_service.py:

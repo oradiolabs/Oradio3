@@ -87,6 +87,13 @@ class Backlighting:
 
 #REVIEW: One-time action. Move to oradio_install.sh to prevent EEPROM wear
         # Ensure all LEDs are off at boot, stored persistently in DAC EEPROM
+      
+        # Review Henk
+        # EEPROM wear-out !!!
+        # Begrijp wear-out niet. Er wordt slecht 1x naar EEPROM geschreven
+        # namelijk bij initieren van deze klasse. Dus schrijven naar EEPROM alleen bij opstarten
+        # #################################################################################        
+        
         self._write_dac(BACKLIGHT_OFF, eeprom=True)
 
         # Initialize light sensor hardware
@@ -222,6 +229,9 @@ class Backlighting:
 
     def stop(self) -> None:
         """Stop the volumne control thread and wait for it to terminate."""
+        ### Review Henk
+        # Docstring niet correct: Stop the Backlight manager ipv volume control
+        #######################################################################
         if not self._thread or not self._thread.is_alive():
             oradio_log.debug("Backlight manager thread not running")
             return
