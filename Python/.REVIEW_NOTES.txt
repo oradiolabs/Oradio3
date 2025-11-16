@@ -7,6 +7,20 @@ YYYY-MM-DD======================================================================
 
 <wat er gewijzigd is sinds vorige review/rework/verificatie>
 
+2025-11-16 ============================================================================================================================
+
+- volume_control review:
+1 - Klopt niet alle methods, maar wel die methods die een failure kunnen hebben, zoals AlsaVolume.set() die 2 testen doet. Nu geeft deze method in principe altijd de "bare" return terug
+2 - V
+3 - V
+4 - RV
+5 -
+6 - zie opmerking 1)
+7  V Error afhandelijk is een issue#408 van gemaakt.
+
+- i2c_service.py review:
+1 - Overweeg een retry mechanisme voor write_byte() en write_block().
+
 2025-11-15============================================================================================================================
 
 - usb_service.py:

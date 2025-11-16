@@ -72,6 +72,11 @@ class I2CService:
         Returns:
             None
         """
+        ##################################################################################
+        # Review Henk
+        # Misschien een beperkte retry mechanisme inbouwen voor de standaard OSError
+        # als het schrijven mislukt
+        # #############################################################################   
         with self._lock:
             try:
                 self._bus.write_byte_data(device, register, value)
@@ -140,6 +145,11 @@ class I2CService:
         Returns:
             None
         """
+        ##################################################################################
+        # Review Henk
+        # Misschien een beperkte retry mechanisme inbouwen voor de standaard OSError
+        # als het schrijven mislukt
+        # #############################################################################           
         if len(data) > 32:
             oradio_log.error("SMBus block write supports a maximum of 32 bytes")
 
