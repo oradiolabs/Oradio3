@@ -102,6 +102,7 @@ class I2CService:
             with self._lock:
                 try:
                     self._bus.write_byte_data(device, register, value)
+                    return
                 except (OSError, ValueError, TypeError) as ex_err:
                     oradio_log.warning("Unexpected error '%s' during I2C writing byte to device=0x%02X, register=0x%02X, value=0x%02X (attempt %d/%d)", ex_err, device, register, value, attempt, I2C_RETRIES)
             # Avoid hammering the I2C bus
@@ -158,6 +159,7 @@ class I2CService:
             with self._lock:
                 try:
                     self._bus.write_i2c_block_data(device, register, data)
+                    return
                 except (OSError, ValueError, TypeError) as ex_err:
                     oradio_log.warning("Unexpected error '%s' during I2C writing block to device=0x%02X, register=0x%02X, data=%s (attempt %d/%d)", ex_err, device, register, data, attempt, I2C_RETRIES)
             # Avoid hammering the I2C bus
