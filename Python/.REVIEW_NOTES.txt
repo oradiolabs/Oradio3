@@ -14,14 +14,12 @@ T - hw_serial_number_gen.py: Nu is HW identifier hard coded. Moet dynamisch word
 T - Review usb_service.py vanwege vervangen singleton code door singleton decorator
 T - Review mpd_control.py play method nav aanpassingen random nummer weergave
 T - Olaf maakt test module mpd_control_test.py
-T - Rework Documents/MPD/MPDControl_module_description.docx
+T - Review Documents/MPD/MPD_modules_description.docx
 
 2025-11-17============================================================================================================================
 
 I2C:
-
-R Review Documents/MPD/MPDControl_module_description.docx
-
+R Review Documents/I2C/I2C_modules_description.docx
 volume_control review:
 R 1 - Ah, nu snap ik je. Reworked: AlsaVolume.set() VolumeControl._set_volume() geven nu True/False terug. Wordt in manager bewust genegeerd.
 V 2 - De de exception komt als mixer_name niet bestaat, of initialisatie mislukt -> Extra comments toegevoegd aan AlsaVolume::__init__ in volumne_control.py
@@ -30,7 +28,6 @@ V 4 - Ontbrekende foutmelding -> toegevoegd
 R 5 - Zie punt 1
 R 6 - Zie punt 1
 V 7 - errors propageren nu niet, worden alleen gelogd. Zie issue #408
-
 backligting.py review:
 R 1 - Het is een vrij theoretisch geval: EEPROMS hebben een beperkt aantal write cycles.
       Nu wordt de EEPROM elke keer als Oradio en backlighting start geschreven.
@@ -38,7 +35,6 @@ R 1 - Het is een vrij theoretisch geval: EEPROMS hebben een beperkt aantal write
 	  Maar omdat EEPROM schrijfbeperking bij 40-50000 cycles ligt hoeven we ons daar niet echt druk over te maken.
 	  Kortom: we laten het in Backlighting::__init__ zitten. Eens?
 R 2 - de stop() method docstring is niet correct: Stop the Backlight manager ipv volume control. Gecorrigeerd
-
 i2c_service.py review:
 R 1 - Reworked: een retry mechanisme voor write_byte() en write_block() toegevoegd
 
