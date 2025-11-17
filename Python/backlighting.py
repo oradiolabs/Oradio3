@@ -85,15 +85,7 @@ class Backlighting:
         # Get I2C r/w methods
         self._i2c_service = I2CService()
 
-#REVIEW: One-time action. Move to oradio_install.sh to prevent EEPROM wear
         # Ensure all LEDs are off at boot, stored persistently in DAC EEPROM
-      
-        # Review Henk
-        # EEPROM wear-out !!!
-        # Begrijp wear-out niet. Er wordt slecht 1x naar EEPROM geschreven
-        # namelijk bij initieren van deze klasse. Dus schrijven naar EEPROM alleen bij opstarten
-        # #################################################################################        
-        
         self._write_dac(BACKLIGHT_OFF, eeprom=True)
 
         # Initialize light sensor hardware
@@ -228,10 +220,7 @@ class Backlighting:
             oradio_log.error("Timed out: Backlight manager thread not started")
 
     def stop(self) -> None:
-        """Stop the volumne control thread and wait for it to terminate."""
-        ### Review Henk
-        # Docstring niet correct: Stop the Backlight manager ipv volume control
-        #######################################################################
+        """Stop the backlighting auto-adjust thread and wait for it to terminate."""
         if not self._thread or not self._thread.is_alive():
             oradio_log.debug("Backlight manager thread not running")
             return

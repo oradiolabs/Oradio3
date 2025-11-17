@@ -74,31 +74,36 @@ class AlsaVolume:
             # ALSA mixer is not available
             self._mixer = None
 
-    def set(self, raw_value: int) -> None:
+    def set(self, raw_value: int) -> bool:
         """
         Set mixer volume in raw units.
         
         Args:
             raw_value: The raw volume value to set.
+
+        Returns:
+            bool: True on success, False on error
         """
         if not self._mixer:
             oradio_log.error("ALSA mixer unavailable")
-            return
+            return False
 
         # Clamp value within allowed min/max range
         clamped = max(VOLUME_MINIMUM, min(VOLUME_MAXIMUM, raw_value))
 
         # Skip ALSA call if value hasn't changed
         if self._last_set_raw == clamped:
-            return
+            return False
 
         try:
             self._mixer.setvolume(clamped, units=VOLUME_UNITS_RAW)
         except ALSAAudioError as ex_err:
             oradio_log.error("Error setting ALSA volume: %s", ex_err)
+            return False
         else:
             self._last_set_raw = clamped
             oradio_log.debug("Volume set to: %s", clamped)
+            return True
 
 class VolumeControl:
     """
@@ -154,22 +159,25 @@ class VolumeControl:
         # Combine the 2 bytes into a 10-bit value
         return ((data[0] & 0x3F) << 6) | (data[1] >> 2)
 
-    def _set_volume(self, adc_value: int) -> None:
+    def _set_volume(self, adc_value: int) -> bool:
         """
         Update ALSA volume based on ADC reading and trigger callback.
         
         Args:
             adc_value: Current ADC reading
+
+        Returns:
+            bool: True on success, False on error
         """
         if adc_value is None:
-            return
+            return True
 
         # Scale ADC (0..1023) to [VOLUME_MINIMUM..VOLUME_MAXIMUM]
         span = VOLUME_MAXIMUM - VOLUME_MINIMUM
         volume = int(round(VOLUME_MINIMUM + (adc_value * span) / 1023))
 
         # Set ALSA volume
-        self._alsa.set(volume)
+        return self._alsa.set(volume)
 
 # -----Core methods----------------
 
@@ -182,7 +190,7 @@ class VolumeControl:
         previous_adc = self._read_adc()
         if previous_adc is None:
             oradio_log.error("ADC read failed")
-        self._set_volume(previous_adc)  # None is ignored
+        _ = self._set_volume(previous_adc)  # result is ignored
 
         # Start with 'slow' polling
         polling_interval = POLLING_MAX_INTERVAL
@@ -204,9 +212,8 @@ class VolumeControl:
             if abs(adc_value - previous_adc) > ADC_UPDATE_TOLERANCE:
                 previous_adc = adc_value
 
-
                 # Set volume level
-                self._set_volume(adc_value)
+                _ = self._set_volume(adc_value)     # result is ignored
 
                 # Notify only once
                 if self._armed:

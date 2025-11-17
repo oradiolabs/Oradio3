@@ -21,6 +21,7 @@ Created on January 10, 2025
 @references:
     https://github.com/kplindegaard/smbus2
 """
+from time import sleep
 from threading import Lock
 from smbus2 import SMBus
 
@@ -34,6 +35,9 @@ from oradio_const import (
 )
 
 ##### Local constants ####################
+I2C_RETRIES = 3
+I2C_BACKOFF = 1     # seconds
+
 ORADIO_DEVICES = {
     0x4D: {"name": "MCP3021 - A/D Converter"},
     0x29: {"name": "TSL2591 - Ambient Light Sensor"},
@@ -58,31 +62,6 @@ class I2CService:
 
 # ---------------- Byte operations ----------------
 
-    def write_byte(self, device: int, register: int, value: int) -> None:
-        """
-        Write a single byte to a device register.
-        - Thread-safe with a lock.
-        - Logs the operation and any errors.
-
-        Args:
-            device (int): I2C device address.
-            register (int): Register address on the device.
-            value (int): Byte value to write.
-
-        Returns:
-            None
-        """
-        ##################################################################################
-        # Review Henk
-        # Misschien een beperkte retry mechanisme inbouwen voor de standaard OSError
-        # als het schrijven mislukt
-        # #############################################################################   
-        with self._lock:
-            try:
-                self._bus.write_byte_data(device, register, value)
-            except (OSError, ValueError, TypeError) as ex_err:
-                oradio_log.error("I2C write: device=0x%02X, register=0x%02X, value=0x%02X -> %s", device, register, value, ex_err)
-
     def read_byte(self, device: int, register: int) -> int | None:
         """
         Read a single byte from a device register.
@@ -104,6 +83,32 @@ class I2CService:
                 oradio_log.error("I2C read: device=0x%02X, register=0x%02X -> %s", device, register, ex_err)
         return None
 
+    def write_byte(self, device: int, register: int, value: int) -> None:
+        """
+        Write a single byte to a device register.
+        - Thread-safe with a lock.
+        - Write with retries and backoff.
+        - Logs the operation and any errors.
+
+        Args:
+            device (int): I2C device address.
+            register (int): Register address on the device.
+            value (int): Byte value to write.
+
+        Returns:
+            None
+        """
+        for attempt in range(1, I2C_RETRIES + 1):
+            with self._lock:
+                try:
+                    self._bus.write_byte_data(device, register, value)
+                except (OSError, ValueError, TypeError) as ex_err:
+                    oradio_log.warning("Unexpected error '%s' during I2C writing byte to device=0x%02X, register=0x%02X, value=0x%02X (attempt %d/%d)", ex_err, device, register, value, attempt, I2C_RETRIES)
+            # Avoid hammering the I2C bus
+            sleep(I2C_BACKOFF)
+        # All retries exhausted
+        oradio_log.error("Failed writing byte to device=0x%02X, register=0x%02X, value=0x%02X after %d attempts", device, register, value, I2C_RETRIES)
+                    
 # ---------------- Block operations ----------------
 
     def read_block(self, device: int, register: int, length: int) -> list | None:
@@ -135,6 +140,7 @@ class I2CService:
         """
         Write a block of bytes to a device register.
         - Thread-safe with a lock.
+        - Write with retries and backoff.
         - Logs the operation and any errors.
         
         Args:
@@ -145,19 +151,19 @@ class I2CService:
         Returns:
             None
         """
-        ##################################################################################
-        # Review Henk
-        # Misschien een beperkte retry mechanisme inbouwen voor de standaard OSError
-        # als het schrijven mislukt
-        # #############################################################################           
         if len(data) > 32:
             oradio_log.error("SMBus block write supports a maximum of 32 bytes")
 
-        with self._lock:
-            try:
-                self._bus.write_i2c_block_data(device, register, data)
-            except (OSError, ValueError, TypeError) as ex_err:
-                oradio_log.error("I2C write block ERROR: device=0x%02X, register=0x%02X, data=%s -> %s", device, register, data, ex_err)
+        for attempt in range(1, I2C_RETRIES + 1):
+            with self._lock:
+                try:
+                    self._bus.write_i2c_block_data(device, register, data)
+                except (OSError, ValueError, TypeError) as ex_err:
+                    oradio_log.warning("Unexpected error '%s' during I2C writing block to device=0x%02X, register=0x%02X, data=%s (attempt %d/%d)", ex_err, device, register, data, attempt, I2C_RETRIES)
+            # Avoid hammering the I2C bus
+            sleep(I2C_BACKOFF)
+        # All retries exhausted
+        oradio_log.error("Failed writing block to device=0x%02X, register=0x%02X, data=%s after %d attempts", device, register, data, I2C_RETRIES)
 
 # Entry point for stand-alone operation
 if __name__ == '__main__':
