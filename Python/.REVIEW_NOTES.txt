@@ -7,39 +7,34 @@ YYYY-MM-DD======================================================================
 
 <wat er gewijzigd is sinds vorige review/rework/verificatie>
 
-2025-11-16 ============================================================================================================================
+2025-11-17============================================================================================================================
+
+LET OP: Ik heb onderstaande reworks in de CR043 branch gedaan, omdat het kleine wijzigingen betreft, eenvoudig te controleren is.
 
 - volume_control review:
-1 - Klopt niet alle methods, maar wel die methods die een failure kunnen hebben, zoals AlsaVolume.set() die 2 testen doet. Nu geeft deze method in principe altijd de "bare" return terug
-2 - V
-3 - V
-4 - RV
-5 -
-6 - zie opmerking 1)
-7  V Error afhandelijk is een issue#408 van gemaakt.
+R 1 - Ah, nu snap ik je. Reworked: AlsaVolume.set() VolumeControl._set_volume() geven nu True/False terug. Wordt in manager bewust genegeerd.
+V 2 - De de exception komt als mixer_name niet bestaat, of initialisatie mislukt -> Extra comments toegevoegd aan AlsaVolume::__init__ in volumne_control.py
+V 3 - raw_value range is niet beperkt, want wordt in method geclamped
+V 4 - Ontbrekende foutmelding -> toegevoegd
+R 5 - Zie punt 1
+R 6 - Zie punt 1
+V 7 - errors propageren nu niet, worden alleen gelogd. Zie issue #408
+
+- backligting.py review:
+R 1 - Het is een vrij theoretisch geval: EEPROMS hebben een beperkt aantal write cycles.
+      Nu wordt de EEPROM elke keer als Oradio en backlighting start geschreven.
+	  Het is strikt genomen voldoende als dit eenmalig bij configuratie van Oradio gedaan wordt, dus in oradio_install.sh.
+	  Maar omdat EEPROM schrijfbeperking bij 40-50000 cycles ligt hoeven we ons daar niet echt druk over te maken.
+	  Kortom: we laten het in Backlighting::__init__ zitten. Eens?
+R 2 - de stop() method docstring is niet correct: Stop the Backlight manager ipv volume control. Gecorrigeerd
 
 - i2c_service.py review:
-1 - Overweeg een retry mechanisme voor write_byte() en write_block().
-
-- backlighting.py review
-1 - r88 - Ik snap de opmerking over EEPROM wear-out niet. Er wordt slechts 1x naar EEPROM geschreven nl bij opstarten
-2 - r231 - de stop() method docstring is niet correct: Stop the Backlight manager ipv volume control
+R 1 - Reworked: een retry mechanisme voor write_byte() en write_block() toegevoegd
 
 2025-11-15============================================================================================================================
 
 - usb_service.py:
 1 - Vervang singleton code door singleton decorator
-
-2025-11-14============================================================================================================================
-
-- volume_control_review.py:
-1 - r55: Niet mee eens. methods hoeven niet altijd iets te retourneren
-2 - r69: De de exception komt als mixer_name niet bestaat, of initialisatie mislukt -> Extra comments toegevoegd aan AlsaVolume::__init__ in volumne_control.py
-3 - r84: raw_value range is niet beperkt, want wordt in method geclamped
-4 - r88: Ontbrekende foutmelding -> toegevoegd in volume_control.py
-5 - r98: Zie punt 1
-6 - r185: alsa.set() geeft niets terug, dus is er ook niets om op te testen
-7 - r264: errors propageren nu niet, worden alleen gelogd
 
 2025-11-13============================================================================================================================
 
@@ -47,18 +42,6 @@ YYYY-MM-DD======================================================================
 1 - Documents/MPD/MPDControl_module_description.docx gemaakt voor huidige MPD implementatie (vervangt MPDControl_module_description.docx)
 2 - mpd_control.py - play method (na aanpassingen om minder vaak hetzelfde nummer te horen)
 3 - mpd_monitor.py - start en stop methods zijn verdwenen (het is niet eenvoudig, en ook niet nodig, om de monitor te kunnen stoppen en starten)
-
-----
-
-- i2c branch:
-4 - Documents/I2C/I2C_modules_description.docx gemaakt voor huidige I2C implementatie (vervangt backlighting_module_description.docx en VolumeControl_module_description_updated.docx)
-5 - In oradio_install.sh de installatie van de backlighting service verwijderd
-6 - In install_resource folder backlighting.service.template verwijderd
-7 - In python folder:
-8   - test_backlighting.py verwijderd (stand-alone test is onderdeel van nieuwe backlighting.py)
-9   - nieuwe i2c_service.py met class I2CService gemaakt (thread-safe wrapper voor read/write byte/block methods met error handling)
-10  - backlighting.py refactored: gebruikt I2CService, methods voor start/stop van zelfstandige backlight manager daemon thread
-11  - volume_control.py refactored: gebruikt I2CService, methods voor start/stop van volume control manager daemon thread die de waarde van de knop leest en volume aanpast. Volume change messages worden op verzoek gegenereerd
 
 2025-11-10============================================================================================================================
 
