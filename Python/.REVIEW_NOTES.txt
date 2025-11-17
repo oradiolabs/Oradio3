@@ -1,4 +1,5 @@
 Legenda===================
+T betekent TODO
 R betekent reworked
 V betekent rework akkoord
 ==========================
@@ -9,9 +10,19 @@ YYYY-MM-DD======================================================================
 
 2025-11-17============================================================================================================================
 
-LET OP: Ik heb onderstaande reworks in de CR043 branch gedaan, omdat het kleine wijzigingen betreft, eenvoudig te controleren is.
+T - hw_serial_number_gen.py: Nu is HW identifier hard coded. Moet dynamisch worden, want we hebben verschillende hw versies
+T - Review usb_service.py vanwege vervangen singleton code door singleton decorator
+T - Review mpd_control.py play method nav aanpassingen random nummer weergave
+T - Olaf maakt test module mpd_control_test.py
+T - Rework Documents/MPD/MPDControl_module_description.docx
 
-- volume_control review:
+2025-11-17============================================================================================================================
+
+I2C:
+
+R Review Documents/MPD/MPDControl_module_description.docx
+
+volume_control review:
 R 1 - Ah, nu snap ik je. Reworked: AlsaVolume.set() VolumeControl._set_volume() geven nu True/False terug. Wordt in manager bewust genegeerd.
 V 2 - De de exception komt als mixer_name niet bestaat, of initialisatie mislukt -> Extra comments toegevoegd aan AlsaVolume::__init__ in volumne_control.py
 V 3 - raw_value range is niet beperkt, want wordt in method geclamped
@@ -20,7 +31,7 @@ R 5 - Zie punt 1
 R 6 - Zie punt 1
 V 7 - errors propageren nu niet, worden alleen gelogd. Zie issue #408
 
-- backligting.py review:
+backligting.py review:
 R 1 - Het is een vrij theoretisch geval: EEPROMS hebben een beperkt aantal write cycles.
       Nu wordt de EEPROM elke keer als Oradio en backlighting start geschreven.
 	  Het is strikt genomen voldoende als dit eenmalig bij configuratie van Oradio gedaan wordt, dus in oradio_install.sh.
@@ -28,27 +39,10 @@ R 1 - Het is een vrij theoretisch geval: EEPROMS hebben een beperkt aantal write
 	  Kortom: we laten het in Backlighting::__init__ zitten. Eens?
 R 2 - de stop() method docstring is niet correct: Stop the Backlight manager ipv volume control. Gecorrigeerd
 
-- i2c_service.py review:
+i2c_service.py review:
 R 1 - Reworked: een retry mechanisme voor write_byte() en write_block() toegevoegd
 
-2025-11-15============================================================================================================================
-
-- usb_service.py:
-1 - Vervang singleton code door singleton decorator
-
-2025-11-13============================================================================================================================
-
-- mpd branch:
-1 - Documents/MPD/MPDControl_module_description.docx gemaakt voor huidige MPD implementatie (vervangt MPDControl_module_description.docx)
-2 - mpd_control.py - play method (na aanpassingen om minder vaak hetzelfde nummer te horen)
-3 - mpd_monitor.py - start en stop methods zijn verdwenen (het is niet eenvoudig, en ook niet nodig, om de monitor te kunnen stoppen en starten)
-
 2025-11-10============================================================================================================================
-
-mpd_control.py:
-- Olaf maakt test module mpd_control_test.py
-
-----
 
 GPIO:
 Henk review: led_control.py
@@ -64,7 +58,7 @@ Henk review: led_control.py
 
 2025-11-10============================================================================================================================
 
-mpd_control.py:
+MPD:
 V 1 - Refactored code zit in trixie_mpd branch
 V 2 - mpd_client singleton moet eruit
 V 3 - Listener moet aparte singleton class worden
@@ -72,25 +66,8 @@ V 4 - functies die waarde retourneren maar deze genegeerd wordt moeten _ = <func
 V 5 - LET OP: bovenstaande heeft ook impact op radio_control.py en fastapi_server.py
 V 6 - Probleem in _remove_song_when_finished(), met een if conditie waarbij een int() met een string vergeleken wordt: de "deleteid" wordt niet uitgevoerd
 V 7 - Hetzelfde probleem in play_song(), ook een int()/String compare. Graag ook de single-line-code minder complex maken door meerdere code regels er aan te wijden. De code is dan beter leesbaar en te begrijpen. Ik heb voorbeeld toegevoegd.
-V 8 - Probleem met twee self._execute() die bijelkaar gevoegd worden. Gaat fout als er None terugkomt==> TypeError
+V 8 - Probleem met twee self._execute() die bij elkaar gevoegd worden. Gaat fout als er None terugkomt==> TypeError
 V 9 - Groene tekst als een module test optie een succes oplevert.
 V 10 - Verhuis MPDBase naar eigen file mpd_base.py, laat mpd_control.p en mpd_monito.py die importeren
 V 11 - Gebruik 'Singleton metaclass' in mpd_monitor.py (later ook in andere modules waar Singleton gebruikt wordt)
 => Review/Rework conclusie: Rework akkoord en hiermee mpd review afgesloten.
-
-----
-
-led_control.py, test_backlighting.py en touch_buttons.py:
-- Gebruiken GPIO maar weten dat niet van elkaar, waardoor conflicten kunnen ontstaan: Refactor
-- test_backlighting.py verhuizen naar backlighting.py in stand-alone mode
-
-----
-
-GPIO:
-led_control.py en touch_buttons.py:
-- Gebruiken GPIO maar weten dat niet van elkaar, waardoor conflicten kunnen ontstaan: Refactor
-
-hw_serial_number_gen.py:
-- Nu is HW identifier hard coded. Moet dynamisch worden, want we hebben verschillende hw versies
-- Willen we een 'echt' versienummer maken in plaats van huidige string?
-
