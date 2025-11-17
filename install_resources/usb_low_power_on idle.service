@@ -1,0 +1,24 @@
+# https://manpages.debian.org/testing/systemd/systemd.service.5.en.html
+# Placeholders will be modified by ../oradio_install.sh script
+
+[Unit]
+Description=Configure for low standby power
+# Ensure this runs before oradio service is launched
+Before=oradio.service
+
+[Service]
+Type=oneshot
+
+# allow USB to suspend when idle
+ExecStart=/usr/bin/bash -c 'echo auto > /sys/bus/usb/devices/1-1/power/control'
+
+# De-authorize de USB - geen stroom, geen toegang
+ExecStart=/usr/bin/bash -c 'echo 0 > /sys/bus/usb/devices/1-1/authorized'
+
+# Authorize de USB - wel stroom, wel toegang
+ExecStart=/usr/bin/bash -c 'echo 1 > /sys/bus/usb/devices/1-1/authorized'
+
+RemainAfterExit=yes
+
+[Install]
+WantedBy=oradio.service

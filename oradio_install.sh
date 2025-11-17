@@ -376,6 +376,15 @@ sudo sed -i "s/^#allow-interfaces=.*/allow-interfaces=eth0,wlan0/g" /etc/avahi/a
 # Progress report
 echo -e "${GREEN}Wifi is enabled and network domain is set to '${HOSTNAME}.local'${NC}"
 
+# Comment any active AcceptEnv lines in main config
+sudo sed -Ei '/^[[:space:]]*AcceptEnv/ s/^[[:space:]]*/#/' /etc/ssh/sshd_config
+# reload sshd with changed config
+sudo systemctl reload ssh
+# Set safe system-wide defaults
+sudo update-locale LANG=C.UTF-8 LC_CTYPE=C.UTF-8
+# Progress report
+echo -e "${GREEN}Fix installed for \"-bash: warning: setlocale ...\" when SSH-ing from macOS${NC}"
+
 # Get date and time of git last update
 gitdate=$(git log -1 --format=%cd --date=format:'%Y-%m-%d-%H-%M-%S')
 # Get info about installed Oradio3 version
@@ -434,6 +443,11 @@ fi
 # Progress report
 echo -e "${GREEN}Oradio3 hardware version log configured${NC}"
 
+# Configure the backlighting service to start on boot
+install_resource $RESOURCES_PATH/backlighting.service /etc/systemd/system/backlighting.service 'sudo systemctl enable backlighting.service'
+# Progress report
+echo -e "${GREEN}Backlighting installed and configured${NC}"
+
 # Install equalizer settings with rw rights
 install_resource $RESOURCES_PATH/alsaequal.bin /etc/alsaequal.bin 'sudo chmod 666 /etc/alsaequal.bin'
 # Install audio configuration, activate SoftVolSpotCon, set volume to normal level
@@ -480,6 +494,11 @@ install_resource $RESOURCES_PATH/send_log_files_to_rms.sh /usr/local/bin/send_lo
 install_resource $RESOURCES_PATH/about /usr/local/bin/about 'sudo chmod +x /usr/local/bin/about'
 # Progress report
 echo -e "${GREEN}Support tools installed${NC}"
+
+# Configure the oradio service to start on boot
+install_resource $RESOURCES_PATH/usb_low_power_on idle.service /etc/systemd/system/usb_low_power_on idle.service 'sudo systemctl enable usb_low_power_on idle.service'
+# Progress report
+echo -e "${GREEN}Power save features configured${NC}"
 
 # Configure the oradio service to start on boot
 install_resource $RESOURCES_PATH/oradio.service /etc/systemd/system/oradio.service 'sudo systemctl enable oradio.service'
