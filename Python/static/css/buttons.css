@@ -16,6 +16,10 @@
 	margin-bottom: 20px;
 	grid-template-columns: 0.5fr 1.5fr
 }
+.preset-label {
+	color: var(--Alabaster); font-weight: bold;
+    align-self: center;
+}
 .playlists_grid {
 	display: grid;
 	margin-bottom: 0;
@@ -25,9 +29,4 @@
 	display: grid;
 	margin-bottom: 0;
 	grid-template-columns: 2.5fr 0.5;
-}
-
-.preset-label {
-	font-weight: bold;
-    align-self: center;
 }
