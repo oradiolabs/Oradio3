@@ -59,7 +59,7 @@ def i2c_device_present(address):
         bus.read_byte(address)  # Attempt to read a byte to verify device presence
         bus.close()
         return True
-    except Exception:   #pylint: disable=broad-exception-caught
+    except Exception:   # pylint: disable=broad-exception-caught
         return False
 
 def create_hw_serial_file():
