@@ -16,11 +16,10 @@
 	padding: 10px;
 	margin-bottom: 20px;
 	border-radius: 5px;
-	border: 1px solid var(--oradio-border);
+	border: 1px solid var(--MiddleGrey);
 	box-sizing: border-box;
 	font-size: 16px;
-	background-color: var(--oradio-background);
-	color: var(--oradio-text);
+	color: var(--Alabaster); font-weight: normal;
 }
 
 /* Improve icon visibility and position */

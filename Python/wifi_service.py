@@ -534,7 +534,7 @@ def get_wifi_networks():
     NetworkManager provides the networks sorted by signal strength
     :return networks ==> list of network ssid + if password required
 
-    #OMJ: If nmcli and iw both fail we can try forcing the scan using the NetworkMangage D-Bus API to trigger a scan
+    Note: If nmcli and iw both fail we can try forcing the scan using the NetworkMangage D-Bus API to trigger a scan
     https://gitlab.freedesktop.org/NetworkManager/NetworkManager/-/blob/main/examples/python/gi/show-wifi-networks.py
     """
     # initialize
@@ -635,7 +635,7 @@ def _networkmanager_list():
     Get defined connections from NetworkManager
     :return connections ==> list of network ids defined in NetworkManager
     """
-    #Initialize
+    # Initialize
     connections = []
 
     # Get networks from NetworkManager

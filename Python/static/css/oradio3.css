@@ -7,18 +7,58 @@
  */
 
 :root {
-	/* Official Oradio colors */
-	--oradio-text: #EAE7DC;			/* Alabaster */
-	--oradio-header: #D8C3A5;		/* Khaki Web */
-	--oradio-border: #8E8D8A;		/* Middle Grey */
-	--oradio-select: #3FB858;		/* Bright Green */
-	--oradio-background: #14213D;	/* Oxford Blue */
 
-	/* Supporting colors */
-	--oradio-list: #363737;			/* Dark Grey */
-	--oradio-success: #3FB858;		/* Bright Green */
-	--oradio-warning: #FFFE00;		/* Yellow */
-	--oradio-error: #FF0000;		/* Red */
+	/* Official Oradio colors */
+	--Alabaster: #EAE7DC;
+	--KhakiWeb: #D8C3A5;
+	--MiddleGrey: #8E8D8A;
+	--DarkGrey: #363737;
+	--OxfordBlue: #14213D;
+	--Green: #3FB858;
+	--Green35: #3FB85859;	/* Green with 35% transparency */
+	--Yellow: #ffff00;
+	--Red: #FF0000;
+
+	/* Color mapping */
+	--template-font: var(--Alabaster);
+	--template-background: var(--OxfordBlue);
+
+	--menu-font:  var(--Alabaster);
+	--menu-background:  var(--DarkGrey);
+	--menu-border:  var(--MiddleGrey);
+	--menu-hover:  var(--MiddleGrey);
+
+	--header-font: var(--OxfordBlue);
+	--header-background: var(--KhakiWeb);
+
+	--label-font:  var(--Alabaster);
+
+	--input-font:  var(--Alabaster);
+	--input-background:  var(--OxfordBlue);
+	--input-border:  var(--MiddleGrey);
+	--input-focus:  var(--Green);
+	--input-focus-glow: var(--Green35);
+
+	--scrollbox-font:  var(--Alabaster);
+	--scrollbox-background:  var(--DarkGrey);
+	--scrollbox-select:  var(--Green);
+	--scrollbox-border:  var(--MiddleGrey);
+
+	--button-font:  var(--Alabaster);
+	--button-background:  var(--Green);
+
+	--notification:  var(--Alabaster);
+	--notification-success:  var(--Green);
+	--notification-warning:  var(--Yellow);
+	--notification-error:  var(--Red);
+}
+
+html {
+  -webkit-touch-callout: none;
+  -webkit-user-select: text;
+  -webkit-text-size-adjust: none;
+  -webkit-tap-highlight-color: transparent;
+  -webkit-datetime-detector: none;		/* Does not aways work, but safe to keep */
 }
 
 body {
@@ -26,8 +66,8 @@ body {
 	font-size: 16px;	/* Keep at least 16px to prevent zooming in iOS Safari */
 	margin: 0;
 	padding: 0;
-	background-color: var(--oradio-background);
-	color: var(--oradio-text);
+	background-color: var(--template-background);
+	color: var(--template-font);
 	display: flex;
 	justify-content: center;
 	min-height: 100vh;
@@ -51,8 +91,8 @@ body {
 h1 {
 	width: 100%;
 	height: 20px;
-	color: var(--oradio-background);
-	background-color: var(--oradio-header);
+	color: var(--header-font);
+	background-color: var(--header-background);
 	border: none;
 	border-radius: 5px;
 	padding: 10px;
@@ -64,7 +104,7 @@ h1 {
 label {
 	display: block;
 	margin-bottom: 8px;
-	font-weight: bold;
+	color: var(--label-font); font-weight: bold;
 }
 
 /* Custom select enabling typing own option */
@@ -87,13 +127,13 @@ label {
 
 /* Dropdown options list */
 .options {
-	border: 1px solid var(--oradio-border);
+	border: 1px solid var(--scrollbox-border);
 	display: none;
 	position: absolute;
 	top: 100%;
 	left: 0;
 	right: 0;
-	background-color: var(--oradio-list);
+	background-color: var(--scrollbox-background);
 	z-index: 10;
 	max-height: 200px;
 	overflow-y: auto;
@@ -103,7 +143,7 @@ label {
 	cursor: pointer;
 }
 .options div:hover {
-	background-color: var(--oradio-select);
+	background-color: var(--scrollbox-select);
 }
 
 input {
@@ -112,11 +152,16 @@ input {
 	padding: 10px;
 	margin-bottom: 20px;
 	border-radius: 5px;
-	border: 1px solid var(--oradio-border);
+	border: 1px solid var(--input-border);
 	box-sizing: border-box;
 	font-size: 16px;
-	background-color: var(--oradio-background);
-	color: var(--oradio-text);
+	background-color: var(--input-background);
+	color: var(--input-font);
+}
+input:focus {
+	outline: none;									/* Remove default color */
+	border-color: var(--input-focus);				/* Border color when input is selected */
+	box-shadow: 0 0 0 3px var(--input-focus-glow);	/* Optional: nice glow */
 }
 
 button {
@@ -124,13 +169,12 @@ button {
 	width: 90%;
 	margin: 20px auto;
 	height: 40px;
-	background-color: var(--oradio-select);
-	color: var(--oradio-text);
+	background-color: var(--button-background);
+	color: var(--button-font); font-weight: bold;
 	border: none;
 	border-radius: 5px;
 	padding: 10px;
 	font-size: 16px;
-	font-weight: bold;
 	cursor: pointer;
 }
 button:hover {
@@ -155,47 +199,37 @@ li {
 	text-align: center;
 	line-height: 1.5;
 	margin: 10px 0 10px 0;
+	color: var(--notification);
 	display: none;
 }
 
 .success {
-	color: var(--oradio-success);
+	color: var(--notification-success);
 }
 
 .warning {
-	color: var(--oradio-warning);
+	color: var(--notification-warning);
 }
 
 .error {
-	color: var(--oradio-error);
+	color: var(--notification-error);
 }
 
 .file-list {
 	display: none;
-	border: 1px solid var(--oradio-border);
+	border: 1px solid var(--scrollbox-border);
 	padding: 0 5px 0 5px;
 	line-height: 1.5;
 	margin: 20px 0 20px 0;
 	border-radius: 5px;
-	background-color: var(--oradio-list);
+	background-color: var(--scrollbox-background);
 	max-height: 230px;
 	overflow-y: auto;
 	z-index: 10;
 	-webkit-overflow-scrolling: touch;
 }
-
-.file-list::-webkit-scrollbar {
-  width: 8px;
-}
-.file-list::-webkit-scrollbar-track {
-  background: var(--oradio-border);
-}
-.file-list::-webkit-scrollbar-thumb {
-  background: var(--oradio-select);
-  border-radius: 4px;
-}
-.file-list::-webkit-scrollbar-thumb:hover {
-  background: var(--oradio-select);
+.file-list li:hover {
+	background-color: var(--scrollbox-select);
 }
 
 @media (max-width: 500px) {
