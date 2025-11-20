@@ -31,6 +31,8 @@
 	--header-font: var(--OxfordBlue);
 	--header-background: var(--KhakiWeb);
 
+	--label-font:  var(--Alabaster);
+
 	--input-font:  var(--Alabaster);
 	--input-background:  var(--OxfordBlue);
 	--input-border:  var(--MiddleGrey);
@@ -102,7 +104,7 @@ h1 {
 label {
 	display: block;
 	margin-bottom: 8px;
-	font-weight: bold;
+	color: var(--label-font); font-weight: bold;
 }
 
 /* Custom select enabling typing own option */
@@ -168,12 +170,11 @@ button {
 	margin: 20px auto;
 	height: 40px;
 	background-color: var(--button-background);
-	color: var(--button-font);
+	color: var(--button-font); font-weight: bold;
 	border: none;
 	border-radius: 5px;
 	padding: 10px;
 	font-size: 16px;
-	font-weight: bold;
 	cursor: pointer;
 }
 button:hover {
