@@ -8,10 +8,14 @@ YYYY-MM-DD======================================================================
 
 <wat er gewijzigd is sinds vorige review/rework/verificatie>
 
-2025-11-17============================================================================================================================
+2025-11-18 ============================================================================================================================
 
-HW:
-T - hw_serial_number_gen.py: Nu is HW identifier hard coded. Moet dynamisch worden, want we hebben verschillende hw versies
+Henk: review conclusies
+- volume_control.py rework is akkoord. Hiermee review afgesloten.
+- backlighting.py rework is akkoord. Hiermee review afgesloten.
+- i2c_service.py rework is akkoord: Hiermee review afgesloten
+
+2025-11-17============================================================================================================================
 
 USB:
 T - Review usb_service.py vanwege vervangen singleton code door singleton decorator
@@ -24,24 +28,25 @@ T - Olaf maakt test module mpd_control_test.py
 2025-11-17============================================================================================================================
 
 I2C:
-R Review Documents/I2C/I2C_modules_description.docx
+V Review Documents/I2C/I2C_modules_description.docx
 volume_control review:
-R 1 - Ah, nu snap ik je. Reworked: AlsaVolume.set() VolumeControl._set_volume() geven nu True/False terug. Wordt in manager bewust genegeerd.
+V 1 - Ah, nu snap ik je. Reworked: AlsaVolume.set() VolumeControl._set_volume() geven nu True/False terug. Wordt in manager bewust genegeerd.
 V 2 - De de exception komt als mixer_name niet bestaat, of initialisatie mislukt -> Extra comments toegevoegd aan AlsaVolume::__init__ in volumne_control.py
 V 3 - raw_value range is niet beperkt, want wordt in method geclamped
 V 4 - Ontbrekende foutmelding -> toegevoegd
-R 5 - Zie punt 1
-R 6 - Zie punt 1
+V 5 - Zie punt 1
+V 6 - Zie punt 1
 V 7 - errors propageren nu niet, worden alleen gelogd. Zie issue #408
 backligting.py review:
-R 1 - Het is een vrij theoretisch geval: EEPROMS hebben een beperkt aantal write cycles.
+V 1 - Het is een vrij theoretisch geval: EEPROMS hebben een beperkt aantal write cycles.
       Nu wordt de EEPROM elke keer als Oradio en backlighting start geschreven.
 	  Het is strikt genomen voldoende als dit eenmalig bij configuratie van Oradio gedaan wordt, dus in oradio_install.sh.
 	  Maar omdat EEPROM schrijfbeperking bij 40-50000 cycles ligt hoeven we ons daar niet echt druk over te maken.
 	  Kortom: we laten het in Backlighting::__init__ zitten. Eens?
-R 2 - de stop() method docstring is niet correct: Stop the Backlight manager ipv volume control. Gecorrigeerd
+V 2 - de stop() method docstring is niet correct: Stop the Backlight manager ipv volume control. Gecorrigeerd
 i2c_service.py review:
-R 1 - Reworked: een retry mechanisme voor write_byte() en write_block() toegevoegd
+V 1 - Reworked: een retry mechanisme voor write_byte() en write_block() toegevoegd
+=> Review/Rework conclusie: Rework akkoord en hiermee I2C review afgesloten.
 
 2025-11-10============================================================================================================================
 
@@ -71,4 +76,4 @@ V 8 - Probleem met twee self._execute() die bij elkaar gevoegd worden. Gaat fout
 V 9 - Groene tekst als een module test optie een succes oplevert.
 V 10 - Verhuis MPDBase naar eigen file mpd_base.py, laat mpd_control.p en mpd_monito.py die importeren
 V 11 - Gebruik 'Singleton metaclass' in mpd_monitor.py (later ook in andere modules waar Singleton gebruikt wordt)
-=> Review/Rework conclusie: Rework akkoord en hiermee mpd review afgesloten.
+=> Review/Rework conclusie: Rework akkoord en hiermee MPD review afgesloten.
