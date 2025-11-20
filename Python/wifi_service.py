@@ -47,6 +47,7 @@ from dbus.exceptions import DBusException
 from gi.repository import GLib
 
 ##### oradio modules ####################
+from singleton import singleton
 from oradio_utils import run_shell_script, safe_put
 from usb_service import USBService
 from oradio_logging import oradio_log
@@ -82,33 +83,31 @@ nmcli_exceptions = tuple(
     if isinstance(exc, type) and issubclass(exc, Exception)
 )
 
-class SaveWifi:
-    """
-    Singleton-style class to store and retrieve the last wifi connection as a string
-    Uses class-level variables and a threading.Lock to ensure thread-safe access
-    to the shared data across all instances or direct class usage
-    """
-    _saved = ""     # Holds the last saved wifi connection (class-level)
-    _lock = Lock()  # Lock to synchronize access to _saved for thread safety
+_saved = ""
+_lock = Lock()
 
-    @classmethod
-    def set_saved(cls, value):
-        """
-        Thread-safe setter to update the saved wifi connection string
+def _set_saved(value) -> None:
+    """
+    Thread-safe setter to update the saved wifi connection string
+
+    Args:
         value (str): The wifi connection string to save
-        """
-        with cls._lock:        # Acquire lock to prevent race conditions
-            cls._saved = str(value) if value else ""
+    """
+    global _saved
+    with _lock:     # Acquire lock to prevent race conditions
+        _saved = str(value) if value else ""
 
-    @classmethod
-    def get_saved(cls):
-        """
-        Thread-safe getter to retrieve the saved wifi connection string
-        Returns: The last saved wifi connection string
-        """
-        with cls._lock:        # Acquire lock to ensure consistent reads
-            return cls._saved
+def _get_saved() -> str:
+    """
+    Thread-safe getter to retrieve the saved wifi connection string
 
+    Returns:
+        str: The last saved wifi connection string
+    """
+    with _lock:     # Acquire lock to ensure consistent reads
+        return _saved
+
+@singleton
 class WifiEventListener:
     """
     Singleton class that listens for wifi state changes via NetworkManager D-Bus signals
@@ -117,35 +116,12 @@ class WifiEventListener:
     Runs a GLib main loop in a background thread to handle asynchronous signals without blocking the main application
     """
 
-# In below code using same construct in multiple modules for singletons
-# pylint: disable=duplicate-code
-
-    _lock = Lock()       # Class-level lock to make singleton thread-safe
-    _instance = None     # Holds the single instance of this class
-    _initialized = False # Tracks whether __init__ has been run
-
-    # Underscores mark args and kwargs as 'intentionally unused'
-    def __new__(cls, *_args, **_kwargs):
-        """Ensure only one instance of WifiEventListener is created (singleton pattern)"""
-        with cls._lock:
-            if cls._instance is None:
-                cls._instance = super(WifiEventListener, cls).__new__(cls)
-        return cls._instance
-
     def __init__(self):
         """
         Initialize the listener by setting up the D-Bus main loop integration,
         connecting to the system bus, finding the wifi device, and subscribing
         to the 'StateChanged' signal
         """
-        # Prevent re-initialization if the singleton is created again
-        if self._initialized:
-            return  # Avoid re-initialization if already done
-        self._initialized = True
-
-# In above code using same construct in multiple modules for singletons
-# pylint: enable=duplicate-code
-
         # List of subscriber queues to send wifi state messages
         self._subscribers = []
 
@@ -410,7 +386,7 @@ class WifiService():
         # Remember last connection except if currently AP mode
         if active != ACCESS_POINT_SSID:
             oradio_log.info("Remember connection '%s'", active)
-            SaveWifi.set_saved(active)
+            _set_saved(active)
 
         # Add/modify NetworkManager settings
         if not _networkmanager_add(ssid, pswd):
@@ -472,7 +448,7 @@ def get_saved_network():
     """
     Return the ssid of the last wifi connection
     """
-    return SaveWifi.get_saved()
+    return _get_saved()
 
 def parse_nmcli_output(nmcli_output):
     """Return list of unique, sorted by strongest signal first, network SSIDs with indication if password is required or not"""
