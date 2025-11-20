@@ -223,6 +223,9 @@ li {
 	z-index: 10;
 	-webkit-overflow-scrolling: touch;
 }
+.file-list li:hover {
+	background-color: var(--scrollbox-select);
+}
 
 .file-list::-webkit-scrollbar {
   width: 8px;
