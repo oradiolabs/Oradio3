@@ -15,7 +15,7 @@ table {
 }
 
 table, th, td {
-	border: 1px solid #8E8D8A;
+	border: 1px solid var(--MiddleGrey);
 	border-collapse: collapse;
 }
 
@@ -26,26 +26,19 @@ th, td {
 	
 }
 
+th {
+	color: var(--Alabaster); font-weight: bold;
+}
+
+td {
+	color: var(--Alabaster); font-weight: normal;
+}
+
 .col1 {
-  width: 1px; /* laat inhoud de breedte bepalen */
+  width: 1px;				/* Let content determine width */
   white-space: nowrap;
 }
 
 .col2 {
-  width: 100%; /* neemt de rest van de ruimte in */
-}
-
-html {
-  -webkit-touch-callout: none;
-  -webkit-user-select: text;
-  -webkit-text-size-adjust: none;
-  -webkit-tap-highlight-color: transparent;
-  -webkit-datetime-detector: none; /* Does not aways work, but save to keep */
-}
-
-a[x-apple-data-detectors] {
-  color: inherit !important;
-  text-decoration: none !important;
-  pointer-events: none !important;
-  cursor: default !important;
+  width: 100%;				/* Use rest of space */
 }
