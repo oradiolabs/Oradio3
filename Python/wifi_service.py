@@ -83,37 +83,55 @@ nmcli_exceptions = tuple(
     if isinstance(exc, type) and issubclass(exc, Exception)
 )
 
-_saved = ""
-_lock = Lock()
+_saved_network = {"network": ""}
+_saved_lock = Lock()
 
-def _set_saved(value) -> None:
+def _set_saved(network: str) -> None:
     """
-    Thread-safe setter to update the saved wifi connection string
+    Set the last active WiFi network in a thread-safe manner.
 
     Args:
-        value (str): The wifi connection string to save
+        network (str): The SSID of the network to save.
     """
-    global _saved
-    with _lock:     # Acquire lock to prevent race conditions
-        _saved = str(value) if value else ""
+    with _saved_lock:
+        _saved_network["network"] = str(network) if network else ""
 
 def _get_saved() -> str:
     """
-    Thread-safe getter to retrieve the saved wifi connection string
+    Get the last active WiFi network in a thread-safe manner.
 
     Returns:
-        str: The last saved wifi connection string
+        str: The SSID of the last saved network.
     """
-    with _lock:     # Acquire lock to ensure consistent reads
-        return _saved
+    with _saved_lock:
+        return _saved["network"]
+
+def _nmcli_try(func, *args, **kwargs) -> bool:
+    """
+    Safely call a nmcli function with logging.
+
+    Args:
+        func (callable): The nmcli function to call.
+        *args: Positional arguments for the function.
+        **kwargs: Keyword arguments for the function.
+
+    Returns:
+        bool: True if call succeeded, False otherwise.
+    """
+    try:
+        func(*args, **kwargs)
+        return True
+    except (*nmcli_exceptions, OSError) as ex_err:
+        oradio_log.error("nmcli call failed for %s: %s", func.__name__, ex_err)
+        return False
 
 @singleton
 class WifiEventListener:
     """
-    Singleton class that listens for wifi state changes via NetworkManager D-Bus signals
-    Connects to the system D-Bus, finds the wifi device managed by NetworkManager, and listens
-    for the 'StateChanged' signal on the wireless device interface to track wifi connection state changes
-    Runs a GLib main loop in a background thread to handle asynchronous signals without blocking the main application
+    Singleton class to listen to WiFi state changes via NetworkManager D-Bus signals.
+    - Connects to the system D-Bus, finds the wifi device managed by NetworkManager, and listens
+      for the 'StateChanged' signal on the wireless device interface to track wifi connection state changes
+    - Runs a GLib main loop in a background thread to handle asynchronous signals without blocking the main application
     """
 
     def __init__(self):
@@ -122,6 +140,11 @@ class WifiEventListener:
         connecting to the system bus, finding the wifi device, and subscribing
         to the 'StateChanged' signal
         """
+        # Initialize
+        self._loop = None
+        self._thread = None
+        self.wifi_path = None
+
         # List of subscriber queues to send wifi state messages
         self._subscribers = []
 
@@ -133,14 +156,10 @@ class WifiEventListener:
             self.bus = dbus.SystemBus()
 
             # Access NetworkManager object
-            network_manager = self.bus.get_object(
-                "org.freedesktop.NetworkManager",
-                "/org/freedesktop/NetworkManager"
-            )
-            nm_iface = dbus.Interface(network_manager, "org.freedesktop.NetworkManager")
+            nm_object = self.bus.get_object("org.freedesktop.NetworkManager", "/org/freedesktop/NetworkManager")
+            nm_iface = dbus.Interface(nm_object, "org.freedesktop.NetworkManager")
 
             # Find the wifi device (DeviceType == 2)
-            self.wifi_path = None
             for path in nm_iface.GetDevices():
                 dev = self.bus.get_object("org.freedesktop.NetworkManager", path)
                 dev_props = dbus.Interface(dev, "org.freedesktop.DBus.Properties")
@@ -150,7 +169,7 @@ class WifiEventListener:
                     break
 
         except DBusException as ex_err:
-            oradio_log.error("Failed to connect to NetworkManager: %s", ex_err.get_dbus_message())
+            oradio_log.error("Failed to connect to NetworkManager D-Bus: %s", ex_err.get_dbus_message())
             return
         except OSError as ex_err:
             oradio_log.error("D-Bus connection error: %s", ex_err)
@@ -172,84 +191,80 @@ class WifiEventListener:
         self._loop = GLib.MainLoop()
         self._thread = Thread(target=self._loop.run, daemon=True)
 
-    def _wifi_state_changed(self, new_state, _old_state, _reason):
+    def _wifi_state_changed(self, new_state, _old_state, _reason) -> None:
         """
-        Callback invoked on wifi device 'StateChanged' signal
-        new_state (int): The new device state
-        _old_state (int): The previous device state (unused, underscore avoids pylint warning)
-        _reason (int): Reason for state change (unused, underscore avoids pylint warning)
+        Callback for WiFi state changes. Notifies subscribers.
+
+        Args:
+            new_state (int): New state of the WiFi device.
+            _old_state (int): The previous device state (unused, underscore avoids pylint warning)
+            _reason (int): Reason for state change (unused, underscore avoids pylint warning)
         """
-        message = {"source": MESSAGE_WIFI_SOURCE}
 
-        # Parse states: only interested in disconnected, failed and connected
-        if new_state == NM_DISCONNECTED:
-            # wifi disconnected
-            message["state"] = STATE_WIFI_IDLE
-            message["error"] = MESSAGE_NO_ERROR
-            # Send message to queue of each subscriber
-            oradio_log.debug("Send wifi service message: %s", message)
-            for queue in self._subscribers:
-                safe_put(queue, message)
+        # Get callback state, default to idle
+        state_map = {
+            NM_DISCONNECTED: STATE_WIFI_IDLE,
+            NM_CONNECTED: STATE_WIFI_CONNECTED,
+            NM_FAILED: STATE_WIFI_IDLE
+        }
+        state = state_map.get(new_state, STATE_WIFI_IDLE)
 
-        elif new_state == NM_CONNECTED:
-            # wifi connected: distinguish access point vs internet availability
+        # Get callback error, default to no error
+        error_map = {
+            NM_DISCONNECTED: MESSAGE_NO_ERROR,
+            NM_CONNECTED: MESSAGE_NO_ERROR,
+            NM_FAILED: MESSAGE_WIFI_FAIL_CONNECT
+        }
+        error = error_map.get(new_state, MESSAGE_NO_ERROR)
+
+        # Check for Access Point
+        if new_state == NM_CONNECTED:
             active = get_wifi_connection()
             if active == ACCESS_POINT_SSID:
-                # Connection is access point
-                message["state"] = STATE_WIFI_ACCESS_POINT
-            else:
-                # Connection to wifi network WITHOUT internet access
-                message["state"] = STATE_WIFI_CONNECTED
-            message["error"] = MESSAGE_NO_ERROR
-            # Send message to queue of each subscriber
-            oradio_log.debug("Send wifi service message: %s", message)
-            for queue in self._subscribers:
-                safe_put(queue, message)
+                state = STATE_WIFI_ACCESS_POINT
 
-        elif new_state == NM_FAILED:
-            # wifi failed to connect
-            message["state"] = STATE_WIFI_IDLE
-            message["error"] = MESSAGE_WIFI_FAIL_CONNECT
-            # Send message to queue of each subscriber
-            oradio_log.debug("Send wifi service message: %s", message)
-            for queue in self._subscribers:
-                safe_put(queue, message)
+        # Prepare callback message
+        message = {"source": MESSAGE_WIFI_SOURCE, "state": state, "error": error}
+
+        # Send message to queue of each subscriber
+        oradio_log.debug("Send wifi service message: %s", message)
+        for queue in self._subscribers:
+            safe_put(queue, message)
 
     def start(self):
-        """
-        Start the GLib main loop in a background thread to listen for wifi state changes
-        """
+        """Start listening to WiFi state changes in background."""
         if not self._thread.is_alive():
             self._thread.start()
 
     def stop(self):
-        """
-        Stop the GLib main loop and wait for the background thread to finish
-        Use this to cleanly shutdown the listener, typically during application exit
-        """
-        if hasattr(self, "_loop") and self._loop.is_running():
+        """Stop listening to WiFi state changes and exit background thread."""
+        if self._loop and self._loop.is_running():
             self._loop.quit()
-        if hasattr(self, "_thread"):
+        if self._thread:
             self._thread.join()
 
     def subscribe(self, queue):
         """
-        Register a queue to receive wifi state messages
-        queue (Queue): A queue object where wifi state messages will be posted
+        Subscribe a queue to receive WiFi state messages.
+
+        Args:
+            queue (Queue): The queue object to receive messages.
         """
         self._subscribers.append(queue)
 
     def unsubscribe(self, queue):
         """
-        Remove a previously registered subscriber queue
-        queue (Queue): The queue to unsubscribe
+        Remove a subscriber queue.
+
+        Args:
+            queue (Queue): The queue object to remove.
         """
         try:
             self._subscribers.remove(queue)
         except ValueError:
-            oradio_log.debug("Was already unsubscribed from wifi events")
-        else:
-            oradio_log.info("Stopped listening to wifi events")
+            oradio_log.debug("Queue already unsubscribed")
+
+#OMJ: cleanup below
 
 class WifiService():
     """
