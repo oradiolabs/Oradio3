@@ -44,9 +44,8 @@ WARNING   = 'WARNING'
 ERROR     = 'ERROR'
 # Remote Monitoring Service URL
 RMS_SERVER_URL = 'https://oradiolabs.nl/rms/receive.php'
-# Software and hardware version info files
+# Software version info file
 SW_LOG_FILE = "/var/log/oradio_sw_version.log"
-HW_LOG_FILE = "/var/log/oradio_hw_version.log"
 # HEARTBEAT repeat time
 HEARTBEAT_REPEAT_TIME = 60 * 60     # 1 hour in seconds
 # Timeout for ORMS POST request
@@ -60,13 +59,13 @@ HEARTBEAT_REPEAT_TIMER_IS_RUNNING = False
 oradio_log = logging.getLogger("oradio")
 
 def _get_serial():
-    """ Extract serial from hardware """
+    """ Extract serial from Raspberry Pi """
     stream = os.popen('vcgencmd otp_dump | grep "28:" | cut -c 4-')
     serial = stream.read().strip()
     return serial
 
 def _get_temperature():
-    """ Extract SoC temperature from hardware """
+    """ Extract SoC temperature from Raspberry Pi """
     stream = os.popen('vcgencmd measure_temp | cut -c 6-9')
     temperature = stream.read().strip()
     return temperature
@@ -80,16 +79,6 @@ def _get_sw_version():
     except (FileNotFoundError, json.JSONDecodeError, KeyError):
         oradio_log.error("'%s': Missing file or invalid content", SW_LOG_FILE)
         return "Invalid SW version"
-
-def _get_hw_version():
-    """ Read the contents of the HW serial number file """
-    try:
-        with open(HW_LOG_FILE, "r", encoding="utf-8") as file:
-            data = json.load(file)
-        return data["serial"] + " (" + data["hw_detected"] + ")"
-    except (FileNotFoundError, json.JSONDecodeError, KeyError):
-        oradio_log.error("'%s': Missing file or invalid content", HW_LOG_FILE)
-        return "Invalid HW version"
 
 def _get_rpi_version():
     """ Get the Raspberry Pi version """
@@ -237,7 +226,6 @@ class RmsService():
         elif msg_type == SYS_INFO:
             msg_data['message'] = json.dumps({
                                         'sw_version': _get_sw_version(),
-                                        'hw_version': _get_hw_version(),
                                         'python'    : python_version(),
                                         'rpi'       : _get_rpi_version(),
                                         'rpi-os'    : _get_os_version(),
