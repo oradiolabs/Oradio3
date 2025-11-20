@@ -15,6 +15,7 @@
 	--DarkGrey: #363737;
 	--OxfordBlue: #14213D;
 	--Green: #3FB858;
+	--Green35: #3FB85859;	/* Green with 35% transparency */
 	--Yellow: #ffff00;
 	--Red: #FF0000;
 
@@ -33,6 +34,8 @@
 	--input-font:  var(--Alabaster);
 	--input-background:  var(--OxfordBlue);
 	--input-border:  var(--MiddleGrey);
+	--input-focus:  var(--Green);
+	--input-focus-glow: var(--Green35);
 
 	--scrollbox-font:  var(--Alabaster);
 	--scrollbox-background:  var(--DarkGrey);
@@ -152,6 +155,11 @@ input {
 	font-size: 16px;
 	background-color: var(--input-background);
 	color: var(--input-font);
+}
+input:focus {
+	outline: none;									/* Remove default color */
+	border-color: var(--input-focus);				/* Border color when input is selected */
+	box-shadow: 0 0 0 3px var(--input-focus-glow);	/* Optional: nice glow */
 }
 
 button {
