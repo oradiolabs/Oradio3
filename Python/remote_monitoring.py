@@ -163,7 +163,7 @@ class Heartbeat(Timer):
         """Check if heartbeat is currently active"""
         return cls._instance is not None and cls._instance.is_alive()
 
-class RmsService():
+class RmsService:
     """
     Manage communication with Oradio Remote Monitoring Service (ORMS):
     - HEARTBEAT messages as sign of life
