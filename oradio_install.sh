@@ -436,13 +436,6 @@ install_resource $RESOURCES_PATH/modules /etc/modules
 # Progress report
 echo -e "${GREEN}i2c installed and configured${NC}"
 
-# Configure the hw_version service to start on boot
-if [ ! -f /var/log/oradio_hw_version.log ]; then
-	install_resource $RESOURCES_PATH/hw_version.service /etc/systemd/system/hw_version.service 'sudo systemctl enable hw_version.service'
-fi
-# Progress report
-echo -e "${GREEN}Oradio3 hardware version log configured${NC}"
-
 # Install equalizer settings with rw rights
 install_resource $RESOURCES_PATH/alsaequal.bin /etc/alsaequal.bin 'sudo chmod 666 /etc/alsaequal.bin'
 # Install audio configuration, activate SoftVolSpotCon, set volume to normal level

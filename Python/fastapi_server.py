@@ -59,8 +59,7 @@ WIFI_FILE     = "/tmp/Wifi_invoer.json"             # Web file with wifi credent
 EMPTY_PRESETS = {"preset1": "", "preset2": "", "preset3": ""}
 INFO_MISSING  = {"serial": "not found", "version": "not found"}
 INFO_ERROR    = {"serial": "undefined", "version": "undefined"}
-# Locations of system version info
-HARDWARE_VERSION_FILE = "/var/log/oradio_hw_version.log"
+# Location of version info
 SOFTWARE_VERSION_FILE = "/var/log/oradio_sw_version.log"
 
 # Initialise MPD client
@@ -290,39 +289,13 @@ async def play_song(song: Song):
 
 #### STATUS ####################
 
-def _get_hw_info():
-    """
-    Retrieve hardware configuration information from the hardware version JSON file
-    Returns: Contains 'serial' and 'version' keys with hardware info
-             If the file is missing or unreadable, returns default placeholders
-    """
-    oradio_log.debug("Get hardware info")
-
-    # Try to load hardware version info
-    try:
-        with open(HARDWARE_VERSION_FILE, "r", encoding="utf-8") as file:
-            data = json.load(file)
-            hardware_info = {
-                "serial": data.get("serial", "missing serial"),
-                "version": data.get("hw_detected", "missing hw_detected")
-            }
-    except FileNotFoundError:
-        oradio_log.error("Hardware version info '%s' not found", HARDWARE_VERSION_FILE)
-        hardware_info = INFO_MISSING
-    except (json.JSONDecodeError, PermissionError, OSError) as ex_err:
-        oradio_log.error("Failed to read '%s'. error: %s", HARDWARE_VERSION_FILE, ex_err)
-        hardware_info = INFO_ERROR
-
-    # Return sanitized data set
-    return hardware_info
-
 def _get_sw_info():
     """
     Retrieve software configuration information from the software version JSON file
     Returns: Contains 'serial' and 'version' keys with software info
              If the file is missing or unreadable, returns default placeholders
     """
-    oradio_log.debug("Get hardware info")
+    oradio_log.debug("Get software info")
 
     # Try to load software version info
     try:
@@ -333,7 +306,7 @@ def _get_sw_info():
                 "version": data.get("gitinfo", "missing gitinfo")
             }
     except FileNotFoundError:
-        oradio_log.error("Hardware version info '%s' not found", SOFTWARE_VERSION_FILE)
+        oradio_log.error("Software version info '%s' not found", SOFTWARE_VERSION_FILE)
         software_info = INFO_MISSING
     except (json.JSONDecodeError, PermissionError, OSError) as ex_err:
         oradio_log.error("Failed to read '%s'. error: %s", SOFTWARE_VERSION_FILE, ex_err)
@@ -348,7 +321,6 @@ async def status_page(request: Request):
     Serve the status page with hardware and software information
     Returns: Status page populated with
               - Oradio serial number from hardware command
-              - Hardware serial and version
               - Software serial and version
     """
     oradio_log.debug("Serving status page")
@@ -362,17 +334,12 @@ async def status_page(request: Request):
     else:
         serial = response
 
-    # Get hardware and software configuration info
-    hw_info = _get_hw_info()
-
     # Get software configuration info
     sw_info = _get_sw_info()
 
     # Return status page and serial and active wifi connection as context
     context = {
                 "serial"     : serial,
-                "hw_serial"  : hw_info['serial'],
-                "hw_version" : hw_info['version'],
                 "sw_serial"  : sw_info['serial'],
                 "sw_version" : sw_info['version']
             }

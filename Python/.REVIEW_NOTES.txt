@@ -17,9 +17,6 @@ Henk: review conclusies
 
 2025-11-17============================================================================================================================
 
-HW:
-T - hw_serial_number_gen.py: Nu is HW identifier hard coded. Moet dynamisch worden, want we hebben verschillende hw versies
-
 USB:
 T - Review usb_service.py vanwege vervangen singleton code door singleton decorator
 
