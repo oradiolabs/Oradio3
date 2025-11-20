@@ -12,249 +12,342 @@ Created on January 27, 2025
 @copyright:     Copyright 2024, Oradio Stichting
 @license:       GNU General Public License (GPL)
 @organization:  Oradio Stichting
-@version:       2
+@version:       3
 @email:         oradioinfo@stichtingoradio.nl
 @status:        Development
-@summary: Oradio Volume control
+@summary:
+    Oradio Volume control
+@references:
 """
+from time import sleep
+from threading import Thread, Event
+# The alsaaudio module is a C extension, which pylint often analyze correctly.
+# So, pylint thinks the names don’t exist, even though at runtime they do.
+from alsaaudio import Mixer, ALSAAudioError, VOLUME_UNITS_RAW   # pylint: disable=no-name-in-module
 
-import threading
-import time
-from typing import Callable
-
-import alsaaudio
-import smbus2
-
+##### oradio modules ####################
 from oradio_logging import oradio_log
-from oradio_const import VOLUME_MINIMUM, VOLUME_MAXIMUM
+from i2c_service import I2CService
+from oradio_utils import safe_put
 
-# LOCAL constants
-MCP3021_ADDRESS = 0x4D
+##### GLOBAL constants ####################
+from oradio_const import (
+    GREEN, YELLOW, NC,
+    MESSAGE_VOLUME_SOURCE,
+    MESSAGE_VOLUME_CHANGED,
+    MESSAGE_NO_ERROR,
+)
+
+##### Local constants ####################
+# Raw volume units
+VOLUME_MINIMUM = 105
+VOLUME_MAXIMUM = 215
+# MCP3021 - A/D Converter
+MCP3021_ADDRESS      = 0x4D
+READ_DATA_REGISTER   = 0x00
 ADC_UPDATE_TOLERANCE = 5
 POLLING_MIN_INTERVAL = 0.05
 POLLING_MAX_INTERVAL = 0.3
-POLLING_STEP = 0.01
-ALSA_MIXER_DIGITAL = "Digital"
+POLLING_STEP         = 0.01
+ALSA_MIXER_DIGITAL   = "Digital"
+# Timeout for thread to respond (seconds)
+THREAD_TIMEOUT = 3
 
-# pylint: disable=c-extension-no-member
+# ALSA abstraction
+class AlsaVolume:
+    """
+    Wrapper class for ALSA Mixer.
+    
+    Handles setting volume in raw units safely and avoids unnecessary ALSA calls.
+    """
+    def __init__(self, mixer_name: str = ALSA_MIXER_DIGITAL) -> None:
+        """Initialize an ALSA mixer. If ALSA is not available or the mixer fails to initialize, self._mixer is set to None."""
+        self._mixer = None          # Mixer object, or None if initialization fails
+        self._last_set_raw = None   # Cache last set value to avoid redundant ALSA calls
 
+        try:
+            # Attempt to initialize the ALSA mixer
+            self._mixer = Mixer(mixer_name)
+        except ALSAAudioError as ex_err:
+            # ALSA not available or mixer initialization failed
+            oradio_log.error("Error initializing ALSA mixer '%s': %s", mixer_name, ex_err)
+            # ALSA mixer is not available
+            self._mixer = None
+
+    def set(self, raw_value: int) -> bool:
+        """
+        Set mixer volume in raw units.
+        
+        Args:
+            raw_value: The raw volume value to set.
+
+        Returns:
+            bool: True on success, False on error
+        """
+        if not self._mixer:
+            oradio_log.error("ALSA mixer unavailable")
+            return False
+
+        # Clamp value within allowed min/max range
+        clamped = max(VOLUME_MINIMUM, min(VOLUME_MAXIMUM, raw_value))
+
+        # Skip ALSA call if value hasn't changed
+        if self._last_set_raw == clamped:
+            return False
+
+        try:
+            self._mixer.setvolume(clamped, units=VOLUME_UNITS_RAW)
+        except ALSAAudioError as ex_err:
+            oradio_log.error("Error setting ALSA volume: %s", ex_err)
+            return False
+        else:
+            self._last_set_raw = clamped
+            oradio_log.debug("Volume set to: %s", clamped)
+            return True
 
 class VolumeControl:
-    """Tracks the volume control setting and updates ALSA; emits a callback on change."""
+    """
+    Tracks an ADC volume knob, updates ALSA, and triggers a callback on significant changes.
+    """
 
-    # ---- callback type (zero-arg: just "changed") ----
-    OnChange = Callable[[], None]
-
-    def __init__(self, on_change: OnChange | None = None) -> None:
+    def __init__(self, queue) -> None:
         """
-        Initialize mixer, I²C bus and start the monitoring thread.
+        Initialize I²C bus, callback and mixer.
 
         Args:
             on_change: optional zero-argument callback that will be invoked
                        when a significant volume change is detected. Keep
                        the callback tiny and non-blocking.
         """
-        self._on_change: VolumeControl.OnChange | None = on_change
-        self.running = True
+        # Get I2C r/w methods
+        self._i2c_service = I2CService()
 
-        # ALSA
-        try:
-            self.mixer = alsaaudio.Mixer(ALSA_MIXER_DIGITAL)
-        except alsaaudio.ALSAAudioError as ex_err:
-            oradio_log.error("Error initializing ALSA mixer '%s': %s", ALSA_MIXER_DIGITAL, ex_err)
-            raise
+        # Store queue for sending volume change messages asynchronously
+        self._queue = queue
 
-        # Cache the last raw volume we actually set, to avoid ALSA churn
-        self._last_set_raw: int | None = None
+        # Start ready to send notification
+        self._armed = True
 
-        # I²C
-        self.bus = smbus2.SMBus(1)  # always bus 1
-        self._i2c_read_block = self.bus.read_i2c_block_data
-        self._adc_addr = MCP3021_ADDRESS
-        self._adc_cmd = 0x00
+        # ALSA wrapper
+        self._alsa = AlsaVolume()
 
-        # Thread
-        self.thread = threading.Thread(target=self.volume_adc, name="VolumeADC", daemon=True)
-        self.thread.start()
+        # Thread is created dynamically on `start()` to allow restartability
+        self._running = Event()
+        self._thread = None
 
-    # ---------- callback wiring ----------
+        # Start volume manager thread
+        self.start()
 
-    def set_on_change(self, callback: OnChange | None) -> None:
-        """Register or clear the change callback."""
-        self._on_change = callback
+# -----Helper methods----------------
 
-    def _emit_change(self) -> None:
-        """Call the change callback (if any); never let errors kill the ADC thread."""
-        callback = self._on_change
-        if callback is None:
-            return
-        try:
-            callback()
-        except Exception:  # pylint: disable=broad-exception-caught
-            # We deliberately keep this broad here: the callback is external code
-            # provided by the orchestrating module. Any exception raised there
-            # should NOT kill the ADC thread (which is critical for UX). We log
-            # the traceback and continue, preserving device responsiveness.
-            oradio_log.exception("Volume change callback failed")
+    def set_notify(self) -> None:
+        """Allow notification to happen."""
+        self._armed = True
 
-    # ---------- small helpers  ----------
-
-    @staticmethod
-    def _clamp_raw(value: int) -> int:
-        """Clamp a raw mixer value to [VOLUME_MINIMUM..VOLUME_MAXIMUM]."""
-        return max(VOLUME_MINIMUM, min(VOLUME_MAXIMUM, int(value)))
-
-    def _get_raw_volume(self) -> int:
-        """Read the current ALSA mixer volume in RAW units."""
-        return int(self.mixer.getvolume(units=alsaaudio.VOLUME_UNITS_RAW)[0])
-
-    def _set_raw_volume(self, value: int) -> None:
-        """Set the ALSA mixer volume in RAW units (no-op if unchanged)."""
-        clamped = self._clamp_raw(value)
-        if self._last_set_raw is not None and clamped == self._last_set_raw:
-            return  # avoid ALSA churn on identical values
-        self.mixer.setvolume(clamped, units=alsaaudio.VOLUME_UNITS_RAW)
-        self._last_set_raw = clamped
-        oradio_log.debug("Volume set to: %s", clamped)
-
-    # ---------- hot path I²C + scaling ----------
-
-    def read_adc(self) -> int | None:
-        """Fast read of 10-bit value from MCP3021. Returns 0..1023 or None."""
-        try:
-            byte0, byte1 = self._i2c_read_block(self._adc_addr, self._adc_cmd, 2)
-        except OSError:
+    def _read_adc(self) -> int | None:
+        """
+        Read a 10-bit value from the MCP3021 ADC.
+        
+        Returns:
+            ADC value 0..1023, or None if reading fails.
+        """
+        # Get ADC value - volume knob position
+        data = self._i2c_service.read_block(MCP3021_ADDRESS, READ_DATA_REGISTER, 2)
+        if not data:
             return None
-        return ((byte0 & 0x3F) << 6) | (byte1 >> 2)
 
-    def scale_adc_to_volume(self, adc_value: int) -> int:
-        """Scale raw ADC (0..1023) to [VOLUME_MINIMUM..VOLUME_MAXIMUM]."""
-        if adc_value < 0:
-            adc_value = 0
-        elif adc_value > 1023:
-            adc_value = 1023
+        # Combine the 2 bytes into a 10-bit value
+        return ((data[0] & 0x3F) << 6) | (data[1] >> 2)
+
+    def _set_volume(self, adc_value: int) -> bool:
+        """
+        Update ALSA volume based on ADC reading and trigger callback.
+        
+        Args:
+            adc_value: Current ADC reading
+
+        Returns:
+            bool: True on success, False on error
+        """
+        if adc_value is None:
+            return True
+
+        # Scale ADC (0..1023) to [VOLUME_MINIMUM..VOLUME_MAXIMUM]
         span = VOLUME_MAXIMUM - VOLUME_MINIMUM
-        return int(round(VOLUME_MINIMUM + (adc_value * span) / 1023))
+        volume = int(round(VOLUME_MINIMUM + (adc_value * span) / 1023))
 
-    # ---------- public API ----------
+        # Set ALSA volume
+        return self._alsa.set(volume)
 
-    def set_volume(self, volume_raw: int) -> None:
-        """Set volume in RAW mixer units (with churn avoidance)."""
-        try:
-            self._set_raw_volume(volume_raw)
-        except alsaaudio.ALSAAudioError as ex_err:
-            oradio_log.error("Error setting volume: %s", ex_err)
+# -----Core methods----------------
 
-    def volume_adc(self) -> None:
-        """Monitor the ADC and adjust the volume; emit a change event on user change."""
-        previous_adc_value = self.read_adc() or 0
+    def _volume_manager(self) -> None:
+        """
+        Thread function: continuously polls ADC and updates volume.
+        - Adaptive polling for faster response when the knob is turned and slower idle polling.
+        """
+        # Initialize ALSA to knob's current position
+        previous_adc = self._read_adc()
+        if previous_adc is None:
+            oradio_log.error("ADC read failed")
+        _ = self._set_volume(previous_adc)  # result is ignored
+
+        # Start with 'slow' polling
         polling_interval = POLLING_MAX_INTERVAL
-        first_run = True
 
-        while self.running:
-            adc_value = self.read_adc()
+        # signal: start volume manager thread
+        self._running.set()
+
+        # Volume adjustment loop
+        while self._running.is_set():
+
+            # Get knob's current position
+            adc_value = self._read_adc()
             if adc_value is None:
                 oradio_log.warning("ADC read failed. Retrying...")
-                time.sleep(polling_interval)
+                sleep(polling_interval)
                 continue
 
-            raw_volume = self.scale_adc_to_volume(adc_value)
-            clamped_raw = self._clamp_raw(raw_volume)
+            # Check if knob moved significantly
+            if abs(adc_value - previous_adc) > ADC_UPDATE_TOLERANCE:
+                previous_adc = adc_value
 
-            if first_run:
-                # Initialize ALSA to the knob's position
-                self.set_volume(clamped_raw)
-                oradio_log.debug("Initial volume set to: %s", clamped_raw)
-                first_run = False
-            elif abs(adc_value - previous_adc_value) > ADC_UPDATE_TOLERANCE:
-                previous_adc_value = adc_value
+                # Set volume level
+                _ = self._set_volume(adc_value)     # result is ignored
 
-                # Only touch ALSA (and emit) if the effective RAW value changes
-                before = self._last_set_raw
-                self.set_volume(clamped_raw)
-                after = self._last_set_raw
+                # Notify only once
+                if self._armed:
+                    self._armed = False
 
-                if after is not None and after != before:
-                    # SoC: just signal; policy lives in the subscriber
-                    self._emit_change()
+                    # Create message
+                    message = {
+                        "source": MESSAGE_VOLUME_SOURCE,
+                        "state" : MESSAGE_VOLUME_CHANGED,
+                        "error" : MESSAGE_NO_ERROR
+                    }
 
-                polling_interval = POLLING_MIN_INTERVAL
+                    # Put message in queue
+                    oradio_log.debug("Send volume changed message: %s", message)
+                    safe_put(self._queue, message)
+
+                polling_interval = POLLING_MIN_INTERVAL     # Fast polling while turning
             else:
                 polling_interval = min(polling_interval + POLLING_STEP, POLLING_MAX_INTERVAL)
 
-            time.sleep(polling_interval)
+            sleep(polling_interval)
+
+# -----Public methods----------------
+
+    def start(self) -> None:
+        """Start the volume control thread if not already running."""
+        if self._thread and self._thread.is_alive():
+            oradio_log.debug("Volume manager thread already running")
+            return
+
+        # Create and start thread
+        self._thread = Thread(target=self._volume_manager, daemon=True)
+        self._thread.start()
+
+        # Check if thread started
+        if self._running.wait(timeout=THREAD_TIMEOUT):
+            oradio_log.info("Volume manager thread started")
+        else:
+            oradio_log.error("Timed out: Volume manager thread not started")
 
     def stop(self) -> None:
-        """Stop thread and close I²C."""
-        if not self.running:
+        """Stop the volumne control thread and wait for it to terminate."""
+        if not self._thread or not self._thread.is_alive():
+            oradio_log.debug("Volume manager thread not running")
             return
-        self.running = False
+
+        # signal: stop volume manager thread
+        self._running.clear()
+
         # Avoid hanging forever if the thread is stuck in I/O
-        self.thread.join(timeout=1.5)
-        try:
-            self.bus.close()
-        except OSError:
-            pass
+        self._thread.join(timeout=THREAD_TIMEOUT)
 
-    def selftest(self) -> bool:
-        """One I²C read + ALSA nudge/restore in RAW units."""
-        success = True
-
-        # I²C
-        adc = self.read_adc()
-        if adc is None:
-            success = False
-            oradio_log.error("VolumeControl selftest: I²C read failed")
+        if self._thread.is_alive():
+            oradio_log.error("Join timed out: volume manager thread is still running")
         else:
-            oradio_log.info("VolumeControl selftest: I²C OK (ADC=%d)", adc)
+            oradio_log.info("Volume manager thread stopped")
 
-        # ALSA (RAW) — do a nudge and verify; restore original value
-        try:
-            curr = self._get_raw_volume()
-            test = self._clamp_raw(curr + 2)
-
-            # Bypass churn avoidance: we *want* to set even if our cache says equal
-            self.mixer.setvolume(test, units=alsaaudio.VOLUME_UNITS_RAW)
-            readback = self._get_raw_volume()
-            self.mixer.setvolume(curr, units=alsaaudio.VOLUME_UNITS_RAW)
-            # Keep cache consistent with the restored value
-            self._last_set_raw = self._clamp_raw(curr)
-
-            if abs(readback - test) <= 2:
-                oradio_log.info("VolumeControl selftest: ALSA OK (raw %d→%d)", curr, readback)
-            else:
-                oradio_log.error("VolumeControl selftest: ALSA mismatch (set %d, read %d)", test, readback)
-                success = False
-        except alsaaudio.ALSAAudioError as ex_err:
-            oradio_log.error("VolumeControl selftest: ALSA error %s", ex_err)
-            success = False
-
-        return success
-
-
-# Standalone test (no state machine)
-
+# Entry point for stand-alone operation
 if __name__ == "__main__":
-    print("\nStarting VolumeControl standalone test...\n")
-    print("Turn the volume knob and observe changes below.")
-    print("Press Ctrl+C to exit.\n")
 
-    def _on_volume_changed() -> None:
-        # In production, oradio_control wires a callback that checks the SM state.
-        # Here we just show that the callback fires.
-        print("[Standalone] Volume change detected → (would trigger StatePlay in main app)")
+    # Imports only relevant when stand-alone
+    from multiprocessing import Process, Queue
 
-    volume_control = VolumeControl(on_change=_on_volume_changed)
+# Most modules use similar code in stand-alone
+# pylint: disable=duplicate-code
 
-    if volume_control.selftest():
-        print("✅ VolumeControl selftest passed")
-    else:
-        print("❌ VolumeControl selftest failed")
-
-    try:
+    def _check_messages(queue):
+        """
+        Check if a new message is put into the queue
+        If so, read the message from queue and display it
+        :param queue = the queue to check for
+        """
         while True:
-            time.sleep(1)
-    except KeyboardInterrupt:
-        print("\nStopping VolumeControl...")
-        volume_control.stop()
-        print("Standalone test finished.")
+            # Wait indefinitely until a message arrives from the server/wifi service
+            message = queue.get(block=True, timeout=None)
+            # Show message received
+            print(f"\n{GREEN}Message received: '{message}'{NC}\n")
+
+    def interactive_menu(queue):
+        """Show menu with test options"""
+
+        # Show menu with test options
+        input_selection = (
+            "\nSelect a function, input the number.\n"
+            " 0-Quit\n"
+            " 1-Start volume control\n"
+            " 2-Stop volume control\n"
+            " 3-Set volume knob notification\n"
+            "Select: "
+        )
+
+        # Initialise backlighting
+        volume_control = VolumeControl(queue)
+
+        # User command loop
+        while True:
+            try:
+                function_nr = int(input(input_selection))
+            except ValueError:
+                function_nr = -1
+
+            # Execute selected function
+            match function_nr:
+                case 0:
+                    break
+                case 1:
+                    print("\nStarting volume control...")
+                    print("Turn volume knob to observe changes")
+                    volume_control.start()
+                case 2:
+                    print("\nStopping volume control...")
+                    volume_control.stop()
+                case 3:
+                    print("\nSet volume knob notification...")
+                    volume_control.set_notify()
+                case _:
+                    print(f"\n{YELLOW}Please input a valid number{NC}\n")
+
+    print("\nStarting VolumeControl test program...\n")
+
+    # Initialize
+    message_queue = Queue()
+
+    # Start  process to monitor the message queue
+    message_listener = Process(target=_check_messages, args=(message_queue,))
+    message_listener.start()
+
+    # Present menu with tests
+    interactive_menu(message_queue)
+
+    # Stop listening to messages
+    message_listener.terminate()
+
+    print("\nExiting VolumeControl test program...\n")
+
+# Restore temporarily disabled pylint duplicate code check
+# pylint: enable=duplicate-code

@@ -443,11 +443,6 @@ fi
 # Progress report
 echo -e "${GREEN}Oradio3 hardware version log configured${NC}"
 
-# Configure the backlighting service to start on boot
-install_resource $RESOURCES_PATH/backlighting.service /etc/systemd/system/backlighting.service 'sudo systemctl enable backlighting.service'
-# Progress report
-echo -e "${GREEN}Backlighting installed and configured${NC}"
-
 # Install equalizer settings with rw rights
 install_resource $RESOURCES_PATH/alsaequal.bin /etc/alsaequal.bin 'sudo chmod 666 /etc/alsaequal.bin'
 # Install audio configuration, activate SoftVolSpotCon, set volume to normal level

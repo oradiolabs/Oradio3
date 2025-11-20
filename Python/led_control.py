@@ -33,16 +33,56 @@ class LEDControl:
 
     def __init__(self):
         """Class constructor: setup class variables"""
-        GPIO.setmode(GPIO.BCM)
-        for _, pin in LEDS.items():
-            GPIO.setup(pin, GPIO.OUT, initial=GPIO.HIGH)
-
+        ## Review Henk  #####################################################
+        # Graag de GPIO.setmode() op slecht 1 plek initialiseren.
+        # Nu op 2 plekken, nl ook in touch_buttons.py
+        # Mijn voorstel zou zijn om een aparte gpio_service.py module te maken
+        # waarbinnen de GPIO configuratie opgezet wordt en aansturing van de gpio pinnen gedaan wordt.
+        # De led_control module weet in principe niets van de GPIO, maar biedt wel
+        # extra services voor aan/uit zetten leds, blinking, delays, etc
+        # Voor een betere abstracties zouden we in die module de volgende functies moeten aanbieden
+        # def GPIO_config()
+        #    GPIO.setwarnings(False)
+        #    GPIO.setmode(GPIO.BCM)
+        #    for _, pin in LEDS.items():
+        #       GPIO.setup(pin, GPIO.OUT, initial=GPIO.HIGH)
+        #    for pin in BUTTONS.values():
+        #       GPIO.setup(pin, GPIO.IN, pull_up_down=GPIO.PUD_UP)
+        #       try:
+        #          GPIO.remove_event_detect(pin)
+        #       except RuntimeError:
+        #          pass
+        #
+        # Class GPIOControl()
+        #   def __init__(self)
+        #      ## things to setup or initialize
+        #
+        #   # pin_name = [LED_PLAY, LED_PRESET1, LED_PRESET2, LED_PRESET3, LED_STOP,
+        #                    BUTTON_PLAY, BUTTON_PRESET1, BUTTON_PRESET2, BUTTON_PRESET3, BUTTON_STOP
+        #   def turn_on_led(led_name:str)
+        #   def turn_off_led(led_name:str)
+        #   def turn_off_all_leds()
+        #   def short_blink_led(led_name:str)
+        #   def long_blink_led(led_name:str)
+        #   def _control_blinking_led( led_name:str, cycle_time:int
+        #   
+        ##########################################################################        
+        GPIO.setmode(GPIO.BCM)                                # moved to GPIO_service.py
+        for _, pin in LEDS.items():                           # moved to GPIO_service.py
+            GPIO.setup(pin, GPIO.OUT, initial=GPIO.HIGH)      # moved to GPIO_service.py
+        ###############################################################################
         self.blink_stop_events = {}       # map led_name → threading.Event()
         self.blinking_threads = {}        # map led_name → Thread
         oradio_log.debug("LEDControl initialized: All LEDs OFF")
 
     def turn_off_led(self, led_name, log: bool = True):
         """Turns off a specific LED and waits for its blink‐thread to exit."""
+          ### Review Henk  #############
+        # Return True or False
+        # True = Blinking started
+        # False = Failure
+        # or if it makes sense return a success/error status
+        ################################################       
         if led_name not in LEDS:
             oradio_log.error("Invalid LED name: %s", led_name)
             return
@@ -58,19 +98,29 @@ class LEDControl:
             thread.join()
 
         # now safe to drive off
-        GPIO.output(LEDS[led_name], GPIO.HIGH)
+        # Review Henk:
+        # moved to GPIO_service.py
+        GPIO.output(LEDS[led_name], GPIO.HIGH) 
         if log:
             oradio_log.debug("%s turned off", led_name)
 
 
     def turn_on_led(self, led_name):
         """Turns on a specific LED (stops blinking if active)."""
+         ### Review Henk  #############
+        # Return True or False
+        # True = Blinking started
+        # False = Failure
+        # or if it makes sense return a success/error status
+        ################################################        
         if led_name not in LEDS:
             oradio_log.error("Invalid LED name: %s", led_name)
             return
 
         # stop blinking silently (no 'turned off' log), then light it
         self.turn_off_led(led_name, log=False)
+        # Review Henk:
+        # moved to GPIO_service.py
         GPIO.output(LEDS[led_name], GPIO.LOW)
         oradio_log.debug("%s turned on", led_name)
 
@@ -85,6 +135,8 @@ class LEDControl:
         self.blinking_threads.clear()
 
         # drive every pin HIGH
+        # Review Henk:
+        # moved to GPIO_service.py
         for pin in LEDS.values():
             GPIO.output(pin, GPIO.HIGH)
         oradio_log.debug("All LEDs turned off and blinking stopped")
@@ -97,30 +149,57 @@ class LEDControl:
             led_name (str): The name of the LED to control.
             delay (float): Time in seconds before turning off the LED.
         """
+         ### Review Henk  #############
+        # Return True or False
+        # True = Blinking started
+        # False = Failure
+        # or if it makes sense return a success/error status
+        ################################################        
         if led_name not in LEDS:
             oradio_log.error("Invalid LED name: %s", led_name)
             return
 
         # Stop any blinking for this LED and turn it on
         self.turn_off_led(led_name)
+        # Review Henk:
+        # moved to GPIO_service.py
         GPIO.output(LEDS[led_name], GPIO.LOW)
         oradio_log.debug("%s turned on, will turn off after %s seconds", led_name, delay)
 
         def delayed_off():
             time.sleep(delay)
+            # Review Henk:
+            # moved to GPIO_service.py
             GPIO.output(LEDS[led_name], GPIO.HIGH)
             oradio_log.debug("%s turned off after %s seconds", led_name, delay)
-
+        ####################################################################
+        ## Review Henk:
+        # Propoose to use a Timer thread, to prevent the sleep in the thread
+        # from threading import Timer
+        # delay_timer = Timer(delay, delayed_off)
+        # delay_timer.start()
+        ######################################################################
         threading.Thread(target=delayed_off, daemon=True).start()
 
     def control_blinking_led(self, led_name, cycle_time=None):
         """
         Blink using an Event for instant stop, not long sleeps.
         """
+        ##############################################
+        # review Henk
+        # specify the arguments led_name and cycle_time
+        ###############################################
+      
         if led_name not in LEDS:
             oradio_log.error("Invalid LED name: %s", led_name)
             return
-
+        ### Review Henk  #############
+        # Return True or False
+        # True = Blinking started
+        # False = Failure
+        # or if it makes sense return a success/error status
+        ################################################
+        
         # stop any existing blink
         old_evt = self.blink_stop_events.pop(led_name, None)
         if old_evt:
@@ -131,6 +210,8 @@ class LEDControl:
 
         # if no cycle_time, just turn off
         if not cycle_time:
+            # Review Henk:
+            # moved to GPIO_service.py
             GPIO.output(LEDS[led_name], GPIO.HIGH)
             oradio_log.debug("%s blinking stopped and turned off", led_name)
             return
@@ -163,6 +244,14 @@ class LEDControl:
         LEDStop → LEDPreset3 → LEDPreset2 → LEDPreset1 → LEDPlay,
         each on for 0.1s. Returns True on success, False if any LED name is invalid.
         """
+        ############
+        # Review Henk:
+        # Deze selftest controleert of de opgegeven LEDs in sequence goed zijn, zoals
+        # ze gedefinieerd zijn als constants.
+        # Mijn voorstel zou zijn om de testen of de leds ook werkelijk aan of uit staan
+        # door de GPIO status op te vragen van de geactiveerde led.
+        # Hiermee test je of de leds werkelijk aan of uit staan.
+        #######################################################################
         sequence = ["LEDStop", "LEDPreset3", "LEDPreset2", "LEDPreset1", "LEDPlay"]
         try:
             self.turn_off_all_leds()

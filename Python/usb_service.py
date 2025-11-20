@@ -27,11 +27,12 @@ Created on January 17, 2025
         https://pypi.org/project/watchdog/
 """
 import os
-from threading import Lock, RLock
+from threading import RLock
 from watchdog.observers import Observer
 from watchdog.events import PatternMatchingEventHandler
 
 ##### oradio modules ####################
+from singleton import singleton
 from oradio_logging import oradio_log
 from oradio_utils import safe_put, run_shell_script
 
@@ -48,241 +49,153 @@ from oradio_const import (
 
 ##### LOCAL constants ####################
 USB_MONITOR = "usb_ready"   # Name of file used to monitor if USB is mounted or not
-TIMEOUT     = 10            # Seconds to wait
 
+@singleton
 class USBObserver:
-    """
-    Singleton wrapper around the watchdog Observer
-    Ensures that only one Observer instance exists application-wide,
-    providing thread-safe singleton creation
-    _lock (threading.Lock): Class-level lock for thread-safe singleton instantiation
-    _instance (USBObserver): Singleton instance of this class
-    _initialized (bool): Flag indicating whether __init__ has run
-    """
+    """Singleton wrapper around watchdog.Observer with exactly one monitor."""
 
-# In below code using same construct in multiple modules for singletons
-# pylint: disable=duplicate-code
+    def __init__(self):
+        # The underlying Observer thread
+        self._observer = Observer()
 
-    _lock = Lock()       # Class-level lock to make singleton thread-safe
-    _instance = None     # Holds the single instance of this class
-    _initialized = False # Tracks whether __init__ has been run
+        # Track if the single monitor has already been scheduled
+        self._monitor_scheduled = False
 
-    # Underscores mark args and kwargs as 'intentionally unused'
-    def __new__(cls, *_args, **_kwargs):
+    def schedule_monitor(self, monitor: PatternMatchingEventHandler):
         """
-        Create or return the singleton instance in a thread-safe manner
-        *args, **kwargs: Passed to the underlying Observer constructor (only used once)
-        Returns USBObserver: Singleton instance
+        Schedule the monitor exactly once on the observer.
+        Starts the observer thread if not already running.
         """
-        with cls._lock:
-            if cls._instance is None:
-                cls._instance = super().__new__(cls)
-        return cls._instance
+        if not self._monitor_scheduled:
+            self._observer.schedule(monitor, path=USB_MOUNT_PATH, recursive=False)
+            self._monitor_scheduled = True
 
-    def __init__(self, *args, **kwargs):
-        """
-        Initialize the underlying Observer instance once
-        *args, **kwargs: Arguments forwarded to the Observer constructor
-        """
-        # Prevent re-initialization if the singleton is created again
-        if self._initialized:
-            return  # Avoid re-initialization if already done
-        self._initialized = True
-
-# In above code using same construct in multiple modules for singletons
-# pylint: enable=duplicate-code
-
-        # Initialize parent/underlying instance
-        self._observer = Observer(*args, **kwargs)
+        # Start observer thread if not alive
+        if not self._observer.is_alive():
+            self._observer.start()
 
     def __getattr__(self, name):
         """
-        Delegate attribute access to the underlying Observer instance
-        Called only if the attribute is not found on USBObserver itself
-        name (str): Attribute name to retrieve
-        Returns: Attribute value from the Observer instance
+        Delegate attribute access to the underlying observer.
+        Called only if attribute not found on USBObserver itself.
         """
         return getattr(self._observer, name)
 
+@singleton
 class USBMonitor(PatternMatchingEventHandler):
     """
-    Singleton that monitors USB mount/unmount events
-    Subscribers can register two callbacks:
-     - on_insert(): called when a USB is detected
-     - on_remove(): called when a USB is removed
+    Singleton watchdog event handler for USB marker file.
+    Allows subscribers to register insert/remove callbacks.
     """
-    _lock = Lock()       # Class-level lock to make singleton thread-safe
-    _instance = None     # Holds the single instance of this class
-    _initialized = False # Tracks whether __init__ has been run
 
-    # Underscores mark args and kwargs as 'intentionally unused'
-    def __new__(cls, *_args, **_kwargs):
-        """
-        Create or return the singleton instance
-        Uses a class-level lock to ensure thread safety during creation
-        """
-        with cls._lock:
-            if cls._instance is None:
-                cls._instance = super().__new__(cls)
-        return cls._instance
+    def __init__(self, patterns = None):
+        # Initialize parent event handler (PatternMatchingEventHandler)
+        super().__init__(patterns=[USB_MONITOR])
 
-    def __init__(self, **kwargs):
-        """
-        Initialize the singleton (only once)
-        Sets up:
-        - Subscriber list
-        - Initial USB mount state
-        """
-        if getattr(self, "_initialized", False):
-            return  # Already initialized
-
-        # Initialize parent event handler
-        super().__init__(**kwargs)
-
-        # Lock for subscriber operations
+        # Lock to protect subscriber list
         self._sub_lock = RLock()
 
-        # List of subscriber tuples: (on_insert, on_remove)
+        # List of (on_insert, on_remove) callbacks
         self._subscribers = []
 
-        # Set initial USB mount state - singleton: read/write is thread-safe
+        # Determine initial USB state from mount point
         if os.path.ismount(USB_MOUNT_POINT):
             self._state = STATE_USB_PRESENT
         else:
             self._state = STATE_USB_ABSENT
 
-        # Flag to stop initializing more than once
-        self._initialized = True
-
     def get_state(self):
-        """
-        Return the current USB state
-        :return: STATE_USB_PRESENT or STATE_USB_ABSENT
-        """
+        """Return current USB mount state."""
         return self._state
 
     def subscribe(self, on_insert, on_remove):
-        """
-        Register subscriber callbacks
-        Thread-safe: may be called from multiple threads
-        """
+        """Register callbacks for USB insert/remove events."""
         with self._sub_lock:
             self._subscribers.append((on_insert, on_remove))
 
     def unsubscribe(self, on_insert, on_remove):
-        """
-        Remove subscriber callbacks
-        Thread-safe: may be called from multiple threads
-        """
+        """Remove previously registered callbacks."""
         with self._sub_lock:
             self._subscribers.remove((on_insert, on_remove))
 
     def on_created(self, event):
         """
-        Watchdog callback: called when the USB mount point is created
+        Watchdog callback: called when the USB monitor is created
         Updates state and triggers all on_insert callbacks
         """
-        oradio_log.debug("Mount point %s created", event.src_path)
+        oradio_log.info("USB inserted on %s", event.src_path)
+
         # set state to PRESENT
         self._state = STATE_USB_PRESENT
+
         # Trigger insert callback for each subscriber
-        for on_insert, _ in self._subscribers:
-            on_insert()
+        with self._sub_lock:
+            for on_insert, _ in self._subscribers:
+                on_insert()
 
     def on_deleted(self, event):
         """
-        Watchdog callback: called when the USB mount point is removed
+        Watchdog callback: called when the USB monitor is removed
         Updates state and triggers all on_remove callbacks
         """
-        oradio_log.debug("Mount point %s deleted", event.src_path)
+        oradio_log.info("USB removed from %s", event.src_path)
+
         # set state to ABSENT
         self._state = STATE_USB_ABSENT
-        # Trigger remove callback for each subscriber
-        for _, on_remove in self._subscribers:
-            on_remove()
+
+        with self._sub_lock:
+            for _, on_remove in self._subscribers:
+                on_remove()
 
 class USBService:
     """
-    USBService manages USB drive presence detection by subscribing
-    to USBMonitor events and sending state messages via a queue
-    Listens for USB mount/unmount events and notifies the registered queue
+    Service that connects the singleton USBObserver + USBMonitor,
+    subscribes to USB events, and forwards state messages to a queue.
     """
+
     def __init__(self, queue):
-        """
-        Sets up shared observer and monitor singletons, subscribes to USB events,
-        schedules monitoring path once globally, and sends initial USB state
-        - queue (queue.Queue): Queue to send USB state messages
-        """
+        # Store queue for sending USB state messages asynchronously
+        self._queue = queue
+
         # Get the shared observer singleton (handles event watching thread)
         self._observer = USBObserver()
 
         # Get the shared USB monitor singleton (monitors USB mount/unmount)
-        self._monitor = USBMonitor(patterns=[USB_MONITOR])
+        self._monitor = USBMonitor()
 
-        # Subscribe to USB insert/remove events with these callbacks
+        # Subscribe callbacks to USB insert/remove events
         self._monitor.subscribe(self._usb_inserted, self._usb_removed)
 
-        # Schedule the monitor once only on the observer to avoid duplicate watching
-        if not getattr(self._observer, "_usb_scheduled", False):
-            self._observer.schedule(self._monitor, path=USB_MOUNT_PATH, recursive=False)
-            self._observer._usb_scheduled = True
+        # Schedule monitor exactly once
+        self._observer.schedule_monitor(self._monitor)
 
-            # Start the observer thread if not already running
-            if not self._observer.is_alive():
-                self._observer.start()
-
-        # Store queue for sending USB state messages asynchronously
-        self._queue = queue
-
-        # Send initial USB state message immediately on creation
+        # Send initial state
         self._send_message()
 
     def _usb_inserted(self):
-        """
-        Callback triggered when USB device is inserted
-        Logs the event and sends a USB inserted state message
-        """
-        oradio_log.info("USB inserted")
-        # send message
+        """Callback invoked on USB insertion."""
         self._send_message()
 
     def _usb_removed(self):
-        """
-        Callback triggered when USB device is removed
-        Logs the event and sends a USB removed state message
-        """
-        oradio_log.info("USB removed")
-        # send message
+        """Callback invoked on USB removal."""
         self._send_message()
 
     def _send_message(self):
-        """
-        Compose and send the USB state message to the registered queue
-        The message contains the source, current USB state, and an error code
-        """
-        # Create message
+        """Send current USB state message to the registered queue."""
         message = {
             "source": MESSAGE_USB_SOURCE,
-            "state" : self.get_state(),
-            "error" : MESSAGE_NO_ERROR
+            "state": self.get_state(),
+            "error": MESSAGE_NO_ERROR,
         }
-        # Put message in queue
-        oradio_log.debug("Send USB service message: %s", message)
+        oradio_log.debug("Send USBService message: %s", message)
         safe_put(self._queue, message)
 
     def get_state(self):
-        """
-        Get the current USB mount state from the USBMonitor
-        Returns current USB state (e.g., inserted or removed)
-        """
+        """Return current USB mount state."""
         return self._monitor.get_state()
 
     def close(self):
-        """
-        Clean up resources by unsubscribing callbacks from the USBMonitor
-        Should be called when USBService is no longer needed to prevent memory leaks
-        and stop receiving USB event notifications
-        """
+        """Unsubscribe callbacks to clean up resources."""
         try:
             self._monitor.unsubscribe(self._usb_inserted, self._usb_removed)
         except ValueError:
