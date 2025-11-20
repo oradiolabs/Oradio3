@@ -39,10 +39,6 @@
 	--scrollbox-select:  var(--Green);
 	--scrollbox-border:  var(--MiddleGrey);
 
-	--scrollbar-font:  var(--Green);
-	--scrollbar-background:  var(--MiddleGrey);
-	--scrollbar-border:  var(--MiddleGrey);
-
 	--button-font:  var(--Alabaster);
 	--button-background:  var(--Green);
 
@@ -225,20 +221,6 @@ li {
 }
 .file-list li:hover {
 	background-color: var(--scrollbox-select);
-}
-
-.file-list::-webkit-scrollbar {
-  width: 8px;
-}
-.file-list::-webkit-scrollbar-track {
-  background: var(--scrollbar-border);
-}
-.file-list::-webkit-scrollbar-thumb {
-  background: var(--scrollbar-font);
-  border-radius: 4px;
-}
-.file-list::-webkit-scrollbar-thumb:hover {
-  background: var(--scrollbar-font);
 }
 
 @media (max-width: 500px) {
