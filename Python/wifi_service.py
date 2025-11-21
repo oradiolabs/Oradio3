@@ -145,12 +145,12 @@ class WifiEventListener:
             nm_iface = Interface(nm_object, "org.freedesktop.NetworkManager")
 
             # Find the wifi device (DeviceType == 2)
-            for path in nm_iface.GetDevices():
-                dev = self.bus.get_object("org.freedesktop.NetworkManager", path)
+            for device in nm_iface.GetDevices():
+                dev = self.bus.get_object("org.freedesktop.NetworkManager", device)
                 dev_props = Interface(dev, "org.freedesktop.DBus.Properties")
                 dev_type = dev_props.Get("org.freedesktop.NetworkManager.Device", "DeviceType")
                 if dev_type == 2:
-                    self._wifi_path = path
+                    self._wifi_path = device
                     break
 
         except DBusException as ex_err:
@@ -543,8 +543,8 @@ def get_wifi_networks() -> list:
     oradio_log.debug("Scanning for wifi networks...")
 
     # 1️. Try nmcli scan
-    ok, nmcli_output = _nmcli_try(nmcli.device.wifi, None, True)
-    if ok and nmcli_output:
+    is_ok, nmcli_output = _nmcli_try(nmcli.device.wifi, None, True)
+    if is_ok and nmcli_output:
         # Filter on required info
         networks = parse_nmcli_output(nmcli_output)
     else:
@@ -608,8 +608,8 @@ def _wifi_up(network) -> bool:
         network (str): wifi network ssid as configured in NetworkManager
     """
     oradio_log.debug("Activate '%s'", network)
-    ok, _ = _nmcli_try(nmcli.connection.up, network)
-    return ok
+    is_ok, _ = _nmcli_try(nmcli.connection.up, network)
+    return is_ok
 
 def _wifi_down(network) -> bool:
     """
@@ -619,8 +619,8 @@ def _wifi_down(network) -> bool:
         network (str): wifi network ssid as configured in NetworkManager
     """
     oradio_log.debug("Disconnect from: '%s'", network)
-    ok, _ = _nmcli_try(nmcli.connection.down, network)
-    return ok
+    is_ok, _ = _nmcli_try(nmcli.connection.down, network)
+    return is_ok
 
 def _networkmanager_list() -> list:
     """
@@ -631,10 +631,10 @@ def _networkmanager_list() -> list:
     """
     oradio_log.debug("Get connections from NetworkManager")
 
-    ok, result = _nmcli_try(nmcli.connection)
+    is_ok, result = _nmcli_try(nmcli.connection)
 
     # Fail on error
-    if not ok or result is None:
+    if not is_ok or result is None:
         return []
 
     # Only wifi connections
@@ -672,8 +672,8 @@ def _networkmanager_add(network, password=None) -> bool:
             "ipv4.address": ACCESS_POINT_HOST + "/24"
         }
 
-        ok, _ = _nmcli_try(nmcli.connection.add, "wifi", options, "*", ACCESS_POINT_SSID, False)
-        return ok
+        is_ok, _ = _nmcli_try(nmcli.connection.add, "wifi", options, "*", ACCESS_POINT_SSID, False)
+        return is_ok
 
     # Add wifi network to NetworkManager if not exist, modify if exists
     options = {"ssid": network}
@@ -689,13 +689,13 @@ def _networkmanager_add(network, password=None) -> bool:
     # Modify existing
     if network in _networkmanager_list():
         oradio_log.debug("Modify '%s' in NetworkManager", network)
-        ok, _ = _nmcli_try(nmcli.connection.modify, network, options)
-        return ok
+        is_ok, _ = _nmcli_try(nmcli.connection.modify, network, options)
+        return is_ok
 
     # Add new
     oradio_log.debug("Add '%s' to NetworkManager", network)
-    ok, _ = _nmcli_try(nmcli.connection.add, "wifi", options, "*", network, True)
-    return ok
+    is_ok, _ = _nmcli_try(nmcli.connection.add, "wifi", options, "*", network, True)
+    return is_ok
 
 def _networkmanager_del(network) -> bool:
     """
@@ -705,14 +705,11 @@ def _networkmanager_del(network) -> bool:
         network (str): wifi network ssid as configured in NetworkManager
     """
     oradio_log.debug("Remove '%s' from NetworkManager", network)
-    ok, _ = _nmcli_try(nmcli.connection.delete, network)
-    return ok
+    is_ok, _ = _nmcli_try(nmcli.connection.delete, network)
+    return is_ok
 
 # Entry point for stand-alone operation
 if __name__ == '__main__':
-
-    # Imports only relevant when stand-alone
-    from multiprocessing import Process, Queue
 
 # Most modules use similar code in stand-alone
 # pylint: disable=duplicate-code
