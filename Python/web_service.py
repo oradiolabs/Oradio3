@@ -176,7 +176,7 @@ class UvicornServerThread:
             not self.server.should_exit
         )
 
-class WebService():
+class WebService:
     """
     Manage the web interface over wifi or an internal access point (Captive Portal)
     This class coordinates:

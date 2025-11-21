@@ -91,7 +91,7 @@ class Backlighting:
         # Initialize light sensor hardware
         self._initialize_sensor()
 
-        # Thread is created dynamically on `start()` to allow restartability
+        # Thread is created dynamically on start() to allow restartability
         self._thread = None
         self._running = Event()
 

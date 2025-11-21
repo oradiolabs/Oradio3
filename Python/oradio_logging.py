@@ -134,8 +134,8 @@ if not oradio_log.hasHandlers():
             if record.levelno in (WARNING, ERROR):
                 if not self._rms:
                     # Postponed import avoids circular import
-                    from remote_monitoring import RmsService    # pylint: disable=import-outside-toplevel
-                    self._rms = RmsService()
+                    from remote_monitoring import RMService    # pylint: disable=import-outside-toplevel
+                    self._rms = RMService()
                 self._rms.send_message(record.levelname, record.message, f"{record.filename}:{record.lineno}")
 
     # Send WARNING and ERROR messages to Remote Monitoring Service

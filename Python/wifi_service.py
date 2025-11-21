@@ -33,20 +33,23 @@ Created on December 23, 2024
             Use NetworkManager setting up a wifi hotspot that sets up a local private net, with DHCP and IP forwarding
             Use: nmcli dev wifi hotspot ifname wlp4s0 ssid test password "test1234"
 """
-import os
-import re
-import json
+from os import path
+from re import search
+from json import load, JSONDecodeError
 from threading import Thread, Lock
+#Review Onno: waarom multiprocessing Queue, niet threading Queue? Multiprocessing is 'duurder'
+#Review Onno: waarom multiprocessing Process, niet threading Thread? Process is 'duurder'
 from multiprocessing import Process, Queue
 from subprocess import CalledProcessError
 import nmcli
 import nmcli._exception as nmcli_exc
-import dbus
-import dbus.mainloop.glib
+from dbus import SystemBus, Interface
+from dbus.mainloop.glib import DBusGMainLoop
 from dbus.exceptions import DBusException
 from gi.repository import GLib
 
 ##### oradio modules ####################
+from singleton import singleton
 from oradio_utils import run_shell_script, safe_put
 from usb_service import USBService
 from oradio_logging import oradio_log
@@ -75,6 +78,8 @@ DEBOUNCE_TIME   = 2                                     # Wait time in seconds b
 NM_DISCONNECTED = 30
 NM_CONNECTED    = 100
 NM_FAILED       = 120
+# Timeout for thread to respond (seconds)
+THREAD_TIMEOUT = 3
 
 # Dynamic tuple generation (less maintenance-heavy if exceptions change)
 nmcli_exceptions = tuple(
@@ -82,55 +87,38 @@ nmcli_exceptions = tuple(
     if isinstance(exc, type) and issubclass(exc, Exception)
 )
 
-class SaveWifi:
+# Global singleton variables
+_saved_network = {"network": ""}    # Track last connected wifi network
+_saved_lock = Lock()                # Thread-safe read/write _saved_network
+
+def set_saved_network(network: str) -> None:
     """
-    Singleton-style class to store and retrieve the last wifi connection as a string
-    Uses class-level variables and a threading.Lock to ensure thread-safe access
-    to the shared data across all instances or direct class usage
+    Set the last active wifi network in a thread-safe manner.
+
+    Args:
+        network (str): The SSID of the network to save.
     """
-    _saved = ""     # Holds the last saved wifi connection (class-level)
-    _lock = Lock()  # Lock to synchronize access to _saved for thread safety
+    with _saved_lock:
+        _saved_network["network"] = str(network) if network else ""
 
-    @classmethod
-    def set_saved(cls, value):
-        """
-        Thread-safe setter to update the saved wifi connection string
-        value (str): The wifi connection string to save
-        """
-        with cls._lock:        # Acquire lock to prevent race conditions
-            cls._saved = str(value) if value else ""
+def get_saved_network() -> str:
+    """
+    Get the last active wifi network in a thread-safe manner.
 
-    @classmethod
-    def get_saved(cls):
-        """
-        Thread-safe getter to retrieve the saved wifi connection string
-        Returns: The last saved wifi connection string
-        """
-        with cls._lock:        # Acquire lock to ensure consistent reads
-            return cls._saved
+    Returns:
+        str: The SSID of the last saved network.
+    """
+    with _saved_lock:
+        return _saved_network["network"]
 
+@singleton
 class WifiEventListener:
     """
-    Singleton class that listens for wifi state changes via NetworkManager D-Bus signals
-    Connects to the system D-Bus, finds the wifi device managed by NetworkManager, and listens
-    for the 'StateChanged' signal on the wireless device interface to track wifi connection state changes
-    Runs a GLib main loop in a background thread to handle asynchronous signals without blocking the main application
+    Singleton class to listen to wifi state changes via NetworkManager D-Bus signals.
+    - Connects to the system D-Bus, finds the wifi device managed by NetworkManager, and listens
+      for the 'StateChanged' signal on the wireless device interface to track wifi connection state changes
+    - Runs a GLib main loop in a background thread to handle asynchronous signals without blocking the main application
     """
-
-# In below code using same construct in multiple modules for singletons
-# pylint: disable=duplicate-code
-
-    _lock = Lock()       # Class-level lock to make singleton thread-safe
-    _instance = None     # Holds the single instance of this class
-    _initialized = False # Tracks whether __init__ has been run
-
-    # Underscores mark args and kwargs as 'intentionally unused'
-    def __new__(cls, *_args, **_kwargs):
-        """Ensure only one instance of WifiEventListener is created (singleton pattern)"""
-        with cls._lock:
-            if cls._instance is None:
-                cls._instance = super(WifiEventListener, cls).__new__(cls)
-        return cls._instance
 
     def __init__(self):
         """
@@ -138,142 +126,120 @@ class WifiEventListener:
         connecting to the system bus, finding the wifi device, and subscribing
         to the 'StateChanged' signal
         """
-        # Prevent re-initialization if the singleton is created again
-        if self._initialized:
-            return  # Avoid re-initialization if already done
-        self._initialized = True
-
-# In above code using same construct in multiple modules for singletons
-# pylint: enable=duplicate-code
+        # Initialize
+        self._loop = None
+        self._wifi_path = None
 
         # List of subscriber queues to send wifi state messages
         self._subscribers = []
 
         try:
             # Setup GLib main loop for dbus-python signal handling
-            dbus.mainloop.glib.DBusGMainLoop(set_as_default=True)
+            DBusGMainLoop(set_as_default=True)
 
             # Connect to system D-Bus
-            self.bus = dbus.SystemBus()
+            self.bus = SystemBus()
 
             # Access NetworkManager object
-            network_manager = self.bus.get_object(
-                "org.freedesktop.NetworkManager",
-                "/org/freedesktop/NetworkManager"
-            )
-            nm_iface = dbus.Interface(network_manager, "org.freedesktop.NetworkManager")
+            nm_object = self.bus.get_object("org.freedesktop.NetworkManager", "/org/freedesktop/NetworkManager")
+            nm_iface = Interface(nm_object, "org.freedesktop.NetworkManager")
 
             # Find the wifi device (DeviceType == 2)
-            self.wifi_path = None
-            for path in nm_iface.GetDevices():
-                dev = self.bus.get_object("org.freedesktop.NetworkManager", path)
-                dev_props = dbus.Interface(dev, "org.freedesktop.DBus.Properties")
+            for device in nm_iface.GetDevices():
+                dev = self.bus.get_object("org.freedesktop.NetworkManager", device)
+                dev_props = Interface(dev, "org.freedesktop.DBus.Properties")
                 dev_type = dev_props.Get("org.freedesktop.NetworkManager.Device", "DeviceType")
                 if dev_type == 2:
-                    self.wifi_path = path
+                    self._wifi_path = device
                     break
 
         except DBusException as ex_err:
-            oradio_log.error("Failed to connect to NetworkManager: %s", ex_err.get_dbus_message())
+            oradio_log.error("Failed to connect to NetworkManager D-Bus: %s", ex_err.get_dbus_message())
             return
         except OSError as ex_err:
             oradio_log.error("D-Bus connection error: %s", ex_err)
             return
 
-        if not self.wifi_path:
+        if not self._wifi_path:
             oradio_log.error("No wifi device found")
             return
 
         # Subscribe to 'StateChanged' signal on the wifi device interface
         self.bus.add_signal_receiver(
             self._wifi_state_changed,
-            dbus_interface="org.freedesktop.NetworkManager.Device",
-            signal_name="StateChanged",
-            path=self.wifi_path
+            dbus_interface = "org.freedesktop.NetworkManager.Device",
+            signal_name = "StateChanged",
+            path = self._wifi_path
         )
 
-        # Create GLib main loop in a background thread
+        # Create GLib main loop and start the listener thread
         self._loop = GLib.MainLoop()
-        self._thread = Thread(target=self._loop.run, daemon=True)
+        Thread(target=self._loop.run, daemon=True).start()
 
-    def _wifi_state_changed(self, new_state, _old_state, _reason):
+    def _wifi_state_changed(self, new_state, _old_state, _reason) -> None:
         """
-        Callback invoked on wifi device 'StateChanged' signal
-        new_state (int): The new device state
-        _old_state (int): The previous device state (unused, underscore avoids pylint warning)
-        _reason (int): Reason for state change (unused, underscore avoids pylint warning)
+        Callback for wifi state changes. Notifies subscribers.
+
+        Args:
+            new_state (int): New state of the wifi device.
+            _old_state (int): The previous device state (unused, underscore avoids pylint warning)
+            _reason (int): Reason for state change (unused, underscore avoids pylint warning)
         """
-        message = {"source": MESSAGE_WIFI_SOURCE}
 
-        # Parse states: only interested in disconnected, failed and connected
-        if new_state == NM_DISCONNECTED:
-            # wifi disconnected
-            message["state"] = STATE_WIFI_IDLE
-            message["error"] = MESSAGE_NO_ERROR
-            # Send message to queue of each subscriber
-            oradio_log.debug("Send wifi service message: %s", message)
-            for queue in self._subscribers:
-                safe_put(queue, message)
+        # Only act on final meaningful states
+        if new_state not in (NM_DISCONNECTED, NM_CONNECTED, NM_FAILED):
+            return
 
-        elif new_state == NM_CONNECTED:
-            # wifi connected: distinguish access point vs internet availability
+        # Get callback state, default to idle
+        state_map = {
+            NM_DISCONNECTED: STATE_WIFI_IDLE,
+            NM_CONNECTED: STATE_WIFI_CONNECTED,
+            NM_FAILED: STATE_WIFI_IDLE
+        }
+        state = state_map.get(new_state, STATE_WIFI_IDLE)
+
+        # Get callback error, default to no error
+        error_map = {
+            NM_DISCONNECTED: MESSAGE_NO_ERROR,
+            NM_CONNECTED: MESSAGE_NO_ERROR,
+            NM_FAILED: MESSAGE_WIFI_FAIL_CONNECT
+        }
+        error = error_map.get(new_state, MESSAGE_NO_ERROR)
+
+        # Check for Access Point
+        if new_state == NM_CONNECTED:
             active = get_wifi_connection()
             if active == ACCESS_POINT_SSID:
-                # Connection is access point
-                message["state"] = STATE_WIFI_ACCESS_POINT
-            else:
-                # Connection to wifi network WITHOUT internet access
-                message["state"] = STATE_WIFI_CONNECTED
-            message["error"] = MESSAGE_NO_ERROR
-            # Send message to queue of each subscriber
-            oradio_log.debug("Send wifi service message: %s", message)
-            for queue in self._subscribers:
-                safe_put(queue, message)
+                state = STATE_WIFI_ACCESS_POINT
 
-        elif new_state == NM_FAILED:
-            # wifi failed to connect
-            message["state"] = STATE_WIFI_IDLE
-            message["error"] = MESSAGE_WIFI_FAIL_CONNECT
-            # Send message to queue of each subscriber
-            oradio_log.debug("Send wifi service message: %s", message)
-            for queue in self._subscribers:
-                safe_put(queue, message)
+        # Prepare callback message
+        message = {"source": MESSAGE_WIFI_SOURCE, "state": state, "error": error}
 
-    def start(self):
-        """
-        Start the GLib main loop in a background thread to listen for wifi state changes
-        """
-        if not self._thread.is_alive():
-            self._thread.start()
-
-    def stop(self):
-        """
-        Stop the GLib main loop and wait for the background thread to finish
-        Use this to cleanly shutdown the listener, typically during application exit
-        """
-        if hasattr(self, "_loop") and self._loop.is_running():
-            self._loop.quit()
-        if hasattr(self, "_thread"):
-            self._thread.join()
+        # Send message to queue of each subscriber
+        oradio_log.debug("Send wifi service message: %s", message)
+        for queue in self._subscribers:
+            safe_put(queue, message)
 
     def subscribe(self, queue):
         """
-        Register a queue to receive wifi state messages
-        queue (Queue): A queue object where wifi state messages will be posted
+        Subscribe a queue to receive wifi state messages.
+
+        Args:
+            queue (Queue): The queue object to receive messages.
         """
         self._subscribers.append(queue)
 
     def unsubscribe(self, queue):
         """
-        Remove a previously registered subscriber queue
-        queue (Queue): The queue to unsubscribe
+        Remove a subscriber queue.
+
+        Args:
+            queue (Queue): The queue object to remove.
         """
         try:
             self._subscribers.remove(queue)
         except ValueError:
-            oradio_log.debug("Was already unsubscribed from wifi events")
-        else:
-            oradio_log.info("Stopped listening to wifi events")
+            oradio_log.debug("Queue already unsubscribed")
 
 class WifiService():
     """
@@ -287,33 +253,36 @@ class WifiService():
         Initialize wifi service and its dependencies
         Start background processes/threads for USB and wifi monitoring
         Send initial wifi state message
-        :param queue: multiprocessing.Queue for sending wifi state messages
+
+        Args:
+            queue (Queue): Queue for sending wifi state messages
         """
-        self.queue = queue
-        usb_queue = Queue()
+        self._queue = queue
+        self._usb_q = Queue()
 
         # Start a separate process to monitor USB messages (e.g. wifi credentials)
-        self._usb_listener = Process(target=self._check_usb_messages, args=(usb_queue,))
+        self._usb_listener = Process(target=self._check_usb_messages, args=(self._usb_q,))
         self._usb_listener.start()
 
-        # USBService instance to send USB state updates to usb_queue
-        self._usb_service = USBService(usb_queue)
+        # USBService instance to send USB state updates to usb queue
+        self._usb_service = USBService(self._usb_q)
 
         # Start listening to NetworkManager wifi state changes
         self.nm_listener = WifiEventListener()
-        self.nm_listener.start()
 
         # Subscribe this service's queue to receive wifi state updates
-        self.nm_listener.subscribe(self.queue)
+        self.nm_listener.subscribe(self._queue)
 
         # Send initial wifi state and no-error message
         self._send_message(MESSAGE_NO_ERROR)
 
-    def _check_usb_messages(self, queue):
+    def _check_usb_messages(self, queue) -> None:
         """
         Background process to monitor USB messages from the queue
         On USB present state, check for wifi credentials on USB drive
-        :param queue: Queue to receive USB messages
+
+        Args:
+            queue (Queue): Queue to receive USB messages
         """
         while True:
             # Wait for message
@@ -324,7 +293,7 @@ class WifiService():
             if message.get("state", "Unknown") == STATE_USB_PRESENT:
                 self._handle_usb_wifi_credentials()
 
-    def _handle_usb_wifi_credentials(self):
+    def _handle_usb_wifi_credentials(self) -> None:
         """
         Check for wifi credentials on USB drive
         If found, validate and attempt to connect using those credentials
@@ -332,7 +301,7 @@ class WifiService():
         oradio_log.info("Checking %s for wifi credentials", USB_WIFI_FILE)
 
         # Check if wifi credentials file exists in USB drive root
-        if not os.path.isfile(USB_WIFI_FILE):
+        if not path.isfile(USB_WIFI_FILE):
             oradio_log.debug("'%s' not found", USB_WIFI_FILE)
             return  # Credentials file not found, nothing to do
 
@@ -340,8 +309,8 @@ class WifiService():
             # Read and parse JSON file
             with open(USB_WIFI_FILE, "r", encoding="utf-8") as file:
                 # Get JSON object as a dictionary
-                data = json.load(file)
-        except (json.JSONDecodeError, IOError) as ex_err:
+                data = load(file)
+        except (JSONDecodeError, IOError) as ex_err:
             oradio_log.error("Failed to read or parse '%s': error: %s", USB_WIFI_FILE, ex_err)
             self._send_message(MESSAGE_WIFI_FILE_ERROR)
             return
@@ -366,10 +335,12 @@ class WifiService():
         # Connect to the wifi network
         self.wifi_connect(ssid, pswd)
 
-    def _send_message(self, error):
+    def _send_message(self, error) -> None:
         """
         Send a wifi state message with error info to the parent queue
-        :param error: Error code or MESSAGE_NO_ERROR if no error
+
+        Args:
+            error (str): Error code or MESSAGE_NO_ERROR if no error
         """
         # Create message
         message = {
@@ -379,12 +350,14 @@ class WifiService():
         }
         # Put message in queue
         oradio_log.debug("Send wifi service message: %s", message)
-        safe_put(self.queue, message)
+        safe_put(self._queue, message)
 
-    def get_state(self):
+    def get_state(self) -> str:
         """
         Retrieve the current wifi connection state
-        :return: One of the STATE_WIFI_* constants
+
+        Returns:
+            str: One of the STATE_WIFI_* constants
         """
         # Get active wifi connection, if any
         active = get_wifi_connection()
@@ -398,11 +371,13 @@ class WifiService():
         # Connection to wifi network
         return STATE_WIFI_CONNECTED
 
-    def wifi_connect(self, ssid, pswd):
+    def wifi_connect(self, ssid, pswd) -> None:
         """
         Add/modify wifi network config and initiate connection in a background process
-        :param ssid: wifi network SSID
-        :param pswd: wifi network password (empty string for open networks)
+
+        Args:
+            ssid (str): wifi network SSID
+            pswd (str): wifi network password (empty string for open networks)
         """
         # Get active wifi connection
         active = get_wifi_connection()
@@ -410,7 +385,7 @@ class WifiService():
         # Remember last connection except if currently AP mode
         if active != ACCESS_POINT_SSID:
             oradio_log.info("Remember connection '%s'", active)
-            SaveWifi.set_saved(active)
+            set_saved_network(active)
 
         # Add/modify NetworkManager settings
         if not _networkmanager_add(ssid, pswd):
@@ -423,10 +398,12 @@ class WifiService():
         Process(target=self._wifi_connect_process, args=(ssid,)).start()
         oradio_log.info("Connecting to '%s' started", ssid)
 
-    def _wifi_connect_process(self, network):
+    def _wifi_connect_process(self, network) -> None:
         """
         Connect to the given wifi network
-        :param network: SSID of the wifi network to connect to
+
+        Args:
+            network (str): SSID of the wifi network to connect to
         """
         # Connect to network
         if not _wifi_up(network):           # Function includes logging
@@ -435,10 +412,8 @@ class WifiService():
         else:
             oradio_log.info("Connected with '%s'", network)
 
-    def wifi_disconnect(self):
-        """
-        Disconnect the active wifi connection, if any
-        """
+    def wifi_disconnect(self) -> None:
+        """Disconnect the active wifi connection, if any."""
         # Get active wifi connection, if any
         active = get_wifi_connection()
 
@@ -452,12 +427,10 @@ class WifiService():
         else:
             oradio_log.debug("Already disconnected")
 
-    def close(self):
-        """
-        Cleanup resources and unsubscribe queues on service shutdown
-        """
+    def close(self) -> None:
+        """Cleanup resources and unsubscribe queues on service shutdown."""
         # Unsubscribe callbacks from WifiEventListener
-        self.nm_listener.unsubscribe(self.queue)
+        self.nm_listener.unsubscribe(self._queue)
 
         # Unsubscribe callbacks from USBService
         self._usb_service.close()
@@ -468,126 +441,155 @@ class WifiService():
 
         oradio_log.info("wifi service closed")
 
-def get_saved_network():
+def _nmcli_try(func, *args, **kwargs) -> bool:
     """
-    Return the ssid of the last wifi connection
-    """
-    return SaveWifi.get_saved()
+    Safely call a nmcli function with logging.
 
-def parse_nmcli_output(nmcli_output):
-    """Return list of unique, sorted by strongest signal first, network SSIDs with indication if password is required or not"""
+    Args:
+        func (callable): The nmcli function to call.
+        *args: Positional arguments for the function.
+        **kwargs: Keyword arguments for the function.
+
+    Returns:
+        bool: True if call succeeded, False otherwise.
+    """
+    try:
+        result = func(*args, **kwargs)
+        return True, result
+    except (*nmcli_exceptions, CalledProcessError, OSError) as ex_err:  # * uses Python’s unpacking to merge them into a flat tuple
+        oradio_log.error("nmcli call failed for %s: %s", func.__name__, ex_err)
+        return False, None
+
+def parse_nmcli_output(nmcli_output) -> list:
+    """
+    Return list of unique networks, sorted by strongest signal first,
+    with indication if password is required ("closed") or not ("open").
+    """
+    seen_ssids = set()
     networks_formatted = []
 
-    for network in nmcli_output:
-        # Add unique, ignore own Access Point
-        if (len(network.ssid) != 0 and
-            network.ssid != ACCESS_POINT_SSID and
-            network.ssid not in [n["ssid"] for n in networks_formatted]):
-            networks_formatted.append({"ssid": network.ssid, "type": "closed" if network.security else "open"})
+    # Sort by signal strength descending if available, else keep order
+    sorted_networks = sorted(
+        nmcli_output, key=lambda n: getattr(n, "signal", 0), reverse=True
+    )
+
+    # Add unique, ignore own Access Point
+    for network in sorted_networks:
+        ssid = getattr(network, "ssid", "")
+        if ssid and ssid != ACCESS_POINT_SSID and ssid not in seen_ssids:
+            seen_ssids.add(ssid)
+            networks_formatted.append({
+                "ssid": ssid,
+                "type": "closed" if getattr(network, "security", False) else "open"
+            })
 
     # List of network SSIDs + password required or not
     return networks_formatted
 
-def parse_iw_output(iw_output):
-    """Return list of unique, sorted by strongest signal first, network SSIDs with indication if password is required or not"""
+def parse_iw_output(iw_output) -> list:
+    """
+    Return list of unique networks, sorted by strongest signal first,
+    with indication if password is required ("closed") or not ("open").
+    """
     networks = []
-    networks_formatted = []
     ssid, signal, security = "", -1000, False
 
-    for line in iw_output.split("\n"):
+    for line in iw_output.splitlines():
         line = line.strip()
         if line.startswith("BSS"):
             if ssid:  # Only append if we have an SSID
                 networks.append((ssid, signal, security))
             ssid, signal, security = "", -1000, False
         elif "SSID:" in line:
-            ssid = line.split("SSID:")[1].strip()
+            ssid = line.split("SSID:", 1)[1].strip()
         elif "signal:" in line:
-            signal_match = re.search(r"signal:\s+(-?\d+\.\d+) dBm", line)
-            if signal_match:
-                signal = float(signal_match.group(1))
+            match = search(r"signal:\s+(-?\d+(?:\.\d+)?) dBm", line)
+            if match:
+                signal = float(match.group(1))
         elif "capability:" in line:
             security = "closed" if "Privacy" in line else "open"
 
-    # Append the last network if it exists
+    # Append last network
     if ssid:
         networks.append((ssid, signal, security))
 
-    # Sort by signal strength (strongest first)
-    networks_sorted = sorted(networks, key=lambda x: x[1], reverse=True)
+    # Sort by signal descending
+    networks.sort(key=lambda x: x[1], reverse=True)
 
-    # Use a set to track added SSIDs
+    # Filter unique SSIDs while preserving order
     seen_ssids = set()
-
-    # Filter unique SSIDs
-    for network in networks_sorted:
-        if network[0] not in seen_ssids:
-            seen_ssids.add(network[0])
-            networks_formatted.append({"ssid": network[0], "type": network[2]})
+    networks_formatted = [
+        {"ssid": n[0], "type": n[2]}
+        for n in networks
+        if n[0] not in seen_ssids and not seen_ssids.add(n[0])
+    ]
 
     # List of network SSIDs + password required or not
     return networks_formatted
 
-def get_wifi_networks():
+def get_wifi_networks() -> list:
     """
-    Get all available wifi networks, except Oradio access points
-    NetworkManager provides the networks sorted by signal strength
-    :return networks ==> list of network ssid + if password required
+    Get all available wifi networks, except Oradio access points.
+    Tries NetworkManager (nmcli) first, then falls back to iw scan if needed.
 
     Note: If nmcli and iw both fail we can try forcing the scan using the NetworkMangage D-Bus API to trigger a scan
     https://gitlab.freedesktop.org/NetworkManager/NetworkManager/-/blob/main/examples/python/gi/show-wifi-networks.py
+    
+    Returns:
+        List[Dict[str, str]]: list of {"ssid": str, "type": "open"/"closed"}
     """
-    # initialize
     networks = []
 
-    # Get available wifi networks
-    try:
-        oradio_log.debug("Scanning for wifi networks...")
-        # Force a rescan to get currently active networks
-        # nmcli.device.wifi(ifname: str = None, rescan: bool = None) -> List[DeviceWifi]
-        nmcli_output = nmcli.device.wifi(None, True)
-    except (*nmcli_exceptions, CalledProcessError, OSError) as ex_err:  # * uses Python’s unpacking to merge them into a flat tuple
-        oradio_log.error("Failed to scan with nmcli: %s", ex_err)
-    else:
+    oradio_log.debug("Scanning for wifi networks...")
+
+    # 1️. Try nmcli scan
+    is_ok, nmcli_output = _nmcli_try(nmcli.device.wifi, None, True)
+    if is_ok and nmcli_output:
+        # Filter on required info
         networks = parse_nmcli_output(nmcli_output)
+    else:
+        oradio_log.warning("Failed or empty nmcli scan")
 
-    # It is very unlikely to be in environment without ANY wifi networks
+    # 2. Fallback to iw scan if nmcli found nothing
     if not networks:
-        oradio_log.warning("No networks found using nmcli scan")
-
-    # nmcli scan did not find any wifi networks. Try with iw scan
-    if not networks:
-        oradio_log.warning("Scan with nmcli is empty")
+        oradio_log.debug("Attempting fallback scan using iw...")
         cmd = "sudo iw dev wlan0 scan flush"
         result, response = run_shell_script(cmd)
-        if not result:
-            oradio_log.error("Failed to scan with iw: %s", response)
+        if result and response:
+            # Filter on required info
+            networks = parse_iw_output(response)
+        else:
+            oradio_log.error("Failed iw scan: %s", response)
             return []
-        # Filter on required info
-        networks = parse_iw_output(response)
 
-    # It is very unlikely to be in environment without ANY wifi networks
+    # 3. Check if any networks found at all
     if not networks:
-        oradio_log.warning("No networks found using iw scan")
+        oradio_log.warning("No networks found on either nmcli or iw scan")
 
     # Return list of wifi networks broadcasting their ssid
     return networks
 
-def get_wifi_connection():
+def get_wifi_connection() -> str | None:
     """
     Get active wifi connection
-    :return network ID | None
+
+    Returns:
+        str | None: network ID (SSID)
     """
     # Get the network Oradio was connected to before starting access point, empty string if None
     cmd = "iw dev wlan0 info | awk '/ssid/ {print $2}' || iwgetid -r wlan0"
     result, response = run_shell_script(cmd)
     return str(response) if result else None
 
-def _get_wifi_password(network):
+def _get_wifi_password(network) -> str | None:
     """
-    Get password from NetworkManager for given network
-    :param network: wifi network ssid as configured in NetworkManager
-    :return: password | None
+    Get password from NetworkManager for given network.
+
+    Args:
+        network (str): wifi network ssid as configured in NetworkManager
+
+    Returns:
+        str | None: password
     """
     oradio_log.debug("Get wifi password")
     cmd = f"sudo nmcli -s -g 802-11-wireless-security.psk con show \"{network}\""
@@ -598,70 +600,63 @@ def _get_wifi_password(network):
         return None
     return response
 
-def _wifi_up(network):
+def _wifi_up(network) -> bool:
     """
-    Connect to network
-    :param network: wifi network ssid as configured in NetworkManager
-    nmcli does not raise specific exception
+    Connect to wifi network
+    
+    Args:
+        network (str): wifi network ssid as configured in NetworkManager
     """
-    # Stop the connection
-    try:
-        oradio_log.debug("Activate '%s'", network)
-        # nmcli.connection.up(name: str, wait: int = None) -> None # Default timeout is 90 seconds
-        nmcli.connection.up(network)
-    except (*nmcli_exceptions, CalledProcessError, OSError) as ex_err:  # * uses Python’s unpacking to merge them into a flat tuple
-        oradio_log.error("Failed to activate '%s', error = %s", network, ex_err)
-        return False
-    return True
+    oradio_log.debug("Activate '%s'", network)
+    is_ok, _ = _nmcli_try(nmcli.connection.up, network)
+    return is_ok
 
-def _wifi_down(network):
+def _wifi_down(network) -> bool:
     """
-    Disconnect from network
-    :param network: wifi network ssid as configured in NetworkManager
-    nmcli does not raise specific exception
-    """
-    # Stop the connection
-    try:
-        oradio_log.debug("Disconnect from: '%s'", network)
-        # nmcli.connection.down(name: str, wait: int = None) -> None # Default timeout is 10 seconds
-        nmcli.connection.down(network)
-    except (*nmcli_exceptions, CalledProcessError, OSError) as ex_err:  # * uses Python’s unpacking to merge them into a flat tuple
-        oradio_log.error("Failed to disconnect from '%s', error = %s", network, ex_err)
-        return False
-    return True
+    Disconnect from wifi network
 
-def _networkmanager_list():
+    Args:
+        network (str): wifi network ssid as configured in NetworkManager
     """
-    Get defined connections from NetworkManager
-    :return connections ==> list of network ids defined in NetworkManager
+    oradio_log.debug("Disconnect from: '%s'", network)
+    is_ok, _ = _nmcli_try(nmcli.connection.down, network)
+    return is_ok
+
+def _networkmanager_list() -> list:
     """
-    # Initialize
+    Get defined connections from NetworkManager.
+
+    Returns:
+        connections (list): list of network ids defined in NetworkManager.
+    """
+    oradio_log.debug("Get connections from NetworkManager")
+
+    is_ok, result = _nmcli_try(nmcli.connection)
+
+    # Fail on error
+    if not is_ok or result is None:
+        return []
+
+    # Only wifi connections
     connections = []
-
-    # Get networks from NetworkManager
-    try:
-        oradio_log.debug("Get connections from NetworkManager")
-        # nmcli.connection() -> List[Connection]
-        result = nmcli.connection()
-    except (*nmcli_exceptions, CalledProcessError, OSError) as ex_err:  # * uses Python’s unpacking to merge them into a flat tuple
-        oradio_log.error("Failed to get connections from NetworkManager, error = %s", ex_err)
-    else:
-        # Inspect connections
-        for connection in result:
-            # Only wifi connections
-            if connection.conn_type == "wifi":
-                connections.append(connection.name)
+    for connection in result:
+        if connection.conn_type == "wifi":
+            connections.append(connection.name)
 
     return connections
 
-def _networkmanager_add(network, password=None):
+def _networkmanager_add(network, password=None) -> bool:
     """
     if network is access point then setup AP in NetworkManager
     If unknown, add network to NetworkManager
     If exists, modify network in NetworkManager
-    :param network: wifi network ssid to be configured in NetworkManager
-    :param password: wifi network password to be configured in NetworkManager
-    nmcli does not raise specific exception
+
+    Args:
+        network (str): wifi network ssid to be configured in NetworkManager
+        password (str | None): wifi network password to be configured in NetworkManager
+
+    Returns:
+        bool: True if call succeeded, False otherwise.
     """
     # Add access point to NetworkManager if not exist
     if network == ACCESS_POINT_SSID:
@@ -674,62 +669,44 @@ def _networkmanager_add(network, password=None):
             "mode": "ap",
             "ssid": ACCESS_POINT_SSID,
             "ipv4.method": "shared",
-            "ipv4.address": ACCESS_POINT_HOST+"/24"
+            "ipv4.address": ACCESS_POINT_HOST + "/24"
         }
-        try:
-            # nmcli.connection.add(conn_type: str, options: Optional[ConnectionOptions] = None, ifname: str = "*", name: str = None, autoconnect: Bool = None) -> None
-            nmcli.connection.add("wifi", options, "*", ACCESS_POINT_SSID, False)
-        except (*nmcli_exceptions, CalledProcessError, OSError) as ex_err:  # * uses Python’s unpacking to merge them into a flat tuple
-            oradio_log.error("Failed to add '%s' to NetworkManager, error = %s", ACCESS_POINT_SSID, ex_err)
-            return False
 
-    # Add network to NetworkManager if not exist, modify if exists
+        is_ok, _ = _nmcli_try(nmcli.connection.add, "wifi", options, "*", ACCESS_POINT_SSID, False)
+        return is_ok
+
+    # Add wifi network to NetworkManager if not exist, modify if exists
+    options = {"ssid": network}
+    if password:
+        oradio_log.debug("Use '%s' with password", network)
+        options.update({
+            "wifi-sec.key-mgmt": "wpa-psk",
+            "wifi-sec.psk": password
+        })
     else:
-        # Setup connection options
-        options = {"ssid": network}
-        if password:
-            oradio_log.debug("Use '%s' with password", network)
-            options.update({
-                "wifi-sec.key-mgmt": "wpa-psk",
-                "wifi-sec.psk": password
-            })
-        else:
-            oradio_log.debug("Use '%s' without password", network)
+        oradio_log.debug("Use '%s' without password", network)
 
-        if network in _networkmanager_list():
-            oradio_log.debug("Modify '%s' in NetworkManager", network)
-            try:
-                # nmcli.connection.modify(name: str, options: ConnectionOptions) -> None
-                nmcli.connection.modify(network, options)
-            except (*nmcli_exceptions, CalledProcessError, OSError) as ex_err:  # * uses Python’s unpacking to merge them into a flat tuple
-                oradio_log.error("Failed to modify '%s' in NetworkManager, error = %s", network, ex_err)
-                return False
-        else:
-            oradio_log.debug("Add '%s' to NetworkManager", network)
-            try:
-                # nmcli.connection.add(conn_type: str, options: Optional[ConnectionOptions] = None, ifname: str = "*", name: str = None, autoconnect: Bool = None) -> None
-                nmcli.connection.add("wifi", options, "*", network, True)
-            except (*nmcli_exceptions, CalledProcessError, OSError) as ex_err:  # * uses Python’s unpacking to merge them into a flat tuple
-                oradio_log.error("Failed to add '%s' to NetworkManager, error = %s", network, ex_err)
-                return False
+    # Modify existing
+    if network in _networkmanager_list():
+        oradio_log.debug("Modify '%s' in NetworkManager", network)
+        is_ok, _ = _nmcli_try(nmcli.connection.modify, network, options)
+        return is_ok
 
-    # Network is added or modified successfully
-    return True
+    # Add new
+    oradio_log.debug("Add '%s' to NetworkManager", network)
+    is_ok, _ = _nmcli_try(nmcli.connection.add, "wifi", options, "*", network, True)
+    return is_ok
 
-def _networkmanager_del(network):
+def _networkmanager_del(network) -> bool:
     """
     Remove given network from NetworkManager
-    :param network: wifi network ssid as configured in NetworkManager
-    nmcli does not raise specific exception
+
+    Args:
+        network (str): wifi network ssid as configured in NetworkManager
     """
-    try:
-        oradio_log.debug("Remove '%s' from NetworkManager", network)
-        # nmcli.connection.delete(name: str, wait: int = None) -> None # Default timeout is 10 seconds
-        nmcli.connection.delete(network)
-    except (*nmcli_exceptions, CalledProcessError, OSError) as ex_err:  # * uses Python’s unpacking to merge them into a flat tuple
-        oradio_log.error("Failed to remove '%s' from NetworkManager, error = %s", network, ex_err)
-        return False
-    return True
+    oradio_log.debug("Remove '%s' from NetworkManager", network)
+    is_ok, _ = _nmcli_try(nmcli.connection.delete, network)
+    return is_ok
 
 # Entry point for stand-alone operation
 if __name__ == '__main__':

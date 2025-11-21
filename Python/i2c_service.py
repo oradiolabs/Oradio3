@@ -109,7 +109,7 @@ class I2CService:
             sleep(I2C_BACKOFF)
         # All retries exhausted
         oradio_log.error("Failed writing byte to device=0x%02X, register=0x%02X, value=0x%02X after %d attempts", device, register, value, I2C_RETRIES)
-                    
+
 # ---------------- Block operations ----------------
 
     def read_block(self, device: int, register: int, length: int) -> list | None:
