@@ -113,6 +113,8 @@ class Heartbeat(Timer):
     def __init__(self, interval, function, args=None, kwargs=None):
         """Initialize Timer"""
         super().__init__(interval, function, args=args, kwargs=kwargs)
+        self._lock = Lock()
+
 
     def run(self) -> None:
         """Call function immediately, then repeat at intervals."""
@@ -131,7 +133,7 @@ class Heartbeat(Timer):
     @classmethod
     def start_heartbeat(cls, interval, function, args=None, kwargs=None):
         """Stop the current timer if running, then start a new timer."""
-        with cls.lock:
+        with self._lock:
             # Cancel existing timer if it exists
             if cls._instance is not None:
                 cls._instance.cancel()
@@ -151,6 +153,7 @@ class RMService:
     def __init__(self):
         """Setup rms service class variables."""
         self.serial = _get_serial()
+        self.send_files = None
 
         # Start the singleton heartbeat timer
         self.start_heartbeat()
