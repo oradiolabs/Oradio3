@@ -129,9 +129,9 @@ class Heartbeat(Timer):
                 break
 
     @classmethod
-    def start(cls, interval, function, args=None, kwargs=None):
+    def start_heartbeat(cls, interval, function, args=None, kwargs=None):
         """Stop the current timer if running, then start a new timer."""
-        with cls._lock:
+        with cls.lock:
             # Cancel existing timer if it exists
             if cls._instance is not None:
                 cls._instance.cancel()
@@ -157,7 +157,7 @@ class RMService:
 
     def start_heartbeat(self):
         """Start the heartbeat timer."""
-        Heartbeat.start(
+        Heartbeat.start_heartbeat(
             HEARTBEAT_REPEAT_TIME,
             self.send_message,
             args=(HEARTBEAT,)
@@ -276,7 +276,6 @@ if __name__ == "__main__":
             match function_nr:
                 case 0:
                     print("\nExiting test program...\n")
-                    rms.heartbeat_stop()
                     break
                 case 1:
                     print("\nSend HEARTBEAT test message to Remote Monitoring Service...\n")
@@ -292,7 +291,7 @@ if __name__ == "__main__":
                     rms.send_message(ERROR, 'test error message', 'filename:lineno')
                 case 5:
                     print("\nRestarting heartbeat... Check ORMS for heartbeats\n")
-                    rms.restart_heartbeat()
+                    rms.start_heartbeat()
                 case _:
                     print("\nPlease input a valid number\n")
 
