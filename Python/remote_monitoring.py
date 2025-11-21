@@ -25,7 +25,7 @@ import glob
 import json
 from platform import python_version
 from datetime import datetime
-from threading import Timer
+from threading import Timer, Lock
 import subprocess
 import logging
 import requests
@@ -110,6 +110,9 @@ def _handle_response_command(response_text) -> None:
 class Heartbeat(Timer):
     """Process-wide singleton auto-repeating timer."""
 
+    # Lock for start/stop operations
+    start_lock = Lock()
+
     def __init__(self, interval, function, args=None, kwargs=None):
         """Initialize Timer"""
         super().__init__(interval, function, args=args, kwargs=kwargs)
@@ -132,16 +135,17 @@ class Heartbeat(Timer):
     def start_heartbeat(cls, interval, function, args=None, kwargs=None):
         """Stop the current timer if running, then start a new timer."""
         # Cancel existing timer if it exists
-        if cls.instance is not None:
-            cls.instance.cancel()
-            cls.instance = None
+        with cls.start_lock:
+            if cls.instance is not None:
+                cls.instance.cancel()
+                cls.instance = None
 
-        # Create a new timer
-        cls.instance = cls(interval, function, args=args, kwargs=kwargs)
-        # makes it exit with the main program
-        cls.instance.daemon = True
-        # start the timer
-        cls.instance.start()
+            # Create a new timer
+            cls.instance = cls(interval, function, args=args, kwargs=kwargs)
+            # makes it exit with the main program
+            cls.instance.daemon = True
+            # start the timer
+            cls.instance.start()
 
 class RMService:
     """
