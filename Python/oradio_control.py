@@ -43,7 +43,7 @@ from mpd_monitor import MPDMonitor     # Optional: MPD events monitoring in the 
 from led_control import LEDControl
 from play_system_sound import PlaySystemSound
 from touch_buttons import TouchButtons
-from remote_monitoring import RmsService
+from remote_monitoring import RMService
 from spotify_connect_direct import SpotifyConnect
 from usb_service import USBService
 from web_service import WebService
@@ -98,7 +98,7 @@ usb_present = threading.Event()
 usb_present.set() # USB present to go over start-up sequence (will be updated after first message of USB service
 
 # Instantiate remote monitor
-remote_monitor = RmsService()
+remote_monitor = RMService()
 
 oradio_log.info("Start backlighting")
 backlighting = Backlighting()
@@ -473,15 +473,15 @@ def on_wifi_connected():
             4, sound_player.play, args=("WifiConnected",)
         ).start()
 
+    # Send sytem info to Remote Monitoring Service
     remote_monitor.send_sys_info()
-    # Send heartbeat every hour to Remote Monitoring Service
-    remote_monitor.heartbeat_start()
+    # Restart sending heartbeat every hour to Remote Monitoring Service
+    remote_monitor.start_heartbeat()
 
 def on_wifi_fail_connect():
     oradio_log.info("Wifi fail connect acknowledged")
     if state_machine.state in PLAY_WEBSERVICE_STATES:  # If in play states,
         sound_player.play("WifiNotConnected")
-    remote_monitor.heartbeat_stop()  # in all other cases, stop sending heartbeat
 
 def on_wifi_access_point():
     oradio_log.info("Configured as access point acknowledged")
