@@ -25,7 +25,7 @@ import glob
 import json
 from platform import python_version
 from datetime import datetime
-from threading import Timer, Lock
+from threading import Timer
 import subprocess
 import logging
 import requests
@@ -113,8 +113,6 @@ class Heartbeat(Timer):
     def __init__(self, interval, function, args=None, kwargs=None):
         """Initialize Timer"""
         super().__init__(interval, function, args=args, kwargs=kwargs)
-        self._lock = Lock()
-
 
     def run(self) -> None:
         """Call function immediately, then repeat at intervals."""
@@ -133,7 +131,7 @@ class Heartbeat(Timer):
     @classmethod
     def start_heartbeat(cls, interval, function, args=None, kwargs=None):
         """Stop the current timer if running, then start a new timer."""
-        with self._lock:
+        with cls.lock:  # Use the class-level lock from the singleton decorator
             # Cancel existing timer if it exists
             if cls._instance is not None:
                 cls._instance.cancel()
