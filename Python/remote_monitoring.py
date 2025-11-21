@@ -131,15 +131,16 @@ class Heartbeat(Timer):
     @classmethod
     def start_heartbeat(cls, interval, function, args=None, kwargs=None):
         """Stop the current timer if running, then start a new timer."""
-        with cls.lock:  # Use the class-level lock from the singleton decorator
+        # Use the class-level lock from the singleton decorator. Pylint does not 'see' this.
+        with cls.lock:    # pylint: disable=no-member
             # Cancel existing timer if it exists
-            if cls._instance is not None:
-                cls._instance.cancel()
-                cls._instance = None
+            if cls.instance is not None:
+                cls.instance.cancel()
+                cls.instance = None
 
             # Create and start a new timer
-            cls._instance = cls(interval, function, args=args, kwargs=kwargs)
-            cls._instance.start()
+            cls.instance = cls(interval, function, args=args, kwargs=kwargs)
+            cls.instance.start()
 
 class RMService:
     """
