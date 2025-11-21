@@ -100,10 +100,11 @@ class AlsaVolume:
         except ALSAAudioError as ex_err:
             oradio_log.error("Error setting ALSA volume: %s", ex_err)
             return False
-        else:
-            self._last_set_raw = clamped
-            oradio_log.debug("Volume set to: %s", clamped)
-            return True
+
+        # Volume is set
+        self._last_set_raw = clamped
+        oradio_log.debug("Volume set to: %s", clamped)
+        return True
 
 class VolumeControl:
     """
