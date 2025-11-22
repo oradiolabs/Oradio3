@@ -27,13 +27,13 @@ from os import path
 from re import match
 from uuid import uuid4
 from typing import Optional
-from pydantic import BaseModel
 from json import load, JSONDecodeError
 from asyncio import sleep, create_task
+from pydantic import BaseModel
 from fastapi import FastAPI, Request, WebSocket
 from fastapi.staticfiles import StaticFiles
 from fastapi.websockets import WebSocketDisconnect
-from fastapi.responses import FileResponse, RedirectResponse, JSONResponse, HTMLResponse
+from fastapi.responses import FileResponse, RedirectResponse, JSONResponse
 from fastapi.templating import Jinja2Templates
 
 #### oradio modules ######################
@@ -586,7 +586,7 @@ async def websocket_endpoint(websocket: WebSocket):
         pass
 
     # Safety net for network drops or server issues
-    except Exception as ex_err:
+    except Exception as ex_err: # pylint: disable=broad-exception-caught
         oradio_log.error("Client '%s' WebSocket error: %s", client_token, ex_err)
 
     finally:
@@ -598,7 +598,7 @@ async def websocket_endpoint(websocket: WebSocket):
             # Cancel any previously scheduled stop task to avoid duplicates
             if client_token in disconnect_tasks:
                 disconnect_tasks[client_token].cancel()
-            
+
             # Schedule a new delayed stop task for this client
             disconnect_tasks[client_token] = create_task(delayed_stop(client_token))
 
