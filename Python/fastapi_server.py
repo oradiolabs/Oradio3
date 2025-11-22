@@ -23,39 +23,44 @@ Created on December 23, 2024
     :Documentation
         https://fastapi.tiangolo.com/
 """
-import os
-import re
-import json
+from os import path
+from re import match
+from uuid import uuid4
 from typing import Optional
 from pydantic import BaseModel
-from fastapi import FastAPI, Request
-from fastapi.responses import FileResponse, RedirectResponse, JSONResponse
+from json import load, JSONDecodeError
+from asyncio import sleep, create_task
+from fastapi import FastAPI, Request, WebSocket
 from fastapi.staticfiles import StaticFiles
+from fastapi.websockets import WebSocketDisconnect
+from fastapi.responses import FileResponse, RedirectResponse, JSONResponse, HTMLResponse
 from fastapi.templating import Jinja2Templates
 
-##### oradio modules ####################
+#### oradio modules ######################
 from oradio_logging import oradio_log
 from oradio_utils import run_shell_script, safe_put, load_presets, store_presets
 from wifi_service import get_wifi_networks, get_saved_network
 from mpd_control import MPDControl
 
-##### GLOBAL constants ####################
+#### GLOBAL constants ####################
 from oradio_const import (
     GREEN, NC,
     WEB_SERVER_HOST,
     WEB_SERVER_PORT,
+    STATE_WEB_SERVICE_STOP,
     MESSAGE_WEB_SERVICE_SOURCE,
     MESSAGE_WEB_SERVICE_PL_WEBRADIO,
     MESSAGE_WEB_SERVICE_PL1_CHANGED,
     MESSAGE_WEB_SERVICE_PL2_CHANGED,
     MESSAGE_WEB_SERVICE_PL3_CHANGED,
     MESSAGE_WEB_SERVICE_PLAYING_SONG,
-    MESSAGE_NO_ERROR
+    MESSAGE_NO_ERROR,
 )
-################## USB #############################
 
-##### LOCAL constants ####################
-WIFI_FILE     = "/tmp/Wifi_invoer.json"             # Web file with wifi credentials
+#### LOCAL constants #####################
+# Web file with wifi credentials
+WIFI_FILE     = "/tmp/Wifi_invoer.json"
+# templates
 EMPTY_PRESETS = {"preset1": "", "preset2": "", "preset3": ""}
 INFO_MISSING  = {"serial": "not found", "version": "not found"}
 INFO_ERROR    = {"serial": "undefined", "version": "undefined"}
@@ -63,18 +68,13 @@ INFO_ERROR    = {"serial": "undefined", "version": "undefined"}
 SOFTWARE_VERSION_FILE = "/var/log/oradio_sw_version.log"
 
 # Initialise MPD client
-oradio_log.info("Initialising MPDControl")
-#REVIEW Onno:
-# Each thread/process should have its own MPDControl instance.
-# A global instance may cause concurrent access conflicts with the MPD service.
-# MPDControl includes built-in safeguards against improper use, so this works.
 mpd_control = MPDControl()
 
 # Get the web server app
 api_app = FastAPI()
 
 # Get the path for the server to mount/find the web pages and associated resources
-web_path = os.path.dirname(os.path.realpath(__file__))
+web_path = path.dirname(path.realpath(__file__))
 
 # Mount static files
 api_app.mount("/static", StaticFiles(directory=web_path+"/static"), name="static")
@@ -82,14 +82,14 @@ api_app.mount("/static", StaticFiles(directory=web_path+"/static"), name="static
 # Initialize templates with custom filters and globals
 templates = Jinja2Templates(directory=web_path+"/templates")
 
-#### FAVICON ####################
+#### FAVICON #############################
 
 @api_app.get("/favicon.ico", include_in_schema=False)
 async def favicon():
     """ Handle default browser request for /favicon.ico """
-    return FileResponse(os.path.dirname(__file__) + '/static/favicon.ico')
+    return FileResponse(path.dirname(__file__) + '/static/favicon.ico')
 
-#### BUTTONS ####################
+#### BUTTONS #############################
 
 @api_app.get("/buttons")
 async def buttons_page(request: Request):
@@ -169,7 +169,7 @@ async def save_preset(changedpreset: ChangedPreset):
     else:
         oradio_log.error("Invalid preset '%s'", changedpreset.preset)
 
-#### PLAYLISTS ##################
+#### PLAYLISTS ###########################
 
 @api_app.get("/playlists")
 async def playlists_page(request: Request):
@@ -223,7 +223,7 @@ async def playlist_modify(modify: Modify):
     oradio_log.error("Unexpected action '%s'", modify.action)
     return JSONResponse(status_code=400, content={"message": f"De action '{modify.action}' is ongeldig"})
 
-#### SHARED: BUTTONS AND PLAYLISTS
+#### SHARED: BUTTONS AND PLAYLISTS #######
 
 class Songs(BaseModel):
     """
@@ -287,7 +287,7 @@ async def play_song(song: Song):
     oradio_log.debug("Send web service message: %s", message)
     safe_put(api_app.state.queue, message)
 
-#### STATUS ####################
+#### STATUS ##############################
 
 def _get_sw_info():
     """
@@ -300,7 +300,7 @@ def _get_sw_info():
     # Try to load software version info
     try:
         with open(SOFTWARE_VERSION_FILE, "r", encoding="utf-8") as file:
-            data = json.load(file)
+            data = load(file)
             software_info = {
                 "serial": data.get("serial", "missing serial"),
                 "version": data.get("gitinfo", "missing gitinfo")
@@ -308,7 +308,7 @@ def _get_sw_info():
     except FileNotFoundError:
         oradio_log.error("Software version info '%s' not found", SOFTWARE_VERSION_FILE)
         software_info = INFO_MISSING
-    except (json.JSONDecodeError, PermissionError, OSError) as ex_err:
+    except (JSONDecodeError, PermissionError, OSError) as ex_err:
         oradio_log.error("Failed to read '%s'. error: %s", SOFTWARE_VERSION_FILE, ex_err)
         software_info = INFO_ERROR
 
@@ -345,7 +345,7 @@ async def status_page(request: Request):
             }
     return templates.TemplateResponse(request=request, name="status.html", context=context)
 
-#### NETWORK ####################
+#### NETWORK #############################
 
 @api_app.get("/network")
 async def network_page(request: Request):
@@ -408,7 +408,7 @@ async def wifi_connect(credentials: Credentials):
     """
     oradio_log.debug("Saving credentials for connection to '%s' to '%s'", credentials.ssid, WIFI_FILE)
 
-    # Send message to web service
+    # Send connect message to web service
     message = {
         "source": MESSAGE_WEB_SERVICE_SOURCE,
         "ssid"  : credentials.ssid,
@@ -439,7 +439,7 @@ async def spotify_name(spotify: Spotify):
 
     # Regex pattern to validate Spotify device name characters
     pattern = r'^[A-Za-z0-9_-]+$'
-    if not bool(re.match(pattern, spotify.name)):
+    if not bool(match(pattern, spotify.name)):
         response = f"'{spotify.name}' is ongeldig. Alleen hoofdletters, kleine letters, cijfers, - of _ is toegestaan"
         oradio_log.error(response)
         # Return fail, so caller can try to recover
@@ -472,21 +472,175 @@ async def spotify_name(spotify: Spotify):
     # Return the new device name on success
     return spotify.name
 
-#### CATCH ALL ####################
+#### WEBSOCKET ###########################
+
+
+class ConnectionManager:
+    """
+    Manages active WebSocket connections keyed by client token.
+    Each client token can have multiple tabs/windows connected.
+    """
+    def __init__(self):
+        """Initialize the ConnectionManager with an empty dictionary of clients."""
+        self.clients: dict[str, list[WebSocket]] = {}
+
+    async def connect(self, websocket: WebSocket, client_token: str):
+        """
+        Accept a new WebSocket connection and register it under the client token.
+        Multiple tabs/windows are supported per token.
+        
+        Args:
+            websocket (WebSocket): The WebSocket connection to accept.
+            client_token (str): The unique identifier for the client.
+        """
+        # Accept the incoming WebSocket connection
+        await websocket.accept()
+        # Add the WebSocket to the list of connections for this client token
+        self.clients.setdefault(client_token, []).append(websocket)
+
+    def disconnect(self, websocket: WebSocket, client_token: str) -> bool:
+        """
+        Remove a WebSocket connection for a given client token.
+        
+        Args:
+            websocket (WebSocket): The WebSocket connection to remove.
+            client_token (str): The client token associated with the connection.
+        
+        Returns:
+            bool: True if this was the last connection for the client token, False otherwise.
+        """
+        # Get current connections for the client
+        conns = self.clients.get(client_token, [])
+        if websocket in conns:
+            # Remove the disconnected WebSocket
+            conns.remove(websocket)
+        if not conns:
+            # Remove token if no connections left
+            self.clients.pop(client_token, None)
+            # No more connections for this token
+            return True
+        return False
+
+manager = ConnectionManager()
+
+disconnect_tasks = {}  # client_token -> asyncio.Task
+
+async def delayed_stop(client_token: str, delay: float = 2.0):
+    """
+    Waits for a short delay before sending a stop message for a client token
+    if there are no active WebSocket connections for that token.
+    
+    This can be used to prevent prematurely stopping a service while a client
+    might still be connecting or reconnecting.
+
+    Args:
+        client_token (str): The unique identifier of the client.
+        delay (float, optional): Time in seconds to wait before checking. Defaults to 2.0.
+    """
+    await sleep(delay)  # Wait for the specified delay
+
+    # Check if there are still any active connections for this client
+    if client_token not in manager.clients or not manager.clients[client_token]:
+        # If no connections remain, send a stop message to the service queue
+        message = {"source": MESSAGE_WEB_SERVICE_SOURCE, "request": STATE_WEB_SERVICE_STOP}
+        safe_put(api_app.state.queue, message)  # Safely put message in queue
+        oradio_log.info("All tabs for client '%s' closed, STOP message sent", client_token)
+
+    # Remove the task tracking entry for this client
+    disconnect_tasks.pop(client_token, None)
+
+@api_app.websocket("/ws")
+async def websocket_endpoint(websocket: WebSocket):
+    """
+    WebSocket endpoint that supports multiple tabs/windows per client token.
+    Closes only the specific tab on disconnect, and sends STOP message
+    when the last tab of a client closes.
+
+    Args:
+        websocket (WebSocket): The WebSocket connection provided by FastAPI.
+    """
+    # Retrieve client token from query parameters
+    client_token = websocket.query_params.get("client_token")
+    if not client_token:
+        oradio_log.warning("Reject unexpected access: no client token")
+        # Close the connection if no token is provided
+        await websocket.close()
+        return
+
+    # Register the tab
+    await manager.connect(websocket, client_token)
+    oradio_log.info("Client '%s' connected (tab added)", client_token)
+
+    try:
+        while True:
+            # Wait for any WebSocket event
+            event = await websocket.receive()
+
+            # Break the loop if the client disconnects
+            if event["type"] == "websocket.disconnect":
+                oradio_log.info("Client '%s' tab disconnected", client_token)
+                break
+
+    # Raised by FastAPI / Starlette when a client disconnects gracefully
+    except WebSocketDisconnect:
+        pass
+
+    # Safety net for network drops or server issues
+    except Exception as ex_err:
+        oradio_log.error("Client '%s' WebSocket error: %s", client_token, ex_err)
+
+    finally:
+        # Attempt to disconnect the websocket from the manager
+        empty = manager.disconnect(websocket, client_token)
+
+        if empty:
+            # If this was the last connection for the client, schedule a delayed stop
+            # Cancel any previously scheduled stop task to avoid duplicates
+            if client_token in disconnect_tasks:
+                disconnect_tasks[client_token].cancel()
+            
+            # Schedule a new delayed stop task for this client
+            disconnect_tasks[client_token] = create_task(delayed_stop(client_token))
+
+#### CATCH ALL ###########################
 
 @api_app.route("/{full_path:path}", methods=["GET", "POST"])
 async def catch_all(request: Request):
     """
-    Catch-all route handler for any undefined GET or POST paths
-    When a request is made to a path that doesn't match any existing endpoint,
-    this handler redirects the client to the playlists page at '/buttons'
-    request (Request): The incoming HTTP request object
-    Returns:A 302 redirect to the '/buttons' URL
+    Catch-all endpoint to handle undefined routes.
+    - Ensures a 'client_token' cookie exists for the user.
+    - Redirects the client to '/buttons'.
+    - Cookie is accessible from JavaScript for WebSocket use.
+
+    Args:
+        request (Request): The incoming HTTP request.
+
+    Returns:
+        RedirectResponse: Redirects the client to '/buttons' with a cookie.
     """
     oradio_log.debug("Catchall triggered for path: %s", request.url.path)
 
-    # Redirect all unknown routes to the playlists page
-    return RedirectResponse(url='/buttons', status_code=302)
+    # Retrieve the client token from cookies
+    client_token = request.cookies.get("client_token")
+    if not client_token:
+        # Assign a new unique token
+        client_token = str(uuid4())
+        oradio_log.debug("Assigning new client token: %s", client_token)
+
+    # Create redirect response
+    response = RedirectResponse(url='/buttons', status_code=302)
+
+    # Set the cookie for 1 year, accessible from JS
+    response.set_cookie(
+        key="client_token",
+        value=client_token,
+        max_age=60*60*24*365,   # 1 year
+        httponly=False,         # must be accessible to JS for WS
+        samesite="Lax"
+    )
+
+    # Redirect with cookie
+    return response
 
 # Entry point for stand-alone operation
 if __name__ == '__main__':
@@ -530,7 +684,16 @@ if __name__ == '__main__':
 
     try:
         # Start the web server with log level 'trace'. log_config=Nonoe: Prevent overriding our log setup
-        uvicorn.run(api_app, host=WEB_SERVER_HOST, port=WEB_SERVER_PORT, log_config=None, log_level="trace")
+        uvicorn.run(
+            api_app,
+            host=WEB_SERVER_HOST,
+            port=WEB_SERVER_PORT,
+            log_config=None,
+            log_level="trace",
+            # >= 2s is safe for small devices and small networks
+            ws_ping_interval = 3,   # Send ping every X seconds
+            ws_ping_timeout = 3,    # Close connection if no pong in X seconds
+        )
     except KeyboardInterrupt:
         # Stop listening to messages
         stop_event.set()

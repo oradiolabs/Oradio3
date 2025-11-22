@@ -73,6 +73,7 @@ WEB_SERVER_PORT = 8000
 # Web service states
 STATE_WEB_SERVICE_IDLE   = "web service is idle"
 STATE_WEB_SERVICE_ACTIVE = "web service is running"
+STATE_WEB_SERVICE_STOP   = "stop web service"
 # Web service messages from service to parent
 MESSAGE_WEB_SERVICE_SOURCE       = "web service message"
 MESSAGE_WEB_SERVICE_PL1_CHANGED  = "PL1 playlist changed"

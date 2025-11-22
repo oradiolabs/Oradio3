@@ -53,13 +53,15 @@ from oradio_const import (
     MESSAGE_WEB_SERVICE_SOURCE,
     STATE_WEB_SERVICE_IDLE,
     STATE_WEB_SERVICE_ACTIVE,
+    STATE_WEB_SERVICE_STOP,
     MESSAGE_WEB_SERVICE_FAIL_START,
     MESSAGE_WEB_SERVICE_FAIL_STOP,
     MESSAGE_NO_ERROR,
 )
 
 ##### LOCAL constants ####################
-TIMEOUT = 30    # Seconds to wait
+WR_TIMEOUT = 30     # Seconds to wait for server
+WS_TIMEOUT = 2      # Seconds between pings. Safe for small devices and small networks.
 
 class UvicornServerThread:
     """
@@ -99,7 +101,7 @@ class UvicornServerThread:
         Block until the server is accepting connections or timeout occurs
         Returns: True if server became ready, False on timeout
         """
-        end = time.time() + TIMEOUT
+        end = time.time() + WR_TIMEOUT
         while time.time() < end:
             try:
                 with socket.create_connection((self.host, self.port), timeout=0.2):
@@ -126,6 +128,8 @@ class UvicornServerThread:
                 port=self.port,
                 log_config=None,
                 log_level=self.level,
+                ws_ping_interval = WS_TIMEOUT,  # Send ping every WS_TIMEOUT seconds
+                ws_ping_timeout = WS_TIMEOUT,   # Close connection if no pong after WS_TIMEOUT seconds
             )
             self.server = uvicorn.Server(config)
             self.thread = Thread(target=self._run, daemon=True)
@@ -154,7 +158,7 @@ class UvicornServerThread:
 
             oradio_log.debug("Stopping Uvicorn server...")
             self.server.should_exit = True
-            self.thread.join(timeout=TIMEOUT)
+            self.thread.join(timeout=WR_TIMEOUT)
 
             if self.thread.is_alive():
                 oradio_log.warning("Uvicorn server thread did not exit cleanly")
@@ -234,6 +238,14 @@ class WebService:
                 pswd = message.get("pswd", "")
                 # Connect to network with give credentials
                 self.wifi_service.wifi_connect(ssid, pswd)
+                # Stop the Captive Portal service
+                self.stop()
+                # Do not forward this message
+                forward = False
+
+            # Check if message wants to stop the captive portal
+            if (message.get("source") == MESSAGE_WEB_SERVICE_SOURCE and
+                message.get("request") == STATE_WEB_SERVICE_STOP):
                 # Stop the Captive Portal service
                 self.stop()
                 # Do not forward this message
@@ -327,13 +339,13 @@ class WebService:
         state = self.wifi_service.get_state()
         while state != STATE_WIFI_ACCESS_POINT:
             # Check if the timeout has been reached
-            if time.time() - start_time > TIMEOUT:
+            if time.time() - start_time > WR_TIMEOUT:
                 oradio_log.error("Timeout waiting for access point to become active")
                 # Send message web server did not start
                 self._send_message(MESSAGE_WEB_SERVICE_FAIL_START)
                 return
             # Sleep for a short interval to prevent busy-waiting
-            time.sleep(0.1)
+            time.sleep(0.5)
             # Check active network again
             state = self.wifi_service.get_state()
 
@@ -395,7 +407,7 @@ class WebService:
         start_time = time.time()
         while state not in (STATE_WIFI_IDLE, STATE_WIFI_CONNECTED):
             # Check if the timeout has been reached
-            if time.time() - start_time > TIMEOUT:
+            if time.time() - start_time > WR_TIMEOUT:
                 oradio_log.error("Timeout waiting for access point to become inactive")
                 err_msg = MESSAGE_WEB_SERVICE_FAIL_STOP
                 break
@@ -505,7 +517,7 @@ if __name__ == '__main__':
                         print(f"\nConnecting with '{name}'. Check messages for result\n")
                         url = f"http://{WEB_SERVER_HOST}:{WEB_SERVER_PORT}/wifi_connect"
                         try:
-                            requests.post(url, json={"ssid": name, "pswd": pswrd}, timeout=TIMEOUT)
+                            requests.post(url, json={"ssid": name, "pswd": pswrd}, timeout=WR_TIMEOUT)
                         except requests.exceptions.RequestException:
                             print(f"{RED}Failed to connect. Make sure you have an active web server{NC}\n")
                     else:
