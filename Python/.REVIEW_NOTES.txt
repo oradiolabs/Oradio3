@@ -8,6 +8,12 @@ YYYY-MM-DD======================================================================
 
 <wat er gewijzigd is sinds vorige review/rework/verificatie>
 
+2025-11-22 ============================================================================================================================
+
+T - De web interface bestaat nu iuit een collectie losse web pagina's.
+    Nadeel is dat er veel duplicering van javascript en styling is tussen deze pagina's, met risico op (zinloze) verschillen voor de gebruiker
+	Het beste is om de web interface te refactoren naar Single Page Architecture (SPA), maar dat is een flinke klus: Wanneer doen we dit?
+
 2025-11-18 ============================================================================================================================
 
 Henk: review conclusies
