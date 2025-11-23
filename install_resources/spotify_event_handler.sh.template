@@ -7,10 +7,15 @@ ACTIVE_FLAG_FILE="PLACEHOLDER_SPOTIFY_PATH/spotactive.flag"
 PLAYING_FLAG_FILE="PLACEHOLDER_SPOTIFY_PATH/spotplaying.flag"
 
 # Function to log events
+#log_event() {
+#    local message="$1"
+#    echo "$(date +'%Y-%m-%d %H:%M:%S') $message" >> PLACEHOLDER_LOGFILE_SPOTIFY
+#}
+# prevent Permission errors
 log_event() {
-    local message="$1"
-    echo "$(date +'%Y-%m-%d %H:%M:%S') $message" >> PLACEHOLDER_LOGFILE_SPOTIFY
+    :  # no-op
 }
+
 
 # Function to set a flag
 set_flag() {
