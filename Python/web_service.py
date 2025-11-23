@@ -31,7 +31,7 @@ import socket
 from pathlib import Path
 from threading import Thread, Lock
 from multiprocessing import Process, Queue
-from asyncio import CancelledError
+from asyncio import set_event_loop, CancelledError
 import uvicorn
 
 ##### oradio modules ####################
@@ -80,6 +80,7 @@ class UvicornServerThread:
         self.host = host
         self.port = port
         self.level = level
+
         self.server = None
         self.thread = None
         self.lock = Lock()
@@ -91,10 +92,18 @@ class UvicornServerThread:
         The server can be stopped by setting `self.server.should_exit = True`
         """
         try:
-            self.server.run()
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+            loop.run_until_complete(self.server.serve())
         except (OSError, ImportError, RuntimeError, ValueError, CancelledError) as ex_err:
             self.last_exception = ex_err
             oradio_log.error("Uvicorn server crashed: %s", ex_err)
+        finally:
+            try:
+                loop.close()
+#REVIEW Onno: only catch relevan exceptions
+            except Exception:
+                pass
 
     def _wait_until_ready(self):
         """
@@ -120,7 +129,7 @@ class UvicornServerThread:
                 oradio_log.debug("Uvicorn server already running")
                 return True
 
-            oradio_log.debug("Starting Uvicorn server...")
+            oradio_log.info("Starting Uvicorn server...")
             self.last_exception = None
             config = uvicorn.Config(
                 self.app,
@@ -157,7 +166,11 @@ class UvicornServerThread:
                 return True
 
             oradio_log.debug("Stopping Uvicorn server...")
+            # Tell uvicorn to stop
             self.server.should_exit = True
+            # ensures shutdown even if tasks hang
+            self.server.force_exit = True
+            # Wait for thread to stop
             self.thread.join(timeout=WR_TIMEOUT)
 
             if self.thread.is_alive():
