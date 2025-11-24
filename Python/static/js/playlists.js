@@ -37,6 +37,20 @@ async function getPlaylistSongs()
 		return;
 	}
 
+	// Get array with only the names of the playlists which are webradio
+	const WebradioPlaylists = playlists.filter(item => item.webradio).map(item => item.playlist);
+
+	// playlist cannot be webradio
+	if (WebradioPlaylists.includes(playlist))
+	{
+		// Notify
+		playlist_notification.innerHTML = `<p class='error'>'${playlist}' kan niet getoond worden</p>`;
+		playlist_notification.style.display = "block";
+
+		// Done: protected playlist given
+		return;
+	}
+
 	// Get array with only the names of the playlists which are no webradio
 	const nonWebradioPlaylists = playlists.filter(item => !item.webradio).map(item => item.playlist);
 
@@ -314,6 +328,20 @@ async function addSong(songfile)
 		return;
 	}
 
+	// Get array with only the names of the playlists which are webradio
+	const WebradioPlaylists = playlists.filter(item => item.webradio).map(item => item.playlist);
+
+	// playlist cannot be webradio
+	if (WebradioPlaylists.includes(playlist))
+	{
+		// Notify
+		playlist_notification.innerHTML = `<p class='error'>'${playlist}' kan niet gewijzigd worden</p>`;
+		playlist_notification.style.display = "block";
+
+		// Done: protected playlist given
+		return;
+	}
+
 	// Get array with only the names of the playlists which are no webradio
 	const nonWebradioPlaylists = playlists.filter(item => !item.webradio).map(item => item.playlist);
 
@@ -389,6 +417,20 @@ async function removeSong(songfile)
 		songlist.style.display = "none";
 
 		// Done: no playlist given
+		return;
+	}
+
+	// Get array with only the names of the playlists which are webradio
+	const WebradioPlaylists = playlists.filter(item => item.webradio).map(item => item.playlist);
+
+	// playlist cannot be webradio
+	if (WebradioPlaylists.includes(playlist))
+	{
+		// Notify
+		playlist_notification.innerHTML = `<p class='error'>'${playlist}' kan niet verwijderd worden</p>`;
+		playlist_notification.style.display = "block";
+
+		// Done: protected playlist given
 		return;
 	}
 

@@ -258,7 +258,7 @@ if [ "$1" != "--continue" ]; then
 		pydantic
 		fastapi
 		JinJa2
-		uvicorn
+		uvicorn[standard]
 		python-multipart
 	)
 

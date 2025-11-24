@@ -29,9 +29,9 @@ Created on December 23, 2024
 import time
 import socket
 from pathlib import Path
-from threading import Thread, Lock
+from threading import Thread, Event, Lock
 from multiprocessing import Process, Queue
-from asyncio import CancelledError
+import asyncio
 import uvicorn
 
 ##### oradio modules ####################
@@ -50,6 +50,8 @@ from oradio_const import (
     STATE_WIFI_ACCESS_POINT,
     WEB_SERVER_HOST,
     WEB_SERVER_PORT,
+    MESSAGE_REQUEST_CONNECT,
+    MESSAGE_REQUEST_STOP,
     MESSAGE_WEB_SERVICE_SOURCE,
     STATE_WEB_SERVICE_IDLE,
     STATE_WEB_SERVICE_ACTIVE,
@@ -59,50 +61,89 @@ from oradio_const import (
 )
 
 ##### LOCAL constants ####################
-TIMEOUT = 30    # Seconds to wait
+READY_TIMEOUT  = 15     # Seconds to wait for server ready
+SOCKET_TIMEOUT = 2      # Seconds between pings. Safe for small devices and small networks.
+THREAD_TIMEOUT = 3      # Timeout for thread to respond (seconds)
+# Close the message listener thread
+MESSAGE_REQUEST_CLOSE = "close listener thread"
 
 class UvicornServerThread:
     """
-    Manage a Uvicorn ASGI server running in a background thread
-    Provides start/stop control, thread safety, and readiness checks
+    Manage a Uvicorn ASGI server in a background thread.
+    
+    Provides start/stop control, thread safety, and readiness checks.
+    Uses a threading.Event to efficiently wait until the server is ready.
     """
     def __init__(self, app, host=WEB_SERVER_HOST, port=WEB_SERVER_PORT, level=ORADIO_LOG_LEVEL):
         """
-        Initialize the server manager
-        app: ASGI application instance
-        host (str): Host address to bind to
-        port (int): Port number to bind to
-        level (str): Logging level for Uvicorn
+        Initialize the server manager.
+
+        Args:
+            app: ASGI application instance
+            host (str): Host address to bind to
+            port (int): Port number to bind to
+            level (str): Logging level for Uvicorn
         """
         self.app = app
         self.host = host
         self.port = port
         self.level = level
-        self.server = None
-        self.thread = None
-        self.lock = Lock()
-        self.last_exception = None
+
+        self.server = None            # Will hold the uvicorn.Server instance
+        self.thread = None            # Thread running the server
+        self.lock = Lock()            # Ensure thread-safe start/stop
+        self.last_exception = None    # Store exceptions raised during startup
+        self._ready_event = Event()   # Event to signal server readiness
 
     def _run(self):
         """
-        Run the Uvicorn server (blocking call)
-        The server can be stopped by setting `self.server.should_exit = True`
+        Run the Uvicorn server (blocking call).
+        The server can be stopped by setting `self.server.should_exit = True`.
         """
+        # Configure Uvicorn
+        config = uvicorn.Config(
+            self.app,
+            host=self.host,
+            port=self.port,
+            lifespan="off",
+            log_config=None,
+            log_level=self.level,
+            ws_ping_timeout=SOCKET_TIMEOUT,
+            ws_ping_interval=SOCKET_TIMEOUT,
+        )
+        self.server = uvicorn.Server(config)
+
         try:
-            self.server.run()
-        except (OSError, ImportError, RuntimeError, ValueError, CancelledError) as ex_err:
+            # Run the server (blocking)
+            asyncio.run(self.server.serve())
+        except asyncio.CancelledError:
+            # Normal shutdown via cancellation
+            pass
+        except OSError as ex_err:
+            # port binding failures are the most common cause of uvicorn startup crashes
+            self.last_exception = ex_err
+            oradio_log.error("Uvicorn server crashed: %s", ex_err)
+        # server.Serve() can raise unknown excptions, so catch all
+        except Exception as ex_err:     #pylint: disable=broad-exception-caught
+            # Capture unexpected exceptions
             self.last_exception = ex_err
             oradio_log.error("Uvicorn server crashed: %s", ex_err)
 
     def _wait_until_ready(self):
         """
         Block until the server is accepting connections or timeout occurs
-        Returns: True if server became ready, False on timeout
+
+        Returns:
+            True if server became ready, False on timeout
         """
-        end = time.time() + TIMEOUT
+        # 0.0.0.0 is not routable
+        host_to_check = "127.0.0.1" if self.host == "0.0.0.0" else self.host
+
+        # Wait for socket to respond
+        end = time.time() + READY_TIMEOUT
         while time.time() < end:
             try:
-                with socket.create_connection((self.host, self.port), timeout=0.2):
+                with socket.create_connection((host_to_check, self.port), timeout=0.5):
                     return True
             except OSError:
                 time.sleep(0.1)
@@ -110,29 +151,28 @@ class UvicornServerThread:
 
     def start(self):
         """
-        Start the server if not already running
-        Returns: True if server started successfully, False otherwise
+        Start the Uvicorn server if not already running.
+
+        Returns:
+            bool: True if server started successfully, False otherwise
         """
         with self.lock:
             if self.is_running:
                 oradio_log.debug("Uvicorn server already running")
                 return True
 
-            oradio_log.debug("Starting Uvicorn server...")
+            oradio_log.info("Starting Uvicorn server...")
             self.last_exception = None
-            config = uvicorn.Config(
-                self.app,
-                host=self.host,
-                port=self.port,
-                log_config=None,
-                log_level=self.level,
-            )
-            self.server = uvicorn.Server(config)
+            # Clear event in case of restart
+            self._ready_event.clear()
+
+            # Start server in a background thread
             self.thread = Thread(target=self._run, daemon=True)
             self.thread.start()
 
             # Wait for the server to become ready
             if not self._wait_until_ready():
+
                 if self.last_exception:
                     oradio_log.error("Uvicorn server failed to start: %s", self.last_exception)
                 else:
@@ -144,8 +184,10 @@ class UvicornServerThread:
 
     def stop(self):
         """
-        Stop the server if it is running
-        Returns: True if server stopped cleanly, False otherwise
+        Stop the Uvicorn server if it is running.
+
+        Returns:
+            bool: True if server stopped cleanly, False otherwise
         """
         with self.lock:
             if not self.is_running:
@@ -153,8 +195,11 @@ class UvicornServerThread:
                 return True
 
             oradio_log.debug("Stopping Uvicorn server...")
+            # Signal the server to exit
             self.server.should_exit = True
-            self.thread.join(timeout=TIMEOUT)
+            self.server.force_exit = True
+            # Wait for the thread to finish
+            self.thread.join(timeout=READY_TIMEOUT)
 
             if self.thread.is_alive():
                 oradio_log.warning("Uvicorn server thread did not exit cleanly")
@@ -166,8 +211,10 @@ class UvicornServerThread:
     @property
     def is_running(self):
         """
-        Check if the server thread is alive and not exiting
-        Returns: True if server is running, False otherwise
+        Check if the server thread is alive and not exiting.
+
+        Returns:
+            bool: True if server is running, False otherwise
         """
         return (
             self.thread is not None and
@@ -207,9 +254,8 @@ class WebService:
         # Prepare the embedded web server: Uvicorn running in a background thread
         self.uvicorn_server = UvicornServerThread(api_app)
 
-        # Spawn a separate process to continuously monitor incoming messages
-        # NOTE: last part of __init__, as Process COPIES the variables
-        self.server_listener = Process(target=self._check_server_messages)
+        # Start thread to continuously monitor incoming messages
+        self.server_listener = Thread(target=self._check_server_messages, daemon=True)
         self.server_listener.start()
 
         # Send initial "no error" state to the controller
@@ -217,29 +263,36 @@ class WebService:
 
     def _check_server_messages(self):
         """
-        Continuously read messages from the incoming queue and forward them to the controller
-        Runs as a separate process to avoid blocking the main thread
+        Continuously read messages from the incoming queue and forward them to the controller.
+        Runs as a separate thread to avoid blocking the main thread.
+        Is stopped by setting the stop event.
         """
         while True:
             # Wait indefinitely until a message arrives from the server/wifi service
             message = self.incoming_q.get(block=True, timeout=None)
             oradio_log.debug("WebService: message received: '%s'", message)
 
-            # Default all messages are forwarded
-            forward = True
+            request = message.get("request")
+            forward = True  # default: forward all messages
 
-            # Check if message contains wifi credentials (:= operator assigns and test if true)
-            if ssid := message.get("ssid"):
-                # password can be empty for open networks
-                pswd = message.get("pswd", "")
-                # Connect to network with give credentials
-                self.wifi_service.wifi_connect(ssid, pswd)
+            if request == MESSAGE_REQUEST_CLOSE:
+                # Stop the listener loop
+                break
+
+            if request == MESSAGE_REQUEST_CONNECT:
+                # Attempt to connect to wifi if SSID is provided
+                if ssid := message.get("ssid"):
+                    pswd = message.get("pswd", "")  # password can be empty for open networks
+                    self.wifi_service.wifi_connect(ssid, pswd)
+                    self.stop()  # stop captive portal
+                    forward = False
+
+            elif request == MESSAGE_REQUEST_STOP:
                 # Stop the Captive Portal service
                 self.stop()
-                # Do not forward this message
                 forward = False
 
-            # Forward message to the outgoing queue
+            # At this point, 'forward' indicates if the message should be forwarded
             if forward:
                 oradio_log.debug("WebService: Forwarding message: %s", message)
                 safe_put(self.outgoing_q, message)
@@ -327,13 +380,13 @@ class WebService:
         state = self.wifi_service.get_state()
         while state != STATE_WIFI_ACCESS_POINT:
             # Check if the timeout has been reached
-            if time.time() - start_time > TIMEOUT:
+            if time.time() - start_time > READY_TIMEOUT:
                 oradio_log.error("Timeout waiting for access point to become active")
                 # Send message web server did not start
                 self._send_message(MESSAGE_WEB_SERVICE_FAIL_START)
                 return
             # Sleep for a short interval to prevent busy-waiting
-            time.sleep(0.1)
+            time.sleep(1)
             # Check active network again
             state = self.wifi_service.get_state()
 
@@ -395,12 +448,12 @@ class WebService:
         start_time = time.time()
         while state not in (STATE_WIFI_IDLE, STATE_WIFI_CONNECTED):
             # Check if the timeout has been reached
-            if time.time() - start_time > TIMEOUT:
+            if time.time() - start_time > READY_TIMEOUT:
                 oradio_log.error("Timeout waiting for access point to become inactive")
                 err_msg = MESSAGE_WEB_SERVICE_FAIL_STOP
                 break
             # Sleep for a short interval to prevent busy-waiting
-            time.sleep(0.1)
+            time.sleep(1)
             # Check active network again
             state = self.wifi_service.get_state()
 
@@ -413,17 +466,23 @@ class WebService:
         - Stop Captive Portal service
         - Close the wifi service
         """
-        # Ensure Captive Portal is removed
+        # Remove captive portal, stops uvicorn
         self.stop()
 
         # Close wifi service and unsubscribe from events
         self.wifi_service.close()
 
-        # Stop listening to server messages
         if self.server_listener:
-            self.server_listener.terminate()
+            # message: stop message listener thread
+            safe_put(self.incoming_q, {"request": MESSAGE_REQUEST_CLOSE})
 
-        oradio_log.info("web service closed")
+            # Avoid hanging forever if the thread is stuck in I/O
+            self.server_listener.join(timeout=THREAD_TIMEOUT)
+
+        if self.server_listener.is_alive():
+            oradio_log.error("Join timed out: message listener thread is still running")
+        else:
+            oradio_log.info("web service closed")
 
 # Entry point for stand-alone operation
 if __name__ == '__main__':
@@ -457,7 +516,7 @@ if __name__ == '__main__':
         input_selection = (
             "Select a function, input the number.\n"
             " 0-Quit\n"
-            " 1-Show ANY web service state\n"
+            " 1-show ANY web service state\n"
             " 2-start web service (emulate long-press-AAN)\n"
             " 3-stop web service (emulate any-press-UIT)\n"
             " 4-start and right away stop web service (test robustness)\n"
@@ -502,10 +561,12 @@ if __name__ == '__main__':
                     name = input("Enter SSID of the network to add: ")
                     pswrd = input("Enter password for the network to add (empty for open network): ")
                     if name:
+                        print("\nStarting the web service...\n")
+                        web_service.start()
                         print(f"\nConnecting with '{name}'. Check messages for result\n")
                         url = f"http://{WEB_SERVER_HOST}:{WEB_SERVER_PORT}/wifi_connect"
                         try:
-                            requests.post(url, json={"ssid": name, "pswd": pswrd}, timeout=TIMEOUT)
+                            requests.post(url, json={"ssid": name, "pswd": pswrd}, timeout=READY_TIMEOUT)
                         except requests.exceptions.RequestException:
                             print(f"{RED}Failed to connect. Make sure you have an active web server{NC}\n")
                     else:
