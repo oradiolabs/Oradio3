@@ -33,9 +33,9 @@ from pydantic import BaseModel
 from fastapi import FastAPI, Request, WebSocket
 from fastapi.staticfiles import StaticFiles
 from fastapi.websockets import WebSocketDisconnect
+from fastapi.websockets.exceptions import ConnectionClosed, ConnectionClosedOK, ConnectionClosedError
 from fastapi.responses import FileResponse, RedirectResponse, JSONResponse
 from fastapi.templating import Jinja2Templates
-from websockets.exceptions import ConnectionClosed, ConnectionClosedOK, ConnectionClosedError
 
 #### oradio modules ######################
 from oradio_logging import oradio_log
@@ -526,7 +526,7 @@ class WebSocketManager:
             await websocket.close()
         # Safe to ignore during shutdown
         except (
-            ConnectionClosed,       
+            ConnectionClosed,
             ConnectionClosedOK,
             ConnectionClosedError,
             OSError,
