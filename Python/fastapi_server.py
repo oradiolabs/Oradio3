@@ -28,7 +28,7 @@ from re import match
 from uuid import uuid4
 from typing import Optional
 from json import load, JSONDecodeError
-from asyncio import sleep, create_task, current_task
+from asyncio import sleep, Task, create_task, current_task
 from pydantic import BaseModel
 from fastapi import FastAPI, Request, WebSocket
 from fastapi.staticfiles import StaticFiles
@@ -47,7 +47,8 @@ from oradio_const import (
     GREEN, NC,
     WEB_SERVER_HOST,
     WEB_SERVER_PORT,
-    STATE_WEB_SERVICE_STOP,
+    MESSAGE_REQUEST_CONNECT,
+    MESSAGE_REQUEST_STOP,
     MESSAGE_WEB_SERVICE_SOURCE,
     MESSAGE_WEB_SERVICE_PL_WEBRADIO,
     MESSAGE_WEB_SERVICE_PL1_CHANGED,
@@ -410,7 +411,7 @@ async def wifi_connect(credentials: Credentials):
 
     # Send connect message to web service
     message = {
-        "source": MESSAGE_WEB_SERVICE_SOURCE,
+        "request": MESSAGE_REQUEST_CONNECT,
         "ssid"  : credentials.ssid,
         "pswd"  : credentials.pswd
     }
@@ -497,7 +498,7 @@ class WebSocketManager:
         # Add the WebSocket to the list of connections for this client token
         self.clients.setdefault(client_token, []).append(websocket)
 
-    await def disconnect(self, websocket: WebSocket, client_token: str) -> bool:
+    async def disconnect(self, websocket: WebSocket, client_token: str) -> bool:
         """
         Remove a WebSocket connection for a given client token.
         
@@ -536,8 +537,8 @@ class WebSocketManager:
         return False
 
 # Global WebSocket state
-active_ws_tasks: dict[str, list[asyncio.Task]] = {}
-disconnect_tasks: dict[str, asyncio.Task] = {}
+active_ws_tasks: dict[str, list[Task]] = {}
+disconnect_tasks: dict[str, Task] = {}
 
 async def delayed_stop(client_token: str, delay: float = 2.0):
     """
@@ -560,10 +561,7 @@ async def delayed_stop(client_token: str, delay: float = 2.0):
     # Check if there are still any active connections for this client
     if client_token not in manager.clients or not manager.clients[client_token]:
         # If no connections remain, send a stop message to the service queue
-        message = {
-            "source": MESSAGE_WEB_SERVICE_SOURCE,
-            "request": STATE_WEB_SERVICE_STOP
-        }
+        message = {"request": MESSAGE_REQUEST_STOP}
         safe_put(api_app.state.queue, message)  # Safely put message in queue
         oradio_log.info("All tabs for client '%s' closed, STOP message sent", client_token)
 
@@ -726,6 +724,7 @@ if __name__ == '__main__':
             # >= 2s is safe for small devices and small networks
             ws_ping_interval = 3,   # Send ping every X seconds
             ws_ping_timeout = 3,    # Close connection if no pong in X seconds
+            lifespan="off",         # Uvicorn server will not wait for or execute startup/shutdown events
         )
     except KeyboardInterrupt:
         # Stop listening to messages
