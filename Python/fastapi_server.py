@@ -28,11 +28,11 @@ from re import match
 from uuid import uuid4
 from typing import Optional
 from json import load, JSONDecodeError
-from asyncio import sleep, create_task
+from asyncio import sleep, Task, create_task, current_task, CancelledError
 from pydantic import BaseModel
-from fastapi import FastAPI, Request, WebSocket
+from fastapi import FastAPI, Request
 from fastapi.staticfiles import StaticFiles
-from fastapi.websockets import WebSocketDisconnect
+from fastapi.websockets import WebSocket, WebSocketDisconnect
 from fastapi.responses import FileResponse, RedirectResponse, JSONResponse
 from fastapi.templating import Jinja2Templates
 
@@ -47,7 +47,8 @@ from oradio_const import (
     GREEN, NC,
     WEB_SERVER_HOST,
     WEB_SERVER_PORT,
-    STATE_WEB_SERVICE_STOP,
+    MESSAGE_REQUEST_CONNECT,
+    MESSAGE_REQUEST_STOP,
     MESSAGE_WEB_SERVICE_SOURCE,
     MESSAGE_WEB_SERVICE_PL_WEBRADIO,
     MESSAGE_WEB_SERVICE_PL1_CHANGED,
@@ -410,7 +411,7 @@ async def wifi_connect(credentials: Credentials):
 
     # Send connect message to web service
     message = {
-        "source": MESSAGE_WEB_SERVICE_SOURCE,
+        "request": MESSAGE_REQUEST_CONNECT,
         "ssid"  : credentials.ssid,
         "pswd"  : credentials.pswd
     }
@@ -474,14 +475,13 @@ async def spotify_name(spotify: Spotify):
 
 #### WEBSOCKET ###########################
 
-
-class ConnectionManager:
+class WebSocketManager:
     """
     Manages active WebSocket connections keyed by client token.
     Each client token can have multiple tabs/windows connected.
     """
     def __init__(self):
-        """Initialize the ConnectionManager with an empty dictionary of clients."""
+        """Initialize the WebSocketManager with an empty dictionary of clients."""
         self.clients: dict[str, list[WebSocket]] = {}
 
     async def connect(self, websocket: WebSocket, client_token: str):
@@ -498,7 +498,7 @@ class ConnectionManager:
         # Add the WebSocket to the list of connections for this client token
         self.clients.setdefault(client_token, []).append(websocket)
 
-    def disconnect(self, websocket: WebSocket, client_token: str) -> bool:
+    async def disconnect(self, websocket: WebSocket, client_token: str) -> bool:
         """
         Remove a WebSocket connection for a given client token.
         
@@ -511,19 +511,34 @@ class ConnectionManager:
         """
         # Get current connections for the client
         conns = self.clients.get(client_token, [])
+
+        if not conns:
+            # No client to disconnect
+            return True
+
         if websocket in conns:
             # Remove the disconnected WebSocket
             conns.remove(websocket)
+
+        # Fully await websocket is closed
+        try:
+            await websocket.close()
+        # Safe to ignore during shutdown
+        except (WebSocketDisconnect, OSError, RuntimeError, CancelledError):
+            pass
+
         if not conns:
             # Remove token if no connections left
             self.clients.pop(client_token, None)
             # No more connections for this token
             return True
+
+        # There are othe connections
         return False
 
-manager = ConnectionManager()
-
-disconnect_tasks = {}  # client_token -> asyncio.Task
+# Global WebSocket state
+active_ws_tasks: dict[str, list[Task]] = {}
+disconnect_tasks: dict[str, Task] = {}
 
 async def delayed_stop(client_token: str, delay: float = 2.0):
     """
@@ -539,15 +554,22 @@ async def delayed_stop(client_token: str, delay: float = 2.0):
     """
     await sleep(delay)  # Wait for the specified delay
 
+    # Wait until all websocket handler tasks fully exit
+    while client_token in active_ws_tasks:
+        await sleep(0.1)
+
     # Check if there are still any active connections for this client
     if client_token not in manager.clients or not manager.clients[client_token]:
         # If no connections remain, send a stop message to the service queue
-        message = {"source": MESSAGE_WEB_SERVICE_SOURCE, "request": STATE_WEB_SERVICE_STOP}
+        message = {"request": MESSAGE_REQUEST_STOP}
         safe_put(api_app.state.queue, message)  # Safely put message in queue
         oradio_log.info("All tabs for client '%s' closed, STOP message sent", client_token)
 
     # Remove the task tracking entry for this client
     disconnect_tasks.pop(client_token, None)
+
+# Global manager instance
+manager = WebSocketManager()
 
 @api_app.websocket("/ws")
 async def websocket_endpoint(websocket: WebSocket):
@@ -567,7 +589,11 @@ async def websocket_endpoint(websocket: WebSocket):
         await websocket.close()
         return
 
-    # Register the tab
+    # Track this WebSocket handler task
+    task = current_task()
+    active_ws_tasks.setdefault(client_token, set()).add(task)
+
+    # Register the browser tab
     await manager.connect(websocket, client_token)
     oradio_log.info("Client '%s' connected (tab added)", client_token)
 
@@ -590,11 +616,16 @@ async def websocket_endpoint(websocket: WebSocket):
         oradio_log.error("Client '%s' WebSocket error: %s", client_token, ex_err)
 
     finally:
-        # Attempt to disconnect the websocket from the manager
-        empty = manager.disconnect(websocket, client_token)
+        # Remove task from active set
+        active_ws_tasks[client_token].discard(task)
+        if not active_ws_tasks[client_token]:
+            active_ws_tasks.pop(client_token, None)
 
+        # Attempt to disconnect the websocket from the manager
+        empty = await manager.disconnect(websocket, client_token)
+
+        # If this was the last connection for the client, schedule a delayed stop
         if empty:
-            # If this was the last connection for the client, schedule a delayed stop
             # Cancel any previously scheduled stop task to avoid duplicates
             if client_token in disconnect_tasks:
                 disconnect_tasks[client_token].cancel()
@@ -693,6 +724,7 @@ if __name__ == '__main__':
             # >= 2s is safe for small devices and small networks
             ws_ping_interval = 3,   # Send ping every X seconds
             ws_ping_timeout = 3,    # Close connection if no pong in X seconds
+            lifespan="off",         # Uvicorn server will not wait for or execute startup/shutdown events
         )
     except KeyboardInterrupt:
         # Stop listening to messages
