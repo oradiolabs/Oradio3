@@ -28,7 +28,7 @@ from re import match
 from uuid import uuid4
 from typing import Optional
 from json import load, JSONDecodeError
-from asyncio import sleep, Task, create_task, current_task
+from asyncio import sleep, Task, create_task, current_task, CancelledError
 from pydantic import BaseModel
 from fastapi import FastAPI, Request
 from fastapi.staticfiles import StaticFiles
@@ -524,7 +524,7 @@ class WebSocketManager:
         try:
             await websocket.close()
         # Safe to ignore during shutdown
-        except (WebSocketDisconnect, OSError, RuntimeError, asyncio.CancelledError):
+        except (WebSocketDisconnect, OSError, RuntimeError, CancelledError):
             pass
 
         if not conns:
