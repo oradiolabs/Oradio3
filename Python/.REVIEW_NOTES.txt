@@ -18,6 +18,45 @@ T - Review mpd_control.py play method nav aanpassingen random nummer weergave
 T - Review Documents/MPD/MPD_modules_description.docx
 T - Olaf maakt test module mpd_control_test.py
 
+2025-11-24============================================================================================================================
+
+play_system_sound.py:
+Ik heb play_system_sound.py gereviewed.
+Wat ik verwacht dat de module doet:
+Als er een play(tune) aangeroepen wordt en er geen tune speelt en volume niet aangepast is:
+  a. wordt volume van mpd en spotify verlaagd
+  b. wordt afspelen van de gevraagde tune gestart
+Als er een nieuwe play(tune) aangeroepen wordt terwijl de vorige tune nog afgespeeld:
+  d. wordt afspelen van de vorige tune afgebroken, wordt afspelen van de nieuwe tune gestart
+  e. wordt het volume van mpd en spotify geleidelijk weer naar oorspronkelijk volume teruggebracht
+Als er een nieuwe play(tune) aangeroepen wordt terwijl de mpd en spotify volumeniveaus nog niet hersteld zijn:
+  f. wordt het volume van mpd en spotify ingesteld op de waardes bij a)
+  g. wordt afspelen van de vorige tune afgebroken, wordt afspelen van de nieuwe tune gestart
+  h. wordt het volume van mpd (en spotify) geleidelijk weer naar oorspronkelijk volume teruggebracht
+
+De huidige implementatie leest wat moeilijk omdat doc strings en inline comments niet overal aanwezig/compleet/duidelijk zijn. Maar wat ik ervan begrijp:
+- De PlaySystemSound class is een singleton: Prima, maar kan beter de signleton decorator gebruiken ipv eigen implementatie
+- De enige publieke method play(sound_key):
+  - gebruikt een lock: Prima, thread-safe
+  - zet mpd en spotify volumes
+  - Start thread _play_sound_and_restore() die de sound_key af moet spelen
+- De _play_sound_and_restore(sound_key) thread:
+  - gebruikt een wrapper functie _play_sound(sound_key) die een aantal checks doet en dan via de shell de tune laat afspelen
+  - de _resore_volumes() method aanroept om de mpd en spotify volumens geleidelijk terug op oorspronkelijk niveau te brengen
+- De _restore_volumes() method start een thread _ramp_restore_volumes() die over een korte periode de mpd en spotify volumes herstelt
+Om d) mogelijk te maken wordt bij elke play() call een nieuwe thread gestart die via _play_sound_and_restore() en _play_sound() via de shell de tune speelt. Er kunnen dus meerdere aplay commando's parallel gestart worden. Dar kan aplay tegen.
+om e) / f) / h) mogelijk te maken is de volume instelling in de play afhandeling verweven met timers en events.
+Het geheel oogt wat complex, maar doet wat het moet doen.
+
+Dus wat mij betreft moet tenminste:
+1. De singleton decorator gebruikt worden
+2. De eigen debug print method door oradio_log vervangen worden
+3. De doc-strings en inline comments een update krijgen
+
+Ingrijpender, voor later, net als zaken als oradio_controls en web interface single page redesign, zou ik voorstellen om de volumeregeling te ontkoppelen van het afspelen van de tunes.
+Dus play() niets anders laten doen dan de tune via aplay afspelen, met threads om overlap/override erin te houden.
+Maar volumeregeling als een service te maken die volumes beheert op basis van of er wel/geen tunes afgespeeld worden
+
 2025-11-10============================================================================================================================
 
 GPIO:

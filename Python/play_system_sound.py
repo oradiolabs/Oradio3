@@ -71,7 +71,9 @@ SOUND_FILES = {
     "USBPresent":          f"{SOUND_FILES_DIR}/USBPresent_melding.wav",
 }
 
+#REVIEW Onno: Use @singleton decorator
 class PlaySystemSound:
+#REVIEW Onno: doc strings en inline comments updaten
     """
     Singleton class to play system sounds asynchronously in a separate thread,
     with batch-ducking of MPD/Spotify volumes and delayed, smooth restoration.
@@ -110,6 +112,7 @@ class PlaySystemSound:
         self._restore_cancel = Event()
         self._restore_thread = None
 
+#REVIEW Onno: oradio_log gebruiken
         # Debug printing flag (enabled only in standalone test)
         self.debug_print = False
 
@@ -121,6 +124,7 @@ class PlaySystemSound:
         """Clamp integer volume to [lower_bound, upper_bound]."""
         return max(lower_bound, min(upper_bound, val))
 
+#REVIEW Onno: oradio_log gebruiken
     def _dprint(self, msg: str) -> None:
         """Print only in standalone test mode."""
         if self.debug_print:
@@ -305,6 +309,7 @@ if __name__ == "__main__":
     print("\nStarting System Sound Player Standalone Test...\n")
 
     sound_player = PlaySystemSound()
+#REVIEW Onno: oradio_log gebruiken
     sound_player.debug_print = True   # enable ramp step printing in test mode
     sound_keys = list(SOUND_FILES.keys())
 
