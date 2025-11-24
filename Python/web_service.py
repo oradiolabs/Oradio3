@@ -32,7 +32,6 @@ from pathlib import Path
 from threading import Thread, Event, Lock
 from multiprocessing import Process, Queue
 import asyncio
-from asyncio import CancelledError
 import uvicorn
 
 ##### oradio modules ####################
@@ -120,7 +119,12 @@ class UvicornServerThread:
         except asyncio.CancelledError:
             # Normal shutdown via cancellation
             pass
-        except Exception as ex_err:
+        except OSError as ex_err:
+            # port binding failures are the most common cause of uvicorn startup crashes
+            self.last_exception = ex_err
+            oradio_log.error("Uvicorn server crashed: %s", ex_err)
+        # server.Serve() can raise unknown excptions, so catch all
+        except Exception as ex_err:     #pylint: disable=broad-exception-caught
             # Capture unexpected exceptions
             self.last_exception = ex_err
             oradio_log.error("Uvicorn server crashed: %s", ex_err)
@@ -275,7 +279,7 @@ class WebService:
                 # Stop the listener loop
                 break
 
-            elif request == MESSAGE_REQUEST_CONNECT:
+            if request == MESSAGE_REQUEST_CONNECT:
                 # Attempt to connect to wifi if SSID is provided
                 if ssid := message.get("ssid"):
                     pswd = message.get("pswd", "")  # password can be empty for open networks

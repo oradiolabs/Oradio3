@@ -35,6 +35,7 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.websockets import WebSocketDisconnect
 from fastapi.responses import FileResponse, RedirectResponse, JSONResponse
 from fastapi.templating import Jinja2Templates
+from websockets.exceptions import ConnectionClosed, ConnectionClosedOK, ConnectionClosedError
 
 #### oradio modules ######################
 from oradio_logging import oradio_log
@@ -523,8 +524,14 @@ class WebSocketManager:
         # Fully await websocket is closed
         try:
             await websocket.close()
-#REVIEW Onno: only catch relevan exceptions
-        except Exception:
+        # Safe to ignore during shutdown
+        except (
+            ConnectionClosed,       
+            ConnectionClosedOK,
+            ConnectionClosedError,
+            OSError,
+            RuntimeError,   # raised by Starlette/Uvicorn if already closed
+        ):
             pass
 
         if not conns:
