@@ -148,13 +148,10 @@ function cleanup {
 	local signal="${1:-EXIT}"	# trap signal: EXIT, INT, TERM
 	local exitcode="${2:-0}"	# optional exit code for EXIT
 
-#    # Reset terminal
-#    stty sane
-    # Reset terminal (only if attached to a TTY)
+    # Reset terminal if attached to a TTY
     if [ -t 0 ]; then
         stty sane
     fi
-
 
 	# Skip if cleanup already ran
 	if $CLEANUP_DONE; then
