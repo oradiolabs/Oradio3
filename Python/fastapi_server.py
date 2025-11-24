@@ -30,10 +30,9 @@ from typing import Optional
 from json import load, JSONDecodeError
 from asyncio import sleep, Task, create_task, current_task
 from pydantic import BaseModel
-from fastapi import FastAPI, Request, WebSocket
+from fastapi import FastAPI, Request
 from fastapi.staticfiles import StaticFiles
-from fastapi.websockets import WebSocketDisconnect
-from fastapi.websockets.exceptions import ConnectionClosed, ConnectionClosedOK, ConnectionClosedError
+from fastapi.websockets import WebSocket, WebSocketDisconnect
 from fastapi.responses import FileResponse, RedirectResponse, JSONResponse
 from fastapi.templating import Jinja2Templates
 
@@ -525,13 +524,7 @@ class WebSocketManager:
         try:
             await websocket.close()
         # Safe to ignore during shutdown
-        except (
-            ConnectionClosed,
-            ConnectionClosedOK,
-            ConnectionClosedError,
-            OSError,
-            RuntimeError,   # raised by Starlette/Uvicorn if already closed
-        ):
+        except (WebSocketDisconnect, OSError, RuntimeError, asyncio.CancelledError):
             pass
 
         if not conns:
