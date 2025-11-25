@@ -264,9 +264,8 @@ class PlaySystemSound:
 
         current_mpd = start_mpd
         current_spo = start_spo
-        oradio_log.debug("[Ramp start] MPD=%s Spotify=%s", start_mpd, start_spo)
 
-        for step_idx in range(steps):
+        for _ in range(steps):
             # Abort if a new system sound is requested
             if self._restore_cancel.is_set():
                 oradio_log.debug("[Ramp] canceled")
@@ -276,7 +275,7 @@ class PlaySystemSound:
             current_mpd = self._clamp(current_mpd + RESTORE_VOL_STEP, 0, target_mpd)
             current_spo = self._clamp(current_spo + RESTORE_VOL_STEP, 0, target_spo)
 
-#            oradio_log.debug("[Ramp step %d/%d] MPD=%s Spotify=%s", step_idx+1, steps, current_mpd, current_spo)
+#            oradio_log.debug("[Ramp step: MPD=%s Spotify=%s", current_mpd, current_spo)
 
             try:
                 self._set_mpd_volume(current_mpd)
