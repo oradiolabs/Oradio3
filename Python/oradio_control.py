@@ -36,13 +36,14 @@ import time
 from multiprocessing import Queue
 
 from oradio_logging import oradio_log
+from backlighting import Backlighting
 from volume_control import VolumeControl
 from mpd_control import MPDControl
 from mpd_monitor import MPDMonitor     # Optional: MPD events monitoring in the background
 from led_control import LEDControl
 from play_system_sound import PlaySystemSound
 from touch_buttons import TouchButtons
-from remote_monitoring import RmsService
+from remote_monitoring import RMService
 from spotify_connect_direct import SpotifyConnect
 from usb_service import USBService
 from web_service import WebService
@@ -52,6 +53,8 @@ from oradio_utils import has_internet
 #from oradio_const import *
 from oradio_const import (
     MESSAGE_NO_ERROR,
+    MESSAGE_VOLUME_SOURCE,
+    MESSAGE_VOLUME_CHANGED,
     STATE_WEB_SERVICE_IDLE,
     STATE_WEB_SERVICE_ACTIVE,
     MESSAGE_WEB_SERVICE_PL1_CHANGED,
@@ -95,13 +98,13 @@ usb_present = threading.Event()
 usb_present.set() # USB present to go over start-up sequence (will be updated after first message of USB service
 
 # Instantiate remote monitor
-remote_monitor = RmsService()
+remote_monitor = RMService()
+
+oradio_log.info("Start backlighting")
+backlighting = Backlighting()
 
 oradio_log.info("Start MPD event monitoring")
 mpd_monitor = MPDMonitor()
-mpd_monitor.start()
-# oradio_log.info("Stop MPD event monitoring")
-# mpd_monitor.stop()
 
 # Initialise MPD client
 oradio_log.info("Initialising MPDControl")
@@ -368,7 +371,6 @@ class StateMachine:
         self._arm_delayed_transition("StopToIdle", 4.0, "StateIdle")
         # handler returns immediately; task_lock released, UI remains responsive
 
-
     def _state_spotify_connect(self):
         if web_service_active.is_set():
             leds.control_blinking_led("LEDPlay", 2)
@@ -409,6 +411,8 @@ class StateMachine:
         self._arm_delayed_transition("StartupToIdle", 5.0, "StateIdle")
 
     def _state_idle(self):
+        # Listen for volume changed notifications
+        volume_control.set_notify()
         if web_service_active.is_set():
             leds.control_blinking_led("LEDPlay", 2)
         if mpd_control.is_webradio():
@@ -428,8 +432,14 @@ class StateMachine:
 
 # 1) Functions which define the actions for the messages
 
-# -------------------USB---------------------------
+# -------------------VOLUME------------------------
 
+def on_volume_changed() -> None:
+    oradio_log.info("Volume changed acknowlegded")
+    if state_machine.state in {"StateIdle"}:
+        state_machine.transition("StatePlay")
+
+# -------------------USB---------------------------
 
 def on_usb_absent():
     oradio_log.info("USB absent acknowlegded")
@@ -438,7 +448,6 @@ def on_usb_absent():
     usb_present.clear()
     if state_machine.state != "StateStartUp":
         state_machine.transition("StateUSBAbsent")
-
 
 def on_usb_present():
     oradio_log.info("USB present acknowledged")
@@ -464,15 +473,15 @@ def on_wifi_connected():
             4, sound_player.play, args=("WifiConnected",)
         ).start()
 
+    # Send sytem info to Remote Monitoring Service
     remote_monitor.send_sys_info()
-    # Send heartbeat every hour to Remote Monitoring Service
-    remote_monitor.heartbeat_start()
+    # Restart sending heartbeat every hour to Remote Monitoring Service
+    remote_monitor.start_heartbeat()
 
 def on_wifi_fail_connect():
     oradio_log.info("Wifi fail connect acknowledged")
     if state_machine.state in PLAY_WEBSERVICE_STATES:  # If in play states,
         sound_player.play("WifiNotConnected")
-    remote_monitor.heartbeat_stop()  # in all other cases, stop sending heartbeat
 
 def on_wifi_access_point():
     oradio_log.info("Configured as access point acknowledged")
@@ -602,6 +611,9 @@ def update_spotify_available():
 # 2)-----The Handler map, defining message content and the handler funtion---
 
 HANDLERS = {
+    MESSAGE_VOLUME_SOURCE: {
+        MESSAGE_VOLUME_CHANGED: on_volume_changed,
+    },
     MESSAGE_USB_SOURCE: {
         STATE_USB_ABSENT: on_usb_absent,
         STATE_USB_PRESENT: on_usb_present,
@@ -764,24 +776,8 @@ if not touch_buttons.selftest():
     state_machine.transition("StateError")
 
 # ----------- Volume Control -----------------
-# Use the same lock you defined above for touch callbacks
-# sm_lock = threading.RLock()   # (already defined above)
 
-#_SWITCH_ON_FROM = {"StateStop", "StateIdle"}
-_SWITCH_ON_FROM = {"StateIdle"}
-
-def _on_volume_changed() -> None:
-    # Guard both the read and the transition
-    with sm_lock:
-        if state_machine.state in _SWITCH_ON_FROM:
-            state_machine.transition("StatePlay")
-
-# Initialize the volume_control with the callback (no SM injection)
-volume_control = VolumeControl(on_change=_on_volume_changed)
-
-if not volume_control.selftest():
-    oradio_log.critical("VolumeControl selftest FAILED")
-    state_machine.transition("StateError")
+volume_control = VolumeControl(shared_queue)
 
 # ---------Initialize the web_service---------
 oradio_web_service = WebService(shared_queue)

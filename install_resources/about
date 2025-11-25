@@ -24,17 +24,6 @@ YELLOW='\033[1;93m'
 GREEN='\033[1;32m'
 NC='\033[0m'
 
-# Oradio hardware version info
-if [ -f /var/log/oradio_hw_version.log ]; then
-	echo "Oradio hardware version info:"
-	cat /var/log/oradio_hw_version.log
-else
-    echo -e "${YELLOW}No hardware version info found${NC}"
-fi
-
-# newline
-echo
-
 # Oradio software version info
 if [ -f /var/log/oradio_sw_version.log ]; then
 	echo "Oradio software version info:"

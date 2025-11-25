@@ -1,4 +1,5 @@
 Legenda===================
+T betekent TODO
 R betekent reworked
 V betekent rework akkoord
 ==========================
@@ -7,31 +8,47 @@ YYYY-MM-DD======================================================================
 
 <wat er gewijzigd is sinds vorige review/rework/verificatie>
 
-2025-11-13============================================================================================================================
+2025-11-18 ============================================================================================================================
 
-- mpd branch:
-1 - Documents/MPD/MPDControl_module_description.docx gemaakt voor huidige MPD implementatie (vervangt MPDControl_module_description.docx)
-2 - mpd_control.py - play method (na aanpassingen om minder vaak hetzelfde nummer te horen)
-3 - mpd_monitor.py - start en stop methods zijn verdwenen (het is niet eenvoudig, en ook niet nodig, om de monitor te kunnen stoppen en starten)
+Henk: review conclusies
+- volume_control.py rework is akkoord. Hiermee review afgesloten.
+- backlighting.py rework is akkoord. Hiermee review afgesloten.
+- i2c_service.py rework is akkoord: Hiermee review afgesloten
 
-----
+2025-11-17============================================================================================================================
 
-- i2c branch:
-4 - Documents/I2C/I2C_modules_description.docx gemaakt voor huidige I2C implementatie (vervangt backlighting_module_description.docx en VolumeControl_module_description_updated.docx)
-5 - In oradio_install.sh de installatie van de backlighting service verwijderd
-6 - In install_resource folder backlighting.service.template verwijderd
-7 - In python folder:
-8   - test_backlighting.py verwijderd (stand-alone test is onderdeel van nieuwe backlighting.py)
-9   - nieuwe i2c_service.py met class I2CService gemaakt (thread-safe wrapper voor read/write byte/block methods met error handling)
-10  - backlighting.py refactored: gebruikt I2CService, methods voor start/stop van zelfstandige backlight manager daemon thread
-11  - volume_control.py refactored: gebruikt I2CService, methods voor start/stop van volume control manager daemon thread die de waarde van de knop leest en volume aanpast. Volume change messages worden op verzoek gegenereerd
+USB:
+T - Review usb_service.py vanwege vervangen singleton code door singleton decorator
+
+MPD:
+T - Review mpd_control.py play method nav aanpassingen random nummer weergave
+T - Review Documents/MPD/MPD_modules_description.docx
+T - Olaf maakt test module mpd_control_test.py
+
+2025-11-17============================================================================================================================
+
+I2C:
+V Review Documents/I2C/I2C_modules_description.docx
+volume_control review:
+V 1 - Ah, nu snap ik je. Reworked: AlsaVolume.set() VolumeControl._set_volume() geven nu True/False terug. Wordt in manager bewust genegeerd.
+V 2 - De de exception komt als mixer_name niet bestaat, of initialisatie mislukt -> Extra comments toegevoegd aan AlsaVolume::__init__ in volumne_control.py
+V 3 - raw_value range is niet beperkt, want wordt in method geclamped
+V 4 - Ontbrekende foutmelding -> toegevoegd
+V 5 - Zie punt 1
+V 6 - Zie punt 1
+V 7 - errors propageren nu niet, worden alleen gelogd. Zie issue #408
+backligting.py review:
+V 1 - Het is een vrij theoretisch geval: EEPROMS hebben een beperkt aantal write cycles.
+      Nu wordt de EEPROM elke keer als Oradio en backlighting start geschreven.
+	  Het is strikt genomen voldoende als dit eenmalig bij configuratie van Oradio gedaan wordt, dus in oradio_install.sh.
+	  Maar omdat EEPROM schrijfbeperking bij 40-50000 cycles ligt hoeven we ons daar niet echt druk over te maken.
+	  Kortom: we laten het in Backlighting::__init__ zitten. Eens?
+V 2 - de stop() method docstring is niet correct: Stop the Backlight manager ipv volume control. Gecorrigeerd
+i2c_service.py review:
+V 1 - Reworked: een retry mechanisme voor write_byte() en write_block() toegevoegd
+=> Review/Rework conclusie: Rework akkoord en hiermee I2C review afgesloten.
 
 2025-11-10============================================================================================================================
-
-mpd_control.py:
-- Olaf maakt test module mpd_control_test.py
-
-----
 
 GPIO:
 Henk review: led_control.py
@@ -47,7 +64,7 @@ Henk review: led_control.py
 
 2025-11-10============================================================================================================================
 
-mpd_control.py:
+MPD:
 V 1 - Refactored code zit in trixie_mpd branch
 V 2 - mpd_client singleton moet eruit
 V 3 - Listener moet aparte singleton class worden
@@ -55,25 +72,8 @@ V 4 - functies die waarde retourneren maar deze genegeerd wordt moeten _ = <func
 V 5 - LET OP: bovenstaande heeft ook impact op radio_control.py en fastapi_server.py
 V 6 - Probleem in _remove_song_when_finished(), met een if conditie waarbij een int() met een string vergeleken wordt: de "deleteid" wordt niet uitgevoerd
 V 7 - Hetzelfde probleem in play_song(), ook een int()/String compare. Graag ook de single-line-code minder complex maken door meerdere code regels er aan te wijden. De code is dan beter leesbaar en te begrijpen. Ik heb voorbeeld toegevoegd.
-V 8 - Probleem met twee self._execute() die bijelkaar gevoegd worden. Gaat fout als er None terugkomt==> TypeError
+V 8 - Probleem met twee self._execute() die bij elkaar gevoegd worden. Gaat fout als er None terugkomt==> TypeError
 V 9 - Groene tekst als een module test optie een succes oplevert.
 V 10 - Verhuis MPDBase naar eigen file mpd_base.py, laat mpd_control.p en mpd_monito.py die importeren
 V 11 - Gebruik 'Singleton metaclass' in mpd_monitor.py (later ook in andere modules waar Singleton gebruikt wordt)
-=> Review/Rework conclusie: Rework akkoord en hiermee mpd review afgesloten.
-
-----
-
-led_control.py, test_backlighting.py en touch_buttons.py:
-- Gebruiken GPIO maar weten dat niet van elkaar, waardoor conflicten kunnen ontstaan: Refactor
-- test_backlighting.py verhuizen naar backlighting.py in stand-alone mode
-
-----
-
-GPIO:
-led_control.py en touch_buttons.py:
-- Gebruiken GPIO maar weten dat niet van elkaar, waardoor conflicten kunnen ontstaan: Refactor
-
-hw_serial_number_gen.py:
-- Nu is HW identifier hard coded. Moet dynamisch worden, want we hebben verschillende hw versies
-- Willen we een 'echt' versienummer maken in plaats van huidige string?
-
+=> Review/Rework conclusie: Rework akkoord en hiermee MPD review afgesloten.

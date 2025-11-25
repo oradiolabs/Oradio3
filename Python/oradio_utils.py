@@ -57,30 +57,30 @@ PING_HOST    = "8.8.8.8"  # google.com
 DNS_TIMEOUT = 3
 DNS_HOST    = ("8.8.8.8", 53)
 
-def safe_put(queue, item, block=True, timeout=None):
+def safe_put(queue, msg, block=True, timeout=None):
     """
-    Safely put an item into a multiprocessing.Queue.
+    Safely put a message into a multiprocessing.Queue.
 
     Args:
         queue (multiprocessing.Queue): The queue.
-        item: The object to put.
+        msg (list): The object to put.
         block (bool): Whether to block if the queue is full.
         timeout (float|None): Timeout for blocking put.
 
     Returns:
-        bool: True if the item was put successfully, False otherwise.
+        bool: True if the message was put successfully, False otherwise.
     """
     try:
-        queue.put(item, block=block, timeout=timeout)
+        queue.put(msg, block=block, timeout=timeout)
         return True
 
     except queue.Full:
-        oradio_log.warning("Queue is full — dropping item: %r", item)
+        oradio_log.warning("Queue is full — dropping message: %r", msg)
         return False
 
     except (OSError, EOFError, ValueError) as ex_err:
         # Queue closed or broken
-        oradio_log.error("Queue is closed/broken — failed to put item: %r (%s)", item, ex_err)
+        oradio_log.error("Queue is closed/broken — failed to put message: %r (%s)", msg, ex_err)
         return False
 
     except AssertionError as ex_err:

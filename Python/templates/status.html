@@ -2,6 +2,7 @@
 <html lang="nl">
 	<head>
 		<meta charset="UTF-8" />
+		<meta name="autofocus" content="false">
 		<meta name="viewport" content="width=device-width, initial-scale=1.0" />
 
 		<link rel="stylesheet" href="../static/css/fontawesome.min.css" />
@@ -9,10 +10,16 @@
 		<link rel="stylesheet" href="../static/css/oradio3.css" />
 		<link rel="stylesheet" href="../static/css/status.css" />
 
+		<script src="../static/js/oradio3.js"></script>
+		<script src="../static/js/status.js"></script>
+
 		<title>Oradio status</title>
 	</head>
 	<body>
+
+		<!-- Include menu buttons -->
 		{% include "menu.html" %}
+
 		<div class="container">
 
 			<!-- Show Oradio logo -->
@@ -30,25 +37,15 @@
 					<td class="col2">{{ serial }}</td>
 				</tr>
 				<tr>
-					<td class="col1">Hardware versie</td>
-					<td class="col2">{{ hw_version }}</td>
-				</tr>
-				<tr>
-					<td class="col1">Hardware serienummer</td>
-					<td class="col2">{{ hw_serial }}</td>
-				</tr>
-				<tr>
 					<td class="col1">Software versie</td>
 					<td class="col2">{{ sw_version }}</td>
 				</tr>
 				<tr>
-					<td class="col1">Software serienummer</td>
+					<td class="col1">Software datum</td>
 					<td class="col2">{{ sw_serial }}</td>
 				</tr>
 			</table>
 
 		</div>
 	</body>
-	<script>
-	</script>
 </html>

@@ -73,7 +73,10 @@ WEB_SERVER_PORT = 8000
 # Web service states
 STATE_WEB_SERVICE_IDLE   = "web service is idle"
 STATE_WEB_SERVICE_ACTIVE = "web service is running"
-# Web service messages from service to parent
+# Messages from fastapi to web service
+MESSAGE_REQUEST_CONNECT = "connect to wifi network"
+MESSAGE_REQUEST_STOP    = "stop web service"
+# Messages from web service to parent
 MESSAGE_WEB_SERVICE_SOURCE       = "web service message"
 MESSAGE_WEB_SERVICE_PL1_CHANGED  = "PL1 playlist changed"
 MESSAGE_WEB_SERVICE_PL2_CHANGED  = "PL2 playlist changed"
@@ -99,12 +102,8 @@ MESSAGE_USB_SOURCE = "USB message"
 PRESETS_FILE = USB_SYSTEM + "/presets.json"
 
 ################## VOLUME #############################
-# Raw volume units
-VOLUME_MINIMUM = 105
-VOLUME_MAXIMUM = 215
-# Volume messages
-# MESSAGE_VOLUME_SOURCE  = "Vol Control message"
-# MESSAGE_VOLUME_CHANGED = "Volume changed"
+MESSAGE_VOLUME_SOURCE  = "Vol Control message"
+MESSAGE_VOLUME_CHANGED = "Volume changed"
 
 ################## SYSTEM SOUNDS #############################
 SOUND_FILES_DIR = os.path.realpath(ORADIO_DIR + "/../system_sounds")

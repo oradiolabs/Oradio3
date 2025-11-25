@@ -258,7 +258,7 @@ if [ "$1" != "--continue" ]; then
 		pydantic
 		fastapi
 		JinJa2
-		uvicorn
+		uvicorn[standard]
 		python-multipart
 	)
 
@@ -436,18 +436,6 @@ install_resource $RESOURCES_PATH/modules /etc/modules
 # Progress report
 echo -e "${GREEN}i2c installed and configured${NC}"
 
-# Configure the hw_version service to start on boot
-if [ ! -f /var/log/oradio_hw_version.log ]; then
-	install_resource $RESOURCES_PATH/hw_version.service /etc/systemd/system/hw_version.service 'sudo systemctl enable hw_version.service'
-fi
-# Progress report
-echo -e "${GREEN}Oradio3 hardware version log configured${NC}"
-
-# Configure the backlighting service to start on boot
-install_resource $RESOURCES_PATH/backlighting.service /etc/systemd/system/backlighting.service 'sudo systemctl enable backlighting.service'
-# Progress report
-echo -e "${GREEN}Backlighting installed and configured${NC}"
-
 # Install equalizer settings with rw rights
 install_resource $RESOURCES_PATH/alsaequal.bin /etc/alsaequal.bin 'sudo chmod 666 /etc/alsaequal.bin'
 # Install audio configuration, activate SoftVolSpotCon, set volume to normal level
@@ -494,6 +482,11 @@ install_resource $RESOURCES_PATH/send_log_files_to_rms.sh /usr/local/bin/send_lo
 install_resource $RESOURCES_PATH/about /usr/local/bin/about 'sudo chmod +x /usr/local/bin/about'
 # Progress report
 echo -e "${GREEN}Support tools installed${NC}"
+
+# Configure the oradio service to start on boot
+install_resource $RESOURCES_PATH/usb_low_idle_power.service /etc/systemd/system/usb_low_idle_power.service 'sudo systemctl enable usb_low_idle_power.service'
+# Progress report
+echo -e "${GREEN}Power save features configured${NC}"
 
 # Configure the oradio service to start on boot
 install_resource $RESOURCES_PATH/oradio.service /etc/systemd/system/oradio.service 'sudo systemctl enable oradio.service'
