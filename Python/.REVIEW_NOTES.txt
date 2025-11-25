@@ -18,6 +18,12 @@ T - Review mpd_control.py play method nav aanpassingen random nummer weergave
 T - Review Documents/MPD/MPD_modules_description.docx
 T - Olaf maakt test module mpd_control_test.py
 
+2025-11-25============================================================================================================================
+
+R - De singleton decorator vervangt de dedecated singleton code
+R - De eigen debug print method is door oradio_log,debug() vervangen
+R - De doc-strings en inline comments zij bijgewerkt
+
 2025-11-24============================================================================================================================
 
 play_system_sound.py:
