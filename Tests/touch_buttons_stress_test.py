@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 """
+WARNING: NEEDS GPIO REWIRING ADAPTER
 touch-buttons_stress_test.py — High-CPU-load stress test for touch_buttons.py (final)
 
 Purpose

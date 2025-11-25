@@ -7,6 +7,17 @@ Automated KPI-based test script for mpd_control.py
 - High-CPU Stress Test (CPU burners via multiprocessing) + KPIs
 - Multithreaded Stress Test (concurrent calls) + KPIs
 """
+# --- make Oradio3/Python importable no matter where we run from ---
+import os, sys
+REPO_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
+CODE_DIR  = os.path.join(REPO_ROOT, 'Python')
+if CODE_DIR not in sys.path:
+    sys.path.insert(0, CODE_DIR)
+# run with: python3 ~/Oradio3/Tests/mpd_control_test.py
+# in ~/Oradio3/Python 
+# ----
+
+
 
 import os
 import re

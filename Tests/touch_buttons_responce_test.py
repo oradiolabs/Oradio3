@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 """
+WARNING: NEEDS GPIO REWIRING ADAPTER
 touch-buttons_responce_test.py — KPI-based responsiveness test (precise timing, silent by default)
 
 Measures
@@ -46,6 +47,7 @@ REPO_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
 CODE_DIR  = os.path.join(REPO_ROOT, 'Python')
 if CODE_DIR not in sys.path:
     sys.path.insert(0, CODE_DIR)
+# run with: python3 ../Tests/xxx.py    
 # -----------------------------------------------------------------
 
 import time

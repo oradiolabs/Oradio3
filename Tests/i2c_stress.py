@@ -17,6 +17,15 @@ REQUIRES:
   - Your i2c_service.py accessible on PYTHONPATH / same folder.
   - smbus2 installed; run:  sudo apt-get install -y python3-smbus
 """
+# --- make Oradio3/Python importable no matter where we run from ---
+import os, sys
+REPO_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
+CODE_DIR  = os.path.join(REPO_ROOT, 'Python')
+if CODE_DIR not in sys.path:
+    sys.path.insert(0, CODE_DIR)
+# run with: python3 ~/Oradio3/Tests/i2c_stress.py
+# in ~/Oradio3/Python 
+# ----
 
 import argparse
 import random

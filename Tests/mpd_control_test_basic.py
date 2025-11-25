@@ -6,6 +6,17 @@ Runs predefined test cases against MPDControl methods and reports
 PASS/FAIL with timing metrics and optional KPI tracking.
 """
 
+# --- make Oradio3/Python importable no matter where we run from ---
+import os, sys
+REPO_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
+CODE_DIR  = os.path.join(REPO_ROOT, 'Python')
+if CODE_DIR not in sys.path:
+    sys.path.insert(0, CODE_DIR)
+# run with: python3 ~/Oradio3/Tests/mpd_control_test_basic.py
+# in ~/Oradio3/Python 
+# ----
+
+
 import time
 import traceback
 from mpd_control import MPDControl
