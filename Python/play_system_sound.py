@@ -16,16 +16,18 @@ Created on Januari 30, 2025
 @email:         oradioinfo@stichtingoradio.nl
 @status:        Development
 @summary:       Oradio System Sound Player
-
-Reducing volume when system sounds are played. The volume control is independent of the master volume.
-The MPD and Spotify channel can be controlled with amixer -c DigiAMP sset "VolumeMPD" 100% for the MPD
-amixer -c DigiAMP sset "VolumeSpotCon2" 100% for Spotify.
-With this update, it is not needed that the statemachine needs to manage the start stop of the Sound
-During syssounds
-Also the Sound file Next and USBpresent is added
-And a volume controller to set the system sound
+This module handles playback of system sounds and temporary "ducking" of
+other audio channels (MPD and Spotify). It restores their volumes smoothly
+after all system sounds have finished.
+Features:
+- Asynchronous sound playback
+- Batch-ducking: volumes are only lowered once during bursts of sounds
+- Cancelable and smooth volume-restore ramp
+- Thread-safe operations
+- Stand-alone test menu
 """
 import os
+#REVIEW Onno: Consider replacing subprocess with oradio_utils.run_shell_script()
 import subprocess
 from threading import Thread, Lock, Timer, Event
 import time
@@ -33,6 +35,7 @@ import random
 
 ##### oradio modules ####################
 from oradio_logging import oradio_log
+from singleton import singleton
 
 ##### GLOBAL constants ####################
 from oradio_const import SOUND_FILES_DIR
@@ -71,200 +74,208 @@ SOUND_FILES = {
     "USBPresent":          f"{SOUND_FILES_DIR}/USBPresent_melding.wav",
 }
 
+@singleton
 class PlaySystemSound:
     """
-    Singleton class to play system sounds asynchronously in a separate thread,
-    with batch-ducking of MPD/Spotify volumes and delayed, smooth restoration.
+    Plays system sounds asynchronously while automatically lowering (ducking)
+    MPD and Spotify volumes. When all system sounds are finished, the volumes
+    are restored smoothly over time.
+    Functional overview:
+    - Multiple sounds may be triggered rapidly; ducking happens only once.
+    - After the final sound finishes, the system waits briefly (batching) and
+      then begins a cancelable restore ramp.
+    - Any new sound immediately cancels an ongoing restore.
     """
-# In below code using same construct in multiple modules for singletons
-# pylint: disable=duplicate-code
-
-    _lock = Lock()       # Class-level lock to make singleton thread-safe
-    _instance = None     # Holds the single instance of this class
-    _initialized = False # Tracks whether __init__ has been run
-
-    # Underscores marks audio_device 'intentionally unused'
-    def __new__(cls, _audio_device="SysSound_in"):
-        """Ensure only one instance of PlaySystemSound is created (singleton pattern)"""
-        with cls._lock:
-            if cls._instance is None:
-                cls._instance = super().__new__(cls)
-        return cls._instance
-
     def __init__(self, audio_device="SysSound_in"):
-        """Initialize audio device"""
-        # Prevent re-initialization if the singleton is created again
-        if self._initialized:
-            return  # Avoid re-initialization if already done
-        self._initialized = True
+        """Initialize state, locks, volume defaults, and restore flags."""
 
-# In above code using same construct in multiple modules for singletons
-# pylint: enable=duplicate-code
-
+        # ALSA device name used for system sound output
         self.audio_device  = audio_device
+
+        # Protects access to active_count and restore scheduling
         self.batch_lock    = Lock()
+
+        # Number of system sounds currently active or queued
         self.active_count  = 0
+
+        # Delayed timer used to trigger restore after final sound
         self.restore_timer = None
 
-        # Cancelable smooth-restore state
+        # Event used to cancel ongoing volume‑restore ramps
         self._restore_cancel = Event()
+
+        # Thread object for a running restore ramp
         self._restore_thread = None
 
-        # Debug printing flag (enabled only in standalone test)
-        self.debug_print = False
-
-        # Ensure system‐sound channel is at its default level
+        # Ensure the system-sound channel is at its intended default volume
         self._set_sys_volume(DEFAULT_SYS_SOUND_VOLUME)
 
-    @staticmethod
-    def _clamp(val, lower_bound, upper_bound):
-        """Clamp integer volume to [lower_bound, upper_bound]."""
-        return max(lower_bound, min(upper_bound, val))
+# ----- Utility helpers -----
 
-    def _dprint(self, msg: str) -> None:
-        """Print only in standalone test mode."""
-        if self.debug_print:
-            print(msg)
+    @staticmethod
+    def _clamp(val, lower_bound, upper_bound) -> int:
+        """Clamp a value within the given bounds."""
+        return max(lower_bound, min(upper_bound, val))
 
     def _sleep_with_cancel(self, duration: float) -> bool:
         """
-        Sleep up to 'duration' seconds but exit early if restore is canceled.
-        Returns True if canceled during the sleep.
+        Sleep for up to *duration* seconds, but wake early if a new system
+        sound arrives (indicated by `_restore_cancel`). Returns ``True`` when
+        canceled.
         """
         end_time = time.time() + duration
+
         while time.time() < end_time:
             if self._restore_cancel.is_set():
-                self._dprint("[Ramp] canceled during sleep")
+                oradio_log.debug("[Ramp] canceled during sleep")
                 return True
-            # Keep checks responsive without busy-waiting
+
+            # Sleep in small increments to remain responsive
             remaining = end_time - time.time()
             time.sleep(0.02 if remaining > 0.02 else remaining)
+
         return False
 
-    def play(self, sound_key):
+# ----- Public API -----
+
+    def play(self, sound_key) -> None:
         """
-        Plays a system sound asynchronously.
-        Ducks volumes on first sound of a batch, and schedules restore when count goes to zero.
-        Cancels any pending or in-progress restore-ramp to avoid fighting with ducking.
+        Play a system sound asynchronously.
+        - If this is the first sound in a batch, MPD and Spotify volumes are immediately ducked.
+        - If a restore operation is scheduled or running, it is canceled.
+        - The sound plays in a background thread.
         """
         with self.batch_lock:
-            # Cancel pending delayed restore timer
+            # Cancel pending delayed restore
             if self.restore_timer is not None:
                 self.restore_timer.cancel()
                 self.restore_timer = None
 
-            # Cancel an in-progress ramp restore (if any)
+            # Cancel a running restore ramp (if any)
             if self._restore_thread is not None and self._restore_thread.is_alive():
                 self._restore_cancel.set()  # ask ramp to stop ASAP
 
+            # If this is the first active system sound, apply ducking
             if self.active_count == 0:
                 try:
                     self._set_mpd_volume(VOLUME_MPD_SYS_SOUND)
                     self._set_spotify_volume(VOLUME_SPOTIFY_SYS_SOUND)
                 except (subprocess.CalledProcessError, OSError) as err:
                     oradio_log.error("Error setting system sound volumes: %s", err)
+
+            # Increment active sound counter
             self.active_count += 1
 
-        Thread(
-            target=self._play_sound_and_restore,
-            args=(sound_key,),
-            daemon=True
-        ).start()
+        # Play sound in detached thread
+        Thread(target=self._play_sound_and_restore, args=(sound_key,), daemon=True).start()
 
-    def _set_sys_volume(self, volume):
-#        oradio_log.debug("Setting Sys Sound volume to %s%%", volume)
+# ----- Volume setters (AMixer interface) -----
+
+    def _set_sys_volume(self, volume) -> None:
+        """Set volume of system‑sound ALSA channel."""
         subprocess.run(
             ["amixer", "-c", "DigiAMP", "sset", "VolumeSysSound", f"{volume}%"],
             check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL
         )
 
-    def _set_mpd_volume(self, volume):
-#        oradio_log.debug("Setting MPD volume controller to %s%%", volume)
+    def _set_mpd_volume(self, volume) -> None:
+        """Set MPD volume controller (ducked or restored)."""
         subprocess.run(
             ["amixer", "-c", "DigiAMP", "sset", "VolumeMPD", f"{volume}%"],
             check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL
         )
 
-    def _set_spotify_volume(self, volume):
-#        oradio_log.debug("Setting Spotify volume controller to %s%%", volume)
+    def _set_spotify_volume(self, volume) -> None:
+        """Set Spotify volume controller (ducked or restored)."""
         subprocess.run(
             ["amixer", "-c", "DigiAMP", "sset", "VolumeSpotCon2", f"{volume}%"],
             check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL
         )
 
-    def _play_sound(self, sound_key):
+# ----- Internal helpers: playback and restore -----
+
+    def _play_sound(self, sound_key) -> None:
+        """Execute the system command that plays the given sound file."""
+
         try:
             sound_file = SOUND_FILES.get(sound_key)
             if not sound_file:
                 oradio_log.error("Invalid sound key: %s", sound_key)
                 return
+
             if not os.path.exists(sound_file):
                 oradio_log.debug("Sound file does not exist: %s", sound_file)
                 return
+
             subprocess.run(
                 ["aplay", "-D", self.audio_device, sound_file],
                 check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL
             )
             oradio_log.debug("System sound played successfully: %s", sound_file)
+
         except subprocess.CalledProcessError as ex_err:
             oradio_log.error("Error playing sound: %s", ex_err)
 
-    def _restore_volumes(self):
+    def _restore_volumes(self) -> None:
         """
-        Start a smooth, cancelable ramp to restore volumes to defaults.
-        Called after the batch delay when active_count reached zero.
+        Initiate a smooth volume‑restore ramp *if* no more system sounds are active.
+        Called via delayed Timer.
         """
         with self.batch_lock:
+            # If new sounds arrived during delay: don't restore
             if self.active_count != 0:
                 self.restore_timer = None
                 return
 
-            # If there’s already a ramp, don’t start another
+            # Only one concurrent ramp allowed
             if self._restore_thread is not None and self._restore_thread.is_alive():
                 self.restore_timer = None
                 return
 
-            # Prepare a fresh cancel flag and start ramp thread
+            # Prepare cancellation flag for new ramp
             self._restore_cancel.clear()
-            self._restore_thread = Thread(
-                target=self._ramp_restore_volumes,
-                daemon=True
-            )
+
+            # Start restore thread
+            self._restore_thread = Thread(target=self._ramp_restore_volumes, daemon=True)
             self._restore_thread.start()
+
             self.restore_timer = None
 
-    def _ramp_restore_volumes(self):
+    def _ramp_restore_volumes(self) -> None:
         """
-        Ramps MPD and Spotify volumes from their ducked levels back to defaults.
-        Cancels immediately if a new system sound starts.
-        Prints each step via _dprint() when in test mode.
+        Smoothly restore MPD and Spotify volumes from ducked levels to their
+        normal defaults. The ramp is cancelable and logs each step.
         """
+
+        # Initial and target levels
         start_mpd = VOLUME_MPD_SYS_SOUND
         start_spo = VOLUME_SPOTIFY_SYS_SOUND
         target_mpd = DEFAULT_MPD_VOLUME
         target_spo = DEFAULT_SPOTIFY_VOLUME
 
-        # Determine the number of steps based on the larger distance
+        # # How far must we travel?
         dist = max(target_mpd - start_mpd, target_spo - start_spo)
         if dist <= 0:
             return
 
-        # Ceil division: how many RESTORE_VOL_STEP increments to reach target
+        # Compute number of steps (ceil division)
         steps = max(1, (dist + RESTORE_VOL_STEP - 1) // RESTORE_VOL_STEP)
         sleep_per_step = RESTORE_VOL_TIME / steps
 
         current_mpd = start_mpd
         current_spo = start_spo
 
-        for step_idx in range(steps):
+        for _ in range(steps):
+            # Abort if a new system sound is requested
             if self._restore_cancel.is_set():
-                self._dprint("[Ramp] canceled")
+                oradio_log.debug("[Ramp] canceled")
                 return
 
+            # Increment volumes
             current_mpd = self._clamp(current_mpd + RESTORE_VOL_STEP, 0, target_mpd)
             current_spo = self._clamp(current_spo + RESTORE_VOL_STEP, 0, target_spo)
 
-            self._dprint(f"[Ramp step {step_idx+1}/{steps}] MPD={current_mpd} Spotify={current_spo}")
+#            oradio_log.debug("[Ramp step: MPD=%s Spotify=%s", current_mpd, current_spo)
 
             try:
                 self._set_mpd_volume(current_mpd)
@@ -273,30 +284,37 @@ class PlaySystemSound:
                 oradio_log.error("Error during volume ramp: %s", err)
                 # Continue; transient amixer issues can happen
 
+            # Sleep, but remain cancelable
             if self._sleep_with_cancel(sleep_per_step):
                 return
 
-        # Final snap to exact defaults to avoid off-by-one rounding
+        # Final snap to exact defaults (avoid small rounding errors)
         if not self._restore_cancel.is_set():
-            self._dprint(f"[Ramp final] MPD={target_mpd} Spotify={target_spo}")
+            oradio_log.debug("[Ramp final] MPD=%s Spotify=%s", target_mpd, target_spo)
             try:
                 self._set_mpd_volume(target_mpd)
                 self._set_spotify_volume(target_spo)
             except (subprocess.CalledProcessError, OSError) as err:
                 oradio_log.error("Error finalizing volume restore: %s", err)
 
-    def _play_sound_and_restore(self, sound_key):
+    def _play_sound_and_restore(self, sound_key) -> None:
+        """
+        Wrapper that plays a sound and then decrements the active counter.
+        When the last sound finishes, schedules a delayed restore.
+        """
         try:
             self._play_sound(sound_key)
         finally:
             with self.batch_lock:
                 self.active_count -= 1
+
+                # If that was the last sound, start 0.2s batching delay
                 if self.active_count == 0:
-                    # Delay restore by 0.2s to batch rapid-fire calls
                     self.restore_timer = Timer(0.2, self._restore_volumes)
                     self.restore_timer.start()
 
-# ------------------ TEST SECTION ------------------
+# ----- Stand‑alone test menu -----
+
 if __name__ == "__main__":
 
 # Most modules use similar code in stand-alone
@@ -305,7 +323,6 @@ if __name__ == "__main__":
     print("\nStarting System Sound Player Standalone Test...\n")
 
     sound_player = PlaySystemSound()
-    sound_player.debug_print = True   # enable ramp step printing in test mode
     sound_keys = list(SOUND_FILES.keys())
 
     def build_menu():
