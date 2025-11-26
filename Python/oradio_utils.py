@@ -208,10 +208,10 @@ def run_shell_script(script):
     oradio_log.debug("Running shell script: %s", script)
     process = run(
         script,
-        shell = True,
+        shell = True,           # Avoid exception, inspect returncode and stdout/stderr
         capture_output = True,
         text = True,
-        check = False
+        check = False           # Avoid exception, inspect returncode and stdout/stderr
     )
     if process.returncode != 0:
         return False, process.stderr.strip()
