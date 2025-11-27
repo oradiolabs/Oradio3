@@ -6,6 +6,45 @@
  * @license:      GNU General Public License version 3; https://www.gnu.org/licenses/gpl-3.0.html
  */
 
+// Scroll the page so the playlist input is at the top of the viewport
+function scrollToPlaylistInput()
+{
+	const input = document.getElementById('autocomplete-input');
+	if (!input) return;
+
+	// Offset 10 to show input just below top of screen
+	const y = input.getBoundingClientRect().top + window.scrollY - 10;
+
+	window.scrollTo({top: y, behavior: 'smooth'});
+}
+
+// Scroll to top and show menu images
+function showMenuImages() {
+	const nav = document.querySelector('nav');
+	window.scrollTo({ top: 0, behavior: 'smooth' });
+	nav.classList.remove('hide-images');
+}
+
+// Scroll to input and hide menu images
+function hideMenuImages() {
+	const nav = document.querySelector('nav');
+	nav.classList.add('hide-images');
+	scrollToPlaylistInput();
+}
+
+// Show menu images when space allows, otherwise only show the labels
+function updateMenuImages()
+{
+	const playlistSongs = document.getElementById("playlist-songs");
+	const searchSongs = document.getElementById("search-songs");
+
+	// Hide images if both song lists are visible, otherwise show
+	if (playlistSongs.style.display === "block" && searchSongs.style.display === "block")
+		hideMenuImages();
+	else
+		showMenuImages();
+}
+
 /*
  * Function to get the songs for the selected playlist
  * Called:
@@ -30,8 +69,11 @@ async function getPlaylistSongs()
 	// Check for playlist
 	if (!playlist)
 	{
-		// No playlist: hide songlist
+		// Hide songs list
 		songlist.style.display = "none";
+
+		// Show menu images
+		showMenuImages();
 
 		// Done: no playlist to list songs for
 		return;
@@ -62,8 +104,10 @@ async function getPlaylistSongs()
 		playlist_notification.style.display = "block";
 
 		// Hide songs list
-		const songlist = document.getElementById("playlist-songs");
 		songlist.style.display = "none";
+
+		// Show menu images
+		showMenuImages();
 
 		// Done: playlist does not exist
 		return;
@@ -93,6 +137,9 @@ async function getPlaylistSongs()
 			{
 				// Hide songs list
 				songlist.style.display = "none";
+
+				// Show menu images
+				showMenuImages();
 
 				// Notify
 				playlist_notification.innerHTML = `<p class='warning'>Speellijst '${playlist}' bestaat, maar is leeg<br>Zoek liedjes en voeg toe met de <button class="save-button-tiny"></button>-knop</p>`;
@@ -138,6 +185,9 @@ async function getPlaylistSongs()
 
 			// Show songs list
 			songlist.style.display = "block";
+
+			// Show/hide menu images
+			updateMenuImages()
 
 			// Clear and hide playlist_notification
 			playlist_notification.innerHTML = "";
@@ -189,6 +239,9 @@ async function getSearchSongs()
 		// Hide songs list
 		songlist.style.display = "none";
 
+		// Show menu images
+		showMenuImages();
+
 		// Clear and hide search_notification
 		search_notification.innerHTML = "";
 		search_notification.style.display = "none";
@@ -202,6 +255,9 @@ async function getSearchSongs()
 	{
 		// Hide songs list
 		songlist.style.display = "none";
+
+		// Show menu images
+		showMenuImages();
 
 		// Notify
 		search_notification.innerHTML = `<span class='warning'>Gebruik een zoekopdracht met minimaal 3 karakters</span>`;
@@ -235,6 +291,9 @@ async function getSearchSongs()
 			{
 				// Hide songs list
 				songlist.style.display = "none";
+
+				// Show menu images
+				showMenuImages();
 
 				// Notify
 				search_notification.innerHTML = `<span class='warning'>Geen liedjes gevonden met '${search}' in de naam van de artiest of in de titel<br>Gebruik een andere zoekopdracht</span>`;
@@ -283,6 +342,9 @@ async function getSearchSongs()
 
 			// Show songs list
 			songlist.style.display = "block";
+
+			// Show/hide menu images
+			updateMenuImages()
 
 			// Clear and hide search_notification
 			search_notification.innerHTML = "";

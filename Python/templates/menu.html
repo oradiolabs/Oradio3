@@ -16,12 +16,13 @@ nav {
 	display: flex;
 	background-color: var(--menu-background);
 	border-top: 1px solid var(--menu-border);
-	position: fixed;
-	height: 90px;
 	width: 100%;		/* Support smaller screens */
 	max-width: 440px;	/* Limit for larger screens */
-	bottom: 0;
+	position: fixed;	/* Stick the menu relative to the viewport */
+	bottom: 10px;		/* 10px above the bottom to put it above the Apple swipe bar */
+	z-index: 100;		/* Keep menu on top of other content */
 }
+
 nav a {
 	flex: 1;
 	text-align: center;
@@ -32,6 +33,11 @@ nav a {
 }
 nav a:hover {
 	background-color: var(--menu-hover);
+}
+/* Hide images when the class is applied */
+nav.hide-images img,
+nav.hide-images .line-break {
+    display: none;
 }
 </style>
 
@@ -45,6 +51,11 @@ function show_waiting() {
 function hide_waiting() {
 	document.getElementById('waiting').style.display = "none";
 }
+
+// Make clicking any menu link trigger show_waiting
+document.querySelectorAll('nav a').forEach(link => {
+	link.addEventListener('click', show_waiting);
+});
 </script>
 
 <!-- Waiting indicator -->
@@ -52,9 +63,24 @@ function hide_waiting() {
 
 <!-- Menu bar -->
 <nav>
-	<a href="/network"><img src="../static/wifi.png" onclick="show_waiting()" /><br>Netwerk</a>
-	<a href="/buttons"><img src="../static/buttons.png" onclick="show_waiting()" /><br>Knoppen</a>
-	<a href="/playlists"><img src="../static/playlists.png" onclick="show_waiting()" /><br>Lijsten</a>
-	<a href="/status"><img src="../static/status.png" onclick="show_waiting()" /><br>Status</a>
-	<!-- Add other menu items here if needed -->
+    <a href="/network">
+        <img src="../static/wifi.png" />
+        <span class="line-break"><br></span>
+        Netwerk
+    </a>
+    <a href="/buttons">
+        <img src="../static/buttons.png" />
+        <span class="line-break"><br></span>
+        Knoppen
+    </a>
+    <a href="/playlists">
+        <img src="../static/playlists.png" />
+        <span class="line-break"><br></span>
+        Lijsten
+    </a>
+    <a href="/status">
+        <img src="../static/status.png" />
+        <span class="line-break"><br></span>
+        Status
+    </a>
 </nav>
