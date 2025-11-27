@@ -473,7 +473,6 @@ for flag in spotactive.flag spotplaying.flag; do
 #		chmod 644 "$file" 2>/dev/null || { echo -e "${RED}chmod failed for $file${NC}"; exit 1; }
 	fi
 done
-exit
 # install librespot event handler script
 install_resource $RESOURCES_PATH/spotify_event_handler.sh /usr/local/bin/spotify_event_handler.sh 'sudo chmod +x /usr/local/bin/spotify_event_handler.sh'
 # Configure the Librespot service to start on boot
