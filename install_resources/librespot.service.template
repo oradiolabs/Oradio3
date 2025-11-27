@@ -5,7 +5,7 @@ Description=Librespot
 After=network.target
 
 [Service]
-# Controls where file descriptor 1 (stdout) and 2 (stderr) of the executed processes is connected to
+# Direct stdout and stderr of the executed process write to the logfile
 StandardOutput=append:PLACEHOLDER_LOGFILE_SPOTIFY
 StandardError=append:PLACEHOLDER_LOGFILE_SPOTIFY
 
@@ -13,8 +13,12 @@ StandardError=append:PLACEHOLDER_LOGFILE_SPOTIFY
 ExecStartPre=/usr/bin/amixer -c DigiAMP sset VolumeSpotCon1 0%
 
 # Reset flag files before starting librespot
-ExecStartPre=/usr/bin/bash -c 'echo "0" > PLACEHOLDER_SPOTIFY_PATH/spotactive.flag'
-ExecStartPre=/usr/bin/bash -c 'echo "0" > PLACEHOLDER_SPOTIFY_PATH/spotplaying.flag'
+ExecStartPre=echo 0 > PLACEHOLDER_SPOTIFY_PATH/spotactive.flag
+ExecStartPre=echo 0 > PLACEHOLDER_SPOTIFY_PATH/spotplaying.flag
+
+# Set the UNIX user or group that the processes are executed as
+User=PLACEHOLDER_USER
+Group=PLACEHOLDER_GROUP
 
 ExecStart=/usr/bin/librespot \
     --name Oradio \
@@ -29,10 +33,6 @@ ExecStart=/usr/bin/librespot \
 
 Restart=always
 RestartSec=10
-
-# Set the UNIX user or group that the processes are executed as, respectively
-User=PLACEHOLDER_USER
-Group=PLACEHOLDER_GROUP
 
 [Install]
 WantedBy=multi-user.target
