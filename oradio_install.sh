@@ -258,13 +258,15 @@ if [ "$1" != "--continue" ]; then
 		pydantic
 		fastapi
 		JinJa2
-		uvicorn[standard]
+		uvicorn
+		httptools
+		uvloop
+		websockets
 		python-multipart
 	)
 
 	# Ensure Python packages are installed and up-to-date
 	for package in "${PYTHON_PACKAGES[@]}"; do
-
 		installed_version=$(python -c "
 import sys
 try:
@@ -276,7 +278,6 @@ try:
 except:
     sys.exit(1)
 ")
-
 		if [ $? -ne 0 ]; then
 			echo -e "${YELLOW}$package is missing: installing...${NC}"
 			# On --use-pep517 see https://peps.python.org/pep-0517/
@@ -460,19 +461,23 @@ install_resource $RESOURCES_PATH/logrotate.conf /etc/logrotate.d/oradio
 echo -e "${GREEN}Log files rotation configured${NC}"
 
 # Configure Spotify connect
-install_resource $RESOURCES_PATH/spotify_event_handler.sh /usr/local/bin/spotify_event_handler.sh 'sudo chmod +x /usr/local/bin/spotify_event_handler.sh'
-# Configure the Librespot service to start on boot
-install_resource $RESOURCES_PATH/librespot.service /etc/systemd/system/librespot.service 'sudo systemctl enable librespot.service'
+# Ensure logfile exists with correct ownership and permissions before starting librespot
+touch $LOGFILE_SPOTIFY
 # Ensure Spotify directory and flag files exist with default '0' and correct ownership and permissions
 mkdir -p "$SPOTIFY_PATH" || { echo -e "${RED}Failed to create directory $SPOTIFY_PATH${NC}"; exit 1; }
 for flag in spotactive.flag spotplaying.flag; do
 	file="$SPOTIFY_PATH/$flag"
 	if [ ! -f "$file" ]; then
 		echo "0" >"$file" || { echo -e "${RED}Failed to write $file${NC}"; exit 1; }
-		chown "$(id -un):$(id -gn)" "$file" 2>/dev/null || { echo -e "${RED}chown failed for $file${NC}"; exit 1; }
-		chmod 644 "$file" 2>/dev/null || { echo -e "${RED}chmod failed for $file${NC}"; exit 1; }
+#		chown "$(id -un):$(id -gn)" "$file" 2>/dev/null || { echo -e "${RED}chown failed for $file${NC}"; exit 1; }
+#		chmod 644 "$file" 2>/dev/null || { echo -e "${RED}chmod failed for $file${NC}"; exit 1; }
 	fi
 done
+exit
+# install librespot event handler script
+install_resource $RESOURCES_PATH/spotify_event_handler.sh /usr/local/bin/spotify_event_handler.sh 'sudo chmod +x /usr/local/bin/spotify_event_handler.sh'
+# Configure the Librespot service to start on boot
+install_resource $RESOURCES_PATH/librespot.service /etc/systemd/system/librespot.service 'sudo systemctl enable librespot.service'
 # Progress report
 echo -e "${GREEN}Spotify connect functionality is installed and configured${NC}"
 
