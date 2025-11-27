@@ -29,3 +29,18 @@ ws.onerror = (err) => {
     console.log("WebSocket error:", err);
     ws.close();
 };
+
+// Close the web interface
+function closeWebInterface() {
+	// Show a message about closing the web interface
+	const container = document.querySelector(".container");
+	container.innerHTML = '<div class="closing">' + 
+		'<div>De web interface wordt afgesloten...</div>' +
+	'</div>';
+
+	// Show waiting indicator
+	show_waiting();
+
+	// Close the WebSocket
+	ws.close();
+}
