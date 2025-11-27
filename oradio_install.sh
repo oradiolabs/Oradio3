@@ -259,9 +259,6 @@ if [ "$1" != "--continue" ]; then
 		fastapi
 		JinJa2
 		uvicorn
-		httptools
-		uvloop
-		websockets
 		python-multipart
 	)
 
