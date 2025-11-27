@@ -79,22 +79,50 @@ async function getPlaylistSongs()
 		return;
 	}
 
-	// Get array with only the names of the playlists which are webradio
-	const WebradioPlaylists = playlists.filter(item => item.webradio).map(item => item.playlist);
+	// Get array with only the names of the lowercase playlists which are webradio
+	const WebradioPlaylists = playlists
+		.filter(item => item.webradio)
+		.map(item => item.playlist.toLowerCase());	// convert all to lowercase
 
 	// playlist cannot be webradio
-	if (WebradioPlaylists.includes(playlist))
+	if (WebradioPlaylists.includes(playlist.toLowerCase()))	// compare in lowercase
 	{
 		// Notify
 		playlist_notification.innerHTML = `<p class='error'>'${playlist}' kan niet getoond worden</p>`;
 		playlist_notification.style.display = "block";
 
+		// Hide songs list
+		songlist.style.display = "none";
+
+		// Show menu images
+		showMenuImages();
+
 		// Done: protected playlist given
 		return;
 	}
 
-	// Get array with only the names of the playlists which are no webradio
-	const nonWebradioPlaylists = playlists.filter(item => !item.webradio).map(item => item.playlist);
+	// Get array with only the names of the playlists which are not a webradio
+	const nonWebradioPlaylists = playlists
+		.filter(item => !item.webradio)
+		.map(item => item.playlist);
+
+	// Find a match ignoring case
+	const match = nonWebradioPlaylists.find(n => n.toLowerCase() === playlist.toLowerCase());
+	if (match && (playlist != match))
+	{
+		// Notify
+		playlist_notification.innerHTML = `<br><p class='error'>'${playlist}' bestaat al als '${match}'</p>`;
+		playlist_notification.style.display = "block";
+
+		// Hide songs list
+		songlist.style.display = "none";
+
+		// Show menu images
+		showMenuImages();
+
+		// Done: protected playlist given
+		return;
+	}
 
 	// Check playlist exists
 	if (!nonWebradioPlaylists.includes(playlist))
@@ -112,6 +140,8 @@ async function getPlaylistSongs()
 		// Done: playlist does not exist
 		return;
 	}
+
+// check of playlist == playlist.toLowerCase()
 
 	// Set error template
 	const errorMessage = `Ophalen van de liedjes van speellijst '${playlist}' is mislukt`;
@@ -375,6 +405,9 @@ async function addSong(songfile)
 	// Get playlist
 	const playlist = document.getElementById("autocomplete-input").value.trim();
 
+	// Get songs list container
+	const songlist = document.getElementById("playlist-songs");
+
 	// playlist cannot be empty
 	if (!playlist)
 	{
@@ -383,7 +416,6 @@ async function addSong(songfile)
 		playlist_notification.style.display = "block";
 
 		// Hide songs list
-		const songlist = document.getElementById("playlist-songs");
 		songlist.style.display = "none";
 
 		// Done: no playlist given
@@ -391,10 +423,12 @@ async function addSong(songfile)
 	}
 
 	// Get array with only the names of the playlists which are webradio
-	const WebradioPlaylists = playlists.filter(item => item.webradio).map(item => item.playlist);
+	const WebradioPlaylists = playlists
+		.filter(item => item.webradio)
+		.map(item => item.playlist.toLowerCase());	// convert all to lowercase
 
 	// playlist cannot be webradio
-	if (WebradioPlaylists.includes(playlist))
+	if (WebradioPlaylists.includes(playlist.toLowerCase()))	// compare in lowercase
 	{
 		// Notify
 		playlist_notification.innerHTML = `<p class='error'>'${playlist}' kan niet gewijzigd worden</p>`;
@@ -405,7 +439,27 @@ async function addSong(songfile)
 	}
 
 	// Get array with only the names of the playlists which are no webradio
-	const nonWebradioPlaylists = playlists.filter(item => !item.webradio).map(item => item.playlist);
+	const nonWebradioPlaylists = playlists
+		.filter(item => !item.webradio)
+		.map(item => item.playlist);
+
+	// Find a match ignoring case
+	const match = nonWebradioPlaylists.find(n => n.toLowerCase() === playlist.toLowerCase());
+	if (match && (playlist != match))
+	{
+		// Notify
+		playlist_notification.innerHTML = `<p class='error'>'${playlist}' bestaat al als '${match}'</p>`;
+		playlist_notification.style.display = "block";
+
+		// Hide songs list
+		songlist.style.display = "none";
+
+		// Show menu images
+		showMenuImages();
+
+		// Done: protected playlist given
+		return;
+	}
 
 	// Ignore if no songfile to add and playlist already exist
 	if (!songfile && nonWebradioPlaylists.includes(playlist))
@@ -457,7 +511,7 @@ async function addSong(songfile)
 		playlist_notification.style.display = "block";
 
 		// No playlist: hide songlist
-		document.getElementById("playlist-songs").style.display = "none";
+		songlist.style.display = "none";
 	}
 }
 
@@ -467,6 +521,9 @@ async function removeSong(songfile)
 	// Get playlist
 	const playlist = document.getElementById("autocomplete-input").value.trim();
 
+	// Get songs list container
+	const songlist = document.getElementById("playlist-songs");
+
 	// playlist cannot be empty
 	if (!playlist)
 	{
@@ -475,7 +532,6 @@ async function removeSong(songfile)
 		playlist_notification.style.display = "block";
 
 		// Hide songs list
-		const songlist = document.getElementById("playlist-songs");
 		songlist.style.display = "none";
 
 		// Done: no playlist given
@@ -483,10 +539,12 @@ async function removeSong(songfile)
 	}
 
 	// Get array with only the names of the playlists which are webradio
-	const WebradioPlaylists = playlists.filter(item => item.webradio).map(item => item.playlist);
+	const WebradioPlaylists = playlists
+		.filter(item => item.webradio)
+		.map(item => item.playlist.toLowerCase());	// convert all to lowercase
 
 	// playlist cannot be webradio
-	if (WebradioPlaylists.includes(playlist))
+	if (WebradioPlaylists.includes(playlist.toLowerCase()))	// compare in lowercase
 	{
 		// Notify
 		playlist_notification.innerHTML = `<p class='error'>'${playlist}' kan niet verwijderd worden</p>`;
@@ -497,7 +555,9 @@ async function removeSong(songfile)
 	}
 
 	// Get array with only the names of the playlists which are no webradio
-	const nonWebradioPlaylists = playlists.filter(item => !item.webradio).map(item => item.playlist);
+	const nonWebradioPlaylists = playlists
+		.filter(item => !item.webradio)
+		.map(item => item.playlist);
 
 	// playlist must exist
 	if (!nonWebradioPlaylists.includes(playlist))
@@ -507,7 +567,6 @@ async function removeSong(songfile)
 		playlist_notification.style.display = "block";
 
 		// Hide songs list
-		const songlist = document.getElementById("playlist-songs");
 		songlist.style.display = "none";
 
 		// Done: playlist does not exist
