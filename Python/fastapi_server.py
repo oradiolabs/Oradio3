@@ -540,7 +540,7 @@ class WebSocketManager:
 active_ws_tasks: dict[str, list[Task]] = {}
 disconnect_tasks: dict[str, Task] = {}
 
-async def delayed_stop(client_token: str, delay: float = 2.0):
+async def delayed_stop(client_token: str, delay: float = 3.0):
     """
     Waits for a short delay before sending a stop message for a client token
     if there are no active WebSocket connections for that token.
