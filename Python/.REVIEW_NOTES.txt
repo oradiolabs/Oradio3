@@ -6,9 +6,33 @@ V betekent rework akkoord
 
 YYYY-MM-DD============================================================================================================================
 
+PLAY_SYSTEM_SOUND:
+T - Afspeleen en volume van elkaar loskoppelen.
+	Voordeel is dat het beter te onderhouden is, omdat afspelen en volume elk op zich redelijk eenvoudig zijn als ze zelfstandig zijn.
+
+MESSAGES:
+T - Messages 'opschonen', overwegen om json schemas te gebruiken.
+	De gekozen message format en definities zijn in de praktijk niet altijd even logisch.
+	Voordeel is onderhoudbaarheid, en met json schemas robuust tegen send/receive mismatches
+
+DEBUG / ERRORS:
+T - oradio_log.debug/info/warning/error messages nakijken of ze zinvol zijn en op juiste plek gebruikt worden.
+	Tijdens ontwikkeling is er vaak exctra debug logging ingeslopen om te controleren of de code werkt als verwacht.
+	Echter, de vraag is of als de module af is deze extra debug logging weer opgeruimd is.
+T - Default log level van modules die af zijn op 'info' zetten.
+	De logfile stroomt nu vol, ook met debug info van modules die niet gedebugged hoeven worden, info genoeg is.
+	Voordeel is dat oradio.log nuttiger wordt omdat eht geen overbodige regels bevat
+	Voordeel is ook dat Oradio minder cycles nodig heeft om te loggen (maar we hebben geen performance probleem)
+	Nadeel is dat áls er iets fout gaat, de logfile mogelijk te weining informatie bevat om de oorzaak van de fout op te sporen
+T - Oradio exception introduceren, inclusief handler die gepaste akties neemt.
+	Nu worden fouten alleen aamr gelogd, en als we geluk hebben naar RMS gestuurd.
+	De fout heeft vaak gevolgen voor het gedrag van de Oradio, waardoor de Oradio onverwachte dingen doet.
+	Als de error een Oradio-exception triggert inclusief extra informatie kan de exception handler in extrmis de Oradio opnieuw opstarten.
+
 WEBINTERFACE:
-T - De web interface bestaat nu uit een collectie losse web pagina's.
-    Nadeel is dat er veel duplicering van javascript en styling is tussen deze pagina's.
+T - Web interface refactoren naar Single Page Architecture (SPA), voor html, javascript en css.
+	De web interface bestaat nu uit een collectie losse web pagina's, losse javascript en losse css bestanden.
+    Nadeel is dat er veel duplicering van html, javascript en styling is tussen deze pagina's.
 	Dit heeft als risico dat er (zinloze/onbegrijpelijke) verschillen insluipen voor de gebruiker.
 	Het beste is om de web interface te refactoren naar Single Page Architecture (SPA).
 	Bijkomend voordeel is ook dat de server, inclusief de fix voor issue #384, eenvoudiger wordt.
@@ -16,10 +40,16 @@ T - De web interface bestaat nu uit een collectie losse web pagina's.
 MPD:
 T - Review mpd_control.py play method nav aanpassingen random nummer weergave
 T - Review Documents/MPD/MPD_modules_description.docx
-T - Olaf maakt test module mpd_control_test.py
+R - Als onderdeel van de stress testen #394 maakt Olaf ook test module mpd_control_test.py
+
+CONTROL:
+T - Review na alle module wijzigingen.
+	oradio_control is meermaals heen en weer geslingerd om (tijdelijke) wijzigingen in modules te accomoderen.
+	Zodra die modules gestabiliseerd zijn wordt het tijd om oradio_control na te kijken, op te schonen
 
 2025-11-25============================================================================================================================
 
+play_system_sound.py:
 R - De singleton decorator vervangt de dedecated singleton code
 R - De eigen debug print method is door oradio_log,debug() vervangen
 R - De doc-strings en inline comments zij bijgewerkt
@@ -89,6 +119,7 @@ V 4 - Ontbrekende foutmelding -> toegevoegd
 V 5 - Zie punt 1
 V 6 - Zie punt 1
 V 7 - errors propageren nu niet, worden alleen gelogd. Zie issue #408
+=> Review/Rework conclusie: Rework akkoord. Hiermee is review afgesloten.
 backligting.py review:
 V 1 - Het is een vrij theoretisch geval: EEPROMS hebben een beperkt aantal write cycles.
       Nu wordt de EEPROM elke keer als Oradio en backlighting start geschreven.
@@ -96,12 +127,10 @@ V 1 - Het is een vrij theoretisch geval: EEPROMS hebben een beperkt aantal write
 	  Maar omdat EEPROM schrijfbeperking bij 40-50000 cycles ligt hoeven we ons daar niet echt druk over te maken.
 	  Kortom: we laten het in Backlighting::__init__ zitten. Eens?
 V 2 - de stop() method docstring is niet correct: Stop the Backlight manager ipv volume control. Gecorrigeerd
+=> Review/Rework conclusie: Rework akkoord. Hiermee is review afgesloten.
 i2c_service.py review:
 V 1 - Reworked: een retry mechanisme voor write_byte() en write_block() toegevoegd
-=> Review/Rework conclusie:
-- volume_control.py rework is akkoord. Hiermee review afgesloten.
-- backlighting.py rework is akkoord. Hiermee review afgesloten.
-- i2c_service.py rework is akkoord: Hiermee review afgesloten
+=> Review/Rework conclusie: Rework akkoord. Hiermee is review afgesloten
 
 2025-11-10============================================================================================================================
 
@@ -117,4 +146,4 @@ V 8 - Probleem met twee self._execute() die bij elkaar gevoegd worden. Gaat fout
 V 9 - Groene tekst als een module test optie een succes oplevert.
 V 10 - Verhuis MPDBase naar eigen file mpd_base.py, laat mpd_control.p en mpd_monito.py die importeren
 V 11 - Gebruik 'Singleton metaclass' in mpd_monitor.py (later ook in andere modules waar Singleton gebruikt wordt)
-=> Review/Rework conclusie: Rework akkoord en hiermee MPD review afgesloten.
+=> Review/Rework conclusie: Rework akkoord. Hiermee is review afgesloten.
