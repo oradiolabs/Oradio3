@@ -25,14 +25,11 @@ Created on December 23, 2024
 """
 from os import path
 from re import match
-from uuid import uuid4
 from typing import Optional
 from json import load, JSONDecodeError
-from asyncio import sleep, Task, create_task, current_task, CancelledError
 from pydantic import BaseModel
 from fastapi import FastAPI, Request
 from fastapi.staticfiles import StaticFiles
-from fastapi.websockets import WebSocket, WebSocketDisconnect
 from fastapi.responses import FileResponse, RedirectResponse, JSONResponse
 from fastapi.templating import Jinja2Templates
 
@@ -473,165 +470,19 @@ async def spotify_name(spotify: Spotify):
     # Return the new device name on success
     return spotify.name
 
-#### WEBSOCKET ###########################
+#### CLOSE ###############################
 
-class WebSocketManager:
+# POST endpoint to close the server
+@api_app.post("/close")
+async def close():
     """
-    Manages active WebSocket connections keyed by client token.
-    Each client token can have multiple tabs/windows connected.
+    Handle POST request to close the web server
     """
-    def __init__(self):
-        """Initialize the WebSocketManager with an empty dictionary of clients."""
-        self.clients: dict[str, list[WebSocket]] = {}
+    oradio_log.debug("Closing the web server")
 
-    async def connect(self, websocket: WebSocket, client_token: str):
-        """
-        Accept a new WebSocket connection and register it under the client token.
-        Multiple tabs/windows are supported per token.
-        
-        Args:
-            websocket (WebSocket): The WebSocket connection to accept.
-            client_token (str): The unique identifier for the client.
-        """
-        # Accept the incoming WebSocket connection
-        await websocket.accept()
-        # Add the WebSocket to the list of connections for this client token
-        self.clients.setdefault(client_token, []).append(websocket)
-
-    async def disconnect(self, websocket: WebSocket, client_token: str) -> bool:
-        """
-        Remove a WebSocket connection for a given client token.
-        
-        Args:
-            websocket (WebSocket): The WebSocket connection to remove.
-            client_token (str): The client token associated with the connection.
-        
-        Returns:
-            bool: True if this was the last connection for the client token, False otherwise.
-        """
-        # Get current connections for the client
-        conns = self.clients.get(client_token, [])
-
-        if not conns:
-            # No client to disconnect
-            return True
-
-        if websocket in conns:
-            # Remove the disconnected WebSocket
-            conns.remove(websocket)
-
-        # Fully await websocket is closed
-        try:
-            await websocket.close()
-        # Safe to ignore during shutdown
-        except (WebSocketDisconnect, OSError, RuntimeError, CancelledError):
-            pass
-
-        if not conns:
-            # Remove token if no connections left
-            self.clients.pop(client_token, None)
-            # No more connections for this token
-            return True
-
-        # There are othe connections
-        return False
-
-# Global WebSocket state
-active_ws_tasks: dict[str, list[Task]] = {}
-disconnect_tasks: dict[str, Task] = {}
-
-async def delayed_stop(client_token: str, delay: float = 2.0):
-    """
-    Waits for a short delay before sending a stop message for a client token
-    if there are no active WebSocket connections for that token.
-    
-    This can be used to prevent prematurely stopping a service while a client
-    might still be connecting or reconnecting.
-
-    Args:
-        client_token (str): The unique identifier of the client.
-        delay (float, optional): Time in seconds to wait before checking. Defaults to 2.0.
-    """
-    await sleep(delay)  # Wait for the specified delay
-
-    # Wait until all websocket handler tasks fully exit
-    while client_token in active_ws_tasks:
-        await sleep(0.1)
-
-    # Check if there are still any active connections for this client
-    if client_token not in manager.clients or not manager.clients[client_token]:
-        # If no connections remain, send a stop message to the service queue
-        message = {"request": MESSAGE_REQUEST_STOP}
-        safe_put(api_app.state.queue, message)  # Safely put message in queue
-        oradio_log.info("All tabs for client '%s' closed, STOP message sent", client_token)
-
-    # Remove the task tracking entry for this client
-    disconnect_tasks.pop(client_token, None)
-
-# Global manager instance
-manager = WebSocketManager()
-
-@api_app.websocket("/ws")
-async def websocket_endpoint(websocket: WebSocket):
-    """
-    WebSocket endpoint that supports multiple tabs/windows per client token.
-    Closes only the specific tab on disconnect, and sends STOP message
-    when the last tab of a client closes.
-
-    Args:
-        websocket (WebSocket): The WebSocket connection provided by FastAPI.
-    """
-    # Retrieve client token from query parameters
-    client_token = websocket.query_params.get("client_token")
-    if not client_token:
-        oradio_log.warning("Reject unexpected access: no client token")
-        # Close the connection if no token is provided
-        await websocket.close()
-        return
-
-    # Track this WebSocket handler task
-    task = current_task()
-    active_ws_tasks.setdefault(client_token, set()).add(task)
-
-    # Register the browser tab
-    await manager.connect(websocket, client_token)
-    oradio_log.info("Client '%s' connected (tab added)", client_token)
-
-    try:
-        while True:
-            # Wait for any WebSocket event
-            event = await websocket.receive()
-
-            # Break the loop if the client disconnects
-            if event["type"] == "websocket.disconnect":
-                oradio_log.info("Client '%s' tab disconnected", client_token)
-                break
-
-    # Raised by FastAPI / Starlette when a client disconnects gracefully
-    except WebSocketDisconnect:
-        pass
-
-    # Safety net for network drops or server issues
-    except Exception as ex_err: # pylint: disable=broad-exception-caught
-        oradio_log.error("Client '%s' WebSocket error: %s", client_token, ex_err)
-
-    finally:
-        # Remove task from active set
-        active_ws_tasks[client_token].discard(task)
-        if not active_ws_tasks[client_token]:
-            active_ws_tasks.pop(client_token, None)
-
-        # Attempt to disconnect the websocket from the manager
-        empty = await manager.disconnect(websocket, client_token)
-
-        # If this was the last connection for the client, schedule a delayed stop
-        if empty:
-            # Cancel any previously scheduled stop task to avoid duplicates
-            if client_token in disconnect_tasks:
-                disconnect_tasks[client_token].cancel()
-
-            # Schedule a new delayed stop task for this client
-            disconnect_tasks[client_token] = create_task(delayed_stop(client_token))
+    # Send a stop message to the service queue
+    message = {"request": MESSAGE_REQUEST_STOP}
+    safe_put(api_app.state.queue, message)  # Safely put message in queue
 
 #### CATCH ALL ###########################
 
@@ -639,39 +490,18 @@ async def websocket_endpoint(websocket: WebSocket):
 async def catch_all(request: Request):
     """
     Catch-all endpoint to handle undefined routes.
-    - Ensures a 'client_token' cookie exists for the user.
     - Redirects the client to '/buttons'.
-    - Cookie is accessible from JavaScript for WebSocket use.
 
     Args:
         request (Request): The incoming HTTP request.
 
     Returns:
-        RedirectResponse: Redirects the client to '/buttons' with a cookie.
+        RedirectResponse: Redirects the client to '/buttons'.
     """
     oradio_log.debug("Catchall triggered for path: %s", request.url.path)
 
-    # Retrieve the client token from cookies
-    client_token = request.cookies.get("client_token")
-    if not client_token:
-        # Assign a new unique token
-        client_token = str(uuid4())
-        oradio_log.debug("Assigning new client token: %s", client_token)
-
-    # Create redirect response
-    response = RedirectResponse(url='/buttons', status_code=302)
-
-    # Set the cookie for 1 year, accessible from JS
-    response.set_cookie(
-        key="client_token",
-        value=client_token,
-        max_age=60*60*24*365,   # 1 year
-        httponly=False,         # must be accessible to JS for WS
-        samesite="Lax"
-    )
-
-    # Redirect with cookie
-    return response
+    # return redirect response
+    return RedirectResponse(url='/buttons', status_code=302)
 
 # Entry point for stand-alone operation
 if __name__ == '__main__':

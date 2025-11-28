@@ -6,26 +6,29 @@
  * @license:      GNU General Public License version 3; https://www.gnu.org/licenses/gpl-3.0.html
  */
 
-/*
- * Use WebSocket to allow server to track site closing using cookie
- */
+// Close the web interface
+function closeWebInterface() {
+	// Show a message about closing the web interface
+	const container = document.querySelector(".container");
+	container.innerHTML = '<div class="closing">' + 
+		'<div>De web interface wordt afgesloten...</div>' +
+	'</div>';
 
-// Retrieve the value of a cookie by its name
-function getCookie(name) {
-    const value = `; ${document.cookie}`;
-    const parts = value.split(`; ${name}=`);
-    if (parts.length === 2) return parts.pop().split(';').shift();
-    return null;
+	// Remove menu
+	document.querySelector('nav').remove();
+
+	// Show waiting indicator
+	show_waiting();
+
+	// Send close command
+	fetch('/close', {
+		method: 'POST',
+		headers: {'Content-Type': 'application/json'}
+	}).catch(() => {
+		// Handle server not responding
+		container.innerHTML = '<div class="closing">' + 
+			`<p class='error'>Er ging iets mis: Druk op de rode knop op de Oradio om de web interface af te sluiten</p>` +
+		'</div>';
+	});
 }
 
-// Get the 'client_token' cookie
-const client_token = getCookie('client_token');
-
-// Open a WebSocket connection with the client token as a query parameter
-let ws = new WebSocket(`/ws?client_token=${client_token}`);
-
-// Log any WebSocket errors and close the connection
-ws.onerror = (err) => {
-    console.log("WebSocket error:", err);
-    ws.close();
-};

@@ -62,7 +62,7 @@ from oradio_const import (
 
 ##### LOCAL constants ####################
 READY_TIMEOUT  = 15     # Seconds to wait for server ready
-SOCKET_TIMEOUT = 2      # Seconds between pings. Safe for small devices and small networks.
+SOCKET_TIMEOUT = 3      # Seconds between pings. Safe for small devices and small networks.
 THREAD_TIMEOUT = 3      # Timeout for thread to respond (seconds)
 # Close the message listener thread
 MESSAGE_REQUEST_CLOSE = "close listener thread"

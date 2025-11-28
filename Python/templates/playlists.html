@@ -25,8 +25,11 @@
 		{% include "menu.html" %}
 		<div class="container">
 
-			<!-- Show Oradio logo -->
-			<img src="../static/logo.png" class="logo" />
+			<!-- Show header -->
+			<div class="header">
+				<img src="../static/logo.png">
+				<img src="../static/stop.png" onclick="closeWebInterface()">
+			</div>
 
 			<!-- Manage playlist title bar -->
 			<h1 id="playlists">Speellijsten beheren</h1>

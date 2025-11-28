@@ -54,11 +54,9 @@
 }
 
 html {
-  -webkit-touch-callout: none;
   -webkit-user-select: text;
   -webkit-text-size-adjust: none;
   -webkit-tap-highlight-color: transparent;
-  -webkit-datetime-detector: none;		/* Does not aways work, but safe to keep */
 }
 
 body {
@@ -80,12 +78,11 @@ body {
 	margin-bottom: 60px;	/* allow space for bottom menu */
 }
 
-.logo {
-	display: block;
-	margin: 0 auto -20px auto;
-	width:50%;
-	width: 100px;
-	height: 20px;
+.header {
+	display: flex;
+	justify-content: space-between;	/* pushes images to edges */
+	align-items: center;			/* vertically centers if images are different heights */
+	padding: 0 10px 0 10px;			/* allow some space from the edge of the screen */
 }
 
 h1 {
@@ -97,7 +94,7 @@ h1 {
 	border-radius: 5px;
 	padding: 10px;
 	font-size: 20px;
-	margin: 40px 0 20px -10px;
+	margin: 20px 0 20px -10px;
 	text-align: center;
 }
 
@@ -203,6 +200,15 @@ li {
 	display: none;
 }
 
+.closing {
+	text-align: center;
+	line-height: 1.5;
+	margin: 10px 0 10px 0;
+	color: var(--notification);
+	display: block;
+	margin-top: 100px;
+}
+
 .success {
 	color: var(--notification-success);
 }
@@ -223,7 +229,7 @@ li {
 	margin: 20px 0 20px 0;
 	border-radius: 5px;
 	background-color: var(--scrollbox-background);
-	max-height: 230px;
+	max-height: 215px;
 	overflow-y: auto;
 	z-index: 10;
 	-webkit-overflow-scrolling: touch;

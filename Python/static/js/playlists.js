@@ -6,6 +6,45 @@
  * @license:      GNU General Public License version 3; https://www.gnu.org/licenses/gpl-3.0.html
  */
 
+// Scroll the page so the playlist input is at the top of the viewport
+function scrollToPlaylistInput()
+{
+	const input = document.getElementById('autocomplete-input');
+	if (!input) return;
+
+	// Offset 10 to show input just below top of screen
+	const y = input.getBoundingClientRect().top + window.scrollY - 10;
+
+	window.scrollTo({top: y, behavior: 'smooth'});
+}
+
+// Scroll to top and show menu images
+function showMenuImages() {
+	const nav = document.querySelector('nav');
+	window.scrollTo({ top: 0, behavior: 'smooth' });
+	nav.classList.remove('hide-images');
+}
+
+// Scroll to input and hide menu images
+function hideMenuImages() {
+	const nav = document.querySelector('nav');
+	nav.classList.add('hide-images');
+	scrollToPlaylistInput();
+}
+
+// Show menu images when space allows, otherwise only show the labels
+function updateMenuImages()
+{
+	const playlistSongs = document.getElementById("playlist-songs");
+	const searchSongs = document.getElementById("search-songs");
+
+	// Hide images if both song lists are visible, otherwise show
+	if (playlistSongs.style.display === "block" && searchSongs.style.display === "block")
+		hideMenuImages();
+	else
+		showMenuImages();
+}
+
 /*
  * Function to get the songs for the selected playlist
  * Called:
@@ -30,29 +69,60 @@ async function getPlaylistSongs()
 	// Check for playlist
 	if (!playlist)
 	{
-		// No playlist: hide songlist
+		// Hide songs list
 		songlist.style.display = "none";
+
+		// Show menu images
+		showMenuImages();
 
 		// Done: no playlist to list songs for
 		return;
 	}
 
-	// Get array with only the names of the playlists which are webradio
-	const WebradioPlaylists = playlists.filter(item => item.webradio).map(item => item.playlist);
+	// Get array with only the names of the lowercase playlists which are webradio
+	const WebradioPlaylists = playlists
+		.filter(item => item.webradio)
+		.map(item => item.playlist.toLowerCase());	// convert all to lowercase
 
 	// playlist cannot be webradio
-	if (WebradioPlaylists.includes(playlist))
+	if (WebradioPlaylists.includes(playlist.toLowerCase()))	// compare in lowercase
 	{
 		// Notify
 		playlist_notification.innerHTML = `<p class='error'>'${playlist}' kan niet getoond worden</p>`;
 		playlist_notification.style.display = "block";
 
+		// Hide songs list
+		songlist.style.display = "none";
+
+		// Show menu images
+		showMenuImages();
+
 		// Done: protected playlist given
 		return;
 	}
 
-	// Get array with only the names of the playlists which are no webradio
-	const nonWebradioPlaylists = playlists.filter(item => !item.webradio).map(item => item.playlist);
+	// Get array with only the names of the playlists which are not a webradio
+	const nonWebradioPlaylists = playlists
+		.filter(item => !item.webradio)
+		.map(item => item.playlist);
+
+	// Find a match ignoring case
+	const match = nonWebradioPlaylists.find(n => n.toLowerCase() === playlist.toLowerCase());
+	if (match && (playlist != match))
+	{
+		// Notify
+		playlist_notification.innerHTML = `<br><p class='error'>'${playlist}' bestaat al als '${match}'</p>`;
+		playlist_notification.style.display = "block";
+
+		// Hide songs list
+		songlist.style.display = "none";
+
+		// Show menu images
+		showMenuImages();
+
+		// Done: protected playlist given
+		return;
+	}
 
 	// Check playlist exists
 	if (!nonWebradioPlaylists.includes(playlist))
@@ -62,12 +132,16 @@ async function getPlaylistSongs()
 		playlist_notification.style.display = "block";
 
 		// Hide songs list
-		const songlist = document.getElementById("playlist-songs");
 		songlist.style.display = "none";
+
+		// Show menu images
+		showMenuImages();
 
 		// Done: playlist does not exist
 		return;
 	}
+
+// check of playlist == playlist.toLowerCase()
 
 	// Set error template
 	const errorMessage = `Ophalen van de liedjes van speellijst '${playlist}' is mislukt`;
@@ -93,6 +167,9 @@ async function getPlaylistSongs()
 			{
 				// Hide songs list
 				songlist.style.display = "none";
+
+				// Show menu images
+				showMenuImages();
 
 				// Notify
 				playlist_notification.innerHTML = `<p class='warning'>Speellijst '${playlist}' bestaat, maar is leeg<br>Zoek liedjes en voeg toe met de <button class="save-button-tiny"></button>-knop</p>`;
@@ -138,6 +215,9 @@ async function getPlaylistSongs()
 
 			// Show songs list
 			songlist.style.display = "block";
+
+			// Show/hide menu images
+			updateMenuImages()
 
 			// Clear and hide playlist_notification
 			playlist_notification.innerHTML = "";
@@ -189,6 +269,9 @@ async function getSearchSongs()
 		// Hide songs list
 		songlist.style.display = "none";
 
+		// Show menu images
+		showMenuImages();
+
 		// Clear and hide search_notification
 		search_notification.innerHTML = "";
 		search_notification.style.display = "none";
@@ -202,6 +285,9 @@ async function getSearchSongs()
 	{
 		// Hide songs list
 		songlist.style.display = "none";
+
+		// Show menu images
+		showMenuImages();
 
 		// Notify
 		search_notification.innerHTML = `<span class='warning'>Gebruik een zoekopdracht met minimaal 3 karakters</span>`;
@@ -235,6 +321,9 @@ async function getSearchSongs()
 			{
 				// Hide songs list
 				songlist.style.display = "none";
+
+				// Show menu images
+				showMenuImages();
 
 				// Notify
 				search_notification.innerHTML = `<span class='warning'>Geen liedjes gevonden met '${search}' in de naam van de artiest of in de titel<br>Gebruik een andere zoekopdracht</span>`;
@@ -284,6 +373,9 @@ async function getSearchSongs()
 			// Show songs list
 			songlist.style.display = "block";
 
+			// Show/hide menu images
+			updateMenuImages()
+
 			// Clear and hide search_notification
 			search_notification.innerHTML = "";
 			search_notification.style.display = "none";
@@ -313,6 +405,9 @@ async function addSong(songfile)
 	// Get playlist
 	const playlist = document.getElementById("autocomplete-input").value.trim();
 
+	// Get songs list container
+	const songlist = document.getElementById("playlist-songs");
+
 	// playlist cannot be empty
 	if (!playlist)
 	{
@@ -321,7 +416,6 @@ async function addSong(songfile)
 		playlist_notification.style.display = "block";
 
 		// Hide songs list
-		const songlist = document.getElementById("playlist-songs");
 		songlist.style.display = "none";
 
 		// Done: no playlist given
@@ -329,10 +423,12 @@ async function addSong(songfile)
 	}
 
 	// Get array with only the names of the playlists which are webradio
-	const WebradioPlaylists = playlists.filter(item => item.webradio).map(item => item.playlist);
+	const WebradioPlaylists = playlists
+		.filter(item => item.webradio)
+		.map(item => item.playlist.toLowerCase());	// convert all to lowercase
 
 	// playlist cannot be webradio
-	if (WebradioPlaylists.includes(playlist))
+	if (WebradioPlaylists.includes(playlist.toLowerCase()))	// compare in lowercase
 	{
 		// Notify
 		playlist_notification.innerHTML = `<p class='error'>'${playlist}' kan niet gewijzigd worden</p>`;
@@ -343,7 +439,27 @@ async function addSong(songfile)
 	}
 
 	// Get array with only the names of the playlists which are no webradio
-	const nonWebradioPlaylists = playlists.filter(item => !item.webradio).map(item => item.playlist);
+	const nonWebradioPlaylists = playlists
+		.filter(item => !item.webradio)
+		.map(item => item.playlist);
+
+	// Find a match ignoring case
+	const match = nonWebradioPlaylists.find(n => n.toLowerCase() === playlist.toLowerCase());
+	if (match && (playlist != match))
+	{
+		// Notify
+		playlist_notification.innerHTML = `<p class='error'>'${playlist}' bestaat al als '${match}'</p>`;
+		playlist_notification.style.display = "block";
+
+		// Hide songs list
+		songlist.style.display = "none";
+
+		// Show menu images
+		showMenuImages();
+
+		// Done: protected playlist given
+		return;
+	}
 
 	// Ignore if no songfile to add and playlist already exist
 	if (!songfile && nonWebradioPlaylists.includes(playlist))
@@ -395,7 +511,7 @@ async function addSong(songfile)
 		playlist_notification.style.display = "block";
 
 		// No playlist: hide songlist
-		document.getElementById("playlist-songs").style.display = "none";
+		songlist.style.display = "none";
 	}
 }
 
@@ -405,6 +521,9 @@ async function removeSong(songfile)
 	// Get playlist
 	const playlist = document.getElementById("autocomplete-input").value.trim();
 
+	// Get songs list container
+	const songlist = document.getElementById("playlist-songs");
+
 	// playlist cannot be empty
 	if (!playlist)
 	{
@@ -413,7 +532,6 @@ async function removeSong(songfile)
 		playlist_notification.style.display = "block";
 
 		// Hide songs list
-		const songlist = document.getElementById("playlist-songs");
 		songlist.style.display = "none";
 
 		// Done: no playlist given
@@ -421,10 +539,12 @@ async function removeSong(songfile)
 	}
 
 	// Get array with only the names of the playlists which are webradio
-	const WebradioPlaylists = playlists.filter(item => item.webradio).map(item => item.playlist);
+	const WebradioPlaylists = playlists
+		.filter(item => item.webradio)
+		.map(item => item.playlist.toLowerCase());	// convert all to lowercase
 
 	// playlist cannot be webradio
-	if (WebradioPlaylists.includes(playlist))
+	if (WebradioPlaylists.includes(playlist.toLowerCase()))	// compare in lowercase
 	{
 		// Notify
 		playlist_notification.innerHTML = `<p class='error'>'${playlist}' kan niet verwijderd worden</p>`;
@@ -435,7 +555,9 @@ async function removeSong(songfile)
 	}
 
 	// Get array with only the names of the playlists which are no webradio
-	const nonWebradioPlaylists = playlists.filter(item => !item.webradio).map(item => item.playlist);
+	const nonWebradioPlaylists = playlists
+		.filter(item => !item.webradio)
+		.map(item => item.playlist);
 
 	// playlist must exist
 	if (!nonWebradioPlaylists.includes(playlist))
@@ -445,7 +567,6 @@ async function removeSong(songfile)
 		playlist_notification.style.display = "block";
 
 		// Hide songs list
-		const songlist = document.getElementById("playlist-songs");
 		songlist.style.display = "none";
 
 		// Done: playlist does not exist
