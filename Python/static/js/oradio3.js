@@ -6,6 +6,11 @@
  * @license:      GNU General Public License version 3; https://www.gnu.org/licenses/gpl-3.0.html
  */
 
+// Ping to indicate the client is active
+setInterval(() => {
+	fetch("/keep_alive", { method:"POST"});
+}, 2000);
+
 // Close the web interface
 function closeWebInterface() {
 	// Show a message about closing the web interface
@@ -21,14 +26,6 @@ function closeWebInterface() {
 	show_waiting();
 
 	// Send close command
-	fetch('/close', {
-		method: 'POST',
-		headers: {'Content-Type': 'application/json'}
-	}).catch(() => {
-		// Handle server not responding
-		container.innerHTML = '<div class="closing">' + 
-			`<p class='error'>Er ging iets mis: Druk op de rode knop op de Oradio om de web interface af te sluiten</p>` +
-		'</div>';
-	});
+	fetch("/close", {method: "POST"});
 }
 
