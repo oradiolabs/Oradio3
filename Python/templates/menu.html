@@ -16,11 +16,12 @@ nav {
 	display: flex;
 	background-color: var(--menu-background);
 	border-top: 1px solid var(--menu-border);
-	width: 100%;		/* Support smaller screens */
-	max-width: 440px;	/* Limit for larger screens */
-	position: fixed;	/* Stick the menu relative to the viewport */
-	bottom: 10px;		/* 10px above the bottom to put it above the Apple swipe bar */
-	z-index: 100;		/* Keep menu on top of other content */
+	width: 100%;			/* Support smaller screens */
+	max-width: 440px;		/* Limit for larger screens */
+	position: fixed;		/* Stick the menu relative to the viewport */
+	padding-bottom: 10px;	/* Allow spece for the Apple swipe bar */
+	bottom: 0px;			/* Stick to bottom of screen */
+	z-index: 100;			/* Keep menu on top of other content */
 }
 
 nav a {

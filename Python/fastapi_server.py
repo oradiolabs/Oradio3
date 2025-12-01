@@ -184,7 +184,11 @@ async def playlists_page(request: Request):
     """
     oradio_log.debug("Serving playlists page")
 
-    context = {"playlists": mpd_control.get_playlists()}
+    # Return playlist page, directories and playlists as context
+    context = {
+        "directories" : mpd_control.get_directories(),
+        "playlists"   : mpd_control.get_playlists()
+    }
     return templates.TemplateResponse(request=request, name="playlists.html", context=context)
 
 class Modify(BaseModel):
