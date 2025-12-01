@@ -476,12 +476,12 @@ async def spotify_name(spotify: Spotify):
 
 #### CLOSE ###############################
 
-
-api_app.state.timer_task = None
-api_app.state.timer_deadline = None   # When the timer should expire
+# Store in api_app.state to persists over multiple HTTP requests and application lifetime
+api_app.state.timer_task = None         # The actual timer task
+api_app.state.timer_deadline = None     # When the timer should expire
 
 async def stop_task():
-    """The 5-second wait task."""
+    """The wait task sending the stop message when timer expires."""
     try:
         # Sleep until timeout unless reset
         while True:
