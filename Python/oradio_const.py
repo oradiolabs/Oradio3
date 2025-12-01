@@ -26,11 +26,14 @@ Created on December 23, 2024
 import os
 import sys
 
-# Colors
-RED    ='\033[1;31m'
-YELLOW ='\033[1;93m'
-GREEN  ='\033[1;32m'
-NC     ='\033[0m'
+# 256-color ANSI codes
+BLUE   = '\x1b[38;5;039m'
+GREY   = '\x1b[38;5;248m'
+WHITE  = '\x1b[38;5;255m'
+YELLOW = '\x1b[38;5;226m'
+GREEN  = '\x1b[38;5;046m'
+RED    = '\x1b[38;5;196m'
+NC     = '\x1b[0m'
 
 # Make Oradio file locations relative
 ORADIO_DIR        = sys.path[0]
@@ -39,6 +42,11 @@ JSON_SCHEMAS_FILE = os.path.realpath(ORADIO_DIR + "/schemas.json")
 
 # Messages consist of 3 elements: source, state and error
 MESSAGE_NO_ERROR = "None"
+
+################## LOGGING ################################
+from logging import DEBUG, INFO, WARNING, ERROR
+ORADIO_LOGGER    = "oradio"  # Logger identifier
+ORADIO_LOG_LEVEL = DEBUG     # System-wide log level
 
 ################## LED GPIO PINS ##########################
 LEDS = {
