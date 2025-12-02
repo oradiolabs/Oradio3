@@ -78,9 +78,14 @@ def safe_put(queue, msg, block=True, timeout=None):
         oradio_log.warning("Queue is full — dropping message: %r", msg)
         return False
 
-    except (OSError, EOFError, ValueError, AssertionError) as ex_err:
+    except (OSError, EOFError, ValueError) as ex_err:
         # Queue closed or broken
         oradio_log.error("Queue is closed/broken — failed to put message: %r (%s)", msg, ex_err)
+        return False
+
+    except AssertionError as ex_err:
+        # Rare internal queue corruption
+        oradio_log.critical("Queue internal error: %s", ex_err, exc_info=True)
         return False
 
 def is_service_active(service_name):
@@ -156,15 +161,13 @@ def create_json_model(model_name):
         messages = models[model_name]
     return(status, messages)
 
-#REVIEW Onno: Use wifi_service NetworkManager D-Bus monitor to report connected to internet or not
-def has_internet() -> bool:
+def has_internet():
     """
     Hybrid internet check on wireless interface:
     First check NetworkManager has connection
     Second if connected do ping (fast)
     Third if ping fails do DNS check (robust)
     """
-    '''
     # First: NetworkManager
     cmd = f"nmcli -t -f DEVICE,STATE device status | grep -q '^{INTERFACE}:connected'"
     result, _ = run_shell_script(cmd)
@@ -179,7 +182,6 @@ def has_internet() -> bool:
         # Has internet
         return True
     oradio_log.debug("ping failed, check DNS")
-    '''
 
     # Third: DNS
     try:
@@ -192,7 +194,7 @@ def has_internet() -> bool:
             sock.connect(DNS_HOST)
         return True
     except (socket.timeout, socket.error, KeyError):
-#        oradio_log.debug("DNS failed: no internet")
+        oradio_log.debug("DNS failed: no internet")
         return False
 
 def run_shell_script(script):
