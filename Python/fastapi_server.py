@@ -27,11 +27,13 @@ from os import path
 from re import match
 from typing import Optional
 from json import load, JSONDecodeError
-from pydantic import BaseModel
 from fastapi import FastAPI, Request
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse, RedirectResponse, JSONResponse
 from fastapi.templating import Jinja2Templates
+from asyncio import sleep, create_task, CancelledError
+from datetime import datetime, timedelta
+from pydantic import BaseModel
 
 #### oradio modules ######################
 from oradio_logging import oradio_log
@@ -64,6 +66,8 @@ INFO_MISSING  = {"serial": "not found", "version": "not found"}
 INFO_ERROR    = {"serial": "undefined", "version": "undefined"}
 # Location of version info
 SOFTWARE_VERSION_FILE = "/var/log/oradio_sw_version.log"
+# Stop server if no keep alive message received, in seconds
+KEEP_ALIVE_TIMEOUT = 5
 
 # Initialise MPD client
 mpd_control = MPDControl()
@@ -180,7 +184,11 @@ async def playlists_page(request: Request):
     """
     oradio_log.debug("Serving playlists page")
 
-    context = {"playlists": mpd_control.get_playlists()}
+    # Return playlist page, directories and playlists as context
+    context = {
+        "directories" : mpd_control.get_directories(),
+        "playlists"   : mpd_control.get_playlists()
+    }
     return templates.TemplateResponse(request=request, name="playlists.html", context=context)
 
 class Modify(BaseModel):
@@ -471,6 +479,45 @@ async def spotify_name(spotify: Spotify):
     return spotify.name
 
 #### CLOSE ###############################
+
+# Store in api_app.state to persists over multiple HTTP requests and application lifetime
+api_app.state.timer_task = None         # The actual timer task
+api_app.state.timer_deadline = None     # When the timer should expire
+
+async def stop_task():
+    """The wait task sending the stop message when timer expires."""
+    try:
+        # Sleep until timeout unless reset
+        while True:
+            remaining = (api_app.state.timer_deadline - datetime.utcnow()).total_seconds()
+            if remaining <= 0:
+                break
+            await sleep(min(remaining, 0.2))  # check frequently
+
+        # Timer expired: Send a stop message to the service queue
+        message = {"request": MESSAGE_REQUEST_STOP}
+        safe_put(api_app.state.queue, message)  # Safely put message in queue
+        oradio_log.debug("Keep alive timer expired: closing the web server")
+
+    except CancelledError:
+        # Timer cancelled (because a new keep alive request arrived)
+        pass
+
+# POST endpoint to reset the keep alive timer
+@api_app.post("/keep_alive")
+async def keep_alive():
+    """Handle POST request to (re)set the inactive timer for closing the web server."""
+    oradio_log.debug("Resetting the keep alive timer")
+
+    # Set the new deadline
+    api_app.state.timer_deadline = datetime.utcnow() + timedelta(seconds=KEEP_ALIVE_TIMEOUT)
+
+    # Cancel the previous timer task if running
+    if api_app.state.timer_task and not api_app.state.timer_task.done():
+        api_app.state.timer_task.cancel()
+
+    # Create a new timer task
+    api_app.state.timer_task = create_task(stop_task())
 
 # POST endpoint to close the server
 @api_app.post("/close")

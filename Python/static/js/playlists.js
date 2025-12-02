@@ -80,15 +80,18 @@ async function getPlaylistSongs()
 	}
 
 	// Get array with only the names of the lowercase playlists which are webradio
-	const WebradioPlaylists = playlists
+	const webradios = playlists
 		.filter(item => item.webradio)
 		.map(item => item.playlist.toLowerCase());	// convert all to lowercase
 
-	// playlist cannot be webradio
-	if (WebradioPlaylists.includes(playlist.toLowerCase()))	// compare in lowercase
+	// Combine the webradios and directories arrays and convert all names to lowercase
+	const blocked = [...webradios, ...directories.map(name => name.toLowerCase())];
+
+	// playlist cannot be webradio or directory
+	if (blocked.includes(playlist.toLowerCase()))	// compare in lowercase
 	{
 		// Notify
-		playlist_notification.innerHTML = `<p class='error'>'${playlist}' kan niet getoond worden</p>`;
+		playlist_notification.innerHTML = `<p class='error'>'Deze naam is al in gebruik<br>Kies een andere naam</p>`;
 		playlist_notification.style.display = "block";
 
 		// Hide songs list
@@ -422,13 +425,16 @@ async function addSong(songfile)
 		return;
 	}
 
-	// Get array with only the names of the playlists which are webradio
-	const WebradioPlaylists = playlists
+	// Get array with only the names of the lowercase playlists which are webradio
+	const webradios = playlists
 		.filter(item => item.webradio)
 		.map(item => item.playlist.toLowerCase());	// convert all to lowercase
 
-	// playlist cannot be webradio
-	if (WebradioPlaylists.includes(playlist.toLowerCase()))	// compare in lowercase
+	// Combine the webradios and directories arrays and convert all names to lowercase
+	const blocked = [...webradios, ...directories.map(name => name.toLowerCase())];
+
+	// playlist cannot be webradio or directory
+	if (blocked.includes(playlist.toLowerCase()))	// compare in lowercase
 	{
 		// Notify
 		playlist_notification.innerHTML = `<p class='error'>'${playlist}' kan niet gewijzigd worden</p>`;
@@ -538,13 +544,16 @@ async function removeSong(songfile)
 		return;
 	}
 
-	// Get array with only the names of the playlists which are webradio
-	const WebradioPlaylists = playlists
+	// Get array with only the names of the lowercase playlists which are webradio
+	const webradios = playlists
 		.filter(item => item.webradio)
 		.map(item => item.playlist.toLowerCase());	// convert all to lowercase
 
-	// playlist cannot be webradio
-	if (WebradioPlaylists.includes(playlist.toLowerCase()))	// compare in lowercase
+	// Combine the webradios and directories arrays and convert all names to lowercase
+	const blocked = [...webradios, ...directories.map(name => name.toLowerCase())];
+
+	// playlist cannot be webradio or directory
+	if (blocked.includes(playlist.toLowerCase()))	// compare in lowercase
 	{
 		// Notify
 		playlist_notification.innerHTML = `<p class='error'>'${playlist}' kan niet verwijderd worden</p>`;
