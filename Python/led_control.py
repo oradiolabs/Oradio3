@@ -65,8 +65,8 @@ class LEDControl:
         #   def short_blink_led(led_name:str)
         #   def long_blink_led(led_name:str)
         #   def _control_blinking_led( led_name:str, cycle_time:int
-        #   
-        ##########################################################################        
+        #
+        ##########################################################################
         GPIO.setmode(GPIO.BCM)                                # moved to GPIO_service.py
         for _, pin in LEDS.items():                           # moved to GPIO_service.py
             GPIO.setup(pin, GPIO.OUT, initial=GPIO.HIGH)      # moved to GPIO_service.py
@@ -82,7 +82,7 @@ class LEDControl:
         # True = Blinking started
         # False = Failure
         # or if it makes sense return a success/error status
-        ################################################       
+        ################################################
         if led_name not in LEDS:
             oradio_log.error("Invalid LED name: %s", led_name)
             return
@@ -100,7 +100,7 @@ class LEDControl:
         # now safe to drive off
         # Review Henk:
         # moved to GPIO_service.py
-        GPIO.output(LEDS[led_name], GPIO.HIGH) 
+        GPIO.output(LEDS[led_name], GPIO.HIGH)
         if log:
             oradio_log.debug("%s turned off", led_name)
 
@@ -112,7 +112,7 @@ class LEDControl:
         # True = Blinking started
         # False = Failure
         # or if it makes sense return a success/error status
-        ################################################        
+        ################################################
         if led_name not in LEDS:
             oradio_log.error("Invalid LED name: %s", led_name)
             return
@@ -154,7 +154,7 @@ class LEDControl:
         # True = Blinking started
         # False = Failure
         # or if it makes sense return a success/error status
-        ################################################        
+        ################################################
         if led_name not in LEDS:
             oradio_log.error("Invalid LED name: %s", led_name)
             return
@@ -189,7 +189,7 @@ class LEDControl:
         # review Henk
         # specify the arguments led_name and cycle_time
         ###############################################
-      
+
         if led_name not in LEDS:
             oradio_log.error("Invalid LED name: %s", led_name)
             return
@@ -199,7 +199,7 @@ class LEDControl:
         # False = Failure
         # or if it makes sense return a success/error status
         ################################################
-        
+
         # stop any existing blink
         old_evt = self.blink_stop_events.pop(led_name, None)
         if old_evt:

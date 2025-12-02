@@ -274,7 +274,7 @@ if __name__ == "__main__":
             blink_led(name)
         return _cb
 
-    tb = TouchButtons(
+    _touch_buttons = TouchButtons(
         on_press={n: on_press_factory(n) for n in BUTTONS},
         on_long_press={"Play": on_long_factory("Play")},  # demo: only Play has long-press
     )
@@ -288,7 +288,7 @@ if __name__ == "__main__":
     except KeyboardInterrupt:
         pass
     finally:
-        for t in list(tb.long_press_timers.values()):
+        for t in list(_touch_buttons.long_press_timers.values()):
             t.cancel()
         GPIO.cleanup()
         sys.exit(0)
