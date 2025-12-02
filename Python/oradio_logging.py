@@ -32,7 +32,10 @@ from concurrent_log_handler import ConcurrentRotatingFileHandler
 from vcgencmd import Vcgencmd
 
 ##### GROBAL constants ####################
-from oradio_const import YELLOW, NC, ORADIO_LOG_DIR
+from oradio_const import (
+    BLUE, GREY, WHITE, YELLOW, RED, NC,
+    ORADIO_LOG_DIR,
+)
 
 ##### LOCAL constants ####################
 ORADIO_LOGGER       = "oradio"  # Logger identifier
@@ -40,15 +43,15 @@ ORADIO_LOG_LEVEL    = DEBUG     # System-wide log level
 ORADIO_LOG_FILE     = ORADIO_LOG_DIR + '/oradio.log'
 ORADIO_LOG_FILESIZE = 512 * 1024
 ORADIO_LOG_BACKUPS  = 1
-TRACE_LOG_NUMBER    = 5
+# TRACE log level
+TRACE = 5
 
-# Add TRACE level
-# 2. Voeg de .trace() methode toe aan logging.Logger
+# Add TRACE log level
 def trace(self, message, *args, **kwargs):
     """Define TRACE as log level using public log(), not private_log() """
-    if self.isEnabledFor(TRACE_LOG_NUMBER):
-        self.log(TRACE_LOG_NUMBER, message, *args, **kwargs) # Use log(), not _log()
-logging.addLevelName(TRACE_LOG_NUMBER, "TRACE")
+    if self.isEnabledFor(TRACE):
+        self.log(TRACE, message, *args, **kwargs) # Use log(), not _log()
+logging.addLevelName(TRACE, "TRACE")
 logging.Logger.trace = trace
 
 # Enable faulthandler for crashes
@@ -76,17 +79,13 @@ if not oradio_log.hasHandlers():
 
     class ColorFormatter(logging.Formatter):
         """ Use colors to differentiate the different log level messages """
-        grey   = '\x1b[38;5;248m'
-        white  = '\x1b[38;5;255m'
-        yellow = '\x1b[38;5;226m'
-        red    = '\x1b[38;5;196m'
-        reset  = '\x1b[0m'
         msg_format = "%(asctime)s - %(filename)s:%(lineno)d - %(levelname)s - %(message)s"
         FORMATS = {
-            DEBUG: grey + msg_format + reset,
-            INFO: white + msg_format + reset,
-            WARNING: yellow + msg_format + reset,
-            ERROR: red + msg_format + reset,
+            TRACE: BLUE + msg_format + NC,
+            DEBUG: GREY + msg_format + NC,
+            INFO: WHITE + msg_format + NC,
+            WARNING: YELLOW + msg_format + NC,
+            ERROR: RED + msg_format + NC,
         }
 
         def format(self, record):
@@ -180,13 +179,14 @@ if __name__ == '__main__':
         input_selection = (
             "Select a function, input the number.\n"
             " 0-Quit\n"
-            " 1-Test log level DEBUG\n"
-            " 2-Test log level INFO\n"
-            " 3-Test log level WARNING\n"
-            " 4-Test log level ERROR\n"
-            " 5-Test unhandled exceptions in Process and Thread\n"
-            " 6-Test unhandled exception in current thread: will exit\n"
-            " 7-Test segment fault: will exit\n"
+            " 1-Test log level TRACE\n"
+            " 2-Test log level DEBUG\n"
+            " 3-Test log level INFO\n"
+            " 4-Test log level WARNING\n"
+            " 5-Test log level ERROR\n"
+            " 6-Test unhandled exceptions in Process and Thread\n"
+            " 7-Test unhandled exception in current thread: will exit\n"
+            " 8-Test segment fault: will exit\n"
             "Select: "
         )
 
@@ -204,34 +204,46 @@ if __name__ == '__main__':
                     print("\nExiting test program...\n")
                     break
                 case 1:
-                    oradio_log.setLevel(DEBUG)
-                    print(f"\nlogging level: {DEBUG}: Show debug, info, warning and error messages\n")
+                    oradio_log.setLevel(TRACE)
+                    print(f"\nlogging level: {TRACE}: Show trace, debug, info, warning and error messages\n")
+                    oradio_log.trace('This is a trace message')
                     oradio_log.debug('This is a debug message')
                     oradio_log.info('This is a info message')
                     oradio_log.warning('This is a warning message')
                     oradio_log.error('This is a error message')
                 case 2:
-                    oradio_log.setLevel(INFO)
-                    print(f"\nlogging level: {INFO}: Show info, warning and error messages\n")
+                    oradio_log.setLevel(DEBUG)
+                    print(f"\nlogging level: {DEBUG}: Show debug, info, warning and error messages\n")
+                    oradio_log.trace('This is a trace message')
                     oradio_log.debug('This is a debug message')
                     oradio_log.info('This is a info message')
                     oradio_log.warning('This is a warning message')
                     oradio_log.error('This is a error message')
                 case 3:
-                    oradio_log.setLevel(WARNING)
-                    print(f"\nlogging level: {WARNING}: Show warning and error messages\n")
+                    oradio_log.setLevel(INFO)
+                    print(f"\nlogging level: {INFO}: Show info, warning and error messages\n")
+                    oradio_log.trace('This is a trace message')
                     oradio_log.debug('This is a debug message')
                     oradio_log.info('This is a info message')
                     oradio_log.warning('This is a warning message')
                     oradio_log.error('This is a error message')
                 case 4:
-                    oradio_log.setLevel(ERROR)
-                    print(f"\nlogging level: {ERROR}: Show error message\n")
+                    oradio_log.setLevel(WARNING)
+                    print(f"\nlogging level: {WARNING}: Show warning and error messages\n")
+                    oradio_log.trace('This is a trace message')
                     oradio_log.debug('This is a debug message')
                     oradio_log.info('This is a info message')
                     oradio_log.warning('This is a warning message')
                     oradio_log.error('This is a error message')
                 case 5:
+                    oradio_log.setLevel(ERROR)
+                    print(f"\nlogging level: {ERROR}: Show error message\n")
+                    oradio_log.trace('This is a trace message')
+                    oradio_log.debug('This is a debug message')
+                    oradio_log.info('This is a info message')
+                    oradio_log.warning('This is a warning message')
+                    oradio_log.error('This is a error message')
+                case 6:
                     def _generate_process_exception():
                         print(10 + 'hello: Process')
                     print("\nGenerate unhandled exception in Process:\n")
@@ -240,10 +252,10 @@ if __name__ == '__main__':
                         print(10 + 'hello: Thread')
                     print("\nGenerate unhandled exception in Thread:\n")
                     Thread(target=_generate_thread_exception).start()
-                case 6:
+                case 7:
                     print("\nGenerate unhandled exception in current thread:\n")
                     print(10 + 'hello: current thread')
-                case 7:
+                case 8:
                     print("\nGenerate segmentation fault:\n")
                     ctypes.string_at(0)
                 case _:
