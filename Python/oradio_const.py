@@ -27,13 +27,14 @@ import os
 import sys
 
 # Colors
-BLUE   = '\x1b[38;5;039m'
-GREY   = '\x1b[38;5;248m'
-WHITE  = '\x1b[38;5;255m'
-YELLOW = '\x1b[38;5;226m'
-GREEN  = '\x1b[38;5;048m'
-RED    = '\x1b[38;5;196m'
-NC     = '\x1b[0m'
+BLUE    = '\x1b[38;5;039m'
+GREY    = '\x1b[38;5;248m'
+WHITE   = '\x1b[38;5;255m'
+YELLOW  = '\x1b[38;5;226m'
+GREEN   = '\x1b[38;5;048m'
+RED     = '\x1b[38;5;196m'
+MAGENTA = '\x1b[38;5;201m'
+NC      = '\x1b[0m'
 
 # Make Oradio file locations relative
 ORADIO_DIR        = sys.path[0]
