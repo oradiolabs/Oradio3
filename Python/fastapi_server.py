@@ -75,6 +75,18 @@ mpd_control = MPDControl()
 # Get the web server app
 api_app = FastAPI()
 
+# Catch any request before doing anything else
+@api_app.middleware("http")
+async def keep_alive_middleware(request: Request, call_next):
+    """ Run keep_alive automatically on every request """
+
+    # Avoid calling keep_alive twice if the endpoint itself is "/keep_alive"
+    if request.url.path != "/keep_alive":
+        await keep_alive()
+
+    # Execute request and return response
+    return await call_next(request)
+
 # Get the path for the server to mount/find the web pages and associated resources
 web_path = path.dirname(path.realpath(__file__))
 
