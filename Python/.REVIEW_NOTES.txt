@@ -93,6 +93,23 @@ Ingrijpender, voor later, net als zaken als oradio_controls en web interface sin
 Dus play() niets anders laten doen dan de tune via aplay afspelen, met threads om overlap/override erin te houden.
 Maar volumeregeling als een service te maken die volumes beheert op basis van of er wel/geen tunes afgespeeld worden
 
+2025-12-05============================================================================================================================
+Henk proposal voorstel voor gpio_service.py als rework op led_control.py en touch_buttons.py 
+1 - Een GPIOService klasse aanbieden die de GPIO configureerd voor RaspberryPi3b gebruik en de IO-pinnen mbt LEDS en BUTTONS
+2 - methods aanbieden om een benoemde led-pin aan of uit te zetten
+3 - methods aanbieden om een callback in te stellen voor de edge events mbt buttons events
+4 - module test om de LED IO pinnen aan en uit te zetten en IO-pin status controleren.
+5 - module test om de BUTTONS events met bijbehorende callback te evalueren
+
+2025-12-05============================================================================================================================
+Henk review: touch_buttons.py
+1 - Zie ook led_control.py. Het ontkoppelen van GPIO low-level I/O in een aparte module genaamd gpio_service.py.
+2 - touch_buttons zou gebruik moeten maken van de queue communicatie (shared-queue) als er een button event gedetecteerd wordt, conform 
+    onze interprocess communicatie architectuur. Geen callbacks meer nodig.
+3 - touchbuttons is verantwoordelijk voor short-key en lomg-key button detection en het verwerken ervan. 
+    Zal dat ook aangeven in het queue-bericht over welke button het is en welk event er is gevonden: 
+    short-press key of long-press key
+
 2025-11-10============================================================================================================================
 
 GPIO:
@@ -120,6 +137,7 @@ V 5 - Zie punt 1
 V 6 - Zie punt 1
 V 7 - errors propageren nu niet, worden alleen gelogd. Zie issue #408
 => Review/Rework conclusie: Rework akkoord. Hiermee is review afgesloten.
+
 backligting.py review:
 V 1 - Het is een vrij theoretisch geval: EEPROMS hebben een beperkt aantal write cycles.
       Nu wordt de EEPROM elke keer als Oradio en backlighting start geschreven.
