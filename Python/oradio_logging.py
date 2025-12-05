@@ -32,26 +32,24 @@ Created on January 17, 2025
     https://docs.python.org/3/howto/logging.html
     https://pypi.org/project/concurrent-log-handler/
 """
+import json
 import logging
-from logging import DEBUG, INFO, WARNING, ERROR, CRITICAL
-from logging.handlers import QueueHandler
-from concurrent_log_handler import ConcurrentRotatingFileHandler
-from contextlib import ExitStack
-from inspect import currentframe
-from datetime import datetime
-from vcgencmd import Vcgencmd
-from queue import Queue, Full
-from os import makedirs
+import requests
+import traceback
+import faulthandler
+from glob import glob
 from sys import stderr
 from time import sleep
-from glob import glob
-import faulthandler
-import traceback
-import requests
-import json
+from os import makedirs
+from queue import Queue, Full
+from datetime import datetime
+from vcgencmd import Vcgencmd
+from contextlib import ExitStack
+from logging import DEBUG, INFO, WARNING, ERROR, CRITICAL
+from concurrent_log_handler import ConcurrentRotatingFileHandler
 
 ##### oradio modules ####################
-from oradio_utils import get_serial
+from oradio_utils import get_serial, has_internet
 
 ##### GLOBAL constants ##################
 from oradio_const import (
@@ -129,7 +127,8 @@ class SafeHandler(logging.Handler):
         """Wrap safe_emit in try/except to avoid logging failures."""
         try:
             self.safe_emit(record)
-        except Exception as ex_err:
+        # Catching ALL exceptions is fallback, makes logger safe
+        except Exception as ex_err:     # pylint: disable=broad-exception-caught
             print(f"[SafeHandler fallback] {record.getMessage()}. Exception: {ex_err}", file=stderr)
             traceback.print_exc(file=stderr)
 
@@ -150,7 +149,8 @@ class SafeQueueHandler(SafeHandler):
             self.handler.emit(record)
         except Full:
             print(f"[SafeQueueHandler] Queue is full. Dropping log: {record.getMessage()}", file=stderr)
-        except Exception as ex_err:
+        # Catching ALL exceptions is fallback, makes logger safe
+        except Exception as ex_err:     # pylint: disable=broad-exception-caught
             print(f"[SafeQueueHandler fallback] {record.getMessage()}. Exception: {ex_err}", file=stderr)
             traceback.print_exc(file=stderr)
 
@@ -169,18 +169,19 @@ class StreamSafeHandler(SafeHandler):
         """Safely emit record to console."""
         try:
             self.handler.emit(record)
-        except Exception as ex_err:
+        # Catching ALL exceptions is fallback, makes logger safe
+        except Exception as ex_err:     # pylint: disable=broad-exception-caught
             print(f"[StreamSafeHandler fallback] {record.getMessage()}. Exception: {ex_err}", file=stderr)
             traceback.print_exc(file=stderr)
 
 class ConcurrentRotatingFileSafeHandler(SafeHandler):
     """Concurrent rotating file handler that safely logs to file and respects throttling."""
-    def __init__(self, filename, maxBytes, backupCount) -> None:
+    def __init__(self, filename, max_bytes, backupCount) -> None:
         super().__init__()
         self.filename = filename
-        self.maxBytes = maxBytes
-        self.backupCount = backupCount
-        self.handler = ConcurrentRotatingFileHandler(filename, maxBytes=maxBytes, backupCount=backupCount)
+        self.max_bytes = max_bytes
+        self.backup_count = backup_count
+        self.handler = ConcurrentRotatingFileHandler(filename, maxBytes=max_bytes, backupCount=backup_count)
 
     def setFormatter(self, fmt) -> None:
         """Set formatter for both wrapper and internal handler."""
@@ -194,7 +195,8 @@ class ConcurrentRotatingFileSafeHandler(SafeHandler):
                 self.handler.emit(record)
             else:
                 print("System is throttled", file=stderr)
-        except Exception as ex_err:
+        # Catching ALL exceptions is fallback, makes logger safe
+        except Exception as ex_err:     # pylint: disable=broad-exception-caught
             print(f"[ConcurrentRotatingFileSafeHandler fallback] {record.getMessage()}. Exception: {ex_err}", file=stderr)
             traceback.print_exc(file=stderr)
 
@@ -212,8 +214,8 @@ class RemotePostSafeHandler(SafeHandler):
         self.handler: logging.Handler = logging.Handler()  # dummy internal handler
 
     def safe_emit(self, record) -> None:
-        """Send WARNING, ERROR, CRITICAL messages to remote server."""
-        if record.levelno < WARNING:
+        """Send WARNING, ERROR, CRITICAL messages to remote server if connected to internet."""
+        if record.levelno < WARNING or not has_internet():
             return
 
         # Compile context for POST request
@@ -252,9 +254,10 @@ class RemotePostSafeHandler(SafeHandler):
                         # Exponential backoff
                         sleep(BACKOFF_FACTOR ** (attempt - 1))
 
-        except Exception as ex_err:
+        # Catching ALL exceptions is fallback, makes logger safe
+        except Exception as ex_err:     # pylint: disable=broad-exception-caught
             # Log failures using root logger to avoid recursion
-            logging.getLogger().error(f"[RemotePostSafeHandler fallback] Failed to POST log: {ex_err}", exc_info=True)
+            logging.getLogger().error("[RemotePostSafeHandler fallback] Failed to POST log: %s", ex_err, exc_info=True)
 
 # ----- Safe logger wrapper -----
 
@@ -291,7 +294,7 @@ class SafeLogger:
             # Remote logging handler
             remote_handler = RemotePostSafeHandler(RMS_SERVER_URL)
             self.logger.addHandler(remote_handler)
-            
+
             # Replace default Uvicorn handlers
             for logger_name in ("uvicorn", "uvicorn.error", "uvicorn.access"):
                 logger = logging.getLogger(logger_name)
@@ -310,31 +313,42 @@ class SafeLogger:
         try:
             # Use stacklevel=3 to skip SafeLogger wrapper
             self.logger.log(level, msg, *args, stacklevel=3, **kwargs)
-        except Exception as ex_err:
+        # Catching ALL exceptions is fallback, makes logger safe
+        except Exception as ex_err:     # pylint: disable=broad-exception-caught
             print(f"[SafeLogger fallback] {msg}. Exception: {ex_err}", file=stderr)
             traceback.print_exc(file=stderr)
 
     # Level-specific methods
-    def trace(self, msg, *args, **kwargs) -> None:    self._safe_log(TRACE, msg, *args, **kwargs)
-    def debug(self, msg, *args, **kwargs) -> None:    self._safe_log(DEBUG, msg, *args, **kwargs)
-    def info(self, msg, *args, **kwargs) -> None:     self._safe_log(INFO, msg, *args, **kwargs)
-    def warning(self, msg, *args, **kwargs) -> None:  self._safe_log(WARNING, msg, *args, **kwargs)
-    def error(self, msg, *args, **kwargs) -> None:    self._safe_log(ERROR, msg, *args, **kwargs)
-    def critical(self, msg, *args, **kwargs) -> None: self._safe_log(CRITICAL, msg, *args, **kwargs)
+    def trace(self, msg, *args, **kwargs) -> None:
+        """Log a message with TRACE severity level."""
+        self._safe_log(TRACE, msg, *args, **kwargs)
+    def debug(self, msg, *args, **kwargs) -> None:
+        """Log a message with DEBUG severity level."""
+        self._safe_log(DEBUG, msg, *args, **kwargs)
+    def info(self, msg, *args, **kwargs) -> None:
+        """Log a message with INFO severity level."""
+        self._safe_log(INFO, msg, *args, **kwargs)
+    def warning(self, msg, *args, **kwargs) -> None:
+        """Log a message with WARNNIG severity level."""
+        self._safe_log(WARNING, msg, *args, **kwargs)
+    def error(self, msg, *args, **kwargs) -> None:
+        """Log a message with ERROR severity level."""
+        self._safe_log(ERROR, msg, *args, **kwargs)
+    def critical(self, msg, *args, **kwargs) -> None:
+        """Log a message with CRITICAL severity level."""
+        self._safe_log(CRITICAL, msg, *args, **kwargs)
+    def exception(self, msg, *args, **kwargs) -> None:
+        """Log an ERROR-level message including the active exception traceback."""
+        kwargs.setdefault("exc_info", True)
+        self._safe_log(ERROR, msg, *args, **kwargs)
 
     def set_level(self, level) -> None:
         """Set the logging level for this logger."""
-        self.logger.setLevel(level) 
+        self.logger.setLevel(level)
 
 # ----- Instantiate system logger -----
 
 oradio_log = SafeLogger(ORADIO_LOGGER, ORADIO_LOG_LEVEL)
-
-'''
-def get_oradio_logger():
-    """Avoid circular import."""
-    return oradio_log
-'''
 
 # Entry point for stand-alone operation
 if __name__ == '__main__':
@@ -359,7 +373,7 @@ if __name__ == '__main__':
 
     def threaded_logging_test(thread_count=5, iterations=10):
         """Spawn multiple threads to log messages concurrently with random levels."""
-        LOG_FUNCS = [
+        log_funcs = [
             oradio_log.trace,
             oradio_log.debug,
             oradio_log.info,
@@ -370,7 +384,7 @@ if __name__ == '__main__':
 
         def worker(thread_id):
             for idx in range(iterations):
-                log_func = choice(LOG_FUNCS)
+                log_func = choice(log_funcs)
                 log_func(f"[Thread {thread_id}] Iteration {idx}")
                 sleep(0.1)  # Slight delay to simulate work
 
