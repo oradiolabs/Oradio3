@@ -34,7 +34,6 @@ Created on January 17, 2025
 """
 import json
 import logging
-import requests
 import traceback
 import faulthandler
 from glob import glob
@@ -43,10 +42,11 @@ from time import sleep
 from os import makedirs
 from queue import Queue, Full
 from datetime import datetime
-from vcgencmd import Vcgencmd
 from contextlib import ExitStack
 from logging import DEBUG, INFO, WARNING, ERROR, CRITICAL
 from concurrent_log_handler import ConcurrentRotatingFileHandler
+from requests import post, RequestException, Timeout
+from vcgencmd import Vcgencmd, VcgencmdError
 
 ##### oradio modules ####################
 from oradio_utils import get_serial, has_internet
@@ -115,7 +115,8 @@ def _rpi_is_throttled() -> bool:
         flags = int(vcgm.get_throttled().get("binary", "0"), 2)
         # Check last four bits for active throttling
         throttled = (flags & 0xF) > 0
-    except Exception:
+    # Protect against running on other platform than Raspberry Pi
+    except Exception:       # pylint: disable=broad-exception-caught
         throttled = False
     return throttled
 
@@ -176,7 +177,7 @@ class StreamSafeHandler(SafeHandler):
 
 class ConcurrentRotatingFileSafeHandler(SafeHandler):
     """Concurrent rotating file handler that safely logs to file and respects throttling."""
-    def __init__(self, filename, max_bytes, backupCount) -> None:
+    def __init__(self, filename, max_bytes, backup_Count) -> None:
         super().__init__()
         self.filename = filename
         self.max_bytes = max_bytes
@@ -241,12 +242,12 @@ class RemotePostSafeHandler(SafeHandler):
                 for attempt in range(1, MAX_RETRIES + 1):
                     try:
                         # Send POST with files
-                        response = requests.post(self.url, data=payload_info, files=payload_files, timeout=POST_TIMEOUT)
+                        response = post(self.url, data=payload_info, files=payload_files, timeout=POST_TIMEOUT)
                         # Check for any errors
                         response.raise_for_status()
                         # Success, exit retry loop
                         break
-                    except (requests.RequestException, requests.Timeout) as ex_err:
+                    except (RequestException, Timeout) as ex_err:
                         logging.getLogger().warning("[RemotePostSafeHandler] Attempt %d failed: %s", attempt, ex_err)
                         if attempt == MAX_RETRIES:
                             # Let fallback mechanism take over
@@ -284,9 +285,9 @@ class SafeLogger:
 
             # File handler with rotation
             file_handler = ConcurrentRotatingFileSafeHandler(
-                filename=ORADIO_LOG_FILE,
-                maxBytes=ORADIO_LOG_FILESIZE,
-                backupCount=ORADIO_LOG_BACKUPS,
+                ORADIO_LOG_FILE,
+                ORADIO_LOG_FILESIZE,
+                ORADIO_LOG_BACKUPS,
             )
             file_handler.setFormatter(self.formatter)
             self.logger.addHandler(file_handler)
