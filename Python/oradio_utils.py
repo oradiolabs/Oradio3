@@ -24,6 +24,7 @@ Created on January 17, 2025
         https://docs.python.org/3/howto/logging.html
         https://pypi.org/project/concurrent-log-handler/
 """
+import os
 import json
 import socket
 import logging
@@ -49,13 +50,14 @@ from oradio_const import (
 oradio_log = logging.getLogger("oradio")
 
 ##### LOCAL constants ####################
-INTERFACE = "wlan0"
-# ping constants
-PING_TIMEOUT = 1
-PING_HOST    = "8.8.8.8"  # google.com
-# TCP DNS constants
-DNS_TIMEOUT = 3
-DNS_HOST    = ("8.8.8.8", 53)
+INTERFACE   = "wlan0"           # Raspberry Pi wireless interface
+DNS_TIMEOUT = 0.5               # seconds
+DNS_HOST    = ("8.8.8.8", 53)   # google.com
+
+def get_serial() -> str:
+    """Extract serial from Raspberry Pi."""
+    # NOTE: Do not log to avoid getting stuck in an infinite loop in logging handler
+    return os.popen('vcgencmd otp_dump | grep "28:" | cut -c 4-').read().strip()
 
 def safe_put(queue, msg, block=True, timeout=None):
     """
@@ -161,40 +163,32 @@ def create_json_model(model_name):
         messages = models[model_name]
     return(status, messages)
 
-def has_internet():
+def has_internet() -> bool:
     """
-    Hybrid internet check on wireless interface:
-    First check NetworkManager has connection
-    Second if connected do ping (fast)
-    Third if ping fails do DNS check (robust)
+    Quickly check if the given interface has internet access.
+    Uses a TCP connection to a known DNS server bound to the interface's IP.
+    NOTE: ping is NOT reliable because the network interface uses power management.
+
+    Returns:
+        bool: True if internet is reachable from this interface, False otherwise.
     """
-    # First: NetworkManager
-    cmd = f"nmcli -t -f DEVICE,STATE device status | grep -q '^{INTERFACE}:connected'"
-    result, _ = run_shell_script(cmd)
-    if not result:
-        oradio_log.debug("No network connection")
-        return False
-
-    # Second: ping
-    cmd = f"ping -I {INTERFACE} -c 1 -W {PING_TIMEOUT} {PING_HOST}"
-    result, _ = run_shell_script(cmd)
-    if result:
-        # Has internet
-        return True
-    oradio_log.debug("ping failed, check DNS")
-
-    # Third: DNS
+    # NOTE: Do not log to avoid getting stuck in an infinite loop in logging handler
     try:
-        # Get IPv4-address
+        # Get IPv4 address of the interface
         addrs = netifaces.ifaddresses(INTERFACE)
         src_ip = addrs[netifaces.AF_INET][0]['addr']
+        # Create a TCP socket and bind it to the interface's IP
         with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
-            sock.bind((src_ip, 0))  # Any source port
+            # Use any free source port
+            sock.bind((src_ip, 0))
+            # Set timeout for trying to connect
             sock.settimeout(DNS_TIMEOUT)
+            # Attempt connection to DNS server
             sock.connect(DNS_HOST)
         return True
     except (socket.timeout, socket.error, KeyError):
-        oradio_log.debug("DNS failed: no internet")
+        # KeyError if interface has no IPv4
+        # socket.timeout / socket.error if connection fails
         return False
 
 def run_shell_script(script):
