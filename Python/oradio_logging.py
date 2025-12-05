@@ -46,7 +46,7 @@ from contextlib import ExitStack
 from logging import DEBUG, INFO, WARNING, ERROR, CRITICAL
 from concurrent_log_handler import ConcurrentRotatingFileHandler
 from requests import post, RequestException, Timeout
-from vcgencmd import Vcgencmd, VcgencmdError
+from vcgencmd import Vcgencmd
 
 ##### oradio modules ####################
 from oradio_utils import get_serial, has_internet
@@ -177,7 +177,7 @@ class StreamSafeHandler(SafeHandler):
 
 class ConcurrentRotatingFileSafeHandler(SafeHandler):
     """Concurrent rotating file handler that safely logs to file and respects throttling."""
-    def __init__(self, filename, max_bytes, backup_Count) -> None:
+    def __init__(self, filename, max_bytes, backup_count) -> None:
         super().__init__()
         self.filename = filename
         self.max_bytes = max_bytes
