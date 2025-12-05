@@ -21,47 +21,35 @@ Created on February 8, 2025
 """
 import os
 import re
-import glob
 import json
-from platform import python_version
+import subprocess
 from datetime import datetime
 from threading import Timer, Lock
-import subprocess
-import logging
-import requests
+from platform import python_version
+from requests import post, RequestException, Timeout
 
 ##### oradio modules ####################
 from singleton import singleton
-from oradio_utils import has_internet
+from oradio_logging import oradio_log
+from oradio_utils import get_serial, has_internet
 
 ##### GLOBAL constants ####################
-from oradio_const import ORADIO_LOG_DIR
 
 ##### LOCAL constants ####################
 # Message types
 HEARTBEAT = 'HEARTBEAT'
 SYS_INFO  = 'SYS_INFO'
-WARNING   = 'WARNING'
-ERROR     = 'ERROR'
-# Remote Monitoring Service URL
-RMS_SERVER_URL = 'https://oradiolabs.nl/rms/receive.php'
 # Software version info file
 SW_LOG_FILE = "/var/log/oradio_sw_version.log"
 # HEARTBEAT repeat time
 HEARTBEAT_REPEAT_TIME = 60 * 60     # 1 hour in seconds
-# Timeout for ORMS POST request
-REQUEST_TIMEOUT = 30
-
 # Flag to ensure only 1 heartbeat repeat timer is active
 HEARTBEAT_REPEAT_TIMER_IS_RUNNING = False
-
-# We cannot use from oradio_logging import oradio_log as this creates a circular import
-# Solution is to get the logger gives us the same logger-object
-oradio_log = logging.getLogger("oradio")
-
-def _get_serial() -> str:
-    """Extract serial from Raspberry Pi."""
-    return os.popen('vcgencmd otp_dump | grep "28:" | cut -c 4-').read().strip()
+# Remote Monitoring Service
+RMS_SERVER_URL = 'https://oradiolabs.nl/rms/receive.php'
+MAX_RETRIES    = 3
+BACKOFF_FACTOR = 2  # Exponential backoff multiplier
+POST_TIMEOUT   = 5  # seconds
 
 def _get_temperature() -> str:
     """Extract SoC temperature from Raspberry Pi."""
@@ -85,6 +73,7 @@ def _get_sw_version() -> str:
         oradio_log.error("'%s': Missing file or invalid content", SW_LOG_FILE)
         return "Invalid SW version"
 
+#REVIEW Onno: Better send command to oradio_control where user can be informed, progress monitored
 def _handle_response_command(response_text) -> None:
     """Check for 'command =>' in server response and execute if present"""
     match = re.search(r"'command'\s*=>\s*(.*)", response_text)
@@ -93,7 +82,7 @@ def _handle_response_command(response_text) -> None:
         command = match.group(1).strip()
         oradio_log.debug("Run command '%s' from RMS server", command)
         try:
-            # executable need to be set, othewise python uses sh. Text converts the result into reable
+            # executable need to be set, othewise python uses sh. Text converts the result into readable string
             result = subprocess.run(
                 command,
                 shell=True,
@@ -152,101 +141,80 @@ class RMService:
     Manage communication with Oradio Remote Monitoring Service (ORMS):
     - HEARTBEAT messages as sign of life
     - SYS_INFO to identify the Oradio to ORMS
-    - WARNING and ERROR log messages accompnied by the log file
     """
     def __init__(self):
         """Setup rms service class variables."""
-        self.serial = _get_serial()
-        self.send_files = None
+        self.serial = get_serial()
 
         # Start the singleton heartbeat timer
         self.start_heartbeat()
 
     def start_heartbeat(self):
         """Start the heartbeat timer."""
-        Heartbeat.start_heartbeat(
-            HEARTBEAT_REPEAT_TIME,
-            self.send_message,
-            args=(HEARTBEAT,)
-        )
+        Heartbeat.start_heartbeat(HEARTBEAT_REPEAT_TIME, self.send_heartbeat)
+        oradio_log.info("heartbeat timer started")
+
+    def send_heartbeat(self) -> None:
+        """ Wrapper to simplify oradio control """
+        self.send_message(HEARTBEAT)
 
     def send_sys_info(self) -> None:
         """ Wrapper to simplify oradio control """
         self.send_message(SYS_INFO)
 
-    def send_message(self, msg_type, message = None, function = None) -> None:
-        """
-        Format message based on type
-        If connected to the internet: send message to Remote Monitoring Service
-        """
+    def send_message(self, msg_type, message = None, function = None) -> bool:
+        """Format message based on type and if connected to the internet: send message to Remote Monitoring Service."""
+
         # Messages are lost if not connected to internet
         if not has_internet():
+            oradio_log.debug("No internet connection")
             return
 
         # Initialze message to send
-        msg_data = {
+        payload_info = {
             'generated': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
-            'serial'   : self.serial,
+            'serial'   : get_serial(),
             'type'     : msg_type
         }
 
         # Compile HEARTBEAT message
         if msg_type == HEARTBEAT:
-            msg_data['message'] = json.dumps({'temperature': _get_temperature()})
-            self.send_files = None
+            payload_info['message'] = json.dumps({'temperature': _get_temperature()})
 
         # Compile SYS_INFO message
         elif msg_type == SYS_INFO:
-            msg_data['message'] = json.dumps({
+            payload_info['message'] = json.dumps({
                 'sw_version': _get_sw_version(),
                 'python'    : python_version(),
                 'rpi'       : _get_rpi_version(),
                 'rpi-os'    : _get_os_version(),
             })
-            self.send_files = None
-
-        # Compile WARNING and ERROR message
-        elif msg_type in (WARNING, ERROR):
-            msg_data['message'] = json.dumps({'function': function, 'message': message})
-            # Send all log files in logging directory
-            self.send_files = glob.glob(ORADIO_LOG_DIR + "/*.log")
 
         # Unexpected message type
         else:
             oradio_log.error("Unsupported message type: %s", msg_type)
-            return
 
-        oradio_log.debug("Sending to ORMS: message=%s, files=%s", msg_data, self.send_files)
-
-        if not self.send_files:
-            # Send message
+        # Retry loop
+        for attempt in range(1, MAX_RETRIES + 1):
             try:
-                response = requests.post(RMS_SERVER_URL, data=msg_data, timeout=REQUEST_TIMEOUT)
-            except requests.Timeout:
-                # If we use oradio_error() we might get stuck in a loop
-                oradio_log.info("\x1b[38;5;196mERROR: Timeout posting message\x1b[0m")
-        else:
-            # Send message + files
-            msg_files = {}
-            for file in self.send_files:
-                # Open files after sending
-                msg_files[file] = (file, open(file, "rb"))  # pylint: disable=consider-using-with
-            try:
-                response = requests.post(RMS_SERVER_URL, data=msg_data, files=msg_files, timeout=REQUEST_TIMEOUT)
-            except requests.Timeout:
-                # If we use oradio_error() we might get stuck in a loop
-                oradio_log.info("\x1b[38;5;196mERROR: Timeout posting file(s)\x1b[0m")
-
-            # Close files after sending
-            for _, (_, fobj) in msg_files.items():
-                fobj.close()
+                # Send POST without files
+                response = post(RMS_SERVER_URL, data=payload_info, files=None, timeout=POST_TIMEOUT)
+                # Check for any errors
+                response.raise_for_status()
+                # Success, exit retry loop
+                break
+            except (RequestException, Timeout) as ex_err:
+                oradio_log.warning("Attempt %d failed: %s", attempt, ex_err)
+                if attempt == MAX_RETRIES:
+                    oradio_log.error("Failed to POST log: %s", ex_err)
+                    return
+                sleep(BACKOFF_FACTOR ** (attempt - 1))
 
         # Check for errors
         if response.status_code != 200:
-            # If we use oradio_error() we might get stuck in a loop
-            oradio_log.info("\x1b[38;5;196mERROR: Status code=%s, response.headers=%s\x1b[0m", response.status_code, response.headers)
+            oradio_log.error("Status code=%s, response.headers=%s", response.status_code, response.headers)
 
-        # Check for command in RMS response and if exists execute command in Linux shell
+        # Check for command in RMS response
         _handle_response_command(response.text)
 
 if __name__ == "__main__":
@@ -264,9 +232,7 @@ if __name__ == "__main__":
             " 0-Quit\n"
             " 1-Test heartbeat\n"
             " 2-Test sys_info\n"
-            " 3-Test warning\n"
-            " 4-Test error\n"
-            " 5-Restart heartbeat\n"
+            " 3-Restart heartbeat\n"
             "Select: "
         )
 
@@ -286,17 +252,11 @@ if __name__ == "__main__":
                     break
                 case 1:
                     print("\nSend HEARTBEAT test message to Remote Monitoring Service...\n")
-                    rms.send_message(HEARTBEAT)
+                    rms.send_heartbeat()
                 case 2:
                     print("\nSend SYS_INFO test message to Remote Monitoring Service...\n")
                     rms.send_sys_info()
                 case 3:
-                    print("\nSend WARNING test message to Remote Monitoring Service...\n")
-                    rms.send_message(WARNING, 'test warning message', 'filename:lineno')
-                case 4:
-                    print("\nSend ERROR test message to Remote Monitoring Service...\n")
-                    rms.send_message(ERROR, 'test error message', 'filename:lineno')
-                case 5:
                     print("\nRestarting heartbeat... Check ORMS for heartbeats\n")
                     rms.start_heartbeat()
                 case _:
