@@ -23,6 +23,7 @@ import os
 import re
 import json
 import subprocess
+from time import sleep
 from datetime import datetime
 from threading import Timer, Lock
 from platform import python_version
@@ -152,7 +153,7 @@ class RMService:
     def start_heartbeat(self):
         """Start the heartbeat timer."""
         Heartbeat.start_heartbeat(HEARTBEAT_REPEAT_TIME, self.send_heartbeat)
-        oradio_log.info("heartbeat timer started")
+        oradio_log.debug("heartbeat timer started")
 
     def send_heartbeat(self) -> None:
         """ Wrapper to simplify oradio control """
@@ -162,7 +163,7 @@ class RMService:
         """ Wrapper to simplify oradio control """
         self.send_message(SYS_INFO)
 
-    def send_message(self, msg_type, message = None, function = None) -> bool:
+    def send_message(self, msg_type) -> bool:
         """Format message based on type and if connected to the internet: send message to Remote Monitoring Service."""
 
         # Messages are lost if not connected to internet
