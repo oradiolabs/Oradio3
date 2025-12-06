@@ -38,7 +38,7 @@ from wifi_service import WifiService
 
 ##### GLOBAL constants ####################
 from oradio_const import (
-    YELLOW, NC
+    YELLOW, NC,
     STATE_WIFI_IDLE,
     STATE_WIFI_CONNECTED,
     MESSAGE_REQUEST_STOP,
