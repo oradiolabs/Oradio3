@@ -97,7 +97,7 @@ web_service_active.clear() # Start-up state is no Web service
 usb_present = threading.Event()
 usb_present.set() # USB present to go over start-up sequence (will be updated after first message of USB service
 
-# Instantiate remote monitor
+# Instantiate remote monitor managing the heartbeat and sys_info messages when wifi state changes
 remote_monitor = RMService()
 
 oradio_log.info("Start backlighting")
@@ -472,11 +472,6 @@ def on_wifi_connected():
         threading.Timer(
             4, sound_player.play, args=("WifiConnected",)
         ).start()
-
-    # Send sytem info to Remote Monitoring Service
-    remote_monitor.send_sys_info()
-    # Restart sending heartbeat every hour to Remote Monitoring Service
-    remote_monitor.start_heartbeat()
 
 def on_wifi_fail_connect():
     oradio_log.info("Wifi fail connect acknowledged")

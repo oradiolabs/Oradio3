@@ -26,19 +26,19 @@ import subprocess
 from time import sleep
 from datetime import datetime
 from platform import python_version
-from threading import Thread, Timer, Event, Lock
+from threading import Thread, Timer, Lock
 from multiprocessing import Queue
-from queue import Empty
 from requests import post, RequestException, Timeout
 
 ##### oradio modules ####################
 from singleton import singleton
 from oradio_logging import oradio_log
-from oradio_utils import get_serial, has_internet, safe_put
-from wifi_service import WifiService, get_wifi_connection
+from oradio_utils import get_serial, safe_put
+from wifi_service import WifiService
 
 ##### GLOBAL constants ####################
 from oradio_const import (
+    YELLOW, NC
     STATE_WIFI_IDLE,
     STATE_WIFI_CONNECTED,
     MESSAGE_REQUEST_STOP,
@@ -198,11 +198,11 @@ class RMService:
             message = self._wifi_queue.get(block=True, timeout=None)
             oradio_log.debug("Message received: '%s'", message)
 
+#REVIEW Onno: MESSAGE_REQUEST_STOP is eigenlijk van web service/fastapi: generaliseren in oradio_const.py
             # Check if the thread needs to stop
             if message.get("request") == MESSAGE_REQUEST_STOP:
                 # Use class method to stop the heartbeat timer
                 Heartbeat.stop_heartbeat()
-                oradio_log.debug("Stop requested. Heartbeat stopped.")
                 # Stop the message listener
                 break
 
@@ -212,11 +212,10 @@ class RMService:
             if wifi_state == STATE_WIFI_IDLE:
                 # Use class method to stop the heartbeat timer
                 Heartbeat.stop_heartbeat()
-                oradio_log.debug("WiFi is idle. Heartbeat stopped.")
                 # Continue listening for further messages
                 continue
 
-            elif wifi_state == STATE_WIFI_CONNECTED:
+            if wifi_state == STATE_WIFI_CONNECTED:
                 # Use class method to start the heartbeat timer
                 Heartbeat.start_heartbeat(HEARTBEAT_REPEAT_TIME, self.send_message, args = (HEARTBEAT,))
                 # Send system info
@@ -225,13 +224,8 @@ class RMService:
                 # Continue listening for further messages
                 continue
 
-            else:
-                oradio_log.debug("Unhandled WiFi state: %s", wifi_state)
-
-        oradio_log.info("WiFi message listener stopped")
-
     def close(self) -> bool:
-        """Close the RMService."""
+        """Close RMService."""
         self._wifi_service.close()
         oradio_log.debug("wifi service stopped")
         safe_put(self._wifi_queue, {"request": MESSAGE_REQUEST_STOP})
@@ -310,9 +304,10 @@ if __name__ == "__main__":
             " 0-Quit\n"
             " 1-Test sending heartbeat\n"
             " 2-Test sending sys_info\n"
-            " 3-Restart heartbeat timer\n"
-            " 4-Connect to wifi\n"
-            " 5-Disconnect wifi\n"
+            " 3-Start heartbeat timer\n"
+            " 4-Stop heartbeat timer\n"
+            " 5-Connect to wifi\n"
+            " 6-Disconnect wifi\n"
             "Select: "
         )
 
@@ -333,24 +328,27 @@ if __name__ == "__main__":
                     break
                 case 1:
                     print("\nSend HEARTBEAT test message to Remote Monitoring Service...\n")
-                    rms.send_heartbeat()
+                    rms.send_message(HEARTBEAT)
                 case 2:
                     print("\nSend SYS_INFO test message to Remote Monitoring Service...\n")
-                    rms.send_sys_info()
+                    rms.send_message(SYS_INFO)
                 case 3:
-                    print("\nRestarting heartbeat timer... Check ORMS for heartbeats\n")
-                    rms.start_heartbeat()
+                    print("\nStarting heartbeat timer...\n")
+                    Heartbeat.start_heartbeat()
                 case 4:
+                    print("\nStop heartbeat timer...\n")
+                    Heartbeat.stop_heartbeat()
+                case 5:
                     name = input("Enter SSID of the network to add: ")
                     pswrd = input("Enter password for the network to add (empty for open network): ")
                     if name:
-                        rms.wifi_service.wifi_connect(name, pswrd)
+                        rms._wifi_service.wifi_connect(name, pswrd)
                         print(f"\nConnecting with '{name}'. Check messages for result\n")
                     else:
                         print(f"\n{YELLOW}No network given{NC}\n")
-                case 5:
-                    print(f"\nDisconnecting wifi...\n")
-                    rms.wifi_service.wifi_disconnect()
+                case 6:
+                    print("\nDisconnecting wifi...\n")
+                    rms._wifi_service.wifi_disconnect()
                 case _:
                     print("\nPlease input a valid number\n")
 
