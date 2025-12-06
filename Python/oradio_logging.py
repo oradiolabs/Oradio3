@@ -32,14 +32,18 @@ Created on January 17, 2025
     https://docs.python.org/3/howto/logging.html
     https://pypi.org/project/concurrent-log-handler/
 """
+import os
+import sys
 import json
+import socket
 import logging
 import traceback
+import netifaces
+import subprocess
 import faulthandler
 from glob import glob
 from sys import stderr
 from time import sleep
-from os import makedirs
 from queue import Queue, Full
 from datetime import datetime
 from contextlib import ExitStack
@@ -49,34 +53,38 @@ from requests import post, RequestException, Timeout
 from vcgencmd import Vcgencmd
 
 ##### oradio modules ####################
-from oradio_utils import get_serial, has_internet
+# NOTE: Do not import oradio modules using oradio_log to avoid circular imports
 
 ##### GLOBAL constants ##################
 from oradio_const import (
     BLUE, GREY, WHITE, YELLOW, RED, MAGENTA, NC,
-    ORADIO_LOG_DIR,
+    REMOTE_SERVER,
+    POST_TIMEOUT,
 )
 
 ##### LOCAL constants ###################
-ORADIO_LOGGER       = "oradio"  # Logger identifier
-ORADIO_LOG_LEVEL    = DEBUG     # System-wide log level
-TRACE               = 5         # TRACE log level
+# Logger identifier and default level
+ORADIO_LOGGER    = "oradio"
+ORADIO_LOG_LEVEL = DEBUG
+# Log file constants
+ORADIO_LOG_DIR      = os.path.abspath(os.path.join(sys.path[0], '..', 'logging'))
 ORADIO_LOG_FILE     = ORADIO_LOG_DIR + '/oradio.log'
-ORADIO_LOG_FILESIZE = 512 * 1024
+ORADIO_LOG_FILESIZE = 512 * 1024   # 512 KB
 ORADIO_LOG_BACKUPS  = 1
-ASYNC_QUEUE_SIZE    = 10000     # Items
-# Remote Monitoring Service
-RMS_SERVER_URL = 'https://oradiolabs.nl/rms/receive.php'
+# Items to queue when busy
+ASYNC_QUEUE_SIZE = 10000
+# Robust remote access
 MAX_RETRIES    = 3
-BACKOFF_FACTOR = 2  # Exponential backoff multiplier
-POST_TIMEOUT   = 5  # seconds
+BACKOFF_FACTOR = 2
+# TRACE log level between 0 and DEBUG(=10)
+TRACE = 5
 
 # Add TRACE log level to logging
 def trace(self, message, *args, **kwargs) -> None:
     """Log message with TRACE level if enabled."""
     if self.isEnabledFor(TRACE):
-        self.log(TRACE, message, *args, **kwargs) # Use log(), not _log()
-
+        # self.log() is called by logger
+        self.log(TRACE, message, *args, **kwargs)
 logging.addLevelName(TRACE, "TRACE")
 logging.Logger.trace = trace
 
@@ -85,28 +93,35 @@ faulthandler.enable()
 
 # ----- Helpers -----
 
-class ColorFormatter(logging.Formatter):
-    """Formatter that adds ANSI color to messages depending on log level."""
-    def __init__(self) -> None:
-        super().__init__()
-        self.msg_format = "%(asctime)s - %(filename)s:%(lineno)d - %(levelname)s - %(message)s"
-        self.formatters = {
-            TRACE: logging.Formatter(BLUE + self.msg_format + NC),
-            DEBUG: logging.Formatter(GREY + self.msg_format + NC),
-            INFO: logging.Formatter(WHITE + self.msg_format + NC),
-            WARNING: logging.Formatter(YELLOW + self.msg_format + NC),
-            ERROR: logging.Formatter(RED + self.msg_format + NC),
-            CRITICAL: logging.Formatter(MAGENTA + self.msg_format + NC),
-        }
+def _get_rpi_serial() -> str:
+    """Extract serial from Raspberry Pi."""
+    serial = os.popen('vcgencmd otp_dump | grep "28:" | cut -c 4-').read().strip()
+    return serial or "Unsupported platform"
 
-    def format(self, record) -> str:
-        """Return the formatted log message in color based on level."""
-        return self.formatters.get(record.levelno, self.formatters[INFO]).format(record)
+
+def _has_internet() -> bool:
+    """
+    Check for internet access using NetworkManager.
+    NOTE: ping is NOT reliable because the network interface uses power management.
+
+    Returns:
+        bool: True if internet is reachable, False otherwise.
+    """
+    try:
+        result = subprocess.check_output(
+            ["nmcli", "-t", "-f", "CONNECTIVITY", "general"],
+            stderr=subprocess.DEVNULL
+        ).decode().strip()
+        return result == "full"
+    except Exception:
+        return False
 
 def _rpi_is_throttled() -> bool:
     """
     Check Raspberry Pi throttled status using vcgencmd.
-    Returns True if CPU or voltage throttling is active.
+
+    Returns:
+        bool: True if CPU or voltage throttling is active, False otherwise.
     """
     # Vcgencmd may fail on non-Raspberry Pi systems
     try:
@@ -119,6 +134,24 @@ def _rpi_is_throttled() -> bool:
     except Exception:       # pylint: disable=broad-exception-caught
         throttled = False
     return throttled
+
+class ColorFormatter(logging.Formatter):
+    """Formatter that adds ANSI color to messages depending on log level."""
+    def __init__(self) -> None:
+        super().__init__()
+        self._msg_format = "%(asctime)s - %(filename)s:%(lineno)d - %(levelname)s - %(message)s"
+        self._formatters = {
+            TRACE:    logging.Formatter(BLUE    + self._msg_format + NC),
+            DEBUG:    logging.Formatter(GREY    + self._msg_format + NC),
+            INFO:     logging.Formatter(WHITE   + self._msg_format + NC),
+            WARNING:  logging.Formatter(YELLOW  + self._msg_format + NC),
+            ERROR:    logging.Formatter(RED     + self._msg_format + NC),
+            CRITICAL: logging.Formatter(MAGENTA + self._msg_format + NC),
+        }
+
+    def format(self, record) -> str:
+        """Return the formatted log message in color based on level."""
+        return self._formatters.get(record.levelno, self._formatters[INFO]).format(record)
 
 # ----- Safe logger Handlers -----
 
@@ -141,8 +174,7 @@ class SafeQueueHandler(SafeHandler):
     """Queue-based handler to safely handle asynchronous logging."""
     def __init__(self, queue) -> None:
         super().__init__()
-        self.queue = queue
-        self.handler = logging.handlers.QueueHandler(self.queue)
+        self.handler = logging.handlers.QueueHandler(queue)
 
     def safe_emit(self, record) -> None:
         """Emit record to queue, or warn if the queue is full."""
@@ -179,9 +211,6 @@ class ConcurrentRotatingFileSafeHandler(SafeHandler):
     """Concurrent rotating file handler that safely logs to file and respects throttling."""
     def __init__(self, filename, max_bytes, backup_count) -> None:
         super().__init__()
-        self.filename = filename
-        self.max_bytes = max_bytes
-        self.backup_count = backup_count
         self.handler = ConcurrentRotatingFileHandler(filename, maxBytes=max_bytes, backupCount=backup_count)
 
     def setFormatter(self, fmt) -> None:
@@ -202,27 +231,21 @@ class ConcurrentRotatingFileSafeHandler(SafeHandler):
             traceback.print_exc(file=stderr)
 
 class RemotePostSafeHandler(SafeHandler):
-    """
-    Send WARNING+ log messages to a remote HTTP server safely.
-
-    Implements retries with exponential backoff and local fallback buffer.
-
-    Fallback logs are written to console/file if POST fails.
-    """
+    """Send WARNING+ log messages to a remote HTTP server safely."""
     def __init__(self, url: str) -> None:
         super().__init__()
-        self.url: str = url
-        self.handler: logging.Handler = logging.Handler()  # dummy internal handler
+        self._url = url
+        self._serial = _get_rpi_serial()
 
     def safe_emit(self, record) -> None:
         """Send WARNING, ERROR, CRITICAL messages to remote server if connected to internet."""
-        if record.levelno < WARNING or not has_internet():
+        if record.levelno < WARNING or not _has_internet():
             return
 
         # Compile context for POST request
         payload_info = {
             'generated': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
-            'serial'   : get_serial(),
+            'serial'   : self._serial,
             'type'     : record.levelname,
             'message'  : json.dumps({
                             'source': f"{record.filename}:{record.lineno}",
@@ -242,7 +265,7 @@ class RemotePostSafeHandler(SafeHandler):
                 for attempt in range(1, MAX_RETRIES + 1):
                     try:
                         # Send POST with files
-                        response = post(self.url, data=payload_info, files=payload_files, timeout=POST_TIMEOUT)
+                        response = post(self._url, data=payload_info, files=payload_files, timeout=POST_TIMEOUT)
                         # Check for any errors
                         response.raise_for_status()
                         # Success, exit retry loop
@@ -265,23 +288,23 @@ class RemotePostSafeHandler(SafeHandler):
 class SafeLogger:
     """Wrapper around standard logger providing safe logging to console, file and remote."""
     def __init__(self, name=None, level=DEBUG) -> None:
-        self.logger = logging.getLogger(name)
-        self.logger.setLevel(level)
-        self.formatter = ColorFormatter()
+        self._logger = logging.getLogger(name)
+        self._logger.setLevel(level)
+        self._formatter = ColorFormatter()
 
-        if not self.logger.handlers:
+        if not self._logger.handlers:
             # Ensure log directory exists
-            makedirs(ORADIO_LOG_DIR, exist_ok=True)
+            os.makedirs(ORADIO_LOG_DIR, exist_ok=True)
 
             # Async logging queue handler
             queue_handler = SafeQueueHandler(Queue(maxsize=ASYNC_QUEUE_SIZE))
-            self.logger.addHandler(queue_handler)
+            self._logger.addHandler(queue_handler)
 
             # Add console handler only when running in a real terminal
             if stderr.isatty():
                 console_handler = StreamSafeHandler()
-                console_handler.setFormatter(self.formatter)
-                self.logger.addHandler(console_handler)
+                console_handler.setFormatter(self._formatter)
+                self._logger.addHandler(console_handler)
 
             # File handler with rotation
             file_handler = ConcurrentRotatingFileSafeHandler(
@@ -289,12 +312,12 @@ class SafeLogger:
                 ORADIO_LOG_FILESIZE,
                 ORADIO_LOG_BACKUPS,
             )
-            file_handler.setFormatter(self.formatter)
-            self.logger.addHandler(file_handler)
+            file_handler.setFormatter(self._formatter)
+            self._logger.addHandler(file_handler)
 
             # Remote logging handler
-            remote_handler = RemotePostSafeHandler(RMS_SERVER_URL)
-            self.logger.addHandler(remote_handler)
+            remote_handler = RemotePostSafeHandler(REMOTE_SERVER)
+            self._logger.addHandler(remote_handler)
 
             # Replace default Uvicorn handlers
             for logger_name in ("uvicorn", "uvicorn.error", "uvicorn.access"):
@@ -303,7 +326,7 @@ class SafeLogger:
                 # Remove Uvicorn's default handlers
                 logger.handlers = []
                 # Add safe handlers
-                for handler in self.logger.handlers:
+                for handler in self._logger.handlers:
                     logger.addHandler(handler)
                 logger.propagate = False
 
@@ -313,7 +336,7 @@ class SafeLogger:
         """Internal helper to log messages safely."""
         try:
             # Use stacklevel=3 to skip SafeLogger wrapper
-            self.logger.log(level, msg, *args, stacklevel=3, **kwargs)
+            self._logger.log(level, msg, *args, stacklevel=3, **kwargs)
         # Catching ALL exceptions is fallback, makes logger safe
         except Exception as ex_err:     # pylint: disable=broad-exception-caught
             print(f"[SafeLogger fallback] {msg}. Exception: {ex_err}", file=stderr)
@@ -345,7 +368,7 @@ class SafeLogger:
 
     def set_level(self, level) -> None:
         """Set the logging level for this logger."""
-        self.logger.setLevel(level)
+        self._logger.setLevel(level)
 
 # ----- Instantiate system logger -----
 
