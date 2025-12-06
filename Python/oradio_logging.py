@@ -96,7 +96,6 @@ def _get_rpi_serial() -> str:
     serial = os.popen('vcgencmd otp_dump | grep "28:" | cut -c 4-').read().strip()
     return serial or "Unsupported platform"
 
-
 def _has_internet() -> bool:
     """
     Check for internet access using NetworkManager.
