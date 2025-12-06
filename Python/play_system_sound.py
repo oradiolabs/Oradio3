@@ -27,6 +27,7 @@ Features:
 - Stand-alone test menu
 """
 import os
+import sys
 #REVIEW Onno: Consider replacing subprocess with oradio_utils.run_shell_script()
 import subprocess
 from threading import Thread, Lock, Timer, Event
@@ -37,20 +38,18 @@ import random
 from oradio_logging import oradio_log
 from singleton import singleton
 
-##### GLOBAL constants ####################
-from oradio_const import SOUND_FILES_DIR
-
-##### LOCAL VOLUME CONSTANTS ####################
+##### LOCAL constants ###################
+# Volume settings
 DEFAULT_MPD_VOLUME       = 100
 DEFAULT_SPOTIFY_VOLUME   = 100
 VOLUME_MPD_SYS_SOUND     = 80
 VOLUME_SPOTIFY_SYS_SOUND = 80
 DEFAULT_SYS_SOUND_VOLUME = 70
-
 # Smooth restore configuration
 RESTORE_VOL_TIME = 2.0   # seconds (total duration of the unduck ramp)
 RESTORE_VOL_STEP = 2     # percentage points per step during restore
-
+# Sound files
+SOUND_FILES_DIR = os.path.abspath(os.path.join(sys.path[0], '..', 'system_sounds'))
 SOUND_FILES = {
     # Sounds
     "StartUp": f"{SOUND_FILES_DIR}/StartUp.wav",

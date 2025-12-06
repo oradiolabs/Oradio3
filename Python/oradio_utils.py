@@ -25,6 +25,7 @@ Created on January 17, 2025
         https://pypi.org/project/concurrent-log-handler/
 """
 import os
+import sys
 import json
 import socket
 import logging
@@ -35,25 +36,26 @@ from pathlib import Path
 from pydantic import BaseModel, create_model
 import netifaces
 
+##### oradio modules ####################
+from oradio_logging import oradio_log
+
 ##### GLOBAL constants ####################
 from oradio_const import (
     YELLOW, NC,
-    JSON_SCHEMAS_FILE,
     MODEL_NAME_FOUND,
     MODEL_NAME_NOT_FOUND,
     PRESETS_FILE,
     USB_SYSTEM,
 )
 
-# We cannot use from oradio_logging import oradio_log as this creates a circular import
-# Solution is to get the logger gives us the same logger-object
-oradio_log = logging.getLogger("oradio")
-
 ##### LOCAL constants ####################
+JSON_SCHEMAS_FILE = os.path.abspath(os.path.join(sys.path[0], 'schemas.json'))
+
 INTERFACE   = "wlan0"           # Raspberry Pi wireless interface
 DNS_TIMEOUT = 0.5               # seconds
 DNS_HOST    = ("8.8.8.8", 53)   # google.com
 
+# Move to remote monitoring locally, as that's the only place it is used
 def get_serial() -> str:
     """Extract serial from Raspberry Pi."""
     # NOTE: Do not log to avoid getting stuck in an infinite loop in logging handler

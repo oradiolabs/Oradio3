@@ -23,9 +23,6 @@ Created on December 23, 2024
 """
 
 ################## SYSTEM #############################
-import os
-import sys
-
 # Colors
 BLUE    = '\x1b[38;5;039m'
 GREY    = '\x1b[38;5;248m'
@@ -35,11 +32,6 @@ GREEN   = '\x1b[38;5;048m'
 RED     = '\x1b[38;5;196m'
 MAGENTA = '\x1b[38;5;201m'
 NC      = '\x1b[0m'
-
-# Make Oradio file locations relative
-ORADIO_DIR        = sys.path[0]
-ORADIO_LOG_DIR    = os.path.abspath(ORADIO_DIR + '/../logging')
-JSON_SCHEMAS_FILE = os.path.realpath(ORADIO_DIR + "/schemas.json")
 
 # Messages consist of 3 elements: source, state and error
 MESSAGE_NO_ERROR = "None"
@@ -52,6 +44,10 @@ LEDS = {
     "LEDPreset3":  7,
     "LEDStop":    23
 }
+
+################## REMOTE SERVER ##########################
+REMOTE_SERVER = 'https://oradiolabs.nl/rms/receive.php'
+POST_TIMEOUT  = (5, 30)  # (connect timeout, read timeout)
 
 ################## WIFI UTILS #############################
 # Access point
@@ -108,9 +104,6 @@ PRESETS_FILE = USB_SYSTEM + "/presets.json"
 ################## VOLUME #############################
 MESSAGE_VOLUME_SOURCE  = "Vol Control message"
 MESSAGE_VOLUME_CHANGED = "Volume changed"
-
-################## SYSTEM SOUNDS #############################
-SOUND_FILES_DIR = os.path.realpath(ORADIO_DIR + "/../system_sounds")
 
 ############# SPOTIFY CONFIG #####################################
 MESSAGE_SPOTIFY_SOURCE    = "Spotify message"
