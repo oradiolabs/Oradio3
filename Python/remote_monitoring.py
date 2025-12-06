@@ -25,16 +25,24 @@ import json
 import subprocess
 from time import sleep
 from datetime import datetime
-from threading import Timer, Lock
 from platform import python_version
+from threading import Thread, Timer, Event, Lock
+from multiprocessing import Queue
+from queue import Empty
 from requests import post, RequestException, Timeout
 
 ##### oradio modules ####################
 from singleton import singleton
 from oradio_logging import oradio_log
-from oradio_utils import get_serial, has_internet
+from oradio_utils import get_serial, has_internet, safe_put
+from wifi_service import WifiService, get_wifi_connection
 
 ##### GLOBAL constants ####################
+from oradio_const import (
+    STATE_WIFI_IDLE,
+    STATE_WIFI_CONNECTED,
+    MESSAGE_REQUEST_STOP,
+)
 
 ##### LOCAL constants ####################
 # Message types
@@ -52,17 +60,27 @@ MAX_RETRIES    = 3
 BACKOFF_FACTOR = 2  # Exponential backoff multiplier
 POST_TIMEOUT   = 5  # seconds
 
+# ----- Helpers -----
+
+def _get_rpi_serial() -> str:
+    """Extract serial from Raspberry Pi."""
+    serial = os.popen('vcgencmd otp_dump | grep "28:" | cut -c 4-').read().strip()
+    return serial or "Unsupported platform"
+
 def _get_temperature() -> str:
     """Extract SoC temperature from Raspberry Pi."""
-    return os.popen('vcgencmd measure_temp | cut -c 6-9').read().strip()
+    temperature = os.popen('vcgencmd measure_temp | cut -c 6-9').read().strip()
+    return temperature or "Unsupported platform"
 
 def _get_rpi_version() -> str:
     """Get the Raspberry Pi version."""
-    return os.popen("cat /proc/cpuinfo | grep Model | cut -d':' -f2").read().strip()
+    version = os.popen("cat /proc/cpuinfo | grep Model | cut -d':' -f2").read().strip()
+    return version or "Unsupported platform"
 
 def _get_os_version() -> str:
     """Get the operating system version."""
-    return os.popen("lsb_release -a | grep 'Description:' | cut -d':' -f2").read().strip()
+    version = os.popen("lsb_release -a | grep 'Description:' | cut -d':' -f2").read().strip()
+    return version or "Unsupported platform"
 
 def _get_sw_version() -> str:
     """Read the contents of the SW serial number file."""
@@ -103,7 +121,7 @@ class Heartbeat(Timer):
     # Lock for start/stop operations
     start_lock = Lock()
 
-    def __init__(self, interval, function, args=None, kwargs=None):
+    def __init__(self, interval, function, args=None, kwargs=None) -> None:
         """Initialize Timer"""
         super().__init__(interval, function, args=args, kwargs=kwargs)
 
@@ -111,7 +129,6 @@ class Heartbeat(Timer):
         """Call function immediately, then repeat at intervals."""
         while not self.finished.is_set():
             try:
-                # Call function immediately at first iteration and every interval
                 self.function(*self.args, **self.kwargs)
             # We don't know what exception the callback can raise, so we need to catch all exceptions as we don't want to stop
             except Exception as ex_err:  # pylint: disable=broad-exception-caught
@@ -122,20 +139,33 @@ class Heartbeat(Timer):
                 break
 
     @classmethod
-    def start_heartbeat(cls, interval, function, args=None, kwargs=None):
-        """Stop the current timer if running, then start a new timer."""
-        # Cancel existing timer if it exists
+    def start_heartbeat(cls, interval, function, args=None, kwargs=None) -> None:
+        """Stop the current timer if running, then start a new timer safely."""
         with cls.start_lock:
+            # Stop existing timer if running
             if cls.instance is not None:
                 cls.instance.cancel()
                 cls.instance = None
 
-            # Create a new timer
+            # Create and start a new timer
             cls.instance = cls(interval, function, args=args, kwargs=kwargs)
             # makes it exit with the main program
             cls.instance.daemon = True
             # start the timer
             cls.instance.start()
+            oradio_log.info("Heartbeat started")
+
+    @classmethod
+    def stop_heartbeat(cls) -> None:
+        """Stop the currently running heartbeat safely."""
+        with cls.start_lock:
+            # Stop existing timer if running
+            if cls.instance is not None:
+                cls.instance.cancel()
+                cls.instance = None
+                oradio_log.info("Heartbeat stopped")
+            else:
+                oradio_log.debug("No heartbeat to stop")
 
 class RMService:
     """
@@ -145,42 +175,89 @@ class RMService:
     """
     def __init__(self):
         """Setup rms service class variables."""
-        self.serial = get_serial()
+        # Cach Raspberry Pi serial number
+        self._serial = get_serial()
 
-        # Start the singleton heartbeat timer
-        self.start_heartbeat()
+        # Queue for receiving messages from wifi service
+        self._wifi_queue = Queue()
 
-    def start_heartbeat(self):
-        """Start the heartbeat timer."""
-        Heartbeat.start_heartbeat(HEARTBEAT_REPEAT_TIME, self.send_heartbeat)
-        oradio_log.debug("heartbeat timer started")
+        # Start thread to continuously monitor incoming messages
+        self._wifi_listener = Thread(target=self._check_wifi_messages, daemon=True)
+        self._wifi_listener.start()
 
-    def send_heartbeat(self) -> None:
-        """ Wrapper to simplify oradio control """
-        self.send_message(HEARTBEAT)
+        # Create the wifi service interface
+        self._wifi_service = WifiService(self._wifi_queue)
 
-    def send_sys_info(self) -> None:
-        """ Wrapper to simplify oradio control """
-        self.send_message(SYS_INFO)
+    def _check_wifi_messages(self):
+        """
+        Read messages from the incoming queue and process relevant.
+        Runs as a separate thread to avoid blocking the main thread.
+        """
+        while True:
+            # Wait indefinitely until a message arrives from the server/wifi service
+            message = self._wifi_queue.get(block=True, timeout=None)
+            oradio_log.debug("Message received: '%s'", message)
+
+            # Check if the thread needs to stop
+            if message.get("request") == MESSAGE_REQUEST_STOP:
+                # Use class method to stop the heartbeat timer
+                Heartbeat.stop_heartbeat()
+                oradio_log.debug("Stop requested. Heartbeat stopped.")
+                # Stop the message listener
+                break
+
+            # Get the wifi message
+            wifi_state = message.get("state")
+
+            if wifi_state == STATE_WIFI_IDLE:
+                # Use class method to stop the heartbeat timer
+                Heartbeat.stop_heartbeat()
+                oradio_log.debug("WiFi is idle. Heartbeat stopped.")
+                # Continue listening for further messages
+                continue
+
+            elif wifi_state == STATE_WIFI_CONNECTED:
+                # Use class method to start the heartbeat timer
+                Heartbeat.start_heartbeat(HEARTBEAT_REPEAT_TIME, self.send_message, args = (HEARTBEAT,))
+                # Send system info
+                self.send_message(SYS_INFO)
+                oradio_log.debug("WiFi connected. Heartbeat started and system info sent.")
+                # Continue listening for further messages
+                continue
+
+            else:
+                oradio_log.debug("Unhandled WiFi state: %s", wifi_state)
+
+        oradio_log.info("WiFi message listener stopped")
+
+    def close(self) -> bool:
+        """Close the RMService."""
+        self._wifi_service.close()
+        oradio_log.debug("wifi service stopped")
+        safe_put(self._wifi_queue, {"request": MESSAGE_REQUEST_STOP})
+        oradio_log.debug("RMService stopped")
 
     def send_message(self, msg_type) -> bool:
-        """Format message based on type and if connected to the internet: send message to Remote Monitoring Service."""
+        """
+        send message to Remote Monitoring Service.
+        NOTE: Only called when connected to internet.
 
-        # Messages are lost if not connected to internet
-        if not has_internet():
-            oradio_log.debug("No internet connection")
-            return
+        Args:
+            msg_type (str): HEARTBEAT or SYS_INFO
+        """
 
         # Initialze message to send
         payload_info = {
             'generated': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
-            'serial'   : get_serial(),
-            'type'     : msg_type
+            'serial'   : self._serial,
+            'type'     : msg_type,
         }
 
         # Compile HEARTBEAT message
         if msg_type == HEARTBEAT:
-            payload_info['message'] = json.dumps({'temperature': _get_temperature()})
+            payload_info['message'] = json.dumps({
+                'temperature': _get_temperature(),
+            })
 
         # Compile SYS_INFO message
         elif msg_type == SYS_INFO:
@@ -231,9 +308,11 @@ if __name__ == "__main__":
         input_selection = (
             "Select a function, input the number.\n"
             " 0-Quit\n"
-            " 1-Test heartbeat\n"
-            " 2-Test sys_info\n"
-            " 3-Restart heartbeat\n"
+            " 1-Test sending heartbeat\n"
+            " 2-Test sending sys_info\n"
+            " 3-Restart heartbeat timer\n"
+            " 4-Connect to wifi\n"
+            " 5-Disconnect wifi\n"
             "Select: "
         )
 
@@ -250,6 +329,7 @@ if __name__ == "__main__":
             match function_nr:
                 case 0:
                     print("\nExiting test program...\n")
+                    rms.close()
                     break
                 case 1:
                     print("\nSend HEARTBEAT test message to Remote Monitoring Service...\n")
@@ -258,8 +338,19 @@ if __name__ == "__main__":
                     print("\nSend SYS_INFO test message to Remote Monitoring Service...\n")
                     rms.send_sys_info()
                 case 3:
-                    print("\nRestarting heartbeat... Check ORMS for heartbeats\n")
+                    print("\nRestarting heartbeat timer... Check ORMS for heartbeats\n")
                     rms.start_heartbeat()
+                case 4:
+                    name = input("Enter SSID of the network to add: ")
+                    pswrd = input("Enter password for the network to add (empty for open network): ")
+                    if name:
+                        rms.wifi_service.wifi_connect(name, pswrd)
+                        print(f"\nConnecting with '{name}'. Check messages for result\n")
+                    else:
+                        print(f"\n{YELLOW}No network given{NC}\n")
+                case 5:
+                    print(f"\nDisconnecting wifi...\n")
+                    rms.wifi_service.wifi_disconnect()
                 case _:
                     print("\nPlease input a valid number\n")
 
