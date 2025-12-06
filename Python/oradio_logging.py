@@ -111,7 +111,8 @@ def _has_internet() -> bool:
             stderr=subprocess.DEVNULL
         ).decode().strip()
         return result == "full"
-    except Exception:
+    except (FileNotFoundError, subprocess.CalledProcessError, UnicodeDecodeError):
+        # Treat any exception as equivalent to 'no internet'
         return False
 
 def _rpi_is_throttled() -> bool:
