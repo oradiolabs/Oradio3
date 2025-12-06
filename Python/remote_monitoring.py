@@ -14,10 +14,13 @@ Created on February 8, 2025
 @copyright:     Copyright 2025, Oradio Stichting
 @license:       GNU General Public License (GPL)
 @organization:  Oradio Stichting
-@version:       1
+@version:       2
 @email:         oradioinfo@stichtingoradio.nl
 @status:        Development
-@summary: Send log messages to remote monitoring service
+@summary:
+    This module runs a heartbeat timer sending heartbeat messages to a remote
+    monitoring service when connected to the internet. It also sends system
+    information messages to the remote monitoring service.
 """
 import os
 import re
@@ -41,7 +44,6 @@ from oradio_const import (
     YELLOW, NC,
     STATE_WIFI_IDLE,
     STATE_WIFI_CONNECTED,
-    MESSAGE_REQUEST_STOP,
 )
 
 ##### LOCAL constants ####################
@@ -51,9 +53,11 @@ SYS_INFO  = 'SYS_INFO'
 # Software version info file
 SW_LOG_FILE = "/var/log/oradio_sw_version.log"
 # HEARTBEAT repeat time
-HEARTBEAT_REPEAT_TIME = 60 * 60     # 1 hour in seconds
-# Flag to ensure only 1 heartbeat repeat timer is active
-HEARTBEAT_REPEAT_TIMER_IS_RUNNING = False
+HEARTBEAT_REPEAT = 60 * 60     # 1 hour in seconds
+# Internal message to stop the message listener thread
+STOP_LISTENER = "Stop the wifi message listener"
+# Timeout for listener to respond (seconds)
+LISTENER_TIMEOUT = 3
 # Remote Monitoring Service
 RMS_SERVER_URL = 'https://oradiolabs.nl/rms/receive.php'
 MAX_RETRIES    = 3
@@ -83,7 +87,7 @@ def _get_os_version() -> str:
     return version or "Unsupported platform"
 
 def _get_sw_version() -> str:
-    """Read the contents of the SW serial number file."""
+    """Read software version from log file."""
     try:
         with open(SW_LOG_FILE, "r", encoding="utf-8") as file:
             data = json.load(file)
@@ -92,9 +96,13 @@ def _get_sw_version() -> str:
         oradio_log.error("'%s': Missing file or invalid content", SW_LOG_FILE)
         return "Invalid SW version"
 
-#REVIEW Onno: Better send command to oradio_control where user can be informed, progress monitored
+#REVIEW Onno: Dit is gevaarlijk, kwetsbaar voor command injection: Stuur command naar oradio_control voor veilige afhandeling
 def _handle_response_command(response_text) -> None:
-    """Check for 'command =>' in server response and execute if present"""
+    """
+    Check for a 'command =>' entry in the server response and execute it.
+    
+    WARNING: This executes shell commands received from RMS server.
+    """
     match = re.search(r"'command'\s*=>\s*(.*)", response_text)
     if match:
         # Pass command to linux shell for execution
@@ -116,17 +124,17 @@ def _handle_response_command(response_text) -> None:
 
 @singleton
 class Heartbeat(Timer):
-    """Process-wide singleton auto-repeating timer."""
-
+    """Timer singleton to handle heartbeat sending at regular intervals."""
     # Lock for start/stop operations
+
     start_lock = Lock()
 
     def __init__(self, interval, function, args=None, kwargs=None) -> None:
-        """Initialize Timer"""
+        """Initialize Timer."""
         super().__init__(interval, function, args=args, kwargs=kwargs)
 
     def run(self) -> None:
-        """Call function immediately, then repeat at intervals."""
+        """Call function immediately, then repeat at interval."""
         while not self.finished.is_set():
             try:
                 self.function(*self.args, **self.kwargs)
@@ -140,7 +148,7 @@ class Heartbeat(Timer):
 
     @classmethod
     def start_heartbeat(cls, interval, function, args=None, kwargs=None) -> None:
-        """Stop the current timer if running, then start a new timer safely."""
+        """Stop the current timer if running, then start a new one safely."""
         with cls.start_lock:
             # Stop existing timer if running
             if cls.instance is not None:
@@ -157,7 +165,7 @@ class Heartbeat(Timer):
 
     @classmethod
     def stop_heartbeat(cls) -> None:
-        """Stop the currently running heartbeat safely."""
+        """Stop the running heartbeat safely."""
         with cls.start_lock:
             # Stop existing timer if running
             if cls.instance is not None:
@@ -173,65 +181,68 @@ class RMService:
     - HEARTBEAT messages as sign of life
     - SYS_INFO to identify the Oradio to ORMS
     """
-    def __init__(self):
-        """Setup rms service class variables."""
+    def __init__(self) -> None:
+        """Initialize RMService and start wifi listener."""
         # Cach Raspberry Pi serial number
         self._serial = get_serial()
 
         # Queue for receiving messages from wifi service
         self._wifi_queue = Queue()
 
-        # Start thread to continuously monitor incoming messages
-        self._wifi_listener = Thread(target=self._check_wifi_messages, daemon=True)
+        # Start wifi listener thread
+        self._wifi_listener = Thread(target=self._wifi_listener, daemon=True)
         self._wifi_listener.start()
 
         # Create the wifi service interface
-        self._wifi_service = WifiService(self._wifi_queue)
+        self.wifi_service = WifiService(self._wifi_queue)
 
-    def _check_wifi_messages(self):
-        """
-        Read messages from the incoming queue and process relevant.
-        Runs as a separate thread to avoid blocking the main thread.
-        """
+    def _wifi_listener(self) -> None:
+        """Thread that processes messages from WifiService."""
         while True:
             # Wait indefinitely until a message arrives from the server/wifi service
             message = self._wifi_queue.get(block=True, timeout=None)
             oradio_log.debug("Message received: '%s'", message)
 
-#REVIEW Onno: MESSAGE_REQUEST_STOP is eigenlijk van web service/fastapi: generaliseren in oradio_const.py
+            # Get the wifi message
+            state = message.get("state")
+
             # Check if the thread needs to stop
-            if message.get("request") == MESSAGE_REQUEST_STOP:
+            if state == STOP_LISTENER:
                 # Use class method to stop the heartbeat timer
                 Heartbeat.stop_heartbeat()
                 # Stop the message listener
                 break
 
-            # Get the wifi message
-            wifi_state = message.get("state")
-
-            if wifi_state == STATE_WIFI_IDLE:
+            if state == STATE_WIFI_IDLE:
                 # Use class method to stop the heartbeat timer
                 Heartbeat.stop_heartbeat()
                 # Continue listening for further messages
                 continue
 
-            if wifi_state == STATE_WIFI_CONNECTED:
+            if state == STATE_WIFI_CONNECTED:
                 # Use class method to start the heartbeat timer
-                Heartbeat.start_heartbeat(HEARTBEAT_REPEAT_TIME, self.send_message, args = (HEARTBEAT,))
+                Heartbeat.start_heartbeat(HEARTBEAT_REPEAT, self.send_message, args = (HEARTBEAT,))
                 # Send system info
                 self.send_message(SYS_INFO)
                 oradio_log.debug("WiFi connected. Heartbeat started and system info sent.")
                 # Continue listening for further messages
                 continue
 
-    def close(self) -> bool:
+    def close(self) -> None:
         """Close RMService."""
-        self._wifi_service.close()
-        oradio_log.debug("wifi service stopped")
-        safe_put(self._wifi_queue, {"request": MESSAGE_REQUEST_STOP})
-        oradio_log.debug("RMService stopped")
+        # Unsubscribe from wifi service
+        self.wifi_service.close()
 
-    def send_message(self, msg_type) -> bool:
+        # Send message for wifi mmessage listener to stop
+        safe_put(self._wifi_queue, {"state": STOP_LISTENER})
+
+        # Avoid hanging forever if the thread is stuck in I/O
+        self._wifi_listener.join(timeout=LISTENER_TIMEOUT)
+
+        if self._wifi_listener.is_alive():
+            oradio_log.error("Join timed out: wifi listener thread is still running")
+
+    def send_message(self, msg_type) -> None:
         """
         send message to Remote Monitoring Service.
         NOTE: Only called when connected to internet.
@@ -294,7 +305,7 @@ if __name__ == "__main__":
 # Most modules use similar code in stand-alone
 # pylint: disable=duplicate-code
 
-    def interactive_menu():
+    def interactive_menu() -> None:
         """Show menu with test options"""
         # Instantiate RMS service
         rms = RMService()
@@ -334,7 +345,7 @@ if __name__ == "__main__":
                     rms.send_message(SYS_INFO)
                 case 3:
                     print("\nStarting heartbeat timer...\n")
-                    Heartbeat.start_heartbeat()
+                    Heartbeat.start_heartbeat(HEARTBEAT_REPEAT, rms.send_message, args = (HEARTBEAT,))
                 case 4:
                     print("\nStop heartbeat timer...\n")
                     Heartbeat.stop_heartbeat()
@@ -342,13 +353,13 @@ if __name__ == "__main__":
                     name = input("Enter SSID of the network to add: ")
                     pswrd = input("Enter password for the network to add (empty for open network): ")
                     if name:
-                        rms._wifi_service.wifi_connect(name, pswrd)
+                        rms.wifi_service.wifi_connect(name, pswrd)
                         print(f"\nConnecting with '{name}'. Check messages for result\n")
                     else:
                         print(f"\n{YELLOW}No network given{NC}\n")
                 case 6:
                     print("\nDisconnecting wifi...\n")
-                    rms._wifi_service.wifi_disconnect()
+                    rms.wifi_service.wifi_disconnect()
                 case _:
                     print("\nPlease input a valid number\n")
 
