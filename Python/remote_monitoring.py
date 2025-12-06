@@ -190,8 +190,8 @@ class RMService:
         self._wifi_queue = Queue()
 
         # Start wifi listener thread
-        self._wifi_listener = Thread(target=self._wifi_listener, daemon=True)
-        self._wifi_listener.start()
+        self._listener_thread = Thread(target=self._wifi_listener, daemon=True)
+        self._listener_thread.start()
 
         # Create the wifi service interface
         self.wifi_service = WifiService(self._wifi_queue)
@@ -237,9 +237,9 @@ class RMService:
         safe_put(self._wifi_queue, {"state": STOP_LISTENER})
 
         # Avoid hanging forever if the thread is stuck in I/O
-        self._wifi_listener.join(timeout=LISTENER_TIMEOUT)
+        self._listener_thread.join(timeout=LISTENER_TIMEOUT)
 
-        if self._wifi_listener.is_alive():
+        if self._listener_thread.is_alive():
             oradio_log.error("Join timed out: wifi listener thread is still running")
 
     def send_message(self, msg_type) -> None:
