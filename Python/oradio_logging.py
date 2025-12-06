@@ -35,10 +35,8 @@ Created on January 17, 2025
 import os
 import sys
 import json
-import socket
 import logging
 import traceback
-import netifaces
 import subprocess
 import faulthandler
 from glob import glob

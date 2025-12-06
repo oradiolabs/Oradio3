@@ -28,7 +28,6 @@ import os
 import sys
 import json
 import socket
-import logging
 import subprocess
 from subprocess import run
 from typing import Any, Optional
