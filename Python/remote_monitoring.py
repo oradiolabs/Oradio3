@@ -67,22 +67,39 @@ POST_TIMEOUT   = 5  # seconds
 # ----- Helpers -----
 
 def _get_rpi_serial() -> str:
-    """Extract serial from Raspberry Pi."""
+    """
+    Extract serial from Raspberry Pi serial number.
+
+    Returns:
+        str: Serial number or fallback string if unsupported.
+    """
     serial = os.popen('vcgencmd otp_dump | grep "28:" | cut -c 4-').read().strip()
     return serial or "Unsupported platform"
 
 def _get_temperature() -> str:
-    """Extract SoC temperature from Raspberry Pi."""
+    """Extract Raspberry Pi SoC temperature.
+
+    Returns:
+        str: Temperature in Celsius or fallback string.
+    """
     temperature = os.popen('vcgencmd measure_temp | cut -c 6-9').read().strip()
     return temperature or "Unsupported platform"
 
 def _get_rpi_version() -> str:
-    """Get the Raspberry Pi version."""
+    """Get the Raspberry Pi hardware version.
+
+    Returns:
+        str: Hardware version string or fallback.
+    """
     version = os.popen("cat /proc/cpuinfo | grep Model | cut -d':' -f2").read().strip()
     return version or "Unsupported platform"
 
 def _get_os_version() -> str:
-    """Get the operating system version."""
+    """Get operating system version.
+
+    Returns:
+        str: OS description or fallback.
+    """
     version = os.popen("lsb_release -a | grep 'Description:' | cut -d':' -f2").read().strip()
     return version or "Unsupported platform"
 
@@ -99,9 +116,10 @@ def _get_sw_version() -> str:
 #REVIEW Onno: Dit is gevaarlijk, kwetsbaar voor command injection: Stuur command naar oradio_control voor veilige afhandeling
 def _handle_response_command(response_text) -> None:
     """
-    Check for a 'command =>' entry in the server response and execute it.
-    
-    WARNING: This executes shell commands received from RMS server.
+    Extract and execute a shell command from RMS response.
+
+    Args:
+        response_text (str): Response returned by RMS server.
     """
     match = re.search(r"'command'\s*=>\s*(.*)", response_text)
     if match:
@@ -130,11 +148,19 @@ class Heartbeat(Timer):
     start_lock = Lock()
 
     def __init__(self, interval, function, args=None, kwargs=None) -> None:
-        """Initialize Timer."""
+        """
+        Initialize a heartbeat timer instance.
+
+        Args:
+            interval (int): Interval in seconds between heartbeat calls.
+            function (callable): Function to call each interval.
+            args (list, optional): Positional arguments for callback.
+            kwargs (dict, optional): Keyword arguments for callback.
+        """
         super().__init__(interval, function, args=args, kwargs=kwargs)
 
     def run(self) -> None:
-        """Call function immediately, then repeat at interval."""
+        """Execute function immediately and repeat until stopped."""
         while not self.finished.is_set():
             try:
                 self.function(*self.args, **self.kwargs)
@@ -148,7 +174,15 @@ class Heartbeat(Timer):
 
     @classmethod
     def start_heartbeat(cls, interval, function, args=None, kwargs=None) -> None:
-        """Stop the current timer if running, then start a new one safely."""
+        """
+        Start a new heartbeat timer, replacing any existing one.
+
+        Args:
+            interval (int): Interval in seconds.
+            function (callable): Callback function.
+            args (list, optional): Callback positional args.
+            kwargs (dict, optional): Callback keyword args.
+        """
         with cls.start_lock:
             # Stop existing timer if running
             if cls.instance is not None:
@@ -177,9 +211,10 @@ class Heartbeat(Timer):
 
 class RMService:
     """
-    Manage communication with Oradio Remote Monitoring Service (ORMS):
-    - HEARTBEAT messages as sign of life
-    - SYS_INFO to identify the Oradio to ORMS
+    Manage communication with Remote Monitoring Service (RMS):
+    - Send HEARTBEAT messages as sign of life.
+    - Send SYS_INFO messages to identify the Oradio to RMS.
+    - Manage wifi event listener.
     """
     def __init__(self) -> None:
         """Initialize RMService and start wifi listener."""
@@ -197,7 +232,7 @@ class RMService:
         self.wifi_service = WifiService(self._wifi_queue)
 
     def _wifi_listener(self) -> None:
-        """Thread that processes messages from WifiService."""
+        """Thread that processes messages from WifiService and manage heartbeat."""
         while True:
             # Wait indefinitely until a message arrives from the server/wifi service
             message = self._wifi_queue.get(block=True, timeout=None)
@@ -228,27 +263,12 @@ class RMService:
                 # Continue listening for further messages
                 continue
 
-    def close(self) -> None:
-        """Close RMService."""
-        # Unsubscribe from wifi service
-        self.wifi_service.close()
-
-        # Send message for wifi mmessage listener to stop
-        safe_put(self._wifi_queue, {"state": STOP_LISTENER})
-
-        # Avoid hanging forever if the thread is stuck in I/O
-        self._listener_thread.join(timeout=LISTENER_TIMEOUT)
-
-        if self._listener_thread.is_alive():
-            oradio_log.error("Join timed out: wifi listener thread is still running")
-
     def send_message(self, msg_type) -> None:
         """
-        send message to Remote Monitoring Service.
-        NOTE: Only called when connected to internet.
+        Send message (HEARTBEAT or SYS_INFO) to Remote Monitoring Service.
 
         Args:
-            msg_type (str): HEARTBEAT or SYS_INFO
+            msg_type (str): Type of message to send.
         """
 
         # Initialze message to send
@@ -299,6 +319,20 @@ class RMService:
 
         # Check for command in RMS response
         _handle_response_command(response.text)
+
+    def close(self) -> None:
+        """Stop wifi listener and heartbeat safely."""
+        # Unsubscribe from wifi service
+        self.wifi_service.close()
+
+        # Send message for wifi mmessage listener to stop
+        safe_put(self._wifi_queue, {"state": STOP_LISTENER})
+
+        # Avoid hanging forever if the thread is stuck in I/O
+        self._listener_thread.join(timeout=LISTENER_TIMEOUT)
+
+        if self._listener_thread.is_alive():
+            oradio_log.error("Join timed out: wifi listener thread is still running")
 
 if __name__ == "__main__":
 
