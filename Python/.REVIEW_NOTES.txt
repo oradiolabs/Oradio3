@@ -6,26 +6,120 @@ V betekent rework akkoord
 
 YYYY-MM-DD============================================================================================================================
 
-<wat er gewijzigd is sinds vorige review/rework/verificatie>
+PLAY_SYSTEM_SOUND:
+T - Afspeleen en volume van elkaar loskoppelen.
+	Voordeel is dat het beter te onderhouden is, omdat afspelen en volume elk op zich redelijk eenvoudig zijn als ze zelfstandig zijn.
 
-2025-11-18 ============================================================================================================================
+MESSAGES:
+T - Messages 'opschonen', overwegen om json schemas te gebruiken.
+	De gekozen message format en definities zijn in de praktijk niet altijd even logisch.
+	Voordeel is onderhoudbaarheid, en met json schemas robuust tegen send/receive mismatches
 
-Henk: review conclusies
-- volume_control.py rework is akkoord. Hiermee review afgesloten.
-- backlighting.py rework is akkoord. Hiermee review afgesloten.
-- i2c_service.py rework is akkoord: Hiermee review afgesloten
+DEBUG / ERRORS:
+T - oradio_log.debug/info/warning/error messages nakijken of ze zinvol zijn en op juiste plek gebruikt worden.
+	Tijdens ontwikkeling is er vaak exctra debug logging ingeslopen om te controleren of de code werkt als verwacht.
+	Echter, de vraag is of als de module af is deze extra debug logging weer opgeruimd is.
+T - Default log level van modules die af zijn op 'info' zetten.
+	De logfile stroomt nu vol, ook met debug info van modules die niet gedebugged hoeven worden, info genoeg is.
+	Voordeel is dat oradio.log nuttiger wordt omdat eht geen overbodige regels bevat
+	Voordeel is ook dat Oradio minder cycles nodig heeft om te loggen (maar we hebben geen performance probleem)
+	Nadeel is dat áls er iets fout gaat, de logfile mogelijk te weining informatie bevat om de oorzaak van de fout op te sporen
+T - Oradio exception introduceren, inclusief handler die gepaste akties neemt.
+	Nu worden fouten alleen aamr gelogd, en als we geluk hebben naar RMS gestuurd.
+	De fout heeft vaak gevolgen voor het gedrag van de Oradio, waardoor de Oradio onverwachte dingen doet.
+	Als de error een Oradio-exception triggert inclusief extra informatie kan de exception handler in extrmis de Oradio opnieuw opstarten.
 
-2025-11-17============================================================================================================================
-
-USB:
-T - Review usb_service.py vanwege vervangen singleton code door singleton decorator
+WEBINTERFACE:
+T - Web interface refactoren naar Single Page Architecture (SPA), voor html, javascript en css.
+	De web interface bestaat nu uit een collectie losse web pagina's, losse javascript en losse css bestanden.
+    Nadeel is dat er veel duplicering van html, javascript en styling is tussen deze pagina's.
+	Dit heeft als risico dat er (zinloze/onbegrijpelijke) verschillen insluipen voor de gebruiker.
+	Het beste is om de web interface te refactoren naar Single Page Architecture (SPA).
+	Bijkomend voordeel is ook dat de server, inclusief de fix voor issue #384, eenvoudiger wordt.
 
 MPD:
 T - Review mpd_control.py play method nav aanpassingen random nummer weergave
 T - Review Documents/MPD/MPD_modules_description.docx
-T - Olaf maakt test module mpd_control_test.py
+R - Als onderdeel van de stress testen #394 maakt Olaf ook test module mpd_control_test.py
 
-2025-11-17============================================================================================================================
+CONTROL:
+T - Review na alle module wijzigingen.
+	oradio_control is meermaals heen en weer geslingerd om (tijdelijke) wijzigingen in modules te accomoderen.
+	Zodra die modules gestabiliseerd zijn wordt het tijd om oradio_control na te kijken, op te schonen
+
+2025-12-07============================================================================================================================
+
+oradio_logging.py:
+V - log methods safe gemaakt met wrappers dei exceptions afvangen
+V - versturen van WARNING, ERROR en CRITICAL logs naar remote server toegevoegd
+V - onafhankelijk gemaakt van andere oradio modules
+V - Technische documnetatie bijgewerkt
+remote_monitoring.py:
+V - Versturen van WARNING, ERROR en CRITICAL logs naar remote server verwijderd
+V - Beheren van HEARTBEAT en SYS_LOG messages afhankelijk gemaakt vna wifi state
+V - Technische documnetatie bijgewerkt
+
+2025-11-25============================================================================================================================
+
+play_system_sound.py:
+R - De singleton decorator vervangt de dedecated singleton code
+R - De eigen debug print method is door oradio_log,debug() vervangen
+R - De doc-strings en inline comments zij bijgewerkt
+
+2025-11-24============================================================================================================================
+
+play_system_sound.py:
+Ik heb play_system_sound.py gereviewed.
+Wat ik verwacht dat de module doet:
+Als er een play(tune) aangeroepen wordt en er geen tune speelt en volume niet aangepast is:
+  a. wordt volume van mpd en spotify verlaagd
+  b. wordt afspelen van de gevraagde tune gestart
+Als er een nieuwe play(tune) aangeroepen wordt terwijl de vorige tune nog afgespeeld:
+  d. wordt afspelen van de vorige tune afgebroken, wordt afspelen van de nieuwe tune gestart
+  e. wordt het volume van mpd en spotify geleidelijk weer naar oorspronkelijk volume teruggebracht
+Als er een nieuwe play(tune) aangeroepen wordt terwijl de mpd en spotify volumeniveaus nog niet hersteld zijn:
+  f. wordt het volume van mpd en spotify ingesteld op de waardes bij a)
+  g. wordt afspelen van de vorige tune afgebroken, wordt afspelen van de nieuwe tune gestart
+  h. wordt het volume van mpd (en spotify) geleidelijk weer naar oorspronkelijk volume teruggebracht
+
+De huidige implementatie leest wat moeilijk omdat doc strings en inline comments niet overal aanwezig/compleet/duidelijk zijn. Maar wat ik ervan begrijp:
+- De PlaySystemSound class is een singleton: Prima, maar kan beter de signleton decorator gebruiken ipv eigen implementatie
+- De enige publieke method play(sound_key):
+  - gebruikt een lock: Prima, thread-safe
+  - zet mpd en spotify volumes
+  - Start thread _play_sound_and_restore() die de sound_key af moet spelen
+- De _play_sound_and_restore(sound_key) thread:
+  - gebruikt een wrapper functie _play_sound(sound_key) die een aantal checks doet en dan via de shell de tune laat afspelen
+  - de _resore_volumes() method aanroept om de mpd en spotify volumens geleidelijk terug op oorspronkelijk niveau te brengen
+- De _restore_volumes() method start een thread _ramp_restore_volumes() die over een korte periode de mpd en spotify volumes herstelt
+Om d) mogelijk te maken wordt bij elke play() call een nieuwe thread gestart die via _play_sound_and_restore() en _play_sound() via de shell de tune speelt. Er kunnen dus meerdere aplay commando's parallel gestart worden. Dar kan aplay tegen.
+om e) / f) / h) mogelijk te maken is de volume instelling in de play afhandeling verweven met timers en events.
+Het geheel oogt wat complex, maar doet wat het moet doen.
+
+Dus wat mij betreft moet tenminste:
+1. De singleton decorator gebruikt worden
+2. De eigen debug print method door oradio_log vervangen worden
+3. De doc-strings en inline comments een update krijgen
+
+Ingrijpender, voor later, net als zaken als oradio_controls en web interface single page redesign, zou ik voorstellen om de volumeregeling te ontkoppelen van het afspelen van de tunes.
+Dus play() niets anders laten doen dan de tune via aplay afspelen, met threads om overlap/override erin te houden.
+Maar volumeregeling als een service te maken die volumes beheert op basis van of er wel/geen tunes afgespeeld worden
+
+2025-11-10============================================================================================================================
+
+GPIO:
+Henk review: led_control.py
+1 - GPIO zaken ontkoppelen uit led_control.py. De GPIO wordt zowel in led_control als in touch_buttons geinitialiseerd. 
+    Zou op 1 plek moeten. Daarom GPIO zaken in een aparte module gpio_service.py afhandelen. 
+    Daarbij een klasse aanbieden met config en set/get methodes. 
+    Geeft betere abstractie door toevoeging van een hardware abstractie laag
+2 - methodes turn_off_led(), turn_on_led(), turn_on_led_with_delay() moeten een True/False teruggeven
+3 - delayed_off() thread gebruikt een sleep als delay.Beter is om een Timer thread te gebruiken
+4 - control_blinking_led(self, led_name, cycle_time=None), graag de cycle_time parameter specificeren.
+5 - De selftest is niet doelmatig. Beter is om  te testen of de leds ook werkelijk aan of uit staan door de GPIO status op te vragen van de geactiveerde led. 
+    Hiermee test je of de leds werkelijk aan of uit staan.
+
+2025-11-18============================================================================================================================
 
 I2C:
 V Review Documents/I2C/I2C_modules_description.docx
@@ -37,6 +131,7 @@ V 4 - Ontbrekende foutmelding -> toegevoegd
 V 5 - Zie punt 1
 V 6 - Zie punt 1
 V 7 - errors propageren nu niet, worden alleen gelogd. Zie issue #408
+=> Review/Rework conclusie: Rework akkoord. Hiermee is review afgesloten.
 backligting.py review:
 V 1 - Het is een vrij theoretisch geval: EEPROMS hebben een beperkt aantal write cycles.
       Nu wordt de EEPROM elke keer als Oradio en backlighting start geschreven.
@@ -44,23 +139,10 @@ V 1 - Het is een vrij theoretisch geval: EEPROMS hebben een beperkt aantal write
 	  Maar omdat EEPROM schrijfbeperking bij 40-50000 cycles ligt hoeven we ons daar niet echt druk over te maken.
 	  Kortom: we laten het in Backlighting::__init__ zitten. Eens?
 V 2 - de stop() method docstring is niet correct: Stop the Backlight manager ipv volume control. Gecorrigeerd
+=> Review/Rework conclusie: Rework akkoord. Hiermee is review afgesloten.
 i2c_service.py review:
 V 1 - Reworked: een retry mechanisme voor write_byte() en write_block() toegevoegd
-=> Review/Rework conclusie: Rework akkoord en hiermee I2C review afgesloten.
-
-2025-11-10============================================================================================================================
-
-GPIO:
-Henk review: led_control.py
-1 - GPIO zaken ontkoppelen uit led_control.py. De GPIO wordt zowel in led_control als in touch_buttons geinitialiseerd. 
-     Zou op 1 plek moeten. Daarom GPIO zaken in een aparte module gpio_service.py afhandelen. 
-     Daarbij een klasse aanbieden met config en set/get methodes. 
-     Geeft betere abstractie door toevoeging van een hardware abstractie laag
-2 - methodes turn_off_led(), turn_on_led(), turn_on_led_with_delay() moeten een True/False teruggeven
-3 - delayed_off() thread gebruikt een sleep als delay.Beter is om een Timer thread te gebruiken
-4 - control_blinking_led(self, led_name, cycle_time=None), graag de cycle_time parameter specificeren.
-5 - De selftest is niet doelmatig. Beter is om  te testen of de leds ook werkelijk aan of uit staan door de GPIO status op te vragen van de geactiveerde led. 
-     Hiermee test je of de leds werkelijk aan of uit staan.
+=> Review/Rework conclusie: Rework akkoord. Hiermee is review afgesloten
 
 2025-11-10============================================================================================================================
 
@@ -76,4 +158,4 @@ V 8 - Probleem met twee self._execute() die bij elkaar gevoegd worden. Gaat fout
 V 9 - Groene tekst als een module test optie een succes oplevert.
 V 10 - Verhuis MPDBase naar eigen file mpd_base.py, laat mpd_control.p en mpd_monito.py die importeren
 V 11 - Gebruik 'Singleton metaclass' in mpd_monitor.py (later ook in andere modules waar Singleton gebruikt wordt)
-=> Review/Rework conclusie: Rework akkoord en hiermee MPD review afgesloten.
+=> Review/Rework conclusie: Rework akkoord. Hiermee is review afgesloten.
