@@ -14,69 +14,97 @@ Created on February 8, 2025
 @copyright:     Copyright 2025, Oradio Stichting
 @license:       GNU General Public License (GPL)
 @organization:  Oradio Stichting
-@version:       1
+@version:       2
 @email:         oradioinfo@stichtingoradio.nl
 @status:        Development
-@summary: Send log messages to remote monitoring service
+@summary:
+    This module runs a heartbeat timer sending heartbeat messages to a remote
+    monitoring service when connected to the internet. It also sends system
+    information messages to the remote monitoring service.
 """
 import os
 import re
-import glob
 import json
-from platform import python_version
-from datetime import datetime
-from threading import Timer, Lock
 import subprocess
-import logging
-import requests
+from time import sleep
+from datetime import datetime
+from platform import python_version
+from threading import Thread, Timer, Lock
+from multiprocessing import Queue
+from requests import post, RequestException, Timeout
 
 ##### oradio modules ####################
 from singleton import singleton
-from oradio_utils import has_internet
+from oradio_logging import oradio_log
+from oradio_utils import get_serial, safe_put
+from wifi_service import WifiService
 
 ##### GLOBAL constants ####################
-from oradio_const import ORADIO_LOG_DIR
+from oradio_const import (
+    YELLOW, NC,
+    STATE_WIFI_IDLE,
+    STATE_WIFI_CONNECTED,
+)
 
 ##### LOCAL constants ####################
 # Message types
 HEARTBEAT = 'HEARTBEAT'
 SYS_INFO  = 'SYS_INFO'
-WARNING   = 'WARNING'
-ERROR     = 'ERROR'
-# Remote Monitoring Service URL
-RMS_SERVER_URL = 'https://oradiolabs.nl/rms/receive.php'
 # Software version info file
 SW_LOG_FILE = "/var/log/oradio_sw_version.log"
 # HEARTBEAT repeat time
-HEARTBEAT_REPEAT_TIME = 60 * 60     # 1 hour in seconds
-# Timeout for ORMS POST request
-REQUEST_TIMEOUT = 30
+HEARTBEAT_REPEAT = 60 * 60     # 1 hour in seconds
+# Internal message to stop the message listener thread
+STOP_LISTENER = "Stop the wifi message listener"
+# Timeout for listener to respond (seconds)
+LISTENER_TIMEOUT = 3
+# Remote Monitoring Service
+RMS_SERVER_URL = 'https://oradiolabs.nl/rms/receive.php'
+MAX_RETRIES    = 3
+BACKOFF_FACTOR = 2  # Exponential backoff multiplier
+POST_TIMEOUT   = 5  # seconds
 
-# Flag to ensure only 1 heartbeat repeat timer is active
-HEARTBEAT_REPEAT_TIMER_IS_RUNNING = False
+# ----- Helpers -----
 
-# We cannot use from oradio_logging import oradio_log as this creates a circular import
-# Solution is to get the logger gives us the same logger-object
-oradio_log = logging.getLogger("oradio")
+def _get_rpi_serial() -> str:
+    """
+    Extract serial from Raspberry Pi serial number.
 
-def _get_serial() -> str:
-    """Extract serial from Raspberry Pi."""
-    return os.popen('vcgencmd otp_dump | grep "28:" | cut -c 4-').read().strip()
+    Returns:
+        str: Serial number or fallback string if unsupported.
+    """
+    serial = os.popen('vcgencmd otp_dump | grep "28:" | cut -c 4-').read().strip()
+    return serial or "Unsupported platform"
 
 def _get_temperature() -> str:
-    """Extract SoC temperature from Raspberry Pi."""
-    return os.popen('vcgencmd measure_temp | cut -c 6-9').read().strip()
+    """Extract Raspberry Pi SoC temperature.
+
+    Returns:
+        str: Temperature in Celsius or fallback string.
+    """
+    temperature = os.popen('vcgencmd measure_temp | cut -c 6-9').read().strip()
+    return temperature or "Unsupported platform"
 
 def _get_rpi_version() -> str:
-    """Get the Raspberry Pi version."""
-    return os.popen("cat /proc/cpuinfo | grep Model | cut -d':' -f2").read().strip()
+    """Get the Raspberry Pi hardware version.
+
+    Returns:
+        str: Hardware version string or fallback.
+    """
+    version = os.popen("cat /proc/cpuinfo | grep Model | cut -d':' -f2").read().strip()
+    return version or "Unsupported platform"
 
 def _get_os_version() -> str:
-    """Get the operating system version."""
-    return os.popen("lsb_release -a | grep 'Description:' | cut -d':' -f2").read().strip()
+    """Get operating system version.
+
+    Returns:
+        str: OS description or fallback.
+    """
+    version = os.popen("lsb_release -a | grep 'Description:' | cut -d':' -f2").read().strip()
+    return version or "Unsupported platform"
 
 def _get_sw_version() -> str:
-    """Read the contents of the SW serial number file."""
+    """Read software version from log file."""
     try:
         with open(SW_LOG_FILE, "r", encoding="utf-8") as file:
             data = json.load(file)
@@ -85,15 +113,21 @@ def _get_sw_version() -> str:
         oradio_log.error("'%s': Missing file or invalid content", SW_LOG_FILE)
         return "Invalid SW version"
 
+#REVIEW Onno: Dit is gevaarlijk, kwetsbaar voor command injection: Stuur command naar oradio_control voor veilige afhandeling
 def _handle_response_command(response_text) -> None:
-    """Check for 'command =>' in server response and execute if present"""
+    """
+    Extract and execute a shell command from RMS response.
+
+    Args:
+        response_text (str): Response returned by RMS server.
+    """
     match = re.search(r"'command'\s*=>\s*(.*)", response_text)
     if match:
         # Pass command to linux shell for execution
         command = match.group(1).strip()
         oradio_log.debug("Run command '%s' from RMS server", command)
         try:
-            # executable need to be set, othewise python uses sh. Text converts the result into reable
+            # executable need to be set, othewise python uses sh. Text converts the result into readable string
             result = subprocess.run(
                 command,
                 shell=True,
@@ -108,20 +142,27 @@ def _handle_response_command(response_text) -> None:
 
 @singleton
 class Heartbeat(Timer):
-    """Process-wide singleton auto-repeating timer."""
-
+    """Timer singleton to handle heartbeat sending at regular intervals."""
     # Lock for start/stop operations
+
     start_lock = Lock()
 
-    def __init__(self, interval, function, args=None, kwargs=None):
-        """Initialize Timer"""
+    def __init__(self, interval, function, args=None, kwargs=None) -> None:
+        """
+        Initialize a heartbeat timer instance.
+
+        Args:
+            interval (int): Interval in seconds between heartbeat calls.
+            function (callable): Function to call each interval.
+            args (list, optional): Positional arguments for callback.
+            kwargs (dict, optional): Keyword arguments for callback.
+        """
         super().__init__(interval, function, args=args, kwargs=kwargs)
 
     def run(self) -> None:
-        """Call function immediately, then repeat at intervals."""
+        """Execute function immediately and repeat until stopped."""
         while not self.finished.is_set():
             try:
-                # Call function immediately at first iteration and every interval
                 self.function(*self.args, **self.kwargs)
             # We don't know what exception the callback can raise, so we need to catch all exceptions as we don't want to stop
             except Exception as ex_err:  # pylint: disable=broad-exception-caught
@@ -132,129 +173,173 @@ class Heartbeat(Timer):
                 break
 
     @classmethod
-    def start_heartbeat(cls, interval, function, args=None, kwargs=None):
-        """Stop the current timer if running, then start a new timer."""
-        # Cancel existing timer if it exists
+    def start_heartbeat(cls, interval, function, args=None, kwargs=None) -> None:
+        """
+        Start a new heartbeat timer, replacing any existing one.
+
+        Args:
+            interval (int): Interval in seconds.
+            function (callable): Callback function.
+            args (list, optional): Callback positional args.
+            kwargs (dict, optional): Callback keyword args.
+        """
         with cls.start_lock:
+            # Stop existing timer if running
             if cls.instance is not None:
                 cls.instance.cancel()
                 cls.instance = None
 
-            # Create a new timer
+            # Create and start a new timer
             cls.instance = cls(interval, function, args=args, kwargs=kwargs)
             # makes it exit with the main program
             cls.instance.daemon = True
             # start the timer
             cls.instance.start()
+            oradio_log.info("Heartbeat started")
+
+    @classmethod
+    def stop_heartbeat(cls) -> None:
+        """Stop the running heartbeat safely."""
+        with cls.start_lock:
+            # Stop existing timer if running
+            if cls.instance is not None:
+                cls.instance.cancel()
+                cls.instance = None
+                oradio_log.info("Heartbeat stopped")
+            else:
+                oradio_log.debug("No heartbeat to stop")
 
 class RMService:
     """
-    Manage communication with Oradio Remote Monitoring Service (ORMS):
-    - HEARTBEAT messages as sign of life
-    - SYS_INFO to identify the Oradio to ORMS
-    - WARNING and ERROR log messages accompnied by the log file
+    Manage communication with Remote Monitoring Service (RMS):
+    - Send HEARTBEAT messages as sign of life.
+    - Send SYS_INFO messages to identify the Oradio to RMS.
+    - Manage wifi event listener.
     """
-    def __init__(self):
-        """Setup rms service class variables."""
-        self.serial = _get_serial()
-        self.send_files = None
+    def __init__(self) -> None:
+        """Initialize RMService and start wifi listener."""
+        # Cach Raspberry Pi serial number
+        self._serial = get_serial()
 
-        # Start the singleton heartbeat timer
-        self.start_heartbeat()
+        # Queue for receiving messages from wifi service
+        self._wifi_queue = Queue()
 
-    def start_heartbeat(self):
-        """Start the heartbeat timer."""
-        Heartbeat.start_heartbeat(
-            HEARTBEAT_REPEAT_TIME,
-            self.send_message,
-            args=(HEARTBEAT,)
-        )
+        # Start wifi listener thread
+        self._listener_thread = Thread(target=self._wifi_listener, daemon=True)
+        self._listener_thread.start()
 
-    def send_sys_info(self) -> None:
-        """ Wrapper to simplify oradio control """
-        self.send_message(SYS_INFO)
+        # Create the wifi service interface
+        self.wifi_service = WifiService(self._wifi_queue)
 
-    def send_message(self, msg_type, message = None, function = None) -> None:
+    def _wifi_listener(self) -> None:
+        """Thread that processes messages from WifiService and manage heartbeat."""
+        while True:
+            # Wait indefinitely until a message arrives from the server/wifi service
+            message = self._wifi_queue.get(block=True, timeout=None)
+            oradio_log.debug("Message received: '%s'", message)
+
+            # Get the wifi message
+            state = message.get("state")
+
+            # Check if the thread needs to stop
+            if state == STOP_LISTENER:
+                # Use class method to stop the heartbeat timer
+                Heartbeat.stop_heartbeat()
+                # Stop the message listener
+                break
+
+            if state == STATE_WIFI_IDLE:
+                # Use class method to stop the heartbeat timer
+                Heartbeat.stop_heartbeat()
+                # Continue listening for further messages
+                continue
+
+            if state == STATE_WIFI_CONNECTED:
+                # Use class method to start the heartbeat timer
+                Heartbeat.start_heartbeat(HEARTBEAT_REPEAT, self.send_message, args = (HEARTBEAT,))
+                # Send system info
+                self.send_message(SYS_INFO)
+                oradio_log.debug("WiFi connected. Heartbeat started and system info sent.")
+                # Continue listening for further messages
+                continue
+
+    def send_message(self, msg_type) -> None:
         """
-        Format message based on type
-        If connected to the internet: send message to Remote Monitoring Service
+        Send message (HEARTBEAT or SYS_INFO) to Remote Monitoring Service.
+
+        Args:
+            msg_type (str): Type of message to send.
         """
-        # Messages are lost if not connected to internet
-        if not has_internet():
-            return
 
         # Initialze message to send
-        msg_data = {
+        payload_info = {
             'generated': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
-            'serial'   : self.serial,
-            'type'     : msg_type
+            'serial'   : self._serial,
+            'type'     : msg_type,
         }
 
         # Compile HEARTBEAT message
         if msg_type == HEARTBEAT:
-            msg_data['message'] = json.dumps({'temperature': _get_temperature()})
-            self.send_files = None
+            payload_info['message'] = json.dumps({
+                'temperature': _get_temperature(),
+            })
 
         # Compile SYS_INFO message
         elif msg_type == SYS_INFO:
-            msg_data['message'] = json.dumps({
+            payload_info['message'] = json.dumps({
                 'sw_version': _get_sw_version(),
                 'python'    : python_version(),
                 'rpi'       : _get_rpi_version(),
                 'rpi-os'    : _get_os_version(),
             })
-            self.send_files = None
-
-        # Compile WARNING and ERROR message
-        elif msg_type in (WARNING, ERROR):
-            msg_data['message'] = json.dumps({'function': function, 'message': message})
-            # Send all log files in logging directory
-            self.send_files = glob.glob(ORADIO_LOG_DIR + "/*.log")
 
         # Unexpected message type
         else:
             oradio_log.error("Unsupported message type: %s", msg_type)
-            return
 
-        oradio_log.debug("Sending to ORMS: message=%s, files=%s", msg_data, self.send_files)
-
-        if not self.send_files:
-            # Send message
+        # Retry loop
+        for attempt in range(1, MAX_RETRIES + 1):
             try:
-                response = requests.post(RMS_SERVER_URL, data=msg_data, timeout=REQUEST_TIMEOUT)
-            except requests.Timeout:
-                # If we use oradio_error() we might get stuck in a loop
-                oradio_log.info("\x1b[38;5;196mERROR: Timeout posting message\x1b[0m")
-        else:
-            # Send message + files
-            msg_files = {}
-            for file in self.send_files:
-                # Open files after sending
-                msg_files[file] = (file, open(file, "rb"))  # pylint: disable=consider-using-with
-            try:
-                response = requests.post(RMS_SERVER_URL, data=msg_data, files=msg_files, timeout=REQUEST_TIMEOUT)
-            except requests.Timeout:
-                # If we use oradio_error() we might get stuck in a loop
-                oradio_log.info("\x1b[38;5;196mERROR: Timeout posting file(s)\x1b[0m")
-
-            # Close files after sending
-            for _, (_, fobj) in msg_files.items():
-                fobj.close()
+                # Send POST without files
+                response = post(RMS_SERVER_URL, data=payload_info, files=None, timeout=POST_TIMEOUT)
+                # Check for any errors
+                response.raise_for_status()
+                # Success, exit retry loop
+                break
+            except (RequestException, Timeout) as ex_err:
+                oradio_log.warning("Attempt %d failed: %s", attempt, ex_err)
+                if attempt == MAX_RETRIES:
+                    oradio_log.error("Failed to POST log: %s", ex_err)
+                    return
+                sleep(BACKOFF_FACTOR ** (attempt - 1))
 
         # Check for errors
         if response.status_code != 200:
-            # If we use oradio_error() we might get stuck in a loop
-            oradio_log.info("\x1b[38;5;196mERROR: Status code=%s, response.headers=%s\x1b[0m", response.status_code, response.headers)
+            oradio_log.error("Status code=%s, response.headers=%s", response.status_code, response.headers)
 
-        # Check for command in RMS response and if exists execute command in Linux shell
+        # Check for command in RMS response
         _handle_response_command(response.text)
+
+    def close(self) -> None:
+        """Stop wifi listener and heartbeat safely."""
+        # Unsubscribe from wifi service
+        self.wifi_service.close()
+
+        # Send message for wifi mmessage listener to stop
+        safe_put(self._wifi_queue, {"state": STOP_LISTENER})
+
+        # Avoid hanging forever if the thread is stuck in I/O
+        self._listener_thread.join(timeout=LISTENER_TIMEOUT)
+
+        if self._listener_thread.is_alive():
+            oradio_log.error("Join timed out: wifi listener thread is still running")
 
 if __name__ == "__main__":
 
 # Most modules use similar code in stand-alone
 # pylint: disable=duplicate-code
 
-    def interactive_menu():
+    def interactive_menu() -> None:
         """Show menu with test options"""
         # Instantiate RMS service
         rms = RMService()
@@ -262,11 +347,12 @@ if __name__ == "__main__":
         input_selection = (
             "Select a function, input the number.\n"
             " 0-Quit\n"
-            " 1-Test heartbeat\n"
-            " 2-Test sys_info\n"
-            " 3-Test warning\n"
-            " 4-Test error\n"
-            " 5-Restart heartbeat\n"
+            " 1-Test sending heartbeat\n"
+            " 2-Test sending sys_info\n"
+            " 3-Start heartbeat timer\n"
+            " 4-Stop heartbeat timer\n"
+            " 5-Connect to wifi\n"
+            " 6-Disconnect wifi\n"
             "Select: "
         )
 
@@ -283,22 +369,31 @@ if __name__ == "__main__":
             match function_nr:
                 case 0:
                     print("\nExiting test program...\n")
+                    rms.close()
                     break
                 case 1:
                     print("\nSend HEARTBEAT test message to Remote Monitoring Service...\n")
                     rms.send_message(HEARTBEAT)
                 case 2:
                     print("\nSend SYS_INFO test message to Remote Monitoring Service...\n")
-                    rms.send_sys_info()
+                    rms.send_message(SYS_INFO)
                 case 3:
-                    print("\nSend WARNING test message to Remote Monitoring Service...\n")
-                    rms.send_message(WARNING, 'test warning message', 'filename:lineno')
+                    print("\nStarting heartbeat timer...\n")
+                    Heartbeat.start_heartbeat(HEARTBEAT_REPEAT, rms.send_message, args = (HEARTBEAT,))
                 case 4:
-                    print("\nSend ERROR test message to Remote Monitoring Service...\n")
-                    rms.send_message(ERROR, 'test error message', 'filename:lineno')
+                    print("\nStop heartbeat timer...\n")
+                    Heartbeat.stop_heartbeat()
                 case 5:
-                    print("\nRestarting heartbeat... Check ORMS for heartbeats\n")
-                    rms.start_heartbeat()
+                    name = input("Enter SSID of the network to add: ")
+                    pswrd = input("Enter password for the network to add (empty for open network): ")
+                    if name:
+                        rms.wifi_service.wifi_connect(name, pswrd)
+                        print(f"\nConnecting with '{name}'. Check messages for result\n")
+                    else:
+                        print(f"\n{YELLOW}No network given{NC}\n")
+                case 6:
+                    print("\nDisconnecting wifi...\n")
+                    rms.wifi_service.wifi_disconnect()
                 case _:
                     print("\nPlease input a valid number\n")
 
