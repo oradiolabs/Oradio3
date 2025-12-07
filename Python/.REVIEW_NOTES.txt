@@ -47,6 +47,18 @@ T - Review na alle module wijzigingen.
 	oradio_control is meermaals heen en weer geslingerd om (tijdelijke) wijzigingen in modules te accomoderen.
 	Zodra die modules gestabiliseerd zijn wordt het tijd om oradio_control na te kijken, op te schonen
 
+2025-12-07============================================================================================================================
+
+oradio_logging.py:
+V - log methods safe gemaakt met wrappers dei exceptions afvangen
+V - versturen van WARNING, ERROR en CRITICAL logs naar remote server toegevoegd
+V - onafhankelijk gemaakt van andere oradio modules
+V - Technische documnetatie bijgewerkt
+remote_monitoring.py:
+V - Versturen van WARNING, ERROR en CRITICAL logs naar remote server verwijderd
+V - Beheren van HEARTBEAT en SYS_LOG messages afhankelijk gemaakt vna wifi state
+V - Technische documnetatie bijgewerkt
+
 2025-11-25============================================================================================================================
 
 play_system_sound.py:
