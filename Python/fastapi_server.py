@@ -75,17 +75,31 @@ mpd_control = MPDControl()
 # Get the web server app
 api_app = FastAPI()
 
+# Store in api_app.state to persists over multiple HTTP requests and application lifetime
+api_app.state.server_busy = False       # Server state
+api_app.state.timer_task = None         # The actual timer task
+api_app.state.timer_deadline = None     # When the timer should expire
+
 # Catch any request before doing anything else
 @api_app.middleware("http")
 async def keep_alive_middleware(request: Request, call_next):
     """ Run keep_alive automatically on every request """
+    # Mark busy stops timeout timer
+    api_app.state.server_busy = True
 
-    # Avoid calling keep_alive twice if the endpoint itself is "/keep_alive"
-    if request.url.path != "/keep_alive":
-        await keep_alive()
+    try:
+        # Process the actual request
+        response = await call_next(request)
 
-    # Execute request and return response
-    return await call_next(request)
+        # For all endpoints *except* /keep_alive, extend timeout after request completes
+        if request.url.path != "/keep_alive":
+            await keep_alive()
+
+        return response
+
+    finally:
+        # ALWAYS mark idle enabling timeout timer
+        api_app.state.server_busy = False
 
 # Get the path for the server to mount/find the web pages and associated resources
 web_path = path.dirname(path.realpath(__file__))
@@ -492,23 +506,31 @@ async def spotify_name(spotify: Spotify):
 
 #### CLOSE ###############################
 
-# Store in api_app.state to persists over multiple HTTP requests and application lifetime
-api_app.state.timer_task = None         # The actual timer task
-api_app.state.timer_deadline = None     # When the timer should expire
-
 async def stop_task():
     """The wait task sending the stop message when timer expires."""
     try:
         # Sleep until timeout unless reset
         while True:
+
+            # Pause timer while busy
+            if api_app.state.server_busy:
+                # Prevent loop blocking forever
+                await sleep(0.1)
+                continue
+
+            # Compute remaining time until deadline
             remaining = (api_app.state.timer_deadline - datetime.utcnow()).total_seconds()
+
+            # If deadline passed, break the loop
             if remaining <= 0:
                 break
-            await sleep(min(remaining, 0.2))  # check frequently
 
-        # Timer expired: Send a stop message to the service queue
+            # Sleep a short time (or until deadline, whichever is smaller)
+            await sleep(min(remaining, 0.2))
+
+        # Timer expired: Send stop message
         message = {"request": MESSAGE_REQUEST_STOP}
-        safe_put(api_app.state.queue, message)  # Safely put message in queue
+        safe_put(api_app.state.queue, message)
         oradio_log.debug("Keep alive timer expired: closing the web server")
 
     except CancelledError:
@@ -524,12 +546,9 @@ async def keep_alive():
     # Set the new deadline
     api_app.state.timer_deadline = datetime.utcnow() + timedelta(seconds=KEEP_ALIVE_TIMEOUT)
 
-    # Cancel the previous timer task if running
-    if api_app.state.timer_task and not api_app.state.timer_task.done():
-        api_app.state.timer_task.cancel()
-
-    # Create a new timer task
-    api_app.state.timer_task = create_task(stop_task())
+    # Only create the timer task if it doesn't exist or is done
+    if api_app.state.timer_task is None or api_app.state.timer_task.done():
+        api_app.state.timer_task = create_task(stop_task())
 
 # POST endpoint to close the server
 @api_app.post("/close")
@@ -541,7 +560,7 @@ async def close():
 
     # Send a stop message to the service queue
     message = {"request": MESSAGE_REQUEST_STOP}
-    safe_put(api_app.state.queue, message)  # Safely put message in queue
+    safe_put(api_app.state.queue, message)
 
 #### CATCH ALL ###########################
 
