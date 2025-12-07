@@ -97,9 +97,6 @@ web_service_active.clear() # Start-up state is no Web service
 usb_present = threading.Event()
 usb_present.set() # USB present to go over start-up sequence (will be updated after first message of USB service
 
-# Instantiate remote monitor
-remote_monitor = RMService()
-
 oradio_log.info("Start backlighting")
 backlighting = Backlighting()
 
@@ -473,11 +470,6 @@ def on_wifi_connected():
             4, sound_player.play, args=("WifiConnected",)
         ).start()
 
-    # Send sytem info to Remote Monitoring Service
-    remote_monitor.send_sys_info()
-    # Restart sending heartbeat every hour to Remote Monitoring Service
-    remote_monitor.start_heartbeat()
-
 def on_wifi_fail_connect():
     oradio_log.info("Wifi fail connect acknowledged")
     if state_machine.state in PLAY_WEBSERVICE_STATES:  # If in play states,
@@ -712,6 +704,10 @@ shared_queue = Queue()  # Create a shared queue
 
 # Instantiate the state machine
 state_machine = StateMachine()
+
+#REVIEW Onno: Gebruik shared queue om remote commando's door oradio control te laten doen, inclusief feedback naar gebruiker
+# Instantiate remote monitor managing the heartbeat and sys_info messages when wifi state changes
+remote_monitor = RMService()
 
 # do self test of leds, after StateMachine is started
 # if not leds.selftest():

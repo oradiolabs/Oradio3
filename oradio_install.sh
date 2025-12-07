@@ -150,13 +150,12 @@ if [ "$1" != "--continue" ]; then
 
 	# Update lists if to old
 	if (( age > MAX_AGE )); then
+		echo -e "${YELLOW}Package lists out of date, updating...${NC}"
 		sudo apt-get update
 		# Save time lists were updated
 		date +%s | sudo tee "$STAMP_FILE" >/dev/null
-		echo -e "${GREEN}Package lists updated, stamp file updated${NC}"
-	else
-		echo -e "${GREEN}Package lists are up to date${NC}"
 	fi
+	echo -e "${GREEN}Package lists are up to date${NC}"
 	# NOTE: We do not upgrade: https://forums.raspberrypi.com/viewtopic.php?p=2310861&hilit=oradio#p2310861
 
 ########## OS PACKAGES END ##########
