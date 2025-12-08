@@ -47,6 +47,30 @@ T - Review na alle module wijzigingen.
 	oradio_control is meermaals heen en weer geslingerd om (tijdelijke) wijzigingen in modules te accomoderen.
 	Zodra die modules gestabiliseerd zijn wordt het tijd om oradio_control na te kijken, op te schonen
 
+2025-12-08============================================================================================================================
+Review/opmerkingen Henk:play_system_sound.py:
+1 - De volume regeling moet inderdaad voor alle audio bronnen bij volume_controle terecht komen. Dus play_system_sound gebruikt een service van volume_control om de volume voor "tunes" en de meldingen te doen.
+2 - Om de muziek zo snel mogelijk gespeeld te krijgen mogen de tunes met de muziek gemixed worden.
+3 - Elke muziek bron heeft kennelijk zijn eigen volume referentie (zie defines). Waarschijnlijk omdat elke bron een andere volume level heeft, die genormaliseerd moet worden.
+       DEFAULT_MPD_VOLUME       = 100
+       DEFAULT_SPOTIFY_VOLUME   = 100
+       VOLUME_MPD_SYS_SOUND     = 80
+       VOLUME_SPOTIFY_SYS_SOUND = 80
+       DEFAULT_SYS_SOUND_VOLUME = 70
+4 - Het mixen wordt in de alsa library gedaan, er zijn sound-inputs voor bovenstaande 4 muziek bronnen.
+5 - Het mixen van "tunes" kan omdat de MPD een eigen pcm.MPD_in heeft en de SysSound een pcm.SysSound_in heeft. Deze kunnen gemixed worden door de asound.dmixer
+6 - Echter de huidige oplossing in play_system_sound is best complex:
+    De tunes via <amixer --sset volume> hebben ander volume nivo dan de muziek van MPD. Dus volume level van tunes wordt eerst gezet en na afloop weer
+    teruggezet op nivo van MPD. Best ingewikkeld
+7 - Een alternatieve mogelijke oplossing kan zijn om de mp3 bestanden voor de tunes met een lager volume attribute te voorzien, dan is het schakelen tussen de nivo's niet nodig.
+8 - Een andere mogelijke oplossing voor mixen kan zijn om ook de tunes door de MPD te laten afspelen.(Eventueel met aangepast mp3-volume). De tunes.mp3 wordt dan in de play-queue geplaatst als eerste, daaarna de speellijst zelf. Het mixen wordt door MPD zelf gedaan met de crossfade. Wel moet dan de tunes.mp3 weer uit de play-queue verwijderd worden
+
+Ik heb een opmerking/vraag mbt jouw review op play_system_sound.py:
+Als er een play(tune) aangeroepen wordt en er geen tune speelt en volume niet aangepast is:
+  a. wordt volume van mpd en spotify verlaagd
+  Henk: ik merk op dat dit nergens gespecificeerd is. Wel lijkt me dit handig omdat de tune dan beter hoorbaar is tov muziek.
+  als dit gewenst gedrag is dan geen probleem. Moet wel opgenomen worden in de Requirements/Specificaties.
+  
 2025-11-25============================================================================================================================
 
 play_system_sound.py:
