@@ -130,6 +130,9 @@ async def buttons_page(request: Request):
     """
     oradio_log.debug("Serving buttons page")
 
+    # TEST only: simulate very long to get list of networks
+    await sleep(10)
+
     # Return playlist page and presets, directories and playlists as context
     context = {
         "presets"     : load_presets(),
@@ -515,11 +518,22 @@ async def stop_task():
             # Pause timer while busy
             if api_app.state.server_busy:
                 # Prevent loop blocking forever
+                oradio_log.debug(GREEN+"Timer paused"+NC)
+                await sleep(0.1)
+                continue
+
+           # Wait until timer_deadline is set (first request)
+            if api_app.state.timer_deadline is None:
+                oradio_log.debug(GREEN+"Surprise: deadline is None!"+NC)
                 await sleep(0.1)
                 continue
 
             # Compute remaining time until deadline
+            now = datetime.utcnow()
+            deadline = api_app.state.timer_deadline
+            oradio_log.debug(GREEN+"deadline=%d, now=%d"+NC, deadline, now)
             remaining = (api_app.state.timer_deadline - datetime.utcnow()).total_seconds()
+            oradio_log.debug(GREEN+"remaining=%d"+NC, remaining)
 
             # If deadline passed, break the loop
             if remaining <= 0:
@@ -529,6 +543,7 @@ async def stop_task():
             await sleep(min(remaining, 0.2))
 
         # Timer expired: Send stop message
+        oradio_log.debug(GREEN+"Timer expired: stop"+NC)
         message = {"request": MESSAGE_REQUEST_STOP}
         safe_put(api_app.state.queue, message)
         oradio_log.debug("Keep alive timer expired: closing the web server")
