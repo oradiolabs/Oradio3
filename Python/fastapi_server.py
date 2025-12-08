@@ -67,7 +67,7 @@ INFO_ERROR    = {"serial": "undefined", "version": "undefined"}
 # Location of version info
 SOFTWARE_VERSION_FILE = "/var/log/oradio_sw_version.log"
 # Stop server if no keep alive message received, in seconds
-KEEP_ALIVE_TIMEOUT = 5
+KEEP_ALIVE_TIMEOUT = 30
 
 # Initialise MPD client
 mpd_control = MPDControl()
