@@ -64,6 +64,7 @@ Review/opmerkingen Henk:play_system_sound.py:
     teruggezet op nivo van MPD. Best ingewikkeld
 7 - Een alternatieve mogelijke oplossing kan zijn om de mp3 bestanden voor de tunes met een lager volume attribute te voorzien, dan is het schakelen tussen de nivo's niet nodig.
 8 - Een andere mogelijke oplossing voor mixen kan zijn om ook de tunes door de MPD te laten afspelen.(Eventueel met aangepast mp3-volume). De tunes.mp3 wordt dan in de play-queue geplaatst als eerste, daaarna de speellijst zelf. Het mixen wordt door MPD zelf gedaan met de crossfade. Wel moet dan de tunes.mp3 weer uit de play-queue verwijderd worden
+9 - Het is ook mogelijk om in de asound.conf een default volume level per pcm input te configureren, dan is het niet nodig om met "amixer sset" de levels aan te passen. Dan moet er in asound.conf een type softvol gedefinieerd worden, waarbinnen dan de min_db en max_db opgegeven worden. Zie http://67.218.143.79/en/Advanced_Linux_Sound_Architecture/Troubleshooting.html bij sectie Low Sound Volume
 
 Ik heb een opmerking/vraag mbt jouw review op play_system_sound.py:
 Als er een play(tune) aangeroepen wordt en er geen tune speelt en volume niet aangepast is:
