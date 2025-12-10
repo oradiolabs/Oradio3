@@ -20,72 +20,47 @@ Created on January 29, 2025
 """
 import time
 import threading
-from RPi import GPIO
 
 ##### oradio modules ####################
 from oradio_logging import oradio_log
+from gpio_service import GPIOService
 
 ##### GLOBAL constants ####################
-from oradio_const import LEDS
+from oradio_const import (LED_NAMES, GREEN, YELLOW, RED, NC)
+
 
 class LEDControl:
     """Control LED states"""
 
     def __init__(self):
-        """Class constructor: setup class variables"""
-        ## Review Henk  #####################################################
-        # Graag de GPIO.setmode() op slecht 1 plek initialiseren.
-        # Nu op 2 plekken, nl ook in touch_buttons.py
-        # Mijn voorstel zou zijn om een aparte gpio_service.py module te maken
-        # waarbinnen de GPIO configuratie opgezet wordt en aansturing van de gpio pinnen gedaan wordt.
-        # De led_control module weet in principe niets van de GPIO, maar biedt wel
-        # extra services voor aan/uit zetten leds, blinking, delays, etc
-        # Voor een betere abstracties zouden we in die module de volgende functies moeten aanbieden
-        # def GPIO_config()
-        #    GPIO.setwarnings(False)
-        #    GPIO.setmode(GPIO.BCM)
-        #    for _, pin in LEDS.items():
-        #       GPIO.setup(pin, GPIO.OUT, initial=GPIO.HIGH)
-        #    for pin in BUTTONS.values():
-        #       GPIO.setup(pin, GPIO.IN, pull_up_down=GPIO.PUD_UP)
-        #       try:
-        #          GPIO.remove_event_detect(pin)
-        #       except RuntimeError:
-        #          pass
-        #
-        # Class GPIOControl()
-        #   def __init__(self)
-        #      ## things to setup or initialize
-        #
-        #   # pin_name = [LED_PLAY, LED_PRESET1, LED_PRESET2, LED_PRESET3, LED_STOP,
-        #                    BUTTON_PLAY, BUTTON_PRESET1, BUTTON_PRESET2, BUTTON_PRESET3, BUTTON_STOP
-        #   def turn_on_led(led_name:str)
-        #   def turn_off_led(led_name:str)
-        #   def turn_off_all_leds()
-        #   def short_blink_led(led_name:str)
-        #   def long_blink_led(led_name:str)
-        #   def _control_blinking_led( led_name:str, cycle_time:int
-        #   
-        ##########################################################################        
-        GPIO.setmode(GPIO.BCM)                                # moved to GPIO_service.py
-        for _, pin in LEDS.items():                           # moved to GPIO_service.py
-            GPIO.setup(pin, GPIO.OUT, initial=GPIO.HIGH)      # moved to GPIO_service.py
-        ###############################################################################
-        self.blink_stop_events = {}       # map led_name → threading.Event()
-        self.blinking_threads = {}        # map led_name → Thread
-        oradio_log.debug("LEDControl initialized: All LEDs OFF")
+        """
+        Class constructor: setup class variables
+        and create instance for GPIOService class for LED IO-service
+        """
+        try:
+            self.leds_driver = GPIOService()
+        except (ValueError) as err:
+            oradio_log.error(f"GPIO Initialization failed: {err}")
+            raise ValueErrorError("Invalid value provided")
+        else:
+            self.blink_stop_events = {}       # map led_name → threading.Event()
+            self.blinking_threads = {}        # map led_name → Thread
+            oradio_log.debug("LEDControl initialized: All LEDs OFF")
 
-    def turn_off_led(self, led_name, log: bool = True):
-        """Turns off a specific LED and waits for its blink‐thread to exit."""
-          ### Review Henk  #############
-        # Return True or False
-        # True = Blinking started
-        # False = Failure
-        # or if it makes sense return a success/error status
-        ################################################       
+    def turn_off_led(self, led_name, log: bool = True) -> bool:
+        """
+        Turns off a specified LED and waits for its blink‐thread to exit.
+        :arguments
+            led_name (str), precondition: must be [ LED_PLAY | LED_STOP |
+                                                    LED_PRESET1 | LED_PRESET2 | LED_PRESET3] 
+            log (bool) = enable/disable logging of led status
+        :return
+            True: specified LED is turned off
+            False: Invalid LED name 
+        """
         if led_name not in LEDS:
             oradio_log.error("Invalid LED name: %s", led_name)
-            return
+            return(False)
 
         # signal any blink thread to stop
         evt = self.blink_stop_events.pop(led_name, None)
@@ -97,49 +72,59 @@ class LEDControl:
         if thread:
             thread.join()
 
-        # now safe to drive off
-        # Review Henk:
-        # moved to GPIO_service.py
-        GPIO.output(LEDS[led_name], GPIO.HIGH) 
+        self.leds_driver.set_led_off(led_name)
         if log:
             oradio_log.debug("%s turned off", led_name)
-
+        return(True)
 
     def turn_on_led(self, led_name):
-        """Turns on a specific LED (stops blinking if active)."""
-         ### Review Henk  #############
-        # Return True or False
-        # True = Blinking started
-        # False = Failure
-        # or if it makes sense return a success/error status
-        ################################################        
+        """
+        Turns ON a specified LED and stops blink‐thread if active.
+        :arguments
+            led_name (str), precondition: must be [ LED_PLAY | LED_STOP |
+                                                    LED_PRESET1 | LED_PRESET2 | LED_PRESET3] 
+            log (bool) = enable/disable logging of led status
+        :return
+            True: specified LED is turned off
+            False: Invalid LED name 
+        """
         if led_name not in LEDS:
             oradio_log.error("Invalid LED name: %s", led_name)
-            return
+            return(False)
 
         # stop blinking silently (no 'turned off' log), then light it
         self.turn_off_led(led_name, log=False)
-        # Review Henk:
-        # moved to GPIO_service.py
         GPIO.output(LEDS[led_name], GPIO.LOW)
         oradio_log.debug("%s turned on", led_name)
+        return(True)
 
     def turn_off_all_leds(self):
         """Stops all blink‐threads and turns every LED off."""
         # stop all threads
-        for evt in self.blink_stop_events.values():
-            evt.set()
-        for thread in self.blinking_threads.values():
-            thread.join()
-        self.blink_stop_events.clear()
-        self.blinking_threads.clear()
+#        for evt in self.blink_stop_events.values():
+#            evt.set()
+#        for thread in self.blinking_threads.values():
+#            thread.join()
+#        self.blink_stop_events.clear()
+#        self.blinking_threads.clear()
 
-        # drive every pin HIGH
-        # Review Henk:
-        # moved to GPIO_service.py
-        for pin in LEDS.values():
-            GPIO.output(pin, GPIO.HIGH)
+        for led_name in LED_NAMES:
+            self.leds_driver.set_led_off(led_name)
         oradio_log.debug("All LEDs turned off and blinking stopped")
+
+    def turn_on_all_leds(self):
+        """Stops all blink‐threads and turns every LED on."""
+        # stop all threads
+#        for evt in self.blink_stop_events.values():
+#            evt.set()
+#        for thread in self.blinking_threads.values():
+#            thread.join()
+#        self.blink_stop_events.clear()
+#        self.blinking_threads.clear()
+
+        for led_name in LED_NAMES:
+            self.leds_driver.set_led_on(led_name)
+        oradio_log.debug("All LEDs turned ON and blinking stopped")
 
     def turn_on_led_with_delay(self, led_name, delay=3):
         """
@@ -274,6 +259,14 @@ if __name__ == "__main__":
 
     print("\nStarting LED Control Standalone Test...\n")
 
+    from oradio_utils import setup_remote_debugging
+    ### Change HOST_ADDRESS to your host computer local address for remote debugging
+    HOST_ADDRESS = "192.168.178.52"
+    DEBUG_PORT = 5678
+    if not setup_remote_debugging(HOST_ADDRESS,DEBUG_PORT):
+        print("The remote debugging error, check the remote IP connection")
+        exit()
+
     def _prompt_int(prompt: str, default: int | None = None) -> int | None:
         try:
             return int(input(prompt))
@@ -286,6 +279,36 @@ if __name__ == "__main__":
         except ValueError:
             return default
 
+    def single_led_test(led_control:LEDControl,selected_led:str) ->None:
+        '''
+        Test the selected LED functions
+        :arguments 
+            selected_led (str) = [ LED_PLAY | LED_STOP] |
+                                  LED_PRESET1 | LED_PRESET2 | LED_PRESET3 ]
+            led-driver = instance of LEDControl to use
+        '''
+        led_test_options = ["Quit"]\
+                        + [f"Turn {selected_led} ON"]\
+                        + [f"Turn {selected_led} OFF"]
+        while True:
+            # --- Show test menu with the selection options---
+            for idx, name in enumerate(led_test_options, start=0):
+                print(f"{NC} {idx} - {name}")
+
+            led_test_choice = _prompt_int("Select test number: ", default=-1)
+            match led_test_choice:
+                case 0:
+                    print("\nReturning to main menu selection...\n")
+                    return
+                case 1:
+                    print(f"\nExecuting: Turn ON {selected_led}\n")
+                    led_control.leds_driver.set_led_on(selected_led)
+                case 2:
+                    print(f"\nExecuting: Turn OFF {selected_led}\n")
+                    led_control.leds_driver.set_led_off(selected_led)
+                case _:
+                    print("Please input a valid number.")
+        
     def _run_led_action_menu(leds: LEDControl, selected_led: str) -> None:
         """Inner menu to run actions for a selected LED."""
         input_selection = (
@@ -335,44 +358,48 @@ if __name__ == "__main__":
         """Show menu with test options"""
         try:
             leds = LEDControl()
-        except (RuntimeError, ValueError) as ex_err:
+        except (ValueError) as ex_err:
             print(f"Initialization failed: {ex_err}")
             return
 
-        led_options = ["Quit", "Run selftest"] + list(LEDS.keys()) + ["Turn all LEDs OFF"]
+        test_options = ["Quit", "Run selftest"] + \
+                        LED_NAMES + \
+                        ["Turn all LEDs OFF"] + \
+                        ["Turn all LEDs ON"]
 
         while True:
             # --- LED selection ---
-            print("\nSelect a LED:")
-            for idx, name in enumerate(led_options, start=0):
+            print("\nSelect a TEST:")
+            for idx, name in enumerate(test_options, start=0):
                 print(f" {idx} - {name}")
 
-            led_choice = _prompt_int("Select LED number: ", default=-1)
+            test_choice = _prompt_int("Select TEST number: ", default=-1)
 
-            if led_choice == 0:
+            if test_choice == 0:
                 leds.turn_off_all_leds()
-                GPIO.cleanup()
                 print("\nExiting test program\n")
                 break
 
-            if not 0 <= led_choice < len(led_options):
-                print("Please input a valid number.")
+            if not 0 <= test_choice < len(test_options):
+                print("Please input a valid test number.")
                 continue
 
-            selected_led = led_options[led_choice]
+            selected_test = test_options[test_choice]
 
-            if selected_led == "Run selftest":
+            if selected_test == "Run selftest":
                 print("\nExecuting: Selftest\n")
                 selftest_ok = leds.selftest()
                 print("Selftest:", "OK" if selftest_ok else "FAILED")
                 continue
-
-            if selected_led == "Turn all LEDs OFF":
+            elif selected_test == "Turn all LEDs OFF":
                 print("\nExecuting: Turn all LEDs OFF\n")
                 leds.turn_off_all_leds()
                 continue
-
-            _run_led_action_menu(leds, selected_led)
-
+            elif selected_test == "Turn all LEDs ON":
+                print("\nExecuting: Turn all LEDs ON\n")
+                leds.turn_on_all_leds()
+                continue
+            elif selected_test in LED_NAMES:
+                single_led_test(leds, selected_test)
     # Present menu with tests
     interactive_menu()

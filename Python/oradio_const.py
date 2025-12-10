@@ -23,31 +23,37 @@ Created on December 23, 2024
 """
 
 ################## SYSTEM #############################
-import os
-import sys
-
 # Colors
-RED    ='\033[1;31m'
-YELLOW ='\033[1;93m'
-GREEN  ='\033[1;32m'
-NC     ='\033[0m'
-
-# Make Oradio file locations relative
-ORADIO_DIR        = sys.path[0]
-ORADIO_LOG_DIR    = os.path.abspath(ORADIO_DIR + '/../logging')
-JSON_SCHEMAS_FILE = os.path.realpath(ORADIO_DIR + "/schemas.json")
+BLUE    = '\x1b[38;5;039m'
+GREY    = '\x1b[38;5;248m'
+WHITE   = '\x1b[38;5;255m'
+YELLOW  = '\x1b[38;5;226m'
+GREEN   = '\x1b[38;5;048m'
+RED     = '\x1b[38;5;196m'
+MAGENTA = '\x1b[38;5;201m'
+NC      = '\x1b[0m'
 
 # Messages consist of 3 elements: source, state and error
 MESSAGE_NO_ERROR = "None"
 
-################## LED GPIO PINS ##########################
-LEDS = {
-    "LEDPlay":    15,
-    "LEDPreset1": 24,
-    "LEDPreset2": 25,
-    "LEDPreset3":  7,
-    "LEDStop":    23
-}
+########################### LED definitions see UML «led_name» ###################
+LED_PLAY    = "LedPlay"
+LED_STOP    = "LedStop"
+LED_PRESET1 = "LedPreset1"
+LED_PRESET2 = "LedPreset2"
+LED_PRESET3 = "LedPreset3"
+LED_NAMES=[LED_PLAY,LED_STOP,LED_PRESET1,LED_PRESET2,LED_PRESET3]
+
+############################# #BUTTON definitions see UML «button_name» ###################
+BUTTON_PLAY     = "ButtonPlay"
+BUTTON_STOP     = "ButtonStop"
+BUTTON_PRESET1  = "ButtonPreset1"
+BUTTON_PRESET2  = "ButtonPreset2"
+BUTTON_PRESET3  = "ButtonPreset3"
+
+################## REMOTE SERVER ##########################
+REMOTE_SERVER = 'https://oradiolabs.nl/rms/receive.php'
+POST_TIMEOUT  = (5, 30)  # (connect timeout, read timeout)
 
 ################## WIFI UTILS #############################
 # Access point
@@ -104,9 +110,6 @@ PRESETS_FILE = USB_SYSTEM + "/presets.json"
 ################## VOLUME #############################
 MESSAGE_VOLUME_SOURCE  = "Vol Control message"
 MESSAGE_VOLUME_CHANGED = "Volume changed"
-
-################## SYSTEM SOUNDS #############################
-SOUND_FILES_DIR = os.path.realpath(ORADIO_DIR + "/../system_sounds")
 
 ############# SPOTIFY CONFIG #####################################
 MESSAGE_SPOTIFY_SOURCE    = "Spotify message"

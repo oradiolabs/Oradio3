@@ -178,6 +178,7 @@ if [ "$1" != "--continue" ]; then
 		mpc
 		iptables
 		raspotify
+		pydevd
 	)
 
 	# Fetch list of upgradable packages
