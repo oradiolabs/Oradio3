@@ -534,7 +534,11 @@ async def stop_task():
 @api_app.post("/keep_alive")
 async def keep_alive():
     """Handle POST request to (re)set the inactive timer for closing the web server."""
-    oradio_log.debug("Starting/resetting the keep alive timer")
+    if api_app.state.timer_deadline is None:
+        oradio_log.debug("Starting the keep alive timer")
+    else:
+        remaining = (api_app.state.timer_deadline - datetime.utcnow()).total_seconds()
+        oradio_log.debug("Time remaining: %f. Resetting the keep alive timer", remaining)
 
     # Set the new deadline
     api_app.state.timer_deadline = datetime.utcnow() + timedelta(seconds=KEEP_ALIVE_TIMEOUT)
