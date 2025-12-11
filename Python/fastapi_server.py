@@ -75,6 +75,15 @@ mpd_control = MPDControl()
 # Get the web server app
 api_app = FastAPI()
 
+# Get the path for the server to mount/find the web pages and associated resources
+web_path = path.dirname(path.realpath(__file__))
+
+# Mount static files
+api_app.mount("/static", StaticFiles(directory=web_path+"/static"), name="static")
+
+# Initialize templates with custom filters and globals
+templates = Jinja2Templates(directory=web_path+"/templates")
+
 # Store in api_app.state to persists over multiple HTTP requests and application lifetime
 api_app.state.timer_task = None         # The actual timer task
 api_app.state.timer_deadline = None     # When the timer should expire
@@ -83,7 +92,6 @@ api_app.state.timer_deadline = None     # When the timer should expire
 @api_app.middleware("http")
 async def keep_alive_middleware(request: Request, call_next):
     """Manage keep_alive counter while executing requests."""
-
     if request.url.path != "/keep_alive" and api_app.state.timer_task and not api_app.state.timer_task.done():
         # Stop the running keep-alive timer
         api_app.state.timer_task.cancel()
@@ -100,15 +108,6 @@ async def keep_alive_middleware(request: Request, call_next):
 
     # Return response for actual request
     return response
-
-# Get the path for the server to mount/find the web pages and associated resources
-web_path = path.dirname(path.realpath(__file__))
-
-# Mount static files
-api_app.mount("/static", StaticFiles(directory=web_path+"/static"), name="static")
-
-# Initialize templates with custom filters and globals
-templates = Jinja2Templates(directory=web_path+"/templates")
 
 #### FAVICON #############################
 
@@ -195,7 +194,6 @@ async def save_preset(changedpreset: ChangedPreset):
             message["state"] = preset_map[changedpreset.preset]
             oradio_log.debug("Send web service message: %s", message)
             safe_put(api_app.state.queue, message)
-
     else:
         oradio_log.error("Invalid preset '%s'", changedpreset.preset)
 
@@ -373,10 +371,10 @@ async def status_page(request: Request):
 
     # Return status page and serial and active wifi connection as context
     context = {
-                "serial"     : serial,
-                "sw_serial"  : sw_info['serial'],
-                "sw_version" : sw_info['version']
-            }
+        "serial"     : serial,
+        "sw_serial"  : sw_info['serial'],
+        "sw_version" : sw_info['version']
+    }
     return templates.TemplateResponse(request=request, name="status.html", context=context)
 
 #### NETWORK #############################
@@ -406,9 +404,9 @@ async def network_page(request: Request):
 
     # Return network page and saved wifi connection and spotify name as context
     context = {
-                "oldssid" : oldssid,
-                "spotify" : response
-            }
+        "oldssid" : oldssid,
+        "spotify" : response
+    }
     return templates.TemplateResponse(request=request, name="network.html", context=context)
 
 # POST endpoint to get wifi networks
@@ -513,10 +511,8 @@ async def stop_task():
     try:
         # Sleep until timeout unless reset
         while True:
-
             # Compute remaining time until deadline
             remaining = (api_app.state.timer_deadline - datetime.utcnow()).total_seconds()
-            oradio_log.debug(GREEN+"remaining=%f"+NC, remaining)
 
             # If deadline passed, break the loop
             if remaining <= 0:
@@ -526,7 +522,6 @@ async def stop_task():
             await sleep(min(remaining, 0.2))
 
         # Timer expired: Send stop message
-        oradio_log.debug(GREEN+"Timer expired: stop"+NC)
         message = {"request": MESSAGE_REQUEST_STOP}
         safe_put(api_app.state.queue, message)
         oradio_log.debug("Keep alive timer expired: closing the web server")
