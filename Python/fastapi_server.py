@@ -76,30 +76,30 @@ mpd_control = MPDControl()
 api_app = FastAPI()
 
 # Store in api_app.state to persists over multiple HTTP requests and application lifetime
-api_app.state.server_busy = False       # Server state
 api_app.state.timer_task = None         # The actual timer task
 api_app.state.timer_deadline = None     # When the timer should expire
 
 # Catch any request before doing anything else
 @api_app.middleware("http")
 async def keep_alive_middleware(request: Request, call_next):
-    """ Run keep_alive automatically on every request """
-    # Mark busy stops timeout timer
-    api_app.state.server_busy = True
+    """Manage keep_alive counter while executing requests."""
 
-    try:
-        # Process the actual request
-        response = await call_next(request)
+    if request.url.path != "/keep_alive" and api_app.state.timer_task and not api_app.state.timer_task.done():
+        # Stop the running keep-alive timer
+        api_app.state.timer_task.cancel()
+        api_app.state.timer_deadline = None
+        api_app.state.timer_task = None
+        oradio_log.debug("Keep-alive timer stopped")
 
-        # For all endpoints *except* /keep_alive, extend timeout after request completes
-        if request.url.path != "/keep_alive":
-            await keep_alive()
+    # Process the actual request
+    response = await call_next(request)
 
-        return response
+    if request.url.path != "/keep_alive" and not request.query_params.get("redirected"):
+        # Restart timeout counter if not redirected
+        await keep_alive()
 
-    finally:
-        # ALWAYS mark idle enabling timeout timer
-        api_app.state.server_busy = False
+    # Return response for actual request
+    return response
 
 # Get the path for the server to mount/find the web pages and associated resources
 web_path = path.dirname(path.realpath(__file__))
@@ -130,15 +130,14 @@ async def buttons_page(request: Request):
     """
     oradio_log.debug("Serving buttons page")
 
-    # TEST only: simulate very long to get list of networks
-    await sleep(10)
-
     # Return playlist page and presets, directories and playlists as context
     context = {
         "presets"     : load_presets(),
         "directories" : mpd_control.get_directories(),
         "playlists"   : mpd_control.get_playlists()
     }
+
+    # Send buttons page
     return templates.TemplateResponse(request=request, name="buttons.html", context=context)
 
 class ChangedPreset(BaseModel):
@@ -515,25 +514,9 @@ async def stop_task():
         # Sleep until timeout unless reset
         while True:
 
-            # Pause timer while busy
-            if api_app.state.server_busy:
-                # Prevent loop blocking forever
-                oradio_log.debug(GREEN+"Timer paused"+NC)
-                await sleep(0.1)
-                continue
-
-           # Wait until timer_deadline is set (first request)
-            if api_app.state.timer_deadline is None:
-                oradio_log.debug(GREEN+"Surprise: deadline is None!"+NC)
-                await sleep(0.1)
-                continue
-
             # Compute remaining time until deadline
-            now = datetime.utcnow()
-            deadline = api_app.state.timer_deadline
-            oradio_log.debug(GREEN+"deadline=%d, now=%d"+NC, deadline, now)
             remaining = (api_app.state.timer_deadline - datetime.utcnow()).total_seconds()
-            oradio_log.debug(GREEN+"remaining=%d"+NC, remaining)
+            oradio_log.debug(GREEN+"remaining=%f"+NC, remaining)
 
             # If deadline passed, break the loop
             if remaining <= 0:
@@ -556,7 +539,7 @@ async def stop_task():
 @api_app.post("/keep_alive")
 async def keep_alive():
     """Handle POST request to (re)set the inactive timer for closing the web server."""
-    oradio_log.debug("Resetting the keep alive timer")
+    oradio_log.debug("Starting/resetting the keep alive timer")
 
     # Set the new deadline
     api_app.state.timer_deadline = datetime.utcnow() + timedelta(seconds=KEEP_ALIVE_TIMEOUT)
@@ -568,9 +551,7 @@ async def keep_alive():
 # POST endpoint to close the server
 @api_app.post("/close")
 async def close():
-    """
-    Handle POST request to close the web server
-    """
+    """Handle POST request to close the web server."""
     oradio_log.debug("Closing the web server")
 
     # Send a stop message to the service queue
@@ -593,8 +574,8 @@ async def catch_all(request: Request):
     """
     oradio_log.debug("Catchall triggered for path: %s", request.url.path)
 
-    # return redirect response
-    return RedirectResponse(url='/buttons', status_code=302)
+    # return redirect response with redirected flag set
+    return RedirectResponse(url='/buttons?redirected=1', status_code=302)
 
 # Entry point for stand-alone operation
 if __name__ == '__main__':
