@@ -28,7 +28,6 @@ from gpio_service import GPIOService
 ##### GLOBAL constants ####################
 from oradio_const import (LED_NAMES, GREEN, YELLOW, RED, NC)
 
-
 class LEDControl:
     """Control LED states"""
 
@@ -47,7 +46,7 @@ class LEDControl:
             self.blinking_threads = {}        # map led_name → Thread
             oradio_log.debug("LEDControl initialized: All LEDs OFF")
 
-    def turn_off_led(self, led_name, log: bool = True) -> bool:
+    def turn_off_led(self, led_name) -> bool:
         """
         Turns off a specified LED and waits for its blink‐thread to exit.
         :arguments
@@ -58,9 +57,9 @@ class LEDControl:
             True: specified LED is turned off
             False: Invalid LED name 
         """
-        if led_name not in LEDS:
+        if led_name not in LED_NAMES:
             oradio_log.error("Invalid LED name: %s", led_name)
-            return(False)
+            return False
 
         # signal any blink thread to stop
         evt = self.blink_stop_events.pop(led_name, None)
@@ -73,9 +72,8 @@ class LEDControl:
             thread.join()
 
         self.leds_driver.set_led_off(led_name)
-        if log:
-            oradio_log.debug("%s turned off", led_name)
-        return(True)
+        oradio_log.debug("%s turned off", led_name)
+        return True
 
     def turn_on_led(self, led_name):
         """
@@ -83,22 +81,22 @@ class LEDControl:
         :arguments
             led_name (str), precondition: must be [ LED_PLAY | LED_STOP |
                                                     LED_PRESET1 | LED_PRESET2 | LED_PRESET3] 
-            log (bool) = enable/disable logging of led status
         :return
             True: specified LED is turned off
             False: Invalid LED name 
         """
-        if led_name not in LEDS:
+        if led_name not in LED_NAMES:
             oradio_log.error("Invalid LED name: %s", led_name)
-            return(False)
+            return False
 
         # stop blinking silently (no 'turned off' log), then light it
-        self.turn_off_led(led_name, log=False)
-        GPIO.output(LEDS[led_name], GPIO.LOW)
+        self.turn_off_led(led_name)
+        # Turn led ON
+        self.leds_driver.set_led_on(led_name)
         oradio_log.debug("%s turned on", led_name)
-        return(True)
+        return True 
 
-    def turn_off_all_leds(self):
+    def turn_off_all_leds(self) ->None:
         """Stops all blink‐threads and turns every LED off."""
         # stop all threads
 #        for evt in self.blink_stop_events.values():
@@ -126,45 +124,37 @@ class LEDControl:
             self.leds_driver.set_led_on(led_name)
         oradio_log.debug("All LEDs turned ON and blinking stopped")
 
-    def turn_on_led_with_delay(self, led_name, delay=3):
+    def oneshot_on_led(self, led_name, period=3) ->bool:
         """
         Turns on a specific LED and then turns it off after a delay.
 
-        Args:
-            led_name (str): The name of the LED to control.
-            delay (float): Time in seconds before turning off the LED.
+        :arguments:
+            led_name (str), precondition: must be [ LED_PLAY | LED_STOP |
+                                                    LED_PRESET1 | LED_PRESET2 | LED_PRESET3] 
+            period (float): Time in seconds before turning off the LED.
+        :return
+            True: Oneshot running for specified LED 
+            False: Invalid LED name 
         """
-         ### Review Henk  #############
-        # Return True or False
-        # True = Blinking started
-        # False = Failure
-        # or if it makes sense return a success/error status
-        ################################################        
-        if led_name not in LEDS:
+        def oneshot_led_off(led_name, period):
+            self.turn_off_led(led_name)
+            oradio_log.debug("%s turned off after %s seconds", led_name, period)
+
+        if period <= 0:
+            # no valid period, no timer started
+            oradio_log.warning("Invalid period time of %f for oneshot of led: %s",period, led_name)
+            return False
+        if led_name not in LED_NAMES:
             oradio_log.error("Invalid LED name: %s", led_name)
-            return
+            return False
 
         # Stop any blinking for this LED and turn it on
-        self.turn_off_led(led_name)
-        # Review Henk:
-        # moved to GPIO_service.py
-        GPIO.output(LEDS[led_name], GPIO.LOW)
-        oradio_log.debug("%s turned on, will turn off after %s seconds", led_name, delay)
+        self.turn_on_led(led_name)
+        oradio_log.debug("%s turned on, will turn off after %s seconds", led_name, period)
+        oneshot_timer = threading.Timer(period,oneshot_led_off, args=(led_name,period))
+        oneshot_timer.start()
+        return True
 
-        def delayed_off():
-            time.sleep(delay)
-            # Review Henk:
-            # moved to GPIO_service.py
-            GPIO.output(LEDS[led_name], GPIO.HIGH)
-            oradio_log.debug("%s turned off after %s seconds", led_name, delay)
-        ####################################################################
-        ## Review Henk:
-        # Propoose to use a Timer thread, to prevent the sleep in the thread
-        # from threading import Timer
-        # delay_timer = Timer(delay, delayed_off)
-        # delay_timer.start()
-        ######################################################################
-        threading.Thread(target=delayed_off, daemon=True).start()
 
     def control_blinking_led(self, led_name, cycle_time=None):
         """
@@ -222,42 +212,11 @@ class LEDControl:
         self.blinking_threads[led_name] = thread
         oradio_log.debug("%s blinking started: %.3fs cycle", led_name, cycle_time)
 
-
-    def selftest(self) -> bool:
-        """
-        Minimal LED self-test: runs a short sequence
-        LEDStop → LEDPreset3 → LEDPreset2 → LEDPreset1 → LEDPlay,
-        each on for 0.1s. Returns True on success, False if any LED name is invalid.
-        """
-        ############
-        # Review Henk:
-        # Deze selftest controleert of de opgegeven LEDs in sequence goed zijn, zoals
-        # ze gedefinieerd zijn als constants.
-        # Mijn voorstel zou zijn om de testen of de leds ook werkelijk aan of uit staan
-        # door de GPIO status op te vragen van de geactiveerde led.
-        # Hiermee test je of de leds werkelijk aan of uit staan.
-        #######################################################################
-        sequence = ["LEDStop", "LEDPreset3", "LEDPreset2", "LEDPreset1", "LEDPlay"]
-        try:
-            self.turn_off_all_leds()
-            for name in sequence:
-                if name not in LEDS:
-                    oradio_log.error("LEDControl selftest: %s not in LEDS map", name)
-                    return False
-                self.turn_on_led(name)
-                time.sleep(0.1)
-                self.turn_off_all_leds()
-            oradio_log.info("LEDControl selftest OK (ran sequence)")
-            return True
-
-        except Exception as exc:  # pylint: disable=broad-exception-caught
-            oradio_log.error("LEDControl selftest FAILED: %s", exc)
-            return False
-
 # Entry point for stand-alone operation
 if __name__ == "__main__":
+    import sys
 
-    print("\nStarting LED Control Standalone Test...\n")
+    print("\nStarting LED Control Module Test...\n")
 
     from oradio_utils import setup_remote_debugging
     ### Change HOST_ADDRESS to your host computer local address for remote debugging
@@ -279,7 +238,33 @@ if __name__ == "__main__":
         except ValueError:
             return default
 
-    def single_led_test(led_control:LEDControl,selected_led:str) ->None:
+    def _progress_bar(led_control:LEDControl, led_name:str, duration:int)-> None:
+        '''
+        progress bar
+        :arguments
+            seconds (int) : duration of progress bar
+        '''
+        start_time = time.time()
+        end_time = start_time + duration
+        bar_length = 60  # Number of characters for the progress bar
+
+        while time.time() < end_time:
+            elapsed = time.time() - start_time
+            progress = elapsed/duration
+            filled_length = int(round(bar_length * progress))
+            if led_control.leds_driver.get_led_state(led_name):
+                bar = f"{YELLOW}█" * filled_length + "-" * (bar_length - filled_length)
+                bar_filled_length_led_on = filled_length
+            else:
+                last_fill_part = filled_length - bar_filled_length_led_on
+                bar = f"{YELLOW}█" * bar_filled_length_led_on +\
+                f"{NC}█" * last_fill_part + "-" * (bar_length)
+            percent = int(round(progress *100))
+            sys.stdout.write(f"\r[{bar}] {percent}%")
+            sys.stdout.flush()
+            time.sleep(0.05)  # Update interval (shorter for smoother updates)
+
+    def _single_led_test(led_control:LEDControl,selected_led:str) ->None:
         '''
         Test the selected LED functions
         :arguments 
@@ -289,7 +274,10 @@ if __name__ == "__main__":
         '''
         led_test_options = ["Quit"]\
                         + [f"Turn {selected_led} ON"]\
-                        + [f"Turn {selected_led} OFF"]
+                        + [f"Turn {selected_led} OFF"]\
+                        + [f"0 Seconds ONESHOT ON for {selected_led}"]\
+                        + [f"1 Seconds ONESHOT ON for {selected_led}"]\
+                        + [f"5 Seconds ONESHOT ON for {selected_led}"]
         while True:
             # --- Show test menu with the selection options---
             for idx, name in enumerate(led_test_options, start=0):
@@ -306,6 +294,21 @@ if __name__ == "__main__":
                 case 2:
                     print(f"\nExecuting: Turn OFF {selected_led}\n")
                     led_control.leds_driver.set_led_off(selected_led)
+                case 3:
+                    ONESHOT = 0
+                    print(f"\nExecuting: {ONESHOT} sec ONESHOT ON for {selected_led}\n")
+                    _ = led_control.oneshot_on_led(selected_led,ONESHOT)
+                    _progress_bar(ONESHOT+3)
+                case 4:
+                    ONESHOT = 1
+                    print(f"\nExecuting: {ONESHOT} sec ONESHOT ON for {selected_led}\n")
+                    _ = led_control.oneshot_on_led(selected_led,ONESHOT)
+                    _progress_bar(ONESHOT+3)
+                case 5:
+                    ONESHOT = 5
+                    print(f"\nExecuting: {ONESHOT} sec ONESHOT ON for {selected_led}\n")
+                    _ = led_control.oneshot_on_led(selected_led,ONESHOT)
+                    _progress_bar(led_control, selected_led, ONESHOT+3 )
                 case _:
                     print("Please input a valid number.")
         
@@ -354,7 +357,7 @@ if __name__ == "__main__":
                 case _:
                     print("Please input a valid number.")
 
-    def interactive_menu():
+    def _interactive_menu():
         """Show menu with test options"""
         try:
             leds = LEDControl()
@@ -362,7 +365,7 @@ if __name__ == "__main__":
             print(f"Initialization failed: {ex_err}")
             return
 
-        test_options = ["Quit", "Run selftest"] + \
+        test_options = ["Quit"] + \
                         LED_NAMES + \
                         ["Turn all LEDs OFF"] + \
                         ["Turn all LEDs ON"]
@@ -386,12 +389,7 @@ if __name__ == "__main__":
 
             selected_test = test_options[test_choice]
 
-            if selected_test == "Run selftest":
-                print("\nExecuting: Selftest\n")
-                selftest_ok = leds.selftest()
-                print("Selftest:", "OK" if selftest_ok else "FAILED")
-                continue
-            elif selected_test == "Turn all LEDs OFF":
+            if selected_test == "Turn all LEDs OFF":
                 print("\nExecuting: Turn all LEDs OFF\n")
                 leds.turn_off_all_leds()
                 continue
@@ -400,6 +398,6 @@ if __name__ == "__main__":
                 leds.turn_on_all_leds()
                 continue
             elif selected_test in LED_NAMES:
-                single_led_test(leds, selected_test)
+                _single_led_test(leds, selected_test)
     # Present menu with tests
-    interactive_menu()
+    _interactive_menu()
