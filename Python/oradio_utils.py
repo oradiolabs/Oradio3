@@ -285,7 +285,7 @@ def store_presets(presets: dict[str, str]):
     except IOError as ex_err:
         oradio_log.error("Failed to write presets to '%s'. Error: %s", PRESETS_FILE, ex_err)
 
-def setup_remote_debugging(host_address:str, port_number:int) -> True:
+def setup_remote_debugging(host_address:str, port_number:int) -> bool:
     '''
     Remote debugging service for Python with an IDE (eg Eclipse)
     :arguments
@@ -305,7 +305,7 @@ def setup_remote_debugging(host_address:str, port_number:int) -> True:
     allowed_options = [None, "no","yes"]
     if not remote_debug in allowed_options:
         parser.error(MESSAGE_DEBUG)
-        return(False)
+        return False
     print("Remote Debug option =",remote_debug)
 
     if remote_debug == 'yes':
@@ -318,18 +318,18 @@ def setup_remote_debugging(host_address:str, port_number:int) -> True:
             pydevd.settrace(host_address, port=port_number)
         except ConnectionRefusedError:
             print(f"Failed to connect to debugger at {host_address}:{port_number}. Is the IDE pydev running/listening?")
-            return(False)
+            return False 
         except (socket.error, OSError) as e:
             print(f"Network error while connecting to debugger: {e}")
-            return(False)
+            return False
         except Exception as e:
             print(f"Unexpected error: {e}")
-            return(False)
+            return False
         else:
-            return(True)
+            return True
     else:
         # no arguments found
-         return(True)
+         return True
 
 
 # Entry point for stand-alone operation

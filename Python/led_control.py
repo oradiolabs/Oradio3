@@ -46,7 +46,7 @@ class LEDControl:
             self.blinking_threads = {}        # map led_name → Thread
             oradio_log.debug("LEDControl initialized: All LEDs OFF")
 
-    def turn_off_led(self, led_name) -> bool:
+    def turn_off_led(self, led_name:str) -> bool:
         """
         Turns off a specified LED and waits for its blink‐thread to exit.
         :arguments
@@ -62,20 +62,20 @@ class LEDControl:
             return False
 
         # signal any blink thread to stop
-        evt = self.blink_stop_events.pop(led_name, None)
-        if evt:
-            evt.set()
+        running_stop_event = self.blink_stop_events.pop(led_name, None)
+        if running_stop_event:
+            running_stop_event.set()
 
         # block until thread really finishes
-        thread = self.blinking_threads.pop(led_name, None)
-        if thread:
-            thread.join()
+        active_thread = self.blinking_threads.pop(led_name, None)
+        if active_thread:
+            active_thread.join()
 
         self.leds_driver.set_led_off(led_name)
         oradio_log.debug("%s turned off", led_name)
         return True
 
-    def turn_on_led(self, led_name):
+    def turn_on_led(self, led_name:str):
         """
         Turns ON a specified LED and stops blink‐thread if active.
         :arguments
@@ -124,14 +124,14 @@ class LEDControl:
             self.leds_driver.set_led_on(led_name)
         oradio_log.debug("All LEDs turned ON and blinking stopped")
 
-    def oneshot_on_led(self, led_name, period=3) ->bool:
+    def oneshot_on_led(self, led_name, period: float=3) ->bool:
         """
         Turns on a specific LED and then turns it off after a delay.
 
         :arguments:
             led_name (str), precondition: must be [ LED_PLAY | LED_STOP |
                                                     LED_PRESET1 | LED_PRESET2 | LED_PRESET3] 
-            period (float): Time in seconds before turning off the LED.
+            period (float): Time in seconds before turning off the LED.Default = 3
         :return
             True: Oneshot running for specified LED 
             False: Invalid LED name 
@@ -144,6 +144,8 @@ class LEDControl:
             # no valid period, no timer started
             oradio_log.warning("Invalid period time of %f for oneshot of led: %s",period, led_name)
             return False
+        else:
+            period = round(period,1) # more accuracy not visible, so not required
         if led_name not in LED_NAMES:
             oradio_log.error("Invalid LED name: %s", led_name)
             return False
@@ -156,61 +158,58 @@ class LEDControl:
         return True
 
 
-    def control_blinking_led(self, led_name, cycle_time=None):
+    def control_blinking_led(self, led_name: str, cycle_time:float = None) -> bool:
         """
-        Blink using an Event for instant stop, not long sleeps.
+        Blink using an Event for blink timing and instant stop, 
+        :arguments
+            led_name (str), precondition: must be [ LED_PLAY | LED_STOP |
+                                                    LED_PRESET1 | LED_PRESET2 | LED_PRESET3]
+            cycle_time (float) = 
+            _________|^^^^^^^^^^^|____________|^^^^^^^^^^^^|____________|^^
+                     |<====== cycle_time ====>| 
+                     |<== half =>|
+        :return
+            True = Blinking started and running
+            False = Failure, no blinking
         """
-        ##############################################
-        # review Henk
-        # specify the arguments led_name and cycle_time
-        ###############################################
-      
-        if led_name not in LEDS:
-            oradio_log.error("Invalid LED name: %s", led_name)
-            return
-        ### Review Henk  #############
-        # Return True or False
-        # True = Blinking started
-        # False = Failure
-        # or if it makes sense return a success/error status
-        ################################################
-        
-        # stop any existing blink
-        old_evt = self.blink_stop_events.pop(led_name, None)
-        if old_evt:
-            old_evt.set()
-        old_thread = self.blinking_threads.pop(led_name, None)
-        if old_thread:
-            old_thread.join()
 
-        # if no cycle_time, just turn off
+        def _blink():
+            half = cycle_time / 2
+            while not stop_evt.is_set():
+                self.leds_driver.set_led_on(led_name)
+                if stop_evt.wait(half):
+                    break
+                self.leds_driver.set_led_off(led_name)
+                if stop_evt.wait(half):
+                    break
+            self.leds_driver.set_led_off(led_name)
+
+        if led_name not in LED_NAMES:
+            oradio_log.error("Invalid LED name: %s", led_name)
+            return False
+        
+        # stop and remove any existing blink for selected led
+        running_stop_evt = self.blink_stop_events.pop(led_name, None)
+        if running_stop_evt:
+            running_stop_evt.set()
+        active_blinking_thread = self.blinking_threads.pop(led_name, None)
+        if active_blinking_thread:
+            active_blinking_thread.join()
+
+        # if no cycle_time, just turn off selected LED
         if not cycle_time:
-            # Review Henk:
-            # moved to GPIO_service.py
-            GPIO.output(LEDS[led_name], GPIO.HIGH)
+            self.turn_off_led(led_name)
             oradio_log.debug("%s blinking stopped and turned off", led_name)
-            return
+            return False
 
         # start new blink thread
         stop_evt = threading.Event()
         self.blink_stop_events[led_name] = stop_evt
-
-        def _blink():
-            pin = LEDS[led_name]
-            half = cycle_time / 2
-            while not stop_evt.is_set():
-                GPIO.output(pin, GPIO.LOW)
-                if stop_evt.wait(half):
-                    break
-                GPIO.output(pin, GPIO.HIGH)
-                if stop_evt.wait(half):
-                    break
-            GPIO.output(pin, GPIO.HIGH)
-
         thread = threading.Thread(target=_blink, daemon=True)
         thread.start()
         self.blinking_threads[led_name] = thread
         oradio_log.debug("%s blinking started: %.3fs cycle", led_name, cycle_time)
+        return True
 
 # Entry point for stand-alone operation
 if __name__ == "__main__":
@@ -241,28 +240,84 @@ if __name__ == "__main__":
     def _progress_bar(led_control:LEDControl, led_name:str, duration:int)-> None:
         '''
         progress bar
+        extended ascii characters see at https://coding.tools/ascii-table
         :arguments
+            led_name (str) = [ LED_PLAY | LED_STOP] |
+                            LED_PRESET1 | LED_PRESET2 | LED_PRESET3 ]
             seconds (int) : duration of progress bar
+        :return led_on_timing (float, 1 decimal)
         '''
         start_time = time.time()
-        end_time = start_time + duration
+        end_time   = start_time + duration
         bar_length = 60  # Number of characters for the progress bar
-
+        LED_OFF = "▄"
+        LED_ON = "▀"
+        progress_bar_state = "Led ON"
         while time.time() < end_time:
             elapsed = time.time() - start_time
             progress = elapsed/duration
             filled_length = int(round(bar_length * progress))
-            if led_control.leds_driver.get_led_state(led_name):
-                bar = f"{YELLOW}█" * filled_length + "-" * (bar_length - filled_length)
-                bar_filled_length_led_on = filled_length
-            else:
-                last_fill_part = filled_length - bar_filled_length_led_on
-                bar = f"{YELLOW}█" * bar_filled_length_led_on +\
-                f"{NC}█" * last_fill_part + "-" * (bar_length)
-            percent = int(round(progress *100))
-            sys.stdout.write(f"\r[{bar}] {percent}%")
+            if progress_bar_state == "Led ON":
+                if led_control.leds_driver.get_led_state(led_name):
+                    bar = f"{YELLOW}{LED_ON}" * filled_length + "-" * (bar_length - filled_length)
+                    bar_led_off_start = filled_length
+                    led_on_timing = round(elapsed,1)
+                else:
+                    time.sleep(0.1) # to allow log messages to print before showing progress bar
+                    progress_bar_state = "Led OFF"
+            elif progress_bar_state == "Led OFF":
+                # continue with led OFF progress bar
+                bar = f"{YELLOW}{LED_ON}" * bar_led_off_start +\
+                f"{NC}{LED_OFF}" * (filled_length-bar_led_off_start) + "-" * (bar_length - filled_length)
+            progress_time = int(round(progress))
+            sys.stdout.write(f"\r[{bar}]{YELLOW}LED-ON={led_on_timing} seconds")
             sys.stdout.flush()
             time.sleep(0.05)  # Update interval (shorter for smoother updates)
+        print("\n")
+        return led_on_timing
+
+    def _show_and_measure_blinking(led_control:LEDControl, led_name:str, cycle_time: float )-> None:
+        '''
+        display the blinking state of selected led
+        extended ascii characters see at https://coding.tools/ascii-table
+        :arguments
+            led_name (str) = [ LED_PLAY | LED_STOP] |
+                            LED_PRESET1 | LED_PRESET2 | LED_PRESET3 ]
+        :return None
+        '''
+        line_length = 60
+        line = [" "] * line_length  # Initialize with spaces
+        led_symbols = {True: "▄", False: "▀"}  # Symbols for on/off
+        led_state = "LED ON"
+        start_time = time.time()
+        half_time = round(cycle_time/2,1)
+        try:
+            while True:
+                # Get current LED state
+                led_on = led_control.leds_driver.get_led_state(led_name)
+                if led_on:
+                    last_on_time = time.time()
+                    led_state = "LED ON"
+                else:
+                    period = round((last_on_time - start_time),1)
+                    start_time = time.time()
+                    if led_state == "LED ON":
+                        led_state = "LED OFF" 
+                        if period != half_time:
+                            print(f"{RED}Test Result: The ON cycle timing of {period} for {led_name} is not {half_time} !!")
+                            break
+
+                symbol = led_symbols[led_on]
+                # Shift the line left and append the new symbol
+                line = line[1:] + [symbol]
+                # Move cursor to the start of the line and overwrite
+                sys.stdout.write("\r" + "".join(line))
+                sys.stdout.flush()
+                time.sleep(0.05)  # Update interval        return led_on_timing
+        except KeyboardInterrupt:
+            led_control.turn_off_led(led_name)
+            pass
+        return
 
     def _single_led_test(led_control:LEDControl,selected_led:str) ->None:
         '''
@@ -277,7 +332,8 @@ if __name__ == "__main__":
                         + [f"Turn {selected_led} OFF"]\
                         + [f"0 Seconds ONESHOT ON for {selected_led}"]\
                         + [f"1 Seconds ONESHOT ON for {selected_led}"]\
-                        + [f"5 Seconds ONESHOT ON for {selected_led}"]
+                        + [f"5 Seconds ONESHOT ON for {selected_led}"]\
+                        + [f"2 Seconds cycle-time for blinking {selected_led}"]
         while True:
             # --- Show test menu with the selection options---
             for idx, name in enumerate(led_test_options, start=0):
@@ -297,18 +353,36 @@ if __name__ == "__main__":
                 case 3:
                     ONESHOT = 0
                     print(f"\nExecuting: {ONESHOT} sec ONESHOT ON for {selected_led}\n")
-                    _ = led_control.oneshot_on_led(selected_led,ONESHOT)
-                    _progress_bar(ONESHOT+3)
+                    if led_control.oneshot_on_led(selected_led,ONESHOT):
+                        print(f"{RED}Test Result: Invalid ONESHOT value for {selected_led} should be FALSE !!")
+                    else:
+                        print(f"{GREEN}Test Result: No valid ONESHOT value for {selected_led}, so is OK")
                 case 4:
                     ONESHOT = 1
                     print(f"\nExecuting: {ONESHOT} sec ONESHOT ON for {selected_led}\n")
-                    _ = led_control.oneshot_on_led(selected_led,ONESHOT)
-                    _progress_bar(ONESHOT+3)
+                    if led_control.oneshot_on_led(selected_led,ONESHOT):
+                        led_on_timing = _progress_bar(led_control, selected_led, ONESHOT+1 )
+                        if led_on_timing == round(ONESHOT,1):
+                            print(f"{GREEN}Test Result: The ONESHOT timing for {selected_led} is OK")
+                        else:
+                            print(f"{RED}Test Result: The ONESHOT timing for {selected_led} is NOT ON !!")
                 case 5:
-                    ONESHOT = 5
+                    ONESHOT = 4.58
                     print(f"\nExecuting: {ONESHOT} sec ONESHOT ON for {selected_led}\n")
-                    _ = led_control.oneshot_on_led(selected_led,ONESHOT)
-                    _progress_bar(led_control, selected_led, ONESHOT+3 )
+                    if led_control.oneshot_on_led(selected_led,ONESHOT):
+                        led_on_timing = _progress_bar(led_control, selected_led, ONESHOT+3 )
+                        if led_on_timing == round(ONESHOT,1):
+                            print(f"{GREEN}Test Result: The ONESHOT timing for {selected_led} is OK")
+                        else:
+                            print(f"{RED}Test Result: The ONESHOT timing for {selected_led} is NOT OK !!")
+                case 6:
+                    CYCLE_TIME = 2
+                    print(f"\nExecuting: Blinking LED {selected_led} with cycle-time of {CYCLE_TIME} sec\n")
+                    print("Press CTRL-C to stop this test\n")
+                    if led_control.control_blinking_led(selected_led, CYCLE_TIME):
+                        _show_and_measure_blinking(led_control,selected_led, CYCLE_TIME)
+                    else:
+                        print(f"{RED}Test Result: The blinking failed for {selected_led}")
                 case _:
                     print("Please input a valid number.")
         
