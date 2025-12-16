@@ -285,35 +285,43 @@ if __name__ == "__main__":
                             LED_PRESET1 | LED_PRESET2 | LED_PRESET3 ]
         :return None
         '''
-        line_length = 60
-        line = [" "] * line_length  # Initialize with spaces
-        led_symbols = {True: "▄", False: "▀"}  # Symbols for on/off
-        led_state = "LED ON"
-        start_time = time.time()
-        half_time = round(cycle_time/2,1)
+        line_length   = 60
+        line          = [" "] * line_length  # Initialize with spaces
+        led_symbols   = {True: "▄", False: "▀"}  # Symbols for on/off
+        led_state     = led_control.leds_driver.get_led_state(led_name)
+        start_time    = time.time()
+        half_time     = round(cycle_time/2,1)
+        interval_time = 0.05
+        puls_length   = int(half_time/interval_time)
+        mid_puls_position = int(puls_length/2)
         try:
             while True:
                 # Get current LED state
-                led_on = led_control.leds_driver.get_led_state(led_name)
-                if led_on:
-                    last_on_time = time.time()
-                    led_state = "LED ON"
-                else:
-                    period = round((last_on_time - start_time),1)
-                    start_time = time.time()
-                    if led_state == "LED ON":
-                        led_state = "LED OFF" 
-                        if period != half_time:
-                            print(f"{RED}Test Result: The ON cycle timing of {period} for {led_name} is not {half_time} !!")
-                            break
-
-                symbol = led_symbols[led_on]
+                new_led_state = led_control.leds_driver.get_led_state(led_name)
+                now = time.time()
+                if new_led_state != led_state:
+                    state_time = round((now - start_time),1)
+                    led_state  = new_led_state
+                    start_time = now
+                    # set the state_time in the line list at mid position of last state
+                    first_digit = int(state_time)
+                    decimal_digit = int((state_time - float(first_digit))*10)
+                    
+                    new_line = line[:-mid_puls_position]
+                    new_line.append(str(first_digit))
+                    new_line.append(".")
+                    new_line.append(str(decimal_digit))
+                    new_line = new_line + line[-(mid_puls_position-3):]
+                    line = new_line
+                    if state_time != half_time:
+                        print(f"{RED}Test Result: The ON cycle timing of {state_time} for {led_name} is not {half_time} !!")
+                        break
+                symbol = led_symbols[new_led_state]
                 # Shift the line left and append the new symbol
                 line = line[1:] + [symbol]
-                # Move cursor to the start of the line and overwrite
                 sys.stdout.write("\r" + "".join(line))
                 sys.stdout.flush()
-                time.sleep(0.05)  # Update interval        return led_on_timing
+                time.sleep(interval_time)  # Update interval        return led_on_timing
         except KeyboardInterrupt:
             led_control.turn_off_led(led_name)
             pass
@@ -346,10 +354,10 @@ if __name__ == "__main__":
                     return
                 case 1:
                     print(f"\nExecuting: Turn ON {selected_led}\n")
-                    led_control.leds_driver.set_led_on(selected_led)
+                    led_control.turn_on_led(selected_led)
                 case 2:
                     print(f"\nExecuting: Turn OFF {selected_led}\n")
-                    led_control.leds_driver.set_led_off(selected_led)
+                    led_control.turn_off_led(selected_led)
                 case 3:
                     ONESHOT = 0
                     print(f"\nExecuting: {ONESHOT} sec ONESHOT ON for {selected_led}\n")
@@ -376,11 +384,13 @@ if __name__ == "__main__":
                         else:
                             print(f"{RED}Test Result: The ONESHOT timing for {selected_led} is NOT OK !!")
                 case 6:
-                    CYCLE_TIME = 2
-                    print(f"\nExecuting: Blinking LED {selected_led} with cycle-time of {CYCLE_TIME} sec\n")
+                    cycle_time = _prompt_float("Input a cycletime as float number : ")
+                    #CYCLE_TIME = 2
+                    print(f"\nExecuting: Blinking LED {selected_led} with cycle-time of {cycle_time} sec\n")
                     print("Press CTRL-C to stop this test\n")
-                    if led_control.control_blinking_led(selected_led, CYCLE_TIME):
-                        _show_and_measure_blinking(led_control,selected_led, CYCLE_TIME)
+                    if led_control.control_blinking_led(selected_led, cycle_time):
+                        _show_and_measure_blinking(led_control,selected_led, cycle_time)
+                        led_control.turn_off_led(selected_led) # stop blinking
                     else:
                         print(f"{RED}Test Result: The blinking failed for {selected_led}")
                 case _:
