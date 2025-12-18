@@ -36,14 +36,20 @@ NC      = '\x1b[0m'
 # Messages consist of 3 elements: source, state and error
 MESSAGE_NO_ERROR = "None"
 
-################## LED GPIO PINS ##########################
-LEDS = {
-    "LEDPlay":    15,
-    "LEDPreset1": 24,
-    "LEDPreset2": 25,
-    "LEDPreset3":  7,
-    "LEDStop":    23
-}
+########################### LED definitions see UML «led_name» ###################
+LED_PLAY    = "LedPlay"
+LED_STOP    = "LedStop"
+LED_PRESET1 = "LedPreset1"
+LED_PRESET2 = "LedPreset2"
+LED_PRESET3 = "LedPreset3"
+LED_NAMES=[LED_PLAY,LED_STOP,LED_PRESET1,LED_PRESET2,LED_PRESET3]
+
+############################# #BUTTON definitions see UML «button_name» ###################
+BUTTON_PLAY     = "ButtonPlay"
+BUTTON_STOP     = "ButtonStop"
+BUTTON_PRESET1  = "ButtonPreset1"
+BUTTON_PRESET2  = "ButtonPreset2"
+BUTTON_PRESET3  = "ButtonPreset3"
 
 ################## REMOTE SERVER ##########################
 REMOTE_SERVER = 'https://oradiolabs.nl/rms/receive.php'

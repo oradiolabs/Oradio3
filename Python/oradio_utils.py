@@ -285,6 +285,53 @@ def store_presets(presets: dict[str, str]):
     except IOError as ex_err:
         oradio_log.error("Failed to write presets to '%s'. Error: %s", PRESETS_FILE, ex_err)
 
+def setup_remote_debugging(host_address:str, port_number:int) -> bool:
+    '''
+    Remote debugging service for Python with an IDE (eg Eclipse)
+    :arguments
+        host_address = IP address of the IDE-PC
+        port_number = port number to use
+    :return
+        True : connection established, or No remote debug required
+        False: Error detected, no connection
+    '''
+    import argparse
+    parser = argparse.ArgumentParser(description='Remote Debug')
+    MESSAGE_DEBUG = 'Remote Debug options are:  [ no | yes ]'
+    parser.add_argument('-rd', '--rmdebug', type = str, nargs='?', const='no', help=MESSAGE_DEBUG )
+
+    args = parser.parse_args()
+    remote_debug = args.rmdebug
+    allowed_options = [None, "no","yes"]
+    if not remote_debug in allowed_options:
+        parser.error(MESSAGE_DEBUG)
+        return False
+    print("Remote Debug option =",remote_debug)
+
+    if remote_debug == 'yes':
+        # pip install pydevd #
+        import pydevd, os
+        print("Remote debugging started")
+        # Allow remote debugging from any IP address on selected port
+        os.environ["PYDEVD_DISABLE_FILE_VALIDATION"] = "1"
+        try:
+            pydevd.settrace(host_address, port=port_number)
+        except ConnectionRefusedError:
+            print(f"Failed to connect to debugger at {host_address}:{port_number}. Is the IDE pydev running/listening?")
+            return False 
+        except (socket.error, OSError) as e:
+            print(f"Network error while connecting to debugger: {e}")
+            return False
+        except Exception as e:
+            print(f"Unexpected error: {e}")
+            return False
+        else:
+            return True
+    else:
+        # no arguments found
+         return True
+
+
 # Entry point for stand-alone operation
 if __name__ == '__main__':
 
