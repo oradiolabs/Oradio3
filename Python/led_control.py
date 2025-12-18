@@ -35,6 +35,8 @@ class LEDControl:
         """
         Class constructor: setup class variables
         and create instance for GPIOService class for LED IO-service
+        :exceptions
+            ValueError : when GPIOService initialization fails
         """
         try:
             self.leds_driver = GPIOService()
@@ -398,40 +400,61 @@ if __name__ == "__main__":
     def _interactive_menu():
         """Show menu with test options"""
         try:
-            leds = LEDControl()
+            led_control = LEDControl()
         except (ValueError) as ex_err:
             print(f"Initialization failed: {ex_err}")
             return
 
         test_options = ["Quit"] + \
-                        LED_NAMES + \
                         ["Turn all LEDs OFF"] + \
-                        ["Turn all LEDs ON"]
+                        ["Turn all LEDs ON"] +\
+                        ["Blink all LEDS"] +\
+                        ["OneShot all LEDS"] +\
+                        ["Single LED test"]
 
         while True:
             # --- LED selection ---
-            print("\nSelect a TEST:")
+            print("\nTEST options:")
             for idx, name in enumerate(test_options, start=0):
                 print(f" {idx} - {name}")
+            test_choice = _prompt_int("Select test number: ", default=-1)
+            match test_choice:
+                case 0:
+                    led_control.turn_off_all_leds()
+                    print("\nExiting test program\n")
+                    break
+                case 1:
+                    print(f"\n running {test_options[1]}\n")
+                    led_control.turn_off_all_leds()
+                case 2:
+                    print(f"\n running {test_options[2]}\n")
+                    led_control.turn_on_all_leds()
+                case 3:
+                    print(f"\n running {test_options[3]}\n")
+                    led_control.turn_off_all_leds()
+                    cycle_time = _prompt_float("Input a cycletime as float number : ")
+                    for led in LED_NAMES:
+                        print(f"\nBlinking LED {led} with cycle-time of {cycle_time} sec\n")
+                        led_control.control_blinking_led(led, cycle_time)
+                    wait_for_user_input = input("Press any key to stop blinking")
+                    led_control.turn_off_all_leds()
+                case 4:
+                    print(f"\n running {test_options[4]}\n")
+                    one_shot = _prompt_float("Input a one-shot ON period as float number : ")
+                    led_control.turn_off_all_leds()
+                    for led in LED_NAMES:
+                        led_control.oneshot_on_led(led,one_shot)
+                        print(f"\n{one_shot} sec ONESHOT ON for {led}\n")
+                    wait_for_user_input = input("Press any key to stop blinking")
+                    led_control.turn_off_all_leds()
+                case 5:
+                    print(f"\n running {test_options[5]}\n")
+                    for idx, led_name in enumerate(LED_NAMES, start=0):
+                        print(f" {idx} - {led_name}")
+                    led_choice = _prompt_int("Select a LED: ", default=-1)
+                    _single_led_test(led_control, LED_NAMES[led_choice])
+                case _:
+                    print("Please input a valid number.")
 
-            test_choice = _prompt_int("Select TEST number: ", default=-1)
-
-            if test_choice == 0:
-                leds.turn_off_all_leds()
-                print("\nExiting test program\n")
-                break
-
-            if not 0 <= test_choice < len(test_options):
-                print("Please input a valid test number.")
-            else:
-                selected_test = test_options[test_choice]
-                if selected_test == "Turn all LEDs OFF":
-                    print("\nExecuting: Turn all LEDs OFF\n")
-                    leds.turn_off_all_leds()
-                elif selected_test == "Turn all LEDs ON":
-                    print("\nExecuting: Turn all LEDs ON\n")
-                    leds.turn_on_all_leds()
-                elif selected_test in LED_NAMES:
-                    _single_led_test(leds, selected_test)
     # Present menu with tests
     _interactive_menu()

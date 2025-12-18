@@ -60,6 +60,8 @@ BUTTONS: dict[str, int] = {
 BOUNCE_MS = 10  # hardware debounce in GPIO.add_event_detect
 BUTTON_PRESSED = "button pressed"
 BUTTON_RELEASED = "button released"
+LED_ON  = True
+LED_OFF = False
 
 @singleton
 class GPIOService:
@@ -69,6 +71,9 @@ class GPIOService:
     - Reading the inputs for the configured BUTTON pins
     - Callback for button change event
     - Logs errors for debugging.
+    :exceptions
+        ValueError : upon an invalid GPIO pin value during pin configuration
+    
     """
     def __init__(self) -> None:
         """
@@ -262,17 +267,6 @@ if __name__ == '__main__':
         '''
         print(f"Button change event: {button_name} = {button_state}")
 
-#    def _read_pin_state(io_pin: int) -> bool:
-#        '''
-#        read the state of the specified io-pin
-#        :arguments
-#            io_pin: int = which pin to read
-#        :return
-#            True = pin is HIGH
-#            False = pin is LOW
-#        '''
-#        return(bool(GPIO.input(io_pin)))
-
     def _run_led_pin_action_menu(leds_gpio: GPIOService, selected_led_pin: str) -> None:
         """
         Inner menu to run actions for a selected LED pin.
@@ -298,7 +292,7 @@ if __name__ == '__main__':
                     print(f"\nExecuting: Turn ON {selected_led_pin}\n")
                     leds_gpio.set_led_on(selected_led_pin)
                     pin_state = leds_gpio.get_led_state(selected_led_pin)
-                    if pin_state is False:
+                    if pin_state is LED_ON:
                         print(f"{GREEN}Test Result: The selected LED {selected_led_pin} is ON")
                     else:
                         print(f"{RED}Test Result: The selected LED {selected_led_pin} is NOT ON !!")
@@ -306,8 +300,7 @@ if __name__ == '__main__':
                     print(f"\nExecuting: Turn OFF {selected_led_pin}\n")
                     leds_gpio.set_led_off(selected_led_pin)
                     pin_state = leds_gpio.get_led_state(selected_led_pin)
-                    #pin_state = _read_pin_state(LEDS[selected_led_pin])
-                    if pin_state is True:
+                    if pin_state is LED_OFF:
                         print(f"{GREEN}Test Result: The selected LED {selected_led_pin} is OFF")
                     else:
                         print(f"{RED}Test Result: The selected LED {selected_led_pin} is NOT OFF")
