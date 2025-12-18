@@ -47,6 +47,18 @@ class LEDControl:
         self.blinking_threads = {}        # map led_name → Thread
         oradio_log.debug("LEDControl initialized: All LEDs OFF")
 
+########## As a wrapper for oradio_control ######################
+    def turn_on_led_with_delay(self, 
+                               led_name:str,
+                               period:float):
+        '''
+        As a wrapper for oradio_control, temporary solution
+        Should be removed after rework on oradio_control
+        redirecting to oneshot_on_led
+        '''
+        return(self.oneshot_on_led(led_name, period))
+###################################################################
+
     def turn_off_led(self, led_name:str) -> bool:
         """
         Turns off a specified LED and waits for its blink‐thread to exit.
