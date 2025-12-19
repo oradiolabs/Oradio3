@@ -217,9 +217,10 @@ def load_presets() -> dict[str, str]:
     Retrieve the playlist names associated with the presets from a JSON file.
 
     Returns:
-        dict[str, str]: A dictionary mapping lowercase preset_key -> listname.
-                        If a preset value is missing or invalid, listname will be an empty string "".
-                        Keys are normalized to lowercase for case-insensitive lookup.
+        dict[str, str]: 
+            A dictionary mapping lowercase preset_key -> listname.
+            If a preset value is missing or invalid, listname will be an empty string "".
+            Keys are normalized to lowercase for case-insensitive lookup.
     """
     try:
         with open(PRESETS_FILE, 'r', encoding='utf-8') as file:
@@ -310,15 +311,16 @@ def setup_remote_debugging(host_address:str, port_number:int) -> bool:
 
     if remote_debug == 'yes':
         # pip install pydevd #
-        import pydevd, os
+        import pydevd
         print("Remote debugging started")
         # Allow remote debugging from any IP address on selected port
         os.environ["PYDEVD_DISABLE_FILE_VALIDATION"] = "1"
         try:
             pydevd.settrace(host_address, port=port_number)
         except ConnectionRefusedError:
-            print(f"Failed to connect to debugger at {host_address}:{port_number}. Is the IDE pydev running/listening?")
-            return False 
+            print(f"Failed to connect to debugger at {host_address}:{port_number}. \
+                    Is the IDE pydev running/listening?")
+            return False
         except (socket.error, OSError) as e:
             print(f"Network error while connecting to debugger: {e}")
             return False
@@ -329,7 +331,7 @@ def setup_remote_debugging(host_address:str, port_number:int) -> bool:
             return True
     else:
         # no arguments found
-         return True
+        return True
 
 
 # Entry point for stand-alone operation
