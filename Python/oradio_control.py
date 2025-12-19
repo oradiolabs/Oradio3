@@ -169,6 +169,7 @@ class StateMachine:
         self.prev_state = None
         self.task_lock = threading.Lock()
         self._websvc = None  # injected WebService
+        self._pd_mode = None  # track power supply PD state "nom" or "max"
 
         # Dispatch table for run_state_method
         self._handlers = {
@@ -265,10 +266,17 @@ class StateMachine:
         ).start()
 
     def _apply_power_policy_for_state(self, target_state: str) -> None:
-        if target_state in LOW_POWER_STATES:
-            power_supply_service.set_nom_voltage()
+        desired_mode = "nom" if target_state in LOW_POWER_STATES else "max"
+        if desired_mode == self._pd_mode:
+            return  # already correct -> do nothing
+
+        if desired_mode == "nom":
+            success = power_supply_service.set_nom_voltage()
         else:
-            power_supply_service.set_max_voltage()
+            success = power_supply_service.set_max_voltage()
+
+        if success:
+            self._pd_mode = desired_mode
 
     # ---- delayed-transition helpers ----
     def _cancel_all_delayed(self):
