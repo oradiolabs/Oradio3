@@ -96,7 +96,7 @@ class PowerSupplyService:
         """Wrapper: never raise; return False on any failure."""
         try:
             return self._set_voltage(voltage_v=voltage_v, current_a=current_a, min_current_a=min_current_a)
-        except Exception as exc:  # keep Oradio running
+        except (OSError, RuntimeError, ValueError, KeyError, TypeError) as exc:
             oradio_log.warning(
                 "PowerSupply: request %sV @ %.1fA failed: %s",
                 voltage_v, current_a, exc
