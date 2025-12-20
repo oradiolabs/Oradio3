@@ -48,7 +48,7 @@ class LEDControl:
         oradio_log.debug("LEDControl initialized: All LEDs OFF")
 
 ########## As a wrapper for oradio_control ######################
-    def turn_on_led_with_delay(self, 
+    def turn_on_led_with_delay(self,
                                led_name:str,
                                period:float):
         '''
@@ -56,7 +56,7 @@ class LEDControl:
         Should be removed after rework on oradio_control
         redirecting to oneshot_on_led
         '''
-        return(self.oneshot_on_led(led_name, period))
+        return self.oneshot_on_led(led_name, period)
 ###################################################################
 
     def turn_off_led(self, led_name:str) -> bool:
@@ -298,7 +298,7 @@ if __name__ == "__main__":
         :return 
             state_time = the measured ON or OFF period of blink.
         '''
-
+        # pylint: disable=too-many-branches
         def round_down(num, decimals):
             '''
             round down float to nearest value, respecting the float decimals
@@ -347,7 +347,6 @@ if __name__ == "__main__":
                 line = line[1:] + [symbol]
                 if len(line)<LINE_LENGTH:
                     print(f"{RED} TEST ERROR ==> stop")
-                    break
                 sys.stdout.write("\r" + "".join(line))
                 sys.stdout.flush()
                 time.sleep(INTERVAL_TIME)  # Update interval        return led_on_timing
@@ -364,6 +363,7 @@ if __name__ == "__main__":
                                   LED_PRESET1 | LED_PRESET2 | LED_PRESET3 ]
             led-driver = instance of LEDControl to use
         '''
+        # pylint: disable=too-many-branches
         led_test_options = ["Quit"]\
                         + [f"Turn {selected_led} ON"]\
                         + [f"Turn {selected_led} OFF"]\
@@ -411,6 +411,7 @@ if __name__ == "__main__":
 
     def _interactive_menu():
         """Show menu with test options"""
+        # pylint: disable=too-many-branches
         try:
             led_control = LEDControl()
         except (ValueError) as ex_err:
@@ -448,7 +449,7 @@ if __name__ == "__main__":
                     for led in LED_NAMES:
                         print(f"\nBlinking LED {led} with cycle-time of {cycle_time} sec\n")
                         led_control.control_blinking_led(led, cycle_time)
-                    wait_for_user_input = input("Press any key to stop blinking")
+                    _ = input("Press any key to stop blinking")
                     led_control.turn_off_all_leds()
                 case 4:
                     print(f"\n running {test_options[4]}\n")
@@ -457,7 +458,7 @@ if __name__ == "__main__":
                     for led in LED_NAMES:
                         led_control.oneshot_on_led(led,one_shot)
                         print(f"\n{one_shot} sec ONESHOT ON for {led}\n")
-                    wait_for_user_input = input("Press any key to stop blinking")
+                    _ = input("Press any key to stop blinking")
                     led_control.turn_off_all_leds()
                 case 5:
                     print(f"\n running {test_options[5]}\n")

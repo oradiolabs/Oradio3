@@ -208,16 +208,15 @@ class GPIOService:
 
 # Entry point for stand-alone operation
 if __name__ == '__main__':
-
-    '''
-    module test for gpio_service 
-    Note:
-    in case remote python debugging is required:
-    * change the HOST_ADDRESS to your PC's local IP address 
-    * run the Python Debug Server in your IDE
-    * call module test with argument -d remote
-        >python gpio_service.py -s remote
-    '''
+#################################################################
+#    module test for gpio_service
+#    Note:
+#    in case remote python debugging is required:
+#    * change the HOST_ADDRESS to your PC's local IP address
+#    * run the Python Debug Server in your IDE
+#    * call module test with argument -rd [no | yes]
+#        >python gpio_service.py -rd yes
+#################################################################
     from oradio_utils import setup_remote_debugging
     import sys
 
@@ -271,19 +270,30 @@ if __name__ == '__main__':
         :arguments 
             test_gpio : instance of gpio service to be use
         '''
+        # pylint: disable=too-many-branches
+        _all_leds_off(test_gpio)
+        led_name_option = ["Quit"] + LED_NAMES
+        selection_done = False
+        while not selection_done:
+            for idx, led_name in enumerate(led_name_option, start=0):
+                print(f" {idx} - {led_name}")
+            led_choice = _prompt_int("Select a LED: ", default=-1)
+            match led_choice:
+                case 0:
+                    print("\nReturning to previous selection...\n")
+                    selection_done = True
+                case 1 | 2 | 3 | 4 | 5: # 5 leds
+                    selected_led_name = LED_NAMES[led_choice]
+                    selection_done = True
+                    print(f"\nThe selected LED is {selected_led_name} using pin {LEDS[led_name]}\n")
+                case _:
+                    print("Please input a valid test option.")
+        if led_choice == 0: #Quit
+            return
+
         led_pin_options = ["Quit"]\
                         + ["Turn LED-pin ON"]\
                         + ["Turn LED-pin OFF"]
-
-        _all_leds_off(test_gpio)
-        for idx, led_name in enumerate(LED_NAMES, start=0):
-            print(f" {idx} - {led_name}")
-            valid_input = False 
-        while not valid_input:
-            led_choice = _prompt_int("Select a LED: ", default=-1)
-            if led_choice >=0 and led_choice < len(led_pin_options):
-                valid_input = True
-            selected_led_pin = LED_NAMES[led_choice]
 
         test_active = True
         while test_active:
@@ -291,27 +301,27 @@ if __name__ == '__main__':
             for idx, name in enumerate(led_pin_options, start=0):
                 print(f"{NC} {idx} - {name}")
 
-            led_pin_choice = _prompt_int("Select test option: ", default=-1)
-            match led_pin_choice:
+            led_choice = _prompt_int("Select test option: ", default=-1)
+            match led_choice:
                 case 0:
                     print("\nReturning to main menu selection...\n")
                     return
                 case 1:
                     print(f"\n running {led_pin_options[1]}\n")
-                    test_gpio.set_led_on(selected_led_pin)
-                    pin_state = test_gpio.get_led_state(selected_led_pin)
+                    test_gpio.set_led_on(selected_led_name)
+                    pin_state = test_gpio.get_led_state(selected_led_name)
                     if pin_state is LED_ON:
-                        print(f"{GREEN}Test Result: The selected LED {selected_led_pin} is ON")
+                        print(f"{GREEN}Test Result: The selected LED {selected_led_name} is ON")
                     else:
-                        print(f"{RED}Test Result: The selected LED {selected_led_pin} is NOT ON !!")
+                        print(f"{RED}Test Result: The selected LED {selected_led_name} is NOT ON")
                 case 2:
                     print(f"\n running {led_pin_options[2]}\n")
-                    test_gpio.set_led_off(selected_led_pin)
-                    pin_state = test_gpio.get_led_state(selected_led_pin)
+                    test_gpio.set_led_off(selected_led_name)
+                    pin_state = test_gpio.get_led_state(selected_led_name)
                     if pin_state is LED_OFF:
-                        print(f"{GREEN}Test Result: The selected LED {selected_led_pin} is OFF")
+                        print(f"{GREEN}Test Result: The selected LED {selected_led_name} is OFF")
                     else:
-                        print(f"{RED}Test Result: The selected LED {selected_led_pin} is NOT OFF")
+                        print(f"{RED}Test Result: The selected LED {selected_led_name} is NOT OFF")
                 case _:
                     print("Please input a valid number.")
 
@@ -328,6 +338,8 @@ if __name__ == '__main__':
         :arguments
             test_gpio : instance of the GPIO class under test
         '''
+        # pylint: disable=too-many-branches
+
         # create a led-pin selection list
         led_pin_options =   ["Quit"] +\
                             ["All leds-pins ON"] +\
@@ -370,7 +382,6 @@ if __name__ == '__main__':
                     _single_led_test(test_gpio)
                 case _:
                     print("Please input a valid test option.")
-        return
 
     def _interactive_menu() -> None:
         """
