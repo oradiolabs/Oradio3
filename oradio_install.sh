@@ -454,7 +454,7 @@ mkdir -p $CONFIG_PATH || { echo -e "${RED}Failed to create directory $CONFIG_PAT
 # Configure MPD
 install_resource --no-sudo $RESOURCES_PATH/mpd.conf $CONFIG_PATH/mpd.conf
 # Install empty MPD database  to prevent MPD updating when starting
-install_resource --no-sudo $RESOURCES_PATH/mpd.database $CONFIG_PATH/mpd/tag_cache
+install_resource --no-sudo $RESOURCES_PATH/mpd.database $CONFIG_PATH/tag_cache
 
 # Ensure systemd config directory exists
 CONFIG_PATH="$HOME/.config/systemd/user"
