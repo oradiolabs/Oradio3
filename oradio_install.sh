@@ -30,21 +30,18 @@ if [ -z "$BASH" ]; then
 	exit 1
 fi
 
-echo $BASH_SOURCE
 # Get the script name and path
 SCRIPT_NAME=$(basename $BASH_SOURCE)
-
-# Working directory
-cd $HOME
+SCRIPT_PATH=$HOME/Oradio3
 
 # Location of Python files
-PYTHON_PATH=$HOME/Python
+PYTHON_PATH=$SCRIPT_PATH/Python
 # Location of log files
-LOGGING_PATH=$HOME/logging
+LOGGING_PATH=$SCRIPT_PATH/logging
 # Spotify directory
-SPOTIFY_PATH=$HOME/Spotify
+SPOTIFY_PATH=$SCRIPT_PATH/Spotify
 # Location of files to install
-RESOURCES_PATH=$HOME/install_resources
+RESOURCES_PATH=$SCRIPT_PATH/install_resources
 
 # Ensure logging directory exists and define log files
 mkdir -p "$LOGGING_PATH" || { echo -e "${RED}Failed to create directory $LOGGING_PATH${NC}"; exit 1; }
@@ -338,7 +335,7 @@ SKIP
 	# Reboot if required for activation
 	if [ -v REBOOT_NEEDED ]; then
 		# Configure to continue the installation after reboot
-		sudo grep -qxF "bash $HOME/$SCRIPT_NAME --continue" ~/.bashrc || echo "bash $HOME/$SCRIPT_NAME --continue" >> ~/.bashrc
+		sudo grep -qxF "bash $SCRIPT_PATH/$SCRIPT_NAME --continue" ~/.bashrc || echo "bash $SCRIPT_PATH/$SCRIPT_NAME --continue" >> ~/.bashrc
 
 		# Enable raspi-config to auto-login to console
 		sudo raspi-config nonint do_boot_behaviour B2
@@ -359,7 +356,7 @@ else # Execute if this script IS automatically started after reboot
 	echo -e "${GREEN}$(date +'%Y-%m-%d %H:%M:%S'): Continueing after reboot${NC}"
 
 	# Restore normal behaviour after reboot
-	sudo sed -i "\#^bash $HOME/$SCRIPT_NAME --continue\$#d" ~/.bashrc
+	sudo sed -i "\#^bash $SCRIPT_PATH/$SCRIPT_NAME --continue\$#d" ~/.bashrc
 
 	# Enable raspi-config to auto-login to console
 	sudo raspi-config nonint do_boot_behaviour B1
