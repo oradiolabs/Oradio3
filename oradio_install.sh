@@ -468,7 +468,7 @@ echo -e "${GREEN}Audio installed and configured${NC}"
 CONFIG_PATH="$HOME/.config/wireplumber/wireplumber.conf.d"
 mkdir -p $CONFIG_PATH || { echo -e "${RED}Failed to create directory $CONFIG_PATH${NC}"; exit 1; }
 # Install WirePlumber rules and scripts
-install_resource --no-sudo $RESOURCES_PATH/disable-modules.conf $CONFIG_PATH/disable-modules.conf
+install_resource --no-sudo $RESOURCES_PATH/disable-profiles.conf $CONFIG_PATH/disable-profiles.conf
 
 # Setup log file rotation to limit logfile size
 install_resource --sudo $RESOURCES_PATH/logrotate.conf /etc/logrotate.d/oradio
