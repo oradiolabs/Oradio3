@@ -1,0 +1,118 @@
+### PipeWire setup ###
+
+# Clean OS install
+SD card with OS Lite
+
+# SSH oradio.local: pi/oradio
+
+# Configure DigiAMP+
+sudo cp install_resources/config.txt /boot/firmware/config.txt
+
+# Install PipeWire
+sudo apt-get update
+sudo apt-get -y install pipewire
+
+# Activate DigiAMP+ and PipeWire (user service)
+sudo reboot
+
+# SSH oradio.local: pi/oradio
+
+# Verify pipewire service is active
+systemctl --user status pipewire
+
+# Verify DigiAMP+ is recognized
+pw-cli list-objects | grep DigiAMP
+
+# Verify PipeWire playback
+pw-play system_sounds/Next_melding.wav
+
+### Volume control ###
+
+# Verify PipeWire volume control
+wpctl get-volume @DEFAULT_AUDIO_SINK@
+wpctl set-volume @DEFAULT_AUDIO_SINK@ 30%
+pw-play system_sounds/Next_melding.wav
+wpctl set-volume @DEFAULT_AUDIO_SINK@ 40%
+pw-play system_sounds/Next_melding.wav
+wpctl set-volume @DEFAULT_AUDIO_SINK@ 20%
+pw-play system_sounds/Next_melding.wav
+
+### MPD setup ###
+
+# Mount USB
+sudo mkdir -p /media/oradio
+sudo mount -t vfat -o "rw,users,uid=0,gid=100,fmask=111,dmask=000,utf8=1,noatime,nodiratime,flush,sync" /dev/sda1 /media/oradio
+
+# Verify USB is available
+ls -al /media/oradio
+
+# Install MPD and MPC
+sudo apt-get update
+sudo apt-get -y install mpd mpc
+
+# Ensure logging directory exists
+mkdir -p ~/Oradio3/logging
+
+# Ensure MPD config directory exists
+mkdir -p ~/.config/mpd
+
+# Configure MPD service
+cp install_resources/mpd.conf ~/.config/mpd/mpd.conf
+
+# Initilaize MPD database
+cp install_resources/mpd.database ~/.config/mpd/tag_cache
+
+# Ensure systemd config directory exists
+mkdir -p ~/.config/systemd/user
+
+# Install MPD as user service
+cp install_resources/mpd.service ~/.config/systemd/user/mpd.service
+
+# Reload systemd for user units
+systemctl --user daemon-reload
+
+# Enable it to start at login
+systemctl --user enable mpd
+
+# Start it now
+systemctl --user start mpd
+
+# Check status
+systemctl --user status mpd
+
+# Load MPD database
+mpc update
+
+# Wait for update to be completed
+mpc status
+
+# Verify MPD playback
+mpc add Pop80s
+mpc play
+
+#-------------------------------------------------------------------
+
+### System sounds Python
+
+
+
+
+# Spotify
+
+# Install PipeWire DigiAMP sink
+#mkdir -p ~/.config/pipewire
+#sudo cp install_resources/alsa-monitor.conf ~/.config/pipewire/alsa-monitor.conf
+
+
+
+
+# Configure DigiAMP+ as PipeWire sink
+mkdir -p ~/.config/pipewire
+# Voor 24 bit 48kHz (native)
+cp install_resources/pipewire_24+48.conf ~/.config/pipewire/pipewire.conf
+# Voor 16 bit 96kHz (resampled)
+cp install_resources/pipewire_16+96.conf ~/.config/pipewire/pipewire.conf
+
+# Restart PipeWire to activate changes
+systemctl --user restart pipewire
+
