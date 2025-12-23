@@ -297,6 +297,8 @@ def setup_remote_debugging(host_address:str, port_number:int) -> bool:
         False: Error detected, no connection
     '''
     import argparse
+    import pydevd    # pip install pydevd
+
     parser = argparse.ArgumentParser(description='Remote Debug')
     MESSAGE_DEBUG = 'Remote Debug options are:  [ no | yes ]'
     parser.add_argument('-rd', '--rmdebug', type = str, nargs='?', const='no', help=MESSAGE_DEBUG )
@@ -310,8 +312,6 @@ def setup_remote_debugging(host_address:str, port_number:int) -> bool:
     print("Remote Debug option =",remote_debug)
 
     if remote_debug == 'yes':
-        # pip install pydevd #
-        import pydevd
         print("Remote debugging started")
         # Allow remote debugging from any IP address on selected port
         os.environ["PYDEVD_DISABLE_FILE_VALIDATION"] = "1"
@@ -321,14 +321,10 @@ def setup_remote_debugging(host_address:str, port_number:int) -> bool:
             print(f"Failed to connect to debugger at {host_address}:{port_number}. \
                     Is the IDE pydev running/listening?")
             return False
-        except (socket.error, OSError) as e:
-            print(f"Network error while connecting to debugger: {e}")
+        except (socket.error, OSError) as err:
+            print(f"Network error while connecting to debugger: {err}")
             return False
-        except Exception as e:
-            print(f"Unexpected error: {e}")
-            return False
-        else:
-            return True
+        return True
     else:
         # no arguments found
         return True

@@ -6,6 +6,20 @@ V betekent rework akkoord
 
 YYYY-MM-DD============================================================================================================================
 
+2025-12-20============================================================================================================================
+Henk rework: led_control.py en gpio_service.py
+1 - GPIO zaken ontkoppelen uit led_control.py. De GPIO wordt zowel in led_control als in touch_buttons geinitialiseerd. 
+    Zou op 1 plek moeten. Daarom GPIO zaken in een aparte module gpio_service.py afhandelen. 
+    Daarbij een klasse aanbieden met config en set/get methodes. 
+    Geeft betere abstractie door toevoeging van een hardware abstractie laag
+2 - methodes turn_off_led(), turn_on_led(), turn_on_led_with_delay() moeten een True/False teruggeven
+3 - delayed_off() thread gebruikt een sleep als delay.Beter is om een Timer thread te gebruiken
+4 - control_blinking_led(self, led_name, cycle_time=None), graag de cycle_time parameter specificeren.
+5 - De selftest is niet doelmatig. Beter is om  te testen of de leds ook werkelijk aan of uit staan door de GPIO status op te vragen van de geactiveerde led. 
+    Hiermee test je of de leds werkelijk aan of uit staan.
+
+==========================================================================================================================================
+
 PLAY_SYSTEM_SOUND:
 T - Afspeleen en volume van elkaar loskoppelen.
 	Voordeel is dat het beter te onderhouden is, omdat afspelen en volume elk op zich redelijk eenvoudig zijn als ze zelfstandig zijn.

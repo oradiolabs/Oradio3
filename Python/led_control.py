@@ -12,14 +12,14 @@ Created on January 29, 2025
 @copyright:     Copyright 2024, Oradio Stichting
 @license:       GNU General Public License (GPL)
 @organization:  Oradio Stichting
-@version:       1
+@version:       2
 @email:         oradioinfo@stichtingoradio.nl
 @status:        Development
 @summary: Oradio LED control module
 
 """
 import time
-import threading
+from threading import Thread, Timer, Event
 
 ##### oradio modules ####################
 from oradio_logging import oradio_log
@@ -151,7 +151,7 @@ class LEDControl:
         # Stop any blinking for this LED and turn it on
         self.turn_on_led(led_name)
         oradio_log.debug("%s turned on, will turn off after %s seconds", led_name, period)
-        oneshot_timer = threading.Timer(period,oneshot_led_off, args=(led_name,period))
+        oneshot_timer = Timer(period,oneshot_led_off, args=(led_name,period))
         oneshot_timer.start()
         return True
 
@@ -203,9 +203,9 @@ class LEDControl:
             return False
 
         # start new blink thread
-        stop_evt = threading.Event()
+        stop_evt = Event()
         self.blink_stop_events[led_name] = stop_evt
-        thread = threading.Thread(target=_blink, daemon=True)
+        thread = Thread(target=_blink, daemon=True)
         thread.start()
         self.blinking_threads[led_name] = thread
         oradio_log.debug("%s blinking started: %.3fs cycle", led_name, cycle_time)
@@ -225,6 +225,17 @@ if __name__ == "__main__":
     if not setup_remote_debugging(HOST_ADDRESS,DEBUG_PORT):
         print("The remote debugging error, check the remote IP connection")
         sys.exit()
+
+    def keyboard_input(event:Event):
+        '''
+        wait for keyboard input with return, and set event if input detected
+        :arguments
+            event = The specified event will be set upon a keyboard input
+        :post_condition:
+            the event is set
+        '''
+        _=input("Press Return on keyboard to stop this test")
+        event.set()
 
     def _prompt_int(prompt: str, default: int | None = None) -> int | None:
         try:
@@ -253,14 +264,14 @@ if __name__ == "__main__":
             seconds (int) : duration of progress bar
         :return led_on_timing (float, 1 decimal)
         '''
-        start_time          = time.time()
+        start_time          = time.monotonic()
         end_time            = start_time + duration
         progress_bar_state  = "Led ON"
         led_on_timing       = 0
         progress_bar        = ""
         bar_led_off_start   = 0
-        while time.time() < end_time:
-            elapsed = time.time() - start_time
+        while time.monotonic() < end_time:
+            elapsed = time.monotonic() - start_time
             progress = elapsed/duration
             filled_length = int(round(BAR_LENGTH * progress))
             if progress_bar_state == "Led ON":
@@ -288,13 +299,17 @@ if __name__ == "__main__":
     INTERVAL_TIME   = 0.05
     def _show_and_measure_blinking(led_control:LEDControl,
                                    led_name:str,
-                                   cycle_time: float )-> float:
+                                   cycle_time: float,
+                                   stop_event : Event )-> float:
         '''
         display the blinking state of selected led
         extended ascii characters see at https://coding.tools/ascii-table
         :arguments
             led_name (str) = [ LED_PLAY | LED_STOP] |
                             LED_PRESET1 | LED_PRESET2 | LED_PRESET3 ]
+            led_control : test instance of LEDControl
+            cycle_time : the cycle time as float
+            stop_event : Event to stop the test
         :return 
             state_time = the measured ON or OFF period of blink.
         '''
@@ -313,45 +328,45 @@ if __name__ == "__main__":
 
         line          = [" "] * LINE_LENGTH  # Initialize with spaces
         led_state     = led_control.leds_driver.get_led_state(led_name)
-        start_time    = time.time()
+        start_time    = time.monotonic()
         half_time     = round_down((cycle_time/2),2)
         puls_length   = int(half_time/INTERVAL_TIME)
         mid_puls_position = int(puls_length/2)
-        try:
-            while True:
-                # Get current LED state
-                new_led_state = led_control.leds_driver.get_led_state(led_name)
-                now = time.time()
-                if new_led_state != led_state:
-                    state_time = round_down((now - start_time),2)
-                    led_state  = new_led_state
-                    start_time = now
-                    # set the state_time in the line list at mid position of last state
-                    state_time_list = list(str(state_time))
-                    new_line = line[:-mid_puls_position] + state_time_list
-                    new_line = new_line + line[-(mid_puls_position-4):] # 4 chars of state_time
+        while not stop_event.is_set():
+            # Get current LED state
+            new_led_state = led_control.leds_driver.get_led_state(led_name)
+            now = time.monotonic()
+            if new_led_state != led_state:
+                state_time = round_down((now - start_time),2)
+                led_state  = new_led_state
+                start_time = now
+                # set the state_time in the line list at mid position of last state
+                state_time_list = list(str(state_time))
+                new_line = line[:-mid_puls_position] + state_time_list
+                new_line = new_line + line[-(mid_puls_position-4):] # 4 chars of state_time
+                if len(new_line) == LINE_LENGTH:
                     line = new_line
-                    # check if timing is within 5% accuracy
-                    accuracy = 5
-                    diff = state_time - half_time
-                    allowed_deviation = (accuracy/100) * half_time
-                    if diff > allowed_deviation:
-                        print(f"{RED}Test Result: The ON cycle timing of {state_time} \
-                                for {led_name} is not {half_time} !!")
-                        break
-                if new_led_state:
-                    symbol = LED_ON
-                else:
-                    symbol = LED_OFF
-                # Shift the line left and append the new symbol
-                line = line[1:] + [symbol]
-                if len(line)<LINE_LENGTH:
-                    print(f"{RED} TEST ERROR ==> stop")
-                sys.stdout.write("\r" + "".join(line))
-                sys.stdout.flush()
-                time.sleep(INTERVAL_TIME)  # Update interval        return led_on_timing
-        except KeyboardInterrupt:
-            led_control.turn_off_led(led_name)
+                    # else reject line
+                # check if timing is within 5% accuracy
+                accuracy = 5
+                diff = abs(state_time - half_time)
+                allowed_deviation = (accuracy/100) * half_time
+                if diff > allowed_deviation:
+                    print(f"{RED}Test Result: The ON cycle timing of {state_time} \
+                            for {led_name} is not {half_time} !!")
+                    break
+            if new_led_state:
+                symbol = LED_ON
+            else:
+                symbol = LED_OFF
+            # Shift the line left and append the new symbol
+            line = line[1:] + [symbol]
+            if len(line)<LINE_LENGTH:
+                print(f"{RED} TEST ERROR ==> stop")
+            sys.stdout.write("\r" + "".join(line))
+            sys.stdout.flush()
+            time.sleep(INTERVAL_TIME)  # Update interval        return led_on_timing
+        led_control.turn_off_led(led_name)
         return state_time
 
     def _single_led_test(led_control:LEDControl,
@@ -398,13 +413,17 @@ if __name__ == "__main__":
                 case 4:
                     cycle_time = _prompt_float("Input a cycletime as float number : ")
                     print(f"\nBlinking LED {selected_led} with cycle-time of {cycle_time} sec\n")
-                    print("Press CTRL-C to stop this test\n")
-                    led_control.turn_off_all_leds()
-                    if led_control.control_blinking_led(selected_led, cycle_time):
-                        _show_and_measure_blinking(led_control,selected_led, cycle_time)
-                        led_control.turn_off_led(selected_led) # stop blinking
-                    else:
-                        print(f"{RED}Test Result: The blinking failed for {selected_led}")
+                    stop_event = Event()
+                    keyboard_thread = Thread(target=keyboard_input,
+                                             args=(stop_event,))
+                    keyboard_thread.start()
+                    while not stop_event.is_set():
+                        led_control.turn_off_all_leds()
+                        if led_control.control_blinking_led(selected_led, cycle_time):
+                            _show_and_measure_blinking(led_control,selected_led, cycle_time, stop_event)
+                            led_control.turn_off_led(selected_led) # stop blinking
+                        else:
+                            print(f"{RED}Test Result: The blinking failed for {selected_led}")
                 case _:
                     print("Please input a valid number.")
 
@@ -462,10 +481,15 @@ if __name__ == "__main__":
                     led_control.turn_off_all_leds()
                 case 5:
                     print(f"\n running {test_options[5]}\n")
-                    for idx, led_name in enumerate(LED_NAMES, start=0):
+                    led_options = ["Quit"] + LED_NAMES
+                    for idx, led_name in enumerate(led_options, start=0):
                         print(f" {idx} - {led_name}")
                     led_choice = _prompt_int("Select a LED: ", default=-1)
-                    _single_led_test(led_control, LED_NAMES[led_choice])
+                    match led_choice:
+                        case 0:
+                            print("\nExiting test program\n")
+                        case 1 | 2 | 3 | 4 | 5:
+                            _single_led_test(led_control, LED_NAMES[led_choice])
                 case _:
                     print("Please input a valid number.")
 

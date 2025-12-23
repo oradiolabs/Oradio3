@@ -12,7 +12,7 @@ Created on November 29, 2025
 @copyright:     Copyright 2025, Oradio Stichting
 @license:       GNU General Public License (GPL)
 @organization:  Oradio Stichting
-@version:       1
+@version:       2
 @email:         oradioinfo@stichtingoradio.nl
 @status:        Development
 @summary:
@@ -28,7 +28,7 @@ Created on November 29, 2025
 
 ##### oradio modules ####################
 from oradio_const import ( LED_PLAY,LED_STOP, LED_PRESET1, LED_PRESET2, LED_PRESET3, LED_NAMES, \
-                         BUTTON_PLAY,BUTTON_STOP, BUTTON_PRESET1, BUTTON_PRESET2, BUTTON_PRESET3, \
+                         BUTTON_PLAY,BUTTON_STOP, BUTTON_PRESET1, BUTTON_PRESET2, BUTTON_PRESET3, BUTTON_NAMES, \
                          GREEN, YELLOW, RED, NC)
 
 from oradio_logging import oradio_log
@@ -114,7 +114,8 @@ class GPIOService:
             except RuntimeError as err:
                 oradio_log.debug("Error setting up event detection: %s for pin %s",err,pin)
                 raise ValueError("Invalid value provided") from err
-
+        oradio_log.debug("Buttons initialized")
+            
 ################## methods for the LED pins ######################
     def set_led_on(self,led_name:str) -> None:
         '''
@@ -147,7 +148,22 @@ class GPIOService:
             False = LED is OFF
         """
         led_state = not self._read_pin_state(LEDS[led_name])
+        # led on = GPIO.LOW
         return led_state
+
+    def get_button_state(self,button_name:str) -> bool:
+        """
+        Get the state off the specified button.
+        :arguments 
+            button_name (str) precondition: must be [ BUTTON_PLAY | BUTTON_STOP] |
+                                                   BUTTON_PRESET1 | BUTTON_PRESET2 | BUTTON_PRESET3 ]
+        :return
+            True = BUTTON is ON (so pressed/touched
+            False = BUTTON is OFF (so not pressed/touched
+        """
+        button_state = not self._read_pin_state(BUTTONS[button_name])
+        # a pressed button = GPIO.LOW
+        return button_state
 
 ######### methods for BUTTON pins ########################
     def set_button_edge_event_callback(self,callback) -> bool:
@@ -218,8 +234,11 @@ if __name__ == '__main__':
 #        >python gpio_service.py -rd yes
 #################################################################
     from oradio_utils import setup_remote_debugging
-    import sys
+    from threading import Thread, Event
+    import sys, time
 
+    button_state = {True: f"{YELLOW}1", False: f"{NC}0"}
+    
     ### Change HOST_ADDRESS to your host computer local address for remote debugging
     HOST_ADDRESS = "192.168.178.52"
     DEBUG_PORT = 5678
@@ -227,6 +246,17 @@ if __name__ == '__main__':
         print("The remote debugging error, check the remote IP connection")
         sys.exit  # pylint: disable=pointless-statement
 
+    def keyboard_input(event:Event):
+        '''
+        wait for keyboard input with return, and set event if input detected
+        :arguments
+            event = The specified event will be set upon a keyboard input
+        :post_condition:
+            the event is set
+        '''
+        _=input("Press Return on keyboard to stop this test")
+        event.set()
+        
     def _prompt_int(prompt: str, default=-1 ) -> int:
         '''
         Prompt for an user input and return int value of number typed
@@ -248,6 +278,60 @@ if __name__ == '__main__':
             True : OK
             False: Error condition
         '''
+        button_test_options = ["Quit"]\
+                        + ["polling the button state"]\
+                        + ["button event-callback handling"]
+
+        test_active = True
+        while test_active:
+            # --- Show test menu with the selection options---
+            for idx, name in enumerate(button_test_options, start=0):
+                print(f"{NC} {idx} - {name}")
+
+            button_choice = _prompt_int("Select test option: ", default=-1)
+            match button_choice:
+                case 0:
+                    print("\nReturning to main menu selection...\n")
+                    return
+                case 1:
+                    print(f"\n running {button_test_options[1]}\n")
+                    # stop the event driven callback
+                    for button_name, pin in BUTTONS.items():
+                        GPIO.remove_event_detect(pin)
+                    stop_event = Event()
+                    keyboard_thread = Thread(target=keyboard_input,
+                                             args=(stop_event,))
+                    keyboard_thread.start()
+                    while not stop_event.is_set():
+                        full_state_text = ""
+                        active_buttons = []
+                        for button_name in BUTTON_NAMES:
+                            state = test_gpio.get_button_state(button_name)
+                            state_text = button_state[state]
+                            full_state_text = full_state_text + "," + state_text
+                            if state:
+                                active_buttons.append(button_name)
+                        print(full_state_text + YELLOW + " : {}".format(active_buttons))
+                        time.sleep(0.2)
+                    del stop_event
+                    # activate the callback events
+                    for button_name, pin in BUTTONS.items():
+                        GPIO.add_event_detect(
+                            pin, GPIO.BOTH, callback=test_gpio._edge_callback, bouncetime=BOUNCE_MS
+                        )
+                case 2:
+                    print(f"\n running {button_test_options[2]}\n")
+                    if not test_gpio.set_button_edge_event_callback(_button_event_callback):
+                        print("button_edge_event_callback not found!")
+                        return
+                    print("Touch a button and check results. To stop test press RETURN!")
+                    while True:
+                        _ = input("Press RETURN key to stop test and continue to main-menu\n")
+                        break
+                case _:
+                    print("Please input a valid number.")
+
+        
         if not test_gpio.set_button_edge_event_callback(_button_event_callback):
             print("button_edge_event_callback not found!")
             return
