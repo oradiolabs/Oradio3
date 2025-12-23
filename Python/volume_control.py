@@ -29,6 +29,7 @@ from alsaaudio import Mixer, ALSAAudioError, VOLUME_UNITS_RAW   # pylint: disabl
 from oradio_logging import oradio_log
 from i2c_service import I2CService
 from oradio_utils import safe_put
+from play_system_sound import PlaySystemSound
 
 ##### GLOBAL constants ####################
 from oradio_const import (
@@ -46,6 +47,8 @@ VOLUME_MAXIMUM = 215
 MCP3021_ADDRESS      = 0x4D
 READ_DATA_REGISTER   = 0x00
 ADC_UPDATE_TOLERANCE = 5
+VOLUME_TICK_INTERVAL = 70  # Tick every N raw ADC units (0,50,100,...)
+VOLUME_TICK_HYS      = 10   # Hysteresis (ADC units) to prevent repeated ticks near borders
 POLLING_MIN_INTERVAL = 0.05
 POLLING_MAX_INTERVAL = 0.3
 POLLING_STEP         = 0.01
@@ -132,6 +135,9 @@ class VolumeControl:
         # ALSA wrapper
         self._alsa = AlsaVolume()
 
+        # System sound player (use _play_sound to avoid ducking/volume changes)
+        self._system_sound = PlaySystemSound()
+
         # Thread is created dynamically on `start()` to allow restartability
         self._running = Event()
         self._thread = None
@@ -196,6 +202,11 @@ class VolumeControl:
         # Start with 'slow' polling
         polling_interval = POLLING_MAX_INTERVAL
 
+        # For audible tick feedback while turning the knob
+        tick_index_max = 1023 // VOLUME_TICK_INTERVAL
+        tick_index = int((previous_adc if previous_adc is not None else 0) / VOLUME_TICK_INTERVAL)
+        tick_index = max(0, min(tick_index_max, tick_index))
+
         # signal: start volume manager thread
         self._running.set()
 
@@ -211,10 +222,32 @@ class VolumeControl:
 
             # Check if knob moved significantly
             if abs(adc_value - previous_adc) > ADC_UPDATE_TOLERANCE:
+                prev_adc = previous_adc
                 previous_adc = adc_value
 
                 # Set volume level
                 _ = self._set_volume(adc_value)     # result is ignored
+
+                # Play tick sound every VOLUME_TICK_INTERVAL (0,50,100,...) with hysteresis
+                # This prevents repeated ticks when hovering near a border.
+                if adc_value > prev_adc:
+                    # Moving up
+                    while tick_index < tick_index_max:
+                        next_border = (tick_index + 1) * VOLUME_TICK_INTERVAL
+                        if adc_value >= next_border + VOLUME_TICK_HYS:
+                            tick_index += 1
+                            Thread(target=self._system_sound._play_sound, args=("Tick",), daemon=True).start()
+                        else:
+                            break
+                elif adc_value < prev_adc:
+                    # Moving down
+                    while tick_index > 0:
+                        curr_border = tick_index * VOLUME_TICK_INTERVAL
+                        if adc_value <= curr_border - VOLUME_TICK_HYS:
+                            tick_index -= 1
+                            Thread(target=self._system_sound._play_sound, args=("Tick",), daemon=True).start()
+                        else:
+                            break
 
                 # Notify only once
                 if self._armed:
@@ -352,3 +385,4 @@ if __name__ == "__main__":
 
 # Restore temporarily disabled pylint duplicate code check
 # pylint: enable=duplicate-code
+
