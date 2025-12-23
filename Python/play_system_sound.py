@@ -19,6 +19,7 @@ Created on Januari 30, 2025
 """
 import os
 import sys
+from threading import Thread
 
 ##### oradio modules ####################
 from oradio_logging import oradio_log
@@ -56,28 +57,38 @@ SOUND_FILES = {
     "USBPresent":          f"{SOUND_FILES_DIR}/USBPresent_melding.wav",
 }
 
-def play_system_sound(sound_key: str) -> None:
-    """
-    Play a system sound asynchronously.
-    
-    Args:
-        sound_key (str): Key of the sound in SOUND_FILES dictionary.
+class PlaySystemSound:
+    """Play a system sound asynchronously."""
+    def play(self, sound_key: str) -> None:
+        """
+        Play a system sound asynchronously.
         
-    Logs an error if the key is invalid or the file does not exist.
-    """
-    sound_file = SOUND_FILES.get(sound_key)
-    if not sound_file:
-        oradio_log.error("Invalid sound key: %s", sound_key)
-        return
+        Args:
+            sound_key (str): Key of the sound in SOUND_FILES dictionary.
+            
+        Logs an error if the key is invalid or the file does not exist.
+        """
+        sound_file = SOUND_FILES.get(sound_key)
+        if not sound_file:
+            oradio_log.error("Invalid sound key: %s", sound_key)
+            return
 
-    if not os.path.exists(sound_file):
-        oradio_log.error("Sound file does not exist: %s", sound_file)
-        return
+        if not os.path.exists(sound_file):
+            oradio_log.error("Sound file does not exist: %s", sound_file)
+            return
 
-    # Command to play sound asynchronously
-    cmd = f"pw-play {sound_file}"
-    run_shell_script(cmd, background=True)
-    oradio_log.debug("System sound started in background: %s", sound_file)
+        # Command to play sound
+        cmd = f"pw-play {sound_file}"
+
+        # Run the command in a thread
+        thread = Thread(
+            target=run_shell_script,
+            args=(cmd,),
+            daemon=True  # thread will not block program exit
+        )
+        thread.start()
+
+        oradio_log.debug("System sound started in background: %s", sound_file)
 
 # ----- Stand-alone test menu -----
 
@@ -86,13 +97,13 @@ if __name__ == "__main__":
     # Imports only relevant when stand-alone
     import time
     import random
-    from threading import Thread
 
 # Most modules use similar code in stand-alone
 # pylint: disable=duplicate-code
 
     print("\nStarting System Sound Player Standalone Test...\n")
 
+    sound_player = PlaySystemSound()
     sound_keys = list(SOUND_FILES.keys())
 
     def build_menu():
@@ -123,7 +134,7 @@ if __name__ == "__main__":
             if 1 <= choice <= len(sound_keys):
                 key = sound_keys[choice - 1]
                 print(f"\nEnqueue: Play {key}\n")
-                play_system_sound(key)
+                sound_player.play(key)
 
             # Stress test: multiple threads playing random sounds for 10 seconds
             elif choice == 99:
@@ -132,7 +143,7 @@ if __name__ == "__main__":
                 start = time.time()
                 def rnd():
                     while time.time() - start < 10:
-                        play_system_sound(random.choice(sound_keys))
+                        sound_player.play(random.choice(sound_keys))
                         time.sleep(random.uniform(0.1, 0.5))
                 threads = [Thread(target=rnd) for _ in range(5)]
                 for thread in threads:
@@ -156,7 +167,7 @@ if __name__ == "__main__":
                 seq = [sound_keys[i-1] for i in indices]
                 print(f"Enqueuing sequence: {seq}\n")
                 for k in seq:
-                    play_system_sound(k)
+                    sound_player.play(k)
 
             else:
                 print(f"\n{YELLOW}Please input a valid number{NC}\n")

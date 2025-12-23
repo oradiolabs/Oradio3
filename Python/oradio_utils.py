@@ -192,31 +192,15 @@ def has_internet() -> bool:
         # socket.timeout / socket.error if connection fails
         return False
 
-def run_shell_script(script, background=False):
+def run_shell_script(script):
     """
-    Simplified shell command execution.
-
-    :param script: (str) shell command to execute
-    :param background: (bool) if True, run command in background (non-blocking)
-    :return: If background=False -> (success, output) tuple
-                success=True  -> output = stdout (stripped)
-                success=False -> output = stderr (stripped)
-             If background=True -> subprocess.Popen object
+    Simplified shell command execution
+    :param script (str) - shell command to execute
+    :return: (success, output) tuple
+             success=True -> output = stdout (stripped)
+             success=False -> output = stderr (stripped)
     """
-    oradio_log.debug("Running shell script: %s (background=%s)", script, background)
-
-    if background:
-        # Run in background (non-blocking)
-        process = subprocess.Popen(
-            script,
-            shell=True,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            text=True
-        )
-        return None
-
-    # Blocking execution
+    oradio_log.debug("Running shell script: %s", script)
     process = run(
         script,
         shell = True,           # Avoid exception, inspect returncode and stdout/stderr
