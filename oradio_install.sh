@@ -175,16 +175,16 @@ if [ "$1" != "--continue" ]; then
 #   Add any additionally required packages to 'LINUX_PACKAGES'  #
 #***************************************************************#
 	LINUX_PACKAGES=(
-#		git
-#		jq
-#		python3-gi
-#		python3-dev
-#		python3-dbus
+		git
+		jq
+		python3-gi
+		python3-dev
+		python3-dbus
 		pipewire
 		mpd
 		mpc
-#		iptables
-#		raspotify
+		iptables
+		raspotify
 	)
 
 	# Fetch list of upgradable packages
@@ -228,8 +228,6 @@ if [ "$1" != "--continue" ]; then
 	echo -e "${GREEN}Oradio3 packages installed and up to date${NC}"
 
 ########## ORADIO3 LINUX PACKAGES END ##########
-
-cat <<'SKIP' >/dev/null
 
 ########## PYTHON BEGIN ##########
 
@@ -313,7 +311,6 @@ except:
 	echo -e "${GREEN}Python packages installed and up-to-date${NC}"
 
 ########## PYTHON END ##########
-SKIP
 
 ########## CONFIGURATION BEGIN ##########
 
@@ -392,7 +389,6 @@ sudo update-locale LANG=C.UTF-8 LC_CTYPE=C.UTF-8
 # Progress report
 echo -e "${GREEN}Fix installed for \"-bash: warning: setlocale ...\" when SSH-ing from macOS${NC}"
 
-cat <<'SKIP' >/dev/null
 # Get date and time of git last update
 gitdate=$(git log -1 --format=%cd --date=format:'%Y-%m-%d-%H-%M-%S')
 # Get info about installed Oradio3 version
@@ -424,7 +420,6 @@ fi
 echo "--------------------------------------------------"
 EOL'
 fi
-SKIP
 
 # Ensure defined state when booting: service removes /media/usb_ready
 install_resource --sudo $RESOURCES_PATH/usb-prepare.service /etc/systemd/system/usb-prepare.service 'systemctl enable usb-prepare.service'
@@ -472,7 +467,6 @@ install_resource --sudo $RESOURCES_PATH/logrotate.conf /etc/logrotate.d/oradio
 # Progress report
 echo -e "${GREEN}Log files rotation configured${NC}"
 
-cat <<'SKIP' >/dev/null
 # Configure Spotify connect
 # Ensure logfile exists with correct ownership and permissions before starting librespot
 touch $LOGFILE_SPOTIFY
@@ -492,7 +486,6 @@ install_resource --sudo $RESOURCES_PATH/spotify_event_handler.sh /usr/local/bin/
 install_resource --sudo $RESOURCES_PATH/librespot.service /etc/systemd/system/librespot.service 'systemctl enable librespot.service'
 # Progress report
 echo -e "${GREEN}Spotify connect functionality is installed and configured${NC}"
-SKIP
 
 # Install the send_log_files_to_rms script
 install_resource --sudo $RESOURCES_PATH/send_log_files_to_rms.sh /usr/local/bin/send_log_files_to_rms.sh 'chmod +x /usr/local/bin/send_log_files_to_rms.sh'
@@ -501,8 +494,6 @@ install_resource --sudo $RESOURCES_PATH/about /usr/local/bin/about 'chmod +x /us
 # Progress report
 echo -e "${GREEN}Support tools installed${NC}"
 
-cat <<'SKIP' >/dev/null
-#TODO: change to user service
 # Configure the oradio service to start on boot
 install_resource --sudo $RESOURCES_PATH/usb_low_idle_power.service /etc/systemd/system/usb_low_idle_power.service 'systemctl enable usb_low_idle_power.service'
 # Progress report
@@ -512,7 +503,6 @@ echo -e "${GREEN}Power save features configured${NC}"
 install_resource --sudo $RESOURCES_PATH/oradio.service /etc/systemd/system/oradio.service 'systemctl enable oradio.service'
 # Progress report
 echo -e "${GREEN}Start Oradio3 on boot configured${NC}"
-SKIP
 
 # Stop if any installation failed
 if [ -v INSTALL_ERROR ]; then
