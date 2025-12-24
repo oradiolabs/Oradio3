@@ -17,7 +17,7 @@ jobs:
     - name: Install system dependencies
       run: |
         sudo apt-get update
-        sudo apt-get install -y  python3-gi python3-dbus libasound2-dev
+        sudo apt-get install -y  python3-gi python3-dbus libasound2-dev pydevd
 
     - name: Set up Python virtual environment
       run: |
