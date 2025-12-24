@@ -18,9 +18,9 @@ Created on April 28, 2025
 @summary:       Oradio touch buttons module with debounce, per-button callbacks, and selftest
 """
 
-from threading import Timer, Thread
+from threading import Timer, Thread, Event
 from multiprocessing import Queue
-
+from time import sleep, monotonic
 ##### oradio modules ####################
 from play_system_sound import PlaySystemSound
 from oradio_logging import oradio_log
@@ -35,7 +35,10 @@ LONG_PRESS_DURATION = 2  # seconds
 
 ##### GLOBAL constants ####################
 from oradio_const import (BUTTON_PLAY,BUTTON_STOP, BUTTON_PRESET1, BUTTON_PRESET2, BUTTON_PRESET3, BUTTON_NAMES, \
-                         GREEN, YELLOW, RED, NC)
+                         BUTTON_PRESSED, \
+                         GREEN, YELLOW, RED, NC, \
+                         MESSAGE_BUTTON_SOURCE, MESSAGE_NO_ERROR, MESSAGE_SHORT_PRESS, \
+                         MESSAGE_LONG_PRESS_BUTTON)
 
 
 class TouchButtons:
@@ -69,6 +72,17 @@ class TouchButtons:
         self.last_trigger_times: dict[str, float] = {}   # button -> last accepted press time
         self.long_press_timers: dict[str, threading.Timer] = {}  # button -> Timer
 
+    def _send_message(self,button_state) -> None:
+        """Send current TouchButton state message to the registered queue."""
+        message = {
+            "source": MESSAGE_BUTTON_SOURCE,
+            "state": button_state,
+            "error": MESSAGE_NO_ERROR,
+        }
+        oradio_log.debug("Send TouchButton message: %s", message)
+        if not safe_put(self.message_queue, message):
+            print("Failure when sending message to shared queue")
+
     def _button_event_callback(self, button_state: bool, button_name: str) -> None:
         '''
         callback for button events
@@ -79,7 +93,7 @@ class TouchButtons:
 
         '''
         print(f"Button change event: {button_name} = {button_state}")
-        now = time.monotonic()
+        now = monotonic()
         last = self.last_trigger_times.get(button_name, 0.0)
         if (now - last) < DEBOUNCE_SECONDS:
             return  # software debounce
@@ -87,14 +101,14 @@ class TouchButtons:
         self.last_trigger_times[button_name] = now
         self.button_press_times[button_name] = now
 
-        # Cancel any stale timer, then arm a fresh one
+        # Cancel any existing timer, then arm a fresh one
         prev = self.long_press_timers.pop(button_name, None)
         if prev:
             prev.cancel()
 
         timer = Timer(LONG_PRESS_DURATION,
-                                self._long_press_timeout,
-                                args=(button_name,))
+                        self._long_press_timeout,
+                        args=(button_name,))
         timer.daemon = True
         self.long_press_timers[button_name] = timer
         timer.start()
@@ -105,6 +119,8 @@ class TouchButtons:
             # Note: method does not report error or raises exceptions
         
         ### Send Message to message queue
+        message_state = MESSAGE_SHORT_PRESS+button_name
+        self._send_message(message_state)
 
     def _long_press_timeout(self, button_name: str) -> None:
         """Fire long-press if still held after LONG_PRESS_DURATION.
@@ -126,7 +142,6 @@ class TouchButtons:
 # ------------------ Standalone Test (no state machine) ------------------
 if __name__ == "__main__":
     import sys
-    import time
 
     from oradio_utils import setup_remote_debugging
     ### Change HOST_ADDRESS to your host computer local address for remote debugging
@@ -136,13 +151,39 @@ if __name__ == "__main__":
         print("The remote debugging error, check the remote IP connection")
         sys.exit()
 
+    def keyboard_input(event:Event):
+        '''
+        wait for keyboard input with return, and set event if input detected
+        :arguments
+            event = The specified event will be set upon a keyboard input
+        :post_condition:
+            the event is set
+        '''
+        _=input("Press Return on keyboard to stop this test")
+        event.set()
+
+
+    def _prompt_int(prompt: str, default=-1 ) -> int:
+        '''
+        Prompt for an user input and return int value of number typed
+        :argument prompt : prompt text for user
+        :argument default: default value to return in case of an error
+        :return the integer value type in by user | default value in case of an error
+        '''
+        try:
+            return int(input(prompt))
+        except ValueError:
+            return default
+
     def _handle_message(message):
-        command_source = message.get("source")
-        state = message.get("state")
-        error = message.get("error", None)
+        command_source  = message.get("source")
+        state           = message.get("state")
+        error           = message.get("error", None)
+        print(f"{YELLOW} Received message in queue = ",message)
+        print(f"{NC}")
 
     def _check_for_new_message_in_queue(msg_queue):
-        """Continuously read and handle messages from the shared queue."""
+        """WaitContinuously read and handle messages from the shared queue."""
         while True:
             try:
                 msg = msg_queue.get()  # blocking
@@ -158,12 +199,62 @@ if __name__ == "__main__":
                 # Unexpected runtime/OS errors during handling
                 oradio_log.exception("Runtime error in process_messages: %s", ex)
 
+    def _callback_test(buttons_driver:TouchButtons):
+        '''
+        '''
+        for button_name in BUTTON_NAMES:
+            buttons_driver._button_event_callback(BUTTON_PRESSED, button_name)
+            sleep(1)
 
     shared_queue = Queue()
-    test_buttons = TouchButtons( shared_queue)
 
     # Create a thread to listen and process new messages in shared queue
     Thread(target=_check_for_new_message_in_queue, args=(shared_queue,), daemon=True).start()
-    
-    _ = input("Press any key to stop test")
-    test_buttons.button_driver.gpio_cleanup()
+
+    def _interactive_menu():
+        """Show menu with test options"""
+        # pylint: disable=too-many-branches
+        try:
+            test_buttons = TouchButtons( shared_queue)
+        except (ValueError) as ex_err:
+            print(f"Initialization failed: {ex_err}")
+            return
+
+        test_options = ["Quit"] + \
+                        ["Pressing a button and check message queue "] + \
+                        ["Check button callback and message queue"] +\
+                        ["Test 3"] +\
+                        ["Test 4"] +\
+                        ["Test 5"]
+
+        while True:
+            print("\nTEST options:")
+            for idx, name in enumerate(test_options, start=0):
+                print(f" {idx} - {name}")
+            test_choice = _prompt_int("Select test number: ", default=-1)
+            match test_choice:
+                case 0:
+                    print("\nExiting test program\n")
+                    test_buttons.button_driver.gpio_cleanup()
+                    break
+                case 1:
+                    print(f"\n running {test_options[1]}\n")
+                    # wait for message received in queue
+                    _ = input("Press any Return key to stop test")
+                case 2:
+                    print(f"\n running {test_options[2]}\n")
+                    _callback_test(test_buttons)
+                    _ = input("Press any Return key to stop test")
+                case 3:
+                    print(f"\n running {test_options[3]}\n")
+                case 4:
+                    print(f"\n running {test_options[4]}\n")
+                case 5:
+                    print(f"\n running {test_options[5]}\n")
+                case _:
+                    print("Please input a valid number.")
+
+    # Present menu with tests
+    _interactive_menu()
+
+

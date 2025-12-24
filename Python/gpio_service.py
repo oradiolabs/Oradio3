@@ -33,6 +33,7 @@ from oradio_const import ( LED_PLAY,LED_STOP, LED_PRESET1, LED_PRESET2, LED_PRES
 
 from oradio_logging import oradio_log
 from singleton import singleton
+from time import sleep
 try:
     from RPi import GPIO
 except RuntimeError:
@@ -58,8 +59,6 @@ BUTTONS: dict[str, int] = {
     BUTTON_STOP:    6,
 }
 BOUNCE_MS = 10  # hardware debounce in GPIO.add_event_detect
-BUTTON_PRESSED = "button pressed"
-BUTTON_RELEASED = "button released"
 LED_ON  = True
 LED_OFF = False
 
@@ -207,8 +206,10 @@ class GPIOService:
             button_state = BUTTON_PRESSED
         else:
             button_state = BUTTON_RELEASED
-
-        self.edge_event_callback(button_state, button_name)
+        if self.edge_event_callback:
+            self.edge_event_callback(button_state, button_name)
+        else:
+            print("no callback function found")
 
     def _read_pin_state(self, io_pin: int) -> bool:
         '''
@@ -221,6 +222,34 @@ class GPIOService:
         '''
         return(bool(GPIO.input(io_pin)))
 
+    ######## for testing purposes only
+    def _trigger_event_callback_on_button_pin(self, button_name: str) -> None:
+        '''
+        simulate a button press by changing the button input pin temporary
+        to an output to send a ON-OFF signal for at least the DEBOUNCE_MS time.
+        The edge detection logic will see this as a button press event on the selected button, 
+        and trigger the configured callback.
+        When ready the output will be set back to input again
+
+        :arguments
+            button_name (str) precondition: must be [ BUTTON_PLAY | BUTTON_STOP] |
+                                                   BUTTON_PRESET1 | BUTTON_PRESET2 | BUTTON_PRESET3 ]
+        '''
+        # set the input pin temporary to output
+        GPIO.setup(BUTTONS[button_name], GPIO.OUT)
+        
+        # trigger a raising edge event
+        button_state = self._read_pin_state(BUTTONS[button_name])
+        GPIO.output(BUTTONS[button_name], GPIO.LOW)
+        button_state = self._read_pin_state(BUTTONS[button_name])
+        # short wait to overcome debouncetime
+        #sleep(BOUNCE_MS/1000)
+        sleep(0.1)
+        GPIO.output(BUTTONS[button_name], GPIO.HIGH)
+        button_state = self._read_pin_state(BUTTONS[button_name])
+        # set back to input
+        GPIO.setup(BUTTONS[button_name], GPIO.IN, pull_up_down=GPIO.PUD_UP)
+        button_state = self._read_pin_state(BUTTONS[button_name])
 
 # Entry point for stand-alone operation
 if __name__ == '__main__':
@@ -235,7 +264,7 @@ if __name__ == '__main__':
 #################################################################
     from oradio_utils import setup_remote_debugging
     from threading import Thread, Event
-    import sys, time
+    import sys
 
     button_state = {True: f"{YELLOW}1", False: f"{NC}0"}
     
@@ -312,7 +341,7 @@ if __name__ == '__main__':
                             if state:
                                 active_buttons.append(button_name)
                         print(full_state_text + YELLOW + " : {}".format(active_buttons))
-                        time.sleep(0.2)
+                        sleep(0.2)
                     del stop_event
                     # activate the callback events
                     for button_name, pin in BUTTONS.items():
@@ -367,7 +396,7 @@ if __name__ == '__main__':
                     print("\nReturning to previous selection...\n")
                     selection_done = True
                 case 1 | 2 | 3 | 4 | 5: # 5 leds
-                    selected_led_name = LED_NAMES[led_choice]
+                    selected_led_name = LED_NAMES[led_choice-1]
                     selection_done = True
                     print(f"\nThe selected LED is {selected_led_name} using pin {LEDS[led_name]}\n")
                 case _:
