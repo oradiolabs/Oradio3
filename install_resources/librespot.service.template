@@ -2,24 +2,24 @@
 
 [Unit]
 Description=Librespot
-After=network.target
+After=network-online.target
+Wants=network-online.target
 
 [Service]
+Type=Simple
+
 # Direct stdout and stderr of the executed process write to the logfile
 StandardOutput=append:PLACEHOLDER_LOGFILE_SPOTIFY
 StandardError=append:PLACEHOLDER_LOGFILE_SPOTIFY
 
-# Ensure ALSA channel is muted before starting
-ExecStartPre=/usr/bin/amixer -c DigiAMP sset VolumeSpotCon1 0%
+# Ensure muted before starting
+#ExecStartPre=/usr/bin/amixer -c DigiAMP sset VolumeSpotCon1 0%
 
 # Reset flag files before starting librespot
 ExecStartPre=echo 0 > PLACEHOLDER_SPOTIFY_PATH/spotactive.flag
 ExecStartPre=echo 0 > PLACEHOLDER_SPOTIFY_PATH/spotplaying.flag
 
-# Set the UNIX user or group that the processes are executed as
-User=PLACEHOLDER_USER
-Group=PLACEHOLDER_GROUP
-
+# Start librespot
 ExecStart=/usr/bin/librespot \
     --name Oradio \
     --initial-volume 100 \
@@ -35,4 +35,4 @@ Restart=always
 RestartSec=10
 
 [Install]
-WantedBy=multi-user.target
+WantedBy=default.target

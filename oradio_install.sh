@@ -480,8 +480,10 @@ for flag in spotactive.flag spotplaying.flag; do
 done
 # install librespot event handler script
 install_resource --sudo $RESOURCES_PATH/spotify_event_handler.sh /usr/local/bin/spotify_event_handler.sh 'chmod +x /usr/local/bin/spotify_event_handler.sh'
+CONFIG_PATH="$HOME/.config/systemd/user"
+mkdir -p $CONFIG_PATH || { echo -e "${RED}Failed to create directory $CONFIG_PATH${NC}"; exit 1; }
 # Configure the Librespot service to start on boot
-install_resource --sudo $RESOURCES_PATH/librespot.service /etc/systemd/system/librespot.service 'systemctl enable librespot.service'
+install_resource --no-sudo $RESOURCES_PATH/librespot.service $CONFIG_PATH/librespot.service 'systemctl --user enable librespot.service'
 # Progress report
 echo -e "${GREEN}Spotify connect functionality is installed and configured${NC}"
 
