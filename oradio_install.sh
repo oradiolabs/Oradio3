@@ -476,8 +476,6 @@ for flag in spotactive.flag spotplaying.flag; do
 	file="$SPOTIFY_PATH/$flag"
 	if [ ! -f "$file" ]; then
 		echo "0" >"$file" || { echo -e "${RED}Failed to write $file${NC}"; exit 1; }
-#		chown "$(id -un):$(id -gn)" "$file" 2>/dev/null || { echo -e "${RED}chown failed for $file${NC}"; exit 1; }
-#		chmod 644 "$file" 2>/dev/null || { echo -e "${RED}chmod failed for $file${NC}"; exit 1; }
 	fi
 done
 # install librespot event handler script
@@ -499,8 +497,11 @@ install_resource --sudo $RESOURCES_PATH/usb_low_idle_power.service /etc/systemd/
 # Progress report
 echo -e "${GREEN}Power save features configured${NC}"
 
+# Ensure systemd config directory exists
+CONFIG_PATH="$HOME/.config/systemd/user"
+mkdir -p $CONFIG_PATH || { echo -e "${RED}Failed to create directory $CONFIG_PATH${NC}"; exit 1; }
 # Configure the oradio service to start on boot
-install_resource --sudo $RESOURCES_PATH/oradio.service /etc/systemd/system/oradio.service 'systemctl enable oradio.service'
+install_resource --no-sudo $RESOURCES_PATH/oradio.service $CONFIG_PATH/oradio.service 'systemctl --user enable oradio.service'
 # Progress report
 echo -e "${GREEN}Start Oradio3 on boot configured${NC}"
 

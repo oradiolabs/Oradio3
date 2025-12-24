@@ -2,7 +2,8 @@
 
 [Unit]
 Description=Oradio
-After=multi-user.target
+After=default.target
+
 # must be greater than RestartSec * StartLimitBurst otherwise the service will be restarted indefinitely
 StartLimitInterval=55
 # Try max 5 times
@@ -10,10 +11,6 @@ StartLimitBurst=5
 
 [Service]
 Type=simple
-
-# Execute service in user environment
-User=PLACEHOLDER_USER
-Group=PLACEHOLDER_GROUP
 
 # Clear traceback.log when starting the service
 StandardError=file:PLACEHOLDER_LOGFILE_TRACEBACK
@@ -23,17 +20,17 @@ ExecStartPre=/usr/bin/rm -f PLACEHOLDER_LOGGING_PATH/.__oradio.lock
 
 # Start Oradio
 WorkingDirectory=PLACEHOLDER_PYTHON_PATH
-ExecStart=/home/PLACEHOLDER_USER/.venv/bin/python3 oradio_control.py
+ExecStart=%h/.venv/bin/python3 oradio_control.py
 
 # Send traceback.log to Oradio Remote Monitoring Service
 ExecStopPost=-/usr/bin/bash -c  'curl -s \
-									-F "serial=$(vcgencmd otp_dump | grep "28:" | cut -c 4-)" \
-									-F "data=@PLACEHOLDER_LOGFILE_TRACEBACK" \
-									https://oradiolabs.nl/rms/receive.php \
-								'
+	-F "serial=$(/usr/bin/vcgencmd otp_dump | grep "28:" | cut -c 4-)" \
+	-F "data=@PLACEHOLDER_LOGFILE_TRACEBACK" \
+	https://oradiolabs.nl/rms/receive.php \
+'
 
 Restart=always
 RestartSec=10
 
 [Install]
-WantedBy=multi-user.target
+WantedBy=default.target
