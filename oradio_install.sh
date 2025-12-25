@@ -177,6 +177,7 @@ if [ "$1" != "--continue" ]; then
 #***************************************************************#
 #   Add any additionally required packages to 'LINUX_PACKAGES'  #
 #***************************************************************#
+#REVIEW Onno: Waarom deze Python packages hier laden, niet bij rest van Python install?
 	LINUX_PACKAGES=(
 		jq
 		git
@@ -185,7 +186,6 @@ if [ "$1" != "--continue" ]; then
 		pipewire
 		iptables
 		raspotify
-#REVIEW Onno: Waarom deze Python packages hier laden, niet bij rest van Python install?
 		python3-gi
 		python3-dev
 		python3-dbus
@@ -254,8 +254,8 @@ if [ "$1" != "--continue" ]; then
 #***************************************************************#
 #   Add any additionally required Python modules to 'PYTHON'    #
 #***************************************************************#
-	PYTHON_PACKAGES=(
 #REVIEW Onno: Waarom deze Python packages hier laden, niet als OS packages?
+	PYTHON_PACKAGES=(
 		pip
 		nmcli
 		smbus2
