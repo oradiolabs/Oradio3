@@ -9,7 +9,6 @@ Type=notify
 
 # Start mpd service and send readiness notification
 ExecStart=/usr/bin/mpd --systemd /home/pi/.config/mpd/mpd.conf
-#ExecStart=/usr/bin/mpd /home/pi/.config/mpd/mpd.conf
 
 # Run after systemd receives READY notification
 ExecStartPost=/usr/bin/mpc clear
