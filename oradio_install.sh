@@ -32,7 +32,10 @@ fi
 
 # Get the script name and path
 SCRIPT_NAME=$(basename $BASH_SOURCE)
-SCRIPT_PATH=$HOME/Oradio3
+SCRIPT_PATH=$( cd -- "$( dirname -- "${BASH_SOURCE}" )" &> /dev/null && pwd )
+
+# Working directory
+cd $SCRIPT_PATH
 
 # Location of Python files
 PYTHON_PATH=$SCRIPT_PATH/Python
@@ -175,16 +178,17 @@ if [ "$1" != "--continue" ]; then
 #   Add any additionally required packages to 'LINUX_PACKAGES'  #
 #***************************************************************#
 	LINUX_PACKAGES=(
-		git
 		jq
+		git
+		mpd
+		mpc
+		pipewire
+		iptables
+		raspotify
+#REVIEW Onno: Waarom deze Python packages hier laden, niet bij rest van Python install?
 		python3-gi
 		python3-dev
 		python3-dbus
-		pipewire
-		mpd
-		mpc
-		iptables
-		raspotify
 	)
 
 	# Fetch list of upgradable packages
@@ -251,21 +255,22 @@ if [ "$1" != "--continue" ]; then
 #   Add any additionally required Python modules to 'PYTHON'    #
 #***************************************************************#
 	PYTHON_PACKAGES=(
+#REVIEW Onno: Waarom deze Python packages hier laden, niet als OS packages?
 		pip
-		python-mpd2
-		smbus2
-		rpi-lgpio
-		concurrent-log-handler
-		requests
 		nmcli
-		netifaces
+		smbus2
+		JinJa2
+		fastapi
+		uvicorn
+		requests
 		vcgencmd
 		watchdog
 		pydantic
-		fastapi
-		JinJa2
-		uvicorn
+		rpi-lgpio
+		netifaces
+		python-mpd2
 		python-multipart
+		concurrent-log-handler
 	)
 
 	# Ensure Python packages are installed and up-to-date
