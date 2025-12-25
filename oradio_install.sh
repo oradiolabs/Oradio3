@@ -360,7 +360,7 @@ else # Execute if this script IS automatically started after reboot
 	# Restore normal behaviour after reboot
 	sudo sed -i "\#^bash $SCRIPT_PATH/$SCRIPT_NAME --continue\$#d" ~/.bashrc
 
-	# Enable raspi-config to auto-login to console
+	# Disable raspi-config to auto-login to console
 	sudo raspi-config nonint do_boot_behaviour B1
 
 ########## REBOOT RUN END ##########
@@ -524,6 +524,9 @@ fi
 # Progress report
 echo -e "${GREEN}Installation completed. Rebooting to start Oradio3${NC}"
 sleep 3
+
+# Start user services at login
+sudo loginctl enable-linger $USER
 
 # Reboot to start Oradio3
 sudo reboot
