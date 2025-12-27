@@ -70,15 +70,15 @@ YELLOW='\033[1;93m'
 GREEN='\033[1;32m'
 NC='\033[0m'
 
-#---------- 1. Ensure using bash ----------
+#---------- Ensure using bash ----------
 
 # The script uses bash constructs
-if [ -z "$BASH" ]; then
+if [ -z "${BASH:-}" ]; then
 	echo "${RED}This script requires bash${NC}"
 	exit 1
 fi
 
-#---------- 2. Ensure connected to internet ----------
+#---------- Ensure connected to internet ----------
 
 if ! ping -c1 -W2 8.8.8.8 >/dev/null 2>&1; then
 	echo -e "${RED}No internet connection${NC}"
@@ -87,9 +87,8 @@ else
 	echo "Connected to Internet"
 fi
 
-#---------- Ensure rclone is installed and up to date ----------
+#---------- Ensure required packages are installed and up to date ----------
 
-# Install rsync if missing or upgrade if out of date
 STAMP_FILE="/var/lib/apt/last_update_stamp"
 MAX_AGE=$((6 * 3600))	# 6 hours in seconds
 
@@ -124,21 +123,28 @@ for package in $UPGRADABLE; do
 	UPGRADABLE_MAP["$package"]=1
 done
 
-# Ensure rclone package is installed and up-to-date
-if dpkg -s "rclone" &>/dev/null; then
-	# Check if installed package can be upgraded
-	if [[ ${UPGRADABLE_MAP["rclone"]+_} ]]; then
-		echo -e "${YELLOW}rclone is outdated: upgrading...${NC}"
-		sudo apt-get install -y "rclone"
-	else
-		echo "rclone is up-to-date"
-	fi
-else
-	echo -e "${YELLOW}rclone is missing: installing...${NC}"
-	sudo apt-get install -y "rclone"
-fi
+# Required packages
+REQUIRED_PACKAGES=(
+	rclone
+)
 
-#---------- 3. Configure cleanup and restore on exit ----------
+# Ensure packages are installed and up-to-date
+for package in "${REQUIRED_PACKAGES[@]}"; do
+	if dpkg -s "$package" &>/dev/null; then
+		# Check if installed package can be upgraded
+		if [[ ${UPGRADABLE_MAP["$package"]+_} ]]; then
+			echo -e "${YELLOW}$package is outdated: upgrading...${NC}"
+			sudo apt-get install -y "$package"
+		else
+			echo "$package is up-to-date"
+		fi
+	else
+		echo -e "${YELLOW}$package is missing: installing...${NC}"
+		sudo apt-get install -y "$package"
+	fi
+done
+
+#---------- Configure cleanup and restore on exit ----------
 
 # Global flag to indicate cleanup already done
 CLEANUP_DONE=false
@@ -230,7 +236,7 @@ trap 'cleanup TERM; exit 143' TERM
 # HUP trap: ignore hangup so script keeps running after SSH disconnects
 trap '' HUP
 
-#---------- 4. Stop services using the USB ----------
+#---------- Stop services using the USB ----------
 
 # List of services to manage
 SERVICES=("oradio" "mpd")
@@ -251,7 +257,7 @@ for service in "${SERVICES[@]}"; do
 	fi
 done
 
-#---------- 5. Ensure USB is present and ready ----------
+#---------- Ensure USB is present and ready ----------
 
 # Define USB location
 MOUNTPOINT="/media/oradio"
@@ -290,7 +296,7 @@ fi
 # Force ownership and group of USB content to root:users
 sudo chown -R root:users "$MOUNTPOINT"
 
-#---------- 6. Prepare rclone environment ----------
+#---------- Prepare rclone environment ----------
 
 RCLONE_TMP="/tmp/rclone.tmp"
 RCLONE_CFG="/tmp/rclone.cfg"
@@ -421,7 +427,7 @@ else
 fi
 
 # Prompt for overwrite or check only
-read -r -p "Run in dry-run mode? [y/N]: " answer
+read -r -p "Do you only want to check for differences? [y/N]: " answer
 if [[ "$answer" =~ ^[Yy]$ ]]; then
 	DRYRUN_FLAG="--dry-run"
 	echo -e "${YELLOW}Dry-run mode enabled: USB will not be updated${NC}"
@@ -430,7 +436,7 @@ else
 	echo -e "${YELLOW}Dry-run mode disabled: USB content will be overwritten${NC}"
 fi
 
-#---------- 7. rclone SharePoint content with USB ----------
+#---------- rclone SharePoint content with USB ----------
 
 # Create empty log file capturing rclone output
 LOGFILE="rclone.log"
