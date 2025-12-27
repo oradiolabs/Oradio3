@@ -15,7 +15,10 @@ Installed tools:
 - `sox` + `soxi`
 - `curl`
 - `openssl`
-- `aplay` (alsa-utils)
+
+
+sudo apt-get install -y sox libsox-fmt-all curl openssl
+
 
 ## Running the script
 Run:
