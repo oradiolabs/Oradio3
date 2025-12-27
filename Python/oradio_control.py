@@ -20,11 +20,7 @@ Created on Januari 31`, 2025
 @email:         oradioinfo@stichtingoradio.nl
 @status:        Development
 @summary: Oradio control and statemachine
-
-Update for 0.4.0: OradioAP mode
-Update the State machine and added a standard Stress test for statemachine
-Added networking statemachine, to handle various states wifi and Web service
-Refactored the Volume_control, Touch control, included a selftest. 
+ 
 """
 import os
 import signal
@@ -48,7 +44,7 @@ from spotify_connect_direct import SpotifyConnect
 from usb_service import USBService
 from web_service import WebService
 from oradio_utils import has_internet
-
+from power_supply_control import PowerSupplyService
 ##### GLOBAL constants ####################
 #from oradio_const import *
 from oradio_const import (
@@ -83,6 +79,7 @@ from oradio_const import (
 WEB_PRESET_STATES = {"StatePreset1", "StatePreset2", "StatePreset3"}
 PLAY_STATES = {"StatePlay", "StatePreset1", "StatePreset2", "StatePreset3"}
 PLAY_WEBSERVICE_STATES = {"StatePlay", "StatePreset1", "StatePreset2", "StatePreset3", "StateIdle"}
+LOW_POWER_STATES = {"StateIdle"}  # only Idle uses nominal voltage (9V)to reduce power consumption
 
 ##################Signal Primitives#########
 
@@ -113,6 +110,8 @@ mpd_control = MPDControl()
 # Update MPD database - happens in separate thread
 mpd_control.update_database()
 
+# Initialise power supply controller, to optimse supply voltage for the various states
+power_supply_service = PowerSupplyService()
 #----------GPIO clean up---------
 
 def _gpio_in_use() -> bool:
@@ -170,6 +169,7 @@ class StateMachine:
         self.prev_state = None
         self.task_lock = threading.Lock()
         self._websvc = None  # injected WebService
+        self._pd_mode = None  # track power supply PD state "nom" or "max"
 
         # Dispatch table for run_state_method
         self._handlers = {
@@ -265,6 +265,19 @@ class StateMachine:
             target=self.run_state_method, args=(self.state,), daemon=True
         ).start()
 
+    def _apply_power_policy_for_state(self, target_state: str) -> None:
+        desired_mode = "nom" if target_state in LOW_POWER_STATES else "max"
+        if desired_mode == self._pd_mode:
+            return  # already correct -> do nothing
+
+        if desired_mode == "nom":
+            success = power_supply_service.set_nom_voltage()
+        else:
+            success = power_supply_service.set_max_voltage()
+
+        if success:
+            self._pd_mode = desired_mode
+
     # ---- delayed-transition helpers ----
     def _cancel_all_delayed(self):
         """Cancel and clear all pending delayed transitions."""
@@ -311,6 +324,7 @@ class StateMachine:
             return
 
         self._commit_or_usb_absent(requested_state)
+        self._apply_power_policy_for_state(self.state)
         self._spawn_state_worker()
 
     def run_state_method(self, state_to_handle: str) -> None:
