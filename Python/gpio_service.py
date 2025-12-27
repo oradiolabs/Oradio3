@@ -22,22 +22,23 @@ Created on November 29, 2025
 @references:
     https://www.raspberrypi.com/documentation/computers/raspberry-pi.html#gpio
 """
-
-
+from singleton import singleton
+from time import sleep, perf_counter
+from threading import Event
+try:
+    from RPi import GPIO
+except RuntimeError:
+    oradio_log.error("Error importing RPi.GPIO. Check privileges!)")
 
 
 ##### oradio modules ####################
 from oradio_const import ( LED_PLAY,LED_STOP, LED_PRESET1, LED_PRESET2, LED_PRESET3, LED_NAMES, \
                          BUTTON_PLAY,BUTTON_STOP, BUTTON_PRESET1, BUTTON_PRESET2, BUTTON_PRESET3, BUTTON_NAMES, \
+                         BUTTON_PRESSED, BUTTON_RELEASED, \
+                         TEST_ENABLED, TEST_DISABLED, \
                          GREEN, YELLOW, RED, NC)
 
 from oradio_logging import oradio_log
-from singleton import singleton
-from time import sleep
-try:
-    from RPi import GPIO
-except RuntimeError:
-    oradio_log.error("Error importing RPi.GPIO. Check privileges!)")
 
 ##### GLOBAL constants ####################
 
@@ -72,8 +73,12 @@ class GPIOService:
     - Logs errors for debugging.
     :exceptions
         ValueError : upon an invalid GPIO pin value during pin configuration
-    
+    :Conditionals
+        GPIO_PERFORMANCE_TEST:
+            TEST_DISABLED = The performance test is disabled (default)
+            TEST_ENABLED  = The performance test is enabled, additional code is provided
     """
+    GPIO_PERFORMANCE_TEST = TEST_DISABLED
     def __init__(self) -> None:
         """
         Initialize and setup the GPIO
@@ -194,10 +199,18 @@ class GPIOService:
         When channel has a known button_name, the configured callback is called
         :argument 
             channel (int) is the I/O-pin which detected an edge event
+        :conditionals
+            GPIO_PERFORMANCE_TEST
+                TEST_ENABLED = extra timestamp data added to callback
+                                for performance measurements
+                TEST_DISABLED = Default mode, no extra timestamp
         :return
             False (default): when channel refers to an unknown pin/button_name
             True : The button_name of the pin is found and callback is called 
         """
+        if self.GPIO_PERFORMANCE_TEST == TEST_ENABLED:
+            button_event_ts = perf_counter()
+        button_data = {}
         button_name = self.gpio_to_button[channel]
         if not button_name:
             return
@@ -206,8 +219,12 @@ class GPIOService:
             button_state = BUTTON_PRESSED
         else:
             button_state = BUTTON_RELEASED
+        button_data["state"] = button_state
+        button_data['name']  = button_name
         if self.edge_event_callback:
-            self.edge_event_callback(button_state, button_name)
+            if self.GPIO_PERFORMANCE_TEST == TEST_ENABLED:
+                button_data["data"] = button_event_ts
+            self.edge_event_callback(button_data)
         else:
             print("no callback function found")
 
@@ -222,34 +239,14 @@ class GPIOService:
         '''
         return(bool(GPIO.input(io_pin)))
 
-    ######## for testing purposes only
-    def _trigger_event_callback_on_button_pin(self, button_name: str) -> None:
-        '''
-        simulate a button press by changing the button input pin temporary
-        to an output to send a ON-OFF signal for at least the DEBOUNCE_MS time.
-        The edge detection logic will see this as a button press event on the selected button, 
-        and trigger the configured callback.
-        When ready the output will be set back to input again
-
-        :arguments
-            button_name (str) precondition: must be [ BUTTON_PLAY | BUTTON_STOP] |
-                                                   BUTTON_PRESET1 | BUTTON_PRESET2 | BUTTON_PRESET3 ]
-        '''
-        # set the input pin temporary to output
-        GPIO.setup(BUTTONS[button_name], GPIO.OUT)
-        
-        # trigger a raising edge event
-        button_state = self._read_pin_state(BUTTONS[button_name])
-        GPIO.output(BUTTONS[button_name], GPIO.LOW)
-        button_state = self._read_pin_state(BUTTONS[button_name])
-        # short wait to overcome debouncetime
-        #sleep(BOUNCE_MS/1000)
-        sleep(0.1)
-        GPIO.output(BUTTONS[button_name], GPIO.HIGH)
-        button_state = self._read_pin_state(BUTTONS[button_name])
-        # set back to input
-        GPIO.setup(BUTTONS[button_name], GPIO.IN, pull_up_down=GPIO.PUD_UP)
-        button_state = self._read_pin_state(BUTTONS[button_name])
+########### Method for testing purposes only #################
+    def simulate_button_events_burst(self, burst_freq: int, stop_burst: Event) -> None:
+        if self.GPIO_PERFORMANCE_TEST == TEST_DISABLED:
+            raise RuntimeError("Test is disabled. Enable GPIO_PERFORMANCE_TEST to use this method")
+        button_name = BUTTON_PLAY
+        while not stop_burst.is_set():
+            self._edge_callback(BUTTONS[BUTTON_PLAY])
+            sleep(1/burst_freq)
 
 # Entry point for stand-alone operation
 if __name__ == '__main__':
@@ -370,12 +367,12 @@ if __name__ == '__main__':
             break
         return
 
-    def _button_event_callback(button_state: bool, button_name: str) -> None:
+    def _button_event_callback(button_data: dict) -> None:
         '''
         callback for button events testing
         
         '''
-        print(f"Button change event: {button_name} = {button_state}")
+        print(f"Button change event: {button_data['name']} = {button_data['state']}")
 
     def _single_led_test(test_gpio:GPIOService) ->None:
         '''
