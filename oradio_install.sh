@@ -25,7 +25,7 @@ GREEN='\033[1;32m'
 NC='\033[0m'
 
 # The script uses bash constructs
-if [ -z "$BASH" ]; then
+if [ -z "${BASH:-}" ]; then
 	echo "${RED}This script requires bash${NC}"
 	exit 1
 fi
