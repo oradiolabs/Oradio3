@@ -15,7 +15,13 @@
 # @version:       1
 # @email:         info@stichtingoradio.nl
 # @status:        Development
-# @Purpose:       Generates WAV system prompts using ElevenLabs TTS (Roos)
+# @Reference:
+#	https://elevenlabs.io/docs/overview/capabilities/text-to-speech/
+# @Purpose:
+#	This script generates Oradio system prompt WAV files using ElevenLabs TTS Eleven v3, voice 'Roos'
+#	- normalizes audio to **-1 dBFS** (`sox ... gain -n -1`)
+#	- trims leading/trailing silence (SoX `silence` effect)
+#	- offers a simple playback menu (`aplay`)
 
 ##### Initialize #####################
 
@@ -83,6 +89,7 @@ done
 
 # Required packages
 REQUIRED_PACKAGES=(
+	jq
 	sox
 	curl
 	openssl
@@ -105,15 +112,16 @@ for package in "${REQUIRED_PACKAGES[@]}"; do
 done
 
 #---------- Prompts ----------
-
+#  Emontional expressions in TTS model eleven_v3:
+#  [happily], [cheerful], [brightly], [warmly]
 declare -A PROMPTS=(
-	["Preset1_melding.wav"]="[cheerful] één."
-	["Preset2_melding.wav"]="[cheerful] twee."
-	["Preset3_melding.wav"]="[cheerful] drie."
-	["Next_melding.wav"]="[brightly] Volgende nummer."
+	["Preset1_melding.wav"]="[cheerful] één"
+	["Preset2_melding.wav"]="[cheerful] twee"
+	["Preset3_melding.wav"]="[cheerful] drie"
+	["Next_melding.wav"]="[cheerful] Volgende nummer"
 	["Spotify_melding.wav"]="[cheerful] Spotify afspelen."
-	["WifiConnected_melding.wav"]="[warmly] Verbonden met wifi."
-	["USBPresent_melding.wav"]="[warmly] USB-geheugenstick is aanwezig."
+	["WifiConnected_melding.wav"]="Verbonden met wifi."
+	["USBPresent_melding.wav"]="USB-geheugenstick is aanwezig."
 	["NewPlaylistPreset_melding.wav"]="[warmly] Nieuwe afspeellijst wordt afgespeeld."
 	["NewPlaylistWebradio_melding.wav"]="[warmly] De gekozen webradio is ingesteld."
 
@@ -125,55 +133,55 @@ declare -A PROMPTS=(
 	["OradioAPstarted_melding.wav"]="[warmly] Oradio A P is gestart. Webinterface beschikbaar."
 	["OradioAPstopped_melding.wav"]="[warmly] Oradio A P is gestopt."
 )
-#  Emontional expressions in ELEVENLABS_MODEL_ID:-eleven_v3
-#  [happily], [cheerful], [brightly], [warmly]
 
 #---------- Config ----------
 
 # Text-to-speech definitions (ElevenLabs)
-# Roos voice_id (your account): 7qdUFMklKPaaAVMsBTBt
-# You can override with: export ELEVENLABS_VOICE_ID="..."
-VOICE_NAME="Roos"
-VOICE_ID="${ELEVENLABS_VOICE_ID:-7qdUFMklKPaaAVMsBTBt}"
-MODEL_ID="${ELEVENLABS_MODEL_ID:-eleven_v3}"
-OUTPUT_FORMAT="${ELEVENLABS_OUTPUT_FORMAT:-pcm_16000}"   # returns raw PCM S16LE, mono, at 16 kHz
+VOICE_ID="7qdUFMklKPaaAVMsBTBt"	# Voice name: Roos
+MODEL_ID="eleven_v3"			# Set TTS model to use
+OUTPUT_FORMAT="pcm_16000"		# returns raw PCM S16LE, mono, at 16 kHz
 
-# Encrypted ElevenLabs API key (base64)
+# Encrypted Oradio ElevenLabs API key (base64)
 ELEVENLABS_API_KEY_ENC_B64="$(cat <<'EOF'
 U2FsdGVkX18TGnkyvrjPOYTc9ZSXRs4e/HJH4niXEinWqMM/xIdwMKu2em1OroUT
 KcD0Pq9AJVolRUzEOPBMZ9GqKE0johTPWt21OZ0bEP0=
 EOF
 )"
 
-# Prompt for password, show * for entered charracters, supporting backspace
-PW=""
-echo -n "Enter ElevenLabs key password: "
-while IFS= read -r -s -n1 char; do
+# Skip decryption if ELEVENLABS_API_KEY is already set as environment variable
+if [[ -n "${ELEVENLABS_API_KEY:-}" ]]; then
+	echo -e "${YELLOW}Using ELEVENLABS_API_KEY from environment${NC}"
+else
+	# Prompt for password, show * for entered charracters, supporting backspace
+	PW=""
+	echo -n "Enter ElevenLabs key password: "
+	while IFS= read -r -s -n1 char; do
 
-	# Break on Enter (newline or carriage return)
-	[[ -z "$char" || $char == $'\n' || $char == $'\r' ]] && break
+		# Break on Enter (newline or carriage return)
+		[[ -z "$char" || $char == $'\n' || $char == $'\r' ]] && break
 
-	if [[ $char == $'\177' ]]; then
-		# Handle backspace
-		if [ -n "$PW" ]; then
-			PW=${PW%?}
-			echo -ne "\b \b"
+		if [[ $char == $'\177' ]]; then
+			# Handle backspace
+			if [ -n "$PW" ]; then
+				PW=${PW%?}
+				echo -ne "\b \b"
+			fi
+		else
+			PW+="$char"
+			echo -n "*"
 		fi
-	else
-		PW+="$char"
-		echo -n "*"
-	fi
-done
-echo
+	done
+	echo
 
-# Decrypt API key with given password
-ELEVENLABS_API_KEY="$(
-	printf '%s' "$ELEVENLABS_API_KEY_ENC_B64" | \
-	openssl enc -aes-256-cbc -pbkdf2 -d -a -pass pass:"$PW" 2>/dev/null
-)" || true
+	# Decrypt API key with given password
+	ELEVENLABS_API_KEY="$(
+		printf '%s' "$ELEVENLABS_API_KEY_ENC_B64" | \
+		openssl enc -aes-256-cbc -pbkdf2 -d -a -pass pass:"$PW" 2>/dev/null
+	)" || true
 
-# Remove password
-unset PW
+	# Remove password
+	unset PW
+fi
 
 if [ -z "${ELEVENLABS_API_KEY:-}" ] || \
 		! HTTP_STATUS=$(curl -s -o /dev/null -w "%{http_code}" -H \
@@ -186,7 +194,8 @@ fi
 # Silence detection parameters
 MIN_SILENCE_BLOCKS=1		# Nr of "silence blocks" to detect at beginning
 MIN_SILENCE_DURATION=0.3	# Minimum duration in seconds to consider silence, need a float for s
-SILENCE_THRESHOLD="0.1%"	# to prevent that low levels are seen as silence
+SILENCE_THRESHOLD="0.1%"	# To prevent that low levels are seen as silence, lower = less trimming
+# If a file starts too abruptly (click), reduce trimming by using a **higher** threshold (e.g. `0.3%` or `1%`) and/or shorter duration
 
 # Speech / voice settings:
 # - ELEVENLABS_SPEED is passed directly to ElevenLabs voice_settings.speed.
@@ -198,14 +207,15 @@ SPEED="$ELEVENLABS_SPEED"
 OUTPUT_DIR="$HOME/Oradio3/system_sounds"
 mkdir -p "$OUTPUT_DIR"
 
-# Default: overwrite
-FORCE_REGENERATE=true
+# By default, existing WAV files are skipped. To regenerate everything:
+# To regenerate only one file, delete it: rm -f OUTPUT_DIR/<file>.wav
+FORCE_REGENERATE=false
 
 # Prompt for overwrite or check only
-read -r -p "Overwrite existing sound files[Y/n]: " answer
-if [[ "$answer" =~ ^[Nn]$ ]]; then
-	FORCE_REGENERATE=false
-	echo -e "${YELLOW}Existing system sound files will not be overwritten${NC}"
+read -r -p "Overwrite existing sound files[y/N]: " answer
+if [[ "$answer" =~ ^[Yy]$ ]]; then
+	FORCE_REGENERATE=true
+	echo -e "${YELLOW}Existing system sound files will be overwritten${NC}"
 fi
 
 #---------- Functions ----------
@@ -296,7 +306,7 @@ synthesize() {
 		return 1
 
 	else
-		echo -e "${RED}Unexpeced error from ElevenLabs API:\nHTTP status='$http_status'\nbody= '$body'\nCheck system_sounds/*.tmp.pcm for details"
+		echo -e "${RED}Unexpeced error from ElevenLabs API:\nHTTP status='$http_status'\nbody= '$body'\nCheck ${tmp_pcm} for details${NC}"
 		return 1
 	fi
 }
@@ -362,7 +372,7 @@ trimmed=()
 
 for fname in "${!PROMPTS[@]}"; do
 	path="$OUTPUT_DIR/$fname"
-	if [[ -f "$path" && -s "$path" && "$FORCE_REGENERATE" != "true" ]]; then
+	if [[ -f "$path" && -s "$path" && "$FORCE_REGENERATE" = "false" ]]; then
 		echo "Already exists, skip: $fname"
 		skipped+=("$path")
 		continue
