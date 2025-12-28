@@ -44,7 +44,7 @@ DEFAULT_MPD_VOLUME       = 100
 DEFAULT_SPOTIFY_VOLUME   = 100
 VOLUME_MPD_SYS_SOUND     = 80
 VOLUME_SPOTIFY_SYS_SOUND = 80
-DEFAULT_SYS_SOUND_VOLUME = 70
+DEFAULT_SYS_SOUND_VOLUME = 90
 # Smooth restore configuration
 RESTORE_VOL_TIME = 2.0   # seconds (total duration of the unduck ramp)
 RESTORE_VOL_STEP = 2     # percentage points per step during restore
