@@ -223,6 +223,7 @@ class GPIOService:
         button_data['name']  = button_name
         if self.edge_event_callback:
             if self.GPIO_PERFORMANCE_TEST == TEST_ENABLED:
+                button_data["state"] = BUTTON_PRESSED
                 button_data["data"] = button_event_ts
             self.edge_event_callback(button_data)
         else:

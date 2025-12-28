@@ -20,7 +20,7 @@ Created on April 28, 2025
 
 from threading import Timer, Thread, Event
 from multiprocessing import Queue
-from time import sleep, monotonic
+from time import sleep, monotonic, perf_counter
 ##### oradio modules ####################
 from play_system_sound import PlaySystemSound
 from oradio_logging import oradio_log
@@ -35,7 +35,7 @@ LONG_PRESS_DURATION = 2  # seconds
 
 ##### GLOBAL constants ####################
 from oradio_const import (BUTTON_PLAY,BUTTON_STOP, BUTTON_PRESET1, BUTTON_PRESET2, BUTTON_PRESET3, BUTTON_NAMES, \
-                         BUTTON_PRESSED, \
+                         BUTTON_PRESSED, BUTTON_RELEASED, \
                          TEST_ENABLED, TEST_DISABLED, \
                          GREEN, YELLOW, RED, NC, \
                          MESSAGE_BUTTON_SOURCE, MESSAGE_NO_ERROR, MESSAGE_SHORT_PRESS, \
@@ -81,7 +81,7 @@ class TouchButtons:
                 "source": MESSAGE_BUTTON_SOURCE,
                 "state" : button_data["state"],
                 "error" : MESSAGE_NO_ERROR,
-                "data"  : button_data["timestamp"]
+                "data"  : button_data["data"]
             }
         else:
             message = {
@@ -104,10 +104,26 @@ class TouchButtons:
 
         '''
         button_name = button_data["name"]
-        print(f"Button change event: {button_name} = {button_data['state']}")
+        oradio_log.debug(f"Button change event: {button_name} = {button_data['state']}")
+        if button_data["state"] == BUTTON_RELEASED:
+            # cancel pending long-press timer (if any)
+            timer = self.long_press_timers.pop(button_name, None)
+            if timer:
+                timer.cancel()
+            return
+        # a button press detected
         now = monotonic()
         last = self.last_trigger_times.get(button_name, 0.0)
-        if (now - last) < DEBOUNCE_SECONDS:
+        time_diff = now-last
+        if (time_diff) < DEBOUNCE_SECONDS:
+            # another button press detected within the debounce period
+            # is considered to be a new button press.
+            # The button press was to short, so will be neglected
+            if self.BUTTONS_PERFORMANCE_TEST == TEST_ENABLED:
+                print("{yellow}New {name} event in {diff} sec, \
+                but within the debounce window of {debounce} will be neglected".
+                      format(yellow=YELLOW, name=button_name, diff=round(time_diff,3),debounce =DEBOUNCE_SECONDS )
+                      )
             return  # software debounce
 
         self.last_trigger_times[button_name] = now
@@ -156,6 +172,7 @@ if __name__ == "__main__":
     import sys
 
     from oradio_utils import setup_remote_debugging
+    from logging import DEBUG, INFO, WARNING, ERROR, CRITICAL
     ### Change HOST_ADDRESS to your host computer local address for remote debugging
     HOST_ADDRESS = "192.168.178.52"
     DEBUG_PORT = 5678
@@ -163,7 +180,15 @@ if __name__ == "__main__":
         print("The remote debugging error, check the remote IP connection")
         sys.exit()
 
-    def keyboard_input(event:Event):
+    def _stop_all_long_press_timer(test_buttons: TouchButtons)-> None:
+        '''
+        '''
+        for button_name in BUTTON_NAMES:
+            timer = test_buttons.long_press_timers.pop(button_name, None)
+            if timer:
+                timer.cancel()
+
+    def _keyboard_input(event:Event):
         '''
         wait for keyboard input with return, and set event if input detected
         :arguments
@@ -201,13 +226,17 @@ if __name__ == "__main__":
             global min_time, max_time, sum_count, sum_time, avg_time
             # statistics
             sum_count +=1
-            sum_time +=time_stamp
+            duration = perf_counter() - time_stamp
+            sum_time +=duration
             avg_time = sum_time/sum_count
-            if time_stamp > max_time:
-                max_time = time_stamp
-            if time_stamp < min_time:
-                min_time = time_stamp
-            print (min_time, max_time, sum_count, avg_time)
+            if duration > max_time:
+                max_time = duration
+            if duration < min_time:
+                min_time = duration
+            print ("min_time={min}, max_time={max}, sum_count={sum}, avg_time={avg}".format(
+                   min=round(min_time,3), max=round(max_time,3), sum=sum_count, avg=round(avg_time,3)
+                   )
+            )
         else:
             print(f"{YELLOW} Received message in queue = ",message)
             print(f"{NC}")
@@ -229,6 +258,7 @@ if __name__ == "__main__":
                 oradio_log.exception("Runtime error in process_messages: %s", ex)
             else:
                 _handle_message(msg)
+
     def _callback_test(buttons_driver:TouchButtons):
         '''
         '''
@@ -287,13 +317,15 @@ if __name__ == "__main__":
                     test_buttons.button_driver.set_button_edge_event_callback(test_buttons._button_event_callback)
                     test_buttons.button_driver.GPIO_PERFORMANCE_TEST = TEST_ENABLED
                     test_buttons.BUTTONS_PERFORMANCE_TEST = TEST_ENABLED
-                    burst_freq = _prompt_int("Specify the event burst frequency: ", default=-1)
+                    burst_freq = _prompt_int("Specify the event burst frequency: ", default=1)
                     stop_event = Event()
-                    keyboard_thread = Thread(target=keyboard_input,
+                    keyboard_thread = Thread(target=_keyboard_input,
                                              args=(stop_event,))
                     keyboard_thread.start()
+                    oradio_log.set_level(CRITICAL)
                     test_buttons.button_driver.simulate_button_events_burst(burst_freq,stop_event)
-                    
+                    oradio_log.set_level(DEBUG)
+                    _stop_all_long_press_timer(test_buttons)
                 case 4:
                     print(f"\n running {test_options[4]}\n")
                 case 5:
