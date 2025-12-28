@@ -438,9 +438,10 @@ install_resource $RESOURCES_PATH/alsaequal.bin /etc/alsaequal.bin 'sudo chmod 66
 # Install audio configuration, activate SoftVolSpotCon, set volume to normal level
 # NOTE: Requires the Oradio3 boot config to be installed and activate
 install_resource $RESOURCES_PATH/asound.conf /etc/asound.conf \
-		'speaker-test -D SoftVolSpotCon1 -c2 >/dev/null 2>&1' \
-		'speaker-test -D SoftVolSysSound -c2 >/dev/null 2>&1' \
-		'speaker-test -D SoftVolMPD -c2 >/dev/null 2>&1' \
+		'amixer -c 0 cset name="Digital Playback Volume" 0' \
+		'speaker-test -D SoftVolSpotCon1 -c2 -l1 >/dev/null 2>&1' \
+		'speaker-test -D SoftVolSysSound -c2 -l1 >/dev/null 2>&1' \
+		'speaker-test -D SoftVolMPD -c2 -l1 >/dev/null 2>&1' \
 		'amixer -c 0 cset name="Digital Playback Volume" 120'
 # Configure MPD
 install_resource $RESOURCES_PATH/mpd.conf /etc/mpd.conf
