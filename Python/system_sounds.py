@@ -57,7 +57,6 @@ SOUND_FILES = {
     "USBPresent":          f"{SOUND_FILES_DIR}/USBPresent_melding.wav",
 }
 
-
 def play_sound(sound_key) -> None:
     """Fire-and-forget the system command that plays the given sound file."""
 
