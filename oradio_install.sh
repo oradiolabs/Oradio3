@@ -252,8 +252,6 @@ if [ "$1" != "--continue" ]; then
 		fastapi
 		uvicorn
 		vcgencmd
-		pydantic
-		rpi-lgpio
 		python-mpd2
 		python-multipart
 		concurrent-log-handler
