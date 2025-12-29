@@ -43,6 +43,15 @@ ADC_RANGE = ADC_MAX - ADC_MIN
 VOL_MIN   = 105
 VOL_MAX   = 215
 VOL_RANGE = VOL_MAX - VOL_MIN
+# ALSA volume controls
+VOLUME_CONTROL_MASTER    = "Digital Playback Volume"
+VOLUME_CONTROL_MPD       = "VolumeMPD"
+VOLUME_CONTROL_SPOTIFY   = "VolumeSpotCon2"
+VOLUME_CONTROL_SYS_SOUND = "VolumeSysSound"
+# Default source volume levels
+DEFAULT_VOLUME_MPD       = 100
+DEFAULT_VOLUME_SPOTIFY   = 100
+DEFAULT_VOLUME_SYS_SOUND = 90
 # MCP3021 - A/D Converter
 MCP3021_ADDRESS      = 0x4D
 READ_DATA_REGISTER   = 0x00
@@ -50,7 +59,6 @@ ADC_UPDATE_TOLERANCE = 5
 POLLING_MIN_INTERVAL = 0.05
 POLLING_MAX_INTERVAL = 0.3
 POLLING_STEP         = 0.01
-ALSA_DIGITAL_VOLUME  = "Digital Playback Volume"
 # Timeout for thread to respond (seconds)
 THREAD_TIMEOUT = 3
 
@@ -68,11 +76,35 @@ class VolumeControl:
                        when a significant volume change is detected. Keep
                        the callback tiny and non-blocking.
         """
-        # Get I2C r/w methods
-        self._i2c_service = I2CService()
-
         # Store queue for sending volume change messages asynchronously
         self._queue = queue
+
+        # Set default MPD volume
+        cmd = f"amixer -c 0 cset name='{VOLUME_CONTROL_MPD}' {DEFAULT_VOLUME_MPD}%"
+        result, response = run_shell_script(cmd)
+        if not result:
+            oradio_log.error("Error setting MPD volume: %s", response)
+        else:
+            oradio_log.debug("MPD volume set to: %s", DEFAULT_VOLUME_MPD)
+
+        # Set default Spotify volume
+        cmd = f"amixer -c 0 cset name='{VOLUME_CONTROL_SPOTIFY}' {DEFAULT_VOLUME_SPOTIFY}%"
+        result, response = run_shell_script(cmd)
+        if not result:
+            oradio_log.error("Error setting MPD volume: %s", response)
+        else:
+            oradio_log.debug("MPD volume set to: %s", DEFAULT_VOLUME_SPOTIFY)
+
+        # Set default system sounds volume
+        cmd = f"amixer -c 0 cset name='{VOLUME_CONTROL_SYS_SOUND}' {DEFAULT_VOLUME_SYS_SOUND}%"
+        result, response = run_shell_script(cmd)
+        if not result:
+            oradio_log.error("Error setting MPD volume: %s", response)
+        else:
+            oradio_log.debug("MPD volume set to: %s", DEFAULT_VOLUME_SYS_SOUND)
+
+        # Get I2C r/w methods
+        self._i2c_service = I2CService()
 
         # Start ready to send notification
         self._armed = True
@@ -122,7 +154,7 @@ class VolumeControl:
         volume = VOL_MIN + ((adc - ADC_MIN) * VOL_RANGE + ADC_RANGE // 2) // ADC_RANGE
 
         # Set volume
-        cmd = f"amixer -c 0 cset name='{ALSA_DIGITAL_VOLUME}' {volume}"
+        cmd = f"amixer -c 0 cset name='{VOLUME_CONTROL_MASTER}' {volume}"
         result, response = run_shell_script(cmd)
         if not result:
             oradio_log.error("Error setting volume: %s", response)
