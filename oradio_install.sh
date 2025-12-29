@@ -167,7 +167,6 @@ if [ "$1" != "--continue" ]; then
 #***************************************************************#
 #   Add any additionally required packages to 'LINUX_PACKAGES'  #
 #***************************************************************#
-#REVIEW Onno: Uitzoeken welke van de python3-<xxx> packages met pip te installeren zijn en dan verplaatsen naar PYTHON_PACKAGES
 	LINUX_PACKAGES=(
 		jq
 		git
@@ -178,7 +177,10 @@ if [ "$1" != "--continue" ]; then
 		python3-gi
 		python3-dev
 		python3-dbus
-		libasound2-dev
+		python3-jinja2
+		python3-requests
+		python3-watchdog
+		python3-netifaces
 		libasound2-plugin-equal
 	)
 
@@ -245,20 +247,13 @@ if [ "$1" != "--continue" ]; then
 #***************************************************************#
 #   Add any additionally required Python modules to 'PYTHON'    #
 #***************************************************************#
-#REVIEW Onno: Uitzoeken welke van deze packages als python3-<xxx> package te installeren zijn en dan verplaatsen naar LINUX_PACKAGES
 	PYTHON_PACKAGES=(
-		pip
 		nmcli
-		smbus2
-		JinJa2
 		fastapi
 		uvicorn
-		requests
 		vcgencmd
-		watchdog
 		pydantic
 		rpi-lgpio
-		netifaces
 		python-mpd2
 		python-multipart
 		concurrent-log-handler
