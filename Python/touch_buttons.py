@@ -26,7 +26,7 @@ from play_system_sound import PlaySystemSound
 from oradio_logging import oradio_log
 from gpio_service import GPIOService
 from oradio_utils import safe_put
-
+from system_sounds import play_sound
 # -------- LOCAL constants --------
 BUTTON_DEBOUNCE_TIME = 500          # ms, ignore rapid repeats
 DEBOUNCE_SECONDS = BUTTON_DEBOUNCE_TIME / 1000.0
@@ -39,7 +39,8 @@ from oradio_const import (BUTTON_PLAY,BUTTON_STOP, BUTTON_PRESET1, BUTTON_PRESET
                          TEST_ENABLED, TEST_DISABLED, \
                          GREEN, YELLOW, RED, NC, \
                          MESSAGE_BUTTON_SOURCE, MESSAGE_NO_ERROR, MESSAGE_SHORT_PRESS, \
-                         MESSAGE_LONG_PRESS_BUTTON)
+                         MESSAGE_LONG_PRESS_BUTTON, \
+                         CLICK)
 
 
 class TouchButtons:
@@ -47,7 +48,7 @@ class TouchButtons:
     Handle GPIO-based touch buttons with debounce, short-press callbacks,
     and long-press callbacks. This class has **no knowledge** of the state machine.
     """
-    BUTTONS_PERFORMANCE_TEST = TEST_DISABLED
+    BUTTONS_MODULE_TEST = TEST_DISABLED
 
     def __init__(self,queue : Queue):
         """
@@ -65,9 +66,6 @@ class TouchButtons:
             raise ValueError("Invalid value provided") from err
         self.button_driver.set_button_edge_event_callback(self._button_event_callback)
 
-        self.sound_player = PlaySystemSound()
-        ## Note: PlaySystemSound has no exceptions, so no need to try
-
         self.message_queue = queue
 
         self.button_press_times: dict[str, float] = {}   # button -> press start (monotonic)
@@ -76,7 +74,7 @@ class TouchButtons:
 
     def _send_message(self,button_data: dict) -> None:
         """Send current TouchButton state message to the registered queue."""
-        if self.BUTTONS_PERFORMANCE_TEST == TEST_ENABLED:
+        if self.BUTTONS_MODULE_TEST == TEST_ENABLED:
             message = {
                 "source": MESSAGE_BUTTON_SOURCE,
                 "state" : button_data["state"],
@@ -119,11 +117,12 @@ class TouchButtons:
             # another button press detected within the debounce period
             # is considered to be a new button press.
             # The button press was to short, so will be neglected
-            if self.BUTTONS_PERFORMANCE_TEST == TEST_ENABLED:
-                print("{yellow}New {name} event in {diff} sec, \
-                but within the debounce window of {debounce} will be neglected".
-                      format(yellow=YELLOW, name=button_name, diff=round(time_diff,3),debounce =DEBOUNCE_SECONDS )
-                      )
+            if self.BUTTONS_MODULE_TEST == TEST_ENABLED:
+                print_text = "{yellow}New {name} event in {diff} sec".format(
+                    yellow=YELLOW, name=button_name, diff=round(time_diff,3))
+                print_text +="print but within the debounce window of {debounce} will be neglected {nc}".format(
+                        debounce =DEBOUNCE_SECONDS, nc=NC )
+                print(print_text)
             return  # software debounce
 
         self.last_trigger_times[button_name] = now
@@ -141,13 +140,8 @@ class TouchButtons:
         self.long_press_timers[button_name] = timer
         timer.start()
 
-        # Immediate short-press feedback
-        if self.sound_player:
-            self.sound_player.play("Click")
-            # Note: method does not report error or raises exceptions
-        
-        ### Send Message to message queue
-#        message_state = MESSAGE_SHORT_PRESS+button_name
+        play_sound(CLICK)
+
         self._send_message(button_data)
 
     def _long_press_timeout(self, button_name: str) -> None:
@@ -212,6 +206,12 @@ if __name__ == "__main__":
         except ValueError:
             return default
 
+    def _prompt_float(prompt: str, default: float | None = None) -> float | None:
+        try:
+            return float(input(prompt))
+        except ValueError:
+            return default
+
     min_time = 10000
     max_time = 0
     sum_time = 0.0
@@ -233,9 +233,9 @@ if __name__ == "__main__":
                 max_time = duration
             if duration < min_time:
                 min_time = duration
-            print ("min_time={min}, max_time={max}, sum_count={sum}, avg_time={avg}".format(
-                   min=round(min_time,3), max=round(max_time,3), sum=sum_count, avg=round(avg_time,3)
-                   )
+            print ("current_time={cur}, min_time={min}, max_time={max}, sum_count={sum}, avg_time={avg}".format(
+                   min=round(min_time,4), max=round(max_time,4), sum=sum_count, avg=round(avg_time,4),
+                   cur=round(duration,4))
             )
         else:
             print(f"{YELLOW} Received message in queue = ",message)
@@ -262,8 +262,11 @@ if __name__ == "__main__":
     def _callback_test(buttons_driver:TouchButtons):
         '''
         '''
+        button_data = {}
         for button_name in BUTTON_NAMES:
-            buttons_driver._button_event_callback(BUTTON_PRESSED, button_name)
+            button_data["state"] = MESSAGE_SHORT_PRESS + button_name
+            button_data['name']  = button_name
+            buttons_driver._button_event_callback(button_data)
             sleep(1)
 
     def _callback_for_burst_test(button_data : dict) -> None:
@@ -289,9 +292,9 @@ if __name__ == "__main__":
 
         test_options = ["Quit"] + \
                         ["Pressing a button and check message queue "] + \
-                        ["Check button callback and message queue"] +\
-                        ["Performance test for button events callback"] +\
-                        ["Test 4"] +\
+                        ["Send for each button a button callback and check message queue"] +\
+                        ["Buttons debouncing test using button events callback"] +\
+                        ["Buttons latency test outside debouncing timing "] +\
                         ["Test 5"]
 
         while True:
@@ -316,18 +319,44 @@ if __name__ == "__main__":
                     print(f"\n running {test_options[3]}\n")
                     test_buttons.button_driver.set_button_edge_event_callback(test_buttons._button_event_callback)
                     test_buttons.button_driver.GPIO_PERFORMANCE_TEST = TEST_ENABLED
-                    test_buttons.BUTTONS_PERFORMANCE_TEST = TEST_ENABLED
-                    burst_freq = _prompt_int("Specify the event burst frequency: ", default=1)
-                    stop_event = Event()
-                    keyboard_thread = Thread(target=_keyboard_input,
-                                             args=(stop_event,))
-                    keyboard_thread.start()
-                    oradio_log.set_level(CRITICAL)
-                    test_buttons.button_driver.simulate_button_events_burst(burst_freq,stop_event)
-                    oradio_log.set_level(DEBUG)
+                    test_buttons.BUTTONS_MODULE_TEST = TEST_ENABLED
+                    input_text = "Specify the event frequency, must > {debounce} :".format(
+                                debounce= int(1000/BUTTON_DEBOUNCE_TIME))
+                    burst_freq = _prompt_float( input_text, default=2.0)
+                    if burst_freq == 0:
+                        print("{yellow}invalid frequency{nc}".format(yellow=YELLOW, nc=NC))
+                    else:
+                        stop_event = Event()
+                        keyboard_thread = Thread(target=_keyboard_input,
+                                                 args=(stop_event,))
+                        keyboard_thread.start()
+                        oradio_log.set_level(CRITICAL)
+                        try:
+                            test_buttons.button_driver.simulate_button_events_burst(burst_freq,stop_event)
+                        except RuntimeError as err:
+                            print("\nThe module test is not enabled, enable module test in code")
+                        oradio_log.set_level(DEBUG)
                     _stop_all_long_press_timer(test_buttons)
                 case 4:
                     print(f"\n running {test_options[4]}\n")
+                    input_text = "Specify the event frequency, must be <= {debounce} :".format(
+                                debounce= int(1000/BUTTON_DEBOUNCE_TIME))
+                    burst_freq = _prompt_float( input_text, default=1.0)
+                    if burst_freq == 0:
+                        print("{yellow}invalid frequency{nc}".format(yellow=YELLOW, nc=NC))
+                    else:
+                        stop_event = Event()
+                        keyboard_thread = Thread(target=_keyboard_input,
+                                                 args=(stop_event,))
+                        keyboard_thread.start()
+                        oradio_log.set_level(CRITICAL)
+                        try:
+                            test_buttons.button_driver.simulate_button_events_burst(burst_freq,stop_event)
+                        except RuntimeError as err:
+                            print("\n{yellow}The module test is not enabled, enable module test code!{nc}".format(
+                                yellow=YELLOW,nc=NC))
+                        oradio_log.set_level(DEBUG)
+                    _stop_all_long_press_timer(test_buttons)
                 case 5:
                     print(f"\n running {test_options[5]}\n")
                 case _:

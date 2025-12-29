@@ -8,6 +8,14 @@ PLACEHOLDER_LOGFILE_USB {
 	copytruncate
 }
 
+PLACEHOLDER_LOGFILE_MPD {
+	size 100k
+	missingok
+	nocompress
+	rotate 1
+	copytruncate
+}
+
 PLACEHOLDER_LOGFILE_SPOTIFY {
 	size 100k
 	missingok

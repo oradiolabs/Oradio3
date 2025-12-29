@@ -182,3 +182,6 @@ SPOTIFY_CONNECT_NOT_CONNECTED = "Spotify Connect is NOT connected"
 ##### JSON SCHEMA ########
 MODEL_NAME_NOT_FOUND = "Unknown model name, not found in schemas.json"
 MODEL_NAME_FOUND     = "model name found"
+
+##### SYSTEM SOUND NAMES #######
+CLICK = "Click"

@@ -74,11 +74,11 @@ class GPIOService:
     :exceptions
         ValueError : upon an invalid GPIO pin value during pin configuration
     :Conditionals
-        GPIO_PERFORMANCE_TEST:
+        GPIO_MODULE_TEST:
             TEST_DISABLED = The performance test is disabled (default)
             TEST_ENABLED  = The performance test is enabled, additional code is provided
     """
-    GPIO_PERFORMANCE_TEST = TEST_DISABLED
+    GPIO_MODULE_TEST = TEST_DISABLED
     def __init__(self) -> None:
         """
         Initialize and setup the GPIO
@@ -200,7 +200,7 @@ class GPIOService:
         :argument 
             channel (int) is the I/O-pin which detected an edge event
         :conditionals
-            GPIO_PERFORMANCE_TEST
+            GPIO_MODULE_TEST
                 TEST_ENABLED = extra timestamp data added to callback
                                 for performance measurements
                 TEST_DISABLED = Default mode, no extra timestamp
@@ -208,7 +208,7 @@ class GPIOService:
             False (default): when channel refers to an unknown pin/button_name
             True : The button_name of the pin is found and callback is called 
         """
-        if self.GPIO_PERFORMANCE_TEST == TEST_ENABLED:
+        if self.GPIO_MODULE_TEST == TEST_ENABLED:
             button_event_ts = perf_counter()
         button_data = {}
         button_name = self.gpio_to_button[channel]
@@ -222,7 +222,7 @@ class GPIOService:
         button_data["state"] = button_state
         button_data['name']  = button_name
         if self.edge_event_callback:
-            if self.GPIO_PERFORMANCE_TEST == TEST_ENABLED:
+            if self.GPIO_MODULE_TEST == TEST_ENABLED:
                 button_data["state"] = BUTTON_PRESSED
                 button_data["data"] = button_event_ts
             self.edge_event_callback(button_data)
@@ -242,8 +242,8 @@ class GPIOService:
 
 ########### Method for testing purposes only #################
     def simulate_button_events_burst(self, burst_freq: int, stop_burst: Event) -> None:
-        if self.GPIO_PERFORMANCE_TEST == TEST_DISABLED:
-            raise RuntimeError("Test is disabled. Enable GPIO_PERFORMANCE_TEST to use this method")
+        if self.GPIO_MODULE_TEST == TEST_DISABLED:
+            raise RuntimeError("Test is disabled. Enable GPIO_MODULE_TEST to use this method")
         button_name = BUTTON_PLAY
         while not stop_burst.is_set():
             self._edge_callback(BUTTONS[BUTTON_PLAY])

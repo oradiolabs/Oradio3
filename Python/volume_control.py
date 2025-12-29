@@ -21,14 +21,11 @@ Created on January 27, 2025
 """
 from time import sleep
 from threading import Thread, Event
-# The alsaaudio module is a C extension, which pylint often analyze correctly.
-# So, pylint thinks the names don’t exist, even though at runtime they do.
-from alsaaudio import Mixer, ALSAAudioError, VOLUME_UNITS_RAW   # pylint: disable=no-name-in-module
 
 ##### oradio modules ####################
 from oradio_logging import oradio_log
 from i2c_service import I2CService
-from oradio_utils import safe_put
+from oradio_utils import safe_put, run_shell_script
 
 ##### GLOBAL constants ####################
 from oradio_const import (
@@ -39,9 +36,13 @@ from oradio_const import (
 )
 
 ##### Local constants ####################
-# Raw volume units
-VOLUME_MINIMUM = 105
-VOLUME_MAXIMUM = 215
+# Volume scaling and clamping units
+ADC_MIN   = 0
+ADC_MAX   = 1023
+ADC_RANGE = ADC_MAX - ADC_MIN
+VOL_MIN   = 105
+VOL_MAX   = 215
+VOL_RANGE = VOL_MAX - VOL_MIN
 # MCP3021 - A/D Converter
 MCP3021_ADDRESS      = 0x4D
 READ_DATA_REGISTER   = 0x00
@@ -49,66 +50,13 @@ ADC_UPDATE_TOLERANCE = 5
 POLLING_MIN_INTERVAL = 0.05
 POLLING_MAX_INTERVAL = 0.3
 POLLING_STEP         = 0.01
-ALSA_MIXER_DIGITAL   = "Digital"
+ALSA_DIGITAL_VOLUME  = "Digital Playback Volume"
 # Timeout for thread to respond (seconds)
 THREAD_TIMEOUT = 3
 
-# ALSA abstraction
-class AlsaVolume:
-    """
-    Wrapper class for ALSA Mixer.
-    
-    Handles setting volume in raw units safely and avoids unnecessary ALSA calls.
-    """
-    def __init__(self, mixer_name: str = ALSA_MIXER_DIGITAL) -> None:
-        """Initialize an ALSA mixer. If ALSA is not available or the mixer fails to initialize, self._mixer is set to None."""
-        self._mixer = None          # Mixer object, or None if initialization fails
-        self._last_set_raw = None   # Cache last set value to avoid redundant ALSA calls
-
-        try:
-            # Attempt to initialize the ALSA mixer
-            self._mixer = Mixer(mixer_name)
-        except ALSAAudioError as ex_err:
-            # ALSA not available or mixer initialization failed
-            oradio_log.error("Error initializing ALSA mixer '%s': %s", mixer_name, ex_err)
-            # ALSA mixer is not available
-            self._mixer = None
-
-    def set(self, raw_value: int) -> bool:
-        """
-        Set mixer volume in raw units.
-        
-        Args:
-            raw_value: The raw volume value to set.
-
-        Returns:
-            bool: True on success, False on error
-        """
-        if not self._mixer:
-            oradio_log.error("ALSA mixer unavailable")
-            return False
-
-        # Clamp value within allowed min/max range
-        clamped = max(VOLUME_MINIMUM, min(VOLUME_MAXIMUM, raw_value))
-
-        # Skip ALSA call if value hasn't changed
-        if self._last_set_raw == clamped:
-            return False
-
-        try:
-            self._mixer.setvolume(clamped, units=VOLUME_UNITS_RAW)
-        except ALSAAudioError as ex_err:
-            oradio_log.error("Error setting ALSA volume: %s", ex_err)
-            return False
-
-        # Volume is set
-        self._last_set_raw = clamped
-        oradio_log.debug("Volume set to: %s", clamped)
-        return True
-
 class VolumeControl:
     """
-    Tracks an ADC volume knob, updates ALSA, and triggers a callback on significant changes.
+    Tracks an ADC volume knob, updates volume, and triggers a callback on significant changes.
     """
 
     def __init__(self, queue) -> None:
@@ -128,9 +76,6 @@ class VolumeControl:
 
         # Start ready to send notification
         self._armed = True
-
-        # ALSA wrapper
-        self._alsa = AlsaVolume()
 
         # Thread is created dynamically on `start()` to allow restartability
         self._running = Event()
@@ -160,25 +105,32 @@ class VolumeControl:
         # Combine the 2 bytes into a 10-bit value
         return ((data[0] & 0x3F) << 6) | (data[1] >> 2)
 
-    def _set_volume(self, adc_value: int) -> bool:
+    def _set_volume(self, adc: int) -> bool:
         """
-        Update ALSA volume based on ADC reading and trigger callback.
+        Update volume based on ADC reading.
         
         Args:
-            adc_value: Current ADC reading
+            adc: Current ADC reading
 
         Returns:
             bool: True on success, False on error
         """
-        if adc_value is None:
+        if adc is None:
             return True
 
-        # Scale ADC (0..1023) to [VOLUME_MINIMUM..VOLUME_MAXIMUM]
-        span = VOLUME_MAXIMUM - VOLUME_MINIMUM
-        volume = int(round(VOLUME_MINIMUM + (adc_value * span) / 1023))
+        # Linear scaling with rounding to nearest integer
+        volume = VOL_MIN + ((adc - ADC_MIN) * VOL_RANGE + ADC_RANGE // 2) // ADC_RANGE
 
-        # Set ALSA volume
-        return self._alsa.set(volume)
+        # Set volume
+        cmd = f"amixer -c 0 cset name='{ALSA_DIGITAL_VOLUME}' {volume}"
+        result, response = run_shell_script(cmd)
+        if not result:
+            oradio_log.error("Error setting volume: %s", response)
+            return False
+
+        # Volume is set
+        oradio_log.debug("Volume set to: %s", volume)
+        return True
 
 # -----Core methods----------------
 
@@ -187,7 +139,7 @@ class VolumeControl:
         Thread function: continuously polls ADC and updates volume.
         - Adaptive polling for faster response when the knob is turned and slower idle polling.
         """
-        # Initialize ALSA to knob's current position
+        # Initialize volume to knob's current position
         previous_adc = self._read_adc()
         if previous_adc is None:
             oradio_log.error("ADC read failed")
