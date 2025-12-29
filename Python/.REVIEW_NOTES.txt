@@ -6,10 +6,6 @@ V betekent rework akkoord
 
 YYYY-MM-DD============================================================================================================================
 
-PLAY_SYSTEM_SOUND:
-T - Afspeleen en volume van elkaar loskoppelen.
-	Voordeel is dat het beter te onderhouden is, omdat afspelen en volume elk op zich redelijk eenvoudig zijn als ze zelfstandig zijn.
-
 MESSAGES:
 T - Messages 'opschonen', overwegen om json schemas te gebruiken.
 	De gekozen message format en definities zijn in de praktijk niet altijd even logisch.
@@ -50,7 +46,7 @@ T - Review na alle module wijzigingen.
 2025-12-29============================================================================================================================
 
 SOUNDS:
-T - Duck en restore toevoegen: ALSA plugin in asound.conf of toevoegen aan volume_control.py
+T - Als het nodig is duck en restore toevoegen: ALSA plugin in asound.conf of toevoegen aan volume_control.py
 T - Documenteren
 
 touch_buttons.py:
