@@ -51,18 +51,20 @@ T - Documenteren
 
 touch_buttons.py:
 R - sound_player callback is verdwenen
-R - (r143) Gebruik play_sound() om de clicks af te spelen
+R - Gebruik play_sound() om de clicks af te spelen
 
 volume_control.py:
 R - alsaaudio import, en daarmeer class AlsaVolume is verdwenen
-R - (r126)set_volume() gebruikt nu run_shell_script() om volume in te stellen
+R - __init_ configureert de default MPD, Sounds en Spotify volumes
+R - set_volume() gebruikt nu run_shell_script() om volume in te stellen
 
 play_system_sound.py:
-R - Heet nu system_sounds.py
-
-system_sounds.py:
+R - Default MPD, Sounds en Spotify volumes verhuisd naar volume_control.py
 R - "duck en restore" volume regeling verwijderd
 R - Class PlaySystemSound is verwijderd
+R - Hernoemd naar system_sounds.py
+
+system_sounds.py:
 R - play_sound() functie speelt sound asynchroon af
 
 2025-12-07============================================================================================================================
