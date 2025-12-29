@@ -37,7 +37,7 @@ from volume_control import VolumeControl
 from mpd_control import MPDControl
 from mpd_monitor import MPDMonitor     # Optional: MPD events monitoring in the background
 from led_control import LEDControl
-from play_system_sound import PlaySystemSound
+from system_sounds import play_sound
 from touch_buttons import TouchButtons
 from remote_monitoring import RMService
 from spotify_connect_direct import SpotifyConnect
@@ -153,9 +153,6 @@ _demand_free_gpio_or_exit()
 
 # --------Instantiate  led control
 leds = LEDControl()
-# --------Instantiate sound player
-sound_player = PlaySystemSound()
-
 
 # ----------------------State Machine------------------
 
@@ -203,7 +200,7 @@ class StateMachine:
 
         if web_service_active.is_set():
             oradio_log.debug("WebService is already active")
-            sound_player.play("OradioAPstarted")
+            play_sound("OradioAPstarted")
             return
 
         oradio_log.debug("Starting WebService: %r", web_service)
@@ -217,7 +214,7 @@ class StateMachine:
         if self.state == requested_state and requested_state in PLAY_STATES:
             if not mpd_control.is_webradio():
                 mpd_control.next()
-                sound_player.play("Next")
+                play_sound("Next")
                 oradio_log.debug("Next song")
                 return True
         return False
@@ -242,7 +239,7 @@ class StateMachine:
             preset_key = requested_state[len("State"):]
             if mpd_control.is_webradio(preset=preset_key) and not has_internet():
                 oradio_log.info("Webradio blocked: no Internet")
-                threading.Timer(2, sound_player.play, args=("NoInternet",)).start()
+                threading.Timer(2, play_sound, args=("NoInternet",)).start()
                 return True
         return False
 
@@ -343,12 +340,12 @@ class StateMachine:
             leds.turn_on_led("LEDPlay")
         mpd_control.play()
         spotify_connect.pause()
-        sound_player.play("Play")
+        play_sound("Play")
 
     def _state_preset1(self):
         leds.turn_on_led("LEDPreset1")
         mpd_control.play(preset="Preset1")
-        sound_player.play("Preset1")
+        play_sound("Preset1")
         if web_service_active.is_set():
             leds.control_blinking_led("LEDPlay", 2)
         spotify_connect.pause()
@@ -356,7 +353,7 @@ class StateMachine:
     def _state_preset2(self):
         leds.turn_on_led("LEDPreset2")
         mpd_control.play(preset="Preset2")
-        sound_player.play("Preset2")
+        play_sound("Preset2")
         if web_service_active.is_set():
             leds.control_blinking_led("LEDPlay", 2)
         spotify_connect.pause()
@@ -364,7 +361,7 @@ class StateMachine:
     def _state_preset3(self):
         leds.turn_on_led("LEDPreset3")
         mpd_control.play(preset="Preset3")
-        sound_player.play("Preset3")
+        play_sound("Preset3")
         if web_service_active.is_set():
             leds.control_blinking_led("LEDPlay", 2)
         spotify_connect.pause()
@@ -376,7 +373,7 @@ class StateMachine:
         else:
             mpd_control.pause()
         spotify_connect.pause()
-        sound_player.play("Stop")
+        play_sound("Stop")
         # Schedule interruptible transition to Idle after 4 seconds (non-blocking)
         oradio_log.debug("Stop: scheduling transition to Idle in 4 s (interruptible)")
         self._arm_delayed_transition("StopToIdle", 4.0, "StateIdle")
@@ -392,7 +389,7 @@ class StateMachine:
         else:
             mpd_control.pause()
         spotify_connect.play()
-        sound_player.play("Spotify")
+        play_sound("Spotify")
 
     def _state_play_song_webif(self):
         if web_service_active.is_set():
@@ -401,14 +398,14 @@ class StateMachine:
             leds.turn_on_led("LEDPlay")
         spotify_connect.pause()
         mpd_control.play()
-        sound_player.play("Play")
+        play_sound("Play")
 
     def _state_usb_absent(self):
         leds.control_blinking_led("LEDStop", 0.7)
         mpd_control.stop()
         spotify_connect.pause()
-        sound_player.play("Stop")
-        sound_player.play("NoUSB")
+        play_sound("Stop")
+        play_sound("NoUSB")
         if web_service_active.is_set():
             oradio_web_service.stop()
 
@@ -417,7 +414,7 @@ class StateMachine:
         oradio_log.debug("Starting-up")
         mpd_control.pause()
         spotify_connect.pause()
-        sound_player.play("StartUp")
+        play_sound("StartUp")
         oradio_log.debug("Startup: scheduling transition to Idle in 5 s")
         self._arm_delayed_transition("StartupToIdle", 5.0, "StateIdle")
 
@@ -465,7 +462,7 @@ def on_usb_present():
     if usb_present.is_set():
         return
     usb_present.set()
-    sound_player.play("USBPresent")
+    play_sound("USBPresent")
     # Ensure MPD database is updated
     mpd_control.update_database()
     # Transition to Idle after USB is inserted
@@ -481,13 +478,13 @@ def on_wifi_connected():
 
     if state_machine.state in PLAY_WEBSERVICE_STATES:  # If in play states,
         threading.Timer(
-            4, sound_player.play, args=("WifiConnected",)
+            4, play_sound, args=("WifiConnected",)
         ).start()
 
 def on_wifi_fail_connect():
     oradio_log.info("Wifi fail connect acknowledged")
     if state_machine.state in PLAY_WEBSERVICE_STATES:  # If in play states,
-        sound_player.play("WifiNotConnected")
+        play_sound("WifiNotConnected")
 
 def on_wifi_access_point():
     oradio_log.info("Configured as access point acknowledged")
@@ -504,7 +501,7 @@ def on_webservice_active():
         return
     web_service_active.set()
     leds.control_blinking_led("LEDPlay", 2)
-    sound_player.play("OradioAPstarted")
+    play_sound("OradioAPstarted")
     # handle Webradio and Spotify
     if mpd_control.is_webradio() or state_machine.state == "StateSpotifyConnect":
         state_machine.transition("StateIdle")
@@ -519,7 +516,7 @@ def on_webservice_idle():
         leds.turn_on_led("LEDPlay")
     else:
         leds.control_blinking_led("LEDPlay", 0)
-    sound_player.play("OradioAPstopped")
+    play_sound("OradioAPstopped")
 
 def on_webservice_playing_song():
     spotify_connect.pause()  # spotify is on pause and will not work
@@ -535,27 +532,27 @@ def on_webservice_playing_song():
 def on_webservice_pl1_changed():
     state_machine.transition("StateIdle")
     state_machine.transition("StatePreset1")
-    threading.Timer(2, sound_player.play, args=("NewPlaylistPreset",)).start()
+    threading.Timer(2, play_sound, args=("NewPlaylistPreset",)).start()
     oradio_log.debug("WebService on_webservice_pl1_changed acknowledged")
 
 
 def on_webservice_pl2_changed():
     state_machine.transition("StateIdle")
     state_machine.transition("StatePreset2")
-    threading.Timer(2, sound_player.play, args=("NewPlaylistPreset",)).start()
+    threading.Timer(2, play_sound, args=("NewPlaylistPreset",)).start()
     oradio_log.debug("WebService on_webservice_pl2_changed acknowledged")
 
 
 def on_webservice_pl3_changed():
     state_machine.transition("StateIdle")
     state_machine.transition("StatePreset3")
-    threading.Timer(2, sound_player.play, args=("NewPlaylistPreset",)).start()
+    threading.Timer(2, play_sound, args=("NewPlaylistPreset",)).start()
     oradio_log.debug("WebService on_webservice_pl3_changed acknowledged")
 
 
 def on_web_pl_webradio_changed():
     """Handle WebService: Webradio playlist changed."""
-    threading.Timer(2, sound_player.play, args=("NewPlaylistWebradio",)).start()
+    threading.Timer(2, play_sound, args=("NewPlaylistWebradio",)).start()
     oradio_log.debug("WebService on_web_pl_webradio_changed acknowledged")
 
 
@@ -766,7 +763,7 @@ def _on_play_long_pressed(_btn: str) -> None:
         state_machine.start_webservice()
 # --- end wiring ---
 
-# Initialize TouchButtons with callbacks (reuse the existing sound_player instance)
+# Initialize TouchButtons with callbacks
 touch_buttons = TouchButtons(
     on_press={
         "Play": _on_play_pressed,
@@ -777,8 +774,7 @@ touch_buttons = TouchButtons(
     },
     on_long_press={
         "Play": _on_play_long_pressed,  # only Play supports long press for now
-    },
-    sound_player=sound_player,  # <-- reuse PlaySystemSound() is already created earlier
+    }
 )
 
 if not touch_buttons.selftest():
