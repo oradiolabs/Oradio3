@@ -259,7 +259,6 @@ if [ "$1" != "--continue" ]; then
 		pydantic
 		rpi-lgpio
 		netifaces
-		pyalsaaudio
 		python-mpd2
 		python-multipart
 		concurrent-log-handler
@@ -441,6 +440,7 @@ echo -e "${GREEN}i2c installed and configured${NC}"
 install_resource $RESOURCES_PATH/alsaequal.bin /etc/alsaequal.bin 'chmod 666 /etc/alsaequal.bin'
 # Install audio configuration, activate SoftVolSpotCon, set volume to normal level
 # NOTE: Requires the Oradio3 boot config to be installed and activate
+#REVIEW Onno: Is dit nodig? Zo ja, uitleggen waarom
 install_resource $RESOURCES_PATH/asound.conf /etc/asound.conf \
 		'amixer -c 0 cset name="Digital Playback Volume" 0' \
 		'speaker-test -D SoftVolSpotCon1 -c2 -l1 >/dev/null 2>&1' \
