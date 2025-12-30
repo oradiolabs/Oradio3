@@ -431,16 +431,12 @@ echo -e "${GREEN}i2c installed and configured${NC}"
 
 # Install equalizer settings with rw rights
 install_resource $RESOURCES_PATH/alsaequal.bin /etc/alsaequal.bin 'chmod 666 /etc/alsaequal.bin'
-# Install audio configuration
-install_resource $RESOURCES_PATH/asound.conf /etc/asound.conf
-# Set volume to reasonable level
-amixer -c 0 cset name="Digital Playback Volume" 120
-# Play 1 second of silence to instantiate Spotify control
-aplay -D SpotCon_in /dev/zero -f FLOAT_LE -c 2 -r 44100 -d 1
-# Play 1 second of silence to instantiate MPD control
-aplay -D MPD_in /dev/zero -f FLOAT_LE -c 2 -r 44100 -d 1
-# Play 1 second of silence to instantiate system sound control
-aplay -D SysSound_in /dev/zero -f FLOAT_LE -c 2 -r 44100 -d 1
+# Install audio configuration, set volume to reasonable level, play silence to activate
+install_resource $RESOURCES_PATH/asound.conf /etc/asound.conf \
+	'amixer -c 0 cset name="Digital Playback Volume" 120'\
+	'aplay -D SpotCon_in /dev/zero -f FLOAT_LE -c 2 -r 44100 -d 1' \
+	'aplay -D MPD_in /dev/zero -f FLOAT_LE -c 2 -r 44100 -d 1' \
+	'aplay -D SysSound_in /dev/zero -f FLOAT_LE -c 2 -r 44100 -d 1'
 # Configure MPD
 install_resource $RESOURCES_PATH/mpd.conf /etc/mpd.conf
 # Install empty MPD database (prevents MPD updating when starting
