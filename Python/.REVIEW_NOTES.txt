@@ -33,21 +33,15 @@ T - Web interface refactoren naar Single Page Architecture (SPA), voor html, jav
 	Het beste is om de web interface te refactoren naar Single Page Architecture (SPA).
 	Bijkomend voordeel is ook dat de server, inclusief de fix voor issue #384, eenvoudiger wordt.
 
-MPD:
-T - Review mpd_control.py play method nav aanpassingen random nummer weergave
-T - Review Documents/MPD/MPD_modules_description.docx
-R - Als onderdeel van de stress testen #394 maakt Olaf ook test module mpd_control_test.py
-
 CONTROL:
 T - Review na alle module wijzigingen.
 	oradio_control is meermaals heen en weer geslingerd om (tijdelijke) wijzigingen in modules te accomoderen.
 	Zodra die modules gestabiliseerd zijn wordt het tijd om oradio_control na te kijken, op te schonen
 
-2025-12-29============================================================================================================================
+2025-12-30============================================================================================================================
 
 SOUNDS:
-T - Als het nodig is duck en restore toevoegen: ALSA plugin in asound.conf of toevoegen aan volume_control.py
-T - Documenteren
+R - Documentatie in Documents/ALSA folder
 
 touch_buttons.py:
 R - sound_player callback is verdwenen
