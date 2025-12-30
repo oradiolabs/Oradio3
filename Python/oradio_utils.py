@@ -32,7 +32,8 @@ import subprocess
 from subprocess import run
 from typing import Any, Optional
 from pathlib import Path
-from pydantic import BaseModel, create_model
+from pydantic import BaseModel
+from typing import Optional, List, Any
 import netifaces
 
 ##### oradio modules ####################
@@ -41,14 +42,19 @@ from oradio_logging import oradio_log
 ##### GLOBAL constants ####################
 from oradio_const import (
     YELLOW, NC,
-    MODEL_NAME_FOUND,
-    MODEL_NAME_NOT_FOUND,
+    MODEL_NAME_FOUND, MODEL_NAME_NOT_FOUND,
     PRESETS_FILE,
     USB_SYSTEM,
 )
 
 ##### LOCAL constants ####################
 JSON_SCHEMAS_FILE = os.path.abspath(os.path.join(sys.path[0], 'schemas.json'))
+
+class Oradio_message(BaseModel):
+    source: str
+    state: str
+    error: str
+    data: Optional[List[Any]] = None
 
 INTERFACE   = "wlan0"           # Raspberry Pi wireless interface
 DNS_TIMEOUT = 0.5               # seconds
@@ -143,12 +149,12 @@ def json_schema_to_pydantic(name: str, schema: dict[str,Any]) -> BaseModel:
 
     return create_model(name, **fields)
 
-def create_json_model(model_name):
+def create_json_model(model_name: str):
     """
     Create a object based model derived from the json schema
     :param model_name [str] = name of model in schema
-    :return model
-    :return status =
+    :return model = name of model to create, e.g. Messages
+    :return status = MODEL_NAME_FOUND | MODEL_NAME_NOT_FOUND
     """
     # Load the JSON schema file
     with open(JSON_SCHEMAS_FILE, encoding="utf-8") as file:
@@ -164,6 +170,23 @@ def create_json_model(model_name):
         messages = models[model_name]
     return(status, messages)
 
+def is_json_message_valid(message:dict)->bool:
+    ''' check if message is according json scheme
+    :argument
+        message : a dictionary formatted as json message define json scheme
+    :return
+        True: valid structure
+        False: invalid structure
+    '''
+    status = False
+    try:
+        validated_message = MyMessage(**message_dict)
+        print("Message is valid:", validated_message)
+        status = True
+    except ValidationError as e:
+        print("Message does not match schema:", e)
+    return status
+    # Handle the error
 def has_internet() -> bool:
     """
     Quickly check if the given interface has internet access.
@@ -318,16 +341,34 @@ def setup_remote_debugging(host_address:str, port_number:int) -> bool:
         try:
             pydevd.settrace(host_address, port=port_number)
         except ConnectionRefusedError:
-            print(f"Failed to connect to debugger at {host_address}:{port_number}. \
-                    Is the IDE pydev running/listening?")
+            print(f"{YELLOW} Failed to connect to debugger at {host_address}:{port_number}.")
+            print(f"Is the IDE pydev running/listening?{NC}")
             return False
         except (socket.error, OSError) as err:
-            print(f"Network error while connecting to debugger: {err}")
+            print(f"{YELLOW}Network error while connecting to debugger: {err} {NC}")
             return False
         return True
     else:
         # no arguments found
         return True
+
+def input_prompt_int(prompt: str, default=-1 ) -> int:
+    '''
+    Prompt for an user input and return int value of number typed
+    :argument prompt : prompt text for user
+    :argument default: default value to return in case of an error
+    :return the integer value type in by user | default value in case of an error
+    '''
+    try:
+        return int(input(prompt))
+    except ValueError:
+        return default
+
+def input_prompt_float(prompt: str, default: float | None = None) -> float | None:
+    try:
+        return float(input(prompt))
+    except ValueError:
+        return default
 
 
 # Entry point for stand-alone operation

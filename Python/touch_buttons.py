@@ -21,11 +21,12 @@ Created on April 28, 2025
 from threading import Timer, Thread, Event
 from multiprocessing import Queue
 from time import sleep, monotonic, perf_counter
+import json
 ##### oradio modules ####################
 from play_system_sound import PlaySystemSound
 from oradio_logging import oradio_log
 from gpio_service import GPIOService
-from oradio_utils import safe_put
+from oradio_utils import safe_put, input_prompt_int, input_prompt_float, Oradio_message
 from system_sounds import play_sound
 # -------- LOCAL constants --------
 BUTTON_DEBOUNCE_TIME = 500          # ms, ignore rapid repeats
@@ -40,8 +41,8 @@ from oradio_const import (BUTTON_PLAY,BUTTON_STOP, BUTTON_PRESET1, BUTTON_PRESET
                          GREEN, YELLOW, RED, NC, \
                          MESSAGE_BUTTON_SOURCE, MESSAGE_NO_ERROR, MESSAGE_SHORT_PRESS, \
                          MESSAGE_LONG_PRESS_BUTTON, \
-                         CLICK)
-
+                         CLICK, \
+                         MODEL_NAME_FOUND)
 
 class TouchButtons:
     """
@@ -66,6 +67,14 @@ class TouchButtons:
             raise ValueError("Invalid value provided") from err
         self.button_driver.set_button_edge_event_callback(self._button_event_callback)
 
+#        status, messages = create_json_model("Messages")
+#        if status == MODEL_NAME_FOUND:
+#            queue_messages = messages(source=MESSAGE_BUTTON_SOURCE, state="none", error="none", data=[])
+#        else:
+#            oradio_log.error(f"Json model for Queue-Messages not found")
+#        ## define the message model for the put message in the queue
+#        self.queue_put_mesg = queue_messages.model_dump()
+
         self.message_queue = queue
 
         self.button_press_times: dict[str, float] = {}   # button -> press start (monotonic)
@@ -73,22 +82,31 @@ class TouchButtons:
         self.long_press_timers: dict[str, threading.Timer] = {}  # button -> Timer
 
     def _send_message(self,button_data: dict) -> None:
-        """Send current TouchButton state message to the registered queue."""
+        """Send current TouchButton state message to the registered queue.
+        :arguments
+            button_data = { 'source': str, 
+                            'state': str, 
+                            'error' : str
+                            }
+                            if TEST_ENABLED a data key is added
+                            {
+                            'data': float
+                            }
+        """
+        message_data = {}
+        message_data["source"]  = MESSAGE_BUTTON_SOURCE
+        state = MESSAGE_SHORT_PRESS+button_data["state"]
         if self.BUTTONS_MODULE_TEST == TEST_ENABLED:
-            message = {
-                "source": MESSAGE_BUTTON_SOURCE,
-                "state" : button_data["state"],
-                "error" : MESSAGE_NO_ERROR,
-                "data"  : button_data["data"]
-            }
+            message_data["state"]  = state
+            message_data["error"]  = button_data["error"]
+            message_data["data"]   = button_data["data"]
         else:
-            message = {
-                "source": MESSAGE_BUTTON_SOURCE,
-                "state": button_data["state"],
-                "error": MESSAGE_NO_ERROR,
-            }
-        oradio_log.debug("Send TouchButton message: %s", message)
-        if not safe_put(self.message_queue, message):
+            message_data["state"]  = state
+            message_data["error"]  = button_data["error"]
+        # validate and create the message
+        json_message = Oradio_message(**message_data).model_dump_json()
+        oradio_log.debug("Send TouchButton message: %s", json_message)
+        if not safe_put(self.message_queue, json_message):
             print("Failure when sending message to shared queue")
 
     def _button_event_callback(self, button_data: dict) -> None:
@@ -142,6 +160,7 @@ class TouchButtons:
 
         play_sound(CLICK)
 
+        button_data["error"] = MESSAGE_NO_ERROR # no errors here
         self._send_message(button_data)
 
     def _long_press_timeout(self, button_name: str) -> None:
@@ -171,7 +190,7 @@ if __name__ == "__main__":
     HOST_ADDRESS = "192.168.178.52"
     DEBUG_PORT = 5678
     if not setup_remote_debugging(HOST_ADDRESS,DEBUG_PORT):
-        print("The remote debugging error, check the remote IP connection")
+        print(f"{YELLOW}The remote debugging error, check the remote IP connection {NC}")
         sys.exit()
 
     def _stop_all_long_press_timer(test_buttons: TouchButtons)-> None:
@@ -193,25 +212,6 @@ if __name__ == "__main__":
         _=input("Press Return on keyboard to stop this test")
         event.set()
 
-
-    def _prompt_int(prompt: str, default=-1 ) -> int:
-        '''
-        Prompt for an user input and return int value of number typed
-        :argument prompt : prompt text for user
-        :argument default: default value to return in case of an error
-        :return the integer value type in by user | default value in case of an error
-        '''
-        try:
-            return int(input(prompt))
-        except ValueError:
-            return default
-
-    def _prompt_float(prompt: str, default: float | None = None) -> float | None:
-        try:
-            return float(input(prompt))
-        except ValueError:
-            return default
-
     min_time = 10000
     max_time = 0
     sum_time = 0.0
@@ -221,7 +221,8 @@ if __name__ == "__main__":
         command_source  = message.get("source")
         state           = message.get("state")
         error           = message.get("error", None)
-        if 'data' in message:
+        data            = message.get("data", None)
+        if data:
             time_stamp = message.get("data")
             global min_time, max_time, sum_count, sum_time, avg_time
             # statistics
@@ -238,7 +239,7 @@ if __name__ == "__main__":
                    cur=round(duration,4))
             )
         else:
-            print(f"{YELLOW} Received message in queue = ",message)
+            print(f"{GREEN} Received message in queue = ",message)
             print(f"{NC}")
 
     def _check_for_new_message_in_queue(msg_queue):
@@ -293,15 +294,15 @@ if __name__ == "__main__":
         test_options = ["Quit"] + \
                         ["Pressing a button and check message queue "] + \
                         ["Send for each button a button callback and check message queue"] +\
-                        ["Buttons debouncing test using button events callback"] +\
-                        ["Buttons latency test outside debouncing timing "] +\
+                        ["BUTTON_PLAY debouncing test using button events callback"] +\
+                        ["BUTTON_PLAY latency test outside debouncing timing "] +\
                         ["Test 5"]
 
         while True:
             print("\nTEST options:")
             for idx, name in enumerate(test_options, start=0):
                 print(f" {idx} - {name}")
-            test_choice = _prompt_int("Select test number: ", default=-1)
+            test_choice = input_prompt_int("Select test number: ", default=-1)
             match test_choice:
                 case 0:
                     print("\nExiting test program\n")
@@ -322,7 +323,7 @@ if __name__ == "__main__":
                     test_buttons.BUTTONS_MODULE_TEST = TEST_ENABLED
                     input_text = "Specify the event frequency, must > {debounce} :".format(
                                 debounce= int(1000/BUTTON_DEBOUNCE_TIME))
-                    burst_freq = _prompt_float( input_text, default=2.0)
+                    burst_freq = input_prompt_float( input_text, default=2.0)
                     if burst_freq == 0:
                         print("{yellow}invalid frequency{nc}".format(yellow=YELLOW, nc=NC))
                     else:
@@ -341,7 +342,7 @@ if __name__ == "__main__":
                     print(f"\n running {test_options[4]}\n")
                     input_text = "Specify the event frequency, must be <= {debounce} :".format(
                                 debounce= int(1000/BUTTON_DEBOUNCE_TIME))
-                    burst_freq = _prompt_float( input_text, default=1.0)
+                    burst_freq = input_prompt_float( input_text, default=1.0)
                     if burst_freq == 0:
                         print("{yellow}invalid frequency{nc}".format(yellow=YELLOW, nc=NC))
                     else:

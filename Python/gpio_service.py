@@ -283,18 +283,6 @@ if __name__ == '__main__':
         '''
         _=input("Press Return on keyboard to stop this test")
         event.set()
-        
-    def _prompt_int(prompt: str, default=-1 ) -> int:
-        '''
-        Prompt for an user input and return int value of number typed
-        :argument prompt : prompt text for user
-        :argument default: default value to return in case of an error
-        :return the integer value type in by user | default value in case of an error
-        '''
-        try:
-            return int(input(prompt))
-        except ValueError:
-            return default
 
     def _buttons_testing(test_gpio) -> None:
         '''
@@ -315,7 +303,7 @@ if __name__ == '__main__':
             for idx, name in enumerate(button_test_options, start=0):
                 print(f"{NC} {idx} - {name}")
 
-            button_choice = _prompt_int("Select test option: ", default=-1)
+            button_choice = input_prompt_int("Select test option: ", default=-1)
             match button_choice:
                 case 0:
                     print("\nReturning to main menu selection...\n")
@@ -388,7 +376,7 @@ if __name__ == '__main__':
         while not selection_done:
             for idx, led_name in enumerate(led_name_option, start=0):
                 print(f" {idx} - {led_name}")
-            led_choice = _prompt_int("Select a LED: ", default=-1)
+            led_choice = input_prompt_int("Select a LED: ", default=-1)
             match led_choice:
                 case 0:
                     print("\nReturning to previous selection...\n")
@@ -412,7 +400,7 @@ if __name__ == '__main__':
             for idx, name in enumerate(led_pin_options, start=0):
                 print(f"{NC} {idx} - {name}")
 
-            led_choice = _prompt_int("Select test option: ", default=-1)
+            led_choice = input_prompt_int("Select test option: ", default=-1)
             match led_choice:
                 case 0:
                     print("\nReturning to main menu selection...\n")
@@ -463,7 +451,7 @@ if __name__ == '__main__':
             for idx, name in enumerate(led_pin_options, start=0):
                 print(f"{NC} {idx} - {name}")
 
-            test_choice = _prompt_int("Select test number: ", default=-1)
+            test_choice = input_prompt_int("Select test number: ", default=-1)
             match test_choice:
                 case 0:
                     print("\nExiting led testing\n")
@@ -510,7 +498,7 @@ if __name__ == '__main__':
         while test_active:
             for idx, name in enumerate(test_options, start=0):
                 print(f"{NC} {idx} - {name}")
-            test_choice = _prompt_int("Select one of the test options: ", default=-1)
+            test_choice = input_prompt_int("Select one of the test options: ", default=-1)
             match test_choice:
                 case 0:
                     print("\nExiting test program\n")
