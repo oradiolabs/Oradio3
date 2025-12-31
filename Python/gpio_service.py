@@ -249,6 +249,15 @@ class GPIOService:
             self._edge_callback(BUTTONS[BUTTON_PLAY])
             sleep(1/burst_freq)
 
+    def simulate_all_buttons_events_burst(self, burst_freq: int, stop_burst: Event) -> None:
+        if self.GPIO_MODULE_TEST == TEST_DISABLED:
+            raise RuntimeError("Test is disabled. Enable GPIO_MODULE_TEST to use this method")
+        while not stop_burst.is_set():
+            for button in BUTTON_NAMES:
+                self._edge_callback(BUTTONS[button])
+            sleep(1/burst_freq)
+
+
 # Entry point for stand-alone operation
 if __name__ == '__main__':
 #################################################################

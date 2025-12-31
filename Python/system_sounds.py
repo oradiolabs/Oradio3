@@ -68,7 +68,7 @@ SOUND_FILES = {
 def play_sound(sound_key:str) -> None:
     """Fire-and-forget the system command that plays the given sound file.
     :arguments
-        sound_key = name of the sound in SOUND_FILES to be played
+        sound_key = name of the sound-key listed in SOUND_FILES to be played
     """
 
     # Get sound file from sound key

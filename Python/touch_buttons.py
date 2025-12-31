@@ -22,6 +22,7 @@ from threading import Timer, Thread, Event
 from multiprocessing import Queue
 from time import sleep, monotonic, perf_counter
 import json
+from pydantic import ValidationError
 ##### oradio modules ####################
 from play_system_sound import PlaySystemSound
 from oradio_logging import oradio_log
@@ -88,18 +89,20 @@ class TouchButtons:
                             'state': str, 
                             'error' : str
                             }
-                            if TEST_ENABLED a data key is added
+                            if TEST_ENABLED port_numbera data key is added
                             {
                             'data': float
                             }
         """
         message_data = {}
         message_data["source"]  = MESSAGE_BUTTON_SOURCE
-        state = MESSAGE_SHORT_PRESS+button_data["state"]
+        state = MESSAGE_SHORT_PRESS+button_data["name"]
         if self.BUTTONS_MODULE_TEST == TEST_ENABLED:
             message_data["state"]  = state
             message_data["error"]  = button_data["error"]
-            message_data["data"]   = button_data["data"]
+            data_list = []
+            data_list.append(button_data["data"])
+            message_data["data"] = data_list
         else:
             message_data["state"]  = state
             message_data["error"]  = button_data["error"]
@@ -186,10 +189,7 @@ if __name__ == "__main__":
 
     from oradio_utils import setup_remote_debugging
     from logging import DEBUG, INFO, WARNING, ERROR, CRITICAL
-    ### Change HOST_ADDRESS to your host computer local address for remote debugging
-    HOST_ADDRESS = "192.168.178.52"
-    DEBUG_PORT = 5678
-    if not setup_remote_debugging(HOST_ADDRESS,DEBUG_PORT):
+    if not setup_remote_debugging():
         print(f"{YELLOW}The remote debugging error, check the remote IP connection {NC}")
         sys.exit()
 
@@ -217,13 +217,28 @@ if __name__ == "__main__":
     sum_time = 0.0
     sum_count = 0
     avg_time = 0.0
-    def _handle_message(message):
-        command_source  = message.get("source")
-        state           = message.get("state")
-        error           = message.get("error", None)
-        data            = message.get("data", None)
-        if data:
-            time_stamp = message.get("data")
+
+    def _reset_timing_data() -> None:
+        '''
+        reset all 9global) timing data
+        '''
+        global min_time, max_time, sum_count, sum_time, avg_time
+        min_time = 10000
+        max_time = 0
+        sum_time = 0.0
+        sum_count = 0
+        avg_time = 0.0
+
+    def _handle_message(message) -> None:
+
+        try:
+            message_dict = json.loads(message)
+            validated_message = Oradio_message(**message_dict)
+            print("Valid json message received")
+        except ValidationError as err:
+            print("{yellow}invalid json message received{nc}".format(yellow=YELLOW, nc=NC))
+        if validated_message.data:
+            time_stamp = float(validated_message.data[0])
             global min_time, max_time, sum_count, sum_time, avg_time
             # statistics
             sum_count +=1
@@ -239,7 +254,7 @@ if __name__ == "__main__":
                    cur=round(duration,4))
             )
         else:
-            print(f"{GREEN} Received message in queue = ",message)
+            print(f"{GREEN} Received message in queue = ",validated_message)
             print(f"{NC}")
 
     def _check_for_new_message_in_queue(msg_queue):
@@ -294,10 +309,10 @@ if __name__ == "__main__":
         test_options = ["Quit"] + \
                         ["Pressing a button and check message queue "] + \
                         ["Send for each button a button callback and check message queue"] +\
-                        ["BUTTON_PLAY debouncing test using button events callback"] +\
-                        ["BUTTON_PLAY latency test outside debouncing timing "] +\
-                        ["Test 5"]
-
+                        ["BUTTON_PLAY gpio-callback latency test timing within debouncing window"] +\
+                        ["BUTTON_PLAY gpio-callback latency test timing outside debouncing window "] +\
+                        ["All buttons gpio-callback latency test timing within debouncing window "] +\
+                        ["All buttons gpio-callback latency test timing outside debouncing window "]
         while True:
             print("\nTEST options:")
             for idx, name in enumerate(test_options, start=0):
@@ -316,13 +331,20 @@ if __name__ == "__main__":
                     print(f"\n running {test_options[2]}\n")
                     _callback_test(test_buttons)
                     _ = input("Press any Return key to stop test")
-                case 3:
-                    print(f"\n running {test_options[3]}\n")
-                    test_buttons.button_driver.set_button_edge_event_callback(test_buttons._button_event_callback)
-                    test_buttons.button_driver.GPIO_PERFORMANCE_TEST = TEST_ENABLED
-                    test_buttons.BUTTONS_MODULE_TEST = TEST_ENABLED
-                    input_text = "Specify the event frequency, must > {debounce} :".format(
+                case 3 | 4:
+                    _reset_timing_data()
+                    if test_choice == 3:
+                        print(f"\n running {test_options[3]}\n")
+                        input_text = "Specify the event frequency, must > {debounce} :".format(
                                 debounce= int(1000/BUTTON_DEBOUNCE_TIME))
+                        
+                    else:
+                        print(f"\n running {test_options[4]}\n")
+                        input_text = "Specify the event frequency, must be <= {debounce} :".format(
+                                debounce= int(1000/BUTTON_DEBOUNCE_TIME))
+                    test_buttons.button_driver.set_button_edge_event_callback(test_buttons._button_event_callback)
+                    test_buttons.button_driver.GPIO_MODULE_TEST = TEST_ENABLED
+                    test_buttons.BUTTONS_MODULE_TEST = TEST_ENABLED
                     burst_freq = input_prompt_float( input_text, default=2.0)
                     if burst_freq == 0:
                         print("{yellow}invalid frequency{nc}".format(yellow=YELLOW, nc=NC))
@@ -338,11 +360,22 @@ if __name__ == "__main__":
                             print("\nThe module test is not enabled, enable module test in code")
                         oradio_log.set_level(DEBUG)
                     _stop_all_long_press_timer(test_buttons)
-                case 4:
-                    print(f"\n running {test_options[4]}\n")
-                    input_text = "Specify the event frequency, must be <= {debounce} :".format(
+                case 5 | 6:
+                    print(f"\n running {test_options[5]}\n")
+                    _reset_timing_data()
+                    if test_choice == 5:
+                        print(f"\n running {test_options[3]}\n")
+                        input_text = "Specify the event frequency, must > {debounce} :".format(
                                 debounce= int(1000/BUTTON_DEBOUNCE_TIME))
-                    burst_freq = input_prompt_float( input_text, default=1.0)
+                        
+                    else:
+                        print(f"\n running {test_options[4]}\n")
+                        input_text = "Specify the event frequency, must be <= {debounce} :".format(
+                                debounce= int(1000/BUTTON_DEBOUNCE_TIME))
+                    test_buttons.button_driver.set_button_edge_event_callback(test_buttons._button_event_callback)
+                    test_buttons.button_driver.GPIO_MODULE_TEST = TEST_ENABLED
+                    test_buttons.BUTTONS_MODULE_TEST = TEST_ENABLED
+                    burst_freq = input_prompt_float( input_text, default=2.0)
                     if burst_freq == 0:
                         print("{yellow}invalid frequency{nc}".format(yellow=YELLOW, nc=NC))
                     else:
@@ -352,14 +385,12 @@ if __name__ == "__main__":
                         keyboard_thread.start()
                         oradio_log.set_level(CRITICAL)
                         try:
-                            test_buttons.button_driver.simulate_button_events_burst(burst_freq,stop_event)
+                            test_buttons.button_driver.simulate_all_buttons_events_burst(burst_freq,stop_event)
                         except RuntimeError as err:
-                            print("\n{yellow}The module test is not enabled, enable module test code!{nc}".format(
-                                yellow=YELLOW,nc=NC))
+                            print("\nThe module test is not enabled, enable module test in code")
                         oradio_log.set_level(DEBUG)
                     _stop_all_long_press_timer(test_buttons)
-                case 5:
-                    print(f"\n running {test_options[5]}\n")
+
                 case _:
                     print("Please input a valid number.")
 
