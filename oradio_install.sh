@@ -252,7 +252,6 @@ if [ "$1" != "--continue" ]; then
 		nmcli
 		netifaces
 		pyalsaaudio
-		vcgencmd
 		watchdog
 		pydantic
 		fastapi
