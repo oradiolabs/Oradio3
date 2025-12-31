@@ -48,7 +48,6 @@ from contextlib import ExitStack
 from logging import DEBUG, INFO, WARNING, ERROR, CRITICAL
 from concurrent_log_handler import ConcurrentRotatingFileHandler
 from requests import post, RequestException, Timeout
-from vcgencmd import Vcgencmd
 
 ##### oradio modules ####################
 # NOTE: Do not import oradio modules using oradio_log to avoid circular imports

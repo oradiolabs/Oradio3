@@ -32,7 +32,6 @@ import time
 from multiprocessing import Queue
 
 from oradio_logging import oradio_log
-from throttled_monitor import throttled_monitor     # Runs a background thread logging throttled events
 from backlighting import Backlighting
 from volume_control import VolumeControl
 from mpd_control import MPDControl
@@ -46,6 +45,8 @@ from usb_service import USBService
 from web_service import WebService
 from oradio_utils import has_internet
 from power_supply_control import PowerSupplyService
+
+import throttled_monitor     # Runs a background thread logging throttled events
 
 ##### GLOBAL constants ####################
 from oradio_const import (
