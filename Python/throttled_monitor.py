@@ -68,6 +68,9 @@ class RPiThrottlingMonitor:
         self._test_mode = False
         self._forced_value = 0
 
+        # Start the monitor
+        self.start()
+
     def _get_throttle_value(self) -> int:
         """
         Get current throttled state from vcgencmd or test override.
@@ -163,6 +166,11 @@ class RPiThrottlingMonitor:
         """Clear any forced throttling state in test mode."""
         self._forced_value = 0
 
+# ----- Instantiate throttled monitor -----
+
+# Instantiate throttling monitor
+throttled_monitor = RPiThrottlingMonitor()
+
 # ----- Standalone test menu -----
 if __name__ == "__main__":
 
@@ -171,23 +179,19 @@ if __name__ == "__main__":
 
     def interactive_menu() -> None:
         """Interactive console menu to test throttling monitor."""
-        # Instantiate throttling monitor
-        monitor = RPiThrottlingMonitor()
 
         # Put monitor in test mode
-        monitor.enable_test_mode()
+        throttled_monitor.enable_test_mode()
 
         input_selection = (
             "Select a function, input the number.\n"
             " 0-Quit\n"
-            " 1-Start RPi throttled monitor\n"
-            " 2-Force RPI throttled (undervoltage)\n"
-            " 3-Force RPI throttled (frequency capped)\n"
-            " 4-Force RPI throttled (thermal)\n"
-            " 5-Force RPI throttled (temperature)\n"
-            " 6-Force RPI throttled (all)\n"
-            " 7-Clear RPI throttled\n"
-            " 8-Stop RPi throttled monitor\n"
+            " 1-Force RPI throttled (undervoltage)\n"
+            " 2-Force RPI throttled (frequency capped)\n"
+            " 3-Force RPI throttled (thermal)\n"
+            " 4-Force RPI throttled (temperature)\n"
+            " 5-Force RPI throttled (all)\n"
+            " 6-Clear RPI throttled\n"
             "Select: "
         )
 
@@ -204,33 +208,26 @@ if __name__ == "__main__":
             match function_nr:
                 case 0:
                     print("\nExiting test program...\n")
-                    monitor.disable_test_mode()
-                    monitor.stop()
+                    throttled_monitor.disable_test_mode()
                     break
                 case 1:
-                    print("\nStart RPI throttled monitor...\n")
-                    monitor.start()
+                    print("\nForce RPI throttled (TEST MODE)...\n")
+                    throttled_monitor.force_throttled(0x1)
                 case 2:
                     print("\nForce RPI throttled (TEST MODE)...\n")
-                    monitor.force_throttled(0x1)
+                    throttled_monitor.force_throttled(0x2)
                 case 3:
                     print("\nForce RPI throttled (TEST MODE)...\n")
-                    monitor.force_throttled(0x2)
+                    throttled_monitor.force_throttled(0x4)
                 case 4:
                     print("\nForce RPI throttled (TEST MODE)...\n")
-                    monitor.force_throttled(0x4)
+                    throttled_monitor.force_throttled(0x8)
                 case 5:
                     print("\nForce RPI throttled (TEST MODE)...\n")
-                    monitor.force_throttled(0x8)
+                    throttled_monitor.force_throttled(0x1 | 0x2 | 0x4 | 0x8)
                 case 6:
-                    print("\nForce RPI throttled (TEST MODE)...\n")
-                    monitor.force_throttled(0x1 | 0x2 | 0x4 | 0x8)
-                case 7:
                     print("\nClear RPI throttled (TEST MODE)...\n")
-                    monitor.clear_throttled()
-                case 8:
-                    print("\nStop RPI throttled monitor...\n")
-                    monitor.stop()
+                    throttled_monitor.clear_throttled()
                 case _:
                     print("\nPlease input a valid number\n")
 
