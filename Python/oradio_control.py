@@ -46,7 +46,8 @@ from web_service import WebService
 from oradio_utils import has_internet
 from power_supply_control import PowerSupplyService
 
-import throttled_monitor     # pylint: disable=unused-import. Runs a background thread logging throttled events
+# Runs a background thread logging throttled events
+import throttled_monitor     # pylint: disable=unused-import
 
 ##### GLOBAL constants ####################
 from oradio_const import (
