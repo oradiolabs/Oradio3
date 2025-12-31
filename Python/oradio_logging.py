@@ -114,25 +114,6 @@ def _has_internet() -> bool:
         # Treat any exception as equivalent to 'no internet'
         return False
 
-def _rpi_is_throttled() -> bool:
-    """
-    Check Raspberry Pi throttled status using vcgencmd.
-
-    Returns:
-        bool: True if CPU or voltage throttling is active, False otherwise.
-    """
-    # Vcgencmd may fail on non-Raspberry Pi systems
-    try:
-        vcgm = Vcgencmd()
-        # convert binary string to integer
-        flags = int(vcgm.get_throttled().get("binary", "0"), 2)
-        # Check last four bits for active throttling
-        throttled = (flags & 0xF) > 0
-    # Protect against running on other platform than Raspberry Pi
-    except Exception:       # pylint: disable=broad-exception-caught
-        throttled = False
-    return throttled
-
 class ColorFormatter(logging.Formatter):
     """Formatter that adds ANSI color to messages depending on log level."""
     def __init__(self) -> None:
@@ -206,7 +187,7 @@ class StreamSafeHandler(SafeHandler):
             traceback.print_exc(file=stderr)
 
 class ConcurrentRotatingFileSafeHandler(SafeHandler):
-    """Concurrent rotating file handler that safely logs to file and respects throttling."""
+    """Concurrent rotating file handler that safely logs to file."""
     def __init__(self, filename, max_bytes, backup_count) -> None:
         super().__init__()
         self.handler = ConcurrentRotatingFileHandler(filename, maxBytes=max_bytes, backupCount=backup_count)
@@ -217,12 +198,9 @@ class ConcurrentRotatingFileSafeHandler(SafeHandler):
         self.handler.setFormatter(fmt)
 
     def safe_emit(self, record) -> None:
-        """Emit log record to file if system is not throttled; otherwise send warning."""
+        """Safely save record to file."""
         try:
-            if not _rpi_is_throttled():
-                self.handler.emit(record)
-            else:
-                print("System is throttled", file=stderr)
+            self.handler.emit(record)
         # Catching ALL exceptions is fallback, makes logger safe
         except Exception as ex_err:     # pylint: disable=broad-exception-caught
             print(f"[ConcurrentRotatingFileSafeHandler fallback] {record.getMessage()}. Exception: {ex_err}", file=stderr)
