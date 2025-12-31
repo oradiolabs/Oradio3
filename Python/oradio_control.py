@@ -45,8 +45,11 @@ from usb_service import USBService
 from web_service import WebService
 from oradio_utils import has_internet
 from power_supply_control import PowerSupplyService
+
+# Runs a background thread logging throttled events
+import throttled_monitor     # pylint: disable=unused-import
+
 ##### GLOBAL constants ####################
-#from oradio_const import *
 from oradio_const import (
     MESSAGE_NO_ERROR,
     MESSAGE_VOLUME_SOURCE,

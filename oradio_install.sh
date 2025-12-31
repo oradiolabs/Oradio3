@@ -251,7 +251,6 @@ if [ "$1" != "--continue" ]; then
 		nmcli
 		fastapi
 		uvicorn
-		vcgencmd
 		python-mpd2
 		python-multipart
 		concurrent-log-handler
