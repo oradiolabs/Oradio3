@@ -51,7 +51,7 @@ VOLUME_CONTROL_MASTER    = "Digital Playback Volume"
 # Default source volume levels
 DEFAULT_VOLUME_MPD       = "100%"   # 255
 DEFAULT_VOLUME_SPOTIFY   = "100%"   # 255
-DEFAULT_VOLUME_SYS_SOUND = "85%"    # 217
+DEFAULT_VOLUME_SYS_SOUND = "80%"    # 204
 # MCP3021 - A/D Converter
 MCP3021_ADDRESS      = 0x4D
 READ_DATA_REGISTER   = 0x00
