@@ -96,15 +96,17 @@ def play_sound(sound_key: str) -> None:
     # Command to play sound
     cmd = f"aplay -D '{SYSTEM_SOUND_SINK}' {sound_file}"
 
-    # Execute in background
-    subprocess.Popen(
+    # Use 'with' to ensure proper cleanup after starting process in background
+    with subprocess.Popen(
         cmd,
         shell=True,
         stdout=subprocess.DEVNULL,
         stderr=subprocess.DEVNULL,
         stdin=subprocess.DEVNULL,
+        start_new_session=True,     # detaches process to prevent zombies
         close_fds=True
-    )
+    ):
+        pass  # We don't need to wait; context ensures cleanup
 
     oradio_log.debug("System sound played successfully: %s", sound_file)
 
