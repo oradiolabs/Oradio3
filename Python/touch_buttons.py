@@ -17,14 +17,19 @@ Created on April 28, 2025
 @status:        Development
 @summary:       Oradio touch buttons module with debounce, per-button callbacks, and selftest
 """
-
 import time
 import threading
 from typing import Callable
-
 from RPi import GPIO
+
+##### oradio modules ####################
 from oradio_logging import oradio_log
 from system_sounds import play_sound
+
+##### GLOBAL constants ####################
+from oradio_const import (
+    SOUND_CLICK,
+)
 
 # -------- LOCAL constants --------
 BUTTON_DEBOUNCE_TIME = 500          # ms, ignore rapid repeats
@@ -140,7 +145,7 @@ class TouchButtons:
         timer.start()
 
         # Immediate short-press feedback
-        play_sound("Click")
+        play_sound(SOUND_CLICK)
 
         # Invoke short-press callback if present
         callback = self._on_press.get(button_name)

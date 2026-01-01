@@ -21,7 +21,6 @@ Created on December 23, 2024
 
 25 jul update volume settings to prepare for speaker in production
 """
-
 ################## SYSTEM #############################
 # Colors
 BLUE    = '\x1b[38;5;039m'
@@ -44,6 +43,27 @@ LEDS = {
     "LEDPreset3":  7,
     "LEDStop":    23
 }
+
+##### SYSTEM SOUND NAMES #######
+
+SOUND_START        = "Start"
+SOUND_STOP         = "Stop"
+SOUND_PLAY         = "PLAY"
+SOUND_CLICK        = "Click"
+SOUND_NEXT         = "Next"
+SOUND_PRESET1      = "Preset1"
+SOUND_PRESET2      = "Preset2"
+SOUND_PRESET3      = "Preset3"
+SOUND_SPOTIFY      = "Spotify"
+SOUND_USB          = "USBPresent"
+SOUND_NO_USB       = "NoUSB"
+SOUND_AP_START     = "OradioAPstarted"
+SOUND_AP_STOP      = "OradioAPstopped"
+SOUND_WIFI         = "WifiConnected"
+SOUND_NO_WIFI      = "WifiNotConnected"
+SOUND_NO_INTERNET  = "NoInternet"
+SOUND_NEW_PRESET   = "NewPlaylistPreset"
+SOUND_NEW_WEBRADIO = "NewPlaylistWebradio"
 
 ################## REMOTE SERVER ##########################
 REMOTE_SERVER = 'https://oradiolabs.nl/rms/receive.php'

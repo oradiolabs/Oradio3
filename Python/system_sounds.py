@@ -27,6 +27,24 @@ from oradio_logging import oradio_log
 ##### GLOBAL constants ####################
 from oradio_const import (
     RED, YELLOW, NC,
+    SOUND_START,
+    SOUND_STOP,
+    SOUND_PLAY,
+    SOUND_CLICK,
+    SOUND_NEXT,
+    SOUND_PRESET1,
+    SOUND_PRESET2,
+    SOUND_PRESET3,
+    SOUND_SPOTIFY,
+    SOUND_USB,
+    SOUND_NO_USB,
+    SOUND_AP_START,
+    SOUND_AP_STOP,
+    SOUND_WIFI,
+    SOUND_NO_WIFI,
+    SOUND_NO_INTERNET,
+    SOUND_NEW_PRESET,
+    SOUND_NEW_WEBRADIO,
 )
 
 ##### LOCAL constants ###################
@@ -36,30 +54,34 @@ SYSTEM_SOUND_SINK = "SysSound_in"
 SOUND_FILES_DIR = os.path.abspath(os.path.join(sys.path[0], '..', 'system_sounds'))
 SOUND_FILES = {
     # Sounds
-    "StartUp": f"{SOUND_FILES_DIR}/StartUp.wav",
-    "Stop":    f"{SOUND_FILES_DIR}/UIT.wav",
-    "Play":    f"{SOUND_FILES_DIR}/AAN.wav",
-    "Click":   f"{SOUND_FILES_DIR}/click.wav",
+    SOUND_START: f"{SOUND_FILES_DIR}/StartUp.wav",
+    SOUND_STOP:  f"{SOUND_FILES_DIR}/UIT.wav",
+    SOUND_PLAY:  f"{SOUND_FILES_DIR}/AAN.wav",
+    SOUND_CLICK: f"{SOUND_FILES_DIR}/click.wav",
     # Announcements
-    "Preset1":             f"{SOUND_FILES_DIR}/Preset1_melding.wav",
-    "Preset2":             f"{SOUND_FILES_DIR}/Preset2_melding.wav",
-    "Preset3":             f"{SOUND_FILES_DIR}/Preset3_melding.wav",
-    "Next":                f"{SOUND_FILES_DIR}/Next_melding.wav",
-    "Spotify":             f"{SOUND_FILES_DIR}/Spotify_melding.wav",
-    "NoInternet":          f"{SOUND_FILES_DIR}/NoInternet_melding.wav",
-    "NoUSB":               f"{SOUND_FILES_DIR}/NoUSB_melding.wav",
-    "OradioAPstarted":     f"{SOUND_FILES_DIR}/OradioAPstarted_melding.wav",
-    "OradioAPstopped":     f"{SOUND_FILES_DIR}/OradioAPstopped_melding.wav",
-    "WifiConnected":       f"{SOUND_FILES_DIR}/WifiConnected_melding.wav",
-    "WifiNotConnected":    f"{SOUND_FILES_DIR}/WifiNotConnected_melding.wav",
-    "NewPlaylistPreset":   f"{SOUND_FILES_DIR}/NewPlaylistPreset_melding.wav",
-    "NewPlaylistWebradio": f"{SOUND_FILES_DIR}/NewPlaylistWebradio_melding.wav",
-    "USBPresent":          f"{SOUND_FILES_DIR}/USBPresent_melding.wav",
+    SOUND_NEXT:         f"{SOUND_FILES_DIR}/Next_melding.wav",
+    SOUND_PRESET1:      f"{SOUND_FILES_DIR}/Preset1_melding.wav",
+    SOUND_PRESET2:      f"{SOUND_FILES_DIR}/Preset2_melding.wav",
+    SOUND_PRESET3:      f"{SOUND_FILES_DIR}/Preset3_melding.wav",
+    SOUND_SPOTIFY:      f"{SOUND_FILES_DIR}/Spotify_melding.wav",
+    SOUND_USB:          f"{SOUND_FILES_DIR}/USBPresent_melding.wav",
+    SOUND_NO_USB:       f"{SOUND_FILES_DIR}/NoUSB_melding.wav",
+    SOUND_AP_START:     f"{SOUND_FILES_DIR}/OradioAPstarted_melding.wav",
+    SOUND_AP_STOP:      f"{SOUND_FILES_DIR}/OradioAPstopped_melding.wav",
+    SOUND_WIFI:         f"{SOUND_FILES_DIR}/WifiConnected_melding.wav",
+    SOUND_NO_WIFI:      f"{SOUND_FILES_DIR}/WifiNotConnected_melding.wav",
+    SOUND_NO_INTERNET:  f"{SOUND_FILES_DIR}/NoInternet_melding.wav",
+    SOUND_NEW_PRESET:   f"{SOUND_FILES_DIR}/NewPlaylistPreset_melding.wav",
+    SOUND_NEW_WEBRADIO: f"{SOUND_FILES_DIR}/NewPlaylistWebradio_melding.wav",
 }
 
-def play_sound(sound_key) -> None:
-    """Fire-and-forget the system command that plays the given sound file."""
+def play_sound(sound_key: str) -> None:
+    """
+    Fire-and-forget the system command that plays the given sound file.
 
+    Args:
+       sound_key: Name of the sound key listed in SOUND_FILES to be played.
+    """
     # Get sound file from sound key
     sound_file = SOUND_FILES.get(sound_key)
     if not sound_file:

@@ -75,6 +75,23 @@ from oradio_const import (
     STATE_WIFI_ACCESS_POINT,
     STATE_WIFI_CONNECTED,
     STATE_WIFI_IDLE,
+    SOUND_START,
+    SOUND_STOP,
+    SOUND_PLAY,
+    SOUND_NEXT,
+    SOUND_PRESET1,
+    SOUND_PRESET2,
+    SOUND_PRESET3,
+    SOUND_SPOTIFY,
+    SOUND_USB,
+    SOUND_NO_USB,
+    SOUND_AP_START,
+    SOUND_AP_STOP,
+    SOUND_WIFI,
+    SOUND_NO_WIFI,
+    SOUND_NO_INTERNET,
+    SOUND_NEW_PRESET,
+    SOUND_NEW_WEBRADIO,
 )
 
 ##########Local constants##################
@@ -203,7 +220,7 @@ class StateMachine:
 
         if web_service_active.is_set():
             oradio_log.debug("WebService is already active")
-            play_sound("OradioAPstarted")
+            play_sound(SOUND_AP_START)
             return
 
         oradio_log.debug("Starting WebService: %r", web_service)
@@ -217,7 +234,7 @@ class StateMachine:
         if self.state == requested_state and requested_state in PLAY_STATES:
             if not mpd_control.is_webradio():
                 mpd_control.next()
-                play_sound("Next")
+                play_sound(SOUND_NEXT)
                 oradio_log.debug("Next song")
                 return True
         return False
@@ -242,7 +259,7 @@ class StateMachine:
             preset_key = requested_state[len("State"):]
             if mpd_control.is_webradio(preset=preset_key) and not has_internet():
                 oradio_log.info("Webradio blocked: no Internet")
-                threading.Timer(2, play_sound, args=("NoInternet",)).start()
+                threading.Timer(2, play_sound, args=(SOUND_NO_INTERNET,)).start()
                 return True
         return False
 
@@ -343,12 +360,12 @@ class StateMachine:
             leds.turn_on_led("LEDPlay")
         mpd_control.play()
         spotify_connect.pause()
-        play_sound("Play")
+        play_sound(SOUND_PLAY)
 
     def _state_preset1(self):
         leds.turn_on_led("LEDPreset1")
         mpd_control.play(preset="Preset1")
-        play_sound("Preset1")
+        play_sound(SOUND_PRESET1)
         if web_service_active.is_set():
             leds.control_blinking_led("LEDPlay", 2)
         spotify_connect.pause()
@@ -356,7 +373,7 @@ class StateMachine:
     def _state_preset2(self):
         leds.turn_on_led("LEDPreset2")
         mpd_control.play(preset="Preset2")
-        play_sound("Preset2")
+        play_sound(SOUND_PRESET1)
         if web_service_active.is_set():
             leds.control_blinking_led("LEDPlay", 2)
         spotify_connect.pause()
@@ -364,7 +381,7 @@ class StateMachine:
     def _state_preset3(self):
         leds.turn_on_led("LEDPreset3")
         mpd_control.play(preset="Preset3")
-        play_sound("Preset3")
+        play_sound(SOUND_PRESET1)
         if web_service_active.is_set():
             leds.control_blinking_led("LEDPlay", 2)
         spotify_connect.pause()
@@ -376,7 +393,7 @@ class StateMachine:
         else:
             mpd_control.pause()
         spotify_connect.pause()
-        play_sound("Stop")
+        play_sound(SOUND_STOP)
         # Schedule interruptible transition to Idle after 4 seconds (non-blocking)
         oradio_log.debug("Stop: scheduling transition to Idle in 4 s (interruptible)")
         self._arm_delayed_transition("StopToIdle", 4.0, "StateIdle")
@@ -392,7 +409,7 @@ class StateMachine:
         else:
             mpd_control.pause()
         spotify_connect.play()
-        play_sound("Spotify")
+        play_sound(SOUND_SPOTIFY)
 
     def _state_play_song_webif(self):
         if web_service_active.is_set():
@@ -401,14 +418,14 @@ class StateMachine:
             leds.turn_on_led("LEDPlay")
         spotify_connect.pause()
         mpd_control.play()
-        play_sound("Play")
+        play_sound(SOUND_PLAY)
 
     def _state_usb_absent(self):
         leds.control_blinking_led("LEDStop", 0.7)
         mpd_control.stop()
         spotify_connect.pause()
-        play_sound("Stop")
-        play_sound("NoUSB")
+        play_sound(SOUND_STOP)
+        play_sound(SOUND_NO_USB)
         if web_service_active.is_set():
             oradio_web_service.stop()
 
@@ -417,7 +434,7 @@ class StateMachine:
         oradio_log.debug("Starting-up")
         mpd_control.pause()
         spotify_connect.pause()
-        play_sound("StartUp")
+        play_sound(SOUND_START)
         oradio_log.debug("Startup: scheduling transition to Idle in 5 s")
         self._arm_delayed_transition("StartupToIdle", 5.0, "StateIdle")
 
@@ -465,7 +482,7 @@ def on_usb_present():
     if usb_present.is_set():
         return
     usb_present.set()
-    play_sound("USBPresent")
+    play_sound(SOUND_USB)
     # Ensure MPD database is updated
     mpd_control.update_database()
     # Transition to Idle after USB is inserted
@@ -481,13 +498,13 @@ def on_wifi_connected():
 
     if state_machine.state in PLAY_WEBSERVICE_STATES:  # If in play states,
         threading.Timer(
-            4, play_sound, args=("WifiConnected",)
+            4, play_sound, args=(SOUND_WIFI,)
         ).start()
 
 def on_wifi_fail_connect():
     oradio_log.info("Wifi fail connect acknowledged")
     if state_machine.state in PLAY_WEBSERVICE_STATES:  # If in play states,
-        play_sound("WifiNotConnected")
+        play_sound(SOUND_NO_WIFI)
 
 def on_wifi_access_point():
     oradio_log.info("Configured as access point acknowledged")
@@ -504,7 +521,7 @@ def on_webservice_active():
         return
     web_service_active.set()
     leds.control_blinking_led("LEDPlay", 2)
-    play_sound("OradioAPstarted")
+    play_sound(SOUND_AP_START)
     # handle Webradio and Spotify
     if mpd_control.is_webradio() or state_machine.state == "StateSpotifyConnect":
         state_machine.transition("StateIdle")
@@ -519,7 +536,7 @@ def on_webservice_idle():
         leds.turn_on_led("LEDPlay")
     else:
         leds.control_blinking_led("LEDPlay", 0)
-    play_sound("OradioAPstopped")
+    play_sound(SOUND_AP_START)
 
 def on_webservice_playing_song():
     spotify_connect.pause()  # spotify is on pause and will not work
@@ -535,27 +552,27 @@ def on_webservice_playing_song():
 def on_webservice_pl1_changed():
     state_machine.transition("StateIdle")
     state_machine.transition("StatePreset1")
-    threading.Timer(2, play_sound, args=("NewPlaylistPreset",)).start()
+    threading.Timer(2, play_sound, args=(SOUND_NEW_PRESET,)).start()
     oradio_log.debug("WebService on_webservice_pl1_changed acknowledged")
 
 
 def on_webservice_pl2_changed():
     state_machine.transition("StateIdle")
     state_machine.transition("StatePreset2")
-    threading.Timer(2, play_sound, args=("NewPlaylistPreset",)).start()
+    threading.Timer(2, play_sound, args=(SOUND_NEW_PRESET,)).start()
     oradio_log.debug("WebService on_webservice_pl2_changed acknowledged")
 
 
 def on_webservice_pl3_changed():
     state_machine.transition("StateIdle")
     state_machine.transition("StatePreset3")
-    threading.Timer(2, play_sound, args=("NewPlaylistPreset",)).start()
+    threading.Timer(2, play_sound, args=(SOUND_NEW_PRESET,)).start()
     oradio_log.debug("WebService on_webservice_pl3_changed acknowledged")
 
 
 def on_web_pl_webradio_changed():
     """Handle WebService: Webradio playlist changed."""
-    threading.Timer(2, play_sound, args=("NewPlaylistWebradio",)).start()
+    threading.Timer(2, play_sound, args=(SOUND_NEW_WEBRADIO,)).start()
     oradio_log.debug("WebService on_web_pl_webradio_changed acknowledged")
 
 
