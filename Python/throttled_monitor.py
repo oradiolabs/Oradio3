@@ -34,11 +34,13 @@ from oradio_logging import oradio_log
 
 # Bit meanings from vcgencmd documentation
 THROTTLE_FLAGS = {
+    # Low bits (0x0000–0x000F): current state
     0x1: "Under-voltage detected",
     0x2: "ARM frequency capped",
     0x4: "Currently throttled",
     0x8: "Soft temperature limit active",
 
+    # High bits (0x10000–0x80000): historical events
     0x10000: "Under-voltage has occurred",
     0x20000: "ARM frequency capping has occurred",
     0x40000: "Throttling has occurred",
@@ -67,6 +69,12 @@ class RPiThrottlingMonitor:
         # Test mode attributes
         self._test_mode = False
         self._forced_value = 0
+
+        # One-time startup diagnostic
+        value = self._get_throttle_value()
+        if value & 0xFFFF0000:
+            reasons = self._decode_flags(value, 0xFFFF0000)
+            oradio_log.warning("RPi HEALTH WARNING (since boot): %s", ", ".join(reasons))
 
         # Start the monitor
         self.start()
