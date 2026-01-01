@@ -41,11 +41,16 @@ T - Review na alle module wijzigingen.
 2025-12-30============================================================================================================================
 
 SOUNDS:
-R - Documentatie in Documents/ALSA folder
+Documents/ALSA:
+R - Update documentatie di uitlegt hoe het audio pad werkt
+
+oradio_control.py:
+R - Use sound constants
 
 touch_buttons.py:
 R - sound_player callback is verdwenen
 R - Gebruik play_sound() om de clicks af te spelen
+R - Use sound constants
 
 volume_control.py:
 R - alsaaudio import, en daarmeer class AlsaVolume is verdwenen
@@ -60,6 +65,7 @@ R - Hernoemd naar system_sounds.py
 
 system_sounds.py:
 R - play_sound() functie speelt sound asynchroon af
+R - Use sound constants
 
 2025-12-07============================================================================================================================
 
@@ -92,38 +98,42 @@ Henk review: led_control.py
 I2C:
 V Review Documents/I2C/I2C_modules_description.docx
 volume_control review:
-V 1 - Ah, nu snap ik je. Reworked: AlsaVolume.set() VolumeControl._set_volume() geven nu True/False terug. Wordt in manager bewust genegeerd.
-V 2 - De de exception komt als mixer_name niet bestaat, of initialisatie mislukt -> Extra comments toegevoegd aan AlsaVolume::__init__ in volumne_control.py
-V 3 - raw_value range is niet beperkt, want wordt in method geclamped
-V 4 - Ontbrekende foutmelding -> toegevoegd
-V 5 - Zie punt 1
-V 6 - Zie punt 1
-V 7 - errors propageren nu niet, worden alleen gelogd. Zie issue #408
+V - AlsaVolume.set() VolumeControl._set_volume() geven nu True/False terug. Wordt in manager bewust genegeerd.
+V - De de exception komt als mixer_name niet bestaat, of initialisatie mislukt -> Extra comments toegevoegd aan AlsaVolume::__init__ in volumne_control.py
+V - raw_value range is niet beperkt, want wordt in method geclamped
+V - Ontbrekende foutmelding -> toegevoegd
+V - Zie punt 1
+V - Zie punt 1
+V - errors propageren nu niet, worden alleen gelogd. Zie issue #408
 => Review/Rework conclusie: Rework akkoord. Hiermee is review afgesloten.
 backligting.py review:
-V 1 - Het is een vrij theoretisch geval: EEPROMS hebben een beperkt aantal write cycles.
+V - Het is een vrij theoretisch geval: EEPROMS hebben een beperkt aantal write cycles.
       Nu wordt de EEPROM elke keer als Oradio en backlighting start geschreven.
 	  Het is strikt genomen voldoende als dit eenmalig bij configuratie van Oradio gedaan wordt, dus in oradio_install.sh.
 	  Maar omdat EEPROM schrijfbeperking bij 40-50000 cycles ligt hoeven we ons daar niet echt druk over te maken.
 	  Kortom: we laten het in Backlighting::__init__ zitten. Eens?
-V 2 - de stop() method docstring is niet correct: Stop the Backlight manager ipv volume control. Gecorrigeerd
+V - de stop() method docstring is niet correct: Stop the Backlight manager ipv volume control. Gecorrigeerd
 => Review/Rework conclusie: Rework akkoord. Hiermee is review afgesloten.
 i2c_service.py review:
-V 1 - Reworked: een retry mechanisme voor write_byte() en write_block() toegevoegd
+V - Reworked: een retry mechanisme voor write_byte() en write_block() toegevoegd
 => Review/Rework conclusie: Rework akkoord. Hiermee is review afgesloten
 
 2025-11-10============================================================================================================================
 
 MPD:
-V 1 - Refactored code zit in trixie_mpd branch
-V 2 - mpd_client singleton moet eruit
-V 3 - Listener moet aparte singleton class worden
-V 4 - functies die waarde retourneren maar deze genegeerd wordt moeten _ = <functie>  gebruiken om te laten zien dat negeren bewust is
-V 5 - LET OP: bovenstaande heeft ook impact op radio_control.py en fastapi_server.py
-V 6 - Probleem in _remove_song_when_finished(), met een if conditie waarbij een int() met een string vergeleken wordt: de "deleteid" wordt niet uitgevoerd
-V 7 - Hetzelfde probleem in play_song(), ook een int()/String compare. Graag ook de single-line-code minder complex maken door meerdere code regels er aan te wijden. De code is dan beter leesbaar en te begrijpen. Ik heb voorbeeld toegevoegd.
-V 8 - Probleem met twee self._execute() die bij elkaar gevoegd worden. Gaat fout als er None terugkomt==> TypeError
-V 9 - Groene tekst als een module test optie een succes oplevert.
-V 10 - Verhuis MPDBase naar eigen file mpd_base.py, laat mpd_control.p en mpd_monito.py die importeren
-V 11 - Gebruik 'Singleton metaclass' in mpd_monitor.py (later ook in andere modules waar Singleton gebruikt wordt)
+mpd_service.py:
+V - Verhuis MPDService naar eigen file mpd_service.py, laat mpd_control.py en mpd_monitor.py die importeren
+mpd_control.py:
+V - mpd_client singleton moet eruit
+V - Gebruik 'Singleton metaclass' in mpd_control.py
+V - functies die waarde retourneren maar deze genegeerd wordt moeten _ = <functie>  gebruiken om te laten zien dat negeren bewust is
+V - Probleem in _remove_song_when_finished(), met een if conditie waarbij een int() met een string vergeleken wordt: de "deleteid" wordt niet uitgevoerd
+V - Hetzelfde probleem in play_song(), ook een int()/String compare. Graag ook de single-line-code minder complex maken door meerdere code regels er aan te wijden. De code is dan beter leesbaar en te begrijpen. Ik heb voorbeeld toegevoegd.
+V - Probleem met twee self._execute() die bij elkaar gevoegd worden. Gaat fout als er None terugkomt==> TypeError
+V - Groene tekst als een module test optie een succes oplevert.
+mpd:monitor.py:
+V - Listener moet aparte singleton class worden
+V - functies die waarde retourneren maar deze genegeerd wordt moeten _ = <functie>  gebruiken om te laten zien dat negeren bewust is
+V - Gebruik 'Singleton metaclass' in mpd_monitor.py
+V - Groene tekst als een module test optie een succes oplevert.
 => Review/Rework conclusie: Rework akkoord. Hiermee is review afgesloten.
