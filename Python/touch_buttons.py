@@ -24,7 +24,7 @@ from RPi import GPIO
 
 ##### oradio modules ####################
 from oradio_logging import oradio_log
-from system_sounds import play_sound
+from system_sounds import play_sound    # For better readability. pylint: disable=wrong-import-order
 
 ##### GLOBAL constants ####################
 from oradio_const import (
