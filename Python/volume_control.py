@@ -129,7 +129,7 @@ class VolumeControl:
         # Check if volume is given as percentage and in 0..100 range
         if not (isinstance(volume, str) and volume.endswith('%') and volume[:-1].isdigit() and 0 <= int(volume[:-1]) <= 100):
             oradio_log.error("Invalid volume '%s'", volume)
-            return False
+            return
 
         # Set volume
         cmd = f"amixer -c 0 cset name='{control}' {volume}"
