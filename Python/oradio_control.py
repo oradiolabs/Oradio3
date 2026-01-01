@@ -37,7 +37,6 @@ from volume_control import VolumeControl
 from mpd_control import MPDControl
 from mpd_monitor import MPDMonitor     # Optional: MPD events monitoring in the background
 from led_control import LEDControl
-from system_sounds import play_sound
 from touch_buttons import TouchButtons
 from remote_monitoring import RMService
 from spotify_connect_direct import SpotifyConnect
@@ -45,6 +44,7 @@ from usb_service import USBService
 from web_service import WebService
 from oradio_utils import has_internet
 from power_supply_control import PowerSupplyService
+from system_sounds import play_sound    # For better readability. pylint: disable=wrong-import-order
 
 # Runs a background thread logging throttled events
 import throttled_monitor     # pylint: disable=unused-import
@@ -373,7 +373,7 @@ class StateMachine:
     def _state_preset2(self):
         leds.turn_on_led("LEDPreset2")
         mpd_control.play(preset="Preset2")
-        play_sound(SOUND_PRESET1)
+        play_sound(SOUND_PRESET2)
         if web_service_active.is_set():
             leds.control_blinking_led("LEDPlay", 2)
         spotify_connect.pause()
@@ -381,7 +381,7 @@ class StateMachine:
     def _state_preset3(self):
         leds.turn_on_led("LEDPreset3")
         mpd_control.play(preset="Preset3")
-        play_sound(SOUND_PRESET1)
+        play_sound(SOUND_PRESET3)
         if web_service_active.is_set():
             leds.control_blinking_led("LEDPlay", 2)
         spotify_connect.pause()
@@ -536,7 +536,7 @@ def on_webservice_idle():
         leds.turn_on_led("LEDPlay")
     else:
         leds.control_blinking_led("LEDPlay", 0)
-    play_sound(SOUND_AP_START)
+    play_sound(SOUND_AP_STOP)
 
 def on_webservice_playing_song():
     spotify_connect.pause()  # spotify is on pause and will not work
