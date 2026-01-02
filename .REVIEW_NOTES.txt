@@ -1,0 +1,157 @@
+Legenda===================
+T betekent TODO
+R betekent reworked
+V betekent rework akkoord
+==========================
+
+YYYY-MM-DD============================================================================================================================
+
+MESSAGES:
+T - Messages 'opschonen', overwegen om json schemas te gebruiken.
+	De gekozen message format en definities zijn in de praktijk niet altijd even logisch.
+	Voordeel is onderhoudbaarheid, en met json schemas robuust tegen send/receive mismatches
+
+DEBUG / ERRORS:
+T - oradio_log.debug/info/warning/error messages nakijken of ze zinvol zijn en op juiste plek gebruikt worden.
+	Tijdens ontwikkeling is er vaak exctra debug logging ingeslopen om te controleren of de code werkt als verwacht.
+	Echter, de vraag is of als de module af is deze extra debug logging weer opgeruimd is.
+T - Default log level van modules die af zijn op 'info' zetten.
+	De logfile stroomt nu vol, ook met debug info van modules die niet gedebugged hoeven worden, info genoeg is.
+	Voordeel is dat oradio.log nuttiger wordt omdat eht geen overbodige regels bevat
+	Voordeel is ook dat Oradio minder cycles nodig heeft om te loggen (maar we hebben geen performance probleem)
+	Nadeel is dat áls er iets fout gaat, de logfile mogelijk te weining informatie bevat om de oorzaak van de fout op te sporen
+T - Oradio exception introduceren, inclusief handler die gepaste akties neemt.
+	Nu worden fouten alleen aamr gelogd, en als we geluk hebben naar RMS gestuurd.
+	De fout heeft vaak gevolgen voor het gedrag van de Oradio, waardoor de Oradio onverwachte dingen doet.
+	Als de error een Oradio-exception triggert inclusief extra informatie kan de exception handler in extrmis de Oradio opnieuw opstarten.
+
+WEBINTERFACE:
+T - Web interface refactoren naar Single Page Architecture (SPA), voor html, javascript en css.
+	De web interface bestaat nu uit een collectie losse web pagina's, losse javascript en losse css bestanden.
+    Nadeel is dat er veel duplicering van html, javascript en styling is tussen deze pagina's.
+	Dit heeft als risico dat er (zinloze/onbegrijpelijke) verschillen insluipen voor de gebruiker.
+	Het beste is om de web interface te refactoren naar Single Page Architecture (SPA).
+	Bijkomend voordeel is ook dat de server, inclusief de fix voor issue #384, eenvoudiger wordt.
+
+CONTROL:
+T - Review na alle module wijzigingen.
+	oradio_control is meermaals heen en weer geslingerd om (tijdelijke) wijzigingen in modules te accomoderen.
+	Zodra die modules gestabiliseerd zijn wordt het tijd om oradio_control na te kijken, op te schonen
+
+
+2026-01-02============================================================================================================================
+Henk: volume_control.py, play_system_sound.py , system_sound.py review akkoord
+Echter 1 opmerking voor volume_control.py
+De formule voor linear scaling begrijp ik niet goed.
+volume = int(VOL_MIN[:-1]) + ((adc_value - ADC_MIN) * VOL_RANGE + ADC_RANGE // 2) // ADC_RANGE
+* De lineaire (transfer) factor tussen adc_range en volume_range is: volume_range/adc_range, welke resulteert in een factor 50/1000=0.05
+  De delta_adc = (adc_value-ADC_MIN), dus als dan de delta_adc omgezet moet worden naar volume wordt dat:
+  volume = delta_adc * factor.
+  Bijvoorbeeld:
+  	De adc_value = 300, delta_adc = 300, dan is delta_volume = 300xfactor=300x0.05= 15. 
+  	Eventueel delta_volume nog omzetten naar integer.
+  	Opgeteld bij vol_min (=50) wordt dan 65.
+  Dus de formule wordt dan :volume = int(VOL_MIN[:-1]) + int((adc_value - ADC_MIN) * VOL_RANGE/ADC_RANGE)
+* Ik begrijp dan ook niet waarom je 2x een "floor division" nodig hebt. 
+Misschien toelichting geven in design document. Het lijkt wel te werken
+
+2025-12-30/2026-01-02=========================================================================================================================
+Henk: update rework akkoord
+
+SOUNDS:
+Documents/ALSA:
+R - Update documentatie di uitlegt hoe het audio pad werkt
+
+oradio_control.py:
+R - Use sound constants
+
+touch_buttons.py:
+R - sound_player callback is verdwenen
+R - Gebruik play_sound() om de clicks af te spelen
+R - Use sound constants
+
+volume_control.py:
+V - alsaaudio import, en daarmeer class AlsaVolume is verdwenen
+V - __init_ configureert de default MPD, Sounds en Spotify volumes
+V - set_volume() gebruikt nu run_shell_script() om volume in te stellen
+
+play_system_sound.py:
+V - Default MPD, Sounds en Spotify volumes verhuisd naar volume_control.py
+V - "duck en restore" volume regeling verwijderd
+V - Class PlaySystemSound is verwijderd
+V - Hernoemd naar system_sounds.py
+
+system_sounds.py:
+V - play_sound() functie speelt sound asynchroon af
+V - Use sound constants
+
+2025-12-07============================================================================================================================
+
+oradio_logging.py:
+V - log methods safe gemaakt met wrappers dei exceptions afvangen
+V - versturen van WARNING, ERROR en CRITICAL logs naar remote server toegevoegd
+V - onafhankelijk gemaakt van andere oradio modules
+V - Technische documnetatie bijgewerkt
+remote_monitoring.py:
+V - Versturen van WARNING, ERROR en CRITICAL logs naar remote server verwijderd
+V - Beheren van HEARTBEAT en SYS_LOG messages afhankelijk gemaakt vna wifi state
+V - Technische documnetatie bijgewerkt
+
+2025-11-10============================================================================================================================
+
+GPIO:
+Henk review: led_control.py
+1 - GPIO zaken ontkoppelen uit led_control.py. De GPIO wordt zowel in led_control als in touch_buttons geinitialiseerd. 
+    Zou op 1 plek moeten. Daarom GPIO zaken in een aparte module gpio_service.py afhandelen. 
+    Daarbij een klasse aanbieden met config en set/get methodes. 
+    Geeft betere abstractie door toevoeging van een hardware abstractie laag
+2 - methodes turn_off_led(), turn_on_led(), turn_on_led_with_delay() moeten een True/False teruggeven
+3 - delayed_off() thread gebruikt een sleep als delay.Beter is om een Timer thread te gebruiken
+4 - control_blinking_led(self, led_name, cycle_time=None), graag de cycle_time parameter specificeren.
+5 - De selftest is niet doelmatig. Beter is om  te testen of de leds ook werkelijk aan of uit staan door de GPIO status op te vragen van de geactiveerde led. 
+    Hiermee test je of de leds werkelijk aan of uit staan.
+
+2025-11-18============================================================================================================================
+
+I2C:
+V Review Documents/I2C/I2C_modules_description.docx
+volume_control review:
+V - AlsaVolume.set() VolumeControl._set_volume() geven nu True/False terug. Wordt in manager bewust genegeerd.
+V - De de exception komt als mixer_name niet bestaat, of initialisatie mislukt -> Extra comments toegevoegd aan AlsaVolume::__init__ in volumne_control.py
+V - raw_value range is niet beperkt, want wordt in method geclamped
+V - Ontbrekende foutmelding -> toegevoegd
+V - Zie punt 1
+V - Zie punt 1
+V - errors propageren nu niet, worden alleen gelogd. Zie issue #408
+=> Review/Rework conclusie: Rework akkoord. Hiermee is review afgesloten.
+backligting.py review:
+V - Het is een vrij theoretisch geval: EEPROMS hebben een beperkt aantal write cycles.
+      Nu wordt de EEPROM elke keer als Oradio en backlighting start geschreven.
+	  Het is strikt genomen voldoende als dit eenmalig bij configuratie van Oradio gedaan wordt, dus in oradio_install.sh.
+	  Maar omdat EEPROM schrijfbeperking bij 40-50000 cycles ligt hoeven we ons daar niet echt druk over te maken.
+	  Kortom: we laten het in Backlighting::__init__ zitten. Eens?
+V - de stop() method docstring is niet correct: Stop the Backlight manager ipv volume control. Gecorrigeerd
+=> Review/Rework conclusie: Rework akkoord. Hiermee is review afgesloten.
+i2c_service.py review:
+V - Reworked: een retry mechanisme voor write_byte() en write_block() toegevoegd
+=> Review/Rework conclusie: Rework akkoord. Hiermee is review afgesloten
+
+2025-11-10============================================================================================================================
+
+MPD:
+mpd_service.py:
+V - Verhuis MPDService naar eigen file mpd_service.py, laat mpd_control.py en mpd_monitor.py die importeren
+mpd_control.py:
+V - mpd_client singleton moet eruit
+V - Gebruik 'Singleton metaclass' in mpd_control.py
+V - functies die waarde retourneren maar deze genegeerd wordt moeten _ = <functie>  gebruiken om te laten zien dat negeren bewust is
+V - Probleem in _remove_song_when_finished(), met een if conditie waarbij een int() met een string vergeleken wordt: de "deleteid" wordt niet uitgevoerd
+V - Hetzelfde probleem in play_song(), ook een int()/String compare. Graag ook de single-line-code minder complex maken door meerdere code regels er aan te wijden. De code is dan beter leesbaar en te begrijpen. Ik heb voorbeeld toegevoegd.
+V - Probleem met twee self._execute() die bij elkaar gevoegd worden. Gaat fout als er None terugkomt==> TypeError
+V - Groene tekst als een module test optie een succes oplevert.
+mpd:monitor.py:
+V - Listener moet aparte singleton class worden
+V - functies die waarde retourneren maar deze genegeerd wordt moeten _ = <functie>  gebruiken om te laten zien dat negeren bewust is
+V - Gebruik 'Singleton metaclass' in mpd_monitor.py
+V - Groene tekst als een module test optie een succes oplevert.
+=> Review/Rework conclusie: Rework akkoord. Hiermee is review afgesloten.
