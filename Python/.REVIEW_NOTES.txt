@@ -38,7 +38,25 @@ T - Review na alle module wijzigingen.
 	oradio_control is meermaals heen en weer geslingerd om (tijdelijke) wijzigingen in modules te accomoderen.
 	Zodra die modules gestabiliseerd zijn wordt het tijd om oradio_control na te kijken, op te schonen
 
-2025-12-30============================================================================================================================
+
+2026-01-02============================================================================================================================
+Henk: volume_control.py, play_system_sound.py , system_sound.py review akkoord
+Echter 1 opmerking voor volume_control.py
+De formule voor linear scaling begrijp ik niet goed.
+volume = int(VOL_MIN[:-1]) + ((adc_value - ADC_MIN) * VOL_RANGE + ADC_RANGE // 2) // ADC_RANGE
+* De lineaire (transfer) factor tussen adc_range en volume_range is: volume_range/adc_range, welke resulteert in een factor 50/1000=0.05
+  De delta_adc = (adc_value-ADC_MIN), dus als dan de delta_adc omgezet moet worden naar volume wordt dat:
+  volume = delta_adc * factor.
+  Bijvoorbeeld:
+  	De adc_value = 300, delta_adc = 300, dan is delta_volume = 300xfactor=300x0.05= 15. 
+  	Eventueel delta_volume nog omzetten naar integer.
+  	Opgeteld bij vol_min (=50) wordt dan 65.
+  Dus de formule wordt dan :volume = int(VOL_MIN[:-1]) + int((adc_value - ADC_MIN) * VOL_RANGE/ADC_RANGE)
+* Ik begrijp dan ook niet waarom je 2x een "floor division" nodig hebt. 
+Misschien toelichting geven in design document. Het lijkt wel te werken
+
+2025-12-30/2026-01-02=========================================================================================================================
+Henk: update rework akkoord
 
 SOUNDS:
 Documents/ALSA:
@@ -53,19 +71,19 @@ R - Gebruik play_sound() om de clicks af te spelen
 R - Use sound constants
 
 volume_control.py:
-R - alsaaudio import, en daarmeer class AlsaVolume is verdwenen
-R - __init_ configureert de default MPD, Sounds en Spotify volumes
-R - set_volume() gebruikt nu run_shell_script() om volume in te stellen
+V - alsaaudio import, en daarmeer class AlsaVolume is verdwenen
+V - __init_ configureert de default MPD, Sounds en Spotify volumes
+V - set_volume() gebruikt nu run_shell_script() om volume in te stellen
 
 play_system_sound.py:
-R - Default MPD, Sounds en Spotify volumes verhuisd naar volume_control.py
-R - "duck en restore" volume regeling verwijderd
-R - Class PlaySystemSound is verwijderd
-R - Hernoemd naar system_sounds.py
+V - Default MPD, Sounds en Spotify volumes verhuisd naar volume_control.py
+V - "duck en restore" volume regeling verwijderd
+V - Class PlaySystemSound is verwijderd
+V - Hernoemd naar system_sounds.py
 
 system_sounds.py:
-R - play_sound() functie speelt sound asynchroon af
-R - Use sound constants
+V - play_sound() functie speelt sound asynchroon af
+V - Use sound constants
 
 2025-12-07============================================================================================================================
 
