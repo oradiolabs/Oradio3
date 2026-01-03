@@ -24,6 +24,7 @@ from threading import Thread, Timer, Event
 ##### oradio modules ####################
 from oradio_logging import oradio_log
 from gpio_service import GPIOService
+from oradio_utils import input_prompt_int, input_prompt_float
 
 ##### GLOBAL constants ####################
 from oradio_const import (LED_NAMES, GREEN, YELLOW, RED, NC)
@@ -219,10 +220,7 @@ if __name__ == "__main__":
     print("\nStarting LED Control Module Test...\n")
 
     from oradio_utils import setup_remote_debugging
-    ### Change HOST_ADDRESS to your host computer local address for remote debugging
-    HOST_ADDRESS = "192.168.178.52"
-    DEBUG_PORT = 5678
-    if not setup_remote_debugging(HOST_ADDRESS,DEBUG_PORT):
+    if not setup_remote_debugging():
         print("The remote debugging error, check the remote IP connection")
         sys.exit()
 
@@ -237,17 +235,6 @@ if __name__ == "__main__":
         _=input("Press Return on keyboard to stop this test")
         event.set()
 
-    def _prompt_int(prompt: str, default: int | None = None) -> int | None:
-        try:
-            return int(input(prompt))
-        except ValueError:
-            return default
-
-    def _prompt_float(prompt: str, default: float | None = None) -> float | None:
-        try:
-            return float(input(prompt))
-        except ValueError:
-            return default
 
     LED_OFF     = "▄" # symbol for led off
     LED_ON      = "▀" # symbol for led on
@@ -389,7 +376,7 @@ if __name__ == "__main__":
             for idx, name in enumerate(led_test_options, start=0):
                 print(f"{NC} {idx} - {name}")
 
-            led_test_choice = _prompt_int("Select test number: ", default=-1)
+            led_test_choice = input_prompt_int("Select test number: ", default=-1)
             match led_test_choice:
                 case 0:
                     print("\nReturning to main menu selection...\n")
@@ -401,7 +388,7 @@ if __name__ == "__main__":
                     print(f"\nTurn OFF {selected_led}\n")
                     led_control.turn_off_led(selected_led)
                 case 3:
-                    one_shot = _prompt_float("Input a one-shot ON period as float number : ")
+                    one_shot = input_prompt_float("Input a one-shot ON period as float number : ")
                     print(f"\n{one_shot} sec ONESHOT ON for {selected_led}\n")
                     led_control.turn_off_all_leds()
                     if led_control.oneshot_on_led(selected_led,one_shot):
@@ -411,7 +398,7 @@ if __name__ == "__main__":
                         else:
                             print(f"{RED}Test:The ONESHOT timing for {selected_led} is NOT OK")
                 case 4:
-                    cycle_time = _prompt_float("Input a cycletime as float number : ")
+                    cycle_time = input_prompt_float("Input a cycletime as float number : ")
                     print(f"\nBlinking LED {selected_led} with cycle-time of {cycle_time} sec\n")
                     stop_event = Event()
                     keyboard_thread = Thread(target=keyboard_input,
@@ -449,7 +436,7 @@ if __name__ == "__main__":
             print("\nTEST options:")
             for idx, name in enumerate(test_options, start=0):
                 print(f" {idx} - {name}")
-            test_choice = _prompt_int("Select test number: ", default=-1)
+            test_choice = input_prompt_int("Select test number: ", default=-1)
             match test_choice:
                 case 0:
                     led_control.turn_off_all_leds()
@@ -464,7 +451,7 @@ if __name__ == "__main__":
                 case 3:
                     print(f"\n running {test_options[3]}\n")
                     led_control.turn_off_all_leds()
-                    cycle_time = _prompt_float("Input a cycletime as float number : ")
+                    cycle_time = input_prompt_float("Input a cycletime as float number : ")
                     for led in LED_NAMES:
                         print(f"\nBlinking LED {led} with cycle-time of {cycle_time} sec\n")
                         led_control.control_blinking_led(led, cycle_time)
@@ -472,7 +459,7 @@ if __name__ == "__main__":
                     led_control.turn_off_all_leds()
                 case 4:
                     print(f"\n running {test_options[4]}\n")
-                    one_shot = _prompt_float("Input a one-shot ON period as float number : ")
+                    one_shot = input_prompt_float("Input a one-shot ON period as float number : ")
                     led_control.turn_off_all_leds()
                     for led in LED_NAMES:
                         led_control.oneshot_on_led(led,one_shot)
@@ -484,7 +471,7 @@ if __name__ == "__main__":
                     led_options = ["Quit"] + LED_NAMES
                     for idx, led_name in enumerate(led_options, start=0):
                         print(f" {idx} - {led_name}")
-                    led_choice = _prompt_int("Select a LED: ", default=-1)
+                    led_choice = input_prompt_int("Select a LED: ", default=-1)
                     match led_choice:
                         case 0:
                             print("\nExiting test program\n")
