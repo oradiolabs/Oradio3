@@ -27,7 +27,9 @@ from pydantic import ValidationError
 from play_system_sound import PlaySystemSound
 from oradio_logging import oradio_log
 from gpio_service import GPIOService
-from oradio_utils import safe_put, input_prompt_int, input_prompt_float, Oradio_message
+from oradio_utils import (safe_put, 
+                          input_prompt_int, input_prompt_float, 
+                          Oradio_message, validate_oradio_message)
 from system_sounds import play_sound
 # -------- LOCAL constants --------
 BUTTON_DEBOUNCE_TIME = 500          # ms, ignore rapid repeats
@@ -42,7 +44,7 @@ from oradio_const import (BUTTON_PLAY,BUTTON_STOP, BUTTON_PRESET1, BUTTON_PRESET
                          GREEN, YELLOW, RED, NC, \
                          MESSAGE_BUTTON_SOURCE, MESSAGE_NO_ERROR, MESSAGE_SHORT_PRESS, \
                          MESSAGE_LONG_PRESS_BUTTON, \
-                         CLICK, \
+                         SOUND_CLICK, \
                          MODEL_NAME_FOUND)
 
 class TouchButtons:
@@ -67,15 +69,6 @@ class TouchButtons:
             oradio_log.error(f"GPIO Initialization failed: {err}")
             raise ValueError("Invalid value provided") from err
         self.button_driver.set_button_edge_event_callback(self._button_event_callback)
-
-#        status, messages = create_json_model("Messages")
-#        if status == MODEL_NAME_FOUND:
-#            queue_messages = messages(source=MESSAGE_BUTTON_SOURCE, state="none", error="none", data=[])
-#        else:
-#            oradio_log.error(f"Json model for Queue-Messages not found")
-#        ## define the message model for the put message in the queue
-#        self.queue_put_mesg = queue_messages.model_dump()
-
         self.message_queue = queue
 
         self.button_press_times: dict[str, float] = {}   # button -> press start (monotonic)
@@ -94,26 +87,26 @@ class TouchButtons:
                             'data': float
                             }
         """
-        message_data = {}
-        message_data["source"]  = MESSAGE_BUTTON_SOURCE
+        message = {}
+        message["source"] = MESSAGE_BUTTON_SOURCE
         state = MESSAGE_SHORT_PRESS+button_data["name"]
         if self.BUTTONS_MODULE_TEST == TEST_ENABLED:
-            message_data["state"]  = state
-            message_data["error"]  = button_data["error"]
+            message["state"]  = state
+            message["error"]  = button_data["error"]
             data_list = []
             data_list.append(button_data["data"])
-            message_data["data"] = data_list
+            message["data"] = data_list
+            
         else:
-            message_data["state"]  = state
-            message_data["error"]  = button_data["error"]
+            message["state"]  = state
+            message["error"]  = button_data["error"]
         # validate and create the message
-        json_message = Oradio_message(**message_data).model_dump_json()
-        oradio_log.debug("Send TouchButton message: %s", json_message)
-        if not safe_put(self.message_queue, json_message):
+        oradio_msg = Oradio_message(**message).model_dump_json()
+        oradio_log.debug("Send TouchButton message: %s", oradio_msg)
+        if not safe_put(self.message_queue, oradio_msg):
             print("Failure when sending message to shared queue")
 
     def _button_event_callback(self, button_data: dict) -> None:
-        button_data
         '''
         callback for button events
         :arguments
@@ -122,6 +115,7 @@ class TouchButtons:
                             BUTTON_PRESET1 | BUTTON_PRESET2 | BUTTON_PRESET3]
 
         '''
+        time_start = perf_counter()
         button_name = button_data["name"]
         oradio_log.debug(f"Button change event: {button_name} = {button_data['state']}")
         if button_data["state"] == BUTTON_RELEASED:
@@ -144,6 +138,8 @@ class TouchButtons:
                 print_text +="print but within the debounce window of {debounce} will be neglected {nc}".format(
                         debounce =DEBOUNCE_SECONDS, nc=NC )
                 print(print_text)
+                global neglected_callback
+                neglected_callback[button_name] +=1 
             return  # software debounce
 
         self.last_trigger_times[button_name] = now
@@ -160,8 +156,8 @@ class TouchButtons:
         timer.daemon = True
         self.long_press_timers[button_name] = timer
         timer.start()
-
-        play_sound(CLICK)
+        print("timing before sound ",perf_counter()-time_start, perf_counter())
+        play_sound(SOUND_CLICK)
 
         button_data["error"] = MESSAGE_NO_ERROR # no errors here
         self._send_message(button_data)
@@ -212,53 +208,87 @@ if __name__ == "__main__":
         _=input("Press Return on keyboard to stop this test")
         event.set()
 
+#### statistics for button callbacks ############
     min_time = 10000
     max_time = 0
     sum_time = 0.0
     sum_count = 0
     avg_time = 0.0
+    valid_callbacks = {}
+    neglected_callback = {}
 
     def _reset_timing_data() -> None:
         '''
-        reset all 9global) timing data
+        reset all (global) timing data
         '''
-        global min_time, max_time, sum_count, sum_time, avg_time
+        global min_time, max_time, sum_count, sum_time, avg_time, valid_callbacks, neglected_callback
         min_time = 10000
         max_time = 0
         sum_time = 0.0
         sum_count = 0
         avg_time = 0.0
+        for button in BUTTON_NAMES:
+            valid_callbacks[button]= 0
+            neglected_callback[button] = 0
 
-    def _handle_message(message) -> None:
+    def _handle_message(message) -> bool:
+        '''
+        handle the message received in queue
+        :arguments
+            message must be according Oradio_message class
+        :return
+            True = message is correct and processed
+            False = message is not correct
+        '''
+        status = True
+        validated_message = validate_oradio_message(message)
+        if validated_message:
+            if validated_message.data:
+                # do the statistics
+                time_stamp = float(validated_message.data[0])
+                global min_time, max_time, sum_count, sum_time, avg_time, valid_callbacks
+                # statistics
+                button_name = validated_message.state.removeprefix(MESSAGE_SHORT_PRESS)
+                if button_name not in BUTTON_NAMES:
+                    print("invalid button:", button_name, validated_message)
+                else:
+                    valid_callbacks[button_name] +=1
 
-        try:
-            message_dict = json.loads(message)
-            validated_message = Oradio_message(**message_dict)
-            print("Valid json message received")
-        except ValidationError as err:
-            print("{yellow}invalid json message received{nc}".format(yellow=YELLOW, nc=NC))
-        if validated_message.data:
-            time_stamp = float(validated_message.data[0])
-            global min_time, max_time, sum_count, sum_time, avg_time
-            # statistics
-            sum_count +=1
-            duration = perf_counter() - time_stamp
-            sum_time +=duration
-            avg_time = sum_time/sum_count
-            if duration > max_time:
-                max_time = duration
-            if duration < min_time:
-                min_time = duration
-            print ("current_time={cur}, min_time={min}, max_time={max}, sum_count={sum}, avg_time={avg}".format(
-                   min=round(min_time,4), max=round(max_time,4), sum=sum_count, avg=round(avg_time,4),
-                   cur=round(duration,4))
-            )
+                sum_count +=1
+                duration = perf_counter() - time_stamp
+                sum_time +=duration
+                avg_time = sum_time/sum_count
+                if duration > max_time:
+                    max_time = duration
+                if duration < min_time:
+                    min_time = duration
+                print ("current_time={cur}, min_time={min}, max_time={max}, sum_count={sum}, avg_time={avg}".format(
+                       min=round(min_time,4), max=round(max_time,4), sum=sum_count, avg=round(avg_time,4),
+                       cur=round(duration,4))
+                )
         else:
-            print(f"{GREEN} Received message in queue = ",validated_message)
-            print(f"{NC}")
+            print(f"{RED}Invalid Oradio_message received {NC}")
+
+    def evaluate_test_results(nr_of_events:int) -> None:
+        '''
+        evaluate the timing test results
+        :arguments
+            nr_of_events = the number of events submitted by gpio callback
+        '''
+        global min_time, max_time, sum_count, sum_time, avg_time, valid_callbacks, neglected_callback
+        print ("min_time={min}, max_time={max}, sum_count={sum}, avg_time={avg}".format(
+               min=round(min_time,4), max=round(max_time,4), sum=sum_count, avg=round(avg_time,4))
+               )
+        print("number of submitted callbacks = ", nr_of_events)
+        print("Valid callbacks = {valid}".format(valid = valid_callbacks))
+        print("Neglected callbacks = {neglet}".format(neglet = neglected_callback))
 
     def _check_for_new_message_in_queue(msg_queue):
-        """WaitContinuously read and handle messages from the shared queue."""
+        """
+        Continuously wait, read and handle messages from the shared queue.
+        :arguments
+            msg_queue = queue to check for new messages
+        """
         while True:
             try:
                 msg = msg_queue.get()  # blocking
@@ -277,6 +307,9 @@ if __name__ == "__main__":
 
     def _callback_test(buttons_driver:TouchButtons):
         '''
+        Callback test submitted a callback for each of the buttons
+        :arguments
+            buttons_driver = instance of TouchButtons
         '''
         button_data = {}
         for button_name in BUTTON_NAMES:
@@ -285,13 +318,6 @@ if __name__ == "__main__":
             buttons_driver._button_event_callback(button_data)
             sleep(1)
 
-    def _callback_for_burst_test(button_data : dict) -> None:
-        '''
-        '''
-        
-        print("Received callback data=",button_data)
-
-    
     shared_queue = Queue()
 
     # Create a thread to listen and process new messages in shared queue
@@ -309,10 +335,10 @@ if __name__ == "__main__":
         test_options = ["Quit"] + \
                         ["Pressing a button and check message queue "] + \
                         ["Send for each button a button callback and check message queue"] +\
-                        ["BUTTON_PLAY gpio-callback latency test timing within debouncing window"] +\
-                        ["BUTTON_PLAY gpio-callback latency test timing outside debouncing window "] +\
-                        ["All buttons gpio-callback latency test timing within debouncing window "] +\
-                        ["All buttons gpio-callback latency test timing outside debouncing window "]
+                        ["BUTTON_PLAY gpio-callback (incl-click) latency timing within debouncing window"] +\
+                        ["BUTTON_PLAY gpio-callback (incl-click) latency timing outside debouncing window "] +\
+                        ["All buttons gpio-callback (incl-click) latency timing within debouncing window "] +\
+                        ["All buttons gpio-callback (incl-click) latency timing outside debouncing window "]
         while True:
             print("\nTEST options:")
             for idx, name in enumerate(test_options, start=0):
@@ -355,10 +381,11 @@ if __name__ == "__main__":
                         keyboard_thread.start()
                         oradio_log.set_level(CRITICAL)
                         try:
-                            test_buttons.button_driver.simulate_button_events_burst(burst_freq,stop_event)
+                            nr_of_events = test_buttons.button_driver.simulate_button_events_burst(burst_freq,stop_event)
                         except RuntimeError as err:
                             print("\nThe module test is not enabled, enable module test in code")
                         oradio_log.set_level(DEBUG)
+                    evaluate_test_results(nr_of_events)
                     _stop_all_long_press_timer(test_buttons)
                 case 5 | 6:
                     print(f"\n running {test_options[5]}\n")
@@ -385,12 +412,12 @@ if __name__ == "__main__":
                         keyboard_thread.start()
                         oradio_log.set_level(CRITICAL)
                         try:
-                            test_buttons.button_driver.simulate_all_buttons_events_burst(burst_freq,stop_event)
+                            nr_of_events = test_buttons.button_driver.simulate_all_buttons_events_burst(burst_freq,stop_event)
                         except RuntimeError as err:
                             print("\nThe module test is not enabled, enable module test in code")
                         oradio_log.set_level(DEBUG)
                     _stop_all_long_press_timer(test_buttons)
-
+                    evaluate_test_results(nr_of_events)
                 case _:
                     print("Please input a valid number.")
 

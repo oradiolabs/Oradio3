@@ -30,7 +30,6 @@ try:
 except RuntimeError:
     oradio_log.error("Error importing RPi.GPIO. Check privileges!)")
 
-
 ##### oradio modules ####################
 from oradio_const import ( LED_PLAY,LED_STOP, LED_PRESET1, LED_PRESET2, LED_PRESET3, LED_NAMES, \
                          BUTTON_PLAY,BUTTON_STOP, BUTTON_PRESET1, BUTTON_PRESET2, BUTTON_PRESET3, BUTTON_NAMES, \
@@ -39,6 +38,7 @@ from oradio_const import ( LED_PLAY,LED_STOP, LED_PRESET1, LED_PRESET2, LED_PRES
                          GREEN, YELLOW, RED, NC)
 
 from oradio_logging import oradio_log
+from oradio_utils import input_prompt_int, input_prompt_float
 
 ##### GLOBAL constants ####################
 
@@ -242,20 +242,42 @@ class GPIOService:
 
 ########### Method for testing purposes only #################
     def simulate_button_events_burst(self, burst_freq: int, stop_burst: Event) -> None:
+        ''' 
+        simulate a button press by submitting a callback for BUTTON_PLAY
+        :arguments
+            burst_freq = nr of events per second
+            stop_burst = an event to stop the burst
+        :return
+            nr_of_events = the number of event callback submitted
+        '''
+        nr_of_events = 0
         if self.GPIO_MODULE_TEST == TEST_DISABLED:
             raise RuntimeError("Test is disabled. Enable GPIO_MODULE_TEST to use this method")
         button_name = BUTTON_PLAY
         while not stop_burst.is_set():
             self._edge_callback(BUTTONS[BUTTON_PLAY])
+            nr_of_events +=1
             sleep(1/burst_freq)
-
-    def simulate_all_buttons_events_burst(self, burst_freq: int, stop_burst: Event) -> None:
+        return nr_of_events
+    
+    def simulate_all_buttons_events_burst(self, burst_freq: int, stop_burst: Event) -> int:
+        ''' 
+        simulate all button press by submitting a callback for all buttons in a sequence
+        :arguments
+            burst_freq = nr of events per second
+            stop_burst = an event to stop the burst
+        :return
+            nr_of_events = the number of event callback submitted
+        '''
+        nr_of_events = 0
         if self.GPIO_MODULE_TEST == TEST_DISABLED:
             raise RuntimeError("Test is disabled. Enable GPIO_MODULE_TEST to use this method")
         while not stop_burst.is_set():
             for button in BUTTON_NAMES:
                 self._edge_callback(BUTTONS[button])
+                nr_of_events +=1
             sleep(1/burst_freq)
+        return nr_of_events
 
 
 # Entry point for stand-alone operation
@@ -275,10 +297,7 @@ if __name__ == '__main__':
 
     button_state = {True: f"{YELLOW}1", False: f"{NC}0"}
     
-    ### Change HOST_ADDRESS to your host computer local address for remote debugging
-    HOST_ADDRESS = "192.168.178.52"
-    DEBUG_PORT = 5678
-    if not setup_remote_debugging(HOST_ADDRESS,DEBUG_PORT):
+    if not setup_remote_debugging():
         print("The remote debugging error, check the remote IP connection")
         sys.exit  # pylint: disable=pointless-statement
 

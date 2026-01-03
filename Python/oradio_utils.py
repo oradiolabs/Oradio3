@@ -117,76 +117,26 @@ def is_service_active(service_name):
         oradio_log.error("Error checking %s service, error-status=: %s", service_name, ex_err)
         return False
 
-def json_schema_to_pydantic(name: str, schema: dict[str,Any]) -> BaseModel:
-    """
-    Dynamic Model generation based on a JSON schema
-    """
-    if "properties" not in schema:  # Skip first entry
-        return None
-    fields ={}
-    required_fields = set(schema.get("required", []))  # Get required fields from schema
-
-    for prop, details in schema["properties"].items():
-        field_type = str  # Default type
-        if details["type"] == "integer":
-            field_type = int
-        elif details["type"] == "boolean":
-            field_type = bool
-        elif details["type"] == "number":
-            field_type = float
-        elif details["type"] == "array":
-            field_type = list
-        if "required" in schema and prop in schema["required"]:
-            fields[prop] = (field_type, ...)
-        else:
-            fields[prop] = (field_type, None)
-
-        # Handle optional fields (not in "required")
-        if prop not in required_fields:
-            fields[prop] = (Optional[field_type], None)  # Mark as Optional
-        else:
-            fields[prop] = (field_type, ...)  # Required fields
-
-    return create_model(name, **fields)
-
-def create_json_model(model_name: str):
-    """
-    Create a object based model derived from the json schema
-    :param model_name [str] = name of model in schema
-    :return model = name of model to create, e.g. Messages
-    :return status = MODEL_NAME_FOUND | MODEL_NAME_NOT_FOUND
-    """
-    # Load the JSON schema file
-    with open(JSON_SCHEMAS_FILE, encoding="utf-8") as file:
-        schemas = json.load(file)
-    if model_name not in schemas:
-        status = MODEL_NAME_NOT_FOUND
-        messages = None
-    else:
-        status = MODEL_NAME_FOUND
-        # Dynamically create Pydantic models
-        models = {name: json_schema_to_pydantic(name, schema) for name, schema in schemas.items()}
-        # create messages model
-        messages = models[model_name]
-    return(status, messages)
-
-def is_json_message_valid(message:dict)->bool:
-    ''' check if message is according json scheme
+def validate_oradio_message(message: dict)-> dict:
+    ''' check if message is according json scheme for Oradio_message
     :argument
-        message : a dictionary formatted as json message define json scheme
+        message : message formatted as a dictionary 
     :return
-        True: valid structure
-        False: invalid structure
+        validated_message = Dictionary,  the validated Oradio_message structure
+        validated_messsage = None, when not according Oradio_message structure
     '''
     status = False
+    message_dict = json.loads(message)
     try:
-        validated_message = MyMessage(**message_dict)
-        print("Message is valid:", validated_message)
+        validated_message = Oradio_message(**message_dict)
+        oradio_log.debug(f"Message is valid: {validated_message}")
         status = True
-    except ValidationError as e:
-        print("Message does not match schema:", e)
-    return status
-    # Handle the error
+    except ValidationError as err:
+        oradio_log.error("Message does not match Oradio_message schema:", err)
+        validated_message = None
+    return validated_message
+
+# Handle the error
 def has_internet() -> bool:
     """
     Quickly check if the given interface has internet access.
