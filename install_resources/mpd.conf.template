@@ -8,7 +8,7 @@
 # For performance reasons we want the connection to never be disconnected.
 # Setting connection_timeout to 0 does not work: infinite is not allowed.
 # Therefore we set connection_timeout to 1 year, essentially the same as infinite.
-connection_timeout "31536000"
+connection_timeout	"31536000"
 
 # Files and directories #######################################################
 #
@@ -40,10 +40,10 @@ db_file				"/var/lib/mpd/tag_cache"
 # The special value "syslog" makes MPD use the local syslog daemon. This
 # setting defaults to logging to syslog.
 #
-# If you use systemd, do not configure a log_file.  With systemd, MPD
+# If you use systemd, do not configure a log_file. With systemd, MPD
 # defaults to the systemd journal, which is fine.
 #
-#log_file			"/var/log/mpd/mpd.log"
+log_file			"PLACEHOLDER_LOGFILE_MPD"
 
 # This setting sets the location of the file which stores the process ID
 # for use of mpd --kill and some init scripts. This setting is disabled by
@@ -60,7 +60,7 @@ db_file				"/var/lib/mpd/tag_cache"
 #
 state_file			"/var/lib/mpd/state"
 #
-# The location of the sticker database.  This is a database which
+# The location of the sticker database. This is a database which
 # manages dynamic information attached to songs.
 #
 sticker_file		"/var/lib/mpd/sticker.sql"
@@ -100,7 +100,7 @@ bind_to_address		"localhost"
 #
 #port				"6600"
 #
-# Suppress all messages below the given threshold.  Use "verbose" for
+# Suppress all messages below the given threshold. Use "verbose" for
 # troubleshooting. Available setting arguments are "notice", "info", "verbose",
 # "warning" and "error".
 #
@@ -109,7 +109,7 @@ bind_to_address		"localhost"
 # Setting "restore_paused" to "yes" puts MPD into pause mode instead
 # of starting playback after startup.
 #
-restore_paused "yes"
+restore_paused		"yes"
 #
 # This setting enables MPD to create playlists in a format usable by other
 # music players.
@@ -119,21 +119,21 @@ restore_paused "yes"
 # This setting defines a list of tag types that will be extracted during the
 # audio file discovery process. The complete list of possible values can be
 # found in the user manual.
-metadata_to_use	"artist,title"
+metadata_to_use		"artist,title"
 #
 # This example just enables the "comment" tag without disabling all
 # the other supported tags:
-#metadata_to_use "+comment"
+#metadata_to_use	"+comment"
 #
 # This setting enables automatic update of MPD's database when files in
 # music_directory are changed.
 #
-#auto_update	"yes"
+#auto_update		"yes"
 #
 # Limit the depth of the directories being watched, 0 means only watch
-# the music directory itself.  There is no limit by default.
+# the music directory itself. There is no limit by default.
 #
-#auto_update_depth "3"
+#auto_update_depth	"3"
 #
 ###############################################################################
 
@@ -158,12 +158,12 @@ metadata_to_use	"artist,title"
 # If this setting is set to "yes", service information will be published with
 # Zeroconf / Avahi.
 #
-#zeroconf_enabled		"yes"
+#zeroconf_enabled	"yes"
 #
 # The argument to this setting will be the Zeroconf / Avahi unique name for
 # this MPD server on the network. %h will be replaced with the hostname.
 #
-#zeroconf_name			"Music Player @ %h"
+#zeroconf_name		"Music Player @ %h"
 #
 ###############################################################################
 
@@ -173,11 +173,11 @@ metadata_to_use	"artist,title"
 # If this setting is set, MPD will require password authorization. The password
 # setting can be specified multiple times for different password profiles.
 #
-#password                        "password@read,add,control,admin"
+#password			"password@read,add,control,admin"
 #
 # This setting specifies the permissions a user has who has not yet logged in.
 #
-#default_permissions             "read,add,control,admin"
+#default_permissions	"read,add,control,admin"
 #
 ###############################################################################
 
@@ -188,41 +188,41 @@ metadata_to_use	"artist,title"
 # It enables mounting other storages into the music directory.
 #
 #database {
-#       plugin "simple"
-#       path "/var/lib/mpd/tag_cache"
-#       cache_directory "/var/lib/mpd/cache"
+#		plugin "simple"
+#		path "/var/lib/mpd/tag_cache"
+#		cache_directory "/var/lib/mpd/cache"
 #}
 #
 # An example of database config for a satellite setup
 #
 #music_directory "nfs://fileserver.local/srv/mp3"
 #database {
-#       plugin "proxy"
-#       host "other.mpd.host"
-#       port "6600"
+#		plugin "proxy"
+#		host "other.mpd.host"
+#		port "6600"
 #}
 
 # Input #######################################################################
 #
 input {
-        plugin "curl"
-#       proxy "proxy.isp.com:8080"
-#       proxy_user "user"
-#       proxy_password "password"
+		plugin "curl"
+#		proxy "proxy.isp.com:8080"
+#		proxy_user "user"
+#		proxy_password "password"
 }
 
 # Decoder #####################################################################
 #
 
 decoder {
-        plugin                  "hybrid_dsd"
-        enabled                 "no"
-#       gapless                 "no"
+		plugin			"hybrid_dsd"
+		enabled			"no"
+#		gapless			"no"
 }
 decoder {
-        plugin        "wildmidi"
-        enabled       "no"
-        #config_file "/etc/timidity/timidity.cfg"
+		plugin			"wildmidi"
+		enabled			"no"
+#		config_file		"/etc/timidity/timidity.cfg"
 }
 
 #
@@ -238,24 +238,24 @@ decoder {
 # An example of an ALSA output:
 #
 #audio_output {
-#	type		"alsa"
-#	name		"My ALSA Device"
-##	device		"hw:0,0"	# optional
-##	mixer_type      "hardware"	# optional
+#	type			"alsa"
+#	name			"My ALSA Device"
+##	device			"hw:0,0"	# optional
+##	mixer_type		"hardware"	# optional
 ##	mixer_device	"default"	# optional
 ##	mixer_control	"PCM"		# optional
-##	mixer_index	"0"		# optional
+##	mixer_index		"0"			# optional
 #}
 #
 # An example of an OSS output:
 #
 #audio_output {
-#	type		"oss"
-#	name		"My OSS Device"
-##	device		"/dev/dsp"	# optional
-##	mixer_type      "hardware"	# optional
+#	type			"oss"
+#	name			"My OSS Device"
+##	device			"/dev/dsp"		# optional
+##	mixer_type		"hardware"		# optional
 ##	mixer_device	"/dev/mixer"	# optional
-##	mixer_control	"PCM"		# optional
+##	mixer_control	"PCM"			# optional
 #}
 #
 # An example of a shout output (for streaming to Icecast):
@@ -274,11 +274,11 @@ decoder {
 ##	protocol	"icecast2"		# optional
 ##	user		"source"		# optional
 ##	description	"My Stream Description"	# optional
-##	url		"http://example.com"	# optional
+##	url			"http://example.com"	# optional
 ##	genre		"jazz"			# optional
 ##	public		"no"			# optional
-##	timeout		"2"			# optional
-##	mixer_type      "software"		# optional
+##	timeout		"2"				# optional
+##	mixer_type	"software"		# optional
 #}
 #
 # An example of a recorder output:
@@ -300,11 +300,11 @@ decoder {
 #	name		"My HTTP Stream"
 #	encoder		"vorbis"		# optional, vorbis or lame
 #	port		"8000"
-#	bind_to_address	"0.0.0.0"		# optional, IPv4 or IPv6
+#	bind_to_address	"0.0.0.0"	# optional, IPv4 or IPv6
 ##	quality		"5.0"			# do not define if bitrate is defined
 #	bitrate		"128"			# do not define if quality is defined
 #	format		"44100:16:1"
-#	max_clients	"0"			# optional 0=no limit
+#	max_clients	"0"				# optional 0=no limit
 #}
 #
 # An example of a pulseaudio output (streaming to a remote pulseaudio server)
@@ -314,9 +314,9 @@ decoder {
 #audio_output {
 #	type		"pulse"
 #	name		"My Pulse Output"
-##	server		"remote_server"		# optional
+##	server		"remote_server"			# optional
 ##	sink		"remote_server_sink"	# optional
-##	media_role	"media_role"		#optional
+##	media_role	"media_role"			#optional
 #}
 #
 # An example of a winmm output (Windows multimedia API).
@@ -326,7 +326,7 @@ decoder {
 #	name		"My WinMM output"
 ##	device		"Digital Audio (S/PDIF) (High Definition Audio Device)" # optional
 #		or
-##	device		"0"		# optional
+##	device		"0"			# optional
 ##	mixer_type	"hardware"	# optional
 #}
 #
@@ -352,7 +352,7 @@ decoder {
 #	type		"osx"
 #	name		"My OS X Device"
 ##	device		"Built-in Output"	# optional
-##	channel_map      "-1,-1,0,1"	# optional
+##	channel_map	"-1,-1,0,1"			# optional
 #}
 #
 ## Example "pipe" output:
@@ -373,7 +373,7 @@ decoder {
 #audio_output {
 #	type		"null"
 #	name		"My Null Output"
-#	mixer_type      "none"			# optional
+#	mixer_type	"none"			# optional
 #}
 #
 ###############################################################################
@@ -394,12 +394,12 @@ replaygain			"track"
 # This setting sets the pre-amp used for files that have ReplayGain tags. By
 # default this setting is disabled.
 #
-replaygain_preamp		"6"
+replaygain_preamp	"0"
 #
 # This setting sets the pre-amp used for files that do NOT have ReplayGain tags.
 # By default this setting is disabled.
 #
-replaygain_missing_preamp	"-2"
+replaygain_missing_preamp	"-4"
 #
 # This setting enables or disables ReplayGain limiting.
 # MPD calculates actual amplification based on the ReplayGain tags
@@ -408,13 +408,13 @@ replaygain_missing_preamp	"-2"
 # above its original level. If replaygain_limit is disabled such amplification
 # might occur. By default this setting is enabled.
 #
-replaygain_limit		"no"
+replaygain_limit	"no"
 #
 # This setting enables on-the-fly normalization volume adjustment. This will
 # result in the volume of all playing audio to be adjusted so the output has
 # equal "loudness". This setting is disabled by default.
 #
-#volume_normalization		"no"
+#volume_normalization	"no"
 #
 ###############################################################################
 
@@ -429,8 +429,8 @@ filesystem_charset		"UTF-8"
 
 # Oradio audio output
 audio_output {
-    type            "alsa"
-    name            "MPD Output"
-    device          "MPD_in"      
-    mixer_type      "none"        
+	type		"alsa"
+	name		"MPD Output"
+	device		"MPD_in"
+	mixer_type	"none"
 }

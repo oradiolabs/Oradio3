@@ -25,7 +25,7 @@ ExecStart=/usr/bin/librespot \
     --initial-volume 100 \
     --volume-ctrl fixed \
     --enable-volume-normalisation \
-    --normalisation-pregain 3.0 \
+    --normalisation-pregain 0.0 \
     --device-type avr \
     --autoplay on \
     --device SpotCon_in \
