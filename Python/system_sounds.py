@@ -96,8 +96,8 @@ def play_sound(sound_key: str) -> None:
     # Command to play sound
     cmd = f"aplay -D '{SYSTEM_SOUND_SINK}' {sound_file}"
 
-    # Use 'with' to ensure proper cleanup after starting process in background
-    with subprocess.Popen(
+    # Using 'with' has no added value, only slows down code execution
+    subprocess.Popen(
         cmd,
         shell=True,
         stdout=subprocess.DEVNULL,
@@ -105,8 +105,7 @@ def play_sound(sound_key: str) -> None:
         stdin=subprocess.DEVNULL,
         start_new_session=True,     # detaches process to prevent zombies
         close_fds=True
-    ):
-        pass  # We don't need to wait; context ensures cleanup
+    )   # pylint: disable=consider-using-with
 
     oradio_log.debug("System sound played successfully: %s", sound_file)
 
