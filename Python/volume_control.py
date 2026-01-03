@@ -39,10 +39,8 @@ from oradio_const import (
 # Volume scaling and clamping units
 ADC_MIN   = 0
 ADC_MAX   = 1023
-ADC_RANGE = ADC_MAX - ADC_MIN
 VOL_MIN   = "50%"       # 104
 VOL_MAX   = "100%"      # 207
-VOL_RANGE = int(VOL_MAX[:-1]) - int(VOL_MIN[:-1])
 # ALSA volume controls
 VOLUME_CONTROL_MPD       = "VolumeMPD"
 VOLUME_CONTROL_SPOTIFY   = "VolumeSpotCon2"
@@ -118,6 +116,19 @@ class VolumeControl:
         # Combine the 2 bytes into a 10-bit value
         return ((data[0] & 0x3F) << 6) | (data[1] >> 2)
 
+    def _adc2volume(self, adc) -> int:
+        """
+        Map adc from range [ADC_MIN, ADC_MAX] to [VOL_MIN, VOL_MAX].
+        Round the mapping result to the nearest integer.
+
+        Args:
+            adc (int): The value of the ADC reading the volumne knob position.
+
+        Returns:
+            int: The volume level in range 0..100
+        """
+        return round(int(VOL_MIN[:-1]) + (adc - ADC_MIN) * (int(VOL_MAX[:-1]) - int(VOL_MIN[:-1])) / (ADC_MAX - ADC_MIN))
+
     def _set_volume(self, control, volume) -> None:
         """
         Change volume for the given control.
@@ -151,8 +162,8 @@ class VolumeControl:
         if previous_adc is None:
             oradio_log.error("ADC read failed")
 
-        # Linear scaling with rounding to nearest integer
-        volume = int(VOL_MIN[:-1]) + ((previous_adc - ADC_MIN) * VOL_RANGE + ADC_RANGE // 2) // ADC_RANGE
+        # Convert ADC reading to volume level
+        volume = self._adc2volume(previous_adc)
 
         # Set master volume in line with position of the volume knob
         self._set_volume(VOLUME_CONTROL_MASTER, f"{volume}%")
@@ -177,8 +188,8 @@ class VolumeControl:
             if abs(adc_value - previous_adc) > ADC_UPDATE_TOLERANCE:
                 previous_adc = adc_value
 
-                # Linear scaling with rounding to nearest integer
-                volume = int(VOL_MIN[:-1]) + ((adc_value - ADC_MIN) * VOL_RANGE + ADC_RANGE // 2) // ADC_RANGE
+                # Convert ADC reading to volume level
+                volume = self._adc2volume(adc_value)
 
                 # Set master volume in line with position of the volume knob
                 self._set_volume(VOLUME_CONTROL_MASTER, f"{volume}%")
