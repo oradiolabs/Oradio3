@@ -279,6 +279,31 @@ class GPIOService:
             sleep(1/burst_freq)
         return nr_of_events
 
+    def simulate_button_press_and_release(self,button_name: str, press_timing : float)-> None:
+        ''' 
+        simulate a BUTTON_STOP button press according specified press timing,
+        by submitting a callback for specified button
+        :arguments
+            button_name = name of button [ BUTTON_PLAY | BUTTON_STOP] |
+                                            BUTTON_PRESET1 | BUTTON_PRESET2 | BUTTON_PRESET3 ]
+            press_timing = press time in float seconds for BUTTON_STOP 
+        '''
+        GPIO.setup(BUTTONS[button_name], GPIO.OUT, initial=GPIO.HIGH)
+        GPIO.output(BUTTONS[button_name], GPIO.LOW)
+        self._edge_callback(BUTTONS[button_name])
+        start_time = perf_counter()
+        elapsed_time = 0.0
+        while elapsed_time < press_timing:
+            print("*", end=" ", flush=True)
+            sleep(0.2)
+            elapsed_time = perf_counter()-start_time
+        print("button press timing was ",press_timing, end=" ", flush=True)
+        print("\n")
+        GPIO.output(BUTTONS[button_name], GPIO.HIGH)
+        self._edge_callback(BUTTONS[button_name])
+        GPIO.setup(BUTTONS[button_name], GPIO.IN, pull_up_down=GPIO.PUD_UP)
+        return
+
 
 # Entry point for stand-alone operation
 if __name__ == '__main__':
