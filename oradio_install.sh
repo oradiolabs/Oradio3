@@ -172,6 +172,7 @@ if [ "$1" != "--continue" ]; then
 		git
 		mpd
 		mpc
+		caps
 		iptables
 		raspotify
 		python3-gi
