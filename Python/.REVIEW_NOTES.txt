@@ -39,9 +39,13 @@ T - Review na alle module wijzigingen.
 	Zodra die modules gestabiliseerd zijn wordt het tijd om oradio_control na te kijken, op te schonen
 
 
-2026-01-03============================================================================================================================
+2026-01-06============================================================================================================================
 
 AUDIO:
+asound.conf:
+V - Use 24 bit resolution
+V - Use 48 kHz sampling rate
+V - Replace equal by EqFA4p
 volume_control.py:
 V - alsaaudio import, en daarmeer class AlsaVolume is verdwenen
 V - __init_ configureert de default MPD, Sounds en Spotify volumes
