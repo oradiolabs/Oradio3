@@ -172,6 +172,7 @@ if [ "$1" != "--continue" ]; then
 		git
 		mpd
 		mpc
+		caps
 		iptables
 		raspotify
 		python3-gi
@@ -181,7 +182,6 @@ if [ "$1" != "--continue" ]; then
 		python3-requests
 		python3-watchdog
 		python3-netifaces
-		libasound2-plugin-equal
 	)
 
 	# Fetch list of upgradable packages
@@ -428,8 +428,6 @@ install_resource $RESOURCES_PATH/modules /etc/modules
 # Progress report
 echo -e "${GREEN}i2c installed and configured${NC}"
 
-# Install equalizer settings with rw rights
-install_resource $RESOURCES_PATH/alsaequal.bin /etc/alsaequal.bin 'chmod 666 /etc/alsaequal.bin'
 # Install audio configuration, set volume to reasonable level, play silence to activate
 install_resource $RESOURCES_PATH/asound.conf /etc/asound.conf \
 	'amixer -c 0 cset name="Digital Playback Volume" 120'\
