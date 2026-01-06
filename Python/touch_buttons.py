@@ -48,18 +48,24 @@ DEBOUNCE_SECONDS = BUTTON_DEBOUNCE_TIME / 1000.0
 BOUNCE_MS           = 10                      # hardware debounce in GPIO.add_event_detect
 LONG_PRESS_DURATION = 6  # seconds
 VALID_LONG_PRESS_BUTTONS = [BUTTON_PLAY]
+BUTTON_LONG_PRESSED = "button long pressed"
 
 class TouchButtons:
     """
     Handle GPIO-based touch buttons with debounce, short-press callbacks,
     and long-press callbacks. This class has **no knowledge** of the state machine.
+    :Conditionals
+        BUTTONS_MODULE_TEST:
+            TEST_DISABLED = The module test is disabled (default)
+            TEST_ENABLED  = The module test is enabled, additional code is provided
+
     """
     BUTTONS_MODULE_TEST = TEST_DISABLED
 
     def __init__(self,queue : Queue):
         """
         Class constructor: setup class variables
-        and create instance for GPIOService class for LED IO-service
+        and create instance for GPIOService class for button IO-service
         :arguments
             queue: the shared message queue
         :exceptions
@@ -82,23 +88,28 @@ class TouchButtons:
         :arguments
             button_data = { 'name': str,   # name of button
                             'state': str,  # state of button Pressed/Released
-                            'error' : str
-                            }
-                            if TEST_ENABLED port_numbera data key is added
-                            {
-                            'data': float
-                            }
+                           }
+            if TEST_ENABLED a data key is added
+            {
+              'data': float # timestamp
+            }
+            state = [BUTTON_PRESSED | BUTTON_RELEASED | BUTTON_LONG_PRESSED
+            name : [BUTTON_PLAY | BUTTON_STOP |
+                    BUTTON_PRESET1 | BUTTON_PRESET2 | BUTTON_PRESET3]
         """
         message = {}
         message["source"] = MESSAGE_BUTTON_SOURCE
-        state = MESSAGE_BUTTON_SHORT_PRESS+button_data["name"]
+        if button_date["state"] == BUTTON_LONG_PRESSED:
+            state = MESSAGE_BUTTON_LONG_PRESS+button_data["name"]
+        else:
+            state = MESSAGE_BUTTON_SHORT_PRESS+button_data["name"]
         if self.BUTTONS_MODULE_TEST == TEST_ENABLED:
             message["state"]  = state
             message["error"]  = button_data["error"]
             data_list = []
             data_list.append(button_data["data"])
             message["data"] = data_list
-            
+
         else:
             message["state"]  = state
             message["error"]  = button_data["error"]
@@ -112,10 +123,16 @@ class TouchButtons:
         '''
         callback for button events
         :arguments
-            button_state : [BUTTON_PRESSED | BUTTON_RELEASED
-            button_name : [BUTTON_PLAY | BUTTON_STOP |
-                            BUTTON_PRESET1 | BUTTON_PRESET2 | BUTTON_PRESET3]
-
+            button_data = { 'name': str,   # name of button
+                            'state': str,  # state of button Pressed/Released
+                           }
+            if TEST_ENABLED a data key is added
+            {
+              'data': float # timestamp
+            }
+            state = [BUTTON_PRESSED | BUTTON_RELEASED
+            name : [BUTTON_PLAY | BUTTON_STOP |
+                    BUTTON_PRESET1 | BUTTON_PRESET2 | BUTTON_PRESET3]
         '''
         button_name = button_data["name"]
         oradio_log.debug(f"Button change event: {button_name} = {button_data['state']}")
@@ -158,7 +175,6 @@ class TouchButtons:
         self.long_press_timers[button_name] = timer
         timer.start()
         play_sound(SOUND_CLICK)
-        button_data["error"] = MESSAGE_NO_ERROR # no errors here
         self._send_message(button_data)
 
     def _long_press_timeout(self, button_name: str) -> None:
@@ -177,21 +193,34 @@ class TouchButtons:
         self.long_press_timers.pop(button_name, None)
         if button_name in VALID_LONG_PRESS_BUTTONS:
             button_data["name"]  = button_name
-            button_data["state"] = MESSAGE_BUTTON_LONG_PRESS
-            button_data["error"] = MESSAGE_NO_ERROR
+            button_data["state"] = BUTTON_LONG_PRESSED
             self._send_message(button_data)
-# ------------------ Standalone Test (no state machine) ------------------
+
+#########################  Test Module ##################################
 if __name__ == "__main__":
+#################################################################
+#    module test
+#    Note:
+#    in case remote python debugging is required:
+#    * run the Python Debug Server in your IDE
+#    * call module test with argument -rd [no | yes]
+#        if yes add in -ip your host ip address and -p the portnr
+#        >python touch_buttons.py -rd yes -ip 102.168.xxx.xxx -p 5678
+#################################################################
+
     import sys
 
     from oradio_utils import setup_remote_debugging
     from logging import DEBUG, INFO, WARNING, ERROR, CRITICAL
+
     if not setup_remote_debugging():
         print(f"{YELLOW}The remote debugging error, check the remote IP connection {NC}")
         sys.exit()
 
     def _stop_all_long_press_timer(test_buttons: TouchButtons)-> None:
         '''
+        :arguments
+            test_buttons = instance of the class Touchbuttons
         '''
         for button_name in BUTTON_NAMES:
             timer = test_buttons.long_press_timers.pop(button_name, None)
@@ -232,11 +261,12 @@ if __name__ == "__main__":
             valid_callbacks[button]= 0
             neglected_callback[button] = 0
 
-    def _handle_message(message) -> bool:
+    def _handle_message(message: dict) -> bool:
         '''
-        handle the message received in queue
+        the message dict will be validated against the Oradio_message class
+        if valid the message received in queue will be processed
         :arguments
-            message must be according Oradio_message class
+            message dict must be according Oradio_message class
         :return
             True = message is correct and processed
             False = message is not correct
@@ -306,20 +336,20 @@ if __name__ == "__main__":
             else:
                 _handle_message(msg)
 
-    def _callback_test(buttons_driver:TouchButtons):
+    def _callback_test(buttons:TouchButtons):
         '''
         Callback test submitted a callback for each of the buttons
         :arguments
-            buttons_driver = instance of TouchButtons
+            buttons = instance of TouchButtons
         '''
         button_data = {}
         for button_name in BUTTON_NAMES:
             button_data["state"] = MESSAGE_BUTTON_SHORT_PRESS + button_name
             button_data['name']  = button_name
-            buttons_driver._button_event_callback(button_data)
+            buttons._button_event_callback(button_data)
             sleep(1)
 
-    def _single_button_burst_test() -> None:
+    def _single_button_play_burst_test() -> None:
         '''
         single_button burst test, continues until Return button pressed
         * input requested for burst frequency used in callback simulation
@@ -344,7 +374,7 @@ if __name__ == "__main__":
             keyboard_thread.start()
             oradio_log.set_level(CRITICAL)
             try:
-                nr_of_events = test_buttons.button_gpio.simulate_button_events_burst(burst_freq,stop_event)
+                nr_of_events = test_buttons.button_gpio.simulate_button_play_events_burst(burst_freq,stop_event)
             except RuntimeError as err:
                 print("\nThe module test is not enabled, enable module test in code")
             oradio_log.set_level(DEBUG)
@@ -469,7 +499,7 @@ if __name__ == "__main__":
                         print(f"\n running {test_options[4]}\n")
                         input_text = "Specify the event frequency, must be <= {debounce} :".format(
                                 debounce= int(1000/BUTTON_DEBOUNCE_TIME))
-                    _single_button_burst_test()
+                    _single_button_play_burst_test()
                 case 5 | 6:
                     if test_choice == 5:
                         print(f"\n running {test_options[5]}\n")

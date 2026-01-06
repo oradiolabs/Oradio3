@@ -24,7 +24,6 @@ from threading import Thread, Timer, Event
 ##### oradio modules ####################
 from oradio_logging import oradio_log
 from gpio_service import GPIOService
-from oradio_utils import input_prompt_int, input_prompt_float
 
 ##### GLOBAL constants ####################
 from oradio_const import (LED_NAMES, GREEN, YELLOW, RED, NC)
@@ -219,7 +218,7 @@ if __name__ == "__main__":
 
     print("\nStarting LED Control Module Test...\n")
 
-    from oradio_utils import setup_remote_debugging
+    from oradio_utils import setup_remote_debugging, input_prompt_int, input_prompt_float
     if not setup_remote_debugging():
         print("The remote debugging error, check the remote IP connection")
         sys.exit()
@@ -288,6 +287,10 @@ if __name__ == "__main__":
                                    led_name:str,
                                    cycle_time: float,
                                    stop_event : Event )-> float:
+        # pylint: disable=too-many-locals
+        ################################################################
+        # motivation: for calculation purposes more vars are required
+        #################################################################
         '''
         display the blinking state of selected led
         extended ascii characters see at https://coding.tools/ascii-table
@@ -301,6 +304,9 @@ if __name__ == "__main__":
             state_time = the measured ON or OFF period of blink.
         '''
         # pylint: disable=too-many-branches
+        ####################################################################
+        # motivation: OK, but branches are rather simple and clearly defined
+        ######################################################################
         def round_down(num, decimals):
             '''
             round down float to nearest value, respecting the float decimals
@@ -366,6 +372,9 @@ if __name__ == "__main__":
             led-driver = instance of LEDControl to use
         '''
         # pylint: disable=too-many-branches
+        ####################################################################
+        # motivation: OK, but branches are rather simple and clearly defined
+        ######################################################################
         led_test_options = ["Quit"]\
                         + [f"Turn {selected_led} ON"]\
                         + [f"Turn {selected_led} OFF"]\
@@ -407,7 +416,10 @@ if __name__ == "__main__":
                     while not stop_event.is_set():
                         led_control.turn_off_all_leds()
                         if led_control.control_blinking_led(selected_led, cycle_time):
-                            _show_and_measure_blinking(led_control,selected_led, cycle_time, stop_event)
+                            _show_and_measure_blinking(led_control,
+                                                       selected_led,
+                                                       cycle_time,
+                                                       stop_event)
                             led_control.turn_off_led(selected_led) # stop blinking
                         else:
                             print(f"{RED}Test Result: The blinking failed for {selected_led}")
@@ -418,6 +430,9 @@ if __name__ == "__main__":
     def _interactive_menu():
         """Show menu with test options"""
         # pylint: disable=too-many-branches
+        ####################################################################
+        # motivation: OK, but branches are rather simple and clearly defined
+        ######################################################################
         try:
             led_control = LEDControl()
         except (ValueError) as ex_err:
