@@ -21,26 +21,25 @@ Created on April 28, 2025
 from threading import Timer, Thread, Event
 from multiprocessing import Queue
 from time import sleep, monotonic, perf_counter
-import json
-from pydantic import ValidationError
+
 ##### oradio modules ####################
-from play_system_sound import PlaySystemSound
-from oradio_logging import oradio_log
+from oradio_logging import oradio_log, DEBUG, CRITICAL
 from gpio_service import GPIOService
-from oradio_utils import (safe_put, 
-                          input_prompt_int, input_prompt_float, 
-                          Oradio_message, validate_oradio_message)
+from oradio_utils import (safe_put,
+                          input_prompt_int, input_prompt_float,
+                          Oradio_message, validate_oradio_message,
+                          setup_remote_debugging, # required for module test
+                        )
 from system_sounds import play_sound
 
 ##### GLOBAL constants ####################
-from oradio_const import (BUTTON_PLAY,BUTTON_STOP, BUTTON_PRESET1, BUTTON_PRESET2, BUTTON_PRESET3, BUTTON_NAMES, \
-                         BUTTON_PRESSED, BUTTON_RELEASED, \
-                         TEST_ENABLED, TEST_DISABLED, \
-                         GREEN, YELLOW, RED, NC, \
-                         MESSAGE_BUTTON_SOURCE, MESSAGE_NO_ERROR, MESSAGE_BUTTON_SHORT_PRESS, MESSAGE_BUTTON_LONG_PRESS, \
-                         MESSAGE_LONG_PRESS_BUTTON_PLAY, \
-                         SOUND_CLICK, \
-                         MODEL_NAME_FOUND)
+from oradio_const import \
+    (BUTTON_PLAY, BUTTON_NAMES, BUTTON_RELEASED, \
+     TEST_ENABLED, TEST_DISABLED, \
+     YELLOW, RED, NC, \
+     MESSAGE_BUTTON_SOURCE, MESSAGE_BUTTON_SHORT_PRESS, MESSAGE_BUTTON_LONG_PRESS, \
+     MESSAGE_NO_ERROR, \
+     SOUND_CLICK)
 
 # -------- LOCAL constants --------
 BUTTON_DEBOUNCE_TIME = 500          # ms, ignore rapid repeats
@@ -49,6 +48,48 @@ BOUNCE_MS           = 10                      # hardware debounce in GPIO.add_ev
 LONG_PRESS_DURATION = 6  # seconds
 VALID_LONG_PRESS_BUTTONS = [BUTTON_PLAY]
 BUTTON_LONG_PRESSED = "button long pressed"
+
+# pylint: disable=too-few-public-methods
+####################################################################
+# motivation:
+# This class submits messages via a shared queue,
+# no public methods required
+#################################################################
+
+# following class is used for testing purposes only
+class TimingData:
+    '''
+    Class for timing data statistics during testing
+    '''
+    def __init__(self):
+        self.min_time = 10000
+        self.max_time = 0
+        self.sum_time = 0.0
+        self.sum_count = 0
+        self.avg_time = 0.0
+        self.valid_callbacks = {}
+        for button in BUTTON_NAMES:
+            self.valid_callbacks[button]=0
+        self.neglected_callback = {}
+        for button in BUTTON_NAMES:
+            self.neglected_callback[button]=0
+
+    def reset(self):
+        '''
+        reseting the timing data
+        '''
+        self.min_time = 10000
+        self.max_time = 0
+        self.sum_time = 0.0
+        self.sum_count = 0
+        self.avg_time = 0.0
+        self.valid_callbacks = {}
+        self.neglected_callback = {}
+        for button in BUTTON_NAMES:
+            self.valid_callbacks[button]=0
+        self.neglected_callback = {}
+        for button in BUTTON_NAMES:
+            self.neglected_callback[button]=0        
 
 class TouchButtons:
     """
@@ -60,6 +101,11 @@ class TouchButtons:
             TEST_ENABLED  = The module test is enabled, additional code is provided
 
     """
+    # pylint: disable=consider-using-f-string
+    ####################################################################################
+    # motivation: the formatted string were easier to construct with .format()
+    #####################################################################################
+
     BUTTONS_MODULE_TEST = TEST_DISABLED
 
     def __init__(self,queue : Queue):
@@ -81,7 +127,15 @@ class TouchButtons:
 
         self.button_press_times: dict[str, float] = {}   # button -> press start (monotonic)
         self.last_trigger_times: dict[str, float] = {}   # button -> last accepted press time
-        self.long_press_timers: dict[str, threading.Timer] = {}  # button -> Timer
+        self.long_press_timers: dict[str, Timer] = {}  # button -> Timer
+        if self.BUTTONS_MODULE_TEST == TEST_ENABLED:
+            self.timing_data = TimingData()
+
+    def _reset_timing_data(self):
+        '''
+        Reseting the timing data class
+        '''
+        self.timing_data.reset()
 
     def _send_message(self,button_data: dict) -> None:
         """Send current TouchButton state message to the registered queue.
@@ -99,13 +153,13 @@ class TouchButtons:
         """
         message = {}
         message["source"] = MESSAGE_BUTTON_SOURCE
-        if button_date["state"] == BUTTON_LONG_PRESSED:
+        if button_data["state"] == BUTTON_LONG_PRESSED:
             state = MESSAGE_BUTTON_LONG_PRESS+button_data["name"]
         else:
             state = MESSAGE_BUTTON_SHORT_PRESS+button_data["name"]
         if self.BUTTONS_MODULE_TEST == TEST_ENABLED:
             message["state"]  = state
-            message["error"]  = button_data["error"]
+            message["error"]  = MESSAGE_NO_ERROR
             data_list = []
             data_list.append(button_data["data"])
             message["data"] = data_list
@@ -153,11 +207,11 @@ class TouchButtons:
             if self.BUTTONS_MODULE_TEST == TEST_ENABLED:
                 print_text = "{yellow}New {name} event in {diff} sec".format(
                     yellow=YELLOW, name=button_name, diff=round(time_diff,3))
-                print_text +="print but within the debounce window of {debounce} will be neglected {nc}".format(
-                        debounce =DEBOUNCE_SECONDS, nc=NC )
+                print_text +="events within the debounce window of {deb} will be neglected{nc}".\
+                    format(deb =DEBOUNCE_SECONDS, nc=NC )
                 print(print_text)
-                global neglected_callback
-                neglected_callback[button_name] +=1 
+#                global g_neglected_callback
+                self.timing_data.neglected_callback[button_name] +=1
             return  # software debounce
 
         self.last_trigger_times[button_name] = now
@@ -191,6 +245,7 @@ class TouchButtons:
 
         # Disarm any timer entry; we’re executing now
         self.long_press_timers.pop(button_name, None)
+        button_data = {}
         if button_name in VALID_LONG_PRESS_BUTTONS:
             button_data["name"]  = button_name
             button_data["state"] = BUTTON_LONG_PRESSED
@@ -207,11 +262,16 @@ if __name__ == "__main__":
 #        if yes add in -ip your host ip address and -p the portnr
 #        >python touch_buttons.py -rd yes -ip 102.168.xxx.xxx -p 5678
 #################################################################
-
+    # pylint: disable=protected-access
+    ###################################################################################
+    # motivation: the method <_button_event_callback> has a local scope, but this method
+    # is used within this test module, so is for testing purposes
+    ###################################################################################
+    # pylint: disable=consider-using-f-string
+    ####################################################################################
+    # motivation: the formatted string were easier to construct with .format()
+    #####################################################################################
     import sys
-
-    from oradio_utils import setup_remote_debugging
-    from logging import DEBUG, INFO, WARNING, ERROR, CRITICAL
 
     if not setup_remote_debugging():
         print(f"{YELLOW}The remote debugging error, check the remote IP connection {NC}")
@@ -238,30 +298,14 @@ if __name__ == "__main__":
         _=input("Press Return on keyboard to stop this test")
         event.set()
 
-#### statistics for button callbacks ############
-    min_time = 10000
-    max_time = 0
-    sum_time = 0.0
-    sum_count = 0
-    avg_time = 0.0
-    valid_callbacks = {}
-    neglected_callback = {}
+#### globals statistics for button callbacks ############
+    # pylint: disable=invalid-name
+    # motivation:
+    # The naming convention expects global constants to be in UPPER_CASE (e.g., G_MIN_TIME)
+    # But these vars are global but not constants as they will be modified)
+    # So i am using the prefix _g_global_var as naming convention for globals
 
-    def _reset_timing_data() -> None:
-        '''
-        reset all (global) timing data
-        '''
-        global min_time, max_time, sum_count, sum_time, avg_time, valid_callbacks, neglected_callback
-        min_time = 10000
-        max_time = 0
-        sum_time = 0.0
-        sum_count = 0
-        avg_time = 0.0
-        for button in BUTTON_NAMES:
-            valid_callbacks[button]= 0
-            neglected_callback[button] = 0
-
-    def _handle_message(message: dict) -> bool:
+    def _handle_message(message: dict, test_buttons: TouchButtons) -> bool:
         '''
         the message dict will be validated against the Oradio_message class
         if valid the message received in queue will be processed
@@ -271,30 +315,28 @@ if __name__ == "__main__":
             True = message is correct and processed
             False = message is not correct
         '''
-        status = True
+
         validated_message = validate_oradio_message(message)
         if validated_message:
             if validated_message.data:
                 # do the statistics
                 time_stamp = float(validated_message.data[0])
-                global min_time, max_time, sum_count, sum_time, avg_time, valid_callbacks
                 # statistics
                 button_name = validated_message.state.removeprefix(MESSAGE_BUTTON_SHORT_PRESS)
                 if button_name not in BUTTON_NAMES:
                     print("invalid button:", button_name, validated_message)
                 else:
-                    valid_callbacks[button_name] +=1
+                    test_buttons.timing_data.valid_callbacks[button_name] +=1
 
-                sum_count +=1
+                test_buttons.timing_data.sum_count +=1
                 duration = perf_counter() - time_stamp
-                sum_time +=duration
-                avg_time = sum_time/sum_count
-                if duration > max_time:
-                    max_time = duration
-                if duration < min_time:
-                    min_time = duration
+                test_buttons.timing_data.sum_time +=duration
+                test_buttons.timing_data.avg_time = test_buttons.timing_data.sum_time/test_buttons.timing_data.sum_count
+                test_buttons.timing_data.max_time = max(test_buttons.timing_data.max_time,duration)
+                test_buttons.timing_data.min_time = min(test_buttons.timing_data.min_time,duration)
                 print ("current_time={cur}, min_time={min}, max_time={max}, sum_count={sum}, avg_time={avg}".format(
-                       min=round(min_time,4), max=round(max_time,4), sum=sum_count, avg=round(avg_time,4),
+                       min=round(test_buttons.timing_data.min_time,4), max=round(test_buttons.timing_data.max_time,4), 
+                       sum=test_buttons.timing_data.sum_count,avg=round(test_buttons.timing_data.avg_time,4),
                        cur=round(duration,4))
                 )
         else:
@@ -306,15 +348,15 @@ if __name__ == "__main__":
         :arguments
             nr_of_events = the number of events submitted by gpio callback
         '''
-        global min_time, max_time, sum_count, sum_time, avg_time, valid_callbacks, neglected_callback
-        print ("min_time={min}, max_time={max}, sum_count={sum}, avg_time={avg}".format(
-               min=round(min_time,4), max=round(max_time,4), sum=sum_count, avg=round(avg_time,4))
-               )
+#        print ("min_time={min}, max_time={max}, sum_count={sum}, avg_time={avg}".format(
+#               min=round(g_min_time,4), max=round(g_max_time,4),
+#               sum=g_sum_count, avg=round(g_avg_time,4))
+#               )
         print("number of submitted callbacks = ", nr_of_events)
-        print("Valid callbacks = {valid}".format(valid = valid_callbacks))
-        print("Neglected callbacks = {neglet}".format(neglet = neglected_callback))
+#        print("Valid callbacks = {valid}".format(valid = g_valid_callbacks))
+#        print("Neglected callbacks = {neglet}".format(neglet = g_neglected_callback))
 
-    def _check_for_new_message_in_queue(msg_queue):
+    def _check_for_new_message_in_queue(msg_queue: Queue, test_buttons:TouchButtons ):
         """
         Continuously wait, read and handle messages from the shared queue.
         :arguments
@@ -334,7 +376,7 @@ if __name__ == "__main__":
                 # Unexpected runtime/OS errors during handling
                 oradio_log.exception("Runtime error in process_messages: %s", ex)
             else:
-                _handle_message(msg)
+                _handle_message(msg, test_buttons)
 
     def _callback_test(buttons:TouchButtons):
         '''
@@ -349,9 +391,12 @@ if __name__ == "__main__":
             buttons._button_event_callback(button_data)
             sleep(1)
 
-    def _single_button_play_burst_test() -> None:
+    def _single_button_play_burst_test(test_buttons:TouchButtons, burst_freq:float) -> None:
         '''
-        single_button burst test, continues until Return button pressed
+        single_button burst test for PLAY_BUTTON, continues until Return button pressed
+        :arguments
+            test_buttons = instance of TouchButtons
+            burst_freq = frequency of submitting event callbacks, shall be >0
         * input requested for burst frequency used in callback simulation
         * resets all timing data
         * set GPIO_MODULE_TEST = TEST_ENABLED
@@ -360,30 +405,32 @@ if __name__ == "__main__":
         :POST
             * all long_press_timers are stopped
         '''
-        _reset_timing_data()
+        test_buttons._reset_timing_data()
         test_buttons.button_gpio.set_button_edge_event_callback(test_buttons._button_event_callback)
         test_buttons.button_gpio.GPIO_MODULE_TEST = TEST_ENABLED
         test_buttons.BUTTONS_MODULE_TEST = TEST_ENABLED
-        burst_freq = input_prompt_float( input_text, default=2.0)
-        if burst_freq == 0:
-            print("{yellow}invalid frequency{nc}".format(yellow=YELLOW, nc=NC))
-        else:
-            stop_event = Event()
-            keyboard_thread = Thread(target=_keyboard_input,
-                                     args=(stop_event,))
-            keyboard_thread.start()
-            oradio_log.set_level(CRITICAL)
-            try:
-                nr_of_events = test_buttons.button_gpio.simulate_button_play_events_burst(burst_freq,stop_event)
-            except RuntimeError as err:
-                print("\nThe module test is not enabled, enable module test in code")
-            oradio_log.set_level(DEBUG)
+        stop_event = Event()
+        keyboard_thread = Thread(target=_keyboard_input,
+                                 args=(stop_event,))
+        keyboard_thread.start()
+        oradio_log.set_level(CRITICAL)
+        try:
+            nr_of_events = test_buttons.button_gpio.simulate_button_play_events_burst(
+                                                                burst_freq,
+                                                                stop_event)
+        except RuntimeError as err:
+            print("\nThe module test is not enabled, error =",err)
+        oradio_log.set_level(DEBUG)
         evaluate_test_results(nr_of_events)
         _stop_all_long_press_timer(test_buttons)
 
-    def _all_button_burst_test() -> None:
+
+    def _all_button_burst_test(test_buttons:TouchButtons, burst_freq: float) -> None:
         '''
         All_button burst test, continues until Return button pressed
+        :arguments
+            test_buttons = instance of TouchButtons
+            burst_freq = frequency of submitting event callbacks, shall be >0
         * input requested for burst frequency used in callback simulation
         * resets all timing data
         * set GPIO_MODULE_TEST = TEST_ENABLED
@@ -392,38 +439,39 @@ if __name__ == "__main__":
         :POST
             * all long_press_timers are stopped
         '''
-        _reset_timing_data()
+        test_buttons._reset_timing_data()
+        nr_of_events = 0
         test_buttons.button_gpio.set_button_edge_event_callback(test_buttons._button_event_callback)
         test_buttons.button_gpio.GPIO_MODULE_TEST = TEST_ENABLED
         test_buttons.BUTTONS_MODULE_TEST = TEST_ENABLED
-        burst_freq = input_prompt_float( input_text, default=2.0)
-        if burst_freq == 0:
-            print("{yellow}invalid frequency{nc}".format(yellow=YELLOW, nc=NC))
-        else:
-            stop_event = Event()
-            keyboard_thread = Thread(target=_keyboard_input,
-                                     args=(stop_event,))
-            keyboard_thread.start()
-            oradio_log.set_level(CRITICAL)
-            try:
-                nr_of_events = test_buttons.button_gpio.simulate_all_buttons_events_burst(burst_freq,stop_event)
-            except RuntimeError as err:
-                print("\nThe module test is not enabled, enable module test in code")
-            oradio_log.set_level(DEBUG)
+        stop_event = Event()
+        keyboard_thread = Thread(target=_keyboard_input,
+                                 args=(stop_event,))
+        keyboard_thread.start()
+        oradio_log.set_level(CRITICAL)
+        try:
+            nr_of_events = test_buttons.button_gpio.simulate_all_buttons_events_burst(
+                                                                            burst_freq,
+                                                                            stop_event)
+        except RuntimeError as err:
+            print("\nThe module test is not enabled: ",err)
+        oradio_log.set_level(DEBUG)
         _stop_all_long_press_timer(test_buttons)
         evaluate_test_results(nr_of_events)
 
-    def button_press_release_callback_test(test_buttons) ->None:
+    def button_press_release_callback_test(test_buttons:TouchButtons) ->None:
         '''
-        Button press/release test for BUTTON_STOP, with user specified press-ON time. 
+        Button press/release test for BUTTON_STOP, with user specified press-ON time.
         Stops when press-ON timing = 0
         * input requested for button-name and press-timing used in callback simulation
         * resets all timing data
         * stop the logging temporary, but setting log-level to CRITICAL
+        :arguments
+            buttons = instance of TouchButtons
         :POST
             * all long_press_timers are stopped
         '''
-        _reset_timing_data()
+        test_buttons._reset_timing_data()
         stop_test = False
         button_name_options = ["Quit"] + BUTTON_NAMES
         selection_done = False
@@ -447,23 +495,28 @@ if __name__ == "__main__":
             if button_pressed_time == 0:
                 stop_test = True
             else:
-                test_buttons.button_gpio.simulate_button_press_and_release(selected_button_name, button_pressed_time)
+                test_buttons.button_gpio.simulate_button_press_and_release(
+                                                            selected_button_name,
+                                                            button_pressed_time)
         _stop_all_long_press_timer(test_buttons)
-        
+
     def _interactive_menu():
         """Show menu with test options"""
         # pylint: disable=too-many-branches
-
+        # motivation:
         shared_queue = Queue()
-        # Create a thread to listen and process new messages in shared queue
-        Thread(target=_check_for_new_message_in_queue, args=(shared_queue,), daemon=True).start()
 
         try:
+            TouchButtons.BUTTONS_MODULE_TEST = TEST_ENABLED
             test_buttons = TouchButtons( shared_queue)
         except (ValueError) as ex_err:
             print(f"Initialization failed: {ex_err}")
             return
-#        status = callable(gpio_srv.simulate_button_events_burst)
+
+        # Create a thread to listen and process new messages in shared queue
+        Thread(target=_check_for_new_message_in_queue, args=(shared_queue,test_buttons), daemon=True).start()
+
+        #pylint disable=line-too-long
         test_options = ["Quit"] + \
                         ["Pressing a button and check message queue "] + \
                         ["Send for each button a button callback and check message queue"] +\
@@ -493,23 +546,31 @@ if __name__ == "__main__":
                 case 3 | 4:
                     if test_choice == 3:
                         print(f"\n running {test_options[3]}\n")
-                        input_text = "Specify the event frequency, must > {debounce} :".format(
-                                debounce= int(1000/BUTTON_DEBOUNCE_TIME))
+                        condition = '>'
                     else:
                         print(f"\n running {test_options[4]}\n")
-                        input_text = "Specify the event frequency, must be <= {debounce} :".format(
-                                debounce= int(1000/BUTTON_DEBOUNCE_TIME))
-                    _single_button_play_burst_test()
+                        condition = '<'
+                    input_text = "Specify the event frequency, must {cond} {debounce} :".format(
+                                debounce= int(1000/BUTTON_DEBOUNCE_TIME),
+                                cond=condition)
+                    burst_freq = input_prompt_float( input_text, default=2.0)
+                    if burst_freq == 0:
+                        print("{yellow}invalid frequency{nc}".format(yellow=YELLOW, nc=NC))
+                    _single_button_play_burst_test(test_buttons,burst_freq)
                 case 5 | 6:
                     if test_choice == 5:
-                        print(f"\n running {test_options[5]}\n")
-                        input_text = "Specify the event frequency, must > {debounce} :".format(
-                                debounce= int(1000/BUTTON_DEBOUNCE_TIME))
+                        print(f"\n running {test_options[3]}\n")
+                        condition = '>'
                     else:
-                        print(f"\n running {test_options[6]}\n")
-                        input_text = "Specify the event frequency, must be <= {debounce} :".format(
-                                debounce= int(1000/BUTTON_DEBOUNCE_TIME))
-                        _all_button_burst_test()
+                        print(f"\n running {test_options[4]}\n")
+                        condition = '<'
+                    input_text = "Specify the event frequency, must {cond} {debounce} :".format(
+                                debounce= int(1000/BUTTON_DEBOUNCE_TIME),
+                                cond=condition)
+                    burst_freq = input_prompt_float( input_text, default=2.0)
+                    if burst_freq == 0:
+                        print("{yellow}invalid frequency{nc}".format(yellow=YELLOW, nc=NC))
+                        _all_button_burst_test(test_buttons, burst_freq)
                 case 7:
                     print(f"\n running {test_options[7]}\n")
                     button_press_release_callback_test(test_buttons)
@@ -520,5 +581,3 @@ if __name__ == "__main__":
 
     # Present menu with tests
     _interactive_menu()
-
-
