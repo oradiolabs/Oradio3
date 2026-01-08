@@ -33,13 +33,13 @@ Created on December 23, 2024
             Use NetworkManager setting up a wifi hotspot that sets up a local private net, with DHCP and IP forwarding
             Use: nmcli dev wifi hotspot ifname wlp4s0 ssid test password "test1234"
 """
-from os import path
 from re import search
+from os import path, remove
+from threading import Thread
 from json import load, JSONDecodeError
-from threading import Thread, Lock
 #Review Onno: waarom multiprocessing Queue, niet threading Queue? Multiprocessing is 'duurder'
 #Review Onno: waarom multiprocessing Process, niet threading Thread? Process is 'duurder'
-from multiprocessing import Process, Queue
+from multiprocessing import Process, Queue, Lock
 from subprocess import CalledProcessError
 import nmcli
 import nmcli._exception as nmcli_exc
@@ -110,6 +110,52 @@ def get_saved_network() -> str:
     """
     with _saved_lock:
         return _saved_network["network"]
+
+# Global process-safe lock for USB handling
+_usb_wifi_lock = Lock()
+
+def validate_network(network: dict, index: int) -> bool:
+    """
+    Ensure valid network credentials.
+
+    Args:
+        network: network fields
+        index: Position in input file
+
+    Returns:
+        bool: True if valid, False otherwise
+    """
+    # Must be a dict
+    if not isinstance(network, dict):
+        oradio_log.error("Network #%d is not an object", index)
+        return False
+
+    # Required fields
+    missing = {"SSID", "PASSWORD"} - network.keys()
+    if missing:
+        oradio_log.error("Network #%d missing fields", index, missing)
+        return False
+        
+    # SSID validation
+    if not isinstance(network["SSID"], str) or not network["SSID"].strip():
+        oradio_log.error("Network #%d has invalid SSID", index)
+        return False
+
+    # PASSWORD validation (empty allowed)
+    if not isinstance(network["PASSWORD"], str):
+        oradio_log.error("Network #%d has invalid PASSWORD", index)
+        return False
+
+    # Lenghth checks
+    if len(network["SSID"]) > 32:
+        oradio_log.error("Network #%d SSID is too long", index)
+        return False
+    if 0 < len(network["PASSWORD"]) < 8:
+        oradio_log.error("Network #%d PASSWORD is too short", index)
+        return False
+
+    # No errors found
+    return True
 
 @singleton
 class WifiEventListener:
@@ -260,6 +306,7 @@ class WifiService():
         self._queue = queue
         self._usb_q = Queue()
 
+#REVIEW Onno: Waarom Process ('zwaarder') en niet Thread ('lichter') ?
         # Start a separate process to monitor USB messages (e.g. wifi credentials)
         self._usb_listener = Process(target=self._check_usb_messages, args=(self._usb_q,))
         self._usb_listener.start()
@@ -291,49 +338,63 @@ class WifiService():
 
             # If USB is present check if USB has file with wifi credentials
             if message.get("state", "Unknown") == STATE_USB_PRESENT:
-                self._handle_usb_wifi_credentials()
+                self._handle_usb_wifi_invoer()
 
-    def _handle_usb_wifi_credentials(self) -> None:
+
+    def _handle_usb_wifi_invoer(self) -> None:
         """
         Check for wifi credentials on USB drive
-        If found, validate and attempt to connect using those credentials
+        - Lock to ensure 1 process is running this method
+        - If found, validate and add to NetworkManager
         """
-        oradio_log.info("Checking %s for wifi credentials", USB_WIFI_FILE)
+        if _usb_wifi_lock.acquire(block=False):  # Try to acquire without blocking
+            try:
+                oradio_log.info("Checking %s for wifi credentials", USB_WIFI_FILE)
 
-        # Check if wifi credentials file exists in USB drive root
-        if not path.isfile(USB_WIFI_FILE):
-            oradio_log.debug("'%s' not found", USB_WIFI_FILE)
-            return  # Credentials file not found, nothing to do
+                # Check if wifi credentials file exists in USB drive root
+                if not path.isfile(USB_WIFI_FILE):
+                    oradio_log.debug("'%s' not found", USB_WIFI_FILE)
+                    return  # Credentials file not found, nothing to do
 
-        try:
-            # Read and parse JSON file
-            with open(USB_WIFI_FILE, "r", encoding="utf-8") as file:
-                # Get JSON object as a dictionary
-                data = load(file)
-        except (JSONDecodeError, IOError) as ex_err:
-            oradio_log.error("Failed to read or parse '%s': error: %s", USB_WIFI_FILE, ex_err)
-            self._send_message(MESSAGE_WIFI_FILE_ERROR)
-            return
+                try:
+                    # Read and parse JSON file
+                    with open(USB_WIFI_FILE, "r", encoding="utf-8") as file:
+                        # Get JSON object as a dictionary
+                        data = load(file)
+                except (JSONDecodeError, IOError) as ex_err:
+                    oradio_log.error("Failed to read or parse '%s': error: %s", USB_WIFI_FILE, ex_err)
+                    self._send_message(MESSAGE_WIFI_FILE_ERROR)
+                    return
 
-        # Check if the SSID and PASSWORD keys are present
-        ssid = data.get('SSID')
-        pswd = data.get('PASSWORD')
-        if not ssid or pswd is None:
-            oradio_log.error("SSID and/or PASSWORD not found in '%s'", USB_WIFI_FILE)
-            self._send_message(MESSAGE_WIFI_FILE_ERROR)
-            return
+                # Validate data is a list (of networks)
+                if "networks" not in data or not isinstance(data["networks"], list):
+                    oradio_log.error("'networks' must be a list")
+                    self._send_message(MESSAGE_WIFI_FILE_ERROR)
+                    return
 
-        # Test if ssid is empty or >= 8 characters
-        if 0 < len(pswd) < 8:
-            oradio_log.error("Password length invalid: must be empty for open network or at least 8 characters for secured network")
-            self._send_message(MESSAGE_WIFI_FILE_ERROR)
-            return
+                # Parse data found
+                for i, network in enumerate(data["networks"], start=1):
+                    if not validate_network(network, i):
+                        self._send_message(MESSAGE_WIFI_FILE_ERROR)
+                    else:
+                        # Add wifi credentials to NetworkManager
+                        ssid = network["SSID"].strip()
+                        pswd = network["PASSWORD"].strip()
+                        if _networkmanager_add(ssid, pswd):
+                            oradio_log.info("Network '%s' added to NetworkManager", ssid)
+                        else:
+                            oradio_log.error("Failed to add '%s' to NetworkManager", ssid)
 
-        # Log wifi credentials found
-        oradio_log.info("USB wifi credentials found: ssid=%s", ssid)
-
-        # Connect to the wifi network
-        self.wifi_connect(ssid, pswd)
+                # Remove file after succesful parsing
+                try:
+                    remove(USB_WIFI_FILE)
+                    oradio_log.info("'%s' removed", USB_WIFI_FILE)
+                except (FileNotFoundError, PermissionError) as ex_err:
+                    oradio_log.error("Failed to remove '%s'", USB_WIFI_FILE)
+            finally:
+                _usb_wifi_lock.release()
+        else:
+            oradio_log.debug("%s already being handled by another process", USB_WIFI_FILE)
 
     def _send_message(self, error) -> None:
         """
