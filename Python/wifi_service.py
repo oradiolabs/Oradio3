@@ -125,6 +125,8 @@ def validate_network(network: dict, index: int) -> bool:
     Returns:
         bool: True if valid, False otherwise
     """
+    valid = True
+
     # Must be a dict
     if not isinstance(network, dict):
         oradio_log.error("Network #%d is not an object", index)
@@ -135,23 +137,23 @@ def validate_network(network: dict, index: int) -> bool:
     if missing:
         oradio_log.error("Network #%d missing fields", index, missing)
         return False
-        
+
     # SSID validation
-    if not isinstance(network["SSID"], str) or not network["SSID"].strip():
-        oradio_log.error("Network #%d has invalid SSID", index)
+    ssid = network.get("SSID")
+    if not isinstance(ssid, str) or not ssid.strip() or len(ssid) > 32:
+        if not isinstance(ssid, str) or not ssid.strip():
+            oradio_log.error("Network #%d has invalid SSID", index)
+        else:
+            oradio_log.error("Network #%d SSID is too long", index)
         return False
 
     # PASSWORD validation (empty allowed)
-    if not isinstance(network["PASSWORD"], str):
-        oradio_log.error("Network #%d has invalid PASSWORD", index)
-        return False
-
-    # Lenghth checks
-    if len(network["SSID"]) > 32:
-        oradio_log.error("Network #%d SSID is too long", index)
-        return False
-    if 0 < len(network["PASSWORD"]) < 8:
-        oradio_log.error("Network #%d PASSWORD is too short", index)
+    password = network.get("PASSWORD")
+    if not isinstance(password, str) or (0 < len(password) < 8):
+        if not isinstance(password, str):
+            oradio_log.error("Network #%d has invalid PASSWORD", index)
+        else:
+            oradio_log.error("Network #%d PASSWORD is too short", index)
         return False
 
     # No errors found
@@ -390,7 +392,7 @@ class WifiService():
                     remove(USB_WIFI_FILE)
                     oradio_log.info("'%s' removed", USB_WIFI_FILE)
                 except (FileNotFoundError, PermissionError) as ex_err:
-                    oradio_log.error("Failed to remove '%s'", USB_WIFI_FILE)
+                    oradio_log.error("Failed to remove '%s': %s", USB_WIFI_FILE, ex_err)
             finally:
                 _usb_wifi_lock.release()
         else:
