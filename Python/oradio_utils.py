@@ -30,11 +30,12 @@ import json
 import socket
 import subprocess
 from subprocess import run
-from typing import Any, Optional
 from pathlib import Path
-from pydantic import BaseModel
+import argparse
 from typing import Optional, List, Any
+from pydantic import BaseModel, ValidationError
 import netifaces
+import pydevd    # pip install pydevd
 
 ##### oradio modules ####################
 from oradio_logging import oradio_log
@@ -42,7 +43,6 @@ from oradio_logging import oradio_log
 ##### GLOBAL constants ####################
 from oradio_const import (
     YELLOW, NC,
-    MODEL_NAME_FOUND, MODEL_NAME_NOT_FOUND,
     PRESETS_FILE,
     USB_SYSTEM,
 )
@@ -50,7 +50,11 @@ from oradio_const import (
 ##### LOCAL constants ####################
 JSON_SCHEMAS_FILE = os.path.abspath(os.path.join(sys.path[0], 'schemas.json'))
 
-class Oradio_message(BaseModel):
+class OradioMessage(BaseModel):
+    '''
+    The basemodel for the OradioMessage to standardize the message when
+    used in the shared-queue of Oradio.
+    '''
     source: str
     state: str
     error: str
@@ -118,21 +122,19 @@ def is_service_active(service_name):
         return False
 
 def validate_oradio_message(message: dict)-> dict:
-    ''' check if message is according json scheme for Oradio_message
+    ''' check if message is according json scheme for OradioMessage
     :argument
         message : message formatted as a dictionary 
     :return
-        validated_message = Dictionary,  the validated Oradio_message structure
-        validated_messsage = None, when not according Oradio_message structure
+        validated_message = Dictionary,  the validated OradioMessage structure
+        validated_messsage = None, when not according OradioMessage structure
     '''
-    status = False
     message_dict = json.loads(message)
     try:
-        validated_message = Oradio_message(**message_dict)
+        validated_message = OradioMessage(**message_dict)
         oradio_log.debug(f"Message is valid: {validated_message}")
-        status = True
     except ValidationError as err:
-        oradio_log.error("Message does not match Oradio_message schema:", err)
+        oradio_log.error("Message does not match OradioMessage schema:", err)
         validated_message = None
     return validated_message
 
@@ -266,11 +268,9 @@ def setup_remote_debugging() -> bool:
         True : connection established, or No remote debug required
         False: Error detected, no connection
     '''
-    import argparse
-    import pydevd    # pip install pydevd
-
+    #pylint: disable=line-too-long
     parser = argparse.ArgumentParser(description='Remote Debug')
-    MESSAGE_DEBUG = 'Remote Debug options are:  -rd [no|yes] -ip [host-ip-address] -p [host-portnr]' 
+    MESSAGE_DEBUG = 'Remote Debug options are:  -rd [no|yes] -ip [host-ip-address] -p [host-portnr]'
     parser.add_argument('-rd', '--rmdebug', type = str, nargs='?', const='no', help=MESSAGE_DEBUG )
     parser.add_argument('-ip', '--ipaddress', type = str, nargs='?', const='no', help=MESSAGE_DEBUG )
     parser.add_argument('-p', '--portnr', type = str, nargs='?', const='no', help=MESSAGE_DEBUG )
@@ -303,9 +303,7 @@ def setup_remote_debugging() -> bool:
             print(f"{YELLOW}Network error while connecting to debugger: {err} {NC}")
             return False
         return True
-    else:
-        # no arguments found
-        return True
+    return True
 
 def input_prompt_int(prompt: str, default=-1 ) -> int:
     '''
@@ -320,6 +318,12 @@ def input_prompt_int(prompt: str, default=-1 ) -> int:
         return default
 
 def input_prompt_float(prompt: str, default: float | None = None) -> float | None:
+    '''
+    Prompt for an user input and return float value of number typed
+    :argument prompt : prompt text for user
+    :argument default: default value to return in case of an error
+    :return the ifloat value type in by user | default value in case of an error
+    '''    
     try:
         return float(input(prompt))
     except ValueError:

@@ -1,6 +1,6 @@
 {
   "$schema": "http://json-schema.org/draft-07/schema#",
-  "Oradio_message": {
+  "OradioMessage": {
     "type": "object",
     "properties": {
       "source":	{ "type": "string" },

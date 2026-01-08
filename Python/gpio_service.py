@@ -302,11 +302,11 @@ class GPIOService:
         start_time = perf_counter()
         elapsed_time = 0.0
         while elapsed_time < press_timing:
-            print("*", end=" ", flush=True)
             sleep(0.2)
+            print(f"{YELLOW}*", end=" ", flush=True)
             elapsed_time = perf_counter()-start_time
-        print("button press timing was ",press_timing, end=" ", flush=True)
-        print("\n")
+        print(f"{YELLOW}button press timing was ",press_timing, end=" ", flush=True)
+        print(f"{NC}\n")
         # set the button pin to GPIO,HIGH as a button release
         GPIO.output(BUTTONS[button_name], GPIO.HIGH)
         self._edge_callback(BUTTONS[button_name])
@@ -335,7 +335,7 @@ if __name__ == '__main__':
 
     if not setup_remote_debugging():
         print("The remote debugging error, check the remote IP connection")
-        sys.exit  # pylint: disable=pointless-statement
+        sys.exit()
 
     def keyboard_input(event:Event):
         '''
@@ -453,6 +453,11 @@ if __name__ == '__main__':
             test_gpio : instance of gpio service to be use
         '''
         # pylint: disable=too-many-branches
+        #####################################################
+        # motivation:
+        # probably caused by match-case
+        # code is still readable and not complex
+        ###################################################
         _all_leds_off(test_gpio)
         led_name_option = ["Quit"] + LED_NAMES
         selection_done = False
@@ -523,7 +528,11 @@ if __name__ == '__main__':
             test_gpio should be an instance of GPIOService
         '''
         # pylint: disable=too-many-branches
-
+        ####################################################################
+        # motivation:
+        # match-case is more readable, nut causes extra branches.
+        # only 1 level if-else within a case, so still readable
+        #######################################################################
         # create a led-pin selection list
         led_pin_options =   ["Quit"] +\
                             ["All leds-pins ON"] +\
@@ -598,6 +607,6 @@ if __name__ == '__main__':
                 case _:
                     print(f"{YELLOW}Please input a valid number.")
 
-        sys.exit  # pylint: disable=pointless-statement
+        sys.exit()
     # Present menu with tests
     _interactive_menu()

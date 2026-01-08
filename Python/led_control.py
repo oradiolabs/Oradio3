@@ -431,7 +431,9 @@ if __name__ == "__main__":
         """Show menu with test options"""
         # pylint: disable=too-many-branches
         ####################################################################
-        # motivation: OK, but branches are rather simple and clearly defined
+        # motivation:
+        # probably caused by match-case,
+        # but branches are rather simple and clearly defined
         ######################################################################
         try:
             led_control = LEDControl()
