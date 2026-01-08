@@ -125,8 +125,6 @@ def validate_network(network: dict, index: int) -> bool:
     Returns:
         bool: True if valid, False otherwise
     """
-    valid = True
-
     # Must be a dict
     if not isinstance(network, dict):
         oradio_log.error("Network #%d is not an object", index)
