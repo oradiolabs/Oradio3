@@ -37,8 +37,6 @@ from re import search
 from os import path, remove
 from threading import Thread
 from json import load, JSONDecodeError
-#Review Onno: waarom multiprocessing Queue, niet threading Queue? Multiprocessing is 'duurder'
-#Review Onno: waarom multiprocessing Process, niet threading Thread? Process is 'duurder'
 from multiprocessing import Process, Queue, Lock
 from subprocess import CalledProcessError
 import nmcli
@@ -89,9 +87,10 @@ nmcli_exceptions = tuple(
 
 # Global singleton variables
 _saved_network = {"network": ""}    # Track last connected wifi network
-_saved_lock = Lock()                # Thread-safe read/write _saved_network
+_saved_lock = Lock()                # Process-safe read/write _saved_network
+_usb_wifi_lock = Lock()             # Process-safe USB handling
 
-def set_saved_network(network: str) -> None:
+def set_saved_network(network) -> None:
     """
     Set the last active wifi network in a thread-safe manner.
 
@@ -111,16 +110,13 @@ def get_saved_network() -> str:
     with _saved_lock:
         return _saved_network["network"]
 
-# Global process-safe lock for USB handling
-_usb_wifi_lock = Lock()
-
-def validate_network(network: dict, index: int) -> bool:
+def validate_network(network, index) -> bool:
     """
     Ensure valid network credentials.
 
     Args:
-        network: network fields
-        index: Position in input file
+        network (dict): network fields
+        index (int): Position in input file
 
     Returns:
         bool: True if valid, False otherwise
@@ -158,7 +154,7 @@ def validate_network(network: dict, index: int) -> bool:
     return True
 
 @singleton
-class WifiEventListener:
+class WifiEventListener():
     """
     Singleton class to listen to wifi state changes via NetworkManager D-Bus signals.
     - Connects to the system D-Bus, finds the wifi device managed by NetworkManager, and listens
@@ -166,7 +162,7 @@ class WifiEventListener:
     - Runs a GLib main loop in a background thread to handle asynchronous signals without blocking the main application
     """
 
-    def __init__(self):
+    def __init__(self) -> None:
         """
         Initialize the listener by setting up the D-Bus main loop integration,
         connecting to the system bus, finding the wifi device, and subscribing
@@ -266,7 +262,7 @@ class WifiEventListener:
         for queue in self._subscribers:
             safe_put(queue, message)
 
-    def subscribe(self, queue):
+    def subscribe(self, queue) -> None:
         """
         Subscribe a queue to receive wifi state messages.
 
@@ -275,7 +271,7 @@ class WifiEventListener:
         """
         self._subscribers.append(queue)
 
-    def unsubscribe(self, queue):
+    def unsubscribe(self, queue) -> None:
         """
         Remove a subscriber queue.
 
@@ -306,7 +302,6 @@ class WifiService():
         self._queue = queue
         self._usb_q = Queue()
 
-#REVIEW Onno: Waarom Process ('zwaarder') en niet Thread ('lichter') ?
         # Start a separate process to monitor USB messages (e.g. wifi credentials)
         self._usb_listener = Process(target=self._check_usb_messages, args=(self._usb_q,))
         self._usb_listener.start()
@@ -775,11 +770,13 @@ if __name__ == '__main__':
 # Most modules use similar code in stand-alone
 # pylint: disable=duplicate-code
 
-    def _check_messages(queue):
+    def _check_messages(queue) -> None:
         """
         Check if a new message is put into the queue
         If so, read the message from queue and display it
-        :param queue = the queue to check for
+
+        Args:
+            queue (Queue): The queue to check for incoming messages
         """
         while True:
             # Wait indefinitely until a message arrives from the server/wifi service
@@ -788,8 +785,13 @@ if __name__ == '__main__':
             print(f"\n{GREEN}Message received: '{message}'{NC}\n")
 
     # Pylint PEP8 ignoring limit of max 12 branches and 50 statement is ok for test menu
-    def interactive_menu(queue):    # pylint: disable=too-many-branches, too-many-statements
-        """Show menu with test options"""
+    def interactive_menu(queue) -> None:    # pylint: disable=too-many-branches, too-many-statements
+        """
+        Show menu with test options
+
+        Args:
+            queue (Queue): The queue to receive wifi messages on
+        """
         # Initialize: no services registered
         wifi_services = []
 
@@ -899,7 +901,7 @@ if __name__ == '__main__':
     # Initialize
     message_queue = Queue()
 
-    # Start  process to monitor the message queue
+    # Start process to monitor the message queue
     message_listener = Process(target=_check_messages, args=(message_queue,))
     message_listener.start()
 
