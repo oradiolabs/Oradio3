@@ -67,25 +67,13 @@ INFO_ERROR    = {"serial": "undefined", "version": "undefined"}
 # Location of version info
 SOFTWARE_VERSION_FILE = "/var/log/oradio_sw_version.log"
 # Stop server if no keep alive message received, in seconds
-KEEP_ALIVE_TIMEOUT = 5
+KEEP_ALIVE_TIMEOUT = 30
 
 # Initialise MPD client
 mpd_control = MPDControl()
 
 # Get the web server app
 api_app = FastAPI()
-
-# Catch any request before doing anything else
-@api_app.middleware("http")
-async def keep_alive_middleware(request: Request, call_next):
-    """ Run keep_alive automatically on every request """
-
-    # Avoid calling keep_alive twice if the endpoint itself is "/keep_alive"
-    if request.url.path != "/keep_alive":
-        await keep_alive()
-
-    # Execute request and return response
-    return await call_next(request)
 
 # Get the path for the server to mount/find the web pages and associated resources
 web_path = path.dirname(path.realpath(__file__))
@@ -95,6 +83,31 @@ api_app.mount("/static", StaticFiles(directory=web_path+"/static"), name="static
 
 # Initialize templates with custom filters and globals
 templates = Jinja2Templates(directory=web_path+"/templates")
+
+# Store in api_app.state to persists over multiple HTTP requests and application lifetime
+api_app.state.timer_task = None         # The actual timer task
+api_app.state.timer_deadline = None     # When the timer should expire
+
+# Catch any request before doing anything else
+@api_app.middleware("http")
+async def keep_alive_middleware(request: Request, call_next):
+    """Manage keep_alive counter while executing requests."""
+    if request.url.path != "/keep_alive" and api_app.state.timer_task and not api_app.state.timer_task.done():
+        # Stop the running keep-alive timer
+        api_app.state.timer_task.cancel()
+        api_app.state.timer_deadline = None
+        api_app.state.timer_task = None
+        oradio_log.debug("Keep-alive timer stopped")
+
+    # Process the actual request
+    response = await call_next(request)
+
+    if request.url.path != "/keep_alive" and not request.query_params.get("redirected"):
+        # Restart timeout counter if not redirected
+        await keep_alive()
+
+    # Return response for actual request
+    return response
 
 #### FAVICON #############################
 
@@ -122,6 +135,8 @@ async def buttons_page(request: Request):
         "directories" : mpd_control.get_directories(),
         "playlists"   : mpd_control.get_playlists()
     }
+
+    # Send buttons page
     return templates.TemplateResponse(request=request, name="buttons.html", context=context)
 
 class ChangedPreset(BaseModel):
@@ -179,7 +194,6 @@ async def save_preset(changedpreset: ChangedPreset):
             message["state"] = preset_map[changedpreset.preset]
             oradio_log.debug("Send web service message: %s", message)
             safe_put(api_app.state.queue, message)
-
     else:
         oradio_log.error("Invalid preset '%s'", changedpreset.preset)
 
@@ -357,10 +371,10 @@ async def status_page(request: Request):
 
     # Return status page and serial and active wifi connection as context
     context = {
-                "serial"     : serial,
-                "sw_serial"  : sw_info['serial'],
-                "sw_version" : sw_info['version']
-            }
+        "serial"     : serial,
+        "sw_serial"  : sw_info['serial'],
+        "sw_version" : sw_info['version']
+    }
     return templates.TemplateResponse(request=request, name="status.html", context=context)
 
 #### NETWORK #############################
@@ -390,9 +404,9 @@ async def network_page(request: Request):
 
     # Return network page and saved wifi connection and spotify name as context
     context = {
-                "oldssid" : oldssid,
-                "spotify" : response
-            }
+        "oldssid" : oldssid,
+        "spotify" : response
+    }
     return templates.TemplateResponse(request=request, name="network.html", context=context)
 
 # POST endpoint to get wifi networks
@@ -492,23 +506,24 @@ async def spotify_name(spotify: Spotify):
 
 #### CLOSE ###############################
 
-# Store in api_app.state to persists over multiple HTTP requests and application lifetime
-api_app.state.timer_task = None         # The actual timer task
-api_app.state.timer_deadline = None     # When the timer should expire
-
 async def stop_task():
     """The wait task sending the stop message when timer expires."""
     try:
         # Sleep until timeout unless reset
         while True:
+            # Compute remaining time until deadline
             remaining = (api_app.state.timer_deadline - datetime.utcnow()).total_seconds()
+
+            # If deadline passed, break the loop
             if remaining <= 0:
                 break
-            await sleep(min(remaining, 0.2))  # check frequently
 
-        # Timer expired: Send a stop message to the service queue
+            # Sleep a short time (or until deadline, whichever is smaller)
+            await sleep(min(remaining, 0.2))
+
+        # Timer expired: Send stop message
         message = {"request": MESSAGE_REQUEST_STOP}
-        safe_put(api_app.state.queue, message)  # Safely put message in queue
+        safe_put(api_app.state.queue, message)
         oradio_log.debug("Keep alive timer expired: closing the web server")
 
     except CancelledError:
@@ -519,29 +534,28 @@ async def stop_task():
 @api_app.post("/keep_alive")
 async def keep_alive():
     """Handle POST request to (re)set the inactive timer for closing the web server."""
-    oradio_log.debug("Resetting the keep alive timer")
+    if api_app.state.timer_deadline is None:
+        oradio_log.debug("Starting the keep alive timer")
+    else:
+        remaining = (api_app.state.timer_deadline - datetime.utcnow()).total_seconds()
+        oradio_log.debug("Time remaining: %f. Resetting the keep alive timer", remaining)
 
     # Set the new deadline
     api_app.state.timer_deadline = datetime.utcnow() + timedelta(seconds=KEEP_ALIVE_TIMEOUT)
 
-    # Cancel the previous timer task if running
-    if api_app.state.timer_task and not api_app.state.timer_task.done():
-        api_app.state.timer_task.cancel()
-
-    # Create a new timer task
-    api_app.state.timer_task = create_task(stop_task())
+    # Only create the timer task if it doesn't exist or is done
+    if api_app.state.timer_task is None or api_app.state.timer_task.done():
+        api_app.state.timer_task = create_task(stop_task())
 
 # POST endpoint to close the server
 @api_app.post("/close")
 async def close():
-    """
-    Handle POST request to close the web server
-    """
+    """Handle POST request to close the web server."""
     oradio_log.debug("Closing the web server")
 
     # Send a stop message to the service queue
     message = {"request": MESSAGE_REQUEST_STOP}
-    safe_put(api_app.state.queue, message)  # Safely put message in queue
+    safe_put(api_app.state.queue, message)
 
 #### CATCH ALL ###########################
 
@@ -559,8 +573,8 @@ async def catch_all(request: Request):
     """
     oradio_log.debug("Catchall triggered for path: %s", request.url.path)
 
-    # return redirect response
-    return RedirectResponse(url='/buttons', status_code=302)
+    # return redirect response with redirected flag set
+    return RedirectResponse(url='/buttons?redirected=1', status_code=302)
 
 # Entry point for stand-alone operation
 if __name__ == '__main__':

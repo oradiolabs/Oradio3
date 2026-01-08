@@ -17,13 +17,19 @@ Created on April 28, 2025
 @status:        Development
 @summary:       Oradio touch buttons module with debounce, per-button callbacks, and selftest
 """
-
 import time
 import threading
 from typing import Callable
-
 from RPi import GPIO
+
+##### oradio modules ####################
 from oradio_logging import oradio_log
+from system_sounds import play_sound    # For better readability. pylint: disable=wrong-import-order
+
+##### GLOBAL constants ####################
+from oradio_const import (
+    SOUND_CLICK,
+)
 
 # -------- LOCAL constants --------
 BUTTON_DEBOUNCE_TIME = 500          # ms, ignore rapid repeats
@@ -50,28 +56,15 @@ class TouchButtons:
     OnPress = Callable[[], None]
     OnLongPress = Callable[[str], None]  # receives the button name (e.g. "Play")
 
-    def __init__(self, on_press=None, on_long_press=None, sound_player=None) -> None:
+    def __init__(self, on_press=None, on_long_press=None) -> None:
         """
         Args:
             on_press: dict mapping button name -> zero-arg callback (short press).
             on_long_press: dict mapping button name -> callback(button_name) (long press).
-            sound_player: optional object with .play("Click"); if None, a default is tried.
         """
         # Callbacks
         self._on_press: dict[str, TouchButtons.OnPress] = on_press or {}
         self._on_long_press: dict[str, TouchButtons.OnLongPress] = on_long_press or {}
-
-        # Sound player: use injected instance if provided; otherwise try to create one.
-        if sound_player is not None:
-            self.sound_player = sound_player
-        else:  # only to test in stand alone situations
-            try:
-                # Lazy import on purpose: keeps touch_buttons usable without audio backend
-                from play_system_sound import PlaySystemSound  # pylint: disable=import-outside-toplevel
-                self.sound_player = PlaySystemSound()
-            except Exception:  # pylint: disable=broad-exception-caught
-                oradio_log.warning("TouchButtons: sound backend unavailable; disabling click sounds")
-                self.sound_player = None
 
         # Press tracking
         self.button_press_times: dict[str, float] = {}   # button -> press start (monotonic)
@@ -152,12 +145,7 @@ class TouchButtons:
         timer.start()
 
         # Immediate short-press feedback
-        if self.sound_player:
-            try:
-                self.sound_player.play("Click")
-            except Exception:  # pylint: disable=broad-exception-caught
-                # Don't let sound issues break input handling
-                oradio_log.exception("TouchButtons: click sound failed")
+        play_sound(SOUND_CLICK)
 
         # Invoke short-press callback if present
         callback = self._on_press.get(button_name)
