@@ -79,7 +79,6 @@ STATE_WIFI_CONNECTED    = "Wifi connected"
 STATE_WIFI_ACCESS_POINT = "Wifi configured as access point"
 # wifi messages
 MESSAGE_WIFI_SOURCE          = "Wifi message"
-MESSAGE_WIFI_FILE_ERROR      = "File format error"
 MESSAGE_WIFI_FAIL_CONFIG     = "Failed to save credentials in NetworkManager"
 MESSAGE_WIFI_FAIL_START_AP   = "Failed to start access point"
 MESSAGE_WIFI_FAIL_CONNECT    = "Wifi failed to connect"
