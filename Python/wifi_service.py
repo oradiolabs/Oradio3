@@ -34,9 +34,7 @@ Created on December 23, 2024
             Use: nmcli dev wifi hotspot ifname wlp4s0 ssid test password "test1234"
 """
 from re import search
-from os import path, remove
 from threading import Thread
-from json import load, JSONDecodeError
 from multiprocessing import Process, Queue, Lock
 from subprocess import CalledProcessError
 import nmcli
@@ -49,7 +47,7 @@ from gi.repository import GLib
 ##### oradio modules ####################
 from singleton import singleton
 from oradio_utils import run_shell_script, safe_put
-from usb_service import USBService
+#from usb_service import USBService
 from oradio_logging import oradio_log
 
 ##### GLOBAL constants ####################
@@ -302,13 +300,6 @@ class WifiService():
         self._queue = queue
         self._usb_q = Queue()
 
-        # Start a separate process to monitor USB messages (e.g. wifi credentials)
-        self._usb_listener = Process(target=self._check_usb_messages, args=(self._usb_q,))
-        self._usb_listener.start()
-
-        # USBService instance to send USB state updates to usb queue
-        self._usb_service = USBService(self._usb_q)
-
         # Start listening to NetworkManager wifi state changes
         self.nm_listener = WifiEventListener()
 
@@ -317,79 +308,6 @@ class WifiService():
 
         # Send initial wifi state and no-error message
         self._send_message(MESSAGE_NO_ERROR)
-
-    def _check_usb_messages(self, queue) -> None:
-        """
-        Background process to monitor USB messages from the queue
-        On USB present state, check for wifi credentials on USB drive
-
-        Args:
-            queue (Queue): Queue to receive USB messages
-        """
-        while True:
-            # Wait for message
-            message = queue.get(block=True, timeout=None)
-            oradio_log.debug("USB message received: '%s'", message)
-
-            # If USB is present check if USB has file with wifi credentials
-            if message.get("state", "Unknown") == STATE_USB_PRESENT:
-                self._handle_usb_wifi_invoer()
-
-
-    def _handle_usb_wifi_invoer(self) -> None:
-        """
-        Check for wifi credentials on USB drive
-        - Lock to ensure 1 process is running this method
-        - If found, validate and add to NetworkManager
-        """
-        if _usb_wifi_lock.acquire(block=False):  # Try to acquire without blocking
-            try:
-                oradio_log.info("Checking %s for wifi credentials", USB_WIFI_FILE)
-
-                # Check if wifi credentials file exists in USB drive root
-                if not path.isfile(USB_WIFI_FILE):
-                    oradio_log.debug("'%s' not found", USB_WIFI_FILE)
-                    return  # Credentials file not found, nothing to do
-
-                try:
-                    # Read and parse JSON file
-                    with open(USB_WIFI_FILE, "r", encoding="utf-8") as file:
-                        # Get JSON object as a dictionary
-                        data = load(file)
-                except (JSONDecodeError, IOError) as ex_err:
-                    oradio_log.error("Failed to read or parse '%s': error: %s", USB_WIFI_FILE, ex_err)
-                    self._send_message(MESSAGE_WIFI_FILE_ERROR)
-                    return
-
-                # Validate data is a list (of networks)
-                if "networks" not in data or not isinstance(data["networks"], list):
-                    oradio_log.error("'networks' must be a list")
-                    self._send_message(MESSAGE_WIFI_FILE_ERROR)
-                    return
-
-                # Parse data found
-                for i, network in enumerate(data["networks"], start=1):
-                    if not validate_network(network, i):
-                        self._send_message(MESSAGE_WIFI_FILE_ERROR)
-                    else:
-                        # Add wifi credentials to NetworkManager
-                        ssid = network["SSID"].strip()
-                        pswd = network["PASSWORD"].strip()
-                        if _networkmanager_add(ssid, pswd):
-                            oradio_log.info("Network '%s' added to NetworkManager", ssid)
-                        else:
-                            oradio_log.error("Failed to add '%s' to NetworkManager", ssid)
-
-                # Remove file after succesful parsing
-                try:
-                    remove(USB_WIFI_FILE)
-                    oradio_log.info("'%s' removed", USB_WIFI_FILE)
-                except (FileNotFoundError, PermissionError) as ex_err:
-                    oradio_log.error("Failed to remove '%s': %s", USB_WIFI_FILE, ex_err)
-            finally:
-                _usb_wifi_lock.release()
-        else:
-            oradio_log.debug("%s already being handled by another process", USB_WIFI_FILE)
 
     def _send_message(self, error) -> None:
         """
@@ -444,7 +362,7 @@ class WifiService():
             set_saved_network(active)
 
         # Add/modify NetworkManager settings
-        if not _networkmanager_add(ssid, pswd):
+        if not networkmanager_add(ssid, pswd):
             # Inform controller of actual state and error
             self._send_message(MESSAGE_WIFI_FAIL_CONFIG)
             # Error, no point continuing
@@ -487,13 +405,6 @@ class WifiService():
         """Cleanup resources and unsubscribe queues on service shutdown."""
         # Unsubscribe callbacks from WifiEventListener
         self.nm_listener.unsubscribe(self._queue)
-
-        # Unsubscribe callbacks from USBService
-        self._usb_service.close()
-
-        # Stop listening to USB messages
-        if self._usb_listener:
-            self._usb_listener.terminate()
 
         oradio_log.info("wifi service closed")
 
@@ -701,7 +612,7 @@ def _networkmanager_list() -> list:
 
     return connections
 
-def _networkmanager_add(network, password=None) -> bool:
+def networkmanager_add(network, password=None) -> bool:
     """
     if network is access point then setup AP in NetworkManager
     If unknown, add network to NetworkManager
@@ -844,7 +755,7 @@ if __name__ == '__main__':
                     name = input("Enter SSID of the network to add: ")
                     pswrd = input("Enter password for the network to add (empty for open network): ")
                     if name:
-                        if _networkmanager_add(name, pswrd):
+                        if networkmanager_add(name, pswrd):
                             print(f"\n{GREEN}'{name}' added to NetworkManager{NC}\n")
                         else:
                             print(f"\n{RED}Failed to add '{name}' to NetworkManager{NC}\n")
