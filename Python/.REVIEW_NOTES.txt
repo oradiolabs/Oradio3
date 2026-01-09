@@ -39,6 +39,41 @@ T - Review na alle module wijzigingen.
 	Zodra die modules gestabiliseerd zijn wordt het tijd om oradio_control na te kijken, op te schonen
 
 
+2026-01-09============================================================================================================================
+
+USB:
+Documents/USB/USB module description.docx:
+- Updated to include handling Wifi_invoer.json
+usb_service.py:
+- Parsing van Wifi_invoer.json toegevoegd
+- doc strings, type hints and inline comments opgeschoond
+
+WIFI:
+Documents/WIFI/WIFI module description.docx:
+- Updated to include handling Wifi_invoer.json
+wifi_service.py:
+- Parsing van Wifi_invoer.json verwijderd
+- doc strings, type hints and inline comments opgeschoond
+
+2026-01-08============================================================================================================================
+
+WEBINTERFACE:
+web_service.py:
+- Voeg type hints toeg
+- Completeeer doc strings
+- Gebruik singleton
+
+fastapi_server.py:
+- Voeg type hints toeg
+- Completeeer doc strings
+- Refactor voor Single Page Architecture
+
+templates folder:
+- Refactor voor Single Page Architecture
+
+static folder:
+- Refactor voor Single Page Architecture
+
 2026-01-06============================================================================================================================
 
 AUDIO:
