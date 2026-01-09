@@ -26,14 +26,16 @@ Created on January 17, 2025
         Using a watchdog triggered by MONITOR handles the USB insert/removed behaviour
         https://pypi.org/project/watchdog/
 """
-import os
+from os import path, remove
 from threading import RLock
+from json import load, JSONDecodeError
 from watchdog.observers import Observer
 from watchdog.events import PatternMatchingEventHandler
 
 ##### oradio modules ####################
 from singleton import singleton
 from oradio_logging import oradio_log
+from wifi_service import networkmanager_add
 from oradio_utils import safe_put, run_shell_script
 
 ##### GLOBAL constants ####################
@@ -48,7 +50,8 @@ from oradio_const import (
 )
 
 ##### LOCAL constants ####################
-USB_MONITOR = "usb_ready"   # Name of file used to monitor if USB is mounted or not
+USB_MONITOR   = "usb_ready"                             # Name of file used to monitor if USB is mounted or not
+USB_WIFI_FILE = USB_MOUNT_POINT + "/Wifi_invoer.json"   # USB file with wifi credentials
 
 @singleton
 class USBObserver:
@@ -99,8 +102,11 @@ class USBMonitor(PatternMatchingEventHandler):
         self._subscribers = []
 
         # Determine initial USB state from mount point
-        if os.path.ismount(USB_MOUNT_POINT):
+        if path.ismount(USB_MOUNT_POINT):
             self._state = STATE_USB_PRESENT
+
+            # Import wifi networks from file on USB
+            self._import_usb_wifi_networks()
         else:
             self._state = STATE_USB_ABSENT
 
@@ -133,6 +139,9 @@ class USBMonitor(PatternMatchingEventHandler):
             for on_insert, _ in self._subscribers:
                 on_insert()
 
+        # Import wifi networks from file on USB
+        self._import_usb_wifi_networks()
+
     def on_deleted(self, event):
         """
         Watchdog callback: called when the USB monitor is removed
@@ -146,6 +155,102 @@ class USBMonitor(PatternMatchingEventHandler):
         with self._sub_lock:
             for _, on_remove in self._subscribers:
                 on_remove()
+
+    @staticmethod
+    def _validate_network(network, index) -> str | None:
+        """
+        Ensure valid network credentials.
+
+        Args:
+            network (dict): network fields
+            index (int): Position in input file
+
+        Returns:
+            str | None: Error message or None when valid
+        """
+        # Start assuming no errors
+        errors = []
+
+        # Must be a dict
+        if not isinstance(network, dict):
+            errors.append(f"Network #{index} is not an object")
+        else:
+            # Required fields
+            missing = {"SSID", "PASSWORD"} - network.keys()
+            if missing:
+                errors.append(f"Network #{index} missing fields: {', '.join(sorted(missing))}")
+
+            # SSID validation
+            ssid = network.get("SSID")
+            if isinstance(ssid, str):
+                if not ssid.strip():
+                    errors.append(f"Network #{index} has empty SSID")
+                elif len(ssid) > 32:
+                    errors.append(f"Network #{index} SSID is too long")
+            else:
+                errors.append(f"Network #{index} has invalid SSID")
+
+            # PASSWORD validation (empty allowed for open networks, otherwise min 8 chars)
+            pswd = network.get("PASSWORD")
+            if isinstance(pswd, str):
+                if 0 < len(pswd) < 8:
+                    errors.append(f"Network #{index} PASSWORD is too short")
+            else:
+                errors.append(f"Network #{index} has invalid PASSWORD")
+
+        # Return errors found, or None if valid
+        return "; ".join(errors) if errors else None
+
+    def _import_usb_wifi_networks(self) -> None:
+        """
+        Check for file with wifi credentials on USB drive
+        - If found, validate and add to NetworkManager
+        """
+        oradio_log.info("Checking %s for wifi credentials", USB_WIFI_FILE)
+
+        # Check if wifi credentials file exists in USB drive root
+        if not path.isfile(USB_WIFI_FILE):
+            oradio_log.debug("'%s' not found", USB_WIFI_FILE)
+            return
+
+        try:
+            # Read and parse JSON file
+            with open(USB_WIFI_FILE, "r", encoding="utf-8") as file:
+                # Get JSON object as a dictionary
+                data = load(file)
+        except (JSONDecodeError, IOError) as ex_err:
+            oradio_log.error("Failed to read or parse '%s': error: %s", USB_WIFI_FILE, ex_err)
+            return
+
+        # Validate data is a list of networks
+        if "networks" not in data or not isinstance(data["networks"], list):
+            oradio_log.error("'networks' must be a list")
+            return
+
+        # Parse data found
+        all_valid = True
+        for i, network in enumerate(data["networks"], start=1):
+            if err_msg := self._validate_network(network, i):
+                all_valid = False
+                oradio_log.error(err_msg)
+            else:
+                # Add wifi credentials to NetworkManager
+                ssid = network["SSID"].strip()
+                pswd = network["PASSWORD"]      # Spaces are allowed in passwords
+                if networkmanager_add(ssid, pswd):
+                    oradio_log.info("Network '%s' added to NetworkManager", ssid)
+                else:
+                    oradio_log.error("Failed to add '%s' to NetworkManager", ssid)
+
+        # Remove file after successful parsing
+        if all_valid:
+            try:
+                remove(USB_WIFI_FILE)
+                oradio_log.info("'%s' removed", USB_WIFI_FILE)
+            except (FileNotFoundError, PermissionError) as ex_err:
+                oradio_log.error("Failed to remove '%s': %s", USB_WIFI_FILE, ex_err)
+        else:
+            oradio_log.warning("'%s' has errors, is not removed", USB_WIFI_FILE)
 
 class USBService:
     """

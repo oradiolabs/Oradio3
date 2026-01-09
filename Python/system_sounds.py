@@ -97,7 +97,7 @@ def play_sound(sound_key: str) -> None:
     cmd = f"aplay -D '{SYSTEM_SOUND_SINK}' {sound_file}"
 
     # Using 'with' has no added value, only slows down code execution
-    subprocess.Popen(
+    _ = subprocess.Popen(           # pylint: disable=consider-using-with
         cmd,
         shell=True,
         stdout=subprocess.DEVNULL,
@@ -105,7 +105,7 @@ def play_sound(sound_key: str) -> None:
         stdin=subprocess.DEVNULL,
         start_new_session=True,     # detaches process to prevent zombies
         close_fds=True
-    )   # pylint: disable=consider-using-with
+    )
 
     oradio_log.debug("System sound played successfully: %s", sound_file)
 

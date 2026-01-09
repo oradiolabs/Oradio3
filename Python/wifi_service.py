@@ -33,13 +33,9 @@ Created on December 23, 2024
             Use NetworkManager setting up a wifi hotspot that sets up a local private net, with DHCP and IP forwarding
             Use: nmcli dev wifi hotspot ifname wlp4s0 ssid test password "test1234"
 """
-from os import path
 from re import search
-from json import load, JSONDecodeError
-from threading import Thread, Lock
-#Review Onno: waarom multiprocessing Queue, niet threading Queue? Multiprocessing is 'duurder'
-#Review Onno: waarom multiprocessing Process, niet threading Thread? Process is 'duurder'
-from multiprocessing import Process, Queue
+from threading import Thread
+from multiprocessing import Process, Queue, Lock
 from subprocess import CalledProcessError
 import nmcli
 import nmcli._exception as nmcli_exc
@@ -51,7 +47,7 @@ from gi.repository import GLib
 ##### oradio modules ####################
 from singleton import singleton
 from oradio_utils import run_shell_script, safe_put
-from usb_service import USBService
+#from usb_service import USBService
 from oradio_logging import oradio_log
 
 ##### GLOBAL constants ####################
@@ -60,12 +56,10 @@ from oradio_const import (
     USB_MOUNT_POINT,
     ACCESS_POINT_HOST,
     ACCESS_POINT_SSID,
-    STATE_USB_PRESENT,
     MESSAGE_WIFI_SOURCE,
     STATE_WIFI_IDLE,
     STATE_WIFI_CONNECTED,
     STATE_WIFI_ACCESS_POINT,
-    MESSAGE_WIFI_FILE_ERROR,
     MESSAGE_WIFI_FAIL_CONFIG,
     MESSAGE_WIFI_FAIL_CONNECT,
     MESSAGE_NO_ERROR,
@@ -89,9 +83,10 @@ nmcli_exceptions = tuple(
 
 # Global singleton variables
 _saved_network = {"network": ""}    # Track last connected wifi network
-_saved_lock = Lock()                # Thread-safe read/write _saved_network
+_saved_lock = Lock()                # Process-safe read/write _saved_network
+_usb_wifi_lock = Lock()             # Process-safe USB handling
 
-def set_saved_network(network: str) -> None:
+def set_saved_network(network) -> None:
     """
     Set the last active wifi network in a thread-safe manner.
 
@@ -111,8 +106,51 @@ def get_saved_network() -> str:
     with _saved_lock:
         return _saved_network["network"]
 
+def validate_network(network, index) -> bool:
+    """
+    Ensure valid network credentials.
+
+    Args:
+        network (dict): network fields
+        index (int): Position in input file
+
+    Returns:
+        bool: True if valid, False otherwise
+    """
+    # Must be a dict
+    if not isinstance(network, dict):
+        oradio_log.error("Network #%d is not an object", index)
+        return False
+
+    # Required fields
+    missing = {"SSID", "PASSWORD"} - network.keys()
+    if missing:
+        oradio_log.error("Network #%d missing fields", index, missing)
+        return False
+
+    # SSID validation
+    ssid = network.get("SSID")
+    if not isinstance(ssid, str) or not ssid.strip() or len(ssid) > 32:
+        if not isinstance(ssid, str) or not ssid.strip():
+            oradio_log.error("Network #%d has invalid SSID", index)
+        else:
+            oradio_log.error("Network #%d SSID is too long", index)
+        return False
+
+    # PASSWORD validation (empty allowed)
+    password = network.get("PASSWORD")
+    if not isinstance(password, str) or (0 < len(password) < 8):
+        if not isinstance(password, str):
+            oradio_log.error("Network #%d has invalid PASSWORD", index)
+        else:
+            oradio_log.error("Network #%d PASSWORD is too short", index)
+        return False
+
+    # No errors found
+    return True
+
 @singleton
-class WifiEventListener:
+class WifiEventListener():
     """
     Singleton class to listen to wifi state changes via NetworkManager D-Bus signals.
     - Connects to the system D-Bus, finds the wifi device managed by NetworkManager, and listens
@@ -120,7 +158,7 @@ class WifiEventListener:
     - Runs a GLib main loop in a background thread to handle asynchronous signals without blocking the main application
     """
 
-    def __init__(self):
+    def __init__(self) -> None:
         """
         Initialize the listener by setting up the D-Bus main loop integration,
         connecting to the system bus, finding the wifi device, and subscribing
@@ -220,7 +258,7 @@ class WifiEventListener:
         for queue in self._subscribers:
             safe_put(queue, message)
 
-    def subscribe(self, queue):
+    def subscribe(self, queue) -> None:
         """
         Subscribe a queue to receive wifi state messages.
 
@@ -229,7 +267,7 @@ class WifiEventListener:
         """
         self._subscribers.append(queue)
 
-    def unsubscribe(self, queue):
+    def unsubscribe(self, queue) -> None:
         """
         Remove a subscriber queue.
 
@@ -260,13 +298,6 @@ class WifiService():
         self._queue = queue
         self._usb_q = Queue()
 
-        # Start a separate process to monitor USB messages (e.g. wifi credentials)
-        self._usb_listener = Process(target=self._check_usb_messages, args=(self._usb_q,))
-        self._usb_listener.start()
-
-        # USBService instance to send USB state updates to usb queue
-        self._usb_service = USBService(self._usb_q)
-
         # Start listening to NetworkManager wifi state changes
         self.nm_listener = WifiEventListener()
 
@@ -275,65 +306,6 @@ class WifiService():
 
         # Send initial wifi state and no-error message
         self._send_message(MESSAGE_NO_ERROR)
-
-    def _check_usb_messages(self, queue) -> None:
-        """
-        Background process to monitor USB messages from the queue
-        On USB present state, check for wifi credentials on USB drive
-
-        Args:
-            queue (Queue): Queue to receive USB messages
-        """
-        while True:
-            # Wait for message
-            message = queue.get(block=True, timeout=None)
-            oradio_log.debug("USB message received: '%s'", message)
-
-            # If USB is present check if USB has file with wifi credentials
-            if message.get("state", "Unknown") == STATE_USB_PRESENT:
-                self._handle_usb_wifi_credentials()
-
-    def _handle_usb_wifi_credentials(self) -> None:
-        """
-        Check for wifi credentials on USB drive
-        If found, validate and attempt to connect using those credentials
-        """
-        oradio_log.info("Checking %s for wifi credentials", USB_WIFI_FILE)
-
-        # Check if wifi credentials file exists in USB drive root
-        if not path.isfile(USB_WIFI_FILE):
-            oradio_log.debug("'%s' not found", USB_WIFI_FILE)
-            return  # Credentials file not found, nothing to do
-
-        try:
-            # Read and parse JSON file
-            with open(USB_WIFI_FILE, "r", encoding="utf-8") as file:
-                # Get JSON object as a dictionary
-                data = load(file)
-        except (JSONDecodeError, IOError) as ex_err:
-            oradio_log.error("Failed to read or parse '%s': error: %s", USB_WIFI_FILE, ex_err)
-            self._send_message(MESSAGE_WIFI_FILE_ERROR)
-            return
-
-        # Check if the SSID and PASSWORD keys are present
-        ssid = data.get('SSID')
-        pswd = data.get('PASSWORD')
-        if not ssid or pswd is None:
-            oradio_log.error("SSID and/or PASSWORD not found in '%s'", USB_WIFI_FILE)
-            self._send_message(MESSAGE_WIFI_FILE_ERROR)
-            return
-
-        # Test if ssid is empty or >= 8 characters
-        if 0 < len(pswd) < 8:
-            oradio_log.error("Password length invalid: must be empty for open network or at least 8 characters for secured network")
-            self._send_message(MESSAGE_WIFI_FILE_ERROR)
-            return
-
-        # Log wifi credentials found
-        oradio_log.info("USB wifi credentials found: ssid=%s", ssid)
-
-        # Connect to the wifi network
-        self.wifi_connect(ssid, pswd)
 
     def _send_message(self, error) -> None:
         """
@@ -388,7 +360,7 @@ class WifiService():
             set_saved_network(active)
 
         # Add/modify NetworkManager settings
-        if not _networkmanager_add(ssid, pswd):
+        if not networkmanager_add(ssid, pswd):
             # Inform controller of actual state and error
             self._send_message(MESSAGE_WIFI_FAIL_CONFIG)
             # Error, no point continuing
@@ -431,13 +403,6 @@ class WifiService():
         """Cleanup resources and unsubscribe queues on service shutdown."""
         # Unsubscribe callbacks from WifiEventListener
         self.nm_listener.unsubscribe(self._queue)
-
-        # Unsubscribe callbacks from USBService
-        self._usb_service.close()
-
-        # Stop listening to USB messages
-        if self._usb_listener:
-            self._usb_listener.terminate()
 
         oradio_log.info("wifi service closed")
 
@@ -645,7 +610,7 @@ def _networkmanager_list() -> list:
 
     return connections
 
-def _networkmanager_add(network, password=None) -> bool:
+def networkmanager_add(network, password=None) -> bool:
     """
     if network is access point then setup AP in NetworkManager
     If unknown, add network to NetworkManager
@@ -714,11 +679,13 @@ if __name__ == '__main__':
 # Most modules use similar code in stand-alone
 # pylint: disable=duplicate-code
 
-    def _check_messages(queue):
+    def _check_messages(queue) -> None:
         """
         Check if a new message is put into the queue
         If so, read the message from queue and display it
-        :param queue = the queue to check for
+
+        Args:
+            queue (Queue): The queue to check for incoming messages
         """
         while True:
             # Wait indefinitely until a message arrives from the server/wifi service
@@ -727,8 +694,13 @@ if __name__ == '__main__':
             print(f"\n{GREEN}Message received: '{message}'{NC}\n")
 
     # Pylint PEP8 ignoring limit of max 12 branches and 50 statement is ok for test menu
-    def interactive_menu(queue):    # pylint: disable=too-many-branches, too-many-statements
-        """Show menu with test options"""
+    def interactive_menu(queue) -> None:    # pylint: disable=too-many-branches, too-many-statements
+        """
+        Show menu with test options
+
+        Args:
+            queue (Queue): The queue to receive wifi messages on
+        """
         # Initialize: no services registered
         wifi_services = []
 
@@ -781,7 +753,7 @@ if __name__ == '__main__':
                     name = input("Enter SSID of the network to add: ")
                     pswrd = input("Enter password for the network to add (empty for open network): ")
                     if name:
-                        if _networkmanager_add(name, pswrd):
+                        if networkmanager_add(name, pswrd):
                             print(f"\n{GREEN}'{name}' added to NetworkManager{NC}\n")
                         else:
                             print(f"\n{RED}Failed to add '{name}' to NetworkManager{NC}\n")
@@ -838,7 +810,7 @@ if __name__ == '__main__':
     # Initialize
     message_queue = Queue()
 
-    # Start  process to monitor the message queue
+    # Start process to monitor the message queue
     message_listener = Process(target=_check_messages, args=(message_queue,))
     message_listener.start()
 
