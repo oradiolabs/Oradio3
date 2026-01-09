@@ -104,6 +104,9 @@ class USBMonitor(PatternMatchingEventHandler):
         # Determine initial USB state from mount point
         if path.ismount(USB_MOUNT_POINT):
             self._state = STATE_USB_PRESENT
+
+            # Import wifi networks from file on USB
+            self._import_usb_wifi_networks()
         else:
             self._state = STATE_USB_ABSENT
 
@@ -136,10 +139,8 @@ class USBMonitor(PatternMatchingEventHandler):
             for on_insert, _ in self._subscribers:
                 on_insert()
 
-        # Check if wifi credentials file exists in USB drive root
-        if path.isfile(USB_WIFI_FILE):
-            # Import wifi networks from file on USB
-            self._import_usb_wifi_networks()
+        # Import wifi networks from file on USB
+        self._import_usb_wifi_networks()
 
     def on_deleted(self, event):
         """
@@ -206,6 +207,11 @@ class USBMonitor(PatternMatchingEventHandler):
         - If found, validate and add to NetworkManager
         """
         oradio_log.info("Checking %s for wifi credentials", USB_WIFI_FILE)
+
+        # Check if wifi credentials file exists in USB drive root
+        if not path.isfile(USB_WIFI_FILE):
+            oradio_log.debug("'%s' not found", USB_WIFI_FILE)
+            return
 
         try:
             # Read and parse JSON file
