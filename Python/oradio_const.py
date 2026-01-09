@@ -35,17 +35,25 @@ NC      = '\x1b[0m'
 # Messages consist of 3 elements: source, state and error
 MESSAGE_NO_ERROR = "None"
 
-################## LED GPIO PINS ##########################
-LEDS = {
-    "LEDPlay":    15,
-    "LEDPreset1": 24,
-    "LEDPreset2": 25,
-    "LEDPreset3":  7,
-    "LEDStop":    23
-}
+########################### LED definitions see UML «led_name» ###################
+LED_PLAY    = "LedPlay"
+LED_STOP    = "LedStop"
+LED_PRESET1 = "LedPreset1"
+LED_PRESET2 = "LedPreset2"
+LED_PRESET3 = "LedPreset3"
+LED_NAMES   =[LED_PLAY,LED_STOP,LED_PRESET1,LED_PRESET2,LED_PRESET3]
+
+############################# #BUTTON definitions see UML «button_name» ###################
+BUTTON_PLAY     = "ButtonPlay"
+BUTTON_STOP     = "ButtonStop"
+BUTTON_PRESET1  = "ButtonPreset1"
+BUTTON_PRESET2  = "ButtonPreset2"
+BUTTON_PRESET3  = "ButtonPreset3"
+BUTTON_NAMES    = [BUTTON_PLAY,BUTTON_STOP,BUTTON_PRESET1,BUTTON_PRESET2,BUTTON_PRESET3]
+BUTTON_PRESSED  = "button pressed"
+BUTTON_RELEASED = "button released"
 
 ##### SYSTEM SOUND NAMES #######
-
 SOUND_START        = "Start"
 SOUND_STOP         = "Stop"
 SOUND_PLAY         = "PLAY"
@@ -79,7 +87,6 @@ STATE_WIFI_CONNECTED    = "Wifi connected"
 STATE_WIFI_ACCESS_POINT = "Wifi configured as access point"
 # wifi messages
 MESSAGE_WIFI_SOURCE          = "Wifi message"
-MESSAGE_WIFI_FILE_ERROR      = "File format error"
 MESSAGE_WIFI_FAIL_CONFIG     = "Failed to save credentials in NetworkManager"
 MESSAGE_WIFI_FAIL_START_AP   = "Failed to start access point"
 MESSAGE_WIFI_FAIL_CONNECT    = "Wifi failed to connect"
@@ -130,6 +137,20 @@ MESSAGE_SPOTIFY_SOURCE    = "Spotify message"
 SPOTIFY_EVENT_SOCKET_PORT = 8010
 MPV_SOCKET = "/home/pi/spotify/mpv-socket"
 
+############## TOUCH BUTTONS MESSAGES #################
+MESSAGE_BUTTON_SOURCE      = "Button message"
+MESSAGE_BUTTON_SHORT_PRESS = "Short press:"
+MESSAGE_SHORT_PRESS_BUTTON_PLAY     = MESSAGE_BUTTON_SHORT_PRESS + BUTTON_PLAY
+MESSAGE_SHORT_PRESS_BUTTON_STOP     = MESSAGE_BUTTON_SHORT_PRESS + BUTTON_STOP
+MESSAGE_SHORT_PRESS_BUTTON_PRESET1  = MESSAGE_BUTTON_SHORT_PRESS + BUTTON_PRESET1
+MESSAGE_SHORT_PRESS_BUTTON_PRESET2  = MESSAGE_BUTTON_SHORT_PRESS + BUTTON_PRESET2
+MESSAGE_SHORT_PRESS_BUTTON_PRESET3  = MESSAGE_BUTTON_SHORT_PRESS + BUTTON_PRESET3
+MESSAGE_BUTTON_LONG_PRESS   = "Long press:"
+MESSAGE_LONG_PRESS_BUTTON_PLAY     = MESSAGE_BUTTON_LONG_PRESS + BUTTON_PLAY
+
+######## MODULE TEST defines ##########################
+TEST_ENABLED    = "test enabled"
+TEST_DISABLED   = "test disabled"
 # MPV_PLAYER COMMANDS ####
 MPV_PLAYERCTL_PLAY  = "play"
 MPV_PLAYERCTL_PAUSE = "pause"
@@ -142,7 +163,8 @@ MPV_PLAYERCTL_PAUSED_STATE  = "Paused"
 MPV_PLAYERCTL_COMMAND_NOT_FOUND = "playerctl command not found"
 MPV_PLAYERCTL_COMMAND_ERROR     = "playerctl command failed"
 
-# MPRIS Medaio Player identifier (D-Bus service names, according the  naming convention for the MPRIS2 specification.
+# MPRIS Medaio Player identifier (D-Bus service names,
+# according the  naming convention for the MPRIS2 specification.
 # It is not a physical file or program, but a logical D-Bus service name
 # that media players register under when they support MPRIS.
 MPRIS_MPV_PLAYER            = "org.mpris.MediaPlayer2.mpv"

@@ -30,10 +30,12 @@ import json
 import socket
 import subprocess
 from subprocess import run
-from typing import Any, Optional
 from pathlib import Path
-from pydantic import BaseModel, create_model
+import argparse
+from typing import Optional, List, Any
+from pydantic import BaseModel, ValidationError
 import netifaces
+import pydevd    # pip install pydevd
 
 ##### oradio modules ####################
 from oradio_logging import oradio_log
@@ -41,14 +43,22 @@ from oradio_logging import oradio_log
 ##### GLOBAL constants ####################
 from oradio_const import (
     YELLOW, NC,
-    MODEL_NAME_FOUND,
-    MODEL_NAME_NOT_FOUND,
     PRESETS_FILE,
     USB_SYSTEM,
 )
 
 ##### LOCAL constants ####################
 JSON_SCHEMAS_FILE = os.path.abspath(os.path.join(sys.path[0], 'schemas.json'))
+
+class OradioMessage(BaseModel):
+    '''
+    The basemodel for the OradioMessage to standardize the message when
+    used in the shared-queue of Oradio.
+    '''
+    source: str
+    state: str
+    error: str
+    data: Optional[List[Any]] = None
 
 INTERFACE   = "wlan0"           # Raspberry Pi wireless interface
 DNS_TIMEOUT = 0.5               # seconds
@@ -111,59 +121,24 @@ def is_service_active(service_name):
         oradio_log.error("Error checking %s service, error-status=: %s", service_name, ex_err)
         return False
 
-def json_schema_to_pydantic(name: str, schema: dict[str,Any]) -> BaseModel:
-    """
-    Dynamic Model generation based on a JSON schema
-    """
-    if "properties" not in schema:  # Skip first entry
-        return None
-    fields ={}
-    required_fields = set(schema.get("required", []))  # Get required fields from schema
+def validate_oradio_message(message: dict)-> dict:
+    ''' check if message is according json scheme for OradioMessage
+    :argument
+        message : message formatted as a dictionary 
+    :return
+        validated_message = Dictionary,  the validated OradioMessage structure
+        validated_messsage = None, when not according OradioMessage structure
+    '''
+    message_dict = json.loads(message)
+    try:
+        validated_message = OradioMessage(**message_dict)
+        oradio_log.debug(f"Message is valid: {validated_message}")
+    except ValidationError as err:
+        oradio_log.error("Message does not match OradioMessage schema:", err)
+        validated_message = None
+    return validated_message
 
-    for prop, details in schema["properties"].items():
-        field_type = str  # Default type
-        if details["type"] == "integer":
-            field_type = int
-        elif details["type"] == "boolean":
-            field_type = bool
-        elif details["type"] == "number":
-            field_type = float
-        elif details["type"] == "array":
-            field_type = list
-        if "required" in schema and prop in schema["required"]:
-            fields[prop] = (field_type, ...)
-        else:
-            fields[prop] = (field_type, None)
-
-        # Handle optional fields (not in "required")
-        if prop not in required_fields:
-            fields[prop] = (Optional[field_type], None)  # Mark as Optional
-        else:
-            fields[prop] = (field_type, ...)  # Required fields
-
-    return create_model(name, **fields)
-
-def create_json_model(model_name):
-    """
-    Create a object based model derived from the json schema
-    :param model_name [str] = name of model in schema
-    :return model
-    :return status =
-    """
-    # Load the JSON schema file
-    with open(JSON_SCHEMAS_FILE, encoding="utf-8") as file:
-        schemas = json.load(file)
-    if model_name not in schemas:
-        status = MODEL_NAME_NOT_FOUND
-        messages = None
-    else:
-        status = MODEL_NAME_FOUND
-        # Dynamically create Pydantic models
-        models = {name: json_schema_to_pydantic(name, schema) for name, schema in schemas.items()}
-        # create messages model
-        messages = models[model_name]
-    return(status, messages)
-
+# Handle the error
 def has_internet() -> bool:
     """
     Quickly check if the given interface has internet access.
@@ -217,9 +192,10 @@ def load_presets() -> dict[str, str]:
     Retrieve the playlist names associated with the presets from a JSON file.
 
     Returns:
-        dict[str, str]: A dictionary mapping lowercase preset_key -> listname.
-                        If a preset value is missing or invalid, listname will be an empty string "".
-                        Keys are normalized to lowercase for case-insensitive lookup.
+        dict[str, str]: 
+            A dictionary mapping lowercase preset_key -> listname.
+            If a preset value is missing or invalid, listname will be an empty string "".
+            Keys are normalized to lowercase for case-insensitive lookup.
     """
     try:
         with open(PRESETS_FILE, 'r', encoding='utf-8') as file:
@@ -284,6 +260,75 @@ def store_presets(presets: dict[str, str]):
         oradio_log.debug("Presets '%s' successfully saved to %s", data_to_save, PRESETS_FILE)
     except IOError as ex_err:
         oradio_log.error("Failed to write presets to '%s'. Error: %s", PRESETS_FILE, ex_err)
+
+def setup_remote_debugging() -> bool:
+    '''
+    Remote debugging service for Python with an IDE (eg Eclipse)
+    :return
+        True : connection established, or No remote debug required
+        False: Error detected, no connection
+    '''
+    #pylint: disable=line-too-long
+    parser = argparse.ArgumentParser(description='Remote Debug')
+    MESSAGE_DEBUG = 'Remote Debug options are:  -rd [no|yes] -ip [host-ip-address] -p [host-portnr]'
+    parser.add_argument('-rd', '--rmdebug', type = str, nargs='?', const='no', help=MESSAGE_DEBUG )
+    parser.add_argument('-ip', '--ipaddress', type = str, nargs='?', const='no', help=MESSAGE_DEBUG )
+    parser.add_argument('-p', '--portnr', type = str, nargs='?', const='no', help=MESSAGE_DEBUG )
+    args = parser.parse_args()
+    if args.rmdebug == 'yes':
+        if not args.ipaddress or not args.portnr:
+            raise argparse.ArgumentError(None, "Both -ip and -p are required when -rd is 'yes'")
+
+    remote_debug = args.rmdebug
+    allowed_options = [None, "no","yes"]
+    if not remote_debug in allowed_options:
+        parser.error(MESSAGE_DEBUG)
+        return False
+
+    print("Remote Debug option =",remote_debug)
+
+    if remote_debug == 'yes':
+        ip_address  = args.ipaddress
+        port_nr     = int(args.portnr)
+        print("Remote debugging started")
+        # Allow remote debugging from any IP address on selected port
+        os.environ["PYDEVD_DISABLE_FILE_VALIDATION"] = "1"
+        try:
+            pydevd.settrace(ip_address, port=port_nr)
+        except ConnectionRefusedError:
+            print(f"{YELLOW} Failed to connect to debugger at {ip_address}:{port_nr}.")
+            print(f"Is the IDE pydev running/listening?{NC}")
+            return False
+        except (socket.error, OSError) as err:
+            print(f"{YELLOW}Network error while connecting to debugger: {err} {NC}")
+            return False
+        return True
+    return True
+
+def input_prompt_int(prompt: str, default=-1 ) -> int:
+    '''
+    Prompt for an user input and return int value of number typed
+    :argument prompt : prompt text for user
+    :argument default: default value to return in case of an error
+    :return the integer value type in by user | default value in case of an error
+    '''
+    try:
+        return int(input(prompt))
+    except ValueError:
+        return default
+
+def input_prompt_float(prompt: str, default: float | None = None) -> float | None:
+    '''
+    Prompt for an user input and return float value of number typed
+    :argument prompt : prompt text for user
+    :argument default: default value to return in case of an error
+    :return the ifloat value type in by user | default value in case of an error
+    '''    
+    try:
+        return float(input(prompt))
+    except ValueError:
+        return default
+
 
 # Entry point for stand-alone operation
 if __name__ == '__main__':
