@@ -79,7 +79,21 @@ class USBObserver:
         # Start observer thread if not alive
         if not self._observer.is_alive():
             self._observer.start()
-
+######################### Henk - review ################################
+# Ik begrijp niet goed waarom deze methode nodig is?
+# De bedoeling van deze methode aangeroepen wordt als er een "onbekende" attribute ("name").
+# Er zijn dan 2 opties:
+# 1) Of het is een foutieve naam, en deze fout wordt verwerkt
+# 2) Of er wordt dynamisch de gevraagde attribute aangemaakt.
+# Het is lijkt mij dat optie 2) wordt gebruikt.
+# De vraag is dan waarom dit dynamisch moet, je kunt toch eigenlijk alle attributen
+# vooraf declareren. Of verwacht je dat er nieuwe attributen bijkomen.
+# Enige toelichting gewenst.
+##################################################################################
+# 2e opmerking mbt USB documentatie
+# De __getattr__(name) wordt in de API beschrijving van de Module: USBObserver genoemd
+# Eigenlijk alleen public methods benoemen in de API
+################################################################################
     def __getattr__(self, name: str):
         """
         Delegate attribute access to the underlying observer.

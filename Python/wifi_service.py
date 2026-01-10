@@ -231,7 +231,13 @@ class WifiEventListener():
             self._subscribers.remove(queue)
         except ValueError:
             oradio_log.debug("Queue already unsubscribed")
-
+### Henk - review ###########################################
+# Er staan nog steeds zaken in mbt USB. 
+# Volgens mij zijn die niet meer nodig, omdat USB nu de credentials file leest.
+# 1) De self._usb_q wordt ook nergens meer gebruikt in de code
+# 2) De locals WIFI_MONITOR en USB_WIFI_FILE worden niet meer gebruikt
+# 3) docstring: 'Listens to USB xxxxx'
+######################################################################
 class WifiService():
     """
     Handles wifi state management and connectivity:

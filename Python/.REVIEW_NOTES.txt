@@ -40,20 +40,28 @@ T - Review na alle module wijzigingen.
 
 
 2026-01-09============================================================================================================================
+2026-01-10============================================================================================================================
+Henk: Rework controle
+Ze de opmerkingen in de code
 
 USB:
 Documents/USB/USB module description.docx:
-- Updated to include handling Wifi_invoer.json
+V - Updated to include handling Wifi_invoer.json
 usb_service.py:
-- Parsing van Wifi_invoer.json toegevoegd
-- doc strings, type hints and inline comments opgeschoond
+V - Parsing van Wifi_invoer.json toegevoegd
+V - doc strings, type hints and inline comments opgeschoond
+Review:
+1 - Waarom is de __getattr__() nodig? Graag toelichting voor gebruik hiervan
+2 - De __getattr__() is een private method, zou niet in de API beschrijving van de Module: USBObserver moeten staan
 
 WIFI:
 Documents/WIFI/WIFI module description.docx:
-- Updated to include handling Wifi_invoer.json
+V - Updated to include handling Wifi_invoer.json
 wifi_service.py:
-- Parsing van Wifi_invoer.json verwijderd
-- doc strings, type hints and inline comments opgeschoond
+V - Parsing van Wifi_invoer.json verwijderd
+V - doc strings, type hints and inline comments opgeschoond
+Review:
+1 - USB functionaliteit is verwijderd, maar staan nog USB zaken in de code. Graag opschonen
 
 2026-01-08============================================================================================================================
 
