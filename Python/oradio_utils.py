@@ -32,7 +32,7 @@ import subprocess
 from subprocess import run
 from pathlib import Path
 import argparse
-from typing import Optional, List, Any
+from typing import Union, Dict, Optional, List, Any
 from pydantic import BaseModel, ValidationError
 import netifaces
 import pydevd    # pip install pydevd
@@ -121,22 +121,28 @@ def is_service_active(service_name):
         oradio_log.error("Error checking %s service, error-status=: %s", service_name, ex_err)
         return False
 
-def validate_oradio_message(message: dict)-> dict:
-    ''' check if message is according json scheme for OradioMessage
+def validate_oradio_message(message: Union[OradioMessage, Dict[str, Any]]) -> Optional[OradioMessage]:
+    """
+    Validates a message to ensure it matches the OradioMessage schema.
+    If the message is already an OradioMessage, it is returned as-is.
     :argument
         message : message formatted as a dictionary 
     :return
-        validated_message = Dictionary,  the validated OradioMessage structure
+        validated_message: precondition must be a Dictionary
         validated_messsage = None, when not according OradioMessage structure
-    '''
-    message_dict = json.loads(message)
+    """
+    if isinstance(message, OradioMessage):
+        # Message is already validated; return it directly
+        return message
+
     try:
-        validated_message = OradioMessage(**message_dict)
+        # Message is a dictionary; validate it
+        validated_message = OradioMessage(**message)
         oradio_log.debug(f"Message is valid: {validated_message}")
+        return validated_message
     except ValidationError as err:
-        oradio_log.error("Message does not match OradioMessage schema:", err)
-        validated_message = None
-    return validated_message
+        oradio_log.error(f"Message does not match OradioMessage schema: {err}")
+        return None
 
 # Handle the error
 def has_internet() -> bool:

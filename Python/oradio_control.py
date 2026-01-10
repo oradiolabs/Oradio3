@@ -115,6 +115,11 @@ PLAY_STATES = {"StatePlay", "StatePreset1", "StatePreset2", "StatePreset3"}
 PLAY_WEBSERVICE_STATES = {"StatePlay", "StatePreset1", "StatePreset2", "StatePreset3", "StateIdle"}
 LOW_POWER_STATES = {"StateIdle"}  # only Idle uses nominal voltage (9V)to reduce power consumption
 
+from oradio_utils import setup_remote_debugging
+if not setup_remote_debugging():
+    print("The remote debugging error, check the remote IP connection")
+    sys.exit()
+
 ##################Signal Primitives#########
 
 spotify_connect_connected = threading.Event()  # track status Spotify connected
@@ -238,7 +243,7 @@ class StateMachine:
             return
 
         oradio_log.debug("Starting WebService: %r", web_service)
-        leds.control_blinking_led("LEDPlay", 2)
+        leds.control_blinking_led(LED_PLAY, 2)
         web_service.start()
 
     # --- transition() helpers ---
@@ -534,7 +539,7 @@ def on_webservice_active():
     if web_service_active.is_set(): # check already taken the actions
         return
     web_service_active.set()
-    leds.control_blinking_led("LEDPlay", 2)
+    leds.control_blinking_led(LED_PLAY, 2)
     play_sound(SOUND_AP_START)
     # handle Webradio and Spotify
     if mpd_control.is_webradio() or state_machine.state == "StateSpotifyConnect":
@@ -547,9 +552,9 @@ def on_webservice_idle():
         return
     web_service_active.clear()
     if state_machine.state == "StatePlay":
-        leds.turn_on_led("LEDPlay")
+        leds.turn_on_led(LED_PLAY)
     else:
-        leds.control_blinking_led("LEDPlay", 0)
+        leds.control_blinking_led(LED_PLAY, 0)
     play_sound(SOUND_AP_STOP)
 
 def on_webservice_playing_song():
@@ -650,7 +655,7 @@ def _on_preset2_pressed() -> None:
 def _on_preset3_pressed() -> None:
     _go("StatePreset3")
 
-def _on_play_long_pressed(_btn: str) -> None:
+def _on_play_long_pressed() -> None:
     # Long-press Play starts the web service (guarded by SM + lock)
     with sm_lock:
         state_machine.start_webservice()
@@ -720,15 +725,17 @@ HANDLERS = {
 }
 
 
-def handle_message(message: OradioMessage):
+def handle_message(message: dict):
     '''
     handle the received message
+    :arguments
+        message (dict) : the (Oradio) message to be processed 
     '''
     validated_message = validate_oradio_message(message)
     if validated_message:
-        command_source = validated_message["source"]
-        state = validated_message["state"]
-        error = validated_message["error"]
+        command_source  = validated_message.source
+        state           = validated_message.state
+        error           = validated_message.error
     
         handlers = HANDLERS.get(command_source)
         if handlers is None:
@@ -755,19 +762,24 @@ def handle_message(message: OradioMessage):
 def process_messages(msg_queue):
     """Continuously read and handle messages from the shared queue."""
     while True:
-        try:
-            msg = msg_queue.get()  # blocking
-            oradio_log.debug("Received message in Queue: %r", msg)
-            handle_message(msg)
-        except KeyError as ex:
-            # A required key like 'source' or 'state' is missing
-            oradio_log.error("Malformed message (missing key): %s | msg=%r", ex, msg)
-        except (TypeError, AttributeError) as ex:
-            # msg wasn't a mapping/dict-like or had wrong types
-            oradio_log.error("Invalid message format: %s | msg=%r", ex, msg)
-        except (RuntimeError, OSError) as ex:
-            # Unexpected runtime/OS errors during handling
-            oradio_log.exception("Runtime error in process_messages: %s", ex)
+        msg = msg_queue.get()  # blocking
+        oradio_log.debug("Received message in Queue: %r", msg)
+        handle_message(msg)
+
+#    while True:
+#        try:
+#            msg = msg_queue.get()  # blocking
+#            oradio_log.debug("Received message in Queue: %r", msg)
+#            handle_message(msg)
+#        except KeyError as ex:
+#            # A required key like 'source' or 'state' is missing
+#            oradio_log.error("Malformed message (missing key): {exc}, {mesg}".format(exc=ex,mesg=msg))
+#        except (TypeError, AttributeError) as ex:
+#            # msg wasn't a mapping/dict-like or had wrong types
+#            oradio_log.error("Invalid message format: {exc}, {mesg}".format(exc=ex,mesg=msg))
+#        except (RuntimeError, OSError) as ex:
+#            # Unexpected runtime/OS errors during handling
+#            oradio_log.exception("Runtime error in process_messages: %s", ex)
 
 #-------------USB presence sync at start -up---------------------------------------
 
@@ -867,6 +879,7 @@ def main() -> None:
     signal.signal(signal.SIGINT, lambda _signum, _frame: _brutal_exit())
 
     oradio_log.debug("Oradio control main loop running")
+
     while True:
         time.sleep(1)
 

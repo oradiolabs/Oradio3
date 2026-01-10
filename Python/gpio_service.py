@@ -130,7 +130,6 @@ class GPIOService:
                                                    LED_PRESET1 | LED_PRESET2 | LED_PRESET3 ]
         '''
         GPIO.output(LEDS[led_name], GPIO.LOW)
-        oradio_log.debug("Led %s is turned ON", led_name)
 
     def set_led_off(self,led_name:str) -> None:
         """
@@ -140,7 +139,6 @@ class GPIOService:
                                                    LED_PRESET1 | LED_PRESET2 | LED_PRESET3 ]
         """
         GPIO.output(LEDS[led_name], GPIO.HIGH)
-        oradio_log.debug("Led %s is turned OFF", led_name)
 
     def get_led_state(self,led_name:str) -> bool:
         """
@@ -179,7 +177,7 @@ class GPIOService:
         The callback will process the change event
         
         :arguments
-            callback : the reference to the callback function, upon an button event
+            callback (Callable): the reference to the callback function, upon an button event
         :return
             False : callback function does not exists
             True: callback found and configured

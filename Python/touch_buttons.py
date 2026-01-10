@@ -162,10 +162,12 @@ class TouchButtons:
         message["state"]  = state
         if self.BUTTONS_MODULE_TEST == TEST_ENABLED:
             data_list = []
-            data_list.append(button_data["data"])
-            message["data"] = data_list
+            if "data" in button_data:
+                data_list.append(button_data["data"])
+                message["data"] = data_list
         # validate and create the message
-        oradio_msg = OradioMessage(**message).model_dump_json()
+        #oradio_msg = OradioMessage(**message).model_dump_json()
+        oradio_msg = OradioMessage(**message)
         oradio_log.debug("Send TouchButton message: %s", oradio_msg)
         if not safe_put(self.message_queue, oradio_msg):
             print("Failure when sending message to shared queue")
@@ -264,6 +266,7 @@ if __name__ == "__main__":
     # is used within this test module, so is for testing purposes
     ###################################################################################
     import sys
+    import json
 
     if not setup_remote_debugging():
         print(f"{YELLOW}The remote debugging error, check the remote IP connection {NC}")
@@ -291,7 +294,7 @@ if __name__ == "__main__":
         event.set()
 
 #### globals statistics for button callbacks ############
-    def _handle_message(message: OradioMessage, test_buttons: TouchButtons) -> bool:
+    def _handle_message(message: dict, test_buttons: TouchButtons) -> bool:
         '''
         the message dict will be validated against the OradioMessage class
         if valid the message received in queue will be processed
@@ -301,7 +304,6 @@ if __name__ == "__main__":
             True = message is correct and processed
             False = message is not correct
         '''
-
         validated_message = validate_oradio_message(message)
         if validated_message:
             if validated_message.data:
