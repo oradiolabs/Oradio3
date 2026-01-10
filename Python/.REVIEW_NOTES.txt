@@ -38,6 +38,46 @@ T - Review na alle module wijzigingen.
 	oradio_control is meermaals heen en weer geslingerd om (tijdelijke) wijzigingen in modules te accomoderen.
 	Zodra die modules gestabiliseerd zijn wordt het tijd om oradio_control na te kijken, op te schonen
 
+2026-01-10============================================================================================================================
+Henk: Rework controle
+USB:
+Documents/USB/USB module description.docx:
+V - Updated to include handling Wifi_invoer.json
+R - De __getattr__() is een private method, zou niet in de API beschrijving van de Module: USBObserver moeten staan
+usb_service.py:
+V - Parsing van Wifi_invoer.json toegevoegd
+V - doc strings, type hints and inline comments opgeschoond
+R - Waarom is de __getattr__() nodig? Graag toelichting voor gebruik hiervan
+
+WIFI:
+Documents/WIFI/WIFI module description.docx:
+V - Updated to include handling Wifi_invoer.json
+wifi_service.py:
+V - Parsing van Wifi_invoer.json verwijderd
+V - doc strings, type hints and inline comments opgeschoond
+R - USB functionaliteit is verwijderd, maar er staan nog USB zaken in de code:
+R   - self.usb_q wordt niet gebruikt
+R   - De locals DEBOUCE_TIME, WIFI_MONITOR en USB_WIFI_FILE worden niet meer gebruikt
+R   - docstring: 'Listens to USB xxxxx' is niet aan de orde
+
+2026-01-08============================================================================================================================
+
+WEBINTERFACE:
+web_service.py:
+- Voeg type hints toeg
+- Completeeer doc strings
+- Gebruik singleton
+
+fastapi_server.py:
+- Voeg type hints toeg
+- Completeeer doc strings
+- Refactor voor Single Page Architecture
+
+templates folder:
+- Refactor voor Single Page Architecture
+
+static folder:
+- Refactor voor Single Page Architecture
 
 2026-01-06============================================================================================================================
 
