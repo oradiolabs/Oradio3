@@ -30,7 +30,6 @@ from oradio_utils import (safe_put,
                           OradioMessage, validate_oradio_message,
                           setup_remote_debugging, # required for module test
                         )
-from system_sounds import play_sound
 
 ##### GLOBAL constants ####################
 from oradio_const import \
@@ -41,6 +40,7 @@ from oradio_const import \
      MESSAGE_NO_ERROR, \
      SOUND_CLICK)
 
+from system_sounds import play_sound
 # -------- LOCAL constants --------
 BUTTON_DEBOUNCE_TIME = 500          # ms, ignore rapid repeats
 DEBOUNCE_SECONDS = BUTTON_DEBOUNCE_TIME / 1000.0
@@ -266,7 +266,6 @@ if __name__ == "__main__":
     # is used within this test module, so is for testing purposes
     ###################################################################################
     import sys
-    import json
 
     if not setup_remote_debugging():
         print(f"{YELLOW}The remote debugging error, check the remote IP connection {NC}")

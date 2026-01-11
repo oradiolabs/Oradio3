@@ -46,7 +46,7 @@ from oradio_utils import (has_internet, setup_remote_debugging,
                             OradioMessage, validate_oradio_message)
 from power_supply_control import PowerSupplyService
 from system_sounds import play_sound    # For better readability. pylint: disable=wrong-import-order
-from debugger_const import REMOTE_DEBUGGER, DEBUGGER_ENABLED, DEBUGGER_DISABLED
+from debugger_const import REMOTE_DEBUGGER, DEBUGGER_ENABLED
 # Runs a background thread logging throttled events
 import throttled_monitor     # pylint: disable=unused-import
 
@@ -768,23 +768,6 @@ def process_messages(msg_queue):
         oradio_log.debug("Received message in Queue: %r", msg)
         handle_message(msg)
 
-#    while True:
-#        try:
-#            msg = msg_queue.get()  # blocking
-#            oradio_log.debug("Received message in Queue: %r", msg)
-#            handle_message(msg)
-#        except KeyError as ex:
-#            # A required key like 'source' or 'state' is missing
-#            oradio_log.error("Malformed message (missing key): {exc}, {mesg}".format(exc=ex,mesg=msg))
-#        except (TypeError, AttributeError) as ex:
-#            # msg wasn't a mapping/dict-like or had wrong types
-#            oradio_log.error("Invalid message format: {exc}, {mesg}".format(exc=ex,mesg=msg))
-#        except (RuntimeError, OSError) as ex:
-#            # Unexpected runtime/OS errors during handling
-#            oradio_log.exception("Runtime error in process_messages: %s", ex)
-
-#-------------USB presence sync at start -up---------------------------------------
-
 def sync_usb_presence_from_service():
     """
     One time sync at start-up
@@ -813,11 +796,6 @@ state_machine = StateMachine()
 # Instantiate remote monitor managing the heartbeat and sys_info messages when wifi state changes
 remote_monitor = RMService()
 
-# do self test of leds, after StateMachine is started
-# if not leds.selftest():
-#     oradio_log.critical("LEDControl selftest FAILED")
-#     state_machine.transition("StateError")
-
 # Instantiate spotify
 spotify_connect = SpotifyConnect(shared_queue)
 
@@ -828,27 +806,7 @@ sync_usb_presence_from_service()
 
 touch_buttons = TouchButtons(shared_queue)
 
-
-# Initialize TouchButtons with callbacks
-#touch_buttons = TouchButtons(
-#    on_press={
-#        "Play": _on_play_pressed,
-#        "Stop": _on_stop_pressed,
-#        "Preset1": _on_preset1_pressed,
-#        "Preset2": _on_preset2_pressed,
-#        "Preset3": _on_preset3_pressed,
-#    },
-#    on_long_press={
-#        "Play": _on_play_long_pressed,  # only Play supports long press for now
-#    }
-#)
-
-#if not touch_buttons.selftest():
-#    oradio_log.critical("TouchButtons selftest FAILED")
-#    state_machine.transition("StateError")
-
 # ----------- Volume Control -----------------
-
 volume_control = VolumeControl(shared_queue)
 
 # ---------Initialize the web_service---------
