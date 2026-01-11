@@ -126,9 +126,9 @@ def validate_oradio_message(message: Union[OradioMessage, Dict[str, Any]]) -> Op
     Validates a message to ensure it matches the OradioMessage schema.
     If the message is already an OradioMessage, it is returned as-is.
     :argument
-        message : message formatted as a dictionary 
+        message : message formatted as a dictionary or as OradioMessage
     :return
-        validated_message: precondition must be a Dictionary
+        validated_message = when message is correct
         validated_messsage = None, when not according OradioMessage structure
     """
     if isinstance(message, OradioMessage):

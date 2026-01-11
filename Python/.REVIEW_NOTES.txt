@@ -38,6 +38,67 @@ T - Review na alle module wijzigingen.
 	oradio_control is meermaals heen en weer geslingerd om (tijdelijke) wijzigingen in modules te accomoderen.
 	Zodra die modules gestabiliseerd zijn wordt het tijd om oradio_control na te kijken, op te schonen
 
+2026-01-11============================================================================================================================
+gpio_service.py
+1) gpio output en setup verwijderd uit led_control en in gpio_service gezet:
+	a) set_led_on(), set_led_off()
+	b) __init__(): setup for led-pins
+	c) get_led_state()
+2) gpio input en setup verwijderd uit touch_buttons en in gpio_service gezet:
+	a) get_button_state(), _read_pin_state()
+	b) b) __init__(): setup for button-pins
+	c) set_button_edge_event_callback(), _edge_callback
+3) test methodes om callbacks te simuleren:
+	a) simulate_button_play_events_burst(),
+	   simulate_all_buttons_events_burst(), 
+	   simulate_button_press_and_release()
+	b) GPIO_MODULE_TEST geintroduceerd zodat de edge_callback gebruikt kan worden
+		voor de callback simulatie. GPIO_MODULE_TEST wordt door een module test geactiveerd.
+		In de callback wordt een extra timestamp meegestuurd, voor de tijdsmeting
+4) Module testen uitgewerkt
+5) nieuwe global defines aangemaakt voor buttons en leds, voor oradio_controls
+6) Remote debugging toegevoegd voor module testen
+
+led_control:
+1) functies aangepast voor gpio_service gebruik: 
+	a) turn_on_led(), turn_off_led(), turn_off_all_leds(), turn_on_all_leds()
+	b) oneshot_on_led(), maakt gebruik van timer ipv sleep() functie
+	c) control_blinking_led(): docstring aangepast
+	d) turn_on_led_with_delay() tijdelijk als wrapped voor oneshot_on_led()
+2) Module testen uitgewerkt
+3) Remote debugging toegevoegd voor module testen
+
+touch_buttons.py:
+1) Geen callbacks meer naar oradio_controls. 
+	De berichten voor de queue worden aangemaakt volgens de OradioMessage klasse structuur
+2) In de _button_event_callback() die door gpio_service aangeroepen wordt, zitten tijds metingen,
+	zodat de propagatie tijd gemeten kan worden vanaf moment dat de gpio-callback getriggered is.
+	Hierbij wordt gebruik gemaakt van de timestamp die meegestuurd wordt in de callback
+3) Een data klasse TimingData geintroduceerd om de statistiek van de tijdsmetingen bij te houden
+4) Software debouncing overgenomen, maar wel test functies eromheen gezet.
+5) Click-sound speelt direct af via play_sound() functie, geen instantie meer nodig. 
+6) Module testen uitgewerkt
+7) Remote debugging toegevoegd voor module testen
+
+oradio_control.py:
+1) De extra berichten en calls mbt de buttons toegevoegd voor de message_handler.
+2) Geen callbacks meer tijdens instantatie van TouchButtons()
+3) Button en Led self-tests eruit gehaald
+
+oradio_utils.py
+1) De klasse OradioMessage() geintroduceerd waarmee de message structuur voor oradio berichten wordt gedefinieerd
+2) Een functie validate_oradio_message() die een queue bericht kan valideren op basis van de OradioMessage klasse.
+3) Input functies tbv testen input_prompt_int() en input_prompt_float(), als utility voor test module
+
+discussie onderwerpen:
+1) De remote debugger als die eenmaal geinstalleerd is, blijft deze actief in de achtergrond van de OS.
+	Kan op zichzelf geen kwaad, maar is eigenlijk niet nodig voor een klanten release.
+	In deze versie wordt wel de pydebd meegenomen, omdat het voor debuggen van de python code zeer handig is.
+	Dus nog een handige manier verzinnen dat deze pydebd alleen tijdens development geinstalleerd wordt. Misschien in de
+	oradio_install deze optie als keuze in te stellen, zodat een ontwikkelaar wel pydevd geinstalleerd krijgt en de testers bijvoorbeeld niet.
+	Ter discussie.
+nog doen:
+- documentatie op orde brengen
 
 2026-01-06============================================================================================================================
 
@@ -75,16 +136,17 @@ V - Technische documnetatie bijgewerkt
 2025-11-10============================================================================================================================
 
 GPIO:
+GPIO, led_control.py rework: een nieuwe gpio_service en led_control.py is aangemaakt, waarin onderstaande zaken verwerkt zijn
 Henk review: led_control.py
-1 - GPIO zaken ontkoppelen uit led_control.py. De GPIO wordt zowel in led_control als in touch_buttons geinitialiseerd. 
+R - GPIO zaken ontkoppelen uit led_control.py. De GPIO wordt zowel in led_control als in touch_buttons geinitialiseerd. 
     Zou op 1 plek moeten. Daarom GPIO zaken in een aparte module gpio_service.py afhandelen. 
     Daarbij een klasse aanbieden met config en set/get methodes. 
     Geeft betere abstractie door toevoeging van een hardware abstractie laag
-2 - methodes turn_off_led(), turn_on_led(), turn_on_led_with_delay() moeten een True/False teruggeven
-3 - delayed_off() thread gebruikt een sleep als delay.Beter is om een Timer thread te gebruiken
-4 - control_blinking_led(self, led_name, cycle_time=None), graag de cycle_time parameter specificeren.
-5 - De selftest is niet doelmatig. Beter is om  te testen of de leds ook werkelijk aan of uit staan door de GPIO status op te vragen van de geactiveerde led. 
-    Hiermee test je of de leds werkelijk aan of uit staan.
+R - methodes turn_off_led(), turn_on_led(), turn_on_led_with_delay() moeten een True/False teruggeven
+R - delayed_off() thread gebruikt een sleep als delay.Beter is om een Timer thread te gebruiken
+R - control_blinking_led(self, led_name, cycle_time=None), graag de cycle_time parameter specificeren.
+R - De selftest is niet doelmatig. Beter is om  te testen of de leds ook werkelijk aan of uit staan door de GPIO status op te vragen van de geactiveerde led. 
+    Hiermee test je of de leds werkelijk aan of uit staan.==> Als een instantie van GPIOService wordt aangemaakt, wordt getest of pinnen beschikbaar zijn.
 
 2025-11-18============================================================================================================================
 

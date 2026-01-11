@@ -22,7 +22,7 @@ import time
 from threading import Thread, Timer, Event
 
 ##### oradio modules ####################
-from oradio_logging import oradio_log, DEBUG, CRITICAL
+from oradio_logging import oradio_log
 from gpio_service import GPIOService
 
 ##### GLOBAL constants ####################

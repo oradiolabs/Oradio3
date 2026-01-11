@@ -42,11 +42,11 @@ from remote_monitoring import RMService
 from spotify_connect_direct import SpotifyConnect
 from usb_service import USBService
 from web_service import WebService
-from oradio_utils import (has_internet,
+from oradio_utils import (has_internet, setup_remote_debugging,
                             OradioMessage, validate_oradio_message)
 from power_supply_control import PowerSupplyService
 from system_sounds import play_sound    # For better readability. pylint: disable=wrong-import-order
-
+from debugger_const import REMOTE_DEBUGGER, DEBUGGER_ENABLED, DEBUGGER_DISABLED
 # Runs a background thread logging throttled events
 import throttled_monitor     # pylint: disable=unused-import
 
@@ -94,7 +94,6 @@ from oradio_const import (
     SOUND_NEW_PRESET,
     SOUND_NEW_WEBRADIO,
     MESSAGE_BUTTON_SOURCE,
-    MESSAGE_BUTTON_SHORT_PRESS,
     MESSAGE_SHORT_PRESS_BUTTON_PLAY,
     MESSAGE_SHORT_PRESS_BUTTON_STOP,
     MESSAGE_SHORT_PRESS_BUTTON_PRESET1,
@@ -106,6 +105,7 @@ from oradio_const import (
     LED_PRESET1,
     LED_PRESET2,
     LED_PRESET3,
+    RED, NC,
 )
 
 ##########Local constants##################
@@ -115,10 +115,12 @@ PLAY_STATES = {"StatePlay", "StatePreset1", "StatePreset2", "StatePreset3"}
 PLAY_WEBSERVICE_STATES = {"StatePlay", "StatePreset1", "StatePreset2", "StatePreset3", "StateIdle"}
 LOW_POWER_STATES = {"StateIdle"}  # only Idle uses nominal voltage (9V)to reduce power consumption
 
-from oradio_utils import setup_remote_debugging
-if not setup_remote_debugging():
-    print("The remote debugging error, check the remote IP connection")
-    sys.exit()
+################ Remote debugging #############
+print("Remote Debugger =", REMOTE_DEBUGGER)
+if REMOTE_DEBUGGER == DEBUGGER_ENABLED:
+    if not setup_remote_debugging():
+        print("The remote debugging error, check the remote IP connection")
+        sys.exit()
 
 ##################Signal Primitives#########
 
@@ -736,19 +738,19 @@ def handle_message(message: dict):
         command_source  = validated_message.source
         state           = validated_message.state
         error           = validated_message.error
-    
+
         handlers = HANDLERS.get(command_source)
         if handlers is None:
             oradio_log.warning("Unhandled message source: %s", message)
             return
-    
+
         if handler := handlers.get(state):
             handler()
         else:
             oradio_log.warning(
                 "Unhandled state '%s' for message source '%s'.", state, command_source
             )
-    
+
         if error and error != MESSAGE_NO_ERROR:
             if handler := handlers.get(error):
                 handler()
