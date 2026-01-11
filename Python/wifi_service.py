@@ -50,7 +50,6 @@ from oradio_utils import run_shell_script, safe_put
 ##### GLOBAL constants ####################
 from oradio_const import (
     RED, GREEN, YELLOW, NC,
-    USB_MOUNT_POINT,
     ACCESS_POINT_HOST,
     ACCESS_POINT_SSID,
     MESSAGE_WIFI_SOURCE,
