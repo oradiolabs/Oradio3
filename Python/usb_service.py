@@ -32,7 +32,7 @@ from os import path, remove
 from threading import RLock
 from json import load, JSONDecodeError
 from watchdog.observers import Observer
-from watchdog.events import PatternMatchingEventHandler, FileSystemEvent
+from watchdog.events import PatternMatchingEventHandler
 
 ##### oradio modules ####################
 from singleton import singleton
@@ -67,10 +67,14 @@ class USBObserver:
         # Track if the single monitor has already been scheduled
         self._monitor_scheduled = False
 
-    def schedule_monitor(self, monitor: PatternMatchingEventHandler) -> None:
+    def schedule_monitor(self, monitor) -> None:
         """
-        Schedule the monitor exactly once on the observer.
-        Starts the observer thread if not already running.
+        Schedule a filesystem event monitor on the observer if it has not been
+        scheduled yet, and ensure the observer thread is running.
+
+        Args:
+            monitor (PatternMatchingEventHandler): Event handler instance
+            to be scheduled on the observer for monitoring filesystem events.
         """
         if not self._monitor_scheduled:
             self._observer.schedule(monitor, path=USB_MOUNT_PATH, recursive=False)
@@ -83,7 +87,6 @@ class USBObserver:
     def __getattr__(self, name: str):
         """
         Delegate attribute access to the internal Observer.
-
         Called when an attribute is missing on USBObserver. This lets
         USBObserver act as a proxy, exposing all methods and attributes
         of the internal Observer (e.g., start, stop, join) without redefining them.
@@ -105,7 +108,7 @@ class USBMonitor(PatternMatchingEventHandler):
 
     def __init__(self) -> None:
         """Initialize the USB monitor."""
-        # Initialize parent event handler (PatternMatchingEventHandler)
+        # Initialize parent event handler
         super().__init__(patterns=[USB_MONITOR])
 
         # Lock to protect subscriber list
@@ -149,7 +152,7 @@ class USBMonitor(PatternMatchingEventHandler):
         with self._sub_lock:
             self._subscribers.remove((on_insert, on_remove))
 
-    def on_created(self, event: FileSystemEvent):
+    def on_created(self, event) -> None:
         """
         Watchdog callback: called when the USB monitor is created
         Updates state and triggers all on_insert callbacks
@@ -170,7 +173,7 @@ class USBMonitor(PatternMatchingEventHandler):
         # Import wifi networks from file on USB
         self._import_usb_wifi_networks()
 
-    def on_deleted(self, event: FileSystemEvent):
+    def on_deleted(self, event) -> None:
         """
         Watchdog callback: called when the USB monitor is removed
         Updates state and triggers all on_remove callbacks
