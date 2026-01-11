@@ -375,8 +375,19 @@ def _nmcli_try(func, *args, **kwargs) -> tuple[bool, object | None]:
 
 def parse_nmcli_output(nmcli_output) -> list:
     """
-    Return list of unique networks, sorted by strongest signal first,
-    with indication if password is required ("closed") or not ("open").
+    Parse nmcli scan results into a list of unique Wi-Fi networks.
+    Networks are deduplicated by SSID, sorted by descending signal strength,
+    and labeled as either "open" or "closed" depending on whether security
+    is enabled. The device's own access point SSID is excluded.
+
+    Args:
+        nmcli_output (list): List of nmcli network objects, each
+        optionally exposing ssid, signal, and security attributes.
+
+    Returns:
+        list: A list of dictionaries with keys:
+            - "ssid" (str): Network name
+            - "type" (str): "open" or "closed"
     """
     seen_ssids = set()
     networks_formatted = []
@@ -493,7 +504,7 @@ def get_wifi_connection() -> str | None:
     Get active wifi connection
 
     Returns:
-        str | None: network ID (SSID)
+        str | None: Connected network ID (SSID), or Nnoe if not found
     """
     # Get the network Oradio was connected to before starting access point, empty string if None
     cmd = "iw dev wlan0 info | awk '/ssid/ {print $2}' || iwgetid -r wlan0"
@@ -508,7 +519,7 @@ def _get_wifi_password(network) -> str | None:
         network (str): wifi network ssid as configured in NetworkManager
 
     Returns:
-        str | None: password
+        str | None: Connected network password, or Nnoe if not found
     """
     oradio_log.debug("Get wifi password")
     cmd = f"sudo nmcli -s -g 802-11-wireless-security.psk con show \"{network}\""
@@ -535,7 +546,7 @@ def _wifi_up(network) -> bool:
 
 def _wifi_down(network) -> bool:
     """
-    Disconnect from a Wi-Fi network using NetworkManager.
+    Disconnect from a wifi network using NetworkManager.
 
     Args:
         network (str): SSID of the network to disconnect from.
@@ -573,8 +584,8 @@ def _networkmanager_list() -> list:
 def networkmanager_add(network, password=None) -> bool:
     """
     if network is access point then setup AP in NetworkManager
-    If unknown, add network to NetworkManager
-    If exists, modify network in NetworkManager
+    - If unknown, add network to NetworkManager
+    - If exists, modify network in NetworkManager
 
     Args:
         network (str): wifi network ssid to be configured in NetworkManager
