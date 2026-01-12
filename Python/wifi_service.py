@@ -237,7 +237,7 @@ class WifiService():
     def __init__(self, queue):
         """
         Initialize wifi service and its dependencies
-        Start background processes/threads for USB and wifi monitoring
+        Start background processes/threads for wifi monitoring
         Send initial wifi state message
 
         Args:
