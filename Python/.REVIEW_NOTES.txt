@@ -90,13 +90,25 @@ oradio_utils.py
 2) Een functie validate_oradio_message() die een queue bericht kan valideren op basis van de OradioMessage klasse.
 3) Input functies tbv testen input_prompt_int() en input_prompt_float(), als utility voor test module
 
-discussie onderwerpen:
-1) De remote debugger als die eenmaal geinstalleerd is, blijft deze actief in de achtergrond van de OS.
-	Kan op zichzelf geen kwaad, maar is eigenlijk niet nodig voor een klanten release.
-	In deze versie wordt wel de pydebd meegenomen, omdat het voor debuggen van de python code zeer handig is.
-	Dus nog een handige manier verzinnen dat deze pydebd alleen tijdens development geinstalleerd wordt. Misschien in de
-	oradio_install deze optie als keuze in te stellen, zodat een ontwikkelaar wel pydevd geinstalleerd krijgt en de testers bijvoorbeeld niet.
-	Ter discussie.
+remote_debugger.py
+Deze module verzorgt een verbinding van de RPI met een IDE op een PC, zodat remote debugging mogelijk is
+Default is de pydevd (python debugger) niet geinstalleerd, de ontwikkelaar moet dit zelf doen
+De setup_remote_debugging() functie kan een verbinding tot stand te brengen.
+Er zijn een paar pre-condities waaraan voldaan moet worden om wel of geen remote-debug te kunnen:
+1) Default is pydevd niet geinstalleerd, de ontwikkelaar moet dit doen mbv: pip install pydevd
+2) Er is een constante REMOTE_DEBUGGER:
+	a) die default op DEBUGGER_DISABLED staat:in dit geval is er geen debugging mogelijk
+	b) de ontwikkelaar kan deze op DEBUGGER_ENABLED zetten: als pydevd bestaat dan kan debugger gestart worden
+		mebv setup_remote_debugging() functie
+3) De remote debugger heeft informatie (argumenten) nodig om een verbinding tot stand te brengen bij aanroep van module.
+	bijvoorbeeld: python led_control.py -rd yes -ip 192.168.xxx.xxx -p 5678
+	waarbij -ip het ip adres vd host is en -p het gebruikte portnr
+Dus bij een klanten-release zit pydevd er niet in. Als de ontwikkelaar de remote-debugger wil gebruiken dan moet
+deze de pydevd installeren op de RPi.
+Ook even opletten, de ontwikkelaar moet de remote_debugger-py NIET terugzetten in github, als de DEBUGGER_ENABLED was.
+Mogelijk zouden we deze module moeten afschermen, dat alleen de "CODEOWNER" deze module mag aanpassen. 
+
+
 nog doen:
 - documentatie op orde brengen
 
