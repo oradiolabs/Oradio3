@@ -38,27 +38,27 @@ T - Review na alle module wijzigingen.
 	oradio_control is meermaals heen en weer geslingerd om (tijdelijke) wijzigingen in modules te accomoderen.
 	Zodra die modules gestabiliseerd zijn wordt het tijd om oradio_control na te kijken, op te schonen
 
-2026-01-10============================================================================================================================
-Henk: Rework controle
+2026-01-12============================================================================================================================
 USB:
 Documents/USB/USB module description.docx:
 V - Updated to include handling Wifi_invoer.json
-R - De __getattr__() is een private method, zou niet in de API beschrijving van de Module: USBObserver moeten staan
+V - De __getattr__() is een private method, zou niet in de API beschrijving van de Module: USBObserver moeten staan
 usb_service.py:
 V - Parsing van Wifi_invoer.json toegevoegd
 V - doc strings, type hints and inline comments opgeschoond
-R - Waarom is de __getattr__() nodig? Graag toelichting voor gebruik hiervan
+V - Waarom is de __getattr__() nodig? Graag toelichting voor gebruik hiervan
 
-WIFI:
+Wifi:
 Documents/WIFI/WIFI module description.docx:
 V - Updated to include handling Wifi_invoer.json
 wifi_service.py:
 V - Parsing van Wifi_invoer.json verwijderd
 V - doc strings, type hints and inline comments opgeschoond
-R - USB functionaliteit is verwijderd, maar er staan nog USB zaken in de code:
-R   - self.usb_q wordt niet gebruikt
-R   - De locals DEBOUCE_TIME, WIFI_MONITOR en USB_WIFI_FILE worden niet meer gebruikt
-R   - docstring: 'Listens to USB xxxxx' is niet aan de orde
+V - USB functionaliteit is verwijderd, maar er staan nog USB zaken in de code:
+V   - self.usb_q wordt niet gebruikt
+V   - De locals DEBOUCE_TIME, WIFI_MONITOR en USB_WIFI_FILE worden niet meer gebruikt
+V   - docstring: 'Listens to USB xxxxx' is niet aan de orde
+=> Review/Rework conclusie: Rework akkoord. Hiermee is review afgesloten
 
 2026-01-08============================================================================================================================
 
