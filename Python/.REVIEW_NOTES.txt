@@ -105,6 +105,7 @@ Er zijn een paar pre-condities waaraan voldaan moet worden om wel of geen remote
 	waarbij -ip het ip adres vd host is en -p het gebruikte portnr
 Dus bij een klanten-release zit pydevd er niet in. Als de ontwikkelaar de remote-debugger wil gebruiken dan moet
 deze de pydevd installeren op de RPi.
+Voor mij is het handig dat de benodigde software voor remote debugging in ons oradio pakket zit. 
 Ook even opletten, de ontwikkelaar moet de remote_debugger-py NIET terugzetten in github, als de DEBUGGER_ENABLED was.
 Mogelijk zouden we deze module moeten afschermen, dat alleen de "CODEOWNER" deze module mag aanpassen. 
 
