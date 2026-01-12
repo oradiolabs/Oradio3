@@ -318,22 +318,20 @@ class GPIOService:
 if __name__ == '__main__':
 #################################################################
 #    module test for gpio_service
-#    Note:
-#    in case remote python debugging is required:
-#    * run the Python Debug Server in your IDE
-#    * call module test with argument -rd [no | yes]
-#        if yes add in -ip your host ip address and -p the portnr
-#        >python gpio_service.py -rd yes -ip 102.168.xxx.xxx -p 5678
-#################################################################
-    from oradio_utils import setup_remote_debugging, input_prompt_int
+    from oradio_utils import input_prompt_int
     from threading import Thread
     import sys
 
     button_state = {True: f"{YELLOW}1", False: f"{NC}0"}
 
-    if not setup_remote_debugging():
-        print("The remote debugging error, check the remote IP connection")
-        sys.exit()
+    from remote_debugger import setup_remote_debugging, DEBUGGER_NOT_CONNECTED, DEBUGGER_ENABLED
+
+    # try to setup a remote debugger connection, if enabled
+    debugger_status, connection_status = setup_remote_debugging()
+    if debugger_status == DEBUGGER_ENABLED:
+        if connection_status == DEBUGGER_NOT_CONNECTED:
+            print(f"{RED}A remote debugging error, check the remote IP connection {NC}")
+            sys.exit()
 
     def keyboard_input(event:Event):
         '''

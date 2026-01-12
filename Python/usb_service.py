@@ -17,23 +17,27 @@ Created on January 17, 2025
 @version:       2
 @email:         oradioinfo@stichtingoradio.nl
 @status:        Development
-@summary: Class for USB detect, insert, and remove services
-    :Note
-    :Install
-    :Documentation
-        The OS is configured to auto-mount USB drives with label = ORADIO
-        When mounting is complete a MONITOR is created
-        Using a watchdog triggered by MONITOR handles the USB insert/removed behaviour
-        https://pypi.org/project/watchdog/
+@summary: USB mount monitoring service using watchdog.
+    This module detects USB insertion and removal by monitoring a marker file
+    on an auto-mounted USB drive. When a USB drive labeled ORADIO is mounted,
+    a monitor file is created; its creation and deletion signal USB state changes.
+    - Singleton watchdog observer
+    - Subscriber-based USB insert/remove callbacks
+    - Optional import of WiFi credentials from USB
+    Requirements:
+    - OS auto-mounts USB drives with label 'ORADIO'
+    - watchdog package (https://pypi.org/project/watchdog/)
 """
-import os
+from os import path, remove
 from threading import RLock
+from json import load, JSONDecodeError
 from watchdog.observers import Observer
 from watchdog.events import PatternMatchingEventHandler
 
 ##### oradio modules ####################
 from singleton import singleton
 from oradio_logging import oradio_log
+from wifi_service import networkmanager_add
 from oradio_utils import safe_put, run_shell_script
 
 ##### GLOBAL constants ####################
@@ -48,23 +52,29 @@ from oradio_const import (
 )
 
 ##### LOCAL constants ####################
-USB_MONITOR = "usb_ready"   # Name of file used to monitor if USB is mounted or not
+USB_MONITOR   = "usb_ready"     # Name of file used to monitor if USB is mounted or not
+USB_WIFI_FILE = path.join(USB_MOUNT_POINT, "Wifi_invoer.json")  # USB file with wifi credentials
 
 @singleton
 class USBObserver:
     """Singleton wrapper around watchdog.Observer with exactly one monitor."""
 
     def __init__(self):
+        """Initialize the USB observer."""
         # The underlying Observer thread
         self._observer = Observer()
 
         # Track if the single monitor has already been scheduled
         self._monitor_scheduled = False
 
-    def schedule_monitor(self, monitor: PatternMatchingEventHandler):
+    def schedule_monitor(self, monitor) -> None:
         """
-        Schedule the monitor exactly once on the observer.
-        Starts the observer thread if not already running.
+        Schedule a filesystem event monitor on the observer if it has not been
+        scheduled yet, and ensure the observer thread is running.
+
+        Args:
+            monitor (PatternMatchingEventHandler): Event handler instance
+            to be scheduled on the observer for monitoring filesystem events.
         """
         if not self._monitor_scheduled:
             self._observer.schedule(monitor, path=USB_MOUNT_PATH, recursive=False)
@@ -74,22 +84,31 @@ class USBObserver:
         if not self._observer.is_alive():
             self._observer.start()
 
-    def __getattr__(self, name):
+    def __getattr__(self, name: str):
         """
-        Delegate attribute access to the underlying observer.
-        Called only if attribute not found on USBObserver itself.
+        Delegate attribute access to the internal Observer.
+        Called when an attribute is missing on USBObserver. This lets
+        USBObserver act as a proxy, exposing all methods and attributes
+        of the internal Observer (e.g., start, stop, join) without redefining them.
+
+        Args:
+            name (str): Name of the attribute being accessed.
+
+        Returns:
+            The attribute value from the internal Observer.
         """
         return getattr(self._observer, name)
 
 @singleton
 class USBMonitor(PatternMatchingEventHandler):
     """
-    Singleton watchdog event handler for USB marker file.
+    Singleton watchdog event handler for USB marker file creation and deletion.
     Allows subscribers to register insert/remove callbacks.
     """
 
-    def __init__(self, patterns = None):
-        # Initialize parent event handler (PatternMatchingEventHandler)
+    def __init__(self) -> None:
+        """Initialize the USB monitor."""
+        # Initialize parent event handler
         super().__init__(patterns=[USB_MONITOR])
 
         # Lock to protect subscriber list
@@ -99,29 +118,47 @@ class USBMonitor(PatternMatchingEventHandler):
         self._subscribers = []
 
         # Determine initial USB state from mount point
-        if os.path.ismount(USB_MOUNT_POINT):
+        if path.ismount(USB_MOUNT_POINT):
             self._state = STATE_USB_PRESENT
+
+            # Import wifi networks from file on USB
+            self._import_usb_wifi_networks()
         else:
             self._state = STATE_USB_ABSENT
 
-    def get_state(self):
+    def get_state(self) -> str:
         """Return current USB mount state."""
         return self._state
 
-    def subscribe(self, on_insert, on_remove):
-        """Register callbacks for USB insert/remove events."""
+    def subscribe(self, on_insert, on_remove) -> None:
+        """
+        Register callbacks for USB insert/remove events.
+
+        Args:
+            on_insert (Callable): Method to call when USB is inserted
+            on_remove (Callable): Method to call when USB is removed
+        """
         with self._sub_lock:
             self._subscribers.append((on_insert, on_remove))
 
-    def unsubscribe(self, on_insert, on_remove):
-        """Remove previously registered callbacks."""
+    def unsubscribe(self, on_insert, on_remove) -> None:
+        """
+        Remove previously registered callbacks.
+
+        Args:
+            on_insert (Callable): Method to call when USB is inserted
+            on_remove (Callable): Method to call when USB is removed
+        """
         with self._sub_lock:
             self._subscribers.remove((on_insert, on_remove))
 
-    def on_created(self, event):
+    def on_created(self, event) -> None:
         """
         Watchdog callback: called when the USB monitor is created
         Updates state and triggers all on_insert callbacks
+
+        Args:
+            event (FileSystemEvent): called when the USB monitor file is created.
         """
         oradio_log.info("USB inserted on %s", event.src_path)
 
@@ -133,10 +170,16 @@ class USBMonitor(PatternMatchingEventHandler):
             for on_insert, _ in self._subscribers:
                 on_insert()
 
-    def on_deleted(self, event):
+        # Import wifi networks from file on USB
+        self._import_usb_wifi_networks()
+
+    def on_deleted(self, event) -> None:
         """
         Watchdog callback: called when the USB monitor is removed
         Updates state and triggers all on_remove callbacks
+
+        Args:
+            event (FileSystemEvent): called when the USB monitor file is deleted.
         """
         oradio_log.info("USB removed from %s", event.src_path)
 
@@ -147,13 +190,115 @@ class USBMonitor(PatternMatchingEventHandler):
             for _, on_remove in self._subscribers:
                 on_remove()
 
+    @staticmethod
+    def _validate_network(network: dict[str, object], index: int) -> str | None:
+        """
+        Ensure valid network credentials.
+
+        Args:
+            network (dict): network fields
+            index (int): Position in input file
+
+        Returns:
+            str | None: Error message or None when valid
+        """
+        # Start assuming no errors
+        errors = []
+
+        # Must be a dict
+        if not isinstance(network, dict):
+            errors.append(f"Network #{index} is not an object")
+        else:
+            # Required fields
+            missing = {"SSID", "PASSWORD"} - network.keys()
+            if missing:
+                errors.append(f"Network #{index} missing fields: {', '.join(sorted(missing))}")
+
+            # SSID validation
+            ssid = network.get("SSID")
+            if isinstance(ssid, str):
+                if not ssid.strip():
+                    errors.append(f"Network #{index} has empty SSID")
+                elif len(ssid) > 32:
+                    errors.append(f"Network #{index} SSID is too long")
+            else:
+                errors.append(f"Network #{index} has invalid SSID")
+
+            # PASSWORD validation (empty allowed for open networks, otherwise min 8 chars)
+            pswd = network.get("PASSWORD")
+            if isinstance(pswd, str):
+                if 0 < len(pswd) < 8:
+                    errors.append(f"Network #{index} PASSWORD is too short")
+            else:
+                errors.append(f"Network #{index} has invalid PASSWORD")
+
+        # Return errors found, or None if valid
+        return "; ".join(errors) if errors else None
+
+    def _import_usb_wifi_networks(self) -> None:
+        """
+        Check for file with wifi credentials on USB drive
+        - If found, validate and add to NetworkManager
+        """
+        oradio_log.info("Checking %s for wifi credentials", USB_WIFI_FILE)
+
+        # Check if wifi credentials file exists in USB drive root
+        if not path.isfile(USB_WIFI_FILE):
+            oradio_log.debug("'%s' not found", USB_WIFI_FILE)
+            return
+
+        try:
+            # Read and parse JSON file
+            with open(USB_WIFI_FILE, "r", encoding="utf-8") as file:
+                # Get JSON object as a dictionary
+                data = load(file)
+        except (JSONDecodeError, IOError) as ex_err:
+            oradio_log.error("Failed to read or parse '%s': error: %s", USB_WIFI_FILE, ex_err)
+            return
+
+        # Validate data is a list of networks
+        if "networks" not in data or not isinstance(data["networks"], list):
+            oradio_log.error("'networks' must be a list")
+            return
+
+        # Validate and import each network entry
+        all_valid = True
+        for i, network in enumerate(data["networks"], start=1):
+            if err_msg := self._validate_network(network, i):
+                all_valid = False
+                oradio_log.error(err_msg)
+            else:
+                # Add wifi credentials to NetworkManager
+                ssid = network["SSID"].strip()
+                pswd = network["PASSWORD"]      # Spaces are allowed in passwords
+                if networkmanager_add(ssid, pswd):
+                    oradio_log.info("Network '%s' added to NetworkManager", ssid)
+                else:
+                    oradio_log.error("Failed to add '%s' to NetworkManager", ssid)
+
+        # Remove file after successful parsing
+        if all_valid:
+            try:
+                remove(USB_WIFI_FILE)
+                oradio_log.info("'%s' removed", USB_WIFI_FILE)
+            except (FileNotFoundError, PermissionError) as ex_err:
+                oradio_log.error("Failed to remove '%s': %s", USB_WIFI_FILE, ex_err)
+        else:
+            oradio_log.warning("'%s' has errors, is not removed", USB_WIFI_FILE)
+
 class USBService:
     """
     Service that connects the singleton USBObserver + USBMonitor,
     subscribes to USB events, and forwards state messages to a queue.
     """
 
-    def __init__(self, queue):
+    def __init__(self, queue) -> None:
+        """
+        Initialize the USB service.
+
+        Args:
+            queue (Queue): the queue to send messages to
+        """
         # Store queue for sending USB state messages asynchronously
         self._queue = queue
 
@@ -172,15 +317,15 @@ class USBService:
         # Send initial state
         self._send_message()
 
-    def _usb_inserted(self):
+    def _usb_inserted(self) -> None:
         """Callback invoked on USB insertion."""
         self._send_message()
 
-    def _usb_removed(self):
+    def _usb_removed(self) -> None:
         """Callback invoked on USB removal."""
         self._send_message()
 
-    def _send_message(self):
+    def _send_message(self) -> None:
         """Send current USB state message to the registered queue."""
         message = {
             "source": MESSAGE_USB_SOURCE,
@@ -190,11 +335,11 @@ class USBService:
         oradio_log.debug("Send USBService message: %s", message)
         safe_put(self._queue, message)
 
-    def get_state(self):
+    def get_state(self) -> str:
         """Return current USB mount state."""
         return self._monitor.get_state()
 
-    def close(self):
+    def close(self) -> None:
         """Unsubscribe callbacks to clean up resources."""
         try:
             self._monitor.unsubscribe(self._usb_inserted, self._usb_removed)
@@ -212,11 +357,13 @@ if __name__ == '__main__':
 # Most modules use similar code in stand-alone
 # pylint: disable=duplicate-code
 
-    def _check_messages(queue):
+    def _check_messages(queue) -> None:
         """
         Check if a new message is put into the queue
         If so, read the message from queue and display it
-        :param queue = the queue to check for
+
+        Args:
+            queue (Queue): the queue to read messages from
         """
         while True:
             # Wait indefinitely until a message arrives from the server/wifi service
@@ -225,8 +372,13 @@ if __name__ == '__main__':
             print(f"\n{GREEN}Message received: '{message}'{NC}\n")
 
     # Pylint PEP8 ignoring limit of max 12 branches is ok for test menu
-    def interactive_menu(queue):    # pylint: disable=too-many-branches
-        """Show menu with test options"""
+    def interactive_menu(queue) -> None:    # pylint: disable=too-many-branches
+        """
+        Show menu with test options.
+
+        Args:
+            queue (Queue): the queue to check for
+        """
         # Initialize: no services registered
         usb_services = []
 
@@ -270,7 +422,7 @@ if __name__ == '__main__':
                         print(f"{YELLOW}List has no USBService instances{NC}\n")
                 case 3:
                     print("\nSimulate 'USB inserted' event...\n")
-                    # Need to use subprocess because monitor is owned by root
+                    # Use shell command because monitor file ownership is root
                     cmd = f"sudo touch {USB_MOUNT_PATH}/{USB_MONITOR}"
                     result, response = run_shell_script(cmd)
                     if not result:

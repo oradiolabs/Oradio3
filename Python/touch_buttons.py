@@ -27,8 +27,7 @@ from oradio_logging import oradio_log, DEBUG, CRITICAL
 from gpio_service import GPIOService
 from oradio_utils import (safe_put,
                           input_prompt_int, input_prompt_float,
-                          OradioMessage, validate_oradio_message,
-                          setup_remote_debugging, # required for module test
+                          OradioMessage, validate_oradio_message
                         )
 
 ##### GLOBAL constants ####################
@@ -253,12 +252,6 @@ class TouchButtons:
 if __name__ == "__main__":
 #################################################################
 #    module test
-#    Note:
-#    in case remote python debugging is required:
-#    * run the Python Debug Server in your IDE
-#    * call module test with argument -rd [no | yes]
-#        if yes add in -ip your host ip address and -p the portnr
-#        >python touch_buttons.py -rd yes -ip 102.168.xxx.xxx -p 5678
 #################################################################
     # pylint: disable=protected-access
     ###################################################################################
@@ -267,9 +260,13 @@ if __name__ == "__main__":
     ###################################################################################
     import sys
 
-    if not setup_remote_debugging():
-        print(f"{YELLOW}The remote debugging error, check the remote IP connection {NC}")
-        sys.exit()
+    from remote_debugger import setup_remote_debugging, DEBUGGER_NOT_CONNECTED, DEBUGGER_ENABLED
+    # try to setup a remote debugger connection, if enabled
+    debugger_status, connection_status = setup_remote_debugging()
+    if debugger_status == DEBUGGER_ENABLED:
+        if connection_status == DEBUGGER_NOT_CONNECTED:
+            print(f"{RED}A remote debugging error, check the remote IP connection {NC}")
+            sys.exit()
 
     def _stop_all_long_press_timer(test_buttons: TouchButtons)-> None:
         '''

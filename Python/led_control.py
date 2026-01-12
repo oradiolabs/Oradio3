@@ -215,13 +215,16 @@ class LEDControl:
 if __name__ == "__main__":
     import sys
     import math
+    from oradio_utils import input_prompt_int, input_prompt_float
+    from remote_debugger import setup_remote_debugging,DEBUGGER_NOT_CONNECTED, DEBUGGER_ENABLED
 
     print("\nStarting LED Control Module Test...\n")
-
-    from oradio_utils import setup_remote_debugging, input_prompt_int, input_prompt_float
-    if not setup_remote_debugging():
-        print("The remote debugging error, check the remote IP connection")
-        sys.exit()
+    # try to setup a remote debugger connection, if enabled
+    debugger_status, connection_status = setup_remote_debugging()
+    if debugger_status == DEBUGGER_ENABLED:
+        if connection_status == DEBUGGER_NOT_CONNECTED:
+            print(f"{RED}A remote debugging error, check the remote IP connection{NC}")
+            sys.exit()
 
     def keyboard_input(event:Event):
         '''

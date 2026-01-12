@@ -198,6 +198,11 @@ SPOTIFY_CONNECT_MPV_STATE_OK               = "Spotify Connect MPV State OK"
 SPOTIFY_CONNECT_CONNECTED = "Spotify Connect is connected"
 SPOTIFY_CONNECT_NOT_CONNECTED = "Spotify Connect is NOT connected"
 
-##### JSON SCHEMA ########
-MODEL_NAME_NOT_FOUND = "Unknown model name, not found in schemas.json"
-MODEL_NAME_FOUND     = "model name found"
+############### Remote Debugger defines ##########################
+DEBUGGER_CONNECTED      = "Debugger connected"
+DEBUGGER_NOT_CONNECTED  = "Debugger not connected"
+DEBUGGER_DISABLED       = "debugger disabled"
+DEBUGGER_ENABLED        = "debugger enabled"
+####################################################################
+
+

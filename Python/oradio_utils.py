@@ -35,8 +35,6 @@ import argparse
 from typing import Union, Dict, Optional, List, Any
 from pydantic import BaseModel, ValidationError
 import netifaces
-import pydevd    # pip install pydevd
-
 ##### oradio modules ####################
 from oradio_logging import oradio_log
 
@@ -267,49 +265,6 @@ def store_presets(presets: dict[str, str]):
     except IOError as ex_err:
         oradio_log.error("Failed to write presets to '%s'. Error: %s", PRESETS_FILE, ex_err)
 
-def setup_remote_debugging() -> bool:
-    '''
-    Remote debugging service for Python with an IDE (eg Eclipse)
-    :return
-        True : connection established, or No remote debug required
-        False: Error detected, no connection
-    '''
-    #pylint: disable=line-too-long
-    parser = argparse.ArgumentParser(description='Remote Debug')
-    MESSAGE_DEBUG = 'Remote Debug options are:  -rd [no|yes] -ip [host-ip-address] -p [host-portnr]'
-    parser.add_argument('-rd', '--rmdebug', type = str, nargs='?', const='no', help=MESSAGE_DEBUG )
-    parser.add_argument('-ip', '--ipaddress', type = str, nargs='?', const='no', help=MESSAGE_DEBUG )
-    parser.add_argument('-p', '--portnr', type = str, nargs='?', const='no', help=MESSAGE_DEBUG )
-    args = parser.parse_args()
-    if args.rmdebug == 'yes':
-        if not args.ipaddress or not args.portnr:
-            raise argparse.ArgumentError(None, "Both -ip and -p are required when -rd is 'yes'")
-
-    remote_debug = args.rmdebug
-    allowed_options = [None, "no","yes"]
-    if not remote_debug in allowed_options:
-        parser.error(MESSAGE_DEBUG)
-        return False
-
-    print("Remote Debug option =",remote_debug)
-
-    if remote_debug == 'yes':
-        ip_address  = args.ipaddress
-        port_nr     = int(args.portnr)
-        print("Remote debugging started")
-        # Allow remote debugging from any IP address on selected port
-        os.environ["PYDEVD_DISABLE_FILE_VALIDATION"] = "1"
-        try:
-            pydevd.settrace(ip_address, port=port_nr)
-        except ConnectionRefusedError:
-            print(f"{YELLOW} Failed to connect to debugger at {ip_address}:{port_nr}.")
-            print(f"Is the IDE pydev running/listening?{NC}")
-            return False
-        except (socket.error, OSError) as err:
-            print(f"{YELLOW}Network error while connecting to debugger: {err} {NC}")
-            return False
-        return True
-    return True
 
 def input_prompt_int(prompt: str, default=-1 ) -> int:
     '''

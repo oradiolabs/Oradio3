@@ -42,11 +42,10 @@ from remote_monitoring import RMService
 from spotify_connect_direct import SpotifyConnect
 from usb_service import USBService
 from web_service import WebService
-from oradio_utils import (has_internet, setup_remote_debugging,
-                            OradioMessage, validate_oradio_message)
+from oradio_utils import (has_internet, validate_oradio_message)
 from power_supply_control import PowerSupplyService
 from system_sounds import play_sound    # For better readability. pylint: disable=wrong-import-order
-from debugger_const import REMOTE_DEBUGGER, DEBUGGER_ENABLED
+from remote_debugger import setup_remote_debugging, DEBUGGER_NOT_CONNECTED, DEBUGGER_ENABLED
 # Runs a background thread logging throttled events
 import throttled_monitor     # pylint: disable=unused-import
 
@@ -116,12 +115,12 @@ PLAY_WEBSERVICE_STATES = {"StatePlay", "StatePreset1", "StatePreset2", "StatePre
 LOW_POWER_STATES = {"StateIdle"}  # only Idle uses nominal voltage (9V)to reduce power consumption
 
 ################ Remote debugging #############
-print("Remote Debugger =", REMOTE_DEBUGGER)
-if REMOTE_DEBUGGER == DEBUGGER_ENABLED:
-    if not setup_remote_debugging():
-        print("The remote debugging error, check the remote IP connection")
+# try to setup a remote debugger connection, if enabled
+debugger_status, connection_status = setup_remote_debugging()
+if debugger_status == DEBUGGER_ENABLED:
+    if connection_status == DEBUGGER_NOT_CONNECTED:
+        print(f"{RED}A remote debugging error, check the remote IP connection {NC}")
         sys.exit()
-
 ##################Signal Primitives#########
 
 spotify_connect_connected = threading.Event()  # track status Spotify connected
