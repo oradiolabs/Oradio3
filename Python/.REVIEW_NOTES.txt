@@ -39,6 +39,8 @@ T - Review na alle module wijzigingen.
 	Zodra die modules gestabiliseerd zijn wordt het tijd om oradio_control na te kijken, op te schonen
 
 2026-01-11============================================================================================================================
+
+GPIO:
 gpio_service.py
 1) gpio output en setup verwijderd uit led_control en in gpio_service gezet:
 	a) set_led_on(), set_led_off()
@@ -109,9 +111,45 @@ Voor mij is het handig dat de benodigde software voor remote debugging in ons or
 Ook even opletten, de ontwikkelaar moet de remote_debugger-py NIET terugzetten in github, als de DEBUGGER_ENABLED was.
 Mogelijk zouden we deze module moeten afschermen, dat alleen de "CODEOWNER" deze module mag aanpassen. 
 
-
 nog doen:
 - documentatie op orde brengen
+- Eerdere opmerkingen van 10 oktober 2025 over GPIO hieronder in bovenstaande mergen
+
+GPIO, led_control.py rework: een nieuwe gpio_service en led_control.py is aangemaakt, waarin onderstaande zaken verwerkt zijn
+Henk review: led_control.py
+R - GPIO zaken ontkoppelen uit led_control.py. De GPIO wordt zowel in led_control als in touch_buttons geinitialiseerd. 
+    Zou op 1 plek moeten. Daarom GPIO zaken in een aparte module gpio_service.py afhandelen. 
+    Daarbij een klasse aanbieden met config en set/get methodes. 
+    Geeft betere abstractie door toevoeging van een hardware abstractie laag
+R - methodes turn_off_led(), turn_on_led(), turn_on_led_with_delay() moeten een True/False teruggeven
+R - delayed_off() thread gebruikt een sleep als delay.Beter is om een Timer thread te gebruiken
+R - control_blinking_led(self, led_name, cycle_time=None), graag de cycle_time parameter specificeren.
+R - De selftest is niet doelmatig. Beter is om  te testen of de leds ook werkelijk aan of uit staan door de GPIO status op te vragen van de geactiveerde led. 
+    Hiermee test je of de leds werkelijk aan of uit staan.==> Als een instantie van GPIOService wordt aangemaakt, wordt getest of pinnen beschikbaar zijn.
+
+2026-01-12============================================================================================================================
+
+USB:
+Documents/USB/USB module description.docx:
+V - Updated to include handling Wifi_invoer.json
+V - De __getattr__() is een private method, zou niet in de API beschrijving van de Module: USBObserver moeten staan
+usb_service.py:
+V - Parsing van Wifi_invoer.json toegevoegd
+V - doc strings, type hints and inline comments opgeschoond
+V - Waarom is de __getattr__() nodig? Graag toelichting voor gebruik hiervan
+=> Review/Rework conclusie: Rework akkoord. Hiermee is review afgesloten
+
+Wifi:
+Documents/WIFI/WIFI module description.docx:
+V - Updated to include handling Wifi_invoer.json
+wifi_service.py:
+V - Parsing van Wifi_invoer.json verwijderd
+V - doc strings, type hints and inline comments opgeschoond
+V - USB functionaliteit is verwijderd, maar er staan nog USB zaken in de code:
+V   - self.usb_q wordt niet gebruikt
+V   - De locals DEBOUCE_TIME, WIFI_MONITOR en USB_WIFI_FILE worden niet meer gebruikt
+V   - docstring: 'Listens to USB xxxxx' is niet aan de orde
+=> Review/Rework conclusie: Rework akkoord. Hiermee is review afgesloten
 
 2026-01-06============================================================================================================================
 
@@ -145,21 +183,6 @@ remote_monitoring.py:
 V - Versturen van WARNING, ERROR en CRITICAL logs naar remote server verwijderd
 V - Beheren van HEARTBEAT en SYS_LOG messages afhankelijk gemaakt vna wifi state
 V - Technische documnetatie bijgewerkt
-
-2025-11-10============================================================================================================================
-
-GPIO:
-GPIO, led_control.py rework: een nieuwe gpio_service en led_control.py is aangemaakt, waarin onderstaande zaken verwerkt zijn
-Henk review: led_control.py
-R - GPIO zaken ontkoppelen uit led_control.py. De GPIO wordt zowel in led_control als in touch_buttons geinitialiseerd. 
-    Zou op 1 plek moeten. Daarom GPIO zaken in een aparte module gpio_service.py afhandelen. 
-    Daarbij een klasse aanbieden met config en set/get methodes. 
-    Geeft betere abstractie door toevoeging van een hardware abstractie laag
-R - methodes turn_off_led(), turn_on_led(), turn_on_led_with_delay() moeten een True/False teruggeven
-R - delayed_off() thread gebruikt een sleep als delay.Beter is om een Timer thread te gebruiken
-R - control_blinking_led(self, led_name, cycle_time=None), graag de cycle_time parameter specificeren.
-R - De selftest is niet doelmatig. Beter is om  te testen of de leds ook werkelijk aan of uit staan door de GPIO status op te vragen van de geactiveerde led. 
-    Hiermee test je of de leds werkelijk aan of uit staan.==> Als een instantie van GPIOService wordt aangemaakt, wordt getest of pinnen beschikbaar zijn.
 
 2025-11-18============================================================================================================================
 
