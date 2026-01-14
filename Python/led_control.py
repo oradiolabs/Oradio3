@@ -15,6 +15,7 @@ Created on January 29, 2025
 @version:       2
 @email:         oradioinfo@stichtingoradio.nl
 @status:        Development
+#REVIEW Onno: Ergens, of hier of bij de LEDControl class, graag een paar zinnen over wat de module doet...
 @summary: Oradio LED control module
 
 """
@@ -26,8 +27,22 @@ from oradio_logging import oradio_log
 from gpio_service import GPIOService
 
 ##### GLOBAL constants ####################
+#REVIEW Onno: Op zich correct, maar zou zelfde stijl aanhouden als in andere modules:
+#
+# from oradio_const import (
+#    GREEN, YELLOW, RED, NC,
+#    LED_NAMES,
+#)
 from oradio_const import (LED_NAMES, GREEN, YELLOW, RED, NC)
 
+#REVIEW Onno: Algemeen:
+#   - Stel voor de Google Docstrings style te gebruiken, zoals al in veel ander modules.
+#   - Je mag iets royaler/consequenter zijn met inline comments
+#   - turn_off_led en turn_on_led geven een true/false terug, maar daar wordt nergens op gecontroleerd.
+#     Dus óf overal controleren, óf geen bool retourneren. Bij oplossen van issue #408 komt dat dan later wel goed...
+#   - oneshot en blinking gebruiken een tijdseenheid als argument. oneshot heeft een default, blinking niet, waarom?
+#     Stel voor 2 lokale variabelen te definieren, als default voor oneshot en blinking te gebruiken.
+#     En dan in oradio_control overal die ,2 als agument voor blinking weg te halen.
 class LEDControl:
     """Control LED states"""
 
@@ -41,13 +56,16 @@ class LEDControl:
         try:
             self.leds_driver = GPIOService()
         except (ValueError) as err:
+#REVIEW Onno: f"{...}" constructs vermijden, want wordt altijd geevalueerd, ook als log level hoger is. De aanbevolen construct is ("...%s...", value)
             oradio_log.error(f"GPIO Initialization failed: {err}")
+#REVIEW Onno: Wie vangt deze exception af?
             raise ValueError("Invalid value provided") from err
         self.blink_stop_events = {}       # map led_name → threading.Event()
         self.blinking_threads = {}        # map led_name → Thread
         oradio_log.debug("LEDControl initialized: All LEDs OFF")
 
 ########## As a wrapper for oradio_control ######################
+#REVIEW Onno: Waarom nu niet meteen oradio_control aanpassen? Dan kan deze method weg, kan je het ook niet vergeten...
     def turn_on_led_with_delay(self,
                                led_name:str,
                                period:float):
@@ -59,6 +77,7 @@ class LEDControl:
         return self.oneshot_on_led(led_name, period)
 ###################################################################
 
+#REVIEW Onno: Er wordt nergens op de return gecontroleerd -> None teruggeven
     def turn_off_led(self, led_name:str) -> bool:
         """
         Turns off a specified LED and waits for its blink‐thread to exit.
@@ -74,6 +93,7 @@ class LEDControl:
             oradio_log.error("Invalid LED name: %s", led_name)
             return False
 
+#REVIEW Onno: Duidelijker is een aparte stop_blink() method te maken, die in turn_led_off en turn_led_on te gebruiken
         # signal any blink thread to stop
         running_stop_event = self.blink_stop_events.pop(led_name, None)
         if running_stop_event:
@@ -84,10 +104,12 @@ class LEDControl:
         if active_thread:
             active_thread.join()
 
+#REVIEW Onno: inline comments graag consequent gebruiken: hier ontbreekt hij, bij led_on staat hij er wel.
         self.leds_driver.set_led_off(led_name)
         oradio_log.debug("%s turned off", led_name)
         return True
 
+#REVIEW Onno: return type hint ontbreekt. Er wordt nergens op de return gecontroleerd -> None teruggeven
     def turn_on_led(self, led_name:str):
         """
         Turns ON a specified LED and stops blink‐thread if active.
@@ -102,8 +124,10 @@ class LEDControl:
             oradio_log.error("Invalid LED name: %s", led_name)
             return False
 
+#REVIEW Onno: Je 'misbruikt' de led_off method nu. zie opmerking om blinking in aparte helper method te stoppen.
         # stop blinking silently (no 'turned off' log), then light it
         self.turn_off_led(led_name)
+#REVIEW Onno: inline comments graag consequent gebruiken: hier wel, bij led_on ontbreekt hij.
         # Turn led ON
         self.leds_driver.set_led_on(led_name)
         oradio_log.debug("%s turned on", led_name)
@@ -115,12 +139,15 @@ class LEDControl:
             self.turn_off_led(led_name)
         oradio_log.debug("All LEDs turned off and blinking stopped")
 
+#REVIEW Onno: return type hint ontbreekt
     def turn_on_all_leds(self):
         """Stops all blink‐threads and turns every LED on."""
         for led_name in LED_NAMES:
             self.turn_on_led(led_name)
         oradio_log.debug("All LEDs turned ON and blinking stopped")
 
+#REVIEW Onno: Er wordt alleen in de stand-alone test case 3 op de return gecontroleerd, maar niets mee gedaan als false:
+#             Stel daarom voor om None terug te geven, in method _single_led_test test case 3 niet op testen, in turn_on_led_with_delay niet te retourneren
     def oneshot_on_led(self,
                        led_name : str,
                        period: float=3) ->bool:
@@ -132,9 +159,11 @@ class LEDControl:
                                                     LED_PRESET1 | LED_PRESET2 | LED_PRESET3] 
             period (float): Time in seconds before turning off the LED.Default = 3
         :return
+#REVIEW Onno: True/false tekst copy/paste error
             True: Oneshot running for specified LED 
             False: Invalid LED name 
         """
+#REVIEW Onno: Method naam 'oneshot_led_off' is andere stijl dan overige methods. Hernoem naar 'oneshot_off_led'
         def oneshot_led_off(led_name, period):
             self.turn_off_led(led_name)
             oradio_log.debug("%s turned off after %s seconds", led_name, period)
@@ -155,7 +184,8 @@ class LEDControl:
         oneshot_timer.start()
         return True
 
-
+#REVIEW Onno: Zou ook hier geen bool retourneren, net als de andere methods in deze class
+#             Let wel op dat je dan de check in de method _single_led_test test case 4 verwijdert
     def control_blinking_led(self,
                              led_name: str,
                              cycle_time:float = None) -> bool:
@@ -174,6 +204,7 @@ class LEDControl:
         """
 
         def _blink():
+#REVIEW Onno: verplaats docstring cycle time uitleg hierboven naar docstring van deze method
             half = cycle_time / 2
             while not stop_evt.is_set():
                 self.leds_driver.set_led_on(led_name)
@@ -282,7 +313,6 @@ if __name__ == "__main__":
             time.sleep(0.05)  # Update interval (shorter for smoother updates)
         print("\n")
         return led_on_timing
-
 
     LINE_LENGTH     = 90
     INTERVAL_TIME   = 0.05
@@ -429,7 +459,6 @@ if __name__ == "__main__":
                             print(f"{RED}Test Result: The blinking failed for {selected_led}")
                 case _:
                     print("Please input a valid number.")
-
 
     def _interactive_menu():
         """Show menu with test options"""
