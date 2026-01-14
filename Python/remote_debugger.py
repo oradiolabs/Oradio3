@@ -44,8 +44,8 @@ from oradio_const import (YELLOW, GREEN, NC,
 # REMOTE_DEBUGGER const should be modified to DEBUGGER_ENABLED
 # by developer if he requires the debugger
 #######################################################################
-REMOTE_DEBUGGER = DEBUGGER_DISABLED # default
-#REMOTE_DEBUGGER = DEBUGGER_ENABLED # if debugger is required
+#REMOTE_DEBUGGER = DEBUGGER_DISABLED # default
+REMOTE_DEBUGGER = DEBUGGER_ENABLED # if debugger is required
 
 if REMOTE_DEBUGGER == DEBUGGER_ENABLED:
     import pydevd

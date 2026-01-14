@@ -26,11 +26,11 @@ from oradio_logging import oradio_log
 from gpio_service import GPIOService
 
 ##### GLOBAL constants ####################
-from oradio_const import (LED_NAMES, GREEN, YELLOW, RED, NC)
+from oradio_const import (LED_NAMES, GREEN, YELLOW, RED, NC,
+                          DEBUGGER_NOT_CONNECTED, DEBUGGER_ENABLED )
 
 class LEDControl:
     """Control LED states"""
-
     def __init__(self):
         """
         Class constructor: setup class variables
@@ -38,11 +38,7 @@ class LEDControl:
         :exceptions
             ValueError : when GPIOService initialization fails
         """
-        try:
-            self.leds_driver = GPIOService()
-        except (ValueError) as err:
-            oradio_log.error(f"GPIO Initialization failed: {err}")
-            raise ValueError("Invalid value provided") from err
+        self.leds_driver = GPIOService()
         self.blink_stop_events = {}       # map led_name → threading.Event()
         self.blinking_threads = {}        # map led_name → Thread
         oradio_log.debug("LEDControl initialized: All LEDs OFF")
@@ -216,7 +212,7 @@ if __name__ == "__main__":
     import sys
     import math
     from oradio_utils import input_prompt_int, input_prompt_float
-    from remote_debugger import setup_remote_debugging,DEBUGGER_NOT_CONNECTED, DEBUGGER_ENABLED
+    from remote_debugger import setup_remote_debugging
 
     print("\nStarting LED Control Module Test...\n")
     # try to setup a remote debugger connection, if enabled
@@ -439,12 +435,14 @@ if __name__ == "__main__":
         # probably caused by match-case,
         # but branches are rather simple and clearly defined
         ######################################################################
-        try:
-            led_control = LEDControl()
-        except (ValueError) as ex_err:
-            print(f"Initialization failed: {ex_err}")
-            return
+#        try:
+#            led_control = LEDControl()
+#        except (ValueError) as ex_err:
+#            print(f"Initialization failed: {ex_err}")
+#            return
 
+        led_control = LEDControl()
+        
         test_options = ["Quit"] + \
                         ["Turn all LEDs OFF"] + \
                         ["Turn all LEDs ON"] +\

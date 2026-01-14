@@ -25,29 +25,22 @@ Created on November 29, 2025
 from time import sleep, perf_counter
 from threading import Event
 from singleton import singleton
+from RPi import GPIO
+from typing import Tuple, Optional
 
 ##### oradio modules ####################
-#REVIEW Onno: Verplaats naar hieronder bij GLOBAL constants
+from oradio_logging import oradio_log
+
+##### GLOBAL constants ####################
 from oradio_const import ( LED_PLAY,LED_STOP, LED_PRESET1, LED_PRESET2, LED_PRESET3, LED_NAMES, \
                          BUTTON_PLAY,BUTTON_STOP, BUTTON_PRESET1, BUTTON_PRESET2, BUTTON_PRESET3, \
                          BUTTON_NAMES, BUTTON_PRESSED, BUTTON_RELEASED, \
                          TEST_ENABLED, TEST_DISABLED, \
                          GREEN, YELLOW, RED, NC)
-from oradio_logging import oradio_log
-
-######### Python modules ###################
-#REVIEW Onno: Waarom de try/except rond de import? Weglaten en naar boven verplaatsen
-try:
-    from RPi import GPIO
-except RuntimeError:
-    oradio_log.error("Error importing RPi.GPIO. Check privileges!)")
-
-##### GLOBAL constants ####################
-#REVIEW Onno: Verplaats van hierboven en gebruik layout zoals in andere modules, bijvoorbeeld i2c_service.py
 
 ##### Local constants ####################
-#RVIEW: Onno: De vele hekjes vind ik verwarrend, zie ik als scheiding van hoofdzaken. Stel voor er een gewone comment van te maken: # ...
-################## LED GPIO PINS ##########################
+
+# LED GPIO PINS
 LEDS: dict[str, int] = {
     LED_PLAY:    15,
     LED_PRESET1: 24,
@@ -55,8 +48,7 @@ LEDS: dict[str, int] = {
     LED_PRESET3:  7,
     LED_STOP:    23
 }
-#RVIEW: Onno: De vele hekjes vind ik verwarrend, zie ik als scheiding van hoofdzaken. Stel voor er een gewone comment van te maken: # ...
-################## BUTTONS GPIO PINS ##########################
+# BUTTONS GPIO PINS
 BUTTONS: dict[str, int] = {
     BUTTON_PLAY:    9,
     BUTTON_PRESET1: 11,
@@ -74,6 +66,8 @@ LED_OFF = False
 #   - Waarom gebruik je voor docstrings de ene keer ''', de andere keer """ ?
 #   - De ene keer gebruik je dubbel-quotes voor variabelen, de andere keer single quotes. Waarom?
 #   - Pylint issues fixen
+#     Mijn voorstel is om de methods nergens iets terug te laten geven, maar wel een error te loggen.
+
 @singleton
 class GPIOService:
     """
@@ -82,9 +76,8 @@ class GPIOService:
     - Reading the inputs for the configured BUTTON pins
     - Callback for button change event
     - Log info/warnings/errors for debugging.
-    :exceptions
-        ValueError : upon an invalid GPIO pin value during pin configuration
-    :Conditionals
+    :Raises
+    :Attributes
         GPIO_MODULE_TEST:
             TEST_DISABLED = The module test is disabled (default)
             TEST_ENABLED  = The module test is enabled, additional code is provided
@@ -102,143 +95,117 @@ class GPIOService:
         GPIO.setmode(GPIO.BCM)
         # Initialize the configured LED pins
         for _, pin in LEDS.items():
-            try:
-                GPIO.setup(pin, GPIO.OUT, initial=GPIO.HIGH)
-            except RuntimeError as err:
-                oradio_log.error("Error setting LED output: %s for pin %s",err,pin)
-#REVIEW Onno: Volgens mij gebruiken we geen exceptions om fouten te propageren?
-                raise ValueError("Invalid value provided") from err
-
+            GPIO.setup(pin, GPIO.OUT, initial=GPIO.HIGH)
+            # Note: GPIO.setup can raise a RunTimeError
         oradio_log.debug("LEDControl initialized: All LEDs OFF")
         # Initialize the BUTTON pins
         for button_name, pin in BUTTONS.items():
-            try:
-                GPIO.setup(pin, GPIO.IN, pull_up_down=GPIO.PUD_UP)
-            except RuntimeError as err:
-                oradio_log.error("Error setting BUTTON input: %s for pin %s", err,pin)
-#REVIEW Onno: Volgens mij gebruiken we geen exceptions om fouten te propageren?
-                raise ValueError("Invalid value provided") from err
+            GPIO.setup(pin, GPIO.IN, pull_up_down=GPIO.PUD_UP)
+            # Note: GPIO.setup can raise a RunTimeError            
             # dictionary for a fast channel -> name lookup
             self.gpio_to_button[pin] = button_name
             # Ensure clean slate; ignore if not previously set
             GPIO.remove_event_detect(pin)
             # The remove_event_detect is a silent function, will not raise error or exception
             # will disable event detection if active
-            try:
-                GPIO.add_event_detect(
+            GPIO.add_event_detect(
                     pin, GPIO.BOTH, callback=self._edge_callback, bouncetime=BOUNCE_MS
-                )
-            except RuntimeError as err:
-                oradio_log.error("Error setting up event detection: %s for pin %s",err,pin)
-#REVIEW Onno: Volgens mij gebruiken we geen exceptions om fouten te propageren?
-                raise ValueError("Invalid value provided") from err
+                    )
+            # Note: GPIO.sadd_event_detect can raise a RunTimeError            
         oradio_log.debug("Buttons initialized")
 
 ################## methods for the LED pins ######################
 #REVIEW Onno: Voor alle LED en Button methods: Wat is de penalty om een parameter check toe te voegen? iets als if arg in ( ..., ..., ... ) else error
     def set_led_on(self,led_name:str) -> None:
-        '''
+        """
         Turns ON the specified LED.
-        :arguments 
+        :Args 
             led_name (str) precondition: must be [ LED_PLAY | LED_STOP] |
                                                    LED_PRESET1 | LED_PRESET2 | LED_PRESET3 ]
-        '''
-        GPIO.output(LEDS[led_name], GPIO.LOW)
+        """
+        if led_name not in LED_NAMES:
+            oradio_log.error(f"Unknown led name:{led_name}")
+        else:
+            GPIO.output(LEDS[led_name], GPIO.LOW)
 
     def set_led_off(self,led_name:str) -> None:
         """
         Turns OFF the specified LED.
-        :arguments 
+        :Args 
             led_name (str) precondition: must be [ LED_PLAY | LED_STOP] |
                                                    LED_PRESET1 | LED_PRESET2 | LED_PRESET3 ]
         """
-        GPIO.output(LEDS[led_name], GPIO.HIGH)
+        if led_name not in LED_NAMES:
+            oradio_log.error(f"Unknown led name:{led_name}")
+        else:
+            GPIO.output(LEDS[led_name], GPIO.HIGH)
 
-    def get_led_state(self,led_name:str) -> bool:
+    def get_led_state(self,led_name:str) -> Tuple[bool, Optional[str]]:
         """
         Get the state off the specified LED.
-        :arguments 
+        :Args 
             led_name (str) precondition: must be [ LED_PLAY | LED_STOP] |
                                                    LED_PRESET1 | LED_PRESET2 | 
                                                    LED_PRESET3 ]
-        :return
+        :Returns
             True = LED is ON
             False = LED is OFF
+            None = Unknown led_name
         """
-#REVIEW Onno: wat is toegevoegde waarde van led_state variabele? Als geen, dan 1 regel 'return ...' gebruiken
-        led_state = not self._read_pin_state(LEDS[led_name])
-        # Note led on ==> GPIO.LOW,
+        if led_name not in LED_NAMES:
+            oradio_log.error(f"Unknown led name:{led_name}")
+            led_state = None
+        else:
+            led_state = not self._read_pin_state(LEDS[led_name])
+            # Note led on ==> GPIO.LOW,
         return led_state
 
-#REVIEW Onno: Deze method hoort toch 'onder de streep', want is geen LED maar Button method?
-    def get_button_state(self,button_name:str) -> bool:
-        """
-        Get the state off the specified button.
-        :arguments 
-            button_name (str) precondition: must be [ BUTTON_PLAY | BUTTON_STOP] |
-                                                   BUTTON_PRESET1 | BUTTON_PRESET2 | 
-                                                   BUTTON_PRESET3 ]
-        :return
-            True = BUTTON is ON (so pressed/touched)
-            False = BUTTON is OFF (so not pressed/touched)
-        """
-#REVIEW Onno: wat is toegevoegde waarde van state variabele? Als geen, dan 1 regel 'return ...' gebruiken
-        state = not self._read_pin_state(BUTTONS[button_name])
-        # Note: a pressed button has value GPIO.LOW
-        return state
-
 ######### methods for BUTTON pins ########################
-    def set_button_edge_event_callback(self,callback) -> bool:
-        '''
+    def set_button_edge_event_callback(self,callback) -> None:
+        """
         Set the callback for a change (edge_event) on a button state
         The callback will process the change event
-        
-        :arguments
+        :Args
             callback (Callable): the reference to the callback function, upon an button event
-        :return
-            False : callback function does not exists
-            True: callback found and configured
-        '''
-#REVIEW Onno: is dit de juiste test? Of bedoel je 'if callable(callback):'?
-        if callback:
+        :Returns
+        """
+        if callable(callback):
             self.edge_event_callback = callback
-            return True
-#REVIEW Onno: Waarom de 'print' hier? Als logging nodig is dan oradio_log gebruiken, anders weg
-        print("callback function does not exist")
-#REVIEW Onno: ipv expliciete True/False returns kan je ook 'return callable(callback)' doen
-        return False
+        else:
+            oradio_log.error("Callback function does not exists")
 
     def gpio_cleanup(self) -> None:
-#REVIEW Onno: Aub toelichten wanneer, waarom en waar cleanup aangeroepen (moet) worden
-        '''
-        Reset the GPIO pins to their default state
-        '''
+        """
+        Reset the GPIO pins to their default state.
+        It resets any ports which have been used and puts the port in default state
+        The default state is input-mode.
+        Mainly used in test environments, to get pins in the default state 
+        """
         GPIO.cleanup()
 
-#REVIEW Onno: Je kan overwegen om 2 callbacks te maken, 1 voor rising and 1 voor falling edge. Hoe dan ook, keuze aub toelichten in docstring
-    def _edge_callback(self, channel: int) -> bool:
+    def _edge_callback(self, channel: int)->None:
         """
         Unified handler for both press (falling) and release (rising) edges.
+        One callback as button handling is the same for rising as for falling edge.
+        Only difference is the state of the button. To prevent duplicated-code
         Called by gpio event detection.
         When channel has a known button_name, the configured callback is called
-        :argument 
+        :Args 
             channel (int) is the I/O-pin which detected an edge event
-        :conditionals
+        :Attributes
             GPIO_MODULE_TEST
                 TEST_ENABLED :
                     * extra timestamp data added to callback
                                 for performance measurements
                     * state = BUTTON_PRESSED
                 TEST_DISABLED = Default mode, no extra data for testing
-#REVIEW Return van code is None. Dus of de typehint en docstring kloppen niet, of de code klopt niet...
-        :return
+        :Returns
             False (default): when channel refers to an unknown pin/button_name
             True : The button_name of the pin is found and callback is called 
         """
         if self.GPIO_MODULE_TEST == TEST_ENABLED:
             button_event_ts = perf_counter() # timestamp the start of this function
         button_data = {}
-#REVIEW Onno: je krijgt een exception als channel niet in dict zit: Check of button_name bestaat voor je verder gaat
         button_name = self.gpio_to_button[channel]
         if not button_name:
             return
@@ -248,44 +215,65 @@ class GPIOService:
         else:
             state = BUTTON_RELEASED
         button_data["state"] = state
-#REVIEW Onno: De ene keer gebruik je dubbel-quotes, de andere keer single quotes. Waarom?
-        button_data['name']  = button_name
+        button_data["name"]  = button_name
         if self.edge_event_callback:
             if self.GPIO_MODULE_TEST == TEST_ENABLED:
-#REVIEW Onno: button_data["state"] is al gezet, wordt hier overschreven. Is dat de bedoeling? Zo ja, dan toelichten
+                # When TEST_ENABLED, the test requires the button_data to be BUTTON_PRESSED
                 button_data["state"] = BUTTON_PRESSED
                 button_data["data"] = button_event_ts
             self.edge_event_callback(button_data)
         else:
-#REVIEW Onno: Waarom de 'print' hier? Als logging nodig is dan oradio_log gebruiken, anders weg
-            print("no callback function found")
+            oradio_log.error("no callback function found")
 
     def _read_pin_state(self, io_pin: int) -> bool:
-        '''
+        """
         read the state of the specified io-pin
-        :arguments
+        :Args
             io_pin: int = which pin to read
-        :return
+        :Returns
             True = pin is HIGH
             False = pin is LOW
-        '''
+        """
         return(bool(GPIO.input(io_pin)))
 
-#REVIEW Onno: regel met alleen maar hekjes kan weg
-##########################################################################################
-########### Method for testing purposes only #############################################
-#REVIEW Onno: Ben niet zo'n fan van allerlei test methods in de operationele code.
-#             Is het niet duidelijker om de test methods in een eigen test class te zetten?
-#             En dan die class naar stand-alone sectie te verhuizen?
+    def get_button_state(self,button_name:str) -> Tuple[bool, Optional[str]]:
+        """
+        Get the state off the specified button.
+        :Args 
+            button_name (str) precondition: must be [ BUTTON_PLAY | BUTTON_STOP] |
+                                                   BUTTON_PRESET1 | BUTTON_PRESET2 | 
+                                                   BUTTON_PRESET3 ]
+        :Returns
+            True = BUTTON is ON (so pressed/touched)
+            False = BUTTON is OFF (so not pressed/touched)
+        """
+        if button_name not in BUTTON_NAMES:
+            oradio_log.error(f"Unknown button name:{button_name}")
+            button_state = None
+        else:
+            state = not self._read_pin_state(BUTTONS[button_name])
+            # Note: a pressed button has value GPIO.LOW
+        return state
+
+class TestGPIOService(GPIOService):
+    """
+    Class with additional methods for testing purposes only
+    Based on GPIOService baseclass
+    :Args
+        The new class inherits from GPIOService, and extends it with extra test methods
+    """
+    def __init__(self):
+        super().__init__()
+
     def simulate_button_play_events_burst(self, burst_freq: int, stop_burst: Event) -> int:
-        ''' 
+        """ 
         simulate a button press by submitting a callback for BUTTON_PLAY
-        :arguments
+        :Args
             burst_freq = number of events per second
             stop_burst = an event to stop the burst
-        :return
+        :Returns
             nr_of_events = the number of event callback submitted
-        '''
+        """
         nr_of_events = 0
         if self.GPIO_MODULE_TEST == TEST_DISABLED:
             raise RuntimeError("Test is disabled. Enable GPIO_MODULE_TEST to use this method")
@@ -296,14 +284,14 @@ class GPIOService:
         return nr_of_events
 
     def simulate_all_buttons_events_burst(self, burst_freq: int, stop_burst: Event) -> int:
-        ''' 
+        """ 
         simulate all button press by submitting a callback for all buttons in a sequence
-        :arguments
+        :Args
             burst_freq = nr of events per second
             stop_burst = an event to stop the burst
-        :return
+        :Returns
             nr_of_events = the number of event callback submitted
-        '''
+        """
         nr_of_events = 0
         if self.GPIO_MODULE_TEST == TEST_DISABLED:
             raise RuntimeError("Test is disabled. Enable GPIO_MODULE_TEST to use this method")
@@ -315,14 +303,14 @@ class GPIOService:
         return nr_of_events
 
     def simulate_button_press_and_release(self,button_name: str, press_timing : float)-> None:
-        ''' 
+        """ 
         simulate a BUTTON_STOP button press according specified press timing,
         by submitting a callback for specified button
-        :arguments
+        :Args
             button_name = name of button [ BUTTON_PLAY | BUTTON_STOP] |
                                             BUTTON_PRESET1 | BUTTON_PRESET2 | BUTTON_PRESET3 ]
             press_timing = press time in float seconds for BUTTON_STOP 
-        '''
+        """
         # set the button pin to an output with GPIO,LOW as a button press
         GPIO.setup(BUTTONS[button_name], GPIO.OUT, initial=GPIO.HIGH)
         GPIO.output(BUTTONS[button_name], GPIO.LOW)
@@ -334,10 +322,7 @@ class GPIOService:
             sleep(0.2)
             print(f"{YELLOW}*", end=" ", flush=True)
             elapsed_time = perf_counter()-start_time
-#REVIEW Onno: Waarom de 'print' hier? Als logging nodig is dan oradio_log gebruiken, anders weg
-        print(f"{YELLOW}button press timing was ",press_timing, end=" ", flush=True)
-#REVIEW Onno: De NC kan aan einde van de string hierboven, geen aparte instructie voor nodig
-        print(f"{NC}\n")
+        print(f"{YELLOW}button press timing was {NC} ",press_timing, end=" ", flush=True)
         # set the button pin to GPIO,HIGH as a button release
         GPIO.output(BUTTONS[button_name], GPIO.HIGH)
         self._edge_callback(BUTTONS[button_name])
@@ -366,13 +351,13 @@ if __name__ == '__main__':
             sys.exit()
 
     def keyboard_input(event:Event):
-        '''
+        """
         wait for keyboard input with return, and set event if input detected
-        :arguments
+        :Args
             event = The specified event will be set upon a keyboard input
         :post_condition:
             the event is set
-        '''
+        """
         _=input("Press Return on keyboard to stop this test")
         event.set()
 
@@ -382,14 +367,14 @@ if __name__ == '__main__':
 # motivation: indeed, but the code is not too complex to understand
 ###################################################################
 
-        '''
+        """
         module tests for the BUTTONS
-        :arguments
+        :Args
             test_gpio : instance of the GPIO class under test
-        :return
+        :Returns
             True : OK
             False: Error condition
-        '''
+        """
 
         button_test_options = ["Quit"]\
                         + ["polling the button state"]\
@@ -439,9 +424,7 @@ if __name__ == '__main__':
                         )
                 case 2:
                     print(f"\n running {button_test_options[2]}\n")
-                    if not test_gpio.set_button_edge_event_callback(_button_event_callback):
-                        print("button_edge_event_callback not found!")
-                        return
+                    test_gpio.set_button_edge_event_callback(_button_event_callback)
                     print("Touch a button and check results. To stop test press RETURN!")
                     while True:
                         _ = input("Press RETURN key to stop test and continue to main-menu\n")
@@ -449,9 +432,7 @@ if __name__ == '__main__':
                 case _:
                     print("Please input a valid number.")
 
-        if not test_gpio.set_button_edge_event_callback(_button_event_callback):
-            print("button_edge_event_callback not found!")
-            return
+        test_gpio.set_button_edge_event_callback(_button_event_callback)
         print("Touch a button and check results. To stop test press RETURN!")
         while True:
             _ = input("Press RETURN key to stop test and continue to main-menu\n")
@@ -459,9 +440,9 @@ if __name__ == '__main__':
         return
 
     def _button_event_callback(button_data: dict) -> None:
-        '''
+        """
         callback for button events testing
-        :arguments
+        :Args
             button_data = { 'name': str,   # name of button
                             'state': str,  # state of button Pressed/Released
                             'error' : str  # error 
@@ -470,15 +451,15 @@ if __name__ == '__main__':
                             {
                             'data': float
                             }
-        '''
+        """
         print(f"Button change event: {button_data['name']} = {button_data['state']}")
 
     def _single_led_test(test_gpio:GPIOService) ->None:
-        '''
+        """
         Test the selected LED functions
-        :arguments 
+        :Args 
             test_gpio : instance of gpio service to be use
-        '''
+        """
         # pylint: disable=too-many-branches
         #####################################################
         # motivation:
@@ -540,20 +521,20 @@ if __name__ == '__main__':
                     print("Please input a valid number.")
 
     def _all_leds_off(test_gpio: GPIOService) -> None:
-        '''
+        """
         Switch off all LEDs
-        :arguments
+        :Args
             test_gpio should be an instance of GPIOService
-        '''
+        """
         for led_name in LED_NAMES:
             test_gpio.set_led_off(led_name)
 
     def _leds_testing(test_gpio: GPIOService) -> None:
-        '''
+        """
         module tests for the LEDS
-        :arguments
+        :Args
             test_gpio should be an instance of GPIOService
-        '''
+        """
         # pylint: disable=too-many-branches
         ####################################################################
         # motivation:

@@ -24,7 +24,7 @@ from time import sleep, monotonic, perf_counter
 
 ##### oradio modules ####################
 from oradio_logging import oradio_log, DEBUG, CRITICAL
-from gpio_service import GPIOService
+from gpio_service import GPIOService,TestGPIOService
 from oradio_utils import (safe_put,
                           input_prompt_int, input_prompt_float,
                           OradioMessage, validate_oradio_message
@@ -117,11 +117,10 @@ class TouchButtons:
         :exceptions
             ValueError : when GPIOService initialization fails
         """
-        try:
+        if self.BUTTONS_MODULE_TEST == TEST_DISABLED:
             self.button_gpio = GPIOService()
-        except (ValueError) as err:
-            oradio_log.error(f"GPIO Initialization failed: {err}")
-            raise ValueError("Invalid value provided") from err
+        else:
+            self.button_gpio = TestGPIOService()
         self.button_gpio.set_button_edge_event_callback(self._button_event_callback)
         self.message_queue = queue
 
@@ -506,12 +505,8 @@ if __name__ == "__main__":
         # Probably too many, but the code is still readable and not complex
         shared_queue = Queue()
 
-        try:
-            TouchButtons.BUTTONS_MODULE_TEST = TEST_ENABLED
-            test_buttons = TouchButtons( shared_queue)
-        except (ValueError) as ex_err:
-            print(f"Initialization failed: {ex_err}")
-            return
+        TouchButtons.BUTTONS_MODULE_TEST = TEST_ENABLED
+        test_buttons = TouchButtons( shared_queue)
 
         # Create a thread to listen and process new messages in shared queue
         Thread(target=_check_for_new_message_in_queue,
