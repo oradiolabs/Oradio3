@@ -35,6 +35,10 @@ import argparse
 from typing import Union, Dict, Optional, List, Any
 from pydantic import BaseModel, ValidationError
 import netifaces
+
+#REVIEW Onno: Algemeen:
+#   - Stel voor de Google Docstrings style te gebruiken, zoals al in veel ander modules.
+
 ##### oradio modules ####################
 from oradio_logging import oradio_log
 
@@ -191,6 +195,7 @@ def run_shell_script(script):
         return False, process.stderr.strip()
     return True, process.stdout.strip()
 
+#REVIEW Onno: Logscher om load_presets in usb_service.py the zetten? OF is er een reden waarom dat niet kan? Dan hier vermelden
 def load_presets() -> dict[str, str]:
     """
     Retrieve the playlist names associated with the presets from a JSON file.
@@ -231,6 +236,7 @@ def load_presets() -> dict[str, str]:
     oradio_log.debug("Presets loaded (case-insensitive): %s", presets_dict)
     return presets_dict
 
+#REVIEW Onno: Logscher om store_presets in usb_service.py the zetten? OF is er een reden waarom dat niet kan? Dan hier vermelden
 def store_presets(presets: dict[str, str]):
     """
     Save the provided presets dictionary to the presets.json file in the USB_SYSTEM folder.
@@ -265,10 +271,12 @@ def store_presets(presets: dict[str, str]):
     except IOError as ex_err:
         oradio_log.error("Failed to write presets to '%s'. Error: %s", PRESETS_FILE, ex_err)
 
-
+#REVIEW Onno: Als we toch een wrapper gebruiken om de user input safe te maken, hou ze dan symmetrisch: wel/geen default return waarde
+#             Stel voor geen default, argument is verplicht, want dat is in de code waard e method gebruyikt wordt duidelijker
+#             Vergeet dan niet de plekken waar de method gebruikt wordt aan te passen
 def input_prompt_int(prompt: str, default=-1 ) -> int:
     '''
-    Prompt for an user input and return int value of number typed
+    Prompt for user input and return int value of number typed
     :argument prompt : prompt text for user
     :argument default: default value to return in case of an error
     :return the integer value type in by user | default value in case of an error
@@ -278,9 +286,12 @@ def input_prompt_int(prompt: str, default=-1 ) -> int:
     except ValueError:
         return default
 
+#REVIEW Onno: Als we toch een wrapper gebruiken om de user input safe te maken, hou ze dan symmetrisch: wel/geen default return waarde
+#             Stel voor geen default, argument is verplicht, want dat is in de code waard e method gebruyikt wordt duidelijker
+#             Vergeet dan niet de plekken waar de method gebruikt wordt aan te passen
 def input_prompt_float(prompt: str, default: float | None = None) -> float | None:
     '''
-    Prompt for an user input and return float value of number typed
+    Prompt for user input and return float value of number typed
     :argument prompt : prompt text for user
     :argument default: default value to return in case of an error
     :return the ifloat value type in by user | default value in case of an error
@@ -289,7 +300,6 @@ def input_prompt_float(prompt: str, default: float | None = None) -> float | Non
         return float(input(prompt))
     except ValueError:
         return default
-
 
 # Entry point for stand-alone operation
 if __name__ == '__main__':
