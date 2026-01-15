@@ -39,15 +39,15 @@ from oradio_utils import (safe_put,
 
 ##### GLOBAL constants ####################
 #REVIEW Onno: backslahes zijn niet nodig
+#REVIEW Onno: Zet open-haak ( achter import
 from oradio_const import \
-#REVIEW Onno: Zet open-haak ( achter 'import
     (BUTTON_PLAY, BUTTON_NAMES, BUTTON_RELEASED, \
      TEST_ENABLED, TEST_DISABLED, \
      YELLOW, RED, NC, \
      MESSAGE_BUTTON_SOURCE, MESSAGE_BUTTON_SHORT_PRESS, MESSAGE_BUTTON_LONG_PRESS, \
      MESSAGE_NO_ERROR, \
-#REVIEW Onno: Zet sluit-haak ) op nieuwe regel
      SOUND_CLICK)
+#REVIEW Onno: Zet sluit-haak ) op nieuwe regel
 
 #REVIEW Onno: Deze import hoort bij block 'oradio_modules': verplaatsen
 from system_sounds import play_sound

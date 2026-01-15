@@ -31,6 +31,7 @@ import socket
 import subprocess
 from subprocess import run
 from pathlib import Path
+#REVIEW Onno: unused import argparse
 import argparse
 from typing import Union, Dict, Optional, List, Any
 from pydantic import BaseModel, ValidationError
@@ -295,7 +296,7 @@ def input_prompt_float(prompt: str, default: float | None = None) -> float | Non
     :argument prompt : prompt text for user
     :argument default: default value to return in case of an error
     :return the ifloat value type in by user | default value in case of an error
-    '''    
+    '''
     try:
         return float(input(prompt))
     except ValueError:
