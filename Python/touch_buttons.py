@@ -59,6 +59,7 @@ LONG_PRESS_DURATION = 6  # seconds
 VALID_LONG_PRESS_BUTTONS = [BUTTON_PLAY]
 BUTTON_LONG_PRESSED = "button long pressed"
 
+#REVIEW Onno: too-few-public-methods check wordt al gedisabled in .pylintrc, dus hoeft hier niet ook nog een keer
 # pylint: disable=too-few-public-methods
 ####################################################################
 # motivation:
@@ -539,7 +540,7 @@ if __name__ == "__main__":
                         args=(shared_queue,test_buttons),
                         daemon=True).start()
 
-#REVIEW Onno: line lengte check wordt al gedisable in pylint.yml, dus hoeft hier niet ook nog een keer
+#REVIEW Onno: line-too-long check wordt al gedisabled in .pylintrc, dus hoeft hier niet ook nog een keer
         # pylint: disable=line-too-long
         ###################################################################################
         # motivation:
