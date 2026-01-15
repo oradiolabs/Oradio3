@@ -16,7 +16,7 @@ disable=C0301, R0903
 # max-line-length=79
 
 # Indentation settings (4 spaces, as per PEP8)
-indent-string='    '
+indent-string=4
 indent-after-paren=4
 
 [DESIGN]
