@@ -17,7 +17,14 @@ Created on April 28, 2025
 @status:        Development
 @summary:       Oradio touch buttons module with debounce, per-button callbacks, and selftest
 """
-
+#REVIEW Onno: Algemeen:
+#   - Stel voor de Google Docstrings style te gebruiken, zoals al in veel ander modules.
+#   - Wees consistent in je gebruik van lege regels.
+#   - Waarom gebruik je voor docstrings de ene keer ''', de andere keer """ ?
+#   - Je zet op veel plekken pylint uit, wel met motivatie, maar kijk nog eens kritisch of al die disables wel echt nodig zijn.
+#     En zet waar kan de disable op de betreffende regel
+#     En als je toch een pylint op een code block moet zetten voeg dan zodra het kan de pylint enable regel toe
+#     Oftwel: pylint disables zo spaarzaam en gericht mogelijk gebruiken
 from threading import Timer, Thread, Event
 from multiprocessing import Queue
 from time import sleep, monotonic, perf_counter
@@ -31,14 +38,18 @@ from oradio_utils import (safe_put,
                         )
 
 ##### GLOBAL constants ####################
+#REVIEW Onno: backslahes zijn niet nodig
 from oradio_const import \
+#REVIEW Onno: Zet open-haak ( achter 'import
     (BUTTON_PLAY, BUTTON_NAMES, BUTTON_RELEASED, \
      TEST_ENABLED, TEST_DISABLED, \
      YELLOW, RED, NC, \
      MESSAGE_BUTTON_SOURCE, MESSAGE_BUTTON_SHORT_PRESS, MESSAGE_BUTTON_LONG_PRESS, \
      MESSAGE_NO_ERROR, \
+#REVIEW Onno: Zet sluit-haak ) op nieuwe regel
      SOUND_CLICK)
 
+#REVIEW Onno: Deze import hoort bij block 'oradio_modules': verplaatsen
 from system_sounds import play_sound
 # -------- LOCAL constants --------
 BUTTON_DEBOUNCE_TIME = 500          # ms, ignore rapid repeats
@@ -120,6 +131,7 @@ class TouchButtons:
         try:
             self.button_gpio = GPIOService()
         except (ValueError) as err:
+#REVIEW Onno: f"{...}" constructs vermijden, want wordt altijd geevalueerd, ook als log level hoger is. De aanbevolen construct is ("...%s...", value)
             oradio_log.error(f"GPIO Initialization failed: {err}")
             raise ValueError("Invalid value provided") from err
         self.button_gpio.set_button_edge_event_callback(self._button_event_callback)
@@ -155,20 +167,23 @@ class TouchButtons:
         message["source"] = MESSAGE_BUTTON_SOURCE
         message["error"]  = MESSAGE_NO_ERROR
         if button_data["state"] == BUTTON_LONG_PRESSED:
+#REVIEW Onno: Waarom state variabele? JE kan meteen message["state"] assignen
             state = MESSAGE_BUTTON_LONG_PRESS+button_data["name"]
         else:
             state = MESSAGE_BUTTON_SHORT_PRESS+button_data["name"]
-        message["state"]  = state
+        message["state"] = state
         if self.BUTTONS_MODULE_TEST == TEST_ENABLED:
             data_list = []
             if "data" in button_data:
                 data_list.append(button_data["data"])
                 message["data"] = data_list
         # validate and create the message
+#REVIEW Onno: obselete comment? Dan weg
         #oradio_msg = OradioMessage(**message).model_dump_json()
         oradio_msg = OradioMessage(**message)
         oradio_log.debug("Send TouchButton message: %s", oradio_msg)
         if not safe_put(self.message_queue, oradio_msg):
+#REVIEW Onno: Waarom gebruik je hier print? oradio_log.error() lijkt mij de juiste...
             print("Failure when sending message to shared queue")
 
     def _button_event_callback(self, button_data: dict) -> None:
@@ -187,6 +202,7 @@ class TouchButtons:
                     BUTTON_PRESET1 | BUTTON_PRESET2 | BUTTON_PRESET3]
         '''
         button_name = button_data["name"]
+#REVIEW Onno: f"{...}" constructs vermijden, want wordt altijd geevalueerd, ook als log level hoger is. De aanbevolen construct is ("...%s...", value)
         oradio_log.debug(f"Button change event: {button_name} = {button_data['state']}")
         if button_data["state"] == BUTTON_RELEASED:
             # cancel pending long-press timer (if any)
@@ -199,15 +215,21 @@ class TouchButtons:
         last = self.last_trigger_times.get(button_name, 0.0)
         time_diff = now-last
         if (time_diff) < DEBOUNCE_SECONDS:
+#REVIEW Onno: Waarom zo'n complexe constructie om een debug message te construeren?
             # another button press detected within the debounce period
             # is considered to be a new button press.
+#REVIEW Onno: Typo (to -> too) en 'neglected' is niet juist, moet 'ignored' zijn.
+#             Sowieso kan deze 3-regel comment korter, bijv. 'Button press within debounce window: treat as bounce, thus ignore'
             # The button press was to short, so will be neglected
             if self.BUTTONS_MODULE_TEST == TEST_ENABLED:
+#REVIEW Onno: Waarom zo'n complexe constructie om een debug message te construeren? Maakt het er niet leesbaarder op...
                 print_text = "{yellow}New {name} event in {diff} sec".format(
                     yellow=YELLOW, name=button_name, diff=round(time_diff,3))
+#REVIEW Onno: neglected -> ignored
                 print_text +=",events within the debounce window of {deb} will be neglected{nc}".\
                     format(deb =DEBOUNCE_SECONDS, nc=NC )
-                print(print_text)
+ #REVIEW Onno: Waarom gebruik je hier print? oradio_log.debug() lijkt mij de juiste...
+               print(print_text)
                 self.timing_data.neglected_callback[button_name] +=1
             return  # software debounce
 
@@ -236,7 +258,6 @@ class TouchButtons:
             button_name : [BUTTON_PLAY | BUTTON_STOP |
                             BUTTON_PRESET1 | BUTTON_PRESET2 | BUTTON_PRESET3]
         """
-
         if not self.button_gpio.get_button_state(button_name):
             return  # released during wait; ignore
 
@@ -518,6 +539,7 @@ if __name__ == "__main__":
                         args=(shared_queue,test_buttons),
                         daemon=True).start()
 
+#REVIEW Onno: line lengte check wordt al gedisable in pylint.yml, dus hoeft hier niet ook nog een keer
         # pylint: disable=line-too-long
         ###################################################################################
         # motivation:
