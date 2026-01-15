@@ -35,21 +35,34 @@ jobs:
         python3-requests \
         python3-watchdog \
         python3-netifaces
-        python -m venv ~/.venv
+		python3 -m venv --system-site-packages ~/.venv
         source ~/.venv/bin/activate
-        python -m pip install --upgrade pip
+        python3 -m pip install --upgrade pip
         pip install -r .github/workflows/oradio_modules.txt
 
     - name: Run Linters and Deprecated Checks
       run: |
+
+        # Disable immediate exit on error
+        set +e
+
         source ~/.venv/bin/activate
         ARTIFACT_FILE=lint_deprecated_result.txt
         : > $ARTIFACT_FILE
 
         # Run Pylint
-        pylint $(git ls-files '*.py') --rcfile=.github/workflows/.pylintrc \
-          --output-format=parseable >> $ARTIFACT_FILE || true
+        source ~/.venv/bin/activate
+        pylint $(git ls-files '*.py') \
+          --rcfile=.github/workflows/.pylintrc \
+          --output-format=parseable >> $ARTIFACT_FILE
+#          --output=$ARTIFACT_FILE
         count_pylint=$(grep -c '^[^:]\+:[0-9]\+:[0-9]\+: [A-Z][0-9]\{4\}:' $ARTIFACT_FILE || echo 0)
+        status=$?
+        echo "Raw pylint exit code: $status"
+        masked=$((status & 39))
+        echo "Masked exit code (fatal, error, warning, usage): $masked"
+        exit $masked
+
 
         # Run Ruff
         ruff check . --select F,D,ERA --extend-ignore D203,D213 >> $ARTIFACT_FILE || true
