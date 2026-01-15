@@ -24,7 +24,7 @@ Created on April 28, 2025
 #   - Je zet op veel plekken pylint uit, wel met motivatie, maar kijk nog eens kritisch of al die disables wel echt nodig zijn.
 #     En zet waar kan de disable op de betreffende regel
 #     En als je toch een pylint op een code block moet zetten voeg dan zodra het kan de pylint enable regel toe
-#     Oftwel: pylint disables zo spaarzaam en gericht mogelijk gebruiken
+#     Oftewel: pylint disables zo spaarzaam en gericht mogelijk gebruiken
 from threading import Timer, Thread, Event
 from multiprocessing import Queue
 from time import sleep, monotonic, perf_counter
