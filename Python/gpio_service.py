@@ -22,6 +22,13 @@ Created on November 29, 2025
 @references:
     https://www.raspberrypi.com/documentation/computers/raspberry-pi.html#gpio
 """
+#REVIEW Onno: Algemeen:
+#   - Stel voor de Google Docstrings style te gebruiken, zoals al in veel ander modules.
+#   - Wees consistent in je gebruik van lege regels.
+#   - Je hebt heel veel 1-regelige methods, maar je checkt nergens of de argumenten ok zijn, of de actie succes/fail geeft. Graag even toelichten waarom.
+#   - Waarom gebruik je voor docstrings de ene keer ''', de andere keer """ ?
+#   - De ene keer gebruik je dubbel-quotes voor variabelen, de andere keer single quotes. Waarom?
+#   - Pylint issues fixen
 from time import sleep, perf_counter
 from threading import Event
 from singleton import singleton
@@ -68,12 +75,6 @@ BOUNCE_MS = 10  # hardware debounce in GPIO.add_event_detect
 LED_ON  = True
 LED_OFF = False
 
-#REVIEW Onno: Algemeen:
-#   - Stel voor de Google Docstrings style te gebruiken, zoals al in veel ander modules.
-#   - Je hebt heel veel 1-regelige methods, maar je checkt nergens of de argumenten ok zijn, of de actie succes/fail geeft. Graag even toelichten waarom.
-#   - Waarom gebruik je voor docstrings de ene keer ''', de andere keer """ ?
-#   - De ene keer gebruik je dubbel-quotes voor variabelen, de andere keer single quotes. Waarom?
-#   - Pylint issues fixen
 @singleton
 class GPIOService:
     """

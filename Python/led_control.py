@@ -19,6 +19,15 @@ Created on January 29, 2025
 @summary: Oradio LED control module
 
 """
+#REVIEW Onno: Algemeen:
+#   - Stel voor de Google Docstrings style te gebruiken, zoals al in veel ander modules.
+#   - Je mag iets royaler/consequenter zijn met inline comments
+#   - Wees consistent in je gebruik van lege regels.
+#   - turn_off_led en turn_on_led geven een true/false terug, maar daar wordt nergens op gecontroleerd.
+#     Dus óf overal controleren, óf geen bool retourneren. Bij oplossen van issue #408 komt dat dan later wel goed...
+#   - oneshot en blinking gebruiken een tijdseenheid als argument. oneshot heeft een default, blinking niet, waarom?
+#     Stel voor 2 lokale variabelen te definieren, als default voor oneshot en blinking te gebruiken.
+#     En dan in oradio_control overal die ,2 als agument voor blinking weg te halen.
 import time
 from threading import Thread, Timer, Event
 
@@ -35,14 +44,6 @@ from gpio_service import GPIOService
 #)
 from oradio_const import (LED_NAMES, GREEN, YELLOW, RED, NC)
 
-#REVIEW Onno: Algemeen:
-#   - Stel voor de Google Docstrings style te gebruiken, zoals al in veel ander modules.
-#   - Je mag iets royaler/consequenter zijn met inline comments
-#   - turn_off_led en turn_on_led geven een true/false terug, maar daar wordt nergens op gecontroleerd.
-#     Dus óf overal controleren, óf geen bool retourneren. Bij oplossen van issue #408 komt dat dan later wel goed...
-#   - oneshot en blinking gebruiken een tijdseenheid als argument. oneshot heeft een default, blinking niet, waarom?
-#     Stel voor 2 lokale variabelen te definieren, als default voor oneshot en blinking te gebruiken.
-#     En dan in oradio_control overal die ,2 als agument voor blinking weg te halen.
 class LEDControl:
     """Control LED states"""
 
