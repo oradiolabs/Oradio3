@@ -229,8 +229,8 @@ class TouchButtons:
 #REVIEW Onno: neglected -> ignored
                 print_text +=",events within the debounce window of {deb} will be neglected{nc}".\
                     format(deb =DEBOUNCE_SECONDS, nc=NC )
- #REVIEW Onno: Waarom gebruik je hier print? oradio_log.debug() lijkt mij de juiste...
-               print(print_text)
+#REVIEW Onno: Waarom gebruik je hier print? oradio_log.debug() lijkt mij de juiste...
+                print(print_text)
                 self.timing_data.neglected_callback[button_name] +=1
             return  # software debounce
 
