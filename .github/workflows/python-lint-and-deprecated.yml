@@ -32,10 +32,11 @@ jobs:
         python -m pip install --upgrade pip
         pip install -r .github/workflows/oradio_modules.txt
 
-    - name: Run Linters and Deprecated Checks
-      run: |
 
-        # Disable immediate exit on error
+
+    - name: Run Linters and Deprecated Checks
+      # Disable immediate exit on error
+      run: |
         set +e
 
         source ~/.venv/bin/activate
