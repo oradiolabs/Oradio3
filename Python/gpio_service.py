@@ -23,7 +23,9 @@ Created on November 29, 2025
     https://www.raspberrypi.com/documentation/computers/raspberry-pi.html#gpio
 """
 #REVIEW Onno: Algemeen:
-#   - Stel voor de Google Docstrings style te gebruiken, zoals al in veel ander modules.
+#   - Ik zie de stand-alone tests van modules liever basic, puur op 'werkt het' gericht
+#     Uitgebreidere testen, zoals performance en robuustheid graag in aparte module test files zetten
+#   - Gebruik Google Docstrings style zoals al in veel ander modules.
 #   - Wees consistent in je gebruik van lege regels.
 #   - Je hebt heel veel 1-regelige methods, maar je checkt nergens of de argumenten ok zijn, of de actie succes/fail geeft. Graag even toelichten waarom.
 #   - Waarom gebruik je voor docstrings de ene keer ''', de andere keer """ ?
@@ -107,7 +109,7 @@ class GPIOService:
                 GPIO.setup(pin, GPIO.OUT, initial=GPIO.HIGH)
             except RuntimeError as err:
                 oradio_log.error("Error setting LED output: %s for pin %s",err,pin)
-#REVIEW Onno: Volgens mij gebruiken we geen exceptions om fouten te propageren?
+#REVIEW Onno: We gebruiken geen exceptions om fouten te propageren. (onderdeel van issue #408)
                 raise ValueError("Invalid value provided") from err
 
         oradio_log.debug("LEDControl initialized: All LEDs OFF")
@@ -117,7 +119,7 @@ class GPIOService:
                 GPIO.setup(pin, GPIO.IN, pull_up_down=GPIO.PUD_UP)
             except RuntimeError as err:
                 oradio_log.error("Error setting BUTTON input: %s for pin %s", err,pin)
-#REVIEW Onno: Volgens mij gebruiken we geen exceptions om fouten te propageren?
+#REVIEW Onno: We gebruiken geen exceptions om fouten te propageren. (onderdeel van issue #408)
                 raise ValueError("Invalid value provided") from err
             # dictionary for a fast channel -> name lookup
             self.gpio_to_button[pin] = button_name
@@ -131,12 +133,12 @@ class GPIOService:
                 )
             except RuntimeError as err:
                 oradio_log.error("Error setting up event detection: %s for pin %s",err,pin)
-#REVIEW Onno: Volgens mij gebruiken we geen exceptions om fouten te propageren?
+#REVIEW Onno: We gebruiken geen exceptions om fouten te propageren. (onderdeel van issue #408)
                 raise ValueError("Invalid value provided") from err
         oradio_log.debug("Buttons initialized")
 
 ################## methods for the LED pins ######################
-#REVIEW Onno: Voor alle LED en Button methods: Wat is de penalty om een parameter check toe te voegen? iets als if arg in ( ..., ..., ... ) else error
+#REVIEW Onno: docstring graag verduidelijken waarom parameter checks niet nodig zijn
     def set_led_on(self,led_name:str) -> None:
         '''
         Turns ON the specified LED.
@@ -144,18 +146,22 @@ class GPIOService:
             led_name (str) precondition: must be [ LED_PLAY | LED_STOP] |
                                                    LED_PRESET1 | LED_PRESET2 | LED_PRESET3 ]
         '''
+#REVIEW Onno: Zet een lock om potentieel conflict bij parallel gebruik te voorkomen
         GPIO.output(LEDS[led_name], GPIO.LOW)
 
     def set_led_off(self,led_name:str) -> None:
+#REVIEW Onno: docstring graag verduidelijken waarom parameter checks niet nodig zijn
         """
         Turns OFF the specified LED.
         :arguments 
             led_name (str) precondition: must be [ LED_PLAY | LED_STOP] |
                                                    LED_PRESET1 | LED_PRESET2 | LED_PRESET3 ]
         """
+#REVIEW Onno: Zet een lock om potentieel conflict bij parallel gebruik te voorkomen
         GPIO.output(LEDS[led_name], GPIO.HIGH)
 
     def get_led_state(self,led_name:str) -> bool:
+#REVIEW Onno: docstring graag verduidelijken waarom parameter checks niet nodig zijn
         """
         Get the state off the specified LED.
         :arguments 
@@ -166,6 +172,7 @@ class GPIOService:
             True = LED is ON
             False = LED is OFF
         """
+#REVIEW Onno: Zet een lock om potentieel conflict bij parallel gebruik te voorkomen
 #REVIEW Onno: wat is toegevoegde waarde van led_state variabele? Als geen, dan 1 regel 'return ...' gebruiken
         led_state = not self._read_pin_state(LEDS[led_name])
         # Note led on ==> GPIO.LOW,
@@ -173,6 +180,7 @@ class GPIOService:
 
 #REVIEW Onno: Deze method hoort toch 'onder de streep', want is geen LED maar Button method?
     def get_button_state(self,button_name:str) -> bool:
+#REVIEW Onno: docstring graag verduidelijken waarom parameter checks niet nodig zijn
         """
         Get the state off the specified button.
         :arguments 
@@ -183,6 +191,7 @@ class GPIOService:
             True = BUTTON is ON (so pressed/touched)
             False = BUTTON is OFF (so not pressed/touched)
         """
+#REVIEW Onno: Zet een lock om potentieel conflict bij parallel gebruik te voorkomen
 #REVIEW Onno: wat is toegevoegde waarde van state variabele? Als geen, dan 1 regel 'return ...' gebruiken
         state = not self._read_pin_state(BUTTONS[button_name])
         # Note: a pressed button has value GPIO.LOW
@@ -214,9 +223,11 @@ class GPIOService:
         '''
         Reset the GPIO pins to their default state
         '''
+#REVIEW Onno: Zet een lock om potentieel conflict bij parallel gebruik te voorkomen
         GPIO.cleanup()
 
 #REVIEW Onno: Je kan overwegen om 2 callbacks te maken, 1 voor rising and 1 voor falling edge. Hoe dan ook, keuze aub toelichten in docstring
+#REVIEW Onno: haal test code weg, gebruik die in de override class
     def _edge_callback(self, channel: int) -> bool:
         """
         Unified handler for both press (falling) and release (rising) edges.
@@ -262,6 +273,7 @@ class GPIOService:
             print("no callback function found")
 
     def _read_pin_state(self, io_pin: int) -> bool:
+#REVIEW Onno: docstring graag verduidelijken waarom parameter checks niet nodig zijn
         '''
         read the state of the specified io-pin
         :arguments
@@ -270,14 +282,13 @@ class GPIOService:
             True = pin is HIGH
             False = pin is LOW
         '''
+#REVIEW Onno: Zet een lock om potentieel conflict bij parallel gebruik te voorkomen
         return(bool(GPIO.input(io_pin)))
 
 #REVIEW Onno: regel met alleen maar hekjes kan weg
 ##########################################################################################
 ########### Method for testing purposes only #############################################
-#REVIEW Onno: Ben niet zo'n fan van allerlei test methods in de operationele code.
-#             Is het niet duidelijker om de test methods in een eigen test class te zetten?
-#             En dan die class naar stand-alone sectie te verhuizen?
+#REVIEW Onno: Zet test code in test file en gebruik override: 'class GPIOServiceTest(GPIOService)'
     def simulate_button_play_events_burst(self, burst_freq: int, stop_burst: Event) -> int:
         ''' 
         simulate a button press by submitting a callback for BUTTON_PLAY

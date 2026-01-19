@@ -18,6 +18,8 @@ Created on April 28, 2025
 @summary:       Oradio touch buttons module with debounce, per-button callbacks, and selftest
 """
 #REVIEW Onno: Algemeen:
+#   - Ik zie de stand-alone tests van modules liever basic, puur op 'werkt het' gericht
+#     Uitgebreidere testen, zoals performance en robuustheid graag in aparte module test files zetten
 #   - Stel voor de Google Docstrings style te gebruiken, zoals al in veel ander modules.
 #   - Wees consistent in je gebruik van lege regels.
 #   - Waarom gebruik je voor docstrings de ene keer ''', de andere keer """ ?
@@ -38,8 +40,8 @@ from oradio_utils import (safe_put,
                         )
 
 ##### GLOBAL constants ####################
-#REVIEW Onno: backslahes zijn niet nodig
 #REVIEW Onno: Zet open-haak ( achter import
+#REVIEW Onno: backslahes zijn niet nodig
 from oradio_const import \
     (BUTTON_PLAY, BUTTON_NAMES, BUTTON_RELEASED, \
      TEST_ENABLED, TEST_DISABLED, \
@@ -51,6 +53,7 @@ from oradio_const import \
 
 #REVIEW Onno: Deze import hoort bij block 'oradio_modules': verplaatsen
 from system_sounds import play_sound
+
 # -------- LOCAL constants --------
 BUTTON_DEBOUNCE_TIME = 500          # ms, ignore rapid repeats
 DEBOUNCE_SECONDS = BUTTON_DEBOUNCE_TIME / 1000.0
@@ -78,6 +81,7 @@ class TimingData:
     Class for timing data statistics during testing
     '''
     def __init__(self):
+#REVIEW Onno: gebruik self.reset() ipv allcode van reset hier dupliceren
         self.min_time = 10000
         self.max_time = 0
         self.sum_time = 0.0
@@ -100,6 +104,7 @@ class TimingData:
         self.sum_count = 0
         self.avg_time = 0.0
         self.valid_callbacks = {}
+#REVIEW Onno: weg -> wordt 2 regels later ook weer gewist
         self.neglected_callback = {}
         for button in BUTTON_NAMES:
             self.valid_callbacks[button]=0
@@ -117,7 +122,7 @@ class TouchButtons:
             TEST_ENABLED  = The module test is enabled, additional code is provided
 
     """
-
+#REVIEW Onno: Zet test code in test file en gebruik override: 'class GPIOServiceTest(GPI_Service)'
     BUTTONS_MODULE_TEST = TEST_DISABLED
 
     def __init__(self,queue : Queue):

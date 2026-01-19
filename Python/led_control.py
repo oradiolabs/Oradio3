@@ -20,7 +20,9 @@ Created on January 29, 2025
 
 """
 #REVIEW Onno: Algemeen:
-#   - Stel voor de Google Docstrings style te gebruiken, zoals al in veel ander modules.
+#   - Ik zie de stand-alone tests van modules liever basic, puur op 'werkt het' gericht
+#     Uitgebreidere testen, zoals performance en robuustheid graag in aparte module test files zetten
+#   - Gebruik Google Docstrings style zoals al in veel ander modules.
 #   - Je mag iets royaler/consequenter zijn met inline comments
 #   - Wees consistent in je gebruik van lege regels.
 #   - turn_off_led en turn_on_led geven een true/false terug, maar daar wordt nergens op gecontroleerd.
@@ -59,7 +61,7 @@ class LEDControl:
         except (ValueError) as err:
 #REVIEW Onno: f"{...}" constructs vermijden, want wordt altijd geevalueerd, ook als log level hoger is. De aanbevolen construct is ("...%s...", value)
             oradio_log.error(f"GPIO Initialization failed: {err}")
-#REVIEW Onno: Wie vangt deze exception af?
+#REVIEW Onno: We gebruiken geen exceptions om fouten te propageren. (onderdeel van issue #408)
             raise ValueError("Invalid value provided") from err
         self.blink_stop_events = {}       # map led_name → threading.Event()
         self.blinking_threads = {}        # map led_name → Thread
@@ -270,6 +272,7 @@ if __name__ == "__main__":
         event.set()
 
 
+#REVIEW Onno: Mooi die progress bar, maar voelt een beetje als 'gold-plating'van de test code
     LED_OFF     = "▄" # symbol for led off
     LED_ON      = "▀" # symbol for led on
     BAR_LENGTH  = 60 # Number of characters for the progress bar
