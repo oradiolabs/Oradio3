@@ -341,7 +341,7 @@ class StateMachine:
             return
 
         self._commit_or_usb_absent(requested_state)
-        self._apply_power_policy_for_state(self.state)
+
         self._spawn_state_worker()
 
     def run_state_method(self, state_to_handle: str) -> None:
@@ -350,6 +350,9 @@ class StateMachine:
             leds.turn_off_all_leds()
             handler = self._handlers.get(state_to_handle, self._state_unknown)
             handler()
+        # outside lock (more responsive, and power policy can be changed even when it is playing)
+        self._apply_power_policy_for_state(state_to_handle)
+    
 
     # --- State handlers ---
 
