@@ -7,9 +7,9 @@
  #    #  #   #   #    #  #    #     #    #    #
   ####   #    #  #    #  #####      #     ####
 
-Created on November 29, 2025
+Created on Januari 22, 2026
 @author:        Henk Stevens & Olaf Mastenbroek & Onno Janssen
-@copyright:     Copyright 2025, Oradio Stichting
+@copyright:     Copyright 2026, Oradio Stichting
 @license:       GNU General Public License (GPL)
 @organization:  Oradio Stichting
 @version:       1
@@ -27,27 +27,40 @@ Created on November 29, 2025
 """
 
 from threading import Thread, Event
-from RPi import GPIO
 from time import sleep
+from RPi import GPIO
 import sys
-from pathlib import Path
-sys.path.append(str(Path(__file__).parent.parent)) # go up one level for python modules
-
-##### oradio modules ####################
+# Add project root to path (keep this before local imports)
+sys.path.append('/home/pi/Oradio3/Python')
+##### local oradio import modules ####################
 from oradio_utils import input_prompt_int
 from gpio_service import GPIOService, LED_ON, LED_OFF, LEDS, BUTTONS, BOUNCE_MS
 from remote_debugger import setup_remote_debugging
-
-##### GLOBAL constants ####################
 from oradio_const import ( LED_NAMES, BUTTON_NAMES,
                            DEBUGGER_ENABLED, DEBUGGER_NOT_CONNECTED,
                            GREEN, YELLOW, RED, NC
                          )
-
 ##### Local constants ####################
 button_state = {True: f"{YELLOW}1", False: f"{NC}0"}
 
-def keyboard_input(event:Event):
+def button_event_callback(button_data: dict) -> None:
+    """
+    callback for button events testing
+    :Args
+        button_data = { 'name': str,   # name of button
+                        'state': str,  # state of button Pressed/Released
+                        'error' : str  # error 
+                        }
+    :Attributes
+        GPIO_MODULE_TEST: (TEST_ENABLED  = The module test is enabled)
+        if TEST_ENABLED a data key is added
+        {
+            'data': float
+        }
+    """
+    print(f"Button change event: {button_data['name']} = {button_data['state']}")
+
+def _keyboard_input(event:Event):
     """
     wait for keyboard input with return, and set event if input detected
     :Args
@@ -92,7 +105,7 @@ def _buttons_testing(test_gpio) -> None:
                 for button_name, pin in BUTTONS.items():
                     GPIO.remove_event_detect(pin)
                 stop_event = Event()
-                keyboard_thread = Thread(target=keyboard_input,
+                keyboard_thread = Thread(target=_keyboard_input,
                                          args=(stop_event,))
                 keyboard_thread.start()
                 while not stop_event.is_set():
@@ -104,17 +117,20 @@ def _buttons_testing(test_gpio) -> None:
                         full_state_text = full_state_text + "," + state_text
                         if state:
                             active_buttons.append(button_name)
-                    print(full_state_text + YELLOW + " : {}".format(active_buttons))
+                    print(f"{full_state_text} {YELLOW} : {active_buttons}")
                     sleep(0.2)
                 del stop_event
                 # activate the callback events again
                 for button_name, pin in BUTTONS.items():
+                    # pylint: disable=protected-access
+                    # required for buttons testing purposes
                     GPIO.add_event_detect(
                         pin, GPIO.BOTH, callback=test_gpio._edge_callback, bouncetime=BOUNCE_MS
                     )
+                    # pylint: enable=protected-access
             case 2:
                 print(f"\n running {button_test_options[2]}\n")
-                test_gpio.set_button_edge_event_callback(_button_event_callback)
+                test_gpio.set_button_edge_event_callback(button_event_callback)
                 print("Touch a button and check results. To stop test press RETURN!")
                 while True:
                     _ = input("Press RETURN key to stop test and continue to main-menu\n")
@@ -122,29 +138,12 @@ def _buttons_testing(test_gpio) -> None:
             case _:
                 print("Please input a valid number.")
 
-    test_gpio.set_button_edge_event_callback(_button_event_callback)
+    test_gpio.set_button_edge_event_callback(button_event_callback)
     print("Touch a button and check results. To stop test press RETURN!")
     while True:
         _ = input("Press RETURN key to stop test and continue to main-menu\n")
         break
     return
-
-def _button_event_callback(button_data: dict) -> None:
-    """
-    callback for button events testing
-    :Args
-        button_data = { 'name': str,   # name of button
-                        'state': str,  # state of button Pressed/Released
-                        'error' : str  # error 
-                        }
-    :Attributes
-        GPIO_MODULE_TEST: (TEST_ENABLED  = The module test is enabled)
-        if TEST_ENABLED a data key is added
-        {
-            'data': float
-        }
-    """
-    print(f"Button change event: {button_data['name']} = {button_data['state']}")
 
 def _single_led_test(test_gpio:GPIOService) ->None:
     """
@@ -226,9 +225,9 @@ def _leds_testing(test_gpio: GPIOService) -> None:
     :Args
         test_gpio should be an instance of GPIOService
     """
-    # pylint: disable=too-many-branches
-    # motivation: match-case is more readable, but causes extra branches.
-    #             only 1 level if-else within a case, so still readable
+#    # pylint: disable=too-many-branches
+#    # motivation: match-case is more readable, but causes extra branches.
+#    #             only 1 level if-else within a case, so still readable
 
     # create a led-pin selection list
     led_pin_options =   ["Quit"] +\
@@ -299,8 +298,6 @@ def _start_module_test() -> None:
                 _buttons_testing(test_gpio)
             case _:
                 print(f"{YELLOW}Please input a valid number.{NC}")
-    return
-
 
 if __name__ == '__main__':
     # try to setup a remote debugger connection, if enabled in remote_debugger.py

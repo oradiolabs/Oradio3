@@ -49,6 +49,19 @@ gpio_service.py
 - Waarom gebruik je voor docstrings de ene keer ''', de andere keer """ ?
 - De ene keer gebruik je dubbel-quotes voor variabelen, de andere keer single quotes. Waarom?
 - Pylint issues fixen
+- try/export rond RPi import GPIO
+- Vele ### zijn verwarrend
+- Geen exceptions om fouten te propageren,is onderdeel van issue #408
+- docstrings verduidelijken in geval parameter check niet nodig is
+- Zet een locks daar waar potentiele conflicten mogelijk zijn
+- led_state in get_led_state() in return statement zetten
+- state in get_button_state() in return statement zetten
+- if callable gebruiken als je op een geldige callback functie wilt testen
+- ipv expliciete True/False returns kan je ook 'return callable(callback)
+- def _edge_callback return code klopt niet mbt typehint in docstring
+- toelichting in _edge_callback hoe button_data{} gebruikt wordt als TEST_ENABLED is
+- Zet test code in test file en gebruik override: 'class GPIOServiceTest(GPIOService)'
+
 2026-01-11============================================================================================================================
 
 GPIO:

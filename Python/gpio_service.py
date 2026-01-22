@@ -32,10 +32,10 @@ from typing import Tuple, Optional
 from oradio_logging import oradio_log
 
 ##### GLOBAL constants ####################
-from oradio_const import ( LED_PLAY,LED_STOP, LED_PRESET1, LED_PRESET2, LED_PRESET3, LED_NAMES, \
-                         BUTTON_PLAY,BUTTON_STOP, BUTTON_PRESET1, BUTTON_PRESET2, BUTTON_PRESET3, \
-                         BUTTON_NAMES, BUTTON_PRESSED, BUTTON_RELEASED, \
-                         TEST_ENABLED, TEST_DISABLED, \
+from oradio_const import ( LED_PLAY,LED_STOP, LED_PRESET1, LED_PRESET2, LED_PRESET3, LED_NAMES,
+                         BUTTON_PLAY,BUTTON_STOP, BUTTON_PRESET1, BUTTON_PRESET2, BUTTON_PRESET3,
+                         BUTTON_NAMES, BUTTON_PRESSED, BUTTON_RELEASED,
+                         TEST_ENABLED, TEST_DISABLED,
                          GREEN, YELLOW, RED, NC
                          )
 
