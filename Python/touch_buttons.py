@@ -23,13 +23,13 @@ from multiprocessing import Queue
 from time import sleep, monotonic, perf_counter
 
 ##### oradio modules ####################
+from module_test.touch_buttons_test_classes import TestGPIOService
 from oradio_logging import oradio_log, DEBUG, CRITICAL
-from gpio_service import GPIOService,TestGPIOService
+from gpio_service import GPIOService
 from oradio_utils import (safe_put,
                           input_prompt_int, input_prompt_float,
                           OradioMessage, validate_oradio_message
                         )
-
 ##### GLOBAL constants ####################
 from oradio_const import \
     (BUTTON_PLAY, BUTTON_NAMES, BUTTON_RELEASED, \

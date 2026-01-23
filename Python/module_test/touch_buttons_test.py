@@ -24,135 +24,24 @@ Created on Jan 22, 2026
 from threading import Event, Thread
 from multiprocessing import Queue
 import sys
-from time import sleep, monotonic, perf_counter
+from time import sleep, perf_counter
 # Add project root to path (keep this before local imports)
-sys.path.append('/home/pi/Oradio3/Python')
+#sys.path.append('/home/pi/Oradio3/Python')
 
 ##### local oradio import modules ####################
 from oradio_logging import oradio_log, DEBUG, CRITICAL
-from gpio_service import GPIOService
 from touch_buttons import TouchButtons, BUTTON_DEBOUNCE_TIME
-from oradio_utils import ( safe_put,
-                           input_prompt_int, input_prompt_float,
-                           OradioMessage, validate_oradio_message
+from oradio_utils import ( input_prompt_int, input_prompt_float,
+                           validate_oradio_message
                         )
+from oradio_const import ( 
+    BUTTON_NAMES,
+    TEST_ENABLED, TEST_DISABLED,
+    DEBUGGER_ENABLED, DEBUGGER_NOT_CONNECTED,
+    YELLOW, RED, NC,
+    MESSAGE_BUTTON_SHORT_PRESS
+    )
 from remote_debugger import setup_remote_debugging
-from oradio_const import ( BUTTON_NAMES,
-                           TEST_ENABLED, TEST_DISABLED,
-                           DEBUGGER_ENABLED, DEBUGGER_NOT_CONNECTED,
-                           GREEN, YELLOW, RED, NC,
-                           MESSAGE_BUTTON_SHORT_PRESS
-                         )
-# following class is used for testing purposes only
-class TimingData:
-    '''
-    Class for timing data statistics during testing
-    '''
-    def __init__(self):
-        self.min_time = 10000
-        self.max_time = 0
-        self.sum_time = 0.0
-        self.sum_count = 0
-        self.avg_time = 0.0
-        self.valid_callbacks = {}
-        for button in BUTTON_NAMES:
-            self.valid_callbacks[button]=0
-        self.neglected_callback = {}
-        for button in BUTTON_NAMES:
-            self.neglected_callback[button]=0
-
-    def reset(self):
-        '''
-        reseting the timing data
-        '''
-        self.min_time = 10000
-        self.max_time = 0
-        self.sum_time = 0.0
-        self.sum_count = 0
-        self.avg_time = 0.0
-        self.valid_callbacks = {}
-        self.neglected_callback = {}
-        for button in BUTTON_NAMES:
-            self.valid_callbacks[button]=0
-        self.neglected_callback = {}
-        for button in BUTTON_NAMES:
-            self.neglected_callback[button]=0
-
-class TestGPIOService(GPIOService):
-    """
-    Class with additional methods for testing purposes only
-    Based on GPIOService baseclass
-    :Args
-        The new class inherits from GPIOService, and extends it with extra test methods
-    """
-    def __init__(self):
-        super().__init__()
-
-    def simulate_button_play_events_burst(self, burst_freq: int, stop_burst: Event) -> int:
-        """ 
-        simulate a button press by submitting a callback for BUTTON_PLAY
-        :Args
-            burst_freq = number of events per second
-            stop_burst = an event to stop the burst
-        :Returns
-            nr_of_events = the number of event callback submitted
-        """
-        nr_of_events = 0
-        if self.GPIO_MODULE_TEST == TEST_DISABLED:
-            raise RuntimeError("Test is disabled. Enable GPIO_MODULE_TEST to use this method")
-        while not stop_burst.is_set():
-            self._edge_callback(BUTTONS[BUTTON_PLAY])
-            nr_of_events +=1
-            sleep(1/burst_freq)
-        return nr_of_events
-
-    def simulate_all_buttons_events_burst(self, burst_freq: int, stop_burst: Event) -> int:
-        """ 
-        simulate all button press by submitting a callback for all buttons in a sequence
-        :Args
-            burst_freq = nr of events per second
-            stop_burst = an event to stop the burst
-        :Returns
-            nr_of_events = the number of event callback submitted
-        """
-        nr_of_events = 0
-        if self.GPIO_MODULE_TEST == TEST_DISABLED:
-            raise RuntimeError("Test is disabled. Enable GPIO_MODULE_TEST to use this method")
-        while not stop_burst.is_set():
-            for button in BUTTON_NAMES:
-                self._edge_callback(BUTTONS[button])
-                nr_of_events +=1
-            sleep(1/burst_freq)
-        return nr_of_events
-
-    def simulate_button_press_and_release(self,button_name: str, press_timing : float)-> None:
-        """ 
-        simulate a BUTTON_STOP button press according specified press timing,
-        by submitting a callback for specified button
-        :Args
-            button_name = name of button [ BUTTON_PLAY | BUTTON_STOP] |
-                                            BUTTON_PRESET1 | BUTTON_PRESET2 | BUTTON_PRESET3 ]
-            press_timing = press time in float seconds for BUTTON_STOP 
-        """
-        # set the button pin to an output with GPIO,LOW as a button press
-        GPIO.setup(BUTTONS[button_name], GPIO.OUT, initial=GPIO.HIGH)
-        GPIO.output(BUTTONS[button_name], GPIO.LOW)
-        self._edge_callback(BUTTONS[button_name])
-        # show a progressing time indicator during press period
-        start_time = perf_counter()
-        elapsed_time = 0.0
-        while elapsed_time < press_timing:
-            sleep(0.2)
-            print(f"{YELLOW}*", end=" ", flush=True)
-            elapsed_time = perf_counter()-start_time
-        print(f"{YELLOW}button press timing was {NC} ",press_timing, end=" ", flush=True)
-        # set the button pin to GPIO,HIGH as a button release
-        GPIO.output(BUTTONS[button_name], GPIO.HIGH)
-        self._edge_callback(BUTTONS[button_name])
-        # reset the button pin back to an input
-        GPIO.setup(BUTTONS[button_name], GPIO.IN, pull_up_down=GPIO.PUD_UP)
-
-
 
 if __name__ == "__main__":
     # pylint: disable=protected-access
@@ -219,11 +108,12 @@ if __name__ == "__main__":
                 timdat.avg_time = timdat.sum_time/timdat.sum_count
                 timdat.max_time = max(timdat.max_time,duration)
                 timdat.min_time = min(timdat.min_time,duration)
-                print ("current_time={cur}, min_time={min}, max_time={max}, sum_count={sum}, avg_time={avg}".format(
-                       min=round(timdat.min_time,4), max=round(timdat.max_time,4),
-                       sum=timdat.sum_count,avg=round(timdat.avg_time,4),
-                       cur=round(duration,4))
-                )
+                print ( f"current_time={round(duration,4)},"
+                        f"min_time={round(timdat.min_time,4)},"
+                        f"max_time={round(timdat.max_time,4)},"
+                        f"sum_count={timdat.sum_count},"
+                        f"avg_time={round(timdat.avg_time,4)}"
+                        )
             else:
                 # message without data
                 print(f"{YELLOW} Valid message in Queue: {validated_message}{NC}")
@@ -239,10 +129,11 @@ if __name__ == "__main__":
         '''
         timdat = test_buttons.timing_data
         print(f"{YELLOW}==============================================================")
-        print ("min_time={min}, max_time={max}, sum_count={sum}, avg_time={avg}".format(
-               min=round(timdat.min_time,4), max=round(timdat.max_time,4),
-               sum=timdat.sum_count, avg=round(timdat.avg_time,4))
-               )
+        print (f"min_time={round(timdat.min_time,4)},"
+               f"max_time={round(timdat.max_time,4)},"
+               f" sum_count={timdat.sum_count},"
+               f" avg_time={round(timdat.avg_time,4)}"
+            )
         print("number of submitted callbacks = ", nr_of_events)
         print("Valid callbacks = {valid}".format(valid = timdat.valid_callbacks))
         print("Neglected callbacks = {neglet}".format(neglet = timdat.neglected_callback))
@@ -427,7 +318,8 @@ if __name__ == "__main__":
                         ["All buttons gpio-callback (incl-click) latency timing within debouncing window "] +\
                         ["All buttons gpio-callback (incl-click) latency timing outside debouncing window "] +\
                         ["Single button press/release gpio-callback (incl-click) simulation"]
-        while True:
+        test_active = True
+        while test_active:
             print("\nTEST options:")
             for idx, name in enumerate(test_options, start=0):
                 print(f" {idx} - {name}")
@@ -436,7 +328,7 @@ if __name__ == "__main__":
                 case 0:
                     print("\nExiting test program\n")
                     test_buttons.button_gpio.gpio_cleanup()
-                    break
+                    test_active = False
                 case 1:
                     print(f"\n running {test_options[1]}\n")
                     # wait for message received in queue
@@ -479,11 +371,8 @@ if __name__ == "__main__":
                     print(f"\n running {test_options[7]}\n")
                     button_press_release_callback_test(test_buttons)
                     _ = input("Press any Return key to stop test")
-
                 case _:
                     print("Please input a valid number.")
-
-    _start_module_test()
 
 if __name__ == '__main__':
     # try to setup a remote debugger connection, if enabled in remote_debugger.py
