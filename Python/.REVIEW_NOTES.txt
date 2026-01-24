@@ -62,6 +62,37 @@ gpio_service.py
 - toelichting in _edge_callback hoe button_data{} gebruikt wordt als TEST_ENABLED is
 - Zet test code in test file en gebruik override: 'class GPIOServiceTest(GPIOService)'
 
+touch_buttons.py
+- Ik zie de stand-alone tests van modules liever basic, puur op 'werkt het' gericht
+  Uitgebreidere testen, zoals performance en robuustheid graag in aparte module test files zetten
+  Zet test code in test file en gebruik override: 'class GPIOServiceTest(GPI_Service)
+	Henk: aparte folder module_test gemaakt voor uitgebreidere module testen:
+  		* touch_buttons_test.py : test programma die touch buttons simulaties gebruikt voor performance metingen 
+  		* touch_buttons_test_classes.py: de extensies op de GPIOService in TestGPIOService() en TimingData()
+  		* run_test.sh :  pylint kan niet overweg met relative paden, wordt opgelost in deze shell.
+- Stel voor de Google Docstrings style te gebruiken, zoals al in veel ander modules.
+	Henk: gedaan
+- TimingData.__init__(): gebruik self.reset() ipv allcode van reset hier dupliceren
+	Henk: gedaan
+- TimingData.reset(): self.valid_callbacks = {} kan weg -> wordt 2 regels later ook weer gewist
+	Henk: toch wel nodig omdat de keys mbt button_name gedefineerd moeten zijn, voordat ze later gebruikt kunnen worden
+- Wees consistent in je gebruik van lege regels.
+	Henk: gedaan
+- Waarom gebruik je voor docstrings de ene keer ''', de andere keer """ ?
+	Henk: gedaan
+- Je zet op veel plekken pylint uit, wel met motivatie, maar kijk nog eens kritisch of al die disables wel echt nodig zijn.
+  En zet waar kan de disable op de betreffende regel
+  En als je toch een pylint op een code block moet zetten voeg dan zodra het kan de pylint enable regel toe
+  Oftewel: pylint disables zo spaarzaam en gericht mogelijk gebruiken
+- play_soung import hoort bij block 'oradio_modules': verplaatsen
+- pylint too-few-public-methods check wordt al gedisabled in .pylintrc, dus hoeft hier niet ook nog een keer
+- f"{...}" constructs vermijden bij oradio_log(), want wordt altijd geevalueerd, ook als log level hoger is. 
+  De aanbevolen construct is ("...%s...", value)
+- _send_message(): Waarom state variabele? JE kan meteen message["state"] assignen
+- -send_message(): Waarom gebruik je hier print? oradio_log.error() lijkt mij de juiste...
+- _button_event_callback():Waarom zo'n complexe constructie om een debug message te construeren?
+- _button_event_callback(): Typo (to -> too) en 'neglected' is niet juist, moet 'ignored' zijn.
+- _button_event_callback(): Waarom gebruik je hier print? oradio_log.debug() lijkt mij de juiste...
 2026-01-11============================================================================================================================
 
 GPIO:

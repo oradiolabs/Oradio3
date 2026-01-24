@@ -12,11 +12,11 @@ Created on Jan 22, 2026
 @copyright:     Copyright 2024, Oradio Stichting
 @license:       GNU General Public License (GPL)
 @organization:  Oradio Stichting
-@version:       4
+@version:       1
 @email:         oradioinfo@stichtingoradio.nl
 @status:        Development
 @summary:       
-    Module test for toucb_buttons functions
+    Module test for touch_buttons functions
     * Testing BUTTONS touched 
     * Class extensions for button simulations
 
@@ -25,8 +25,6 @@ from threading import Event, Thread
 from multiprocessing import Queue
 import sys
 from time import sleep, perf_counter
-# Add project root to path (keep this before local imports)
-#sys.path.append('/home/pi/Oradio3/Python')
 
 ##### local oradio import modules ####################
 from oradio_logging import oradio_log, DEBUG, CRITICAL
@@ -58,37 +56,35 @@ if __name__ == "__main__":
             sys.exit()
 
     def _stop_all_long_press_timer(test_buttons: TouchButtons)-> None:
-        '''
-        :arguments
+        """
+        :Args
             test_buttons = instance of the class Touchbuttons
-        '''
+        """
         for button_name in BUTTON_NAMES:
             timer = test_buttons.long_press_timers.pop(button_name, None)
             if timer:
                 timer.cancel()
 
     def _keyboard_input(event:Event):
-        '''
-        wait for keyboard input with return, and set event if input detected
-        :arguments
+        """
+        wait for keyboard input with return, and sets the specified event if input detected
+        :Args
             event = The specified event will be set upon a keyboard input
-        :post_condition:
-            the event is set
-        '''
+        """
         _=input("Press Return on keyboard to stop this test")
         event.set()
 
 #### globals statistics for button callbacks ############
     def _handle_message(message: dict, test_buttons: TouchButtons) -> bool:
-        '''
+        """
         the message dict will be validated against the OradioMessage class
         if valid the message received in queue will be processed
-        :arguments
+        :Args
             message dict must be according OradioMessage class
-        :return
+        :Returns
             True = message is correct and processed
             False = message is not correct
-        '''
+        """
         validated_message = validate_oradio_message(message)
         if validated_message:
             if validated_message.data:
@@ -121,12 +117,12 @@ if __name__ == "__main__":
             print(f"{RED}Invalid OradioMessage received {NC}")
 
     def evaluate_test_results(test_buttons:TouchButtons, nr_of_events:int) -> None:
-        '''
+        """
         evaluate the timing test results
-        :arguments
+        :Args
             nr_of_events = the number of events submitted by gpio callback
             test_buttons = instance of TouchButtons
-        '''
+        """
         timdat = test_buttons.timing_data
         print(f"{YELLOW}==============================================================")
         print (f"min_time={round(timdat.min_time,4)},"
@@ -142,7 +138,7 @@ if __name__ == "__main__":
     def _check_for_new_message_in_queue(msg_queue: Queue, test_buttons:TouchButtons ):
         """
         Continuously wait, read and handle messages from the shared queue.
-        :arguments
+        :Args
             msg_queue = queue to check for new messages
             test_buttons = instance of TouchButtons
         """
@@ -163,11 +159,11 @@ if __name__ == "__main__":
                 _handle_message(msg, test_buttons)
 
     def _callback_test(buttons:TouchButtons):
-        '''
+        """
         Callback test submitted a callback for each of the buttons
-        :arguments
+        :Args
             buttons = instance of TouchButtons
-        '''
+        """
         button_data = {}
         for button_name in BUTTON_NAMES:
             button_data["state"] = MESSAGE_BUTTON_SHORT_PRESS + button_name
@@ -176,9 +172,10 @@ if __name__ == "__main__":
             sleep(1)
 
     def _single_button_play_burst_test(test_buttons:TouchButtons, burst_freq:float) -> None:
-        '''
-        single_button burst test for PLAY_BUTTON, continues until Return button pressed
-        :arguments
+        """
+        Single_button burst test for PLAY_BUTTON, continues until <Return> button pressed
+        When finished all long_press_timers are stopped
+        :Args
             test_buttons = instance of TouchButtons
             burst_freq = frequency of submitting event callbacks, shall be >0
         * input requested for burst frequency used in callback simulation
@@ -186,9 +183,7 @@ if __name__ == "__main__":
         * set GPIO_MODULE_TEST = TEST_ENABLED
         * set BUTTONS_MODULE_TEST = TEST_ENABLED
         * stop the logging temporary, but setting log-level to CRITICAL
-        :POST
-            * all long_press_timers are stopped
-        '''
+        """
         test_buttons._reset_timing_data()
         test_buttons.button_gpio.set_button_edge_event_callback(test_buttons._button_event_callback)
         test_buttons.button_gpio.GPIO_MODULE_TEST = TEST_ENABLED
@@ -198,23 +193,25 @@ if __name__ == "__main__":
                                  args=(stop_event,))
         keyboard_thread.start()
         oradio_log.set_level(CRITICAL)
-        try:
-            nr_of_events = test_buttons.button_gpio.simulate_button_play_events_burst(
+        status,nr_of_events = test_buttons.button_gpio.simulate_button_play_events_burst(
                                                                 burst_freq,
                                                                 stop_event)
-        except RuntimeError as err:
+        if status:
+            # module test is enabled
+            oradio_log.set_level(DEBUG)
+            evaluate_test_results(test_buttons, nr_of_events)
+            _stop_all_long_press_timer(test_buttons)
+            test_buttons.button_gpio.GPIO_MODULE_TEST = TEST_DISABLED
+            test_buttons.BUTTONS_MODULE_TEST = TEST_DISABLED
+        else:
             print("\nThe module test is not enabled, error =",err)
-        oradio_log.set_level(DEBUG)
-        evaluate_test_results(test_buttons, nr_of_events)
-        _stop_all_long_press_timer(test_buttons)
-        test_buttons.button_gpio.GPIO_MODULE_TEST = TEST_DISABLED
-        test_buttons.BUTTONS_MODULE_TEST = TEST_DISABLED
 
 
     def _all_button_burst_test(test_buttons:TouchButtons, burst_freq: float) -> None:
-        '''
-        All_button burst test, continues until Return button pressed
-        :arguments
+        """
+        All_button burst test, continues until <Return> button pressed
+        When finished all long_press_timers are stopped        
+        :Args
             test_buttons = instance of TouchButtons
             burst_freq = frequency of submitting event callbacks, shall be >0
         * input requested for burst frequency used in callback simulation
@@ -222,9 +219,7 @@ if __name__ == "__main__":
         * set GPIO_MODULE_TEST = TEST_ENABLED
         * set BUTTONS_MODULE_TEST = TEST_ENABLED
         * stop the logging temporary, but setting log-level to CRITICAL
-        :POST
-            * all long_press_timers are stopped
-        '''
+        """
         test_buttons._reset_timing_data()
         nr_of_events = 0
         test_buttons.button_gpio.set_button_edge_event_callback(test_buttons._button_event_callback)
@@ -235,30 +230,30 @@ if __name__ == "__main__":
                                  args=(stop_event,))
         keyboard_thread.start()
         oradio_log.set_level(CRITICAL)
-        try:
-            nr_of_events = test_buttons.button_gpio.simulate_all_buttons_events_burst(
+        status, nr_of_events = test_buttons.button_gpio.simulate_all_buttons_events_burst(
                                                                             burst_freq,
                                                                             stop_event)
-        except RuntimeError as err:
-            print("\nThe module test is not enabled: ",err)
-        oradio_log.set_level(DEBUG)
-        evaluate_test_results(test_buttons, nr_of_events)
-        _stop_all_long_press_timer(test_buttons)
-        test_buttons.button_gpio.GPIO_MODULE_TEST = TEST_DISABLED
-        test_buttons.BUTTONS_MODULE_TEST = TEST_DISABLED
+        if status:
+            # module test is enabled
+            oradio_log.set_level(DEBUG)
+            evaluate_test_results(test_buttons, nr_of_events)
+            _stop_all_long_press_timer(test_buttons)
+            test_buttons.button_gpio.GPIO_MODULE_TEST = TEST_DISABLED
+            test_buttons.BUTTONS_MODULE_TEST = TEST_DISABLED
+        else:
+            print("\nThe module test is not enabled, error =",err)
 
     def button_press_release_callback_test(test_buttons:TouchButtons) ->None:
-        '''
+        """
         Button press/release test for BUTTON_STOP, with user specified press-ON time.
         Stops when press-ON timing = 0
         * input requested for button-name and press-timing used in callback simulation
         * resets all timing data
         * stop the logging temporary, but setting log-level to CRITICAL
-        :arguments
+        When finished all long_press_timers are stopped        
+        :Args
             buttons = instance of TouchButtons
-        :POST
-            * all long_press_timers are stopped
-        '''
+        """
         test_buttons.button_gpio.GPIO_MODULE_TEST   = TEST_DISABLED
         test_buttons.BUTTONS_MODULE_TEST            = TEST_DISABLED
         test_buttons._reset_timing_data()
@@ -291,7 +286,9 @@ if __name__ == "__main__":
         _stop_all_long_press_timer(test_buttons)
 
     def _start_module_test():
-        """Show menu with test options"""
+        """
+        Show menu with test options
+        """
         # pylint: disable=too-many-branches
         # motivation:
         # Probably too many, but the code is still readable and not complex

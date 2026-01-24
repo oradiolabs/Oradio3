@@ -9,14 +9,14 @@
 
 Created on Jan 22, 2026
 @author:        Henk Stevens & Olaf Mastenbroek & Onno Janssen
-@copyright:     Copyright 2024, Oradio Stichting
+@copyright:     Copyright 2026, Oradio Stichting
 @license:       GNU General Public License (GPL)
 @organization:  Oradio Stichting
-@version:       4
+@version:       1
 @email:         oradioinfo@stichtingoradio.nl
 @status:        Development
 @summary:       
-    * Class extensions for button simulations
+    * Class extensions for touch buttons testing and simulations
 
 """
 from threading import Event
@@ -24,39 +24,29 @@ from time import sleep, monotonic, perf_counter
 ##### local oradio import modules ####################
 from gpio_service import GPIOService, BUTTONS
 from oradio_const import ( 
-    BUTTON_NAMES,
+    BUTTON_NAMES, BUTTON_PLAY,
     TEST_DISABLED,
     GREEN, YELLOW, RED, NC,
     )
 
 class TimingData:
-    '''
+    """
     Class for timing data statistics during testing
-    '''
+    """
     def __init__(self):
-        self.min_time = 10000
-        self.max_time = 0
-        self.sum_time = 0.0
-        self.sum_count = 0
-        self.avg_time = 0.0
-        self.valid_callbacks = {}
-        for button in BUTTON_NAMES:
-            self.valid_callbacks[button]=0
-        self.neglected_callback = {}
-        for button in BUTTON_NAMES:
-            self.neglected_callback[button]=0
+        self.reset()
 
     def reset(self):
-        '''
+        """
         reseting the timing data
-        '''
-        self.min_time = 10000
-        self.max_time = 0
-        self.sum_time = 0.0
-        self.sum_count = 0
-        self.avg_time = 0.0
-        self.valid_callbacks = {}
-        self.neglected_callback = {}
+        """
+        self.min_time  = 10000      # the minimal timing measured
+        self.max_time  = 0          # the maximal timing measured
+        self.sum_time  = 0.0        # the sum of all measured timings
+        self.sum_count = 0          # the number of measured timings
+        self.avg_time  = 0.0        # the average timing
+        self.valid_callbacks    = {}# The number of valid callbacks for each button
+        self.neglected_callback = {}# The number of valid callbacks for each button
         for button in BUTTON_NAMES:
             self.valid_callbacks[button]=0
         self.neglected_callback = {}
@@ -68,47 +58,60 @@ class TestGPIOService(GPIOService):
     Class with additional methods for testing purposes only
     Based on GPIOService baseclass
     :Args
-        The new class inherits from GPIOService, and extends it with extra test methods
+        The new class inherits from GPIOService, and extends it with extra test methods:
+        * simulate_button_play_events_burst()
+        * simulate_all_buttons_events_burst()
+        * simulate_button_press_and_release()
     """
     def __init__(self):
         super().__init__()
 
-    def simulate_button_play_events_burst(self, burst_freq: int, stop_burst: Event) -> int:
+    def simulate_button_play_events_burst(self, burst_freq: int, stop_burst: Event) -> tuple[bool,int]:
         """ 
         simulate a button press by submitting a callback for BUTTON_PLAY
         :Args
             burst_freq = number of events per second
             stop_burst = an event to stop the burst
         :Returns
+            status = True/False
+                    False = Test is disabled
+                    True = Test is enabled
             nr_of_events = the number of event callback submitted
         """
         nr_of_events = 0
+        status = True
         if self.GPIO_MODULE_TEST == TEST_DISABLED:
-            raise RuntimeError("Test is disabled. Enable GPIO_MODULE_TEST to use this method")
-        while not stop_burst.is_set():
-            self._edge_callback(BUTTONS[BUTTON_PLAY])
-            nr_of_events +=1
-            sleep(1/burst_freq)
-        return nr_of_events
+            status = False
+        else:
+            while not stop_burst.is_set():
+                self._edge_callback(BUTTONS[BUTTON_PLAY])
+                nr_of_events +=1
+                sleep(1/burst_freq)
+        return status, nr_of_events
 
-    def simulate_all_buttons_events_burst(self, burst_freq: int, stop_burst: Event) -> int:
+    def simulate_all_buttons_events_burst(self, burst_freq: int, stop_burst: Event) -> tuple[bool,int]:
         """ 
         simulate all button press by submitting a callback for all buttons in a sequence
         :Args
             burst_freq = nr of events per second
             stop_burst = an event to stop the burst
         :Returns
+            status = True/False
+                    False = Test is disabled
+                    True = Test is enabled
             nr_of_events = the number of event callback submitted
         """
         nr_of_events = 0
+        status = True
         if self.GPIO_MODULE_TEST == TEST_DISABLED:
-            raise RuntimeError("Test is disabled. Enable GPIO_MODULE_TEST to use this method")
-        while not stop_burst.is_set():
-            for button in BUTTON_NAMES:
-                self._edge_callback(BUTTONS[button])
-                nr_of_events +=1
-            sleep(1/burst_freq)
-        return nr_of_events
+            status = False
+        else:
+            while not stop_burst.is_set():
+                for button in BUTTON_NAMES:
+                    self._edge_callback(BUTTONS[button])
+                    nr_of_events +=1
+                sleep(1/burst_freq)
+        return status, nr_of_events
 
     def simulate_button_press_and_release(self,button_name: str, press_timing : float)-> None:
         """ 
