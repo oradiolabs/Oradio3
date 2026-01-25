@@ -301,7 +301,6 @@ if __name__ == "__main__":
         Thread(target=_check_for_new_message_in_queue,
                         args=(shared_queue,test_buttons),
                         daemon=True).start()
-
         # pylint: disable=line-too-long
         ###################################################################################
         # motivation:

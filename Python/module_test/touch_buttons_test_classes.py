@@ -17,7 +17,6 @@ Created on Jan 22, 2026
 @status:        Development
 @summary:       
     * Class extensions for touch buttons testing and simulations
-
 """
 from threading import Event
 from time import sleep, monotonic, perf_counter
