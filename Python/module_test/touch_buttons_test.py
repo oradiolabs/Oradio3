@@ -130,9 +130,9 @@ if __name__ == "__main__":
                f" sum_count={timdat.sum_count},"
                f" avg_time={round(timdat.avg_time,4)}"
             )
-        print("number of submitted callbacks = ", nr_of_events)
-        print("Valid callbacks = {valid}".format(valid = timdat.valid_callbacks))
-        print("Neglected callbacks = {neglet}".format(neglet = timdat.neglected_callback))
+        print(f"number of submitted callbacks = {nr_of_events}")
+        print(f"Valid callbacks = {timdat.valid_callbacks}")
+        print(f"Neglected callbacks = {timdat.neglected_callback}")
         print(f"======================================================================={NC}")
 
     def _check_for_new_message_in_queue(msg_queue: Queue, test_buttons:TouchButtons ):
@@ -148,13 +148,13 @@ if __name__ == "__main__":
                 print("Received message in Queue: %r", msg)
             except KeyError as ex:
                 # A required key like 'source' or 'state' is missing
-                print("Malformed message (missing key): %s | msg=%r", ex, msg)
+                print(f"Malformed message (missing key): {ex} | {msg}")
             except (TypeError, AttributeError) as ex:
                 # msg wasn't a mapping/dict-like or had wrong types
-                print("Invalid message format: %s | msg=%r", ex, msg)
+                print(f"Invalid message format: {ex} | {msg}")
             except (RuntimeError, OSError) as ex:
                 # Unexpected runtime/OS errors during handling
-                print("Runtime error in process_messages: %s", ex)
+                print(f"Runtime error in process_messages: {ex}")
             else:
                 _handle_message(msg, test_buttons)
 
