@@ -26,15 +26,15 @@ jobs:
         python -m pip install --upgrade pip
         pip install -r .github/workflows/oradio_modules.txt
 
-	- name: Make the run_test.sh executable
-	  run: chmod +x Python/module_test/run_test.sh
+    - name: Make the run_test.sh executable
+      run: chmod +x Python/module_test/run_test.sh
 
     - name: Run Pylint for module_test
       run: |
         cd Python/module_test
         ../run_test.sh pylint touch_buttons_test.py
 
-		    - name: Run pylint
+    - name: Run pylint
       # Disable immediate exit on error
       # Use .pylintrc 
       # Fail on fatal(1) + error(2) + warning(4) + usage(32), continue on refactor(8) and convention(16)
