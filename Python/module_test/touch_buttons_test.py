@@ -32,7 +32,7 @@ from touch_buttons import TouchButtons, BUTTON_DEBOUNCE_TIME
 from oradio_utils import ( input_prompt_int, input_prompt_float,
                            validate_oradio_message
                         )
-from oradio_const import ( 
+from oradio_const import (
     BUTTON_NAMES,
     TEST_ENABLED, TEST_DISABLED,
     DEBUGGER_ENABLED, DEBUGGER_NOT_CONNECTED,
@@ -204,7 +204,7 @@ if __name__ == "__main__":
             test_buttons.button_gpio.GPIO_MODULE_TEST = TEST_DISABLED
             test_buttons.BUTTONS_MODULE_TEST = TEST_DISABLED
         else:
-            print("\nThe module test is not enabled, error =",err)
+            print("\nThe module test is not enabled")
 
 
     def _all_button_burst_test(test_buttons:TouchButtons, burst_freq: float) -> None:
@@ -241,7 +241,7 @@ if __name__ == "__main__":
             test_buttons.button_gpio.GPIO_MODULE_TEST = TEST_DISABLED
             test_buttons.BUTTONS_MODULE_TEST = TEST_DISABLED
         else:
-            print("\nThe module test is not enabled, error =",err)
+            print("The module test is not enabled")
 
     def button_press_release_callback_test(test_buttons:TouchButtons) ->None:
         """
