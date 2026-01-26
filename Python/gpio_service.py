@@ -22,11 +22,11 @@ Created on November 29, 2025
 @references:
     https://www.raspberrypi.com/documentation/computers/raspberry-pi.html#gpio
 """
-from time import sleep, perf_counter
-from threading import Event
-from singleton import singleton
-from RPi import GPIO
+
+from time import perf_counter
 from typing import Tuple, Optional
+from RPi import GPIO
+from singleton import singleton
 
 ##### oradio modules ####################
 from oradio_logging import oradio_log
@@ -35,12 +35,10 @@ from oradio_logging import oradio_log
 from oradio_const import ( LED_PLAY,LED_STOP, LED_PRESET1, LED_PRESET2, LED_PRESET3, LED_NAMES,
                          BUTTON_PLAY,BUTTON_STOP, BUTTON_PRESET1, BUTTON_PRESET2, BUTTON_PRESET3,
                          BUTTON_NAMES, BUTTON_PRESSED, BUTTON_RELEASED,
-                         TEST_ENABLED, TEST_DISABLED,
-                         GREEN, YELLOW, RED, NC
+                         TEST_ENABLED, TEST_DISABLED
                          )
 
 ##### Local constants ####################
-
 # LED GPIO PINS
 LEDS: dict[str, int] = {
     LED_PLAY:    15,
@@ -60,14 +58,6 @@ BUTTONS: dict[str, int] = {
 BOUNCE_MS = 10  # hardware debounce in GPIO.add_event_detect
 LED_ON  = True
 LED_OFF = False
-
-#REVIEW Onno: Algemeen:
-#   - Stel voor de Google Docstrings style te gebruiken, zoals al in veel ander modules.
-#   - Je hebt heel veel 1-regelige methods, maar je checkt nergens of de argumenten ok zijn, of de actie succes/fail geeft. Graag even toelichten waarom.
-#   - Waarom gebruik je voor docstrings de ene keer ''', de andere keer """ ?
-#   - De ene keer gebruik je dubbel-quotes voor variabelen, de andere keer single quotes. Waarom?
-#   - Pylint issues fixen
-#     Mijn voorstel is om de methods nergens iets terug te laten geven, maar wel een error te loggen.
 
 @singleton
 class GPIOService:
@@ -136,7 +126,6 @@ class GPIOService:
         return(bool(GPIO.input(io_pin)))
 
 ################## methods for the LED pins ######################
-#REVIEW Onno: Voor alle LED en Button methods: Wat is de penalty om een parameter check toe te voegen? iets als if arg in ( ..., ..., ... ) else error
     def set_led_on(self,led_name:str) -> None:
         """
         Turns ON the specified LED.
@@ -203,16 +192,18 @@ class GPIOService:
                                                    BUTTON_PRESET1 | BUTTON_PRESET2 | 
                                                    BUTTON_PRESET3 ]
         :Returns
+            button_state = True/False | None
             True = BUTTON is ON (so pressed/touched)
             False = BUTTON is OFF (so not pressed/touched)
+            None = Unknown button name
         """
         if button_name not in BUTTON_NAMES:
             oradio_log.error(f"Unknown button name:{button_name}")
             button_state = None
         else:
-            state = not self._read_pin_state(BUTTONS[button_name])
+            button_state = not self._read_pin_state(BUTTONS[button_name])
             # Note: a pressed button has value GPIO.LOW
-        return state
+        return button_state
 
     def _edge_callback(self, channel: int)->None:
         """
@@ -255,78 +246,3 @@ class GPIOService:
             self.edge_event_callback(button_data)
         else:
             oradio_log.error("no callback function found")
-
-class TestGPIOService(GPIOService):
-    """
-    Class with additional methods for testing purposes only
-    Based on GPIOService baseclass
-    :Args
-        The new class inherits from GPIOService, and extends it with extra test methods
-    """
-    def __init__(self):
-        super().__init__()
-
-    def simulate_button_play_events_burst(self, burst_freq: int, stop_burst: Event) -> int:
-        """ 
-        simulate a button press by submitting a callback for BUTTON_PLAY
-        :Args
-            burst_freq = number of events per second
-            stop_burst = an event to stop the burst
-        :Returns
-            nr_of_events = the number of event callback submitted
-        """
-        nr_of_events = 0
-        if self.GPIO_MODULE_TEST == TEST_DISABLED:
-            raise RuntimeError("Test is disabled. Enable GPIO_MODULE_TEST to use this method")
-        while not stop_burst.is_set():
-            self._edge_callback(BUTTONS[BUTTON_PLAY])
-            nr_of_events +=1
-            sleep(1/burst_freq)
-        return nr_of_events
-
-    def simulate_all_buttons_events_burst(self, burst_freq: int, stop_burst: Event) -> int:
-        """ 
-        simulate all button press by submitting a callback for all buttons in a sequence
-        :Args
-            burst_freq = nr of events per second
-            stop_burst = an event to stop the burst
-        :Returns
-            nr_of_events = the number of event callback submitted
-        """
-        nr_of_events = 0
-        if self.GPIO_MODULE_TEST == TEST_DISABLED:
-            raise RuntimeError("Test is disabled. Enable GPIO_MODULE_TEST to use this method")
-        while not stop_burst.is_set():
-            for button in BUTTON_NAMES:
-                self._edge_callback(BUTTONS[button])
-                nr_of_events +=1
-            sleep(1/burst_freq)
-        return nr_of_events
-
-    def simulate_button_press_and_release(self,button_name: str, press_timing : float)-> None:
-        """ 
-        simulate a BUTTON_STOP button press according specified press timing,
-        by submitting a callback for specified button
-        :Args
-            button_name = name of button [ BUTTON_PLAY | BUTTON_STOP] |
-                                            BUTTON_PRESET1 | BUTTON_PRESET2 | BUTTON_PRESET3 ]
-            press_timing = press time in float seconds for BUTTON_STOP 
-        """
-        # set the button pin to an output with GPIO,LOW as a button press
-        GPIO.setup(BUTTONS[button_name], GPIO.OUT, initial=GPIO.HIGH)
-        GPIO.output(BUTTONS[button_name], GPIO.LOW)
-        self._edge_callback(BUTTONS[button_name])
-        # show a progressing time indicator during press period
-        start_time = perf_counter()
-        elapsed_time = 0.0
-        while elapsed_time < press_timing:
-            sleep(0.2)
-            print(f"{YELLOW}*", end=" ", flush=True)
-            elapsed_time = perf_counter()-start_time
-        print(f"{YELLOW}button press timing was {NC} ",press_timing, end=" ", flush=True)
-        # set the button pin to GPIO,HIGH as a button release
-        GPIO.output(BUTTONS[button_name], GPIO.HIGH)
-        self._edge_callback(BUTTONS[button_name])
-        # reset the button pin back to an input
-        GPIO.setup(BUTTONS[button_name], GPIO.IN, pull_up_down=GPIO.PUD_UP)
-

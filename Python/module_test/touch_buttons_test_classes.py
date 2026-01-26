@@ -19,13 +19,14 @@ Created on Jan 22, 2026
     * Class extensions for touch buttons testing and simulations
 """
 from threading import Event
-from time import sleep, monotonic, perf_counter
+from time import sleep, perf_counter
 ##### local oradio import modules ####################
+from RPi import GPIO
 from gpio_service import GPIOService, BUTTONS
-from oradio_const import ( 
+from oradio_const import (
     BUTTON_NAMES, BUTTON_PLAY,
     TEST_DISABLED,
-    GREEN, YELLOW, RED, NC,
+    YELLOW, NC,
     )
 
 class TimingData:
@@ -62,8 +63,6 @@ class TestGPIOService(GPIOService):
         * simulate_all_buttons_events_burst()
         * simulate_button_press_and_release()
     """
-    def __init__(self):
-        super().__init__()
 
     def simulate_button_play_events_burst(self, burst_freq: int, stop_burst: Event) -> tuple[bool,int]:
         """ 
@@ -138,4 +137,3 @@ class TestGPIOService(GPIOService):
         self._edge_callback(BUTTONS[button_name])
         # reset the button pin back to an input
         GPIO.setup(BUTTONS[button_name], GPIO.IN, pull_up_down=GPIO.PUD_UP)
-

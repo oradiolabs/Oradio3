@@ -28,18 +28,17 @@ Created on Januari 22, 2026
 
 from threading import Thread, Event
 from time import sleep
-from RPi import GPIO
 import sys
-# Add project root to path (keep this before local imports)
-sys.path.append('/home/pi/Oradio3/Python')
+from RPi import GPIO
+
 ##### local oradio import modules ####################
 from oradio_utils import input_prompt_int
 from gpio_service import GPIOService, LED_ON, LED_OFF, LEDS, BUTTONS, BOUNCE_MS
-from remote_debugger import setup_remote_debugging
 from oradio_const import ( LED_NAMES, BUTTON_NAMES,
                            DEBUGGER_ENABLED, DEBUGGER_NOT_CONNECTED,
                            GREEN, YELLOW, RED, NC
                          )
+from remote_debugger import setup_remote_debugging
 ##### Local constants ####################
 button_state = {True: f"{YELLOW}1", False: f"{NC}0"}
 

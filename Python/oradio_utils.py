@@ -30,9 +30,9 @@ import json
 import socket
 import subprocess
 from subprocess import run
-from typing import Any, Optional
+from typing import Any, Optional, List, Union, Dict
 from pathlib import Path
-from pydantic import BaseModel, create_model
+from pydantic import BaseModel, ValidationError
 import netifaces
 
 ##### oradio modules ####################
