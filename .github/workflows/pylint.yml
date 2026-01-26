@@ -26,12 +26,10 @@ jobs:
         python -m pip install --upgrade pip
         pip install -r .github/workflows/oradio_modules.txt
 
-    - name: Make the run_test.sh executable
-      run: chmod +x Oradio3/Python/module_test/run_test.sh
-
     - name: Run Pylint for module_test
       run: |
-        cd Oradio3/Python/module_test
+        cd /home/pi/Oradio3/Python/module_test
+        chmod +x run_test.sh
         run_test.sh pylint touch_buttons_test.py
 
     - name: Run pylint
