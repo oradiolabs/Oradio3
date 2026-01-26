@@ -25,9 +25,6 @@ jobs:
         source ~/.venv/bin/activate
         python -m pip install --upgrade pip
         pip install -r .github/workflows/oradio_modules.txt
-        # run test programs in module_test folder using run_test.sh
-        chmod +x /home/pi/Oradio3/Python/module_test/run_test.sh
-        run_test.sh pylint /home/pi/Oradio3/Python/module_test/touch_buttons_test.py
 
     - name: Run pylint
       # Disable immediate exit on error
@@ -36,6 +33,8 @@ jobs:
       run: |
         set +e
         source ~/.venv/bin/activate
+        chmod +x /home/pi/Oradio3/Python/module_test/run_test.sh
+        run_test.sh pylint /home/pi/Oradio3/Python/module_test/touch_buttons_test.py
         pylint $(git ls-files '*.py') \
           --rcfile=.github/workflows/.pylintrc \
           --output=pylint_result.txt
