@@ -27,11 +27,11 @@ jobs:
         pip install -r .github/workflows/oradio_modules.txt
 
     - name: Make the run_test.sh executable
-      run: chmod +x Python/module_test/run_test.sh
+      run: chmod +x Oradio3/Python/module_test/run_test.sh
 
     - name: Run Pylint for module_test
       run: |
-        cd Python/module_test
+        cd Oradio3/Python/module_test
         run_test.sh pylint touch_buttons_test.py
 
     - name: Run pylint
