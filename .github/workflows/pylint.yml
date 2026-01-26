@@ -32,7 +32,7 @@ jobs:
     - name: Run Pylint for module_test
       run: |
         cd Python/module_test
-        ../run_test.sh pylint touch_buttons_test.py
+        run_test.sh pylint touch_buttons_test.py
 
     - name: Run pylint
       # Disable immediate exit on error
