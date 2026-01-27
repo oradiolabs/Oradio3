@@ -51,7 +51,11 @@ from oradio_const import (
 # ALSA device for playing system sounds
 SYSTEM_SOUND_SINK = "SysSound_in"
 # Directory containing system sound files
-SOUND_FILES_DIR = os.path.abspath(os.path.join(sys.path[0], '..', 'system_sounds'))
+#SOUND_FILES_DIR = os.path.abspath(os.path.join(sys.path[0], '..', 'system_sounds'))
+# Henk: set to absolute path, because when running a module from sub-dir module_test
+# the SOUND_FILES_DIR is wrongly formatted
+# Need to figure out how to improve this
+SOUND_FILES_DIR = "/home/pi/Oradio3/system_sounds"
 SOUND_FILES = {
     # Sounds
     SOUND_START: f"{SOUND_FILES_DIR}/StartUp.wav",
@@ -87,7 +91,6 @@ def play_sound(sound_key: str) -> None:
     if not sound_file:
         oradio_log.error("Invalid sound key: %s", sound_key)
         return
-
     # Check if sound file exists
     if not os.path.exists(sound_file):
         oradio_log.debug("Sound file does not exist: %s", sound_file)
