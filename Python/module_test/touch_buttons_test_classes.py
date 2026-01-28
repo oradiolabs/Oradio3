@@ -64,7 +64,9 @@ class TestGPIOService(GPIOService):
         * simulate_button_press_and_release()
     """
 
-    def simulate_button_play_events_burst(self, burst_freq: int, stop_burst: Event) -> tuple[bool,int]:
+    def simulate_button_play_events_burst(self,
+                                          burst_freq: int,
+                                          stop_burst: Event) -> tuple[bool,int]:
         """ 
         simulate a button press by submitting a callback for BUTTON_PLAY
         :Args
@@ -87,7 +89,9 @@ class TestGPIOService(GPIOService):
                 sleep(1/burst_freq)
         return status, nr_of_events
 
-    def simulate_all_buttons_events_burst(self, burst_freq: int, stop_burst: Event) -> tuple[bool,int]:
+    def simulate_all_buttons_events_burst(self,
+                                          burst_freq: int,
+                                          stop_burst: Event) -> tuple[bool,int]:
         """ 
         simulate all button press by submitting a callback for all buttons in a sequence
         :Args
@@ -111,7 +115,9 @@ class TestGPIOService(GPIOService):
                 sleep(1/burst_freq)
         return status, nr_of_events
 
-    def simulate_button_press_and_release(self,button_name: str, press_timing : float)-> None:
+    def simulate_button_press_and_release(self,
+                                          button_name: str,
+                                          press_timing : float)-> None:
         """ 
         simulate a BUTTON_STOP button press according specified press timing,
         by submitting a callback for specified button

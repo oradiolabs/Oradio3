@@ -236,9 +236,14 @@ if [ "$1" != "--continue" ]; then
 	# Activate the python virtual environment in current environment
 	source ~/.venv/bin/activate
 
-	# Activate python virtual environment when logging in: add if not yet present
-	sudo grep -qxF 'source ~/.venv/bin/activate' ~/.bashrc || echo 'source ~/.venv/bin/activate' >> ~/.bashrc
+	# Activate python virtual environment when logging in if not yet present
+	ADDTOBASHRC="source ~/.venv/bin/activate"
+	grep -qxF "${ADDTOBASHRC}" ~/.bashrc || echo "${ADDTOBASHRC}" >> ~/.bashrc
 
+	# Set paths to python scripts if not yet present
+	ADDTOBASHRC="export PYTHONPATH="${SCRIPT_PATH}/Python:${SCRIPT_PATH}/module_test:${SCRIPT_PATH}/.github/workflows""
+	grep -qxF "${ADDTOBASHRC}" ~/.bashrc || echo "${ADDTOBASHRC}"  >> ~/.bashrc
+	
 	# Progress report
 	echo -e "${GREEN}Python virtual environment configured${NC}"
 

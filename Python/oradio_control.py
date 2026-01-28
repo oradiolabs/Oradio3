@@ -390,7 +390,7 @@ class StateMachine:
         spotify_connect.pause()
 
     def _state_stop(self):
-        leds.turn_on_led_with_delay("LEDStop", 4)
+        leds.oneshot_on_led("LEDStop", 4)
         if mpd_control.is_webradio():
             mpd_control.stop()
         else:

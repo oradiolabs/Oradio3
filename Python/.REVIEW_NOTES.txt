@@ -93,6 +93,29 @@ touch_buttons.py
 - _button_event_callback():Waarom zo'n complexe constructie om een debug message te construeren?
 - _button_event_callback(): Typo (to -> too) en 'neglected' is niet juist, moet 'ignored' zijn.
 - _button_event_callback(): Waarom gebruik je hier print? oradio_log.debug() lijkt mij de juiste...
+- oneshot en blinking gebruiken een tijdseenheid als argument. oneshot heeft een default, blinking niet, waarom?
+  Stel voor 2 lokale variabelen te definieren, als default voor oneshot en blinking te gebruiken.
+  En dan in oradio_control overal die ,2 als agument voor blinking weg te halen.
+- f"{...}" constructs vermijden, want wordt altijd geevalueerd, ook als log level hoger is. 
+  De aanbevolen construct is ("...%s...", value)
+- We gebruiken geen exceptions om fouten te propageren. (onderdeel van issue #408)
+- turn_on_led_with_delay() : Waarom nu niet meteen oradio_control aanpassen? 
+  Dan kan deze method weg, kan je het ook niet vergeten...
+- turn_off_led(): Er wordt nergens op de return gecontroleerd -> None teruggeven
+- Duidelijker is een aparte stop_blink() method te maken, die in turn_led_off en turn_led_on te gebruiken
+- turn_on_led(): return type hint ontbreekt. Er wordt nergens op de return gecontroleerd -> None teruggeven
+- oneshot_on_led():Er wordt alleen in de stand-alone test case 3 op de return gecontroleerd, maar niets mee gedaan als false:
+  Stel daarom voor om None terug te geven, in method _single_led_test test case 3 niet op testen, 
+  in turn_on_led_with_delay niet te retourneren
+- Method naam 'oneshot_led_off' is andere stijl dan overige methods. Hernoem naar 'oneshot_off_led'
+- control_blinking_led():Zou ook hier geen bool retourneren, net als de andere methods in deze class
+  Let wel op dat je dan de check in de method _single_led_test test case 4 verwijdert
+  control_blinking_led()._blink(): verplaats docstring cycle time uitleg hierboven naar docstring van deze method
+
+led_control.py
+- turn_off_led en turn_on_led geven een true/false terug, maar daar wordt nergens op gecontroleerd.
+     Dus óf overal controleren, óf geen bool retourneren. Bij oplossen van issue #408 komt dat dan later wel goed...
+
 2026-01-11============================================================================================================================
 
 GPIO:

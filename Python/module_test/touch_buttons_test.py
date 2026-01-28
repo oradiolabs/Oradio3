@@ -269,7 +269,8 @@ def button_press_release_callback_test(test_buttons:TouchButtons) ->None:
                 print("Please input a valid test option.")
     print("Specify the button-pressed timing in seconds (float), 0 = stop test")
     while not stop_test:
-        button_pressed_time = input_prompt_float("Button-press timing (BUTTON_STOP) in seconds (float):", default=0)
+        button_pressed_time = input_prompt_float(
+            "Button-press timing (BUTTON_STOP) in seconds (float):", default=0)
         if button_pressed_time == 0:
             stop_test = True
         else:

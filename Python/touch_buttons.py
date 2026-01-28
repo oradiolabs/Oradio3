@@ -82,7 +82,7 @@ class TouchButtons:
         self.long_press_timers: dict[str, Timer] = {}  # button -> Timer
         if self.BUTTONS_MODULE_TEST == TEST_ENABLED:
             # include button press timing data for statistics
-            self.timing_data = TimingData() 
+            self.timing_data = TimingData()
 
     def _reset_timing_data(self):
         """
