@@ -174,18 +174,24 @@ def _show_and_measure_blinking(led_control:LEDControl,
     return state_time
 
 def _single_led_test(led_control:LEDControl,
-                     selected_led:str) ->None:
+                     test_led_nr:str) ->None:
     '''
     Test the selected LED functions
     :arguments 
-        selected_led (str) = [ LED_PLAY | LED_STOP] |
-                              LED_PRESET1 | LED_PRESET2 | LED_PRESET3 ]
+        test_led_nr (int) : 0=LED_PLAY, 1=LED_STOP, 
+                            2=LED_PRESET1, 3=LED_PRESET2, 4=LED_PRESET3,
+                            5=LED_UNKNOWN
         led-driver = instance of LEDControl to use
     '''
     # pylint: disable=too-many-branches
     ####################################################################
     # motivation: OK, but branches are rather simple and clearly defined
     ######################################################################
+    if test_led_nr == 5:
+        # to test for unknown LED_NAMES
+        selected_led = "LED_UNKNOWN"
+    else:
+        selected_led = LED_NAMES[test_led_nr]
     led_test_options = ["Quit"]\
                     + [f"Turn {selected_led} ON"]\
                     + [f"Turn {selected_led} OFF"]\
@@ -211,12 +217,12 @@ def _single_led_test(led_control:LEDControl,
                 one_shot = input_prompt_float("Input a one-shot ON period as float number : ")
                 print(f"\n{one_shot} sec ONESHOT ON for {selected_led}\n")
                 led_control.turn_off_all_leds()
-                if led_control.oneshot_on_led(selected_led,one_shot):
-                    led_on_timing = _progress_bar(led_control, selected_led, one_shot+1 )
-                    if led_on_timing == round(one_shot,1):
-                        print(f"{GREEN}Test:The ONESHOT timing for {selected_led} is OK")
-                    else:
-                        print(f"{RED}Test:The ONESHOT timing for {selected_led} is NOT OK")
+                led_control.oneshot_on_led(selected_led,one_shot)
+                led_on_timing = _progress_bar(led_control, selected_led, one_shot+1 )
+                if led_on_timing == round(one_shot,1):
+                    print(f"{GREEN}Test:The ONESHOT timing for {selected_led} is OK")
+                else:
+                    print(f"{RED}Test:The ONESHOT timing for {selected_led} is NOT OK")
             case 4:
                 cycle_time = input_prompt_float("Input a cycletime as float number : ")
                 print(f"\nBlinking LED {selected_led} with cycle-time of {cycle_time} sec\n")
@@ -226,14 +232,15 @@ def _single_led_test(led_control:LEDControl,
                 keyboard_thread.start()
                 while not stop_event.is_set():
                     led_control.turn_off_all_leds()
-                    if led_control.control_blinking_led(selected_led, cycle_time):
+                    led_control.control_blinking_led(selected_led, cycle_time)
+                    if selected_led in LED_NAMES:
                         _show_and_measure_blinking(led_control,
                                                    selected_led,
                                                    cycle_time,
                                                    stop_event)
                         led_control.turn_off_led(selected_led) # stop blinking
                     else:
-                        print(f"{RED}Test Result: The blinking failed for {selected_led}")
+                        stop_event.set()
             case _:
                 print("Please input a valid number.")
 
@@ -296,15 +303,15 @@ def _start_module_test():
                 led_control.turn_off_all_leds()
             case 5:
                 print(f"\n running {test_options[5]}\n")
-                led_options = ["Quit"] + LED_NAMES
+                led_options = ["Quit"] + LED_NAMES + ["LedUnknown"]
                 for idx, led_name in enumerate(led_options, start=0):
                     print(f" {idx} - {led_name}")
                 led_choice = input_prompt_int("Select a LED: ", default=-1)
                 match led_choice:
                     case 0:
                         print("\nExiting test program\n")
-                    case 1 | 2 | 3 | 4 | 5:
-                        _single_led_test(led_control, LED_NAMES[led_choice-1])
+                    case 1 | 2 | 3 | 4 | 5 | 6 :
+                        _single_led_test(led_control, (led_choice-1))
             case _:
                 print("Please input a valid number.")
 

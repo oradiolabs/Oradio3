@@ -93,9 +93,14 @@ touch_buttons.py
 - _button_event_callback():Waarom zo'n complexe constructie om een debug message te construeren?
 - _button_event_callback(): Typo (to -> too) en 'neglected' is niet juist, moet 'ignored' zijn.
 - _button_event_callback(): Waarom gebruik je hier print? oradio_log.debug() lijkt mij de juiste...
+
+led_control.py
+- turn_off_led en turn_on_led geven een true/false terug, maar daar wordt nergens op gecontroleerd.
+     Dus óf overal controleren, óf geen bool retourneren. Bij oplossen van issue #408 komt dat dan later wel goed...
 - oneshot en blinking gebruiken een tijdseenheid als argument. oneshot heeft een default, blinking niet, waarom?
   Stel voor 2 lokale variabelen te definieren, als default voor oneshot en blinking te gebruiken.
   En dan in oradio_control overal die ,2 als agument voor blinking weg te halen.
+  	Henk: Done
 - f"{...}" constructs vermijden, want wordt altijd geevalueerd, ook als log level hoger is. 
   De aanbevolen construct is ("...%s...", value)
 - We gebruiken geen exceptions om fouten te propageren. (onderdeel van issue #408)
@@ -111,10 +116,6 @@ touch_buttons.py
 - control_blinking_led():Zou ook hier geen bool retourneren, net als de andere methods in deze class
   Let wel op dat je dan de check in de method _single_led_test test case 4 verwijdert
   control_blinking_led()._blink(): verplaats docstring cycle time uitleg hierboven naar docstring van deze method
-
-led_control.py
-- turn_off_led en turn_on_led geven een true/false terug, maar daar wordt nergens op gecontroleerd.
-     Dus óf overal controleren, óf geen bool retourneren. Bij oplossen van issue #408 komt dat dan later wel goed...
 
 2026-01-11============================================================================================================================
 

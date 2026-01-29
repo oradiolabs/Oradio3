@@ -42,10 +42,10 @@ from remote_monitoring import RMService
 from spotify_connect_direct import SpotifyConnect
 from usb_service import USBService
 from web_service import WebService
-from oradio_utils import has_internet
+from oradio_utils import has_internet,validate_oradio_message
 from power_supply_control import PowerSupplyService
 from system_sounds import play_sound    # For better readability. pylint: disable=wrong-import-order
-
+from remote_debugger import setup_remote_debugging, DEBUGGER_NOT_CONNECTED, DEBUGGER_ENABLED
 # Runs a background thread logging throttled events
 import throttled_monitor     # pylint: disable=unused-import
 
@@ -92,6 +92,19 @@ from oradio_const import (
     SOUND_NO_INTERNET,
     SOUND_NEW_PRESET,
     SOUND_NEW_WEBRADIO,
+    MESSAGE_BUTTON_SOURCE,
+    MESSAGE_SHORT_PRESS_BUTTON_PLAY,
+    MESSAGE_SHORT_PRESS_BUTTON_STOP,
+    MESSAGE_SHORT_PRESS_BUTTON_PRESET1,
+    MESSAGE_SHORT_PRESS_BUTTON_PRESET2,
+    MESSAGE_SHORT_PRESS_BUTTON_PRESET3,
+    MESSAGE_LONG_PRESS_BUTTON_PLAY,
+    LED_PLAY,
+    LED_STOP,
+    LED_PRESET1,
+    LED_PRESET2,
+    LED_PRESET3,
+    RED, NC,
 )
 
 ##########Local constants##################
@@ -100,6 +113,13 @@ WEB_PRESET_STATES = {"StatePreset1", "StatePreset2", "StatePreset3"}
 PLAY_STATES = {"StatePlay", "StatePreset1", "StatePreset2", "StatePreset3"}
 PLAY_WEBSERVICE_STATES = {"StatePlay", "StatePreset1", "StatePreset2", "StatePreset3", "StateIdle"}
 LOW_POWER_STATES = {"StateIdle"}  # only Idle uses nominal voltage (9V)to reduce power consumption
+
+# try to setup a remote debugger connection, if enabled in remote_debugger.py
+debugger_status, connection_status = setup_remote_debugging()
+if debugger_status == DEBUGGER_ENABLED:
+    if connection_status == DEBUGGER_NOT_CONNECTED:
+        print(f"{RED}A remote debugging error, check the remote IP connection {NC}")
+        sys.exit()
 
 ##################Signal Primitives#########
 
@@ -224,7 +244,7 @@ class StateMachine:
             return
 
         oradio_log.debug("Starting WebService: %r", web_service)
-        leds.control_blinking_led("LEDPlay", 2)
+        leds.control_blinking_led(LED_PLAY)
         web_service.start()
 
     # --- transition() helpers ---
@@ -358,39 +378,39 @@ class StateMachine:
 
     def _state_play(self):
         if web_service_active.is_set():
-            leds.control_blinking_led("LEDPlay", 2)
+            leds.control_blinking_led(LED_PLAY)
         else:
-            leds.turn_on_led("LEDPlay")
+            leds.turn_on_led(LED_PLAY)
         mpd_control.play()
         spotify_connect.pause()
         play_sound(SOUND_PLAY)
 
     def _state_preset1(self):
-        leds.turn_on_led("LEDPreset1")
+        leds.turn_on_led(LED_PRESET1)
         mpd_control.play(preset="Preset1")
         play_sound(SOUND_PRESET1)
         if web_service_active.is_set():
-            leds.control_blinking_led("LEDPlay", 2)
+            leds.control_blinking_led(LED_PLAY)
         spotify_connect.pause()
 
     def _state_preset2(self):
-        leds.turn_on_led("LEDPreset2")
+        leds.turn_on_led(LED_PRESET2)
         mpd_control.play(preset="Preset2")
         play_sound(SOUND_PRESET2)
         if web_service_active.is_set():
-            leds.control_blinking_led("LEDPlay", 2)
+            leds.control_blinking_led(LED_PLAY)
         spotify_connect.pause()
 
     def _state_preset3(self):
-        leds.turn_on_led("LEDPreset3")
+        leds.turn_on_led(LED_PRESET3)
         mpd_control.play(preset="Preset3")
         play_sound(SOUND_PRESET3)
         if web_service_active.is_set():
-            leds.control_blinking_led("LEDPlay", 2)
+            leds.control_blinking_led(LED_PLAY)
         spotify_connect.pause()
 
     def _state_stop(self):
-        leds.oneshot_on_led("LEDStop", 4)
+        leds.oneshot_on_led(LED_STOP, 4)
         if mpd_control.is_webradio():
             mpd_control.stop()
         else:
@@ -404,9 +424,9 @@ class StateMachine:
 
     def _state_spotify_connect(self):
         if web_service_active.is_set():
-            leds.control_blinking_led("LEDPlay", 2)
+            leds.control_blinking_led(LED_PLAY)
         else:
-            leds.turn_on_led("LEDPlay")
+            leds.turn_on_led(LED_PLAY)
         if mpd_control.is_webradio():
             mpd_control.stop()
         else:
@@ -416,15 +436,15 @@ class StateMachine:
 
     def _state_play_song_webif(self):
         if web_service_active.is_set():
-            leds.control_blinking_led("LEDPlay", 2)
+            leds.control_blinking_led(LED_PLAY)
         else:
-            leds.turn_on_led("LEDPlay")
+            leds.turn_on_led(LED_PLAY)
         spotify_connect.pause()
         mpd_control.play()
         play_sound(SOUND_PLAY)
 
     def _state_usb_absent(self):
-        leds.control_blinking_led("LEDStop", 0.7)
+        leds.control_blinking_led(LED_STOP, 0.7)
         mpd_control.stop()
         spotify_connect.pause()
         play_sound(SOUND_STOP)
@@ -433,7 +453,7 @@ class StateMachine:
             oradio_web_service.stop()
 
     def _state_startup(self):
-        leds.control_blinking_led("LEDStop", 1)
+        leds.control_blinking_led(LED_STOP, 1)
         oradio_log.debug("Starting-up")
         mpd_control.pause()
         spotify_connect.pause()
@@ -445,7 +465,7 @@ class StateMachine:
         # Listen for volume changed notifications
         volume_control.set_notify()
         if web_service_active.is_set():
-            leds.control_blinking_led("LEDPlay", 2)
+            leds.control_blinking_led(LED_PLAY)
         if mpd_control.is_webradio():
             mpd_control.stop()
         else:
@@ -454,7 +474,7 @@ class StateMachine:
         oradio_log.debug("In Idle state, wait for next step")
 
     def _state_error(self):
-        leds.control_blinking_led("LEDStop", 1)
+        leds.control_blinking_led(LED_STOP, 1)
 
     def _state_unknown(self):
         oradio_log.error("Unknown state requested: %s", self.state)
@@ -523,7 +543,7 @@ def on_webservice_active():
     if web_service_active.is_set(): # check already taken the actions
         return
     web_service_active.set()
-    leds.control_blinking_led("LEDPlay", 2)
+    leds.control_blinking_led(LED_PLAY)
     play_sound(SOUND_AP_START)
     # handle Webradio and Spotify
     if mpd_control.is_webradio() or state_machine.state == "StateSpotifyConnect":
@@ -536,9 +556,9 @@ def on_webservice_idle():
         return
     web_service_active.clear()
     if state_machine.state == "StatePlay":
-        leds.turn_on_led("LEDPlay")
+        leds.turn_on_led(LED_PLAY)
     else:
-        leds.control_blinking_led("LEDPlay", 0)
+        leds.control_blinking_led(LED_PLAY, 0)
     play_sound(SOUND_AP_STOP)
 
 def on_webservice_playing_song():
@@ -614,6 +634,35 @@ def on_spotify_connect_changed():
     # TBD action
     oradio_log.debug("Spotify changed is acknowledged")
 
+# ----------------- Touch buttons -----------------
+# Thread-safety for transitions (shared with volume callbacks)
+sm_lock = threading.RLock()
+
+def _go(state: str) -> None:
+    with sm_lock:
+        state_machine.transition(state)
+
+# --- Touch button policy wiring ---
+def _on_play_pressed() -> None:
+    _go("StatePlay")
+
+def _on_stop_pressed() -> None:
+    _go("StateStop")
+
+def _on_preset1_pressed() -> None:
+    _go("StatePreset1")
+
+def _on_preset2_pressed() -> None:
+    _go("StatePreset2")
+
+def _on_preset3_pressed() -> None:
+    _go("StatePreset3")
+
+def _on_play_long_pressed(_btn: str) -> None:
+    # Long-press Play starts the web service (guarded by SM + lock)
+    with sm_lock:
+        state_machine.start_webservice()
+# --- end wiring ---
 
 def update_spotify_available():
     """Update the 'available' flag based on connected+playing, and react if needed."""
@@ -667,51 +716,59 @@ HANDLERS = {
         SPOTIFY_CONNECT_PAUSED_EVENT: on_spotify_connect_paused,
         # "Spotify error": on_spotify_error,
     },
+    MESSAGE_BUTTON_SOURCE: {
+        MESSAGE_SHORT_PRESS_BUTTON_PLAY: _on_play_pressed,
+        MESSAGE_SHORT_PRESS_BUTTON_STOP: _on_stop_pressed,
+        MESSAGE_SHORT_PRESS_BUTTON_PRESET1: _on_preset1_pressed,
+        MESSAGE_SHORT_PRESS_BUTTON_PRESET2: _on_preset2_pressed,
+        MESSAGE_SHORT_PRESS_BUTTON_PRESET3: _on_preset3_pressed,
+        MESSAGE_LONG_PRESS_BUTTON_PLAY: _on_play_long_pressed
+    },
+    
 }
 
 
-def handle_message(message):
-    command_source = message.get("source")
-    state = message.get("state")
-    error = message.get("error", None)
+def handle_message(message: dict):
+    '''
+    handle the received message
+    :arguments
+        message (dict) : the (Oradio) message to be processed 
+    '''
+    validated_message = validate_oradio_message(message)
+    if validated_message:
+        command_source  = validated_message.source
+        state           = validated_message.state
+        error           = validated_message.error
 
-    handlers = HANDLERS.get(command_source)
-    if handlers is None:
-        oradio_log.warning("Unhandled message source: %s", message)
-        return
+        handlers = HANDLERS.get(command_source)
+        if handlers is None:
+            oradio_log.warning("Unhandled message source: %s", message)
+            return
 
-    if handler := handlers.get(state):
-        handler()
-    else:
-        oradio_log.warning(
-            "Unhandled state '%s' for message source '%s'.", state, command_source
-        )
-
-    if error and error != MESSAGE_NO_ERROR:
-        if handler := handlers.get(error):
+        if handler := handlers.get(state):
             handler()
         else:
             oradio_log.warning(
-                "Unhandled error '%s' for message source '%s'.", error, command_source
+                "Unhandled state '%s' for message source '%s'.", state, command_source
             )
+
+        if error and error != MESSAGE_NO_ERROR:
+            if handler := handlers.get(error):
+                handler()
+            else:
+                oradio_log.warning(
+                    "Unhandled error '%s' for message source '%s'.", error, command_source
+                )
+    else:
+        print(f"{RED}Invalid OradioMessage received {NC}")
 
 # 3)----------- Process the messages---------
 def process_messages(msg_queue):
     """Continuously read and handle messages from the shared queue."""
     while True:
-        try:
-            msg = msg_queue.get()  # blocking
-            oradio_log.debug("Received message in Queue: %r", msg)
-            handle_message(msg)
-        except KeyError as ex:
-            # A required key like 'source' or 'state' is missing
-            oradio_log.error("Malformed message (missing key): %s | msg=%r", ex, msg)
-        except (TypeError, AttributeError) as ex:
-            # msg wasn't a mapping/dict-like or had wrong types
-            oradio_log.error("Invalid message format: %s | msg=%r", ex, msg)
-        except (RuntimeError, OSError) as ex:
-            # Unexpected runtime/OS errors during handling
-            oradio_log.exception("Runtime error in process_messages: %s", ex)
+        msg = msg_queue.get()  # blocking
+        oradio_log.debug("Received message in Queue: %r", msg)
+        handle_message(msg)
 
 #-------------USB presence sync at start -up---------------------------------------
 
@@ -743,11 +800,6 @@ state_machine = StateMachine()
 # Instantiate remote monitor managing the heartbeat and sys_info messages when wifi state changes
 remote_monitor = RMService()
 
-# do self test of leds, after StateMachine is started
-# if not leds.selftest():
-#     oradio_log.critical("LEDControl selftest FAILED")
-#     state_machine.transition("StateError")
-
 # Instantiate spotify
 spotify_connect = SpotifyConnect(shared_queue)
 
@@ -756,54 +808,7 @@ oradio_usb_service = USBService(shared_queue)
 # sync the usb_present tracker
 sync_usb_presence_from_service()
 
-# ----------------- Touch buttons -----------------
-# Thread-safety for transitions (shared with volume callbacks)
-sm_lock = threading.RLock()
-
-def _go(state: str) -> None:
-    with sm_lock:
-        state_machine.transition(state)
-
-# --- Touch button policy wiring ---
-def _on_play_pressed() -> None:
-    _go("StatePlay")
-
-def _on_stop_pressed() -> None:
-    _go("StateStop")
-
-def _on_preset1_pressed() -> None:
-    _go("StatePreset1")
-
-def _on_preset2_pressed() -> None:
-    _go("StatePreset2")
-
-def _on_preset3_pressed() -> None:
-    _go("StatePreset3")
-
-def _on_play_long_pressed(_btn: str) -> None:
-    # Long-press Play starts the web service (guarded by SM + lock)
-    with sm_lock:
-        state_machine.start_webservice()
-# --- end wiring ---
-
-# Initialize TouchButtons with callbacks
-touch_buttons = TouchButtons(
-    on_press={
-        "Play": _on_play_pressed,
-        "Stop": _on_stop_pressed,
-        "Preset1": _on_preset1_pressed,
-        "Preset2": _on_preset2_pressed,
-        "Preset3": _on_preset3_pressed,
-    },
-    on_long_press={
-        "Play": _on_play_long_pressed,  # only Play supports long press for now
-    }
-)
-
-if not touch_buttons.selftest():
-    oradio_log.critical("TouchButtons selftest FAILED")
-    state_machine.transition("StateError")
-
+touch_buttons = TouchButtons(shared_queue)
 # ----------- Volume Control -----------------
 
 volume_control = VolumeControl(shared_queue)

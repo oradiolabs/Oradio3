@@ -23,17 +23,16 @@ Created on January 29, 2025
     * Oneshot blink
 
 """
-import time
 from threading import Thread, Timer, Event
-
+from singleton import singleton
 ##### oradio modules ####################
 from oradio_logging import oradio_log
 from gpio_service import GPIOService
 
 ##### GLOBAL constants ####################
-from oradio_const import (LED_NAMES, GREEN, YELLOW, RED, NC,
-                          DEBUGGER_NOT_CONNECTED, DEBUGGER_ENABLED )
+from oradio_const import (LED_NAMES)
 
+@singleton
 class LEDControl:
     """
     Control the LEDs:
@@ -59,11 +58,12 @@ class LEDControl:
             led_name (str): [precondition] shall be [ LED_PLAY | LED_STOP |
                                                     LED_PRESET1 | LED_PRESET2 | LED_PRESET3] 
         """
-        if led_name not in LED_NAMES:
+        if led_name in LED_NAMES:
+            self._stop_blink(led_name)
+            self.leds_driver.set_led_off(led_name)
+            oradio_log.debug("%s turned off", led_name)
+        else:
             oradio_log.error("Invalid LED name: %s", led_name)
-        self._stop_blink(led_name)
-        self.leds_driver.set_led_off(led_name)
-        oradio_log.debug("%s turned off", led_name)
 
     def turn_on_led(self, led_name:str) -> None:
         """
@@ -72,13 +72,13 @@ class LEDControl:
             led_name (str): [precondition] shall be [ LED_PLAY | LED_STOP |
                                                     LED_PRESET1 | LED_PRESET2 | LED_PRESET3] 
         """
-        if led_name not in LED_NAMES:
+        if led_name in LED_NAMES:
+            # leds off with an implicit stop blinking silently then light it
+            self.turn_off_led(led_name)
+            self.leds_driver.set_led_on(led_name)
+            oradio_log.debug("%s turned on", led_name)
+        else:
             oradio_log.error("Invalid LED name: %s", led_name)
-
-        # leds off with an implicit stop blinking silently then light it
-        self.turn_off_led(led_name)
-        self.leds_driver.set_led_on(led_name)
-        oradio_log.debug("%s turned on", led_name)
 
     def turn_off_all_leds(self) ->None:
         """
@@ -125,11 +125,10 @@ class LEDControl:
         else:
             # no valid period, no timer started
             oradio_log.warning("Invalid period time of %f for oneshot of led: %s",period, led_name)
-            period = 0
 
     def control_blinking_led(self,
                              led_name: str,
-                             cycle_time:float = None) -> None:
+                             cycle_time:float = 2) -> None:
         """
         Blink the specified led,
         An Event is used for blink timing and instant stop, 
@@ -139,7 +138,7 @@ class LEDControl:
             cycle_time (float) = duration of one complete cycle for blinking  
         """
 
-        def _blink():
+        def _blink(stop_evt: Event):
             """
             cycle_time (float) = 
             _________|^^^^^^^^^^^|____________|^^^^^^^^^^^^|____________|^^
@@ -156,32 +155,23 @@ class LEDControl:
                     break
             self.leds_driver.set_led_off(led_name)
 
-        if led_name not in LED_NAMES:
-            oradio_log.error("Invalid LED name: %s", led_name)
-            return False
-
-        # stop and remove any existing blink for selected led
-        running_stop_evt = self.blink_stop_events.pop(led_name, None)
-        if running_stop_evt:
-            running_stop_evt.set()
-        active_blinking_thread = self.blinking_threads.pop(led_name, None)
-        if active_blinking_thread:
-            active_blinking_thread.join()
-
         # if no cycle_time, just turn off selected LED
-        if not cycle_time:
+        if cycle_time is not None and cycle_time >0:
+            if led_name in LED_NAMES:
+                # stop and remove any existing blink for selected led
+                self._stop_blink(led_name)
+                # start new blink thread for selected led
+                stop_evt = Event()
+                self.blink_stop_events[led_name] = stop_evt
+                thread = Thread(target=_blink, args=(stop_evt,), daemon=True)
+                thread.start()
+                self.blinking_threads[led_name] = thread
+                oradio_log.debug("%s blinking started: %.3fs cycle", led_name, cycle_time)
+            else:
+                oradio_log.error("Invalid LED name: %s", led_name)
+        else:
             self.turn_off_led(led_name)
             oradio_log.debug("%s blinking stopped and turned off", led_name)
-            return False
-
-        # start new blink thread
-        stop_evt = Event()
-        self.blink_stop_events[led_name] = stop_evt
-        thread = Thread(target=_blink, daemon=True)
-        thread.start()
-        self.blinking_threads[led_name] = thread
-        oradio_log.debug("%s blinking started: %.3fs cycle", led_name, cycle_time)
-        return True
 
     def _stop_blink(self, led_name):
         """
@@ -190,7 +180,6 @@ class LEDControl:
             led_name (str): [precondition] shall be [ LED_PLAY | LED_STOP |
                                                     LED_PRESET1 | LED_PRESET2 | LED_PRESET3] 
         """
-
         # signal any blink thread to stop
         running_stop_event = self.blink_stop_events.pop(led_name, None)
         if running_stop_event:

@@ -155,7 +155,7 @@ def _single_led_test(test_gpio:GPIOService) ->None:
     #             code is still readable and not complex
     _all_leds_off(test_gpio)
     # prepare a option list`
-    led_name_option = ["Quit"] + LED_NAMES
+    led_name_option = ["Quit"] + LED_NAMES + ["LedUnknown"]
     selection_done = False
     while not selection_done:
         #Show test menu with the selection options
@@ -166,10 +166,14 @@ def _single_led_test(test_gpio:GPIOService) ->None:
             case 0:
                 print("\nReturning to previous selection...\n")
                 selection_done = True
-            case 1 | 2 | 3 | 4 | 5: # 5 leds
-                selected_led_name = LED_NAMES[led_choice-1]
+            case 1 | 2 | 3 | 4 | 5 | 6: # 5 leds + 1 unknown
+                selected_led_nr = led_choice-1
                 selection_done = True
-                print(f"\nThe selected LED is {selected_led_name} using pin {LEDS[led_name]}\n")
+                if led_choice == 6:
+                    led_pin = -1
+                else:
+                    led_pin = LEDS[LED_NAMES[selected_led_nr]]
+                print(f"\nThe selected LED is {led_name_option[led_choice]} using pin {led_pin}\n")
             case _:
                 print("Please input a valid test option.")
     if led_choice == 0: #Quit
@@ -185,6 +189,11 @@ def _single_led_test(test_gpio:GPIOService) ->None:
         for idx, name in enumerate(led_pin_options, start=0):
             print(f"{NC} {idx} - {name}")
         led_choice = input_prompt_int("Select test option: ", default=-1)
+        if selected_led_nr == 5:
+            # to test for unknown LED_NAMES
+            selected_led_name = "LED_UNKNOWN"
+        else:
+            selected_led_name = LED_NAMES[selected_led_nr]
         match led_choice:
             case 0:
                 print("\nReturning to main menu selection...\n")

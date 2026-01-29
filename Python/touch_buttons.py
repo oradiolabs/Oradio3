@@ -21,7 +21,7 @@ Created on April 28, 2025
 from threading import Timer
 from multiprocessing import Queue
 from time import monotonic
-
+from singleton import singleton
 ##### oradio modules ####################
 from system_sounds import play_sound
 from module_test.touch_buttons_test_classes import TestGPIOService, TimingData
@@ -50,7 +50,7 @@ BUTTON_LONG_PRESSED = "button long pressed"
 ####################################################################################
 # motivation: In some cases the strings were easier to construct with .format()
 #####################################################################################
-
+@singleton
 class TouchButtons:
     """
     Handle GPIO-based touch buttons applying software debouncing.
