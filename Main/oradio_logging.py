@@ -38,7 +38,6 @@ import traceback
 import subprocess
 import faulthandler
 from os import popen
-from glob import glob
 from sys import stderr
 from time import sleep
 from pathlib import Path
