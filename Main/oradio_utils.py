@@ -47,7 +47,8 @@ from oradio_const import (
 )
 
 ##### LOCAL constants ####################
-JSON_SCHEMA_FILE = Path(__file__).parent.resolve() / "schemas.json"
+JSON_SCHEMAS_PATH = Path(__file__).parent.resolve()
+JSON_SCHEMAS_FILE = JSON_SCHEMAS_PATH / "schemas.json"
 
 INTERFACE   = "wlan0"           # Raspberry Pi wireless interface
 DNS_TIMEOUT = 0.5               # seconds
