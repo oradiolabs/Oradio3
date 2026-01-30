@@ -24,14 +24,13 @@ Created on January 17, 2025
         https://docs.python.org/3/howto/logging.html
         https://pypi.org/project/concurrent-log-handler/
 """
-import os
-import sys
 import json
 import socket
 import subprocess
+from os import popen
+from pathlib import Path
 from subprocess import run
 from typing import Any, Optional
-from pathlib import Path
 from pydantic import BaseModel, create_model
 import netifaces
 
@@ -48,7 +47,7 @@ from oradio_const import (
 )
 
 ##### LOCAL constants ####################
-JSON_SCHEMAS_FILE = os.path.abspath(os.path.join(sys.path[0], 'schemas.json'))
+JSON_SCHEMA_FILE = Path(__file__).parent.resolve() / "schemas.json"
 
 INTERFACE   = "wlan0"           # Raspberry Pi wireless interface
 DNS_TIMEOUT = 0.5               # seconds
@@ -58,7 +57,7 @@ DNS_HOST    = ("8.8.8.8", 53)   # google.com
 def get_serial() -> str:
     """Extract serial from Raspberry Pi."""
     # NOTE: Do not log to avoid getting stuck in an infinite loop in logging handler
-    return os.popen('vcgencmd otp_dump | grep "28:" | cut -c 4-').read().strip()
+    return popen('vcgencmd otp_dump | grep "28:" | cut -c 4-').read().strip()
 
 def safe_put(queue, msg, block=True, timeout=None):
     """
@@ -258,11 +257,14 @@ def store_presets(presets: dict[str, str]):
     Args:
         presets (dict): Dictionary containing keys 'preset1', 'preset2', 'preset3' with playlist values.
     """
-    # Ensure the USB_SYSTEM directory exists
     try:
+        # Create directory and any missing parents if needed
         Path(USB_SYSTEM).mkdir(parents=True, exist_ok=True)
+    except PermissionError as ex_err:
+        oradio_log.error("Cannot create directory '%' due to permission issues: %s", USB_SYSTEM, ex_err)
+        return
     except OSError as ex_err:
-        oradio_log.error("Presets cannot be saved. Error: %s", ex_err)
+        oradio_log.error("Cannot create directory '%s'. OS error: %s", USB_SYSTEM, ex_err)
         return
 
     # Prepare the data to save, ensuring all expected keys exist
