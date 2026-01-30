@@ -54,11 +54,22 @@ INTERFACE   = "wlan0"           # Raspberry Pi wireless interface
 DNS_TIMEOUT = 0.5               # seconds
 DNS_HOST    = ("8.8.8.8", 53)   # google.com
 
-# Move to remote monitoring locally, as that's the only place it is used
 def get_serial() -> str:
     """Extract serial from Raspberry Pi."""
-    # NOTE: Do not log to avoid getting stuck in an infinite loop in logging handler
-    return popen('vcgencmd otp_dump | grep "28:" | cut -c 4-').read().strip()
+    cmd = "vcgencmd otp_dump"
+    result, response = run_shell_script(cmd)
+
+    if not result:
+        oradio_log.error("Error during <%s> to get serial number, error: %s", cmd, response)
+        return "Unknown"
+
+    # Parse the output in Python
+    for line in response.splitlines():
+        if line.startswith("28:"):
+            serial = line[3:].strip()
+            return serial or "Unknown"
+
+    return "Unknown"
 
 def safe_put(queue, msg, block=True, timeout=None):
     """
