@@ -27,7 +27,6 @@ Created on January 17, 2025
 import json
 import socket
 import subprocess
-from os import popen
 from pathlib import Path
 from subprocess import run
 from typing import Any, Optional
