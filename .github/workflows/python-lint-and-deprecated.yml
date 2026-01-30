@@ -1,0 +1,106 @@
+name: Python Lint & Deprecated Check
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  lint-deprecated:
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+
+    - name: Install dependencies
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y \
+          pydevd \
+          python3-gi \
+          python3-dev \
+          python3-dbus \
+          python3-jinja2 \
+          python3-requests \
+          python3-watchdog \
+          python3-netifaces
+
+    - name: Run Linters and Deprecated Checks
+      run: |
+
+        # Disable immediate exit on error
+        set +e
+
+        # Set up Python virtual environment
+        python3 -m venv --system-site-packages ~/.venv
+        source ~/.venv/bin/activate
+
+        # Set PYTHONPATH
+        export PYTHONPATH="$GITHUB_WORKSPACE/Main:$GITHUB_WORKSPACE/.github/workflows:$GITHUB_WORKSPACE/module_test"
+
+        python -m pip install --upgrade pip
+        pip install -r .github/workflows/oradio_modules.txt
+
+        # Initialize output file
+        RESULT_FILE=lint_deprecated_result.txt
+        : > "$RESULT_FILE"
+
+        # Run pylint - outputs issues or success
+        echo "### 🧹 Pylint analysis results" >> "$RESULT_FILE"
+        pylint Python/*.py --rcfile=.github/workflows/.pylintrc --output-format=text >> "$RESULT_FILE"
+        count_pylint=$(tr -d '\r' < "$RESULT_FILE" | grep -Ec '^[^:]+:[0-9]+:[0-9]+: [A-Z][0-9]{4}:')
+
+        # Static deprecation check
+        echo "### 🧹 Ruff static deprecation analysis results" >> "$RESULT_FILE"
+        ruff check Python --select F,D,ERA --extend-ignore D203,D213 | grep -i 'deprecated' >> "$RESULT_FILE"
+        count_ruff=$(grep -i 'deprecated' "$RESULT_FILE" | wc -l | tr -d ' ')
+
+        # Also capture success
+        if [ "$count_ruff" -eq 0 ]; then
+            echo "Static deprecation check did not discover any warnings." >> "$RESULT_FILE"
+            echo >> "$RESULT_FILE"
+        fi
+
+        # Runtime deprecation check
+        echo "### 🧹 Runtime deprecation analysis results " >> "$RESULT_FILE"
+        python3 .github/workflows/deprecation_check.py >> "$RESULT_FILE"
+        count_runtime=$(grep 'DEPRECATION:' "$RESULT_FILE" | wc -l | tr -d ' ')
+
+        # Also capture success
+        if [ "$count_runtime" -eq 0 ]; then
+            echo "Runtime deprecation check did not discover any warnings." >> "$RESULT_FILE"
+        fi
+
+        # Determine emoji + color
+        pylint_emoji=$([ "$count_pylint" -eq 0 ] && echo "✅" || echo "❌")
+        pylint_color=$([ "$count_pylint" -eq 0 ] && echo "green" || echo "red")
+
+        ruff_emoji=$([ "$count_ruff" -eq 0 ] && echo "✅" || echo "⚠️")
+        ruff_color=$([ "$count_ruff" -eq 0 ] && echo "green" || echo "orange")
+
+        runtime_emoji=$([ "$count_runtime" -eq 0 ] && echo "✅" || echo "⚠️")
+        runtime_color=$([ "$count_runtime" -eq 0 ] && echo "green" || echo "orange")
+
+        # Write summary to GitHub
+        echo "### 🧹 Python Lint & Deprecated Summary" >> $GITHUB_STEP_SUMMARY
+        echo "<span style='color:$pylint_color'>Pylint: $count_pylint $pylint_emoji</span> | <span style='color:$ruff_color'>Ruff: $count_ruff $ruff_emoji</span> | <span style='color:$runtime_color'>Runtime: $count_runtime $runtime_emoji</span>" >> $GITHUB_STEP_SUMMARY
+
+        # Exit 0 if all counts are 0, otherwise exit 1
+        if [ "$count_pylint" -eq 0 ] && [ "$count_ruff" -eq 0 ] && [ "$count_runtime" -eq 0 ]; then
+            echo "All checks passed. Exiting with code 0."
+            exit 0
+        else
+            echo "One or more checks failed. Exiting with code 1."
+            exit 1
+        fi
+
+      shell: bash
+
+    - name: Upload analysis results
+      if: always()
+      uses: actions/upload-artifact@v4
+      with:
+        name: lint_deprecated_result.txt
+        path: lint_deprecated_result.txt
+        if-no-files-found: ignore

@@ -48,6 +48,5 @@ extension-pkg-allow-list=netifaces
 
 [REPORTS]
 # Cleaner output: no full reports, just messages and scores
-output-format=colorized
 reports=no
 score=yes
