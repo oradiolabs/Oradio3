@@ -115,11 +115,11 @@ PLAY_WEBSERVICE_STATES = {"StatePlay", "StatePreset1", "StatePreset2", "StatePre
 LOW_POWER_STATES = {"StateIdle"}  # only Idle uses nominal voltage (9V)to reduce power consumption
 
 # try to setup a remote debugger connection, if enabled in remote_debugger.py
-debugger_status, connection_status = setup_remote_debugging()
-if debugger_status == DEBUGGER_ENABLED:
-    if connection_status == DEBUGGER_NOT_CONNECTED:
-        print(f"{RED}A remote debugging error, check the remote IP connection {NC}")
-        sys.exit()
+#debugger_status, connection_status = setup_remote_debugging()
+#if debugger_status == DEBUGGER_ENABLED:
+#    if connection_status == DEBUGGER_NOT_CONNECTED:
+#        print(f"{RED}A remote debugging error, check the remote IP connection {NC}")
+#        sys.exit()
 
 ##################Signal Primitives#########
 
@@ -827,25 +827,3 @@ threading.Thread(
     target=process_messages, args=(shared_queue,), daemon=True
 ).start()
 
-
-def _brutal_exit() -> None:
-    """Terminate the process immediately."""
-    try:
-        oradio_log.debug("Exiting on Ctrl-C")
-    except (NameError, AttributeError):
-        # Logging not available or not initialized
-        pass
-    os._exit(0)
-
-def main() -> None:
-    """Main loop for oradio_control."""
-    # Handle Ctrl-C manually
-    signal.signal(signal.SIGINT, lambda _signum, _frame: _brutal_exit())
-
-    oradio_log.debug("Oradio control main loop running")
-    while True:
-        time.sleep(1)
-
-if __name__ == "__main__":
-
-    main()

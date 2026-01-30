@@ -18,6 +18,11 @@ Created on November 29, 2025
 @summary:
     Oradio GPIO low-level access module
     For I/O pins related to buttons and leds
+    Following services provided:
+        * Set LED pin On/Off based on LED_NAMES
+        * Get state of a LED pin based on LED_NAMES
+        * Get state of a BUTTON pin based on BUTTON_NAMES
+        * Set the callback for buttons related edge events
 
 @references:
     https://www.raspberrypi.com/documentation/computers/raspberry-pi.html#gpio
@@ -193,9 +198,9 @@ class GPIOService:
                                                    BUTTON_PRESET3 ]
         :Returns
             button_state = True/False | None
-            True = BUTTON is ON (so pressed/touched)
-            False = BUTTON is OFF (so not pressed/touched)
-            None = Unknown button name
+                True = BUTTON is ON (so pressed/touched)
+                False = BUTTON is OFF (so not pressed/touched)
+                None = Unknown button name
         """
         if button_name not in BUTTON_NAMES:
             oradio_log.error(f"Unknown button name:{button_name}")
@@ -240,7 +245,9 @@ class GPIOService:
         button_data["name"]  = button_name
         if self.edge_event_callback:
             if self.GPIO_MODULE_TEST == TEST_ENABLED:
-                # When TEST_ENABLED, the test requires the button_data to be BUTTON_PRESSED
+                # When TEST_ENABLED, the module test requires the button_data, being:
+                # button state = BUTTON_PRESSED
+                # timing data = current time-stamp
                 button_data["state"] = BUTTON_PRESSED
                 button_data["data"] = button_event_ts
             self.edge_event_callback(button_data)

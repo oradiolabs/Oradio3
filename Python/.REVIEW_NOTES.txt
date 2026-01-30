@@ -42,25 +42,44 @@ T - Review na alle module wijzigingen.
 Review Onno
 gpio_service.py
 - Ik zie de stand-alone tests van modules liever basic, puur op 'werkt het' gericht
-- Uitgebreidere testen, zoals performance en robuustheid graag in aparte module test files zetten
+  Uitgebreidere testen, zoals performance en robuustheid graag in aparte module test files zetten
+  Zet test code in test file en gebruik override: 'class GPIOServiceTest(GPIOService)'  
+  	Henk: gedaan
 - Gebruik Google Docstrings style zoals al in veel ander modules.
+	Henk: gedaan
 - Wees consistent in je gebruik van lege regels.
-- Je hebt heel veel 1-regelige methods, maar je checkt nergens of de argumenten ok zijn, of de actie succes/fail geeft. Graag even toelichten waarom.
+	Henk: gedaan
+- Je hebt heel veel 1-regelige methods, maar je checkt nergens of de argumenten ok zijn, of de actie succes/fail geeft. 
+	Graag even toelichten waarom.
+	Henk: ik heb de check op argumenten er weer bijgezet, de post-conditie zou dwingend moeten zijn om geen extra test nodig te maken
+		  Maar die extra 2 regels code maken het ook niet uit.
 - Waarom gebruik je voor docstrings de ene keer ''', de andere keer """ ?
+	Henk: erfenis van de "oude code". Heb nu consequent """ gebruikt.
 - De ene keer gebruik je dubbel-quotes voor variabelen, de andere keer single quotes. Waarom?
+	Henk: ook weer erfenis van de oude code. Heb het nu consequent op dubbel-qoutes gezet waar nodig
 - Pylint issues fixen
+	Henk: pylint disable issues verwijderd,eentje gebleven nl pylint: disable=protected-access 
 - try/export rond RPi import GPIO
+	Henk: verwijderd
 - Vele ### zijn verwarrend
+	Henk: verwijderd
 - Geen exceptions om fouten te propageren,is onderdeel van issue #408
+	Henk: exceptions verwijderd
 - docstrings verduidelijken in geval parameter check niet nodig is
+	Henk: in post-condition opgenomen, maar toch ook maar de check toegevoegd
 - Zet een locks daar waar potentiele conflicten mogelijk zijn
 - led_state in get_led_state() in return statement zetten
+	Henk: gedaan
 - state in get_button_state() in return statement zetten
+	Henk: gedaan
 - if callable gebruiken als je op een geldige callback functie wilt testen
+	Henk: gedaan
 - ipv expliciete True/False returns kan je ook 'return callable(callback)
+	Henk: geen returns meer, is voor later. Alleen error-log
 - def _edge_callback return code klopt niet mbt typehint in docstring
+	Henk: gedaan
 - toelichting in _edge_callback hoe button_data{} gebruikt wordt als TEST_ENABLED is
-- Zet test code in test file en gebruik override: 'class GPIOServiceTest(GPIOService)'
+	Henk: gedaan
 
 touch_buttons.py
 - Ik zie de stand-alone tests van modules liever basic, puur op 'werkt het' gericht

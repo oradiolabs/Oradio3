@@ -113,10 +113,6 @@ def _show_and_measure_blinking(led_control:LEDControl,
     :return 
         state_time = the measured ON or OFF period of blink.
     '''
-    # pylint: disable=too-many-branches
-    ####################################################################
-    # motivation: OK, but branches are rather simple and clearly defined
-    ######################################################################
     def round_down(num, decimals):
         '''
         round down float to nearest value, respecting the float decimals
@@ -183,10 +179,6 @@ def _single_led_test(led_control:LEDControl,
                             5=LED_UNKNOWN
         led-driver = instance of LEDControl to use
     '''
-    # pylint: disable=too-many-branches
-    ####################################################################
-    # motivation: OK, but branches are rather simple and clearly defined
-    ######################################################################
     if test_led_nr == 5:
         # to test for unknown LED_NAMES
         selected_led = "LED_UNKNOWN"
@@ -247,18 +239,6 @@ def _single_led_test(led_control:LEDControl,
 
 def _start_module_test():
     """Show menu with test options"""
-    # pylint: disable=too-many-branches
-    ####################################################################
-    # motivation:
-    # probably caused by match-case,
-    # but branches are rather simple and clearly defined
-    ######################################################################
-#        try:
-#            led_control = LEDControl()
-#        except (ValueError) as ex_err:
-#            print(f"Initialization failed: {ex_err}")
-#            return
-
     led_control = LEDControl()
     test_options = ["Quit"] + \
                     ["Turn all LEDs OFF"] + \

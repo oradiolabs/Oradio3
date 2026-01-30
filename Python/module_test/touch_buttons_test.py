@@ -210,11 +210,6 @@ def _all_button_burst_test(test_buttons:TouchButtons, burst_freq: float) -> None
     """
     test_buttons._reset_timing_data()
     nr_of_events = 0
-    # pylint: disable=protected-access
-    ###################################################################################
-    # motivation: the method <_button_event_callback> has a local scope, but this method
-    # is used within this test module, so is for testing purposes
-    ###################################################################################
     test_buttons.button_gpio.set_button_edge_event_callback(test_buttons._button_event_callback)
     test_buttons.button_gpio.GPIO_MODULE_TEST = TEST_ENABLED
     test_buttons.BUTTONS_MODULE_TEST = TEST_ENABLED
@@ -236,7 +231,7 @@ def _all_button_burst_test(test_buttons:TouchButtons, burst_freq: float) -> None
     else:
         print("The module test is not enabled")
 
-def button_press_release_callback_test(test_buttons:TouchButtons) ->None:
+def _btn_press_release_cb_test(test_buttons:TouchButtons) ->None:
     """
     Button press/release test for BUTTON_STOP, with user specified press-ON time.
     Stops when press-ON timing = 0
@@ -279,13 +274,30 @@ def button_press_release_callback_test(test_buttons:TouchButtons) ->None:
                                                         button_pressed_time)
     _stop_all_long_press_timer(test_buttons)
 
+def _burst_test_play_button(test_buttons:TouchButtons, test_choice:int):
+    """
+    Run a burst test for the BUTTON_PLAY with a custom frequency
+    :Args
+        test_buttons: instance used for testing
+        test_choice: the requested test number = [3...6]
+    """
+
+    if test_choice in (3,5): # Needed for input text
+        condition = '>'
+    else:
+        condition = '<'
+    input_text = (f"Specify the event frequency, must be {condition}"
+                  f"{int(1000/BUTTON_DEBOUNCE_TIME)} :")
+    burst_freq = input_prompt_float( input_text, default=2.0)
+    if burst_freq == 0:
+        print(f"{YELLOW}invalid frequency{NC}")
+    else:
+        _single_button_play_burst_test(test_buttons,burst_freq)
+
 def _start_module_test():
     """
     Show menu with test options
     """
-    # pylint: disable=too-many-branches
-    # motivation:
-    # Probably too many, but the code is still readable and not complex
     shared_queue = Queue()
 
     TouchButtons.BUTTONS_MODULE_TEST = TEST_ENABLED
@@ -295,11 +307,6 @@ def _start_module_test():
     Thread(target=_check_for_new_message_in_queue,
                     args=(shared_queue,test_buttons),
                     daemon=True).start()
-    # pylint: disable=line-too-long
-    ###################################################################################
-    # motivation:
-    # understand, but is only some text to be printed, no code
-    ##################################################################################
     test_options = ["Quit"] + \
                     ["Pressing a button and check message queue "] + \
                     ["Send for each button a button callback and check message queue"] +\
@@ -328,37 +335,12 @@ def _start_module_test():
                 print(f"\n running {test_options[2]}\n")
                 _callback_test(test_buttons)
                 _ = input("Press any Return key to stop test")
-            case 3 | 4:
-                if test_choice == 3:
-                    print(f"\n running {test_options[3]}\n")
-                    condition = '>'
-                else:
-                    print(f"\n running {test_options[4]}\n")
-                    condition = '<'
-                input_text = (f"Specify the event frequency, must be {condition}"
-                              f"{int(1000/BUTTON_DEBOUNCE_TIME)} :")
-                burst_freq = input_prompt_float( input_text, default=2.0)
-                if burst_freq == 0:
-                    print(f"{YELLOW}invalid frequency{NC}")
-                else:
-                    _single_button_play_burst_test(test_buttons,burst_freq)
-            case 5 | 6:
-                if test_choice == 5:
-                    print(f"\n running {test_options[3]}\n")
-                    condition = '>'
-                else:
-                    print(f"\n running {test_options[4]}\n")
-                    condition = '<'
-                input_text = (f"Specify the event frequency, must be {condition}"
-                              f"{int(1000/BUTTON_DEBOUNCE_TIME)} :")
-                burst_freq = input_prompt_float( input_text, default=2.0)
-                if burst_freq == 0:
-                    print(f"{YELLOW}invalid frequency{NC}")
-                else:
-                    _all_button_burst_test(test_buttons, burst_freq)
+            case 3 | 4 | 5 | 6:
+                print(f"\n running {test_options[test_choice]}\n")
+                _burst_test_play_button(test_buttons,test_choice)
             case 7:
                 print(f"\n running {test_options[7]}\n")
-                button_press_release_callback_test(test_buttons)
+                _btn_press_release_cb_test(test_buttons)
                 _ = input("Press any Return key to stop test")
             case _:
                 print("Please input a valid number.")
