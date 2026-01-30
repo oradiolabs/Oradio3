@@ -240,7 +240,7 @@ if [ "$1" != "--continue" ]; then
 	grep -qxF "source ~/.venv/bin/activate" ~/.bashrc || echo "source ~/.venv/bin/activate" >> ~/.bashrc
 
 	# Set paths to python scripts if not yet present
-	grep -qxF "export PYTHONPATH=$PYTHONPATH" ~/.bashrc || echo PYTHONPATH="export $PYTHONPATH"  >> ~/.bashrc
+	grep -qxF "export PYTHONPATH=$PYTHONPATH" ~/.bashrc || echo "export PYTHONPATH=$PYTHONPATH"  >> ~/.bashrc
 
 	# Progress report
 	echo -e "${GREEN}Python virtual environment configured${NC}"
