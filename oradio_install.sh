@@ -44,7 +44,7 @@ SPOTIFY_PATH=$SCRIPT_PATH/Spotify
 RESOURCES_PATH=$SCRIPT_PATH/install_resources
 
 # Constant where Python looks for importing
-PYTHONPATH=$MAIN_PATH:$SCRIPT_PATH/.github/workflows:$SCRIPT_PATH/module_test
+PYTHONPATH=$MAIN_PATH:$SCRIPT_PATH/.github/workflows
 
 # Ensure logging directory exists
 mkdir -p "$LOGGING_PATH" || { echo -e "${RED}Failed to create directory $LOGGING_PATH${NC}"; exit 1; }
