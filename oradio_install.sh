@@ -34,6 +34,9 @@ fi
 SCRIPT_PATH=$HOME/Oradio3
 SCRIPT_NAME=$(basename $BASH_SOURCE)
 
+# Working directory
+cd $SCRIPT_PATH
+
 # Location of Oradio3 program
 MAIN_PATH=$SCRIPT_PATH/Main
 # Location of log files
