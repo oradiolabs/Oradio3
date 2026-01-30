@@ -352,7 +352,6 @@ class StateMachine:
             handler()
         # outside lock (more responsive, and power policy can be changed even when it is playing)
         self._apply_power_policy_for_state(state_to_handle)
-    
 
     # --- State handlers ---
 

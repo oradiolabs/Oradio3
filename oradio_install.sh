@@ -30,21 +30,21 @@ if [ -z "${BASH:-}" ]; then
 	exit 1
 fi
 
-# Get the script name and path
+# Get the script path and name
+SCRIPT_PATH=$HOME/Oradio3
 SCRIPT_NAME=$(basename $BASH_SOURCE)
-SCRIPT_PATH=$( cd -- "$( dirname -- "${BASH_SOURCE}" )" &> /dev/null && pwd )
 
-# Working directory
-cd $SCRIPT_PATH
-
-# Location of Python files
-PYTHON_PATH=$SCRIPT_PATH/Python
+# Location of Oradio3 program
+MAIN_PATH=$SCRIPT_PATH/Main
 # Location of log files
 LOGGING_PATH=$SCRIPT_PATH/logging
 # Spotify directory
 SPOTIFY_PATH=$SCRIPT_PATH/Spotify
 # Location of files to install
 RESOURCES_PATH=$SCRIPT_PATH/install_resources
+
+# Constant where Python looks for importing
+PYTHONPATH=$MAIN_PATH:$SCRIPT_PATH/.github/workflows
 
 # Ensure logging directory exists
 mkdir -p "$LOGGING_PATH" || { echo -e "${RED}Failed to create directory $LOGGING_PATH${NC}"; exit 1; }
@@ -102,7 +102,7 @@ function install_resource {
 		# Replace placeholders
         sed -i "s/PLACEHOLDER_USER/$(id -un)/g" "$SRC"
         sed -i "s/PLACEHOLDER_GROUP/$(id -gn)/g" "$SRC"
-		for VAR_NAME in PYTHON_PATH SPOTIFY_PATH LOGGING_PATH LOGFILE_USB LOGFILE_MPD LOGFILE_INSTALL LOGFILE_SPOTIFY LOGFILE_TRACEBACK; do
+		for VAR_NAME in MAIN_PATH SPOTIFY_PATH LOGGING_PATH LOGFILE_USB LOGFILE_MPD LOGFILE_INSTALL LOGFILE_SPOTIFY LOGFILE_TRACEBACK; do
 			VALUE="${!VAR_NAME}"
 			# Escape & because sed treats it specially
 			ESCAPED_VALUE=$(echo "$VALUE" | sed 's/[&]/\\&/g')
@@ -236,8 +236,11 @@ if [ "$1" != "--continue" ]; then
 	# Activate the python virtual environment in current environment
 	source ~/.venv/bin/activate
 
-	# Activate python virtual environment when logging in: add if not yet present
-	sudo grep -qxF 'source ~/.venv/bin/activate' ~/.bashrc || echo 'source ~/.venv/bin/activate' >> ~/.bashrc
+	# Activate python virtual environment when logging in if not yet present
+	grep -qxF "source ~/.venv/bin/activate" ~/.bashrc || echo "source ~/.venv/bin/activate" >> ~/.bashrc
+
+	# Set paths to python scripts if not yet present
+	grep -qxF "export PYTHONPATH=$PYTHONPATH" ~/.bashrc || echo "export PYTHONPATH=$PYTHONPATH"  >> ~/.bashrc
 
 	# Progress report
 	echo -e "${GREEN}Python virtual environment configured${NC}"

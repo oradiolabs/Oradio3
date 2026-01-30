@@ -17,9 +17,8 @@ Created on Januari 30, 2025
 @status:        Development
 @summary:       Oradio System Sound Player
 """
-import os
-import sys
 import subprocess
+from pathlib import Path
 
 ##### oradio modules ####################
 from oradio_logging import oradio_log
@@ -51,28 +50,28 @@ from oradio_const import (
 # ALSA device for playing system sounds
 SYSTEM_SOUND_SINK = "SysSound_in"
 # Directory containing system sound files
-SOUND_FILES_DIR = os.path.abspath(os.path.join(sys.path[0], '..', 'system_sounds'))
+SOUND_FILES_PATH = (Path(__file__).parent.parent / "system_sounds").resolve()
 SOUND_FILES = {
     # Sounds
-    SOUND_START: f"{SOUND_FILES_DIR}/StartUp.wav",
-    SOUND_STOP:  f"{SOUND_FILES_DIR}/UIT.wav",
-    SOUND_PLAY:  f"{SOUND_FILES_DIR}/AAN.wav",
-    SOUND_CLICK: f"{SOUND_FILES_DIR}/click.wav",
+    SOUND_START: f"{SOUND_FILES_PATH}/StartUp.wav",
+    SOUND_STOP:  f"{SOUND_FILES_PATH}/UIT.wav",
+    SOUND_PLAY:  f"{SOUND_FILES_PATH}/AAN.wav",
+    SOUND_CLICK: f"{SOUND_FILES_PATH}/click.wav",
     # Announcements
-    SOUND_NEXT:         f"{SOUND_FILES_DIR}/Next_melding.wav",
-    SOUND_PRESET1:      f"{SOUND_FILES_DIR}/Preset1_melding.wav",
-    SOUND_PRESET2:      f"{SOUND_FILES_DIR}/Preset2_melding.wav",
-    SOUND_PRESET3:      f"{SOUND_FILES_DIR}/Preset3_melding.wav",
-    SOUND_SPOTIFY:      f"{SOUND_FILES_DIR}/Spotify_melding.wav",
-    SOUND_USB:          f"{SOUND_FILES_DIR}/USBPresent_melding.wav",
-    SOUND_NO_USB:       f"{SOUND_FILES_DIR}/NoUSB_melding.wav",
-    SOUND_AP_START:     f"{SOUND_FILES_DIR}/OradioAPstarted_melding.wav",
-    SOUND_AP_STOP:      f"{SOUND_FILES_DIR}/OradioAPstopped_melding.wav",
-    SOUND_WIFI:         f"{SOUND_FILES_DIR}/WifiConnected_melding.wav",
-    SOUND_NO_WIFI:      f"{SOUND_FILES_DIR}/WifiNotConnected_melding.wav",
-    SOUND_NO_INTERNET:  f"{SOUND_FILES_DIR}/NoInternet_melding.wav",
-    SOUND_NEW_PRESET:   f"{SOUND_FILES_DIR}/NewPlaylistPreset_melding.wav",
-    SOUND_NEW_WEBRADIO: f"{SOUND_FILES_DIR}/NewPlaylistWebradio_melding.wav",
+    SOUND_NEXT:         f"{SOUND_FILES_PATH}/Next_melding.wav",
+    SOUND_PRESET1:      f"{SOUND_FILES_PATH}/Preset1_melding.wav",
+    SOUND_PRESET2:      f"{SOUND_FILES_PATH}/Preset2_melding.wav",
+    SOUND_PRESET3:      f"{SOUND_FILES_PATH}/Preset3_melding.wav",
+    SOUND_SPOTIFY:      f"{SOUND_FILES_PATH}/Spotify_melding.wav",
+    SOUND_USB:          f"{SOUND_FILES_PATH}/USBPresent_melding.wav",
+    SOUND_NO_USB:       f"{SOUND_FILES_PATH}/NoUSB_melding.wav",
+    SOUND_AP_START:     f"{SOUND_FILES_PATH}/OradioAPstarted_melding.wav",
+    SOUND_AP_STOP:      f"{SOUND_FILES_PATH}/OradioAPstopped_melding.wav",
+    SOUND_WIFI:         f"{SOUND_FILES_PATH}/WifiConnected_melding.wav",
+    SOUND_NO_WIFI:      f"{SOUND_FILES_PATH}/WifiNotConnected_melding.wav",
+    SOUND_NO_INTERNET:  f"{SOUND_FILES_PATH}/NoInternet_melding.wav",
+    SOUND_NEW_PRESET:   f"{SOUND_FILES_PATH}/NewPlaylistPreset_melding.wav",
+    SOUND_NEW_WEBRADIO: f"{SOUND_FILES_PATH}/NewPlaylistWebradio_melding.wav",
 }
 
 def play_sound(sound_key: str) -> None:
@@ -89,8 +88,8 @@ def play_sound(sound_key: str) -> None:
         return
 
     # Check if sound file exists
-    if not os.path.exists(sound_file):
-        oradio_log.debug("Sound file does not exist: %s", sound_file)
+    if not Path(sound_file).is_file():
+        oradio_log.debug("Sound file does not exist or is not a file: %s", sound_file)
         return
 
     # Command to play sound

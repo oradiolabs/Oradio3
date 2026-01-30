@@ -32,16 +32,15 @@ Created on January 17, 2025
     https://docs.python.org/3/howto/logging.html
     https://pypi.org/project/concurrent-log-handler/
 """
-import os
-import sys
 import json
 import logging
 import traceback
 import subprocess
 import faulthandler
-from glob import glob
+from os import popen
 from sys import stderr
 from time import sleep
+from pathlib import Path
 from queue import Queue, Full
 from datetime import datetime
 from contextlib import ExitStack
@@ -64,8 +63,8 @@ from oradio_const import (
 ORADIO_LOGGER    = "oradio"
 ORADIO_LOG_LEVEL = DEBUG
 # Log file constants
-ORADIO_LOG_DIR      = os.path.abspath(os.path.join(sys.path[0], '..', 'logging'))
-ORADIO_LOG_FILE     = ORADIO_LOG_DIR + '/oradio.log'
+ORADIO_LOG_PATH     = (Path(__file__).parent.parent / "logging").resolve()
+ORADIO_LOG_FILE_STR = str(ORADIO_LOG_PATH / 'oradio.log')
 ORADIO_LOG_FILESIZE = 512 * 1024   # 512 KB
 ORADIO_LOG_BACKUPS  = 1
 # Items to queue when busy
@@ -92,7 +91,7 @@ faulthandler.enable()
 
 def _get_rpi_serial() -> str:
     """Extract serial from Raspberry Pi."""
-    serial = os.popen('vcgencmd otp_dump | grep "28:" | cut -c 4-').read().strip()
+    serial = popen('vcgencmd otp_dump | grep "28:" | cut -c 4-').read().strip()
     return serial or "Unsupported platform"
 
 def _has_internet() -> bool:
@@ -228,13 +227,13 @@ class RemotePostSafeHandler(SafeHandler):
                         })
         }
 
-        # Compile files in logging directory for PIST request
-        send_files = glob(ORADIO_LOG_DIR + "/*.log")
+        # Compile files in logging directory for POST request
+        send_files = ORADIO_LOG_PATH.glob("*.log")
 
         try:
             # Use ExitStack to safely open multiple files
             with ExitStack() as stack:
-                payload_files = {f: (f, stack.enter_context(open(f, "rb"))) for f in send_files}
+                payload_files = {f.name: (f.name, stack.enter_context(f.open("rb"))) for f in send_files}
 
                 # Retry loop
                 for attempt in range(1, MAX_RETRIES + 1):
@@ -269,7 +268,7 @@ class SafeLogger:
 
         if not self._logger.handlers:
             # Ensure log directory exists
-            os.makedirs(ORADIO_LOG_DIR, exist_ok=True)
+            ORADIO_LOG_PATH.mkdir(parents=True, exist_ok=True)
 
             # Async logging queue handler
             queue_handler = SafeQueueHandler(Queue(maxsize=ASYNC_QUEUE_SIZE))
@@ -283,7 +282,7 @@ class SafeLogger:
 
             # File handler with rotation
             file_handler = ConcurrentRotatingFileSafeHandler(
-                ORADIO_LOG_FILE,
+                ORADIO_LOG_FILE_STR,
                 ORADIO_LOG_FILESIZE,
                 ORADIO_LOG_BACKUPS,
             )
