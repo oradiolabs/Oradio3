@@ -1,0 +1,36 @@
+/*!
+ * @package:      Oradio3
+ * @author url:   https://oradiolabs.nl
+ * @author email: info at oradiolabs dot nl
+ * @copyright:    Stichting Oradio, All rights reserved.
+ * @license:      GNU General Public License version 3; https://www.gnu.org/licenses/gpl-3.0.html
+ */
+
+table {
+	width: 100%;							/* Table takes full width of container */
+	margin: var(--ElementSpacing) 0 0 0;	/* Adds spacing above the element to separate it from the element above */
+	border-collapse: collapse;				/* Remove spacing between cells */
+}
+
+th, td {
+	border: 1px solid var(--MiddleGrey);
+	padding: 8px;				/* spacing inside cells */
+	text-align: left;			/* Align text */
+}
+
+th {
+	color: var(--Alabaster); font-weight: bold;
+}
+
+td {
+	color: var(--Alabaster); font-weight: normal;
+}
+
+.col1 {
+	width: 1px;				/* Let content determine width */
+	white-space: nowrap;	/* Prevent line breaks inside the element */
+}
+
+.col2 {
+	width: 100%;			/* Use rest of space */
+}

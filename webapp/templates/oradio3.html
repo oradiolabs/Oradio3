@@ -1,0 +1,402 @@
+<!DOCTYPE html>
+<!--
+Design choices:
+ - Fixed header (top) and navigation (bottom), dynamic page in between.
+ - Navigation button images are dynamic: when page requires scrolling the images are hidden.
+ - Separation between elements is responsibility of element, is relative to the element above.
+ - Javascript depends on eelement grouping, id's and classes.
+-->
+<html lang="nl">
+	<head>
+		<meta charset="UTF-8">
+		<meta name="autofocus" content="false">
+		<meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+		<link rel="stylesheet" href="../static/css/fontawesome.min.css" />
+		<link rel="stylesheet" href="../static/css/regular.min.css" />
+		<link rel="stylesheet" href="../static/css/oradio3-new.css" />
+		<link rel="stylesheet" href="../static/css/network-new.css" />
+		<link rel="stylesheet" href="../static/css/buttons-new.css" />
+		<link rel="stylesheet" href="../static/css/playlists-new.css" />
+		<link rel="stylesheet" href="../static/css/status-new.css" />
+
+		<script src="../static/js/oradio3-new.js"></script>
+		<script src="../static/js/network-new.js" defer></script>
+		<script src="../static/js/buttons-new.js" defer></script>
+		<script src="../static/js/status-new.js" defer></script>
+
+		<!-- Convert template variables to Javascript -->
+		<script>
+			// Network page
+			const oldssid = {{ oldssid|tojson }};
+			let spotify = {{ spotify|tojson }};			// Updated by Javascript
+			// Buttons page
+			let playlists = {{ playlists|tojson }};		// Updated by Javascript
+			const directories = {{ directories|tojson }};
+		</script>
+
+		<title>Oradio3</title>
+	</head>
+	<body>
+		<!-- Waiting indicator -->
+		<img id="waiting" src="../static/waiting.gif" class="waiting" />
+
+		<!-- Header -->
+		<div class="header">
+			<img src="../static/logo.png" alt="Oradio logo">
+			<img src="../static/stop.png" alt="Stop" class="stop-btn" onclick="closeWebInterface()">
+		</div>
+
+		<!-- Navigation -->
+		<nav>
+			<button data-page="network">
+				<span><img src="../static/wifi.png" /><br></span>
+				<div>Netwerk</div>
+			</button>
+			<button data-page="buttons">
+				<span><img src="../static/buttons.png" /><br></span>
+				<div>Knoppen</div>
+			</button>
+			<button data-page="playlists">
+				<span><img src="../static/playlists.png" /><br></span>
+				<div>Lijsten</div>
+			</button>
+			<button data-page="status">
+				<span><img src="../static/status.png" /><br></span>
+				<div>Status</div>
+			</button>
+		</nav>
+
+		<!-- Network page -->
+		<div id="network" class="page">
+			<h1>Verbind Oradio met WiFi-netwerk</h1>
+			<div id="notification_oldssid" class="notification">
+				<!-- Will be filled by Javascript submitCredentials() -->
+			</div>
+
+			<!-- Network SSID -->
+			<div class="network custom-select">
+				<label for="SSIDs">Netwerk:</label>
+				<input
+					readonly
+					type="text"
+					id="SSIDs"
+					name="SSIDs"
+					aria-expanded="false"
+					aria-haspopup="listbox"
+					placeholder="Selecteer uw WiFi-netwerk"
+				/>
+				<span class="custom-icon">&#x25BC;</span> <!-- ▼ icon -->
+				<!-- Show network options -->
+				<div class="scrollbox" role="listbox">
+					<!-- Will be filled by Javascript -->
+				</div>
+			</div>
+
+			<!-- Password -->
+			<div id="password" class="pswrd">
+				<label for="pswd">Wachtwoord:</label>
+				<input
+					type="password"
+					id="pswd"
+					name="pswd"
+					placeholder="Voer WiFi-wachtwoord in"
+				/>
+				<span id="pswd-icon" class="custom-icon fa-regular fa-eye" />	<!-- 👁️ icon -->
+			</div>
+
+			<!-- Submit wifi credentials -->
+			<button id="submitCredentialsButton" class="submit">Met netwerk verbinden</button>
+
+			<!-- Show notifcation, if any -->
+			<div id="notification_network" class="notification">
+				<!-- Will be filled by Javascript submitCredentials() -->
+			</div>
+
+			<!-- Spotify title bar -->
+			<h1>Kies naam in Spotify app</h1>
+
+			<!-- Spotify -->
+			<input
+				type="text"
+				id="spotify"
+				name="spotify"
+				value="{{ spotify }}"
+				placeholder="Voer Spotify naam van deze Oradio in"
+			/>
+
+			<!-- Submit Spotify name -->
+			<button id="submitSpotifyButton" class="submit">Spotify naam instellen</button>
+
+			<!-- Show notifcation, if any -->
+			<div id="notification_spotify" class="notification">
+				<!-- Will be filled by Javascript submitSpotify() -->
+			</div>
+
+		</div>	<!-- End of network page -->
+
+		<!-- Buttons page -->
+		<div id="buttons" class="page active">
+			<h1>Speellijst aan knop koppelen</h1>
+
+			<!-- Link playlists to presets -->
+			{% for preset in presets %}
+				<div class="presets-grid">
+					<div class="preset-label">
+						Voorkeur {{ loop.index }}:
+					</div>
+					<div class="presets custom-select">
+						<input
+							readonly
+							type="text"
+							id="{{ preset }}"
+							name="{{ preset }}"
+							value="{{ presets[preset] }}"
+							aria-expanded="false"
+							aria-haspopup="listbox"
+							placeholder="Kies een speellijst"
+						/>
+						<span class="custom-icon">&#x25BC;</span> <!-- ▼ icon -->
+						<!-- Show preset options -->
+						<div class="scrollbox" role="listbox">
+							<!-- Will be filled by Javascript -->
+						</div>
+					</div>
+				</div>
+			{% endfor %}
+
+			<!-- Show notifcation, if any -->
+			<div id="presets_notification" class="notification">
+				<!-- Will be filled by Javascript -->
+				placeholder for debugging
+			</div>
+
+			<!-- Show playlist songs title bar -->
+			<h1>Liedjes van speellijst bekijken</h1>
+
+			<!-- Select playlist -->
+			<div class="presets custom-select">
+				<input
+					readonly
+					type="text"
+					id="playlist"
+					name="playlist"
+					aria-expanded="false"
+					aria-haspopup="listbox"
+					placeholder="Kies een speellijst"
+				/>
+				<span class="custom-icon">&#x25BC;</span> <!-- ▼ icon -->
+				<!-- Show playlists options -->
+				<div class="scrollbox" role="listbox">
+					<!-- Will be filled by Javascript -->
+				</div>
+			</div>
+
+<!-- Rework status -->
+
+			<!-- Show notifcation, if any -->
+			<div id="playlist_notification" class="notification">
+				<!-- Will be filled by Javascript -->
+				placeholder for debugging
+			</div>
+
+			<!-- Show songs in a playlist -->
+			<div id="playlist-songs" class="scrollbox">
+				<!-- Will be filled by Javascript -->
+			</div>
+
+		</div>	<!-- End of buttons page -->
+
+		<!-- Playlists page -->
+		<div id="playlists" class="page">
+			<h1>Speellijsten beheren</h1>
+
+			<!-- Manage playlists -->
+			<div class="playlists_grid">
+				<div class="custom-select">
+					<input type="text" id="custom" name="custom" placeholder="Typ naam van speellijst">
+					<!-- Show custom playlist options -->
+					<div id="custom-options" class="scrollbox">
+						<!-- Will be filled by Javascript -->
+						<div class="scrollbox-row">
+						  <div class="scrollbox-row-text" onclick="onRowClick(0)">
+							placeholder 0 for debugging
+						  </div>
+						</div>
+						<div class="scrollbox-row">
+						  <div class="scrollbox-row-text" onclick="onRowClick(0)">
+							placeholder 1 for debugging
+						  </div>
+						</div>
+						<div class="scrollbox-row">
+						  <div class="scrollbox-row-text" onclick="onRowClick(0)">
+							placeholder 2 for debugging
+						  </div>
+						</div>
+						<div class="scrollbox-row">
+						  <div class="scrollbox-row-text" onclick="onRowClick(0)">
+							placeholder 3 for debugging
+						  </div>
+						</div>
+						<div class="scrollbox-row">
+						  <div class="scrollbox-row-text" onclick="onRowClick(0)">
+							placeholder 4 for debugging
+						  </div>
+						</div>
+						<div class="scrollbox-row">
+						  <div class="scrollbox-row-text" onclick="onRowClick(0)">
+							placeholder 5 for debugging
+						  </div>
+						</div>
+						<div class="scrollbox-row">
+						  <div class="scrollbox-row-text" onclick="onRowClick(0)">
+							placeholder 6 for debugging
+						  </div>
+						</div>
+					</div>
+				</div>
+				<button class="icon-button save-button-large" title="Bewaren" onclick="addSong()"></button>
+				<button class="icon-button delete-button-large" title="Verwijderen" onclick="removeSong()"></button>
+			</div>
+
+			<!-- Show notifcation, if any -->
+			<div id="playlist_notification" class="notification">
+				<!-- Will be filled by Javascript -->
+				placeholder for debugging <span class="icon-button save-button-tiny"></span>-knop
+			</div>
+
+			<!-- Show songs in a playlist -->
+			<div id="playlist" class="scrollbox">
+				<!-- Will be filled by Javascript -->
+				<div class="scrollbox-row">
+				  <div class="scrollbox-row-text" onclick="onRowClick(0)">
+					placeholder 0 for debugging
+				  </div>
+				  <span class="icon-button delete-button-small" onclick="onIconClick(event, 0)"></span>
+				</div>
+				<div class="scrollbox-row">
+				  <div class="scrollbox-row-text" onclick="onRowClick(0)">
+					placeholder 1 for debugging
+				  </div>
+				  <span class="icon-button delete-button-small" onclick="onIconClick(event, 0)"></span>
+				</div>
+				<div class="scrollbox-row">
+				  <div class="scrollbox-row-text" onclick="onRowClick(0)">
+					placeholder 2 for debugging
+				  </div>
+				  <span class="icon-button delete-button-small" onclick="onIconClick(event, 0)"></span>
+				</div>
+				<div class="scrollbox-row">
+				  <div class="scrollbox-row-text" onclick="onRowClick(0)">
+					placeholder 3 for debugging
+				  </div>
+				  <span class="icon-button delete-button-small" onclick="onIconClick(event, 0)"></span>
+				</div>
+				<div class="scrollbox-row">
+				  <div class="scrollbox-row-text" onclick="onRowClick(0)">
+					placeholder 4 for debugging
+				  </div>
+				  <span class="icon-button delete-button-small" onclick="onIconClick(event, 0)"></span>
+				</div>
+				<div class="scrollbox-row">
+				  <div class="scrollbox-row-text" onclick="onRowClick(0)">
+					placeholder 5 for debugging
+				  </div>
+				  <span class="icon-button delete-button-small" onclick="onIconClick(event, 0)"></span>
+				</div>
+				<div class="scrollbox-row">
+				  <div class="scrollbox-row-text" onclick="onRowClick(0)">
+					placeholder 6 for debugging
+				  </div>
+				  <span class="icon-button delete-button-small" onclick="onIconClick(event, 0)"></span>
+				</div>
+			</div>
+
+			<!-- Search songs title bar -->
+			<h1>Liedjes zoeken</h1>
+
+			<!-- Search songs by artist or title -->
+			<input type="text" id="search" name="search" placeholder="Typ (deel van) naam van artiest of titel" />
+			<button class="submit" onclick="getSearchSongs()">Zoeken</button>
+
+			<!-- Show notifcation, if any -->
+			<div id="search_notification" class="notification">
+				<!-- Will be filled by Javascript -->
+				placeholder for debugging
+			</div>
+
+			<!-- Show songs found -->
+			<div id="search-results" class="scrollbox">
+				<!-- Will be filled by Javascript -->
+				<div class="scrollbox-row">
+				  <div class="scrollbox-row-text" onclick="onRowClick(0)">
+					placeholder 0 for debugging
+				  </div>
+				  <span class="icon-button save-button-small" onclick="onIconClick(event, 0)"></span>
+				</div>
+				<div class="scrollbox-row">
+				  <div class="scrollbox-row-text" onclick="onRowClick(0)">
+					placeholder 1 for debugging
+				  </div>
+				  <span class="icon-button save-button-small" onclick="onIconClick(event, 0)"></span>
+				</div>
+				<div class="scrollbox-row">
+				  <div class="scrollbox-row-text" onclick="onRowClick(0)">
+					placeholder 2 for debugging
+				  </div>
+				  <span class="icon-button save-button-small" onclick="onIconClick(event, 0)"></span>
+				</div>
+				<div class="scrollbox-row">
+				  <div class="scrollbox-row-text" onclick="onRowClick(0)">
+					placeholder 3 for debugging
+				  </div>
+				  <span class="icon-button save-button-small" onclick="onIconClick(event, 0)"></span>
+				</div>
+				<div class="scrollbox-row">
+				  <div class="scrollbox-row-text" onclick="onRowClick(0)">
+					placeholder 4 for debugging
+				  </div>
+				  <span class="icon-button save-button-small" onclick="onIconClick(event, 0)"></span>
+				</div>
+				<div class="scrollbox-row">
+				  <div class="scrollbox-row-text" onclick="onRowClick(0)">
+					placeholder 5 for debugging
+				  </div>
+				  <span class="icon-button save-button-small" onclick="onIconClick(event, 0)"></span>
+				</div>
+				<div class="scrollbox-row">
+				  <div class="scrollbox-row-text" onclick="onRowClick(0)">
+					placeholder 6 for debugging
+				  </div>
+				  <span class="icon-button save-button-small" onclick="onIconClick(event, 0)"></span>
+				</div>
+			</div>
+
+		</div>	<!-- End of playlists page -->
+
+		<!-- Status page -->
+		<div id="status" class="page">
+			<h1>Oradio informatie</h1>
+			<table>
+				<tr>
+					<th class="col1">Parameter</th>
+					<th class="col2">Waarde</th>
+				</tr>
+				<tr>
+					<td class="col1">Oradio serienummer</td>
+					<td class="col2">{{ serial }}</td>
+				</tr>
+				<tr>
+					<td class="col1">Software versie</td>
+					<td class="col2">{{ sw_version }}</td>
+				</tr>
+				<tr>
+					<td class="col1">Software datum</td>
+					<td class="col2">{{ sw_serial }}</td>
+				</tr>
+			</table>
+
+		</div>	<!-- End of status page -->
+
+	</body>
+</html>

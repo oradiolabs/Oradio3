@@ -1,0 +1,304 @@
+/*!
+ * @package:      Oradio3
+ * @author url:   https://oradiolabs.nl
+ * @author email: info at oradiolabs dot nl
+ * @copyright:    Stichting Oradio, All rights reserved.
+ * @license:      GNU General Public License version 3; https://www.gnu.org/licenses/gpl-3.0.html
+ */
+
+:root {
+	/* Layout */
+	--HeaderHeight: 50px;		/* Page content start below the header */
+	--NavigationHeight: 50px;	/* Without the images. Page content scrolling threshold */
+	--MaxPageWidth: 800px;		/* Layout on large screens */
+	--ElementSpacing: 5px;		/* Vertcal separation between layount elements */
+	--ScrollBoxHeight: 200px;	/* Vertical size of scrollbox */
+
+	/* Official Oradio colors: rgb+opacity (1=solid, 0=transparent) */
+	--Alabaster: rgba(234, 231, 220, 1);
+	--KhakiWeb: rgba(216, 195, 165, 1);
+	--MiddleGrey: rgba(142, 141, 138, 1);
+	--DarkGrey: rgba(54, 55, 55, 1);
+	--OxfordBlue: rgba(20, 33, 61, 1);
+	--Green: rgba(63, 184, 88, 1);
+	--Green35: rgba(63, 184, 88, 0.35);		/* 35% opacity */
+	--Yellow: rgba(255, 255, 0, 1);
+	--Red: rgba(255, 0, 0, 1);
+
+	/* Color mapping */
+	--template-font: var(--Alabaster);
+	--template-background: var(--OxfordBlue);
+
+	--menu-font: var(--Alabaster);
+	--menu-background: var(--DarkGrey);
+	--menu-border: var(--MiddleGrey);
+	--menu-hover: var(--MiddleGrey);
+
+	--header-font: var(--OxfordBlue);
+	--header-background: var(--KhakiWeb);
+
+	--label-font: var(--Alabaster);
+
+	--input-font: var(--Alabaster);
+	--input-background: var(--OxfordBlue);
+	--input-border: var(--MiddleGrey);
+	--input-focus: var(--Green);
+	--input-focus-glow: var(--Green35);
+
+	--button-font:  var(--Alabaster);
+	--button-background:  var(--Green);
+
+	--scrollbox-font: var(--Alabaster);
+	--scrollbox-background: var(--DarkGrey);
+	--scrollbox-select: var(--Green);
+	--scrollbox-border: var(--MiddleGrey);
+
+	--notification-neutral: var(--Alabaster);
+	--notification-success: var(--Green);
+	--notification-warning: var(--Yellow);
+	--notification-error: var(--Red);
+}
+
+/* Ensures all widths/heights include padding & border on all elements */
+*,
+*::before,
+*::after {
+	box-sizing: border-box;
+}
+
+html {
+	-webkit-text-size-adjust: none;					/* Prevent the browser from adjusting font size automatically */
+	-webkit-tap-highlight-color: transparent;		/* Disables that “tap highlight” effect */
+}
+
+body {
+	display: flex;										/* Align elements side by side */
+	font-family: Roboto, Helvetica, Arial, sans-serif;	/* Prefer Roboto, fallback in order given */
+	font-size: 16px;									/* Prevent zooming in iOS Safari */
+	margin: 0; padding: 0;								/* Start with clean layout */
+	background-color: var(--template-background);		/* Set default background color */
+	color: var(--template-font); font-weight: normal;	/* Set default text color and text thinkness */
+	justify-content: center;							/* Center elements by default */
+	width: 100%; height: 100%;
+}
+
+/* Waiting indicator centered on screen */
+.waiting {
+	display: none;						/* Hide the element */
+	position: fixed;					/* Fixed on screen, also when scrolling */
+	top: 50%; left: 50%;				/* Center screen */
+	transform: translate(-50%, -50%);	/* Exactly centered */
+	z-index: 1000;						/* On top of everything else */
+}
+
+/* Header layout */
+.header {
+	display: flex;						/* Align elements side by side */
+	align-items: center;				/* Vertically centers if images are different heights */
+	justify-content: space-between;		/* Pushes images to edges */
+	padding: 10px 0 10px 0;				/* Allow some spacing from the edge of the screen */
+	position: fixed; top: 0;			/* At top of screen */
+	width: 90%;							/* Keep away from the edges */
+	height: var(--HeaderHeight);		/* Fixed height for header */
+	z-index: 100;						/* On top of page content */
+	background-color: var(--template-background);
+}
+
+.stop-btn {
+	cursor: pointer;	/* Show element has action */
+}
+
+/* Hover effect for stop button */
+.stop-btn:hover {
+	filter: brightness(1.3);
+	transform: scale(1.1);
+}
+
+/* Position closing text */
+.closing {
+	text-align: center;
+	margin-top: 25vh;	/* 25% of screen height */
+}
+
+/* Navigation bar at bottom, centered */
+nav {
+	display: flex;				/* Align elements side by side */
+	position: fixed;			/* Stick to viewport */
+	bottom: 0;					/* At the bottom */
+	width: 100%;				/* Spread out over full width */
+	gap: 10px;					/* Space between buttons */
+	padding: 5px 5px 10px 5px;	/* Some padding */
+	max-width: 95%;				/* Avoid overflowing on mobile */
+	z-index: 100;				/* On top of page content */
+	background-color: var(--menu-background);
+}
+/* Navigation buttons */
+nav button {
+	min-height: 30px;
+	font-size: 16px;
+	flex: 1 1 auto;				/* Buttons grow/shrink as needed */
+	min-width: 70px;			/* Minimum size - https://gs.statcounter.com/screen-resolution-stats/mobile/worldwide */
+	cursor: pointer;			/* Show element has action */
+	border-top: 1px solid var(--menu-border);
+	background-color: var(--menu-background);
+	color: var(--menu-font); font-weight: normal;
+}
+nav button:hover {
+	background-color: var(--menu-hover);	/* Hover effect for navigation buttons */
+}
+nav button img.hidden,
+nav button span.hidden {
+	display: none;		/* Hide navigation button images */
+}
+nav button div {
+	margin: 0;
+	padding: 0;
+	display: block;		/* Makes the element visible, take full width, start on a new line, padding applies */
+}
+nav button span.hidden + div {
+	padding: 5px 0;		/* top and bottom */
+	display: block;		/* Makes the element visible, take full width, start on a new line, padding applies */
+}
+
+/* Page container */
+.page {
+	display: none;						/* Hide the element */
+	width: 90vw;						/* Mobile-friendly layout */
+	max-width: var(--MaxPageWidth);		/* Limit for usability on large screens */
+	margin-top: var(--HeaderHeight);	/* Fixed height for header */
+    overflow-y: auto;					/* Enable vertical scrolling */
+    height: calc(100dvh - var(--HeaderHeight) - var(--NavigationHeight));
+}
+.active {
+	display: block;		/* Makes the element visible, take full width, start on a new line, padding applies */
+}
+
+/* Multi-page elements */
+h1 {
+	font-size: 20px;						/* Set the size of the text */
+	text-align: center;						/* Center the text horizontally */
+	border: none;							/* Remove any default border */
+	margin: var(--ElementSpacing) 0 0 0;	/* Adds spacing above the element to separate it from the element above */
+	border-radius: 5px;						/* Round the corners */
+	padding: 5px 10px 5px 10px;				/* Adds spacing: top right bottom left */
+	background-color: var(--header-background);
+	color: var(--header-font); font-weight: normal;
+}
+
+.notification {
+	display: none;							/* Hide the element */
+	text-align: center;						/* Centers inline content horizontally */
+	line-height: 1.5;						/* Sets the height of each text line to 1.5 * the font size */
+	margin: var(--ElementSpacing) 0 0 0;	/* Adds spacing above the element to separate it from the element above */
+	padding: 5px 0 5px 0;					/* Adds spacing: top right bottom left */
+	color: var(--notification-neutral); font-weight: normal;
+}
+
+/* Notification colors */
+.success {
+	color: var(--notification-success);
+}
+.warning {
+	color: var(--notification-warning);
+}
+.error {
+	color: var(--notification-error);
+}
+
+/* Custom select */
+.custom-select {
+	position: relative;			/* Creates a positioning context for the icon */
+}
+.custom-select input {
+	cursor: pointer;			/* Indicates the input is clickable */
+}
+
+label {
+	display: block;							/* Makes the element visible, take full width, start on a new line, padding applies */
+	margin: var(--ElementSpacing) 0 0 0;	/* Adds spacing above the element to separate it from the element above */
+	color: var(--label-font); font-weight: bold;
+}
+
+input {
+	width: 100%;							/* Makes the element span the full width of its parent container */
+	height: 40px;							/* Sets a fixed height for the element */
+	padding: 10px;							/* Adds inner spacing on all sides (inside the border) */
+	margin: var(--ElementSpacing) 0 0 0;	/* Adds spacing above the element to separate it from the element above */
+	border-radius: 5px;						/* Rounds the corners of the element */
+	border: 1px solid var(--input-border);	/* Adds border using a CSS variable for the color */
+	font-size: 16px;						/* Sets the text size to avoid mobile zoom */
+	background-color: var(--input-background);
+	color: var(--input-font); font-weight: normal;
+}
+input:focus {
+	outline: none;									/* Remove default color */
+	border-color: var(--input-focus);				/* Border color when input is selected */
+	box-shadow: 0 0 0 3px var(--input-focus-glow);	/* Add glow for visibility */
+}
+
+.custom-icon {
+	position: absolute;							/* Removes the element from normal flow and positions it */
+	right: 10px;								/* Horizontal position from the right edge of the parent */
+	cursor: pointer;							/* Show element has action */
+	font-size: 1.5rem;							/* Icon size (relative to root font size) */
+	color: var(--input-font); font-weight: normal;
+	transform: translateY(50%) rotate(0deg);	/* Move the element down by 50% of its own height, do not rotate element */
+	transition: transform 0.25s ease;			/* Animates changes: 250ms duration, start slow, speed up, then slow down */
+}
+.custom-icon.open {
+	transform: translateY(50%) rotate(180deg);	/* Move the element down by 50% of its own height, rotate element */
+}
+
+/* 'viewport' for dropdown options */
+.scrollbox {
+	width: 100%;							/* Full viewport width */
+	display: none;							/* Hide the element */
+	font-size: 16px;						/* Sets the text size to avoid mobile zoom */
+	margin: var(--ElementSpacing) 0 0 0;	/* Adds spacing above the element to separate it from the element above */
+	border: 1px solid var(--scrollbox-border);
+	background-color: var(--scrollbox-background);
+	color: var(--input-font); font-weight: normal;
+	max-height: var(--ScrollBoxHeight);		/* Limits height and enables scrolling */
+	overflow-y: auto;						/* Vertical scrollbar when content overflows */
+	z-index: 10;							/* Keeps scrollbox above overlapping elements */
+}
+.scrollbox-row {
+	display: flex;					/* Aligns child elements horizontally */
+	align-items: center;			/* Vertically centers children */
+	margin: 0px 10px 0px 10px;		/* Horizontal spacing inside the scrollbox */
+	padding-left: 5px;				/* Extra padding on the left */
+	min-height: 40px;					/* Fixed row height */
+}
+.scrollbox-row:hover {
+	border-radius: 5px;							/* Round the corners */
+	border: 2px solid var(--scrollbox-select);	/* Adds highlight border on hover */
+}
+.scrollbox-row:active {
+	background-color: var(--scrollbox-select);	/* Highlights row while clicked */
+}
+.scrollbox-row-text {
+	flex: 1;				/* Takes remaining space in the row */
+	cursor: pointer;		/* Indicates clickable text */
+}
+.scrollbox-row.selected {
+	background-color: var(--scrollbox-select);	/* Highlights row while selected */
+}
+
+button.submit {
+	display: block;								/* Makes the button a block element (starts on a new line) */
+	width: 90%;									/* Button takes 90% of its parent container’s width */
+	margin: var(--ElementSpacing) auto 0 auto;	/* Centers button horizontally and adds top spacing */
+	height: 40px;								/* Fixed height */
+	background-color: var(--button-background);
+	color: var(--button-font); font-weight: bold;
+	border: none;								/* Removes default button border */
+	border-radius: 5px;							/* Rounded corners */
+	padding: 10px;								/* Inner spacing */
+	font-size: 16px;							/* Text size */
+	cursor: pointer;							/* Shows pointer cursor on hover */
+	transition: filter 0.2s ease;				/* smooth flash */
+}
+button.submit:active {
+	filter: brightness(150%);	/* Flash ONLY while clicking */
+}
+
