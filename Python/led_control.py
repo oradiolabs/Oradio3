@@ -104,9 +104,9 @@ class LEDControl:
         """
         Turns on a specific LED and then turns it off after a delay.
         :Args
-            led_name (str): [precondition] shall be [ LED_PLAY | LED_STOP |
+            led_name : [precondition] shall be [ LED_PLAY | LED_STOP |
                                                     LED_PRESET1 | LED_PRESET2 | LED_PRESET3] 
-            period (float): Time in seconds before turning off the LED. Default = 3
+            period : Time in seconds before turning off the LED. Default = 3
         """
         def oneshot_off_led(led_name, period):
             self.turn_off_led(led_name)
@@ -125,6 +125,17 @@ class LEDControl:
         else:
             # no valid period, no timer started
             oradio_log.warning("Invalid period time of %f for oneshot of led: %s",period, led_name)
+
+    def get_led_state(self, led_name:str)-> bool:
+        """
+        Get the state of the selected led_name
+        :Args
+            led_name = [ LED_PLAY | LED_STOP | LED_PRESET1 | LED_PRESET2 | LED_PRESET3]
+        :Returns:
+            True = Led is ON
+            False = led is OFF
+        """
+        return self.leds_driver.get_led_state(led_name)
 
     def control_blinking_led(self,
                              led_name: str,
