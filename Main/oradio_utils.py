@@ -27,10 +27,10 @@ Created on January 17, 2025
 import json
 import socket
 import subprocess
-from pathlib import Path
 from subprocess import run
-from typing import Any, Optional
-from pydantic import BaseModel, create_model
+from typing import Any, Optional, List, Union, Dict
+from pathlib import Path
+from pydantic import BaseModel, ValidationError
 import netifaces
 
 ##### oradio modules ####################
@@ -39,8 +39,6 @@ from oradio_logging import oradio_log
 ##### GLOBAL constants ####################
 from oradio_const import (
     YELLOW, NC,
-    MODEL_NAME_FOUND,
-    MODEL_NAME_NOT_FOUND,
     PRESETS_FILE,
     USB_SYSTEM,
 )
@@ -48,6 +46,15 @@ from oradio_const import (
 ##### LOCAL constants ####################
 JSON_SCHEMAS_PATH = Path(__file__).parent.resolve()
 JSON_SCHEMAS_FILE = JSON_SCHEMAS_PATH / "schemas.json"
+class OradioMessage(BaseModel):
+    '''
+    The basemodel for the OradioMessage to standardize the message when
+    used in the shared-queue of Oradio.
+    '''
+    source: str
+    state: str
+    error: str
+    data: Optional[List[Any]] = None
 
 INTERFACE   = "wlan0"           # Raspberry Pi wireless interface
 DNS_TIMEOUT = 0.5               # seconds
@@ -121,59 +128,30 @@ def is_service_active(service_name):
         oradio_log.error("Error checking %s service, error-status=: %s", service_name, ex_err)
         return False
 
-def json_schema_to_pydantic(name: str, schema: dict[str,Any]) -> BaseModel:
+def validate_oradio_message(message: Union[OradioMessage, Dict[str, Any]]) -> Optional[OradioMessage]:
     """
-    Dynamic Model generation based on a JSON schema
+    Validates a message to ensure it matches the OradioMessage schema.
+    If the message is already an OradioMessage, it is returned as-is.
+    :argument
+        message : message formatted as a dictionary or as OradioMessage
+    :return
+        validated_message = when message is correct
+        validated_messsage = None, when not according OradioMessage structure
     """
-    if "properties" not in schema:  # Skip first entry
+    if isinstance(message, OradioMessage):
+        # Message is already validated; return it directly
+        return message
+
+    try:
+        # Message is a dictionary; validate it
+        validated_message = OradioMessage(**message)
+        oradio_log.debug(f"Message is valid: {validated_message}")
+        return validated_message
+    except ValidationError as err:
+        oradio_log.error(f"Message does not match OradioMessage schema: {err}")
         return None
-    fields ={}
-    required_fields = set(schema.get("required", []))  # Get required fields from schema
 
-    for prop, details in schema["properties"].items():
-        field_type = str  # Default type
-        if details["type"] == "integer":
-            field_type = int
-        elif details["type"] == "boolean":
-            field_type = bool
-        elif details["type"] == "number":
-            field_type = float
-        elif details["type"] == "array":
-            field_type = list
-        if "required" in schema and prop in schema["required"]:
-            fields[prop] = (field_type, ...)
-        else:
-            fields[prop] = (field_type, None)
-
-        # Handle optional fields (not in "required")
-        if prop not in required_fields:
-            fields[prop] = (Optional[field_type], None)  # Mark as Optional
-        else:
-            fields[prop] = (field_type, ...)  # Required fields
-
-    return create_model(name, **fields)
-
-def create_json_model(model_name):
-    """
-    Create a object based model derived from the json schema
-    :param model_name [str] = name of model in schema
-    :return model
-    :return status =
-    """
-    # Load the JSON schema file
-    with open(JSON_SCHEMAS_FILE, encoding="utf-8") as file:
-        schemas = json.load(file)
-    if model_name not in schemas:
-        status = MODEL_NAME_NOT_FOUND
-        messages = None
-    else:
-        status = MODEL_NAME_FOUND
-        # Dynamically create Pydantic models
-        models = {name: json_schema_to_pydantic(name, schema) for name, schema in schemas.items()}
-        # create messages model
-        messages = models[model_name]
-    return(status, messages)
-
+# handle the error
 def has_internet() -> bool:
     """
     Quickly check if the given interface has internet access.
@@ -268,14 +246,11 @@ def store_presets(presets: dict[str, str]):
     Args:
         presets (dict): Dictionary containing keys 'preset1', 'preset2', 'preset3' with playlist values.
     """
+    # Ensure the USB_SYSTEM directory exists
     try:
-        # Create directory and any missing parents if needed
         Path(USB_SYSTEM).mkdir(parents=True, exist_ok=True)
-    except PermissionError as ex_err:
-        oradio_log.error("Cannot create directory '%' due to permission issues: %s", USB_SYSTEM, ex_err)
-        return
     except OSError as ex_err:
-        oradio_log.error("Cannot create directory '%s'. OS error: %s", USB_SYSTEM, ex_err)
+        oradio_log.error("Presets cannot be saved. Error: %s", ex_err)
         return
 
     # Prepare the data to save, ensuring all expected keys exist
@@ -297,6 +272,34 @@ def store_presets(presets: dict[str, str]):
         oradio_log.debug("Presets '%s' successfully saved to %s", data_to_save, PRESETS_FILE)
     except IOError as ex_err:
         oradio_log.error("Failed to write presets to '%s'. Error: %s", PRESETS_FILE, ex_err)
+
+def input_prompt_int(prompt: str, default=-1 ) -> int:
+    """
+    Prompt for an user input and return int value of number typed
+    :Args 
+        prompt : prompt text for user
+        default: default value to return in case of an error
+    :Returns
+        the integer value type in by user | default value in case of an error
+    """
+    try:
+        return int(input(prompt))
+    except ValueError:
+        return default
+
+def input_prompt_float(prompt: str, default: float | None = None) -> float | None:
+    """
+    Prompt for an user input and return float value of number typed
+    :Args
+        prompt : prompt text for user
+        default: default value to return in case of an error
+    :Returns
+        the ifloat value type in by user | default value in case of an error
+    """   
+    try:
+        return float(input(prompt))
+    except ValueError:
+        return default
 
 # Entry point for stand-alone operation
 if __name__ == '__main__':
