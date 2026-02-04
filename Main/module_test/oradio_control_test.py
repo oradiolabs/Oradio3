@@ -289,6 +289,7 @@ def _start_module_test():
     import oradio_control
     # pylint: enable=import-outside-toplevel
     # pylint: enable=unused-import
+    # pylint: disable=duplicate-code
     sleep(7)
     test_options = ["Quit"] + \
                     ["Send Short Press Button message to queue"] + \
@@ -324,6 +325,7 @@ def _start_module_test():
 
 if __name__ == '__main__':
     # try to setup a remote debugger connection, if enabled in remote_debugger.py
+    # pylint: disable=duplicate-code    # pylint: disable=duplicate-code
     debugger_status, connection_status = setup_remote_debugging()
     if debugger_status == DEBUGGER_ENABLED:
         if connection_status == DEBUGGER_NOT_CONNECTED:

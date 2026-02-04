@@ -301,6 +301,7 @@ def _start_module_test():
     """
     Show menu with test options
     """
+    # pylint: disable=duplicate-code
     shared_queue = Queue()
 
     TouchButtons.BUTTONS_MODULE_TEST = TEST_ENABLED
@@ -350,6 +351,7 @@ def _start_module_test():
 
 if __name__ == '__main__':
     # try to setup a remote debugger connection, if enabled in remote_debugger.py
+    # pylint: disable=duplicate-code
     debugger_status, connection_status = setup_remote_debugging()
     if debugger_status == DEBUGGER_ENABLED:
         if connection_status == DEBUGGER_NOT_CONNECTED:

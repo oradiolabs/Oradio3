@@ -35,13 +35,11 @@ jobs:
         # Set up Python virtual environment
         python3 -m venv --system-site-packages ~/.venv
         source ~/.venv/bin/activate
-        echo "step1"
         # Set PYTHONPATH
         export PYTHONPATH="$GITHUB_WORKSPACE/Main:$GITHUB_WORKSPACE/.github/workflows"
 
         python -m pip install --upgrade pip
         pip install -r .github/workflows/oradio_modules.txt
-        echo "step2"
         # Initialize output file
         RESULT_FILE=lint_deprecated_result.txt
         : > "$RESULT_FILE"
@@ -50,25 +48,21 @@ jobs:
         echo "### 🧹 Pylint analysis results" >> "$RESULT_FILE"
         pylint Main/**/*.py --rcfile=.github/workflows/.pylintrc --output-format=text >> "$RESULT_FILE"
         count_pylint=$(tr -d '\r' < "$RESULT_FILE" | grep -Ec '^[^:]+:[0-9]+:[0-9]+: [A-Z][0-9]{4}:')
-        echo "step3"
         # Static deprecation check
         echo "### 🧹 Ruff static deprecation analysis results" >> "$RESULT_FILE"
         ruff check Main --select F,D,ERA --extend-ignore D203,D213 | grep -i 'deprecated' >> "$RESULT_FILE"
         count_ruff=$(grep -i 'deprecated' "$RESULT_FILE" | wc -l | tr -d ' ')
-        echo "step4"
         # Also capture success
         if [ "$count_ruff" -eq 0 ]; then
             echo "Static deprecation check did not discover any warnings." >> "$RESULT_FILE"
             echo >> "$RESULT_FILE"
         fi
-        echo "step5"
         # Runtime deprecation check
         echo "### 🧹 Runtime deprecation analysis results " >> "$RESULT_FILE"
         #python3 .github/workflows/deprecation_check.py >> "$RESULT_FILE"
         #count_runtime=$(grep 'DEPRECATION:' "$RESULT_FILE" | wc -l | tr -d ' ')
         echo "Runtime deprecation analysis disabled until after GPIO rework is added " >> "$RESULT_FILE"
         count_runtime=0
-        echo "step6"
         # Also capture success
         if [ "$count_runtime" -eq 0 ]; then
             echo "Runtime deprecation check did not discover any warnings." >> "$RESULT_FILE"
@@ -77,10 +71,8 @@ jobs:
         # Determine emoji + color
         pylint_emoji=$([ "$count_pylint" -eq 0 ] && echo "✅" || echo "❌")
         pylint_color=$([ "$count_pylint" -eq 0 ] && echo "green" || echo "red")
-        echo "step7"
         ruff_emoji=$([ "$count_ruff" -eq 0 ] && echo "✅" || echo "⚠️")
         ruff_color=$([ "$count_ruff" -eq 0 ] && echo "green" || echo "orange")
-        echo "step8"
         runtime_emoji=$([ "$count_runtime" -eq 0 ] && echo "✅" || echo "⚠️")
         runtime_color=$([ "$count_runtime" -eq 0 ] && echo "green" || echo "orange")
 

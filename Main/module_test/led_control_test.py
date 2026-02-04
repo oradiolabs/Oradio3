@@ -241,6 +241,7 @@ def _single_led_test(led_control:LEDControl,
 def _start_module_test():
     """Show menu with test options"""
     # pylint: disable=too-many-branches
+    # pylint: disable=duplicate-code
     led_control = LEDControl()
     test_options = ["Quit"] + \
                     ["Turn all LEDs OFF"] + \
@@ -300,6 +301,7 @@ def _start_module_test():
 
 if __name__ == '__main__':
     # try to setup a remote debugger connection, if enabled in remote_debugger.py
+    # pylint: disable=duplicate-code
     debugger_status, connection_status = setup_remote_debugging()
     if debugger_status == DEBUGGER_ENABLED:
         if connection_status == DEBUGGER_NOT_CONNECTED:
