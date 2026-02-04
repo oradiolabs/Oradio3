@@ -48,7 +48,7 @@ jobs:
 
         # Run pylint - outputs issues or success
         echo "### 🧹 Pylint analysis results" >> "$RESULT_FILE"
-        pylint Main/*.py --rcfile=.github/workflows/.pylintrc --output-format=text >> "$RESULT_FILE"
+        pylint Main/**/*.py --rcfile=.github/workflows/.pylintrc --output-format=text >> "$RESULT_FILE"
         count_pylint=$(tr -d '\r' < "$RESULT_FILE" | grep -Ec '^[^:]+:[0-9]+:[0-9]+: [A-Z][0-9]{4}:')
 
         # Static deprecation check

@@ -70,18 +70,27 @@ def _send_message(message_state: str)-> None:
     if not safe_put(shared_queue, oradio_msg):
         print("Failure when sending message to shared queue")
 
+def _check_led_blinking_status(led_name: str) -> None:
+    """
+    check if led state is blinking
+    :Args
+        led_name : the name of the led
+    """
+    if web_service_active.is_set():
+        # select led name should be blinking
+        sleep(0.1) # wait short time to enable thread to be active
+        if leds.blinking_threads[led_name] is not None:
+            # led thread is active, so blinking
+            print (f"{GREEN}LED LED_PLAY is BLINKING {NC}")
+        else:
+            print (f"{RED}LED LED_PLAY is NOT BLINKING{NC}")
+
 def _check_led_status(btn_msg:str) -> None:
     """
     check if led state is according button press state
     :Args
         btn_msg : the button message used during test
     """
-    led_blinking = "not active"
-    if web_service_active.is_set():
-        # wait until not active anymore
-        web_service_active.wait(timeout=1)
-        # when web-service is stopped , no LED_STOP
-        led_blinking = "web service stopped"
     led_name = None
     if btn_msg == MESSAGE_SHORT_PRESS_BUTTON_PLAY:
         led_name = LED_PLAY
@@ -93,26 +102,11 @@ def _check_led_status(btn_msg:str) -> None:
         led_name = LED_PRESET2
     elif btn_msg ==  MESSAGE_SHORT_PRESS_BUTTON_PRESET3:
         led_name = LED_PRESET3
-    elif btn_msg ==  MESSAGE_LONG_PRESS_BUTTON_PLAY:
-        # LED_PLAY should be blinking
-        sleep(0.1) # wait short time to enable thread to be active
-        led_blinking = "active"
-        if leds.blinking_threads[LED_PLAY] is not None:
-            # led thread is active, so blinking
-            print (f"{GREEN}LED LED_PLAY is BLINKING {NC}")
-        else:
-            print (f"{RED}LED LED_PLAY is NOT BLINKING{NC}")
-    sleep(0.1)
-    if led_blinking == "not active":
-        if leds.get_led_state(led_name):
-            print (f"{GREEN}LED {led_name} is ON {NC}")
-        else:
-            print (f"{RED}LED {led_name} is OFF{NC}")
-    elif led_blinking == "web service stopped":
-        if leds.get_led_state(led_name):
-            print (f"{GREEN}LED {led_name} is OFF {NC}")
-        else:
-            print (f"{RED}LED {led_name} is ON{NC}")
+    sleep(0.1) # give led some time to be processed.
+    if leds.get_led_state(led_name):
+        print (f"{GREEN}LED {led_name} is ON {NC}")
+    else:
+        print (f"{RED}LED {led_name} is OFF{NC}")
 
 def _check_stm_state(btn_msg:str)-> None:
     """
@@ -131,49 +125,43 @@ def _check_stm_state(btn_msg:str)-> None:
         stm_state = "StatePreset2"
     elif btn_msg ==  MESSAGE_SHORT_PRESS_BUTTON_PRESET3:
         stm_state = "StatePreset3"
-    elif btn_msg ==  MESSAGE_LONG_PRESS_BUTTON_PLAY:
-        # There is no state for web-services, so print current state
-        stm_state = state_machine.state
-
     if state_machine.state == stm_state:
         print (f"{GREEN}State-machine is at state {stm_state} {NC}")
     else:
         print (f"{RED}Incorrect State-machine state, state={stm_state} {NC}")
 
-def _button_msg_selection() -> None:
+def _long_press_button_messages() -> None:
     """
-    button selection menu
-    :Returns
-        selected_button_msg [str] = The button message as in  BUTTON_SHORT_PRESS_NAMES
+    button selection menu for long button press
     """
     # prepare a option list`
-    buttons_option = ["Quit"] + BUTTON_SHORT_PRESS_NAMES +\
-                                BUTTON_LONG_PRESS_NAMES + ["ButtonMsgUnknown"]
+    buttons_option = ["Quit"]\
+                     + BUTTON_LONG_PRESS_NAMES\
+                     + ["Button stress test"]\
+                     + ["ButtonMsgUnknown"]
     selection_done = False
     oradio_log.set_level(CRITICAL)
     while not selection_done:
         #Show test menu with the selection options
         for idx, button_name in enumerate(buttons_option, start=0):
             print(f" {idx} - {button_name}")
-        menu_choice = input_prompt_int("Select a BUTTON message: ", default=-1)
+        menu_choice = input_prompt_int("Select a LONG BUTTON PRESS message: ", default=-1)
         match menu_choice:
             case 0:
                 print("\nReturning to previous selection...\n")
                 selection_done = True
-            case 1 | 2 | 3 | 4 | 5 : # 5 short buttons + 1 unknown
+            case 1 : # 1 long press button + 1 unknown
                 selected_button_nr = menu_choice-1
                 print(f"\nThe selected BUTTON press is {buttons_option[menu_choice]}\n")
-                button_msg = BUTTON_SHORT_PRESS_NAMES[selected_button_nr]
+                button_msg = BUTTON_LONG_PRESS_NAMES[selected_button_nr]
                 _send_message(button_msg )
-                _check_led_status(button_msg)
-                _check_stm_state(button_msg)
-            case 6:
+                sleep(4)
+                _check_led_blinking_status(LED_PLAY)
+                #_check_stm_state(button_msg)
+            case 2: # Stress test
                 print(f"\nThe selected BUTTON press is {buttons_option[menu_choice]}\n")
-                button_msg = BUTTON_LONG_PRESS_NAMES[0]
-                _send_message(button_msg )
-                _check_led_status(button_msg)
-                _check_stm_state(button_msg)
-            case 7:
+                _long_button_msg_stress_test()
+            case 3: # ButtonMsgUnknown
                 print(f"\nThe selected BUTTON press is {buttons_option[menu_choice]}\n")
                 oradio_log.set_level(DEBUG)
                 _send_message("BUTTON_MSG_UNKNOWN")
@@ -181,16 +169,48 @@ def _button_msg_selection() -> None:
                 print("Please input a valid test option.")
     oradio_log.set_level(DEBUG)
 
-def _button_msg_stress_test()-> None:
+def _short_press_button_messages() -> None:
+    """
+    button selection menu for short press buttons
+    """
+    # prepare a option list`
+    buttons_option = ["Quit"]\
+                     + BUTTON_SHORT_PRESS_NAMES\
+                     + ["Button stress test"]\
+                     + ["ButtonMsgUnknown"]
+    selection_done = False
+    oradio_log.set_level(CRITICAL)
+    while not selection_done:
+        #Show test menu with the selection options
+        for idx, button_name in enumerate(buttons_option, start=0):
+            print(f" {idx} - {button_name}")
+        menu_choice = input_prompt_int("Select a SHORT PRESS BUTTON message: ", default=-1)
+        match menu_choice:
+            case 0:
+                print("\nReturning to previous selection...\n")
+                selection_done = True
+            case 1 | 2 | 3 | 4 | 5 : # 5 short press buttons
+                selected_button_nr = menu_choice-1
+                print(f"\nThe selected BUTTON press is {buttons_option[menu_choice]}\n")
+                button_msg = BUTTON_SHORT_PRESS_NAMES[selected_button_nr]
+                _send_message(button_msg )
+                _check_led_status(button_msg)
+                _check_stm_state(button_msg)
+            case 6: # Stress test
+                print(f"\nThe selected BUTTON press is {buttons_option[menu_choice]}\n")
+                _short_button_msg_stress_test()
+            case 7: # ButtonMsgUnknown
+                print(f"\nThe selected BUTTON press is {buttons_option[menu_choice]}\n")
+                oradio_log.set_level(DEBUG)
+                _send_message("BUTTON_MSG_UNKNOWN")
+            case _:
+                print("Please input a valid test option.")
+    oradio_log.set_level(DEBUG)
+
+def _short_button_msg_stress_test()-> None:
     """
     Stress test for button message
     """
-    stress_msg_choice = input_prompt_int("Select a stress message sequence between 1-2: ", default=-1)
-    msg_rate = input_prompt_float("Give repetition rate per sec for sending messages as float number : ")
-    if msg_rate in (None,0):
-        return
-
-    msg_delay = float(1/msg_rate)
     msg_test_sequence_1 = [ MESSAGE_SHORT_PRESS_BUTTON_PLAY,
                           MESSAGE_SHORT_PRESS_BUTTON_STOP,
                           MESSAGE_SHORT_PRESS_BUTTON_PRESET1,
@@ -199,12 +219,27 @@ def _button_msg_stress_test()-> None:
                           MESSAGE_SHORT_PRESS_BUTTON_STOP ]
     msg_test_sequence_2 = [ MESSAGE_SHORT_PRESS_BUTTON_PLAY,
                           MESSAGE_SHORT_PRESS_BUTTON_STOP,
-                          MESSAGE_LONG_PRESS_BUTTON_PLAY,
                           MESSAGE_SHORT_PRESS_BUTTON_PRESET1,
-                          MESSAGE_LONG_PRESS_BUTTON_PLAY,
-                          MESSAGE_LONG_PRESS_BUTTON_PLAY,
+                          MESSAGE_SHORT_PRESS_BUTTON_PRESET1,
+                          MESSAGE_SHORT_PRESS_BUTTON_PRESET1,
+                          MESSAGE_SHORT_PRESS_BUTTON_STOP,
+                          MESSAGE_SHORT_PRESS_BUTTON_PRESET2,
+                          MESSAGE_SHORT_PRESS_BUTTON_PRESET2,
+                          MESSAGE_SHORT_PRESS_BUTTON_PRESET2,
+                          MESSAGE_SHORT_PRESS_BUTTON_STOP,
+                          MESSAGE_SHORT_PRESS_BUTTON_PRESET3,
+                          MESSAGE_SHORT_PRESS_BUTTON_PRESET3,
+                          MESSAGE_SHORT_PRESS_BUTTON_PRESET3,
                           MESSAGE_SHORT_PRESS_BUTTON_STOP ]
     msg_test_sequences = [msg_test_sequence_1, msg_test_sequence_2]
+    test_sequence = input_prompt_int("Select a test sequence (1 or 2) : ")
+    if not test_sequence in (1,2):
+        print ("Incorrect number,please, select a valid test number (now 1 is used)")
+        test_sequence = 1
+    msg_rate = input_prompt_float("Give repetition rate/sec for sending messages as float nr: ")
+    if msg_rate in (None,0):
+        return
+    msg_delay = float(1/msg_rate)
 
     stop_event = Event()
     keyboard_thread = Thread(target=keyboard_input,
@@ -212,12 +247,40 @@ def _button_msg_stress_test()-> None:
     keyboard_thread.start()
     oradio_log.set_level(CRITICAL)
     while not stop_event.is_set():
-        for msg in msg_test_sequences[stress_msg_choice-1]:
+        for msg in msg_test_sequences[test_sequence-1]:
             _send_message(msg )
             _check_led_status(msg)
             _check_stm_state(msg)
             sleep(msg_delay)
     oradio_log.set_level(DEBUG)
+
+def _long_button_msg_stress_test()-> None:
+    """
+    Stress test for button message
+    """
+    msg_test_sequence_1 = [ MESSAGE_SHORT_PRESS_BUTTON_PLAY,
+                          MESSAGE_SHORT_PRESS_BUTTON_STOP,
+                          MESSAGE_LONG_PRESS_BUTTON_PLAY,
+                          MESSAGE_SHORT_PRESS_BUTTON_PRESET1,
+                          MESSAGE_LONG_PRESS_BUTTON_PLAY,
+                          MESSAGE_LONG_PRESS_BUTTON_PLAY,
+                          MESSAGE_SHORT_PRESS_BUTTON_STOP ]
+    msg_test_sequences = [msg_test_sequence_1]
+    msg_rate = input_prompt_float("Give repetition rate/sec for sending messages as float nr: ")
+    if msg_rate in (None,0):
+        return
+    msg_delay = float(1/msg_rate)
+    stop_event = Event()
+    keyboard_thread = Thread(target=keyboard_input,
+                             args=(stop_event,))
+    keyboard_thread.start()
+    oradio_log.set_level(CRITICAL)
+    while not stop_event.is_set():
+        for msg in msg_test_sequences[0]:
+            _send_message(msg )
+            sleep(msg_delay)
+    oradio_log.set_level(DEBUG)
+
 
 def _start_module_test():
     """Show menu with test options"""
@@ -225,11 +288,11 @@ def _start_module_test():
     # pylint: disable=unused-import
     import oradio_control
     # pylint: enable=import-outside-toplevel
-    # pylint: enable=unused-importcd ..
+    # pylint: enable=unused-import
     sleep(7)
     test_options = ["Quit"] + \
-                    ["Send Button Press message to queue"] + \
-                    ["Stress test Button Press"] +\
+                    ["Send Short Press Button message to queue"] + \
+                    ["Send Long Press Button messages to queue"] +\
                     ["Send Button Press message to queue with sound mocks"] +\
                     ["test 4"] +\
                     ["test 5"]
@@ -245,10 +308,10 @@ def _start_module_test():
                 break
             case 1:
                 print(f"\n running {test_options[1]}\n")
-                _button_msg_selection()
+                _short_press_button_messages()
             case 2:
                 print(f"\n running {test_options[2]}\n")
-                _button_msg_stress_test()
+                _long_press_button_messages()
             case 3:
                 print(f"\n running {test_options[3]}\n")
                 print("\n Not implemented yet")
