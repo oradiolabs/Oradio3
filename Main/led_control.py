@@ -61,7 +61,7 @@ class LEDControl:
         if led_name in LED_NAMES:
             self._stop_blink(led_name)
             self.leds_driver.set_led_off(led_name)
-            oradio_log.debug("%s turned off", led_name)
+            #oradio_log.debug("%s turned off", led_name)
         else:
             oradio_log.error("Invalid LED name: %s", led_name)
 
@@ -177,7 +177,8 @@ class LEDControl:
                 thread = Thread(target=_blink, args=(stop_evt,), daemon=True)
                 thread.start()
                 self.blinking_threads[led_name] = thread
-                oradio_log.debug("%s blinking started: %.3fs cycle", led_name, cycle_time)
+                #Henk: oradio_log.debug("%s blinking started: %.3fs cycle", led_name, cycle_time)
+                oradio_log.debug("%s blinking started:", led_name)
             else:
                 oradio_log.error("Invalid LED name: %s", led_name)
         else:

@@ -145,10 +145,10 @@ def validate_oradio_message(message: Union[OradioMessage, Dict[str, Any]]) -> Op
     try:
         # Message is a dictionary; validate it
         validated_message = OradioMessage(**message)
-        oradio_log.debug(f"Message is valid: {validated_message}")
+        oradio_log.debug("Message is valid: %s",validated_message)
         return validated_message
     except ValidationError as err:
-        oradio_log.error(f"Message does not match OradioMessage schema: {err}")
+        oradio_log.error("Message does not match OradioMessage schema %s:",err)
         return None
 
 # handle the error

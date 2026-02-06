@@ -26,6 +26,7 @@ import subprocess
 import sys
 import shutil
 import threading
+from time import sleep
 from multiprocessing import Queue
 
 from oradio_logging import oradio_log
@@ -749,14 +750,14 @@ def handle_message(message: dict):
                     "Unhandled error '%s' for message source '%s'.", error, command_source
                 )
     else:
-        print(f"{RED}Invalid OradioMessage received {NC}")
+        oradio_log.warning("Invalid OradioMessage received")
 
 # 3)----------- Process the messages---------
 def process_messages(msg_queue):
     """Continuously read and handle messages from the shared queue."""
     while True:
         msg = msg_queue.get()  # blocking
-        oradio_log.debug("Received message in Queue: %r", msg)
+        #oradio_log.debug("Henk:Received message in Queue:", str(msg))
         handle_message(msg)
 
 #-------------USB presence sync at start -up---------------------------------------
@@ -815,3 +816,15 @@ state_machine.transition("StateStartUp")
 threading.Thread(
     target=process_messages, args=(shared_queue,), daemon=True
 ).start()
+
+def main() -> None:
+    """
+    Main loop for oradio_control.
+    """
+    oradio_log.debug("Oradio control main loop running")
+    while True:
+        sleep(1)
+
+if __name__ == "__main__":
+
+    main()
