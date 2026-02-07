@@ -155,13 +155,13 @@ def _long_press_button_messages() -> None:
                 print(f"\nThe selected BUTTON press is {buttons_option[menu_choice]}\n")
                 button_msg = BUTTON_LONG_PRESS_NAMES[selected_button_nr]
                 _send_message(button_msg )
-                # wait for wifi-AP to startup
-                print("Wait for wifi-AP to start:")
-                for i in range(6):
-                    print("* ", end='', flush=True)
-                    sleep(0.5)
-                _check_led_blinking_status(LED_PLAY)
-                print("\n")
+                print("Wait for wifi-AP to start: ....")
+                if web_service_active.wait(timeout=10):
+                    print(f"{GREEN} Web server is active {NC}")
+                    sleep(3)
+                    _check_led_blinking_status(LED_PLAY)
+                else:
+                    print(f"{RED} Web server is not active {NC}")
             case 2: # Stop button
                 print(f"\nThe selected BUTTON press is {buttons_option[menu_choice]}\n")
                 _send_message(MESSAGE_SHORT_PRESS_BUTTON_STOP)
@@ -293,7 +293,7 @@ def _run_oradio_control() -> None:
     print("Oradio control main loop running")
 
     while True:
-        user_stop = input("Press Return on keyboard to stop")
+        _ = input("Press Return on keyboard to stop")
         break
 
 def _start_module_test():
