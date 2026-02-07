@@ -38,8 +38,8 @@ T - Review na alle module wijzigingen.
 	oradio_control is meermaals heen en weer geslingerd om (tijdelijke) wijzigingen in modules te accomoderen.
 	Zodra die modules gestabiliseerd zijn wordt het tijd om oradio_control na te kijken, op te schonen
 
-2026-01-21============================================================================================================================
-Review Onno
+2026-02-07 ============================================================================================================================
+Rework op de review van Onno
 gpio_service.py
 - Ik zie de stand-alone tests van modules liever basic, puur op 'werkt het' gericht
   Uitgebreidere testen, zoals performance en robuustheid graag in aparte module test files zetten
@@ -153,6 +153,15 @@ led_control.py
   Let wel op dat je dan de check in de method _single_led_test test case 4 verwijdert
   control_blinking_led()._blink(): verplaats docstring cycle time uitleg hierboven naar docstring van deze method
 	Henk: aangepast  
+
+oradio_control.py:
+Aanpassingen:
+1) Message afhandeling toegevoegd voor de touch_buttons berichten
+2) touch_buttons callbacks verwijderd
+3) module test toegevoegd
+
+Algemeen:
+Voor elke module test de mogelijkheid toegevoegd om een remote debugger te gebruiken, deze staat default uit.
 
 2026-01-11============================================================================================================================
 
