@@ -38,7 +38,7 @@ from remote_debugger import setup_remote_debugging
 
 ##### GLOBAL constants ####################
 from oradio_const import (
-    GREEN, YELLOW, RED, NC
+    GREEN, YELLOW, RED, NC,
     LED_NAMES, BUTTON_NAMES,
     DEBUGGER_ENABLED, DEBUGGER_NOT_CONNECTED,
 )
