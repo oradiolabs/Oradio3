@@ -33,38 +33,38 @@ import os
 import socket
 
 ##### oradio modules ####################
-from oradio_const import (YELLOW, GREEN, NC,
-                          DEBUGGER_CONNECTED, DEBUGGER_NOT_CONNECTED,
-                          DEBUGGER_DISABLED, DEBUGGER_ENABLED
-                          )
-
+from oradio_const import (
+    YELLOW, GREEN, NC,
+    DEBUGGER_CONNECTED,
+    DEBUGGER_NOT_CONNECTED,
+    DEBUGGER_DISABLED,
+    DEBUGGER_ENABLED
+)
 
 ############## REMOTE_DEBUGGER options ################################
-# REMOTE_DEBUGGER options
 # DEBUGGER_ENABLED = When remote debugger is required
-# DEBUUGER_DISABLED = When no remote debugger is required (default)
+# DEBUGGER_DISABLED = When no remote debugger is required (default)
 #REMOTE_DEBUGGER = DEBUGGER_DISABLED # default
 REMOTE_DEBUGGER = DEBUGGER_ENABLED
+
 if REMOTE_DEBUGGER == DEBUGGER_ENABLED:
     import pydevd
 
-if REMOTE_DEBUGGER == DEBUGGER_ENABLED:
     def setup_remote_debugging() -> tuple[str, str]:
-        '''
+        """
         Remote debugging service for Python with an IDE (eg Eclipse) in case DEBUGGER_ENABLED
-        :Returns
-            [debugger_status:str, connection_status:str]
+        Returns:
+            [debugger_status: str, connection_status: str]
             - The debugger_status: the REMOTE_DEBUGGER is enabled
             - The connection_status: in case the REMOTE_DEBUGGER is enabled
                 DEBUGGER_CONNECTED : connection established, or No remote debug required
                 DEBUGGER_NOT_CONNECTED: Error detected, no connection
-        '''
-
+        """
         debugger_status = DEBUGGER_ENABLED
         parser = argparse.ArgumentParser(description='Remote Debug')
         # pylint: disable=invalid-name
         # motivation; MESSAGE_DEBUG it is a constant, not a var, so allowed
-        MESSAGE_DEBUG = 'Remote Debug options are:  -rd [no|yes] -ip [host-ip-address] -p [host-portnr]'
+        MESSAGE_DEBUG = 'Remote Debug options are: -rd [no|yes] -ip [host-ip-address] -p [host-portnr]'
         #pylint: enable=invalid-name
         parser.add_argument('-rd', '--rmdebug', type = str, nargs='?', const='no', help=MESSAGE_DEBUG )
         parser.add_argument('-ip', '--ipaddress', type = str, nargs='?', const='no', help=MESSAGE_DEBUG )
@@ -75,7 +75,7 @@ if REMOTE_DEBUGGER == DEBUGGER_ENABLED:
                 raise argparse.ArgumentError(None, "Both -ip and -p are required when -rd is 'yes'")
         # pylint: enable=line-too-long
         remote_debug = args.rmdebug
-        allowed_options = [None, "no","yes"]
+        allowed_options = [None, "no", "yes"]
         if not remote_debug in allowed_options:
             parser.error(MESSAGE_DEBUG)
         print(f"Remote Debug option = {remote_debug}")
@@ -103,18 +103,18 @@ if REMOTE_DEBUGGER == DEBUGGER_ENABLED:
         return debugger_status, connection_status
 else:
     def setup_remote_debugging() -> tuple[str, str]:
-        '''
+        """
         Remote debugging service for Python with an IDE (eg Eclipse) in case DEBUGGER_DISABLED
-        :Returns
-            [debugger_status:str, connection_status:str]
+        Returns:
+            [debugger_status: str, connection_status: str]
             - The debugger_status: the REMOTE_DEBUGGER is disabled
             - The connection_status:  DEBUGGER_NOT_CONNECTED: Error detected, no connection
-        '''
+        """
         # pylint: disable=line-too-long
         parser = argparse.ArgumentParser(description='Remote Debug')
         # pylint: disable=invalid-name
         # motivation; MESSAGE_DEBUG it is a constant, not a var, so allowed
-        MESSAGE_DEBUG = 'Remote Debug options are:  -rd [no|yes] -ip [host-ip-address] -p [host-portnr]'
+        MESSAGE_DEBUG = 'Remote Debug options are: -rd [no|yes] -ip [host-ip-address] -p [host-portnr]'
         #pylint: enable=invalid-name
         parser.add_argument('-rd', '--rmdebug', type = str, nargs='?', const='no', help=MESSAGE_DEBUG )
         parser.add_argument('-ip', '--ipaddress', type = str, nargs='?', const='no', help=MESSAGE_DEBUG )

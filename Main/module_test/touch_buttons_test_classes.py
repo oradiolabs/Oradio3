@@ -20,14 +20,17 @@ Created on Jan 22, 2026
 """
 from threading import Event
 from time import sleep, perf_counter
-##### local oradio import modules ####################
 from RPi import GPIO
+
+##### oradio modules ####################
 from gpio_service import GPIOService, BUTTONS
+
+##### GLOBAL constants ####################
 from oradio_const import (
     BUTTON_NAMES, BUTTON_PLAY,
     TEST_DISABLED,
     YELLOW, NC,
-    )
+)
 
 class TimingData:
     """
@@ -57,22 +60,21 @@ class TestGPIOService(GPIOService):
     """
     Class with additional methods for testing purposes only
     Based on GPIOService baseclass
-    :Args
+    Args:
         The new class inherits from GPIOService, and extends it with extra test methods:
         * simulate_button_play_events_burst()
         * simulate_all_buttons_events_burst()
         * simulate_button_press_and_release()
     """
-
     def simulate_button_play_events_burst(self,
                                           burst_freq: int,
-                                          stop_burst: Event) -> tuple[bool,int]:
+                                          stop_burst: Event) -> tuple[bool, int]:
         """ 
         simulate a button press by submitting a callback for BUTTON_PLAY
-        :Args
+        Args:
             burst_freq = number of events per second
             stop_burst = an event to stop the burst
-        :Returns
+        Returns:
             status = True/False
                     False = Test is disabled
                     True = Test is enabled
@@ -91,13 +93,13 @@ class TestGPIOService(GPIOService):
 
     def simulate_all_buttons_events_burst(self,
                                           burst_freq: int,
-                                          stop_burst: Event) -> tuple[bool,int]:
+                                          stop_burst: Event) -> tuple[bool, int]:
         """ 
         simulate all button press by submitting a callback for all buttons in a sequence
-        :Args
+        Args:
             burst_freq = nr of events per second
             stop_burst = an event to stop the burst
-        :Returns
+        Returns:
             status = True/False
                     False = Test is disabled
                     True = Test is enabled
@@ -117,16 +119,16 @@ class TestGPIOService(GPIOService):
 
     def simulate_button_press_and_release(self,
                                           button_name: str,
-                                          press_timing : float)-> None:
+                                          press_timing: float) -> None:
         """ 
         simulate a BUTTON_STOP button press according specified press timing,
         by submitting a callback for specified button
-        :Args
+        Args:
             button_name = name of button [ BUTTON_PLAY | BUTTON_STOP] |
                                             BUTTON_PRESET1 | BUTTON_PRESET2 | BUTTON_PRESET3 ]
             press_timing = press time in float seconds for BUTTON_STOP 
         """
-        # set the button pin to an output with GPIO,LOW as a button press
+        # set the button pin to an output with GPIO, LOW as a button press
         GPIO.setup(BUTTONS[button_name], GPIO.OUT, initial=GPIO.HIGH)
         GPIO.output(BUTTONS[button_name], GPIO.LOW)
         self._edge_callback(BUTTONS[button_name])
@@ -137,8 +139,8 @@ class TestGPIOService(GPIOService):
             sleep(0.2)
             print(f"{YELLOW}*", end=" ", flush=True)
             elapsed_time = perf_counter()-start_time
-        print(f"{YELLOW}button press timing was {NC} ",press_timing, end=" ", flush=True)
-        # set the button pin to GPIO,HIGH as a button release
+        print(f"{YELLOW}button press timing was {NC} ", press_timing, end=" ", flush=True)
+        # set the button pin to GPIO, HIGH as a button release
         GPIO.output(BUTTONS[button_name], GPIO.HIGH)
         self._edge_callback(BUTTONS[button_name])
         # reset the button pin back to an input

@@ -18,9 +18,9 @@ Created on January 17, 2025
 @email:         oradioinfo@stichtingoradio.nl
 @status:        Development
 @summary: Class for USB detect, insert, and remove services
-    :Note
-    :Install
-    :Documentation
+    Note:
+    Install:
+    Documentation:
         https://docs.python.org/3/howto/logging.html
         https://pypi.org/project/concurrent-log-handler/
 """
@@ -44,21 +44,22 @@ from oradio_const import (
 )
 
 ##### LOCAL constants ####################
+INTERFACE   = "wlan0"           # Raspberry Pi wireless interface
+DNS_TIMEOUT = 0.5               # seconds
+DNS_HOST    = ("8.8.8.8", 53)   # google.com
+
 JSON_SCHEMAS_PATH = Path(__file__).parent.resolve()
 JSON_SCHEMAS_FILE = JSON_SCHEMAS_PATH / "schemas.json"
+
 class OradioMessage(BaseModel):
-    '''
+    """
     The basemodel for the OradioMessage to standardize the message when
     used in the shared-queue of Oradio.
-    '''
+    """
     source: str
     state: str
     error: str
     data: Optional[List[Any]] = None
-
-INTERFACE   = "wlan0"           # Raspberry Pi wireless interface
-DNS_TIMEOUT = 0.5               # seconds
-DNS_HOST    = ("8.8.8.8", 53)   # google.com
 
 def get_serial() -> str:
     """Extract serial from Raspberry Pi."""
@@ -77,16 +78,14 @@ def get_serial() -> str:
 
     return "Unknown"
 
-def safe_put(queue, msg, block=True, timeout=None):
+def safe_put(queue, msg, block=True, timeout=None) -> bool:
     """
     Safely put a message into a multiprocessing.Queue.
-
     Args:
         queue (multiprocessing.Queue): The queue.
         msg (list): The object to put.
         block (bool): Whether to block if the queue is full.
         timeout (float|None): Timeout for blocking put.
-
     Returns:
         bool: True if the message was put successfully, False otherwise.
     """
@@ -108,11 +107,13 @@ def safe_put(queue, msg, block=True, timeout=None):
         oradio_log.critical("Queue internal error: %s", ex_err, exc_info=True)
         return False
 
-def is_service_active(service_name):
+def is_service_active(service_name) -> bool:
     """
     Check if systemd service is running
-    :param service_name: Name of the service
-    :return: True if service is active, False otherwise
+    Args:
+        service_name (str): Name of the service
+    Returns:
+        bool: True if service is active, False otherwise
     """
     try:
         # Run systemctl is-active command
@@ -132,9 +133,9 @@ def validate_oradio_message(message: Union[OradioMessage, Dict[str, Any]]) -> Op
     """
     Validates a message to ensure it matches the OradioMessage schema.
     If the message is already an OradioMessage, it is returned as-is.
-    :argument
+    Args:
         message : message formatted as a dictionary or as OradioMessage
-    :return
+    Returns:
         validated_message = when message is correct
         validated_messsage = None, when not according OradioMessage structure
     """
@@ -145,10 +146,10 @@ def validate_oradio_message(message: Union[OradioMessage, Dict[str, Any]]) -> Op
     try:
         # Message is a dictionary; validate it
         validated_message = OradioMessage(**message)
-        oradio_log.debug("Message is valid: %s",validated_message)
+        oradio_log.debug("Message is valid: %s", validated_message)
         return validated_message
     except ValidationError as err:
-        oradio_log.error("Message does not match OradioMessage schema %s:",err)
+        oradio_log.error("Message does not match OradioMessage schema: %s", err)
         return None
 
 # handle the error
@@ -157,11 +158,9 @@ def has_internet() -> bool:
     Quickly check if the given interface has internet access.
     Uses a TCP connection to a known DNS server bound to the interface's IP.
     NOTE: ping is NOT reliable because the network interface uses power management.
-
     Returns:
         bool: True if internet is reachable from this interface, False otherwise.
     """
-    # NOTE: Do not log to avoid getting stuck in an infinite loop in logging handler
     try:
         # Get IPv4 address of the interface
         addrs = netifaces.ifaddresses(INTERFACE)
@@ -183,8 +182,10 @@ def has_internet() -> bool:
 def run_shell_script(script):
     """
     Simplified shell command execution
-    :param script (str) - shell command to execute
-    :return: (success, output) tuple
+    Args:
+        script (str) - shell command to execute
+    Returns:
+        (success, output) tuple
              success=True -> output = stdout (stripped)
              success=False -> output = stderr (stripped)
     """
@@ -203,7 +204,6 @@ def run_shell_script(script):
 def load_presets() -> dict[str, str]:
     """
     Retrieve the playlist names associated with the presets from a JSON file.
-
     Returns:
         dict[str, str]: A dictionary mapping lowercase preset_key -> listname.
                         If a preset value is missing or invalid, listname will be an empty string "".
@@ -239,7 +239,7 @@ def load_presets() -> dict[str, str]:
     oradio_log.debug("Presets loaded (case-insensitive): %s", presets_dict)
     return presets_dict
 
-def store_presets(presets: dict[str, str]):
+def store_presets(presets: dict[str, str]) -> None:
     """
     Save the provided presets dictionary to the presets.json file in the USB_SYSTEM folder.
 
@@ -276,10 +276,10 @@ def store_presets(presets: dict[str, str]):
 def input_prompt_int(prompt: str, default=-1 ) -> int:
     """
     Prompt for an user input and return int value of number typed
-    :Args 
+    Args: 
         prompt : prompt text for user
         default: default value to return in case of an error
-    :Returns
+    Returns:
         the integer value type in by user | default value in case of an error
     """
     try:
@@ -290,10 +290,10 @@ def input_prompt_int(prompt: str, default=-1 ) -> int:
 def input_prompt_float(prompt: str, default: float | None = None) -> float | None:
     """
     Prompt for an user input and return float value of number typed
-    :Args
+    Args:
         prompt : prompt text for user
         default: default value to return in case of an error
-    :Returns
+    Returns:
         the ifloat value type in by user | default value in case of an error
     """   
     try:

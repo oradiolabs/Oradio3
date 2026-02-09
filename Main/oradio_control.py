@@ -40,7 +40,7 @@ from remote_monitoring import RMService
 from spotify_connect_direct import SpotifyConnect
 from usb_service import USBService
 from web_service import WebService
-from oradio_utils import has_internet,validate_oradio_message
+from oradio_utils import has_internet, validate_oradio_message
 from power_supply_control import PowerSupplyService
 from system_sounds import play_sound    # For better readability. pylint: disable=wrong-import-order
 # Runs a background thread logging throttled events

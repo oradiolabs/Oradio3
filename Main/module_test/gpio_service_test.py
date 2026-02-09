@@ -25,7 +25,6 @@ Created on Januari 22, 2026
 @references:
     https://www.raspberrypi.com/documentation/computers/raspberry-pi.html#gpio
 """
-
 from threading import Thread, Event
 from time import sleep
 import sys
@@ -35,23 +34,27 @@ from RPi import GPIO
 ##### local oradio import modules ####################
 from oradio_utils import input_prompt_int
 from gpio_service import GPIOService, LED_ON, LED_OFF, LEDS, BUTTONS, BOUNCE_MS
-from oradio_const import ( LED_NAMES, BUTTON_NAMES,
-                           DEBUGGER_ENABLED, DEBUGGER_NOT_CONNECTED,
-                           GREEN, YELLOW, RED, NC
-                         )
 from remote_debugger import setup_remote_debugging
+
+##### GLOBAL constants ####################
+from oradio_const import (
+    GREEN, YELLOW, RED, NC
+    LED_NAMES, BUTTON_NAMES,
+    DEBUGGER_ENABLED, DEBUGGER_NOT_CONNECTED,
+)
+
 ##### Local constants ####################
 button_state = {True: f"{YELLOW}1", False: f"{NC}0"}
 
 def button_event_callback(button_data: dict) -> None:
     """
-    callback for button events testing
-    :Args
+    Callback for button events testing
+    Args:
         button_data = { 'name': str,   # name of button
                         'state': str,  # state of button Pressed/Released
                         'error' : str  # error 
                         }
-    :Attributes
+    Attributes:
         GPIO_MODULE_TEST: (TEST_ENABLED  = The module test is enabled)
         if TEST_ENABLED a data key is added
         {
@@ -60,18 +63,18 @@ def button_event_callback(button_data: dict) -> None:
     """
     print(f"Button change event: {button_data['name']} = {button_data['state']}")
 
-def _keyboard_input(event:Event):
+def _keyboard_input(event: Event):
     """
-    wait for keyboard input with return, and set event if input detected
-    :Args
+    Wait for keyboard input with return, and set event if input detected
+    Args:
         event = The specified event will be set upon a keyboard input
-    :post_condition:
+    post_condition:
         the event is set
     """
     _= input("Press Return on keyboard to stop this test")
     event.set()
 
-def _button_polling(test_gpio:GPIOService) -> None:
+def _button_polling(test_gpio: GPIOService) -> None:
     """
     Polling of the buttons pins and report the state of the pins
     """
@@ -102,16 +105,15 @@ def _button_polling(test_gpio:GPIOService) -> None:
         )
         # pylint: enable=protected-access
 
-def _buttons_testing(test_gpio:GPIOService) -> None:
+def _buttons_testing(test_gpio: GPIOService) -> None:
     """
     module tests for the BUTTONS
-    :Args
+    Args:
         test_gpio : instance of the GPIO class under test
-    :Returns
+    Returns:
         True : OK
         False: Error condition
     """
-
     button_test_options = ["Quit"]\
                     + ["polling the button state"]\
                     + ["button event-callback handling"]
@@ -150,7 +152,7 @@ def _buttons_testing(test_gpio:GPIOService) -> None:
 def led_selection() -> Tuple[int, str]:
     """
     Led selection menu
-    :Returns
+    Returns:
         selected_led_name [str] : the name of led as in LED_NAMES
         menu_choice [int]: the number of the selection
     """
@@ -181,10 +183,10 @@ def led_selection() -> Tuple[int, str]:
         selected_led_name = LED_NAMES[selected_led_nr]
     return menu_choice, selected_led_name
 
-def _single_led_test(test_gpio:GPIOService) ->None:
+def _single_led_test(test_gpio: GPIOService) -> None:
     """
     Test the selected LED functions
-    :Args 
+    Args:
         test_gpio : instance of gpio service to be use
     """
     _all_leds_off(test_gpio)
@@ -230,7 +232,7 @@ def _single_led_test(test_gpio:GPIOService) ->None:
 def _all_leds_off(test_gpio: GPIOService) -> None:
     """
     Switch off all LEDs
-    :Args
+    Args:
         test_gpio:  should be an instance of GPIOService
     """
     for led_name in LED_NAMES:
@@ -239,7 +241,7 @@ def _all_leds_off(test_gpio: GPIOService) -> None:
 def _set_all_leds_test(test_gpio: GPIOService, led_state: bool) -> None:
     """
     Set all leds ON or OFF using GPIO services
-    :Args
+    Args:
         test_gpio instance
         led_state : LED_ON | LED_OFF
     """
@@ -265,7 +267,7 @@ def _set_all_leds_test(test_gpio: GPIOService, led_state: bool) -> None:
 def _leds_testing(test_gpio: GPIOService) -> None:
     """
     module tests for the LEDS
-    :Args
+    Args:
         test_gpio should be an instance of GPIOService
     """
     # create a led-pin selection list
@@ -287,10 +289,10 @@ def _leds_testing(test_gpio: GPIOService) -> None:
                 test_active = False
             case 1:
                 print(f"\n running {led_pin_options[1]}\n")
-                _set_all_leds_test(test_gpio,LED_ON)
+                _set_all_leds_test(test_gpio, LED_ON)
             case 2:
                 print(f"\n running {led_pin_options[2]}\n")
-                _set_all_leds_test(test_gpio,LED_OFF)
+                _set_all_leds_test(test_gpio, LED_OFF)
             case 3:
                 print(f"\n running {led_pin_options[3]}\n")
                 _single_led_test(test_gpio)

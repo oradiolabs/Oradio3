@@ -18,9 +18,9 @@ Created on December 23, 2024
 @email:         oradioinfo@stichtingoradio.nl
 @status:        Development
 @summary: Class for web interface and Captive Portal
-    :Note
-    :Install
-    :Documentation
+    Note:
+    Install:
+    Documentation:
         https://www.uvicorn.org/
         https://fastapi.tiangolo.com/
         https://captivebehavior.wballiance.com/
@@ -498,7 +498,8 @@ if __name__ == '__main__':
         """
         Check if a new message is put into the queue
         If so, read the message from queue and display it
-        :param queue = the queue to check for
+        Args:
+            queue = the queue to check for
         """
         while True:
             # Wait indefinitely until a message arrives from the server/wifi service

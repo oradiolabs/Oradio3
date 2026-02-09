@@ -24,10 +24,11 @@ Created on January 29, 2025
 
 """
 from threading import Thread, Timer, Event
-from singleton import singleton
+
 ##### oradio modules ####################
 from oradio_logging import oradio_log
 from gpio_service import GPIOService
+from singleton import singleton
 
 ##### GLOBAL constants ####################
 from oradio_const import (LED_NAMES)
@@ -51,10 +52,10 @@ class LEDControl:
         self.blinking_threads = {}      # map led_name → Thread
         oradio_log.debug("LEDControl initialized: All LEDs OFF")
 
-    def turn_off_led(self, led_name:str) -> None:
+    def turn_off_led(self, led_name: str) -> None:
         """
         Turns off a specified LED and waits for its blink‐thread to exit.
-        :Args
+        Args:
             led_name (str): [precondition] shall be [ LED_PLAY | LED_STOP |
                                                     LED_PRESET1 | LED_PRESET2 | LED_PRESET3] 
         """
@@ -65,10 +66,10 @@ class LEDControl:
         else:
             oradio_log.error("Invalid LED name: %s", led_name)
 
-    def turn_on_led(self, led_name:str) -> None:
+    def turn_on_led(self, led_name: str) -> None:
         """
         Turns ON a specified LED and stops blink‐thread if active.
-        :Args
+        Args:
             led_name (str): [precondition] shall be [ LED_PLAY | LED_STOP |
                                                     LED_PRESET1 | LED_PRESET2 | LED_PRESET3] 
         """
@@ -80,10 +81,9 @@ class LEDControl:
         else:
             oradio_log.error("Invalid LED name: %s", led_name)
 
-    def turn_off_all_leds(self) ->None:
+    def turn_off_all_leds(self) -> None:
         """
-        Stops all led blinking and related threads and 
-        turns every LED off.
+        Stops all led blinking and related threads and turns every LED off.
         """
         for led_name in LED_NAMES:
             self.turn_off_led(led_name)
@@ -91,19 +91,16 @@ class LEDControl:
 
     def turn_on_all_leds(self) -> None:
         """
-        Stops all led blinking and related threads and 
-        turns every LED on.
+        Stops all led blinking and related threads and turns every LED on.
         """
         for led_name in LED_NAMES:
             self.turn_on_led(led_name)
         oradio_log.debug("All LEDs turned ON and blinking stopped")
 
-    def oneshot_on_led(self,
-                       led_name : str,
-                       period: float=3) ->None:
+    def oneshot_on_led(self, led_name: str, period: float=3) -> None:
         """
         Turns on a specific LED and then turns it off after a delay.
-        :Args
+        Args:
             led_name : [precondition] shall be [ LED_PLAY | LED_STOP |
                                                     LED_PRESET1 | LED_PRESET2 | LED_PRESET3] 
             period : Time in seconds before turning off the LED. Default = 3
@@ -113,37 +110,35 @@ class LEDControl:
             oradio_log.debug("%s turned off after %s seconds", led_name, period)
 
         if period > 0:
-            period = round(period,1) # more accuracy not visible, so not required
+            period = round(period, 1) # more accuracy not visible, so not required
             if led_name in LED_NAMES:
                 # Stop any blinking for this LED and turn it on
                 self.turn_on_led(led_name)
                 oradio_log.debug("%s turned on, will turn off after %s seconds", led_name, period)
-                oneshot_timer = Timer(period,oneshot_off_led, args=(led_name,period))
+                oneshot_timer = Timer(period, oneshot_off_led, args=(led_name, period))
                 oneshot_timer.start()
             else:
                 oradio_log.error("Invalid LED name: %s", led_name)
         else:
             # no valid period, no timer started
-            oradio_log.warning("Invalid period time of %f for oneshot of led: %s",period, led_name)
+            oradio_log.warning("Invalid period time of %f for oneshot of led: %s", period, led_name)
 
-    def get_led_state(self, led_name:str)-> bool:
+    def get_led_state(self, led_name: str) -> bool:
         """
         Get the state of the selected led_name
-        :Args
+        Args:
             led_name = [ LED_PLAY | LED_STOP | LED_PRESET1 | LED_PRESET2 | LED_PRESET3]
-        :Returns:
+        Returns:
             True = Led is ON
             False = led is OFF
         """
         return self.leds_driver.get_led_state(led_name)
 
-    def control_blinking_led(self,
-                             led_name: str,
-                             cycle_time:float = 2) -> None:
+    def control_blinking_led(self, led_name: str, cycle_time: float=2) -> None:
         """
         Blink the specified led,
         An Event is used for blink timing and instant stop, 
-        :Args
+        Args:
             led_name (str): [precondition] shall be [ LED_PLAY | LED_STOP |
                                                     LED_PRESET1 | LED_PRESET2 | LED_PRESET3]
             cycle_time (float) = duration of one complete cycle for blinking  
@@ -178,7 +173,7 @@ class LEDControl:
                 thread.start()
                 self.blinking_threads[led_name] = thread
                 #Henk: oradio_log.debug("%s blinking started: %.3fs cycle", led_name, cycle_time)
-                oradio_log.debug("%s blinking started:", led_name)
+                oradio_log.debug("%s blinking started", led_name)
             else:
                 oradio_log.error("Invalid LED name: %s", led_name)
         else:
@@ -188,7 +183,7 @@ class LEDControl:
     def _stop_blink(self, led_name) -> None:
         """
         Stop blink of selected led and stop related active threads
-        :Args
+        Args:
             led_name (str): [precondition] shall be [ LED_PLAY | LED_STOP |
                                                     LED_PRESET1 | LED_PRESET2 | LED_PRESET3] 
         """
@@ -201,3 +196,7 @@ class LEDControl:
         active_thread = self.blinking_threads.pop(led_name, None)
         if active_thread:
             active_thread.join()
+
+# Entry point for stand-alone operation
+if __name__ == '__main__':
+    print("Stand-alone not implemented")

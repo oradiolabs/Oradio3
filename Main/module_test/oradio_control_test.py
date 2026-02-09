@@ -21,45 +21,49 @@ Created on January 29, 2026
 from time import sleep
 import sys
 from threading import Event, Thread
+
 ##### oradio modules ####################
 from oradio_logging import oradio_log, DEBUG, CRITICAL
 from oradio_control import state_machine, leds, web_service_active, shared_queue
-##### GLOBAL constants ####################
-from oradio_const import (GREEN, RED, NC,
-                          DEBUGGER_NOT_CONNECTED, DEBUGGER_ENABLED,
-                          MESSAGE_SHORT_PRESS_BUTTON_PLAY, MESSAGE_SHORT_PRESS_BUTTON_STOP,
-                          MESSAGE_SHORT_PRESS_BUTTON_PRESET1, MESSAGE_SHORT_PRESS_BUTTON_PRESET2,
-                          MESSAGE_SHORT_PRESS_BUTTON_PRESET3, MESSAGE_LONG_PRESS_BUTTON_PLAY,
-                          MESSAGE_BUTTON_SOURCE,MESSAGE_NO_ERROR,
-                          LED_PLAY, LED_STOP, LED_PRESET1, LED_PRESET2, LED_PRESET3
-                          )
-from oradio_utils import ( input_prompt_int, input_prompt_float,
-                           safe_put,OradioMessage)
+from oradio_utils import input_prompt_int, input_prompt_float, safe_put, OradioMessage
 from remote_debugger import setup_remote_debugging
 
-##### Local constants ####################
-BUTTON_SHORT_PRESS_NAMES = [ MESSAGE_SHORT_PRESS_BUTTON_PLAY,
-                            MESSAGE_SHORT_PRESS_BUTTON_STOP,
-                            MESSAGE_SHORT_PRESS_BUTTON_PRESET1,
-                            MESSAGE_SHORT_PRESS_BUTTON_PRESET2,
-                            MESSAGE_SHORT_PRESS_BUTTON_PRESET3]
-BUTTON_LONG_PRESS_NAMES = [ MESSAGE_LONG_PRESS_BUTTON_PLAY]
+##### GLOBAL constants ####################
+from oradio_const import (
+    GREEN, RED, NC,
+    DEBUGGER_NOT_CONNECTED, DEBUGGER_ENABLED,
+    MESSAGE_SHORT_PRESS_BUTTON_PLAY, MESSAGE_SHORT_PRESS_BUTTON_STOP,
+    MESSAGE_SHORT_PRESS_BUTTON_PRESET1, MESSAGE_SHORT_PRESS_BUTTON_PRESET2,
+    MESSAGE_SHORT_PRESS_BUTTON_PRESET3, MESSAGE_LONG_PRESS_BUTTON_PLAY,
+    MESSAGE_BUTTON_SOURCE, MESSAGE_NO_ERROR,
+    LED_PLAY, LED_STOP, LED_PRESET1, LED_PRESET2, LED_PRESET3
+)
 
-def keyboard_input(event:Event):
-    '''
-    wait for keyboard input with return, and set event if input detected
-    :arguments
+##### Local constants ####################
+BUTTON_SHORT_PRESS_NAMES = [
+    MESSAGE_SHORT_PRESS_BUTTON_PLAY,
+    MESSAGE_SHORT_PRESS_BUTTON_STOP,
+    MESSAGE_SHORT_PRESS_BUTTON_PRESET1,
+    MESSAGE_SHORT_PRESS_BUTTON_PRESET2,
+    MESSAGE_SHORT_PRESS_BUTTON_PRESET3
+]
+BUTTON_LONG_PRESS_NAMES = [MESSAGE_LONG_PRESS_BUTTON_PLAY]
+
+def keyboard_input(event: Event):
+    """
+    Wait for keyboard input with return, and set event if input detected
+    Args:
         event = The specified event will be set upon a keyboard input
-    :post_condition:
+    post_condition:
         the event is set
-    '''
+    """
     _=input("Press Return on keyboard to stop this test")
     event.set()
 
-def _send_message(message_state: str)-> None:
+def _send_message(message_state: str) -> None:
     """
     Send a OradioMessage formatted message to the message queue
-    :Args:
+    Args:
         message_state = the state to be used for the key "state"
     """
     message = {}
@@ -73,7 +77,7 @@ def _send_message(message_state: str)-> None:
 def _check_led_blinking_status(led_name: str) -> None:
     """
     check if led state is blinking
-    :Args
+    Args:
         led_name : the name of the led
     """
     # select led name should be blinking
@@ -83,10 +87,10 @@ def _check_led_blinking_status(led_name: str) -> None:
     else:
         print (f"{RED}LED LED_PLAY is NOT BLINKING{NC}\n")
 
-def _check_led_status(btn_msg:str) -> None:
+def _check_led_status(btn_msg: str) -> None:
     """
     check if led state is according button press state
-    :Args
+    Args:
         btn_msg : the button message used during test
     """
     led_name = None
@@ -106,10 +110,10 @@ def _check_led_status(btn_msg:str) -> None:
     else:
         print (f"{RED}LED {led_name} is OFF{NC}")
 
-def _check_stm_state(btn_msg:str)-> None:
+def _check_stm_state(btn_msg: str) -> None:
     """
     Check the current state-machine state
-    :Args
+    Args:
         btn_msg : the button message used during test
     """
     stm_state = None
@@ -214,7 +218,7 @@ def _short_press_button_messages() -> None:
                 print("Please input a valid test option.")
     oradio_log.set_level(DEBUG)
 
-def _short_button_msg_stress_test()-> None:
+def _short_button_msg_stress_test() -> None:
     """
     Stress test for button message
     """
@@ -240,11 +244,11 @@ def _short_button_msg_stress_test()-> None:
                           MESSAGE_SHORT_PRESS_BUTTON_STOP ]
     msg_test_sequences = [msg_test_sequence_1, msg_test_sequence_2]
     test_sequence = input_prompt_int("Select a test sequence (1 or 2) : ")
-    if not test_sequence in (1,2):
-        print ("Incorrect number,please, select a valid test number (now 1 is used)")
+    if not test_sequence in (1, 2):
+        print ("Incorrect number, please select a valid test number (now 1 is used)")
         test_sequence = 1
     msg_rate = input_prompt_float("Give repetition rate/sec for sending messages as float nr: ")
-    if msg_rate in (None,0):
+    if msg_rate in (None, 0):
         return
     msg_delay = float(1/msg_rate)
 
@@ -261,7 +265,7 @@ def _short_button_msg_stress_test()-> None:
             sleep(msg_delay)
     oradio_log.set_level(DEBUG)
 
-def _long_button_msg_stress_test()-> None:
+def _long_button_msg_stress_test() -> None:
     """
     Stress test for button message
     """
@@ -274,7 +278,7 @@ def _long_button_msg_stress_test()-> None:
                           MESSAGE_SHORT_PRESS_BUTTON_STOP ]
     msg_test_sequences = [msg_test_sequence_1]
     msg_rate = input_prompt_float("Give repetition rate/sec for sending messages as float nr: ")
-    if msg_rate in (None,0):
+    if msg_rate in (None, 0):
         return
     msg_delay = float(1/msg_rate)
     stop_event = Event()

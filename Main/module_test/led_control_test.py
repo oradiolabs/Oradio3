@@ -25,41 +25,42 @@ import math
 
 ##### oradio modules ####################
 from led_control import LEDControl
-
-##### GLOBAL constants ####################
-from oradio_const import (LED_NAMES, GREEN, YELLOW, RED, NC,
-                          DEBUGGER_NOT_CONNECTED, DEBUGGER_ENABLED )
 from oradio_utils import input_prompt_int, input_prompt_float
 from remote_debugger import setup_remote_debugging
 
-def keyboard_input(event:Event):
-    '''
-    wait for keyboard input with return, and set event if input detected
-    :arguments
-        event = The specified event will be set upon a keyboard input
-    :post_condition:
-        the event is set
-    '''
-    _=input("Press Return on keyboard to stop this test")
-    event.set()
+##### GLOBAL constants ####################
+from oradio_const import (
+    LED_NAMES, GREEN, YELLOW, RED, NC,
+    DEBUGGER_NOT_CONNECTED, DEBUGGER_ENABLED
+)
 
-
+##### Local constants ####################
 LED_OFF     = "▄" # symbol for led off
 LED_ON      = "▀" # symbol for led on
 BAR_LENGTH  = 60 # Number of characters for the progress bar
 
-def _progress_bar(led_control:LEDControl,
-                  led_name:str,
-                  duration:int)-> float:
-    '''
+def keyboard_input(event: Event):
+    """
+    wait for keyboard input with return, and set event if input detected
+    Args:
+        event = The specified event will be set upon a keyboard input
+    post_condition:
+        the event is set
+    """
+    _=input("Press Return on keyboard to stop this test")
+    event.set()
+
+def _progress_bar(led_control: LEDControl, led_name: str, duration: int) -> float:
+    """
     progress bar
     extended ascii characters see at https://coding.tools/ascii-table
-    :arguments
+    Args:
         led_name (str) = [ LED_PLAY | LED_STOP] |
                         LED_PRESET1 | LED_PRESET2 | LED_PRESET3 ]
         seconds (int) : duration of progress bar
-    :return led_on_timing (float, 1 decimal)
-    '''
+    Returns:
+        led_on_timing (float, 1 decimal)
+    """
     start_time          = time.monotonic()
     end_time            = start_time + duration
     progress_bar_state  = "Led ON"
@@ -75,7 +76,7 @@ def _progress_bar(led_control:LEDControl,
                 progress_bar = f"{YELLOW}{LED_ON}" * filled_length +\
                                  "-" * (BAR_LENGTH - filled_length)
                 bar_led_off_start = filled_length
-                led_on_timing = round(elapsed,1)
+                led_on_timing = round(elapsed, 1)
             else:
                 time.sleep(0.1) # to allow log messages to print before showing progress bar
                 progress_bar_state = "Led OFF"
@@ -90,45 +91,44 @@ def _progress_bar(led_control:LEDControl,
     print("\n")
     return led_on_timing
 
-
 LINE_LENGTH     = 90
 INTERVAL_TIME   = 0.05
-def _show_and_measure_blinking(led_control:LEDControl,
-                               led_name:str,
+def _show_and_measure_blinking(led_control: LEDControl,
+                               led_name: str,
                                cycle_time: float,
-                               stop_event : Event )-> float:
+                               stop_event: Event ) -> float:
     # pylint: disable=too-many-locals
     ################################################################
     # motivation: for calculation purposes more vars are required
     #################################################################
-    '''
+    """
     display the blinking state of selected led
     extended ascii characters see at https://coding.tools/ascii-table
-    :arguments
+    Args:
         led_name (str) = [ LED_PLAY | LED_STOP] |
                         LED_PRESET1 | LED_PRESET2 | LED_PRESET3 ]
         led_control : test instance of LEDControl
         cycle_time : the cycle time as float
         stop_event : Event to stop the test
-    :return 
+    Returns:
         state_time = the measured ON or OFF period of blink.
-    '''
+    """
     def round_down(num, decimals):
-        '''
+        """
         round down float to nearest value, respecting the float decimals
-        :argument
+        Args:
             num = float number
             decimals = number of decimals to use
-        :return
+        ReturnS
             the nearest down value for the float with the specified decimals
-        '''
+        """
         multiplier = 10 ** decimals
         return math.floor(num * multiplier) / multiplier
 
     line          = [" "] * LINE_LENGTH  # Initialize with spaces
     led_state     = led_control.leds_driver.get_led_state(led_name)
     start_time    = time.monotonic()
-    half_time     = round_down((cycle_time/2),2)
+    half_time     = round_down((cycle_time/2), 2)
     puls_length   = int(half_time/INTERVAL_TIME)
     mid_puls_position = int(puls_length/2)
     while not stop_event.is_set():
@@ -137,7 +137,7 @@ def _show_and_measure_blinking(led_control:LEDControl,
         now = time.monotonic()
         state_time = 0.0
         if new_led_state != led_state:
-            state_time = round_down((now - start_time),2)
+            state_time = round_down((now - start_time), 2)
             led_state  = new_led_state
             start_time = now
             # set the state_time in the line list at mid position of last state
@@ -169,16 +169,15 @@ def _show_and_measure_blinking(led_control:LEDControl,
     led_control.turn_off_led(led_name)
     return state_time
 
-def _single_led_test(led_control:LEDControl,
-                     test_led_nr:str) ->None:
-    '''
+def _single_led_test(led_control: LEDControl, test_led_nr: str) -> None:
+    """
     Test the selected LED functions
-    :arguments 
+    Args:
         test_led_nr (int) : 0=LED_PLAY, 1=LED_STOP, 
                             2=LED_PRESET1, 3=LED_PRESET2, 4=LED_PRESET3,
                             5=LED_UNKNOWN
         led-driver = instance of LEDControl to use
-    '''
+    """
     # pylint: disable=too-many-branches
     if test_led_nr == 5:
         # to test for unknown LED_NAMES
@@ -210,9 +209,9 @@ def _single_led_test(led_control:LEDControl,
                 one_shot = input_prompt_float("Input a one-shot ON period as float number : ")
                 print(f"\n{one_shot} sec ONESHOT ON for {selected_led}\n")
                 led_control.turn_off_all_leds()
-                led_control.oneshot_on_led(selected_led,one_shot)
+                led_control.oneshot_on_led(selected_led, one_shot)
                 led_on_timing = _progress_bar(led_control, selected_led, one_shot+1 )
-                if led_on_timing == round(one_shot,1):
+                if led_on_timing == round(one_shot, 1):
                     print(f"{GREEN}Test:The ONESHOT timing for {selected_led} is OK")
                 else:
                     print(f"{RED}Test:The ONESHOT timing for {selected_led} is NOT OK")
@@ -280,7 +279,7 @@ def _start_module_test():
                 one_shot = input_prompt_float("Input a one-shot ON period as float number : ")
                 led_control.turn_off_all_leds()
                 for led in LED_NAMES:
-                    led_control.oneshot_on_led(led,one_shot)
+                    led_control.oneshot_on_led(led, one_shot)
                     print(f"\n{one_shot} sec ONESHOT ON for {led}\n")
                 _ = input("Press any key to stop blinking")
                 led_control.turn_off_all_leds()
