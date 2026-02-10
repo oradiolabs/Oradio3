@@ -50,23 +50,24 @@ from oradio_const import (
 ##### Local constants ####################
 # LED GPIO PINS
 LEDS: dict[str, int] = {
-    LED_PLAY:    15,
+    LED_PLAY: 15,
     LED_PRESET1: 24,
     LED_PRESET2: 25,
-    LED_PRESET3:  7,
-    LED_STOP:    23
+    LED_PRESET3: 7,
+    LED_STOP: 23
 }
 # BUTTONS GPIO PINS
 BUTTONS: dict[str, int] = {
-    BUTTON_PLAY:    9,
+    BUTTON_PLAY: 9,
     BUTTON_PRESET1: 11,
     BUTTON_PRESET2: 5,
     BUTTON_PRESET3: 10,
-    BUTTON_STOP:    6,
+    BUTTON_STOP: 6,
 }
 BOUNCE_MS = 10  # hardware debounce in GPIO.add_event_detect
-LED_ON  = True
+LED_ON = True
 LED_OFF = False
+
 
 @singleton
 class GPIOService:
@@ -83,6 +84,7 @@ class GPIOService:
             TEST_ENABLED  = The module test is enabled, additional code is provided
     """
     GPIO_MODULE_TEST = TEST_DISABLED
+
     def __init__(self) -> None:
         """
         Initialize and setup the GPIO
@@ -247,7 +249,7 @@ class GPIOService:
             True : The button_name of the pin is found and callback is called 
         """
         if self.GPIO_MODULE_TEST == TEST_ENABLED:
-            button_event_ts = perf_counter() # timestamp the start of this function
+            button_event_ts = perf_counter()  # timestamp the start of this function
         button_data = {}
         button_name = self.gpio_to_button[channel]
         if not button_name:
@@ -258,7 +260,7 @@ class GPIOService:
         else:
             state = BUTTON_RELEASED
         button_data["state"] = state
-        button_data["name"]  = button_name
+        button_data["name"] = button_name
         if self.edge_event_callback:
             if self.GPIO_MODULE_TEST == TEST_ENABLED:
                 # When TEST_ENABLED, the module test requires the button_data, being:
@@ -269,6 +271,7 @@ class GPIOService:
             self.edge_event_callback(button_data)
         else:
             oradio_log.error("no callback function found")
+
 
 # Entry point for stand-alone operation
 if __name__ == '__main__':

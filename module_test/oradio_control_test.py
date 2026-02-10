@@ -24,13 +24,13 @@ from threading import Event, Thread
 
 ##### oradio modules ####################
 from oradio_logging import oradio_log, DEBUG, CRITICAL
-from oradio_control import state_machine, leds, web_service_active, shared_queue
+from oradio_control import state_machine, leds, web_service_active, shared_queue, mpd_control
 from oradio_utils import input_prompt_int, input_prompt_float, safe_put, OradioMessage
 from remote_debugger import setup_remote_debugging
 
 ##### GLOBAL constants ####################
 from oradio_const import (
-    GREEN, RED, NC,
+    GREEN, RED, YELLOW, NC,
     DEBUGGER_NOT_CONNECTED, DEBUGGER_ENABLED,
     MESSAGE_SHORT_PRESS_BUTTON_PLAY, MESSAGE_SHORT_PRESS_BUTTON_STOP,
     MESSAGE_SHORT_PRESS_BUTTON_PRESET1, MESSAGE_SHORT_PRESS_BUTTON_PRESET2,
@@ -73,6 +73,13 @@ def _send_message(message_state: str) -> None:
     oradio_msg = OradioMessage(**message)
     if not safe_put(shared_queue, oradio_msg):
         print("Failure when sending message to shared queue")
+
+def _check_for_webradio() -> None:
+    """_check_for_webradio():
+    Check if the current active preset is a web-radio
+    """
+    if mpd_control.is_webradio():
+        print(f"{YELLOW}Current Preset is a Web-Radio{NC}")
 
 def _check_led_blinking_status(led_name: str) -> None:
     """
@@ -207,6 +214,7 @@ def _short_press_button_messages() -> None:
                 _send_message(button_msg )
                 _check_led_status(button_msg)
                 _check_stm_state(button_msg)
+                _check_for_webradio()
             case 6: # Stress test
                 print(f"\nThe selected BUTTON press is {buttons_option[menu_choice]}\n")
                 _short_button_msg_stress_test()
