@@ -295,7 +295,7 @@ def input_prompt_float(prompt: str, default: float | None = None) -> float | Non
         default: default value to return in case of an error
     Returns:
         the ifloat value type in by user | default value in case of an error
-    """   
+    """
     try:
         return float(input(prompt))
     except ValueError:

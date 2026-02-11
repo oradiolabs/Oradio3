@@ -27,7 +27,7 @@ from singleton import singleton
 from oradio_logging import oradio_log
 from gpio_service import GPIOService
 from oradio_utils import safe_put, OradioMessage
-from module_test.touch_buttons_test_classes import TestGPIOService, TimingData
+
 from system_sounds import play_sound
 
 ##### GLOBAL constants ####################
@@ -39,6 +39,8 @@ from oradio_const import (
     MESSAGE_NO_ERROR,
     SOUND_CLICK
 )
+##### oradio modules ####################
+from module_test.touch_buttons_test_classes import TestGPIOService, TimingData
 
 # -------- LOCAL constants --------
 BUTTON_DEBOUNCE_TIME = 500 # ms, ignore rapid repeats
