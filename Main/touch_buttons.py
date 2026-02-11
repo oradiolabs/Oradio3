@@ -28,8 +28,6 @@ from oradio_logging import oradio_log
 from gpio_service import GPIOService
 from oradio_utils import safe_put, OradioMessage
 
-from system_sounds import play_sound
-
 ##### GLOBAL constants ####################
 from oradio_const import (
     YELLOW, NC,
@@ -40,6 +38,7 @@ from oradio_const import (
     SOUND_CLICK
 )
 ##### oradio modules ####################
+from system_sounds import play_sound
 from module_test.touch_buttons_test_classes import TestGPIOService, TimingData
 
 # -------- LOCAL constants --------
