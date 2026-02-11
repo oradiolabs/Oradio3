@@ -25,6 +25,7 @@ Created on Januari 31`, 2025
 import subprocess
 import shutil
 import threading
+import sys
 from time import sleep
 from multiprocessing import Queue
 
@@ -100,7 +101,6 @@ from oradio_const import (
     LED_PRESET1,
     LED_PRESET2,
     LED_PRESET3,
-    RED, NC,
 )
 
 ##########Local constants##################

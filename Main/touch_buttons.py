@@ -24,10 +24,10 @@ from time import monotonic
 from singleton import singleton
 
 ##### oradio modules ####################
-from module_test.touch_buttons_test_classes import TestGPIOService, TimingData
 from oradio_logging import oradio_log
 from gpio_service import GPIOService
 from oradio_utils import safe_put, OradioMessage
+from module_test.touch_buttons_test_classes import TestGPIOService, TimingData
 from system_sounds import play_sound
 
 ##### GLOBAL constants ####################
