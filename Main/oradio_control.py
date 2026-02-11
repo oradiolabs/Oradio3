@@ -23,7 +23,6 @@ Created on Januari 31`, 2025
  
 """
 import subprocess
-import sys
 import shutil
 import threading
 from time import sleep

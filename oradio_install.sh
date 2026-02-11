@@ -244,7 +244,7 @@ if [ "$1" != "--continue" ]; then
 	grep -qxF "${ADDTOBASHRC}" ~/.bashrc || echo "${ADDTOBASHRC}" >> ~/.bashrc
 
 	# Set paths to python scripts if not yet present
-	ADDTOBASHRC="export PYTHONPATH="${SCRIPT_PATH}/Main:${SCRIPT_PATH}/module_test:${SCRIPT_PATH}/.github/workflows""
+	ADDTOBASHRC="export PYTHONPATH="${SCRIPT_PATH}:${SCRIPT_PATH}/Main:${SCRIPT_PATH}/module_test:${SCRIPT_PATH}/.github/workflows""
 	grep -qxF "${ADDTOBASHRC}" ~/.bashrc || echo "${ADDTOBASHRC}"  >> ~/.bashrc
 	
 	# Progress report

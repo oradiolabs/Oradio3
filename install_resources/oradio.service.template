@@ -23,7 +23,9 @@ ExecStartPre=/usr/bin/rm -f PLACEHOLDER_LOGGING_PATH/.__oradio.lock
 
 # Start Oradio
 WorkingDirectory=PLACEHOLDER_MAIN_PATH
+Environment=PYTHONPATH=/home/pi/Oradio3
 ExecStart=/home/PLACEHOLDER_USER/.venv/bin/python3 oradio_control.py
+
 
 # Send traceback.log to Oradio Remote Monitoring Service
 ExecStopPost=-/usr/bin/bash -c  'curl -s \
