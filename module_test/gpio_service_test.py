@@ -34,7 +34,6 @@ from RPi import GPIO
 ##### local oradio import modules ####################
 from oradio_utils import input_prompt_int
 from gpio_service import GPIOService, LED_ON, LED_OFF, LEDS, BUTTONS, BOUNCE_MS
-from remote_debugger import setup_remote_debugging
 
 ##### GLOBAL constants ####################
 from oradio_const import (
@@ -42,6 +41,9 @@ from oradio_const import (
     LED_NAMES, BUTTON_NAMES,
     DEBUGGER_ENABLED, DEBUGGER_NOT_CONNECTED,
 )
+
+##### local oradio import modules ####################
+from remote_debugger import setup_remote_debugging
 
 ##### Local constants ####################
 button_state = {True: f"{YELLOW}1", False: f"{NC}0"}

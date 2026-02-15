@@ -31,15 +31,17 @@ from oradio_utils import safe_put, OradioMessage
 ##### GLOBAL constants ####################
 from oradio_const import (
     YELLOW, NC,
-    BUTTON_PLAY, BUTTON_RELEASED,
+    BUTTON_PLAY,
+    BUTTON_RELEASED,
     TEST_ENABLED, TEST_DISABLED,
-    MESSAGE_BUTTON_SOURCE, MESSAGE_BUTTON_SHORT_PRESS, MESSAGE_BUTTON_LONG_PRESS,
+    MESSAGE_BUTTON_SOURCE,
+    MESSAGE_BUTTON_SHORT_PRESS,
+    MESSAGE_BUTTON_LONG_PRESS,
     MESSAGE_NO_ERROR,
     SOUND_CLICK
 )
 ##### oradio modules ####################
 from system_sounds import play_sound
-from module_test.touch_buttons_test_classes import TestGPIOService, TimingData
 
 # -------- LOCAL constants --------
 BUTTON_DEBOUNCE_TIME = 500 # ms, ignore rapid repeats
@@ -55,12 +57,12 @@ class TouchButtons:
     Handle GPIO-based touch buttons applying software debouncing.
     Evaluates the touch_buttons timing to determine whether button press is 
     short-press callbacks or along-press callbacks. 
-    Attrributes:
-        BUTTONS_MODULE_TEST:
+    Attributes:
+        button_module_test:
             TEST_DISABLED = The module test is disabled (default)
             TEST_ENABLED  = The module test is enabled, additional code is provided
     """
-    BUTTONS_MODULE_TEST = TEST_DISABLED
+
     def __init__(self, queue: Queue):
         """
         Class constructor: setup class variables
@@ -68,26 +70,13 @@ class TouchButtons:
         Args:
             queue: the shared message queue
         """
-        # Check if module test is enabled
-        # if enabled load the TestGPIOService() with extra test features
-        if self.BUTTONS_MODULE_TEST == TEST_DISABLED:
-            self.button_gpio = GPIOService()
-        else:
-            self.button_gpio = TestGPIOService()
-        self.button_gpio.set_button_edge_event_callback(self._button_event_callback)
+        self.button_module_test = TEST_DISABLED
         self.message_queue = queue
+        self.button_gpio = GPIOService()
         self.button_press_times: dict[str, float] = {}   # keep track on button press timings
         self.last_trigger_times: dict[str, float] = {}   # keep track on last button press timings
         self.long_press_timers: dict[str, Timer] = {}    # button -> Timer
-        if self.BUTTONS_MODULE_TEST == TEST_ENABLED:
-            # include button press timing data for statistics
-            self.timing_data = TimingData()
-
-    def _reset_timing_data(self) -> None:
-        """
-        Reseting the timing data class
-        """
-        self.timing_data.reset()
+        self.button_gpio.set_button_edge_event_callback(self._button_event_callback)
 
     def _send_message(self, button_data: dict) -> None:
         """
@@ -112,7 +101,7 @@ class TouchButtons:
             message["state"] = MESSAGE_BUTTON_LONG_PRESS+button_data["name"]
         else:
             message["state"] = MESSAGE_BUTTON_SHORT_PRESS+button_data["name"]
-        if self.BUTTONS_MODULE_TEST == TEST_ENABLED:
+        if self.button_module_test == TEST_ENABLED:
             data_list = []
             if "data" in button_data:
                 data_list.append(button_data["data"])
@@ -154,7 +143,8 @@ class TouchButtons:
             # another button press detected within the debounce period
             # is considered to be a new button press.
             # The button press was to short, so will be neglected
-            if self.BUTTONS_MODULE_TEST == TEST_ENABLED:
+#            if self.BUTTONS_MODULE_TEST == TEST_ENABLED:
+            if self.buttons_module_test == TEST_ENABLED:
                 print(f"{YELLOW}New {button_name} event in {round(time_diff, 3)} sec",
                       f",events within the debouncing window of {DEBOUNCE_SECONDS}",
                       f" will be neglected{NC}"

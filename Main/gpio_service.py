@@ -79,17 +79,16 @@ class GPIOService:
     - Log info/warnings/errors for debugging.
     Raises:
     Attributes:
-        GPIO_MODULE_TEST:
+        gpio_module_test:
             TEST_DISABLED = The module test is disabled (default)
             TEST_ENABLED  = The module test is enabled, additional code is provided
     """
-    GPIO_MODULE_TEST = TEST_DISABLED
-
     def __init__(self) -> None:
         """
         Initialize and setup the GPIO
         """
-        self._lock = Lock()
+        self.gpio_module_test = TEST_DISABLED
+        #self._lock = Lock()
         self.edge_event_callback = None
         # Fast channel -> name lookup
         self.gpio_to_button = {}
@@ -128,9 +127,9 @@ class GPIOService:
         The default state is input-mode.
         Mainly used in test environments, to get pins in the default state 
         """
-        with self._lock:
-            GPIO.cleanup()
-
+#        with self._lock:
+#            GPIO.cleanup()
+        GPIO.cleanup()
     def _read_pin_state(self, io_pin: int) -> bool:
         """
         read the state of the specified io-pin
@@ -140,9 +139,9 @@ class GPIOService:
             True = pin is HIGH
             False = pin is LOW
         """
-        with self._lock:
-            return bool(GPIO.input(io_pin))
-
+#        with self._lock:
+#            return bool(GPIO.input(io_pin))
+        return bool(GPIO.input(io_pin))
 ################## methods for the LED pins ######################
     def set_led_on(self, led_name: str) -> None:
         """
@@ -154,9 +153,9 @@ class GPIOService:
         if led_name not in LED_NAMES:
             oradio_log.error("Unknown led name: %s", led_name)
         else:
-            with self._lock:
-                GPIO.output(LEDS[led_name], GPIO.LOW)
-
+#            with self._lock:
+#                GPIO.output(LEDS[led_name], GPIO.LOW)
+            GPIO.output(LEDS[led_name], GPIO.LOW)
     def set_led_off(self, led_name: str) -> None:
         """
         Turns OFF the specified LED.
@@ -167,9 +166,9 @@ class GPIOService:
         if led_name not in LED_NAMES:
             oradio_log.error("Unknown led name: %s", led_name)
         else:
-            with self._lock:
-                GPIO.output(LEDS[led_name], GPIO.HIGH)
-
+#            with self._lock:
+#                GPIO.output(LEDS[led_name], GPIO.HIGH)
+            GPIO.output(LEDS[led_name], GPIO.HIGH)
     def get_led_state(self, led_name: str) -> Tuple[bool, Optional[str]]:
         """
         Get the state off the specified LED.
@@ -186,8 +185,9 @@ class GPIOService:
             oradio_log.error("Unknown led name: %s", led_name)
             led_state = None
         else:
-            with self._lock:
-                led_state = not self._read_pin_state(LEDS[led_name])
+#            with self._lock:
+#                led_state = not self._read_pin_state(LEDS[led_name])
+            led_state = not self._read_pin_state(LEDS[led_name])
             # Note led on ==> GPIO.LOW,
         return led_state
 
@@ -223,8 +223,9 @@ class GPIOService:
             oradio_log.error("Unknown button name: %s", button_name)
             button_state = None
         else:
-            with self._lock:
-                button_state = not self._read_pin_state(BUTTONS[button_name])
+#            with self._lock:
+#                button_state = not self._read_pin_state(BUTTONS[button_name])
+            button_state = not self._read_pin_state(BUTTONS[button_name])
             # Note: a pressed button has value GPIO.LOW
         return button_state
 
@@ -238,7 +239,7 @@ class GPIOService:
         Args: 
             channel (int) is the I/O-pin which detected an edge event
         Attributes:
-            GPIO_MODULE_TEST
+            gpio_module_test
                 TEST_ENABLED :
                     * extra timestamp data added to callback
                                 for performance measurements
@@ -248,7 +249,7 @@ class GPIOService:
             False (default): when channel refers to an unknown pin/button_name
             True : The button_name of the pin is found and callback is called 
         """
-        if self.GPIO_MODULE_TEST == TEST_ENABLED:
+        if self.gpio_module_test == TEST_ENABLED:
             button_event_ts = perf_counter()  # timestamp the start of this function
         button_data = {}
         button_name = self.gpio_to_button[channel]
@@ -262,7 +263,7 @@ class GPIOService:
         button_data["state"] = state
         button_data["name"] = button_name
         if self.edge_event_callback:
-            if self.GPIO_MODULE_TEST == TEST_ENABLED:
+            if self.gpio_module_test == TEST_ENABLED:
                 # When TEST_ENABLED, the module test requires the button_data, being:
                 # button state = BUTTON_PRESSED
                 # timing data = current time-stamp
