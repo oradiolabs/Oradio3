@@ -83,12 +83,13 @@ class GPIOService:
             TEST_DISABLED = The module test is disabled (default)
             TEST_ENABLED  = The module test is enabled, additional code is provided
     """
+    gpio_module_test = TEST_DISABLED
     def __init__(self) -> None:
         """
         Initialize and setup the GPIO
         """
-        self.gpio_module_test = TEST_DISABLED
         #self._lock = Lock()
+        print("init gpio module test", self.gpio_module_test)
         self.edge_event_callback = None
         # Fast channel -> name lookup
         self.gpio_to_button = {}
@@ -249,6 +250,7 @@ class GPIOService:
             False (default): when channel refers to an unknown pin/button_name
             True : The button_name of the pin is found and callback is called 
         """
+        print("gpio-mod-test=", self.gpio_module_test)
         if self.gpio_module_test == TEST_ENABLED:
             button_event_ts = perf_counter()  # timestamp the start of this function
         button_data = {}

@@ -26,6 +26,7 @@ from singleton import singleton
 ##### oradio modules ####################
 from oradio_logging import oradio_log
 from gpio_service import GPIOService
+from touch_buttons_test import TimingData
 from oradio_utils import safe_put, OradioMessage
 
 ##### GLOBAL constants ####################
@@ -58,11 +59,11 @@ class TouchButtons:
     Evaluates the touch_buttons timing to determine whether button press is 
     short-press callbacks or along-press callbacks. 
     Attributes:
-        button_module_test:
+        buttons_module_test:
             TEST_DISABLED = The module test is disabled (default)
             TEST_ENABLED  = The module test is enabled, additional code is provided
     """
-
+    buttons_module_test = TEST_DISABLED
     def __init__(self, queue: Queue):
         """
         Class constructor: setup class variables
@@ -70,13 +71,16 @@ class TouchButtons:
         Args:
             queue: the shared message queue
         """
-        self.button_module_test = TEST_DISABLED
         self.message_queue = queue
         self.button_gpio = GPIOService()
         self.button_press_times: dict[str, float] = {}   # keep track on button press timings
         self.last_trigger_times: dict[str, float] = {}   # keep track on last button press timings
         self.long_press_timers: dict[str, Timer] = {}    # button -> Timer
         self.button_gpio.set_button_edge_event_callback(self._button_event_callback)
+        print("touch-buttons-init", self.buttons_module_test)
+        if self.buttons_module_test == TEST_ENABLED:
+            # include button press timing data for statistics
+            self.timing_data = TimingData()
 
     def _send_message(self, button_data: dict) -> None:
         """
@@ -101,7 +105,7 @@ class TouchButtons:
             message["state"] = MESSAGE_BUTTON_LONG_PRESS+button_data["name"]
         else:
             message["state"] = MESSAGE_BUTTON_SHORT_PRESS+button_data["name"]
-        if self.button_module_test == TEST_ENABLED:
+        if self.buttons_module_test == TEST_ENABLED:
             data_list = []
             if "data" in button_data:
                 data_list.append(button_data["data"])
@@ -127,6 +131,7 @@ class TouchButtons:
           'data': float # timestamp
         }
         """
+        print("touchbuttons event callback", button_data)
         button_name = button_data["name"]
         oradio_log.debug("Button change event: %s = %s", button_name, button_data['state'])
         if button_data["state"] == BUTTON_RELEASED:

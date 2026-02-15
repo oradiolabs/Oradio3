@@ -58,8 +58,8 @@ class TestTouchButtons():
     Injects TestGPIOService and TimingData.
     """
     def __init__(self, queue: Queue):
-
         self.message_queue = queue
+        TouchButtons.buttons_module_test = TEST_ENABLED
         # Create an instance of actual TouchButtons 
         # and add an instance of TestGPIOService,
         # which creates a composition of TouchButtons, TestGPIOService and TimingData
@@ -67,8 +67,7 @@ class TestTouchButtons():
         self.button_gpio = TestGPIOService()
         # Add performance measurement methods
         self.timing_data = TimingData()
-        self.button_gpio.gpio_service.gpio_module_test = TEST_ENABLED
-        self.touch_buttons.buttons_module_test         = TEST_ENABLED
+
         self.touch_buttons.button_gpio.set_button_edge_event_callback(self.touch_buttons._button_event_callback)
 
     def _reset_timing_data(self) -> None:
@@ -88,10 +87,28 @@ class TestGPIOService():
         * simulate_button_press_and_release()
     """
     def __init__(self):
-        '''
+        """
         create test class, adding a composition of GPIOService class
-        '''
+        """
+        GPIOService.gpio_module_test = TEST_ENABLED
         self.gpio_service = GPIOService()
+        self._reset_timing_data()
+
+    def _reset_timing_data(self):
+        """
+        Set/Reset the timing data for performance measurements
+        """
+        # timing data
+        self.min_time  = 10000      # the minimal timing measured
+        self.max_time  = 0          # the maximal timing measured
+        self.sum_time  = 0.0        # the sum of all measured timings
+        self.sum_count = 0          # the number of measured timings
+        self.avg_time  = 0.0        # the average timing
+        self.valid_callbacks    = {} # The number of valid callbacks for each button
+        self.neglected_callback = {} # The number of neglected callbacks for each button
+        for button in BUTTON_NAMES:
+            self.valid_callbacks[button] = 0
+            self.neglected_callback[button] = 0        
 
     def simulate_button_play_events_burst(self, burst_freq: int, stop_burst: Event) -> tuple[bool, int]:
         """
@@ -104,6 +121,7 @@ class TestGPIOService():
         """
         nr_of_events = 0
         while not stop_burst.is_set():
+            print("play callback",BUTTONS[BUTTON_PLAY])
             self.gpio_service._edge_callback(BUTTONS[BUTTON_PLAY])
             nr_of_events += 1
             sleep(1/burst_freq)
@@ -152,24 +170,6 @@ class TestGPIOService():
         self._edge_callback(BUTTONS[button_name])
         # Reset the button pin back to an input
         GPIO.setup(BUTTONS[button_name], GPIO.IN, pull_up_down=GPIO.PUD_UP)
-
-class TimingData:
-    """Class for timing data statistics during testing."""
-    def __init__(self):
-        self.reset()
-
-    def reset(self):
-        """Resetting the timing data"""
-        self.min_time  = 10000      # the minimal timing measured
-        self.max_time  = 0          # the maximal timing measured
-        self.sum_time  = 0.0        # the sum of all measured timings
-        self.sum_count = 0          # the number of measured timings
-        self.avg_time  = 0.0        # the average timing
-        self.valid_callbacks    = {} # The number of valid callbacks for each button
-        self.neglected_callback = {} # The number of neglected callbacks for each button
-        for button in BUTTON_NAMES:
-            self.valid_callbacks[button] = 0
-            self.neglected_callback[button] = 0
 
 def _stop_all_long_press_timer(test_buttons: TestTouchButtons) -> None:
     """
@@ -284,7 +284,7 @@ def _callback_test(buttons: TestTouchButtons):
     for button_name in BUTTON_NAMES:
         button_data["state"] = MESSAGE_BUTTON_SHORT_PRESS + button_name
         button_data['name']  = button_name
-        buttons._button_event_callback(button_data)
+        buttons.touch_buttons._button_event_callback(button_data)
         sleep(1)
 
 def _single_button_play_burst_test(test_buttons: TestTouchButtons, burst_freq: float) -> None:
@@ -407,7 +407,8 @@ def _start_module_test():
     """
     # pylint: disable=duplicate-code
     shared_queue = Queue()
-
+    TouchButtons.buttons_module_test = TEST_ENABLED
+    GPIOService.gpio_module_test = TEST_ENABLED
     test_buttons = TestTouchButtons( shared_queue)
 
     # Create a thread to listen and process new messages in shared queue
