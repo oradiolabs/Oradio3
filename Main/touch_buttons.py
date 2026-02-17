@@ -26,8 +26,8 @@ from singleton import singleton
 ##### oradio modules ####################
 from oradio_logging import oradio_log
 from gpio_service import GPIOService
-from touch_buttons_test import TimingData
 from oradio_utils import safe_put, OradioMessage
+from test_classes import TimingData
 
 ##### GLOBAL constants ####################
 from oradio_const import (
@@ -194,3 +194,4 @@ class TouchButtons:
 # Entry point for stand-alone operation
 if __name__ == '__main__':
     print("Stand-alone not implemented")
+    print("The module test for touch_buttons.py is at module_test/touch_buttons_test.py")

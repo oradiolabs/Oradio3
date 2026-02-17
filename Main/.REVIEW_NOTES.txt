@@ -41,132 +41,132 @@ T - Review na alle module wijzigingen.
 2026-02-07 ============================================================================================================================
 Rework op de review van Onno
 gpio_service.py
-- Ik zie de stand-alone tests van modules liever basic, puur op 'werkt het' gericht
+V- Ik zie de stand-alone tests van modules liever basic, puur op 'werkt het' gericht
   Uitgebreidere testen, zoals performance en robuustheid graag in aparte module test files zetten
   Zet test code in test file en gebruik override: 'class GPIOServiceTest(GPIOService)'  
   	Henk: aangepast
-- Gebruik Google Docstrings style zoals al in veel ander modules.
+V - Gebruik Google Docstrings style zoals al in veel ander modules.
 	Henk: aangepast
-- Wees consistent in je gebruik van lege regels.
+V - Wees consistent in je gebruik van lege regels.
 	Henk: aangepast
-- Je hebt heel veel 1-regelige methods, maar je checkt nergens of de argumenten ok zijn, of de actie succes/fail geeft. 
+V - Je hebt heel veel 1-regelige methods, maar je checkt nergens of de argumenten ok zijn, of de actie succes/fail geeft. 
 	Graag even toelichten waarom.
 	Henk: ik heb de check op argumenten er weer bijgezet, de post-conditie zou dwingend moeten zijn om geen extra test nodig te maken
 		  Maar die extra 2 regels code maken het ook niet uit.
-- Waarom gebruik je voor docstrings de ene keer ''', de andere keer """ ?
+V - Waarom gebruik je voor docstrings de ene keer ''', de andere keer """ ?
 	Henk: erfenis van de "oude code". Heb nu consequent """ gebruikt.
-- De ene keer gebruik je dubbel-quotes voor variabelen, de andere keer single quotes. Waarom?
+V - De ene keer gebruik je dubbel-quotes voor variabelen, de andere keer single quotes. Waarom?
 	Henk: ook weer erfenis van de oude code. Heb het nu consequent op dubbel-qoutes gezet waar nodig
-- Pylint issues fixen
+V - Pylint issues fixen
 	Henk: pylint disable issues verwijderd,eentje gebleven nl pylint: disable=protected-access 
-- try/export rond RPi import GPIO
+V - try/export rond RPi import GPIO
 	Henk: verwijderd
-- Vele ### zijn verwarrend
+V - Vele ### zijn verwarrend
 	Henk: verwijderd
-- Geen exceptions om fouten te propageren,is onderdeel van issue #408
+V - Geen exceptions om fouten te propageren,is onderdeel van issue #408
 	Henk: exceptions verwijderd
-- docstrings verduidelijken in geval parameter check niet nodig is
+V - docstrings verduidelijken in geval parameter check niet nodig is
 	Henk: in post-condition opgenomen, maar toch ook maar de check toegevoegd
-- Zet een locks daar waar potentiele conflicten mogelijk zijn
-- led_state in get_led_state() in return statement zetten
+V- Zet een locks daar waar potentiele conflicten mogelijk zijn
+V - led_state in get_led_state() in return statement zetten
 	Henk: aangepast
-- state in get_button_state() in return statement zetten
+V - state in get_button_state() in return statement zetten
 	Henk: aangepast
-- if callable gebruiken als je op een geldige callback functie wilt testen
+V- if callable gebruiken als je op een geldige callback functie wilt testen
 	Henk: aangepast
-- ipv expliciete True/False returns kan je ook 'return callable(callback)
+V - ipv expliciete True/False returns kan je ook 'return callable(callback)
 	Henk: geen returns meer, is voor later. Alleen error-log
-- def _edge_callback return code klopt niet mbt typehint in docstring
+V - def _edge_callback return code klopt niet mbt typehint in docstring
 	Henk: aangepast
-- toelichting in _edge_callback hoe button_data{} gebruikt wordt als TEST_ENABLED is
+V - toelichting in _edge_callback hoe button_data{} gebruikt wordt als TEST_ENABLED is
 	Henk: aangepast
 
 touch_buttons.py
-- Ik zie de stand-alone tests van modules liever basic, puur op 'werkt het' gericht
+V - Ik zie de stand-alone tests van modules liever basic, puur op 'werkt het' gericht
   Uitgebreidere testen, zoals performance en robuustheid graag in aparte module test files zetten
   Zet test code in test file en gebruik override: 'class GPIOServiceTest(GPI_Service)
 	Henk: aparte folder module_test gemaakt voor uitgebreidere module testen:
   		* touch_buttons_test.py : test programma die touch buttons simulaties gebruikt voor performance metingen 
-  		* touch_buttons_test_classes.py: de extensies op de GPIOService in TestGPIOService() en TimingData()
-- Stel voor de Google Docstrings style te gebruiken, zoals al in veel ander modules.
+  		* test_classes.py: voor performance measurement TimingData()
+V - Stel voor de Google Docstrings style te gebruiken, zoals al in veel ander modules.
 	Henk: aangepast
-- TimingData.__init__(): gebruik self.reset() ipv allcode van reset hier dupliceren
+V - TimingData.__init__(): gebruik self.reset() ipv allcode van reset hier dupliceren
 	Henk: aangepast
-- TimingData.reset(): self.valid_callbacks = {} kan weg -> wordt 2 regels later ook weer gewist
+V - TimingData.reset(): self.valid_callbacks = {} kan weg -> wordt 2 regels later ook weer gewist
 	Henk: toch wel nodig omdat de keys mbt button_name gedefineerd moeten zijn, voordat ze later gebruikt kunnen worden
-- Wees consistent in je gebruik van lege regels.
+V - Wees consistent in je gebruik van lege regels.
 	Henk: aangepast
-- Waarom gebruik je voor docstrings de ene keer ''', de andere keer """ ?
+V - Waarom gebruik je voor docstrings de ene keer ''', de andere keer """ ?
 	Henk: aangepast
-- Je zet op veel plekken pylint uit, wel met motivatie, maar kijk nog eens kritisch of al die disables wel echt nodig zijn.
+V - Je zet op veel plekken pylint uit, wel met motivatie, maar kijk nog eens kritisch of al die disables wel echt nodig zijn.
   En zet waar kan de disable op de betreffende regel
   En als je toch een pylint op een code block moet zetten voeg dan zodra het kan de pylint enable regel toe
   Oftewel: pylint disables zo spaarzaam en gericht mogelijk gebruiken
   Henk: aangepast
-- play_soung import hoort bij block 'oradio_modules': verplaatsen
+V - play_soung import hoort bij block 'oradio_modules': verplaatsen
 	Henk: aangepast
-- pylint too-few-public-methods check wordt al gedisabled in .pylintrc, dus hoeft hier niet ook nog een keer
+V - pylint too-few-public-methods check wordt al gedisabled in .pylintrc, dus hoeft hier niet ook nog een keer
 	Henk: aangepast
-- f"{...}" constructs vermijden bij oradio_log(), want wordt altijd geevalueerd, ook als log level hoger is. 
+V - f"{...}" constructs vermijden bij oradio_log(), want wordt altijd geevalueerd, ook als log level hoger is. 
   De aanbevolen construct is ("...%s...", value)
   	Henk: aangepast
-- _send_message(): Waarom state variabele? JE kan meteen message["state"] assignen
+V - _send_message(): Waarom state variabele? JE kan meteen message["state"] assignen
 	Henk: aangepast
-- _send_message(): Waarom gebruik je hier print? oradio_log.error() lijkt mij de juiste...
+V - _send_message(): Waarom gebruik je hier print? oradio_log.error() lijkt mij de juiste...
 	Henk: aangepast
-- _button_event_callback():Waarom zo'n complexe constructie om een debug message te construeren?
+V - _button_event_callback():Waarom zo'n complexe constructie om een debug message te construeren?
 	Henk: aangepast
-- _button_event_callback(): Typo (to -> too) en 'neglected' is niet juist, moet 'ignored' zijn.
+V - _button_event_callback(): Typo (to -> too) en 'neglected' is niet juist, moet 'ignored' zijn.
 	Henk: aangepast
-- _button_event_callback(): Waarom gebruik je hier print? oradio_log.debug() lijkt mij de juiste...
+V - _button_event_callback(): Waarom gebruik je hier print? oradio_log.debug() lijkt mij de juiste...
 	Henk: wordt gebruikt onder conditie TEST_ENABLED
 
 led_control.py
-- turn_off_led en turn_on_led geven een true/false terug, maar daar wordt nergens op gecontroleerd.
+V - turn_off_led en turn_on_led geven een true/false terug, maar daar wordt nergens op gecontroleerd.
      Dus óf overal controleren, óf geen bool retourneren. Bij oplossen van issue #408 komt dat dan later wel goed...
 	Henk: aangepast
-- oneshot en blinking gebruiken een tijdseenheid als argument. oneshot heeft een default, blinking niet, waarom?
+V - oneshot en blinking gebruiken een tijdseenheid als argument. oneshot heeft een default, blinking niet, waarom?
   Stel voor 2 lokale variabelen te definieren, als default voor oneshot en blinking te gebruiken.
   En dan in oradio_control overal die ,2 als agument voor blinking weg te halen.
 	Henk: aangepast
-- f"{...}" constructs vermijden, want wordt altijd geevalueerd, ook als log level hoger is. 
+V - f"{...}" constructs vermijden, want wordt altijd geevalueerd, ook als log level hoger is. 
   De aanbevolen construct is ("...%s...", value)
 	Henk: aangepast  
-- We gebruiken geen exceptions om fouten te propageren. (onderdeel van issue #408)
+V - We gebruiken geen exceptions om fouten te propageren. (onderdeel van issue #408)
 	Henk: aangepast
-- turn_on_led_with_delay() : Waarom nu niet meteen oradio_control aanpassen? 
+V - turn_on_led_with_delay() : Waarom nu niet meteen oradio_control aanpassen? 
   Dan kan deze method weg, kan je het ook niet vergeten...
 	Henk: aangepast 
-- turn_off_led(): Er wordt nergens op de return gecontroleerd -> None teruggeven
+V - turn_off_led(): Er wordt nergens op de return gecontroleerd -> None teruggeven
 	Henk: aangepast
-- Duidelijker is een aparte stop_blink() method te maken, die in turn_led_off en turn_led_on te gebruiken
+V - Duidelijker is een aparte stop_blink() method te maken, die in turn_led_off en turn_led_on te gebruiken
 	Henk: aangepast
-- turn_on_led(): return type hint ontbreekt. Er wordt nergens op de return gecontroleerd -> None teruggeven
+V - turn_on_led(): return type hint ontbreekt. Er wordt nergens op de return gecontroleerd -> None teruggeven
 	Henk: aangepast
-- oneshot_on_led():Er wordt alleen in de stand-alone test case 3 op de return gecontroleerd, maar niets mee gedaan als false:
+V - oneshot_on_led():Er wordt alleen in de stand-alone test case 3 op de return gecontroleerd, maar niets mee gedaan als false:
   Stel daarom voor om None terug te geven, in method _single_led_test test case 3 niet op testen, 
   in turn_on_led_with_delay niet te retourneren
 	Henk: aangepast  
-- Method naam 'oneshot_led_off' is andere stijl dan overige methods. Hernoem naar 'oneshot_off_led'
+V - Method naam 'oneshot_led_off' is andere stijl dan overige methods. Hernoem naar 'oneshot_off_led'
 	Henk: aangepast
-- control_blinking_led():Zou ook hier geen bool retourneren, net als de andere methods in deze class
+V - control_blinking_led():Zou ook hier geen bool retourneren, net als de andere methods in deze class
   Let wel op dat je dan de check in de method _single_led_test test case 4 verwijdert
   control_blinking_led()._blink(): verplaats docstring cycle time uitleg hierboven naar docstring van deze method
 	Henk: aangepast  
 
 oradio_control.py:
-Aanpassingen:
+V - Aanpassingen:
 1) Message afhandeling toegevoegd voor de touch_buttons berichten
 2) touch_buttons callbacks verwijderd
 3) module test toegevoegd
 
 Algemeen:
-Voor elke module test de mogelijkheid toegevoegd om een remote debugger te gebruiken, deze staat default uit.
+V - Voor elke module test de mogelijkheid toegevoegd om een remote debugger te gebruiken, deze staat default uit.
 
 2026-01-11============================================================================================================================
 
 GPIO:
-gpio_service.py
+V - gpio_service.py
 1) gpio output en setup verwijderd uit led_control en in gpio_service gezet:
 	a) set_led_on(), set_led_off()
 	b) __init__(): setup for led-pins
@@ -186,7 +186,7 @@ gpio_service.py
 5) nieuwe global defines aangemaakt voor buttons en leds, voor oradio_controls
 6) Remote debugging toegevoegd voor module testen
 
-led_control:
+V - led_control:
 1) functies aangepast voor gpio_service gebruik: 
 	a) turn_on_led(), turn_off_led(), turn_off_all_leds(), turn_on_all_leds()
 	b) oneshot_on_led(), maakt gebruik van timer ipv sleep() functie
@@ -195,7 +195,7 @@ led_control:
 2) Module testen uitgewerkt
 3) Remote debugging toegevoegd voor module testen
 
-touch_buttons.py:
+V - touch_buttons.py:
 1) Geen callbacks meer naar oradio_controls. 
 	De berichten voor de queue worden aangemaakt volgens de OradioMessage klasse structuur
 2) In de _button_event_callback() die door gpio_service aangeroepen wordt, zitten tijds metingen,
@@ -207,17 +207,17 @@ touch_buttons.py:
 6) Module testen uitgewerkt
 7) Remote debugging toegevoegd voor module testen
 
-oradio_control.py:
+V - oradio_control.py:
 1) De extra berichten en calls mbt de buttons toegevoegd voor de message_handler.
 2) Geen callbacks meer tijdens instantatie van TouchButtons()
 3) Button en Led self-tests eruit gehaald
 
-oradio_utils.py
+V - oradio_utils.py
 1) De klasse OradioMessage() geintroduceerd waarmee de message structuur voor oradio berichten wordt gedefinieerd
 2) Een functie validate_oradio_message() die een queue bericht kan valideren op basis van de OradioMessage klasse.
 3) Input functies tbv testen input_prompt_int() en input_prompt_float(), als utility voor test module
 
-remote_debugger.py
+V - remote_debugger.py
 Deze module verzorgt een verbinding van de RPI met een IDE op een PC, zodat remote debugging mogelijk is
 Default is de pydevd (python debugger) niet geinstalleerd, de ontwikkelaar moet dit zelf doen
 De setup_remote_debugging() functie kan een verbinding tot stand te brengen.
@@ -236,21 +236,6 @@ Voor mij is het handig dat de benodigde software voor remote debugging in ons or
 Ook even opletten, de ontwikkelaar moet de remote_debugger-py NIET terugzetten in github, als de DEBUGGER_ENABLED was.
 Mogelijk zouden we deze module moeten afschermen, dat alleen de "CODEOWNER" deze module mag aanpassen. 
 
-nog doen:
-- documentatie op orde brengen
-- Eerdere opmerkingen van 10 oktober 2025 over GPIO hieronder in bovenstaande mergen
-
-GPIO, led_control.py rework: een nieuwe gpio_service en led_control.py is aangemaakt, waarin onderstaande zaken verwerkt zijn
-Henk review: led_control.py
-R - GPIO zaken ontkoppelen uit led_control.py. De GPIO wordt zowel in led_control als in touch_buttons geinitialiseerd. 
-    Zou op 1 plek moeten. Daarom GPIO zaken in een aparte module gpio_service.py afhandelen. 
-    Daarbij een klasse aanbieden met config en set/get methodes. 
-    Geeft betere abstractie door toevoeging van een hardware abstractie laag
-R - methodes turn_off_led(), turn_on_led(), turn_on_led_with_delay() moeten een True/False teruggeven
-R - delayed_off() thread gebruikt een sleep als delay.Beter is om een Timer thread te gebruiken
-R - control_blinking_led(self, led_name, cycle_time=None), graag de cycle_time parameter specificeren.
-R - De selftest is niet doelmatig. Beter is om  te testen of de leds ook werkelijk aan of uit staan door de GPIO status op te vragen van de geactiveerde led. 
-    Hiermee test je of de leds werkelijk aan of uit staan.==> Als een instantie van GPIOService wordt aangemaakt, wordt getest of pinnen beschikbaar zijn.
 
 2026-01-12============================================================================================================================
 

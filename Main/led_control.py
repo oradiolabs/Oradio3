@@ -200,3 +200,4 @@ class LEDControl:
 # Entry point for stand-alone operation
 if __name__ == '__main__':
     print("Stand-alone not implemented")
+    print("The module test for led_control.py is at module_test/led_control_test.py")

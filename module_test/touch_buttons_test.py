@@ -32,7 +32,7 @@ from oradio_logging import oradio_log, DEBUG, CRITICAL
 from touch_buttons import TouchButtons, BUTTON_DEBOUNCE_TIME
 from oradio_utils import input_prompt_int, input_prompt_float, validate_oradio_message
 from gpio_service import BUTTONS, GPIOService
-
+from test_classes import TimingData
 
 ##### GLOBAL constants ####################
 from oradio_const import (
@@ -66,15 +66,7 @@ class TestTouchButtons():
         self.touch_buttons = TouchButtons(queue)
         self.button_gpio = TestGPIOService()
         # Add performance measurement methods
-        self.timing_data = TimingData()
-
         self.touch_buttons.button_gpio.set_button_edge_event_callback(self.touch_buttons._button_event_callback)
-
-    def _reset_timing_data(self) -> None:
-        """
-        Reseting the timing data class
-        """
-        self.timing_data.reset()
 
 class TestGPIOService():
     """
@@ -92,23 +84,6 @@ class TestGPIOService():
         """
         GPIOService.gpio_module_test = TEST_ENABLED
         self.gpio_service = GPIOService()
-        self._reset_timing_data()
-
-    def _reset_timing_data(self):
-        """
-        Set/Reset the timing data for performance measurements
-        """
-        # timing data
-        self.min_time  = 10000      # the minimal timing measured
-        self.max_time  = 0          # the maximal timing measured
-        self.sum_time  = 0.0        # the sum of all measured timings
-        self.sum_count = 0          # the number of measured timings
-        self.avg_time  = 0.0        # the average timing
-        self.valid_callbacks    = {} # The number of valid callbacks for each button
-        self.neglected_callback = {} # The number of neglected callbacks for each button
-        for button in BUTTON_NAMES:
-            self.valid_callbacks[button] = 0
-            self.neglected_callback[button] = 0        
 
     def simulate_button_play_events_burst(self, burst_freq: int, stop_burst: Event) -> tuple[bool, int]:
         """
@@ -139,7 +114,7 @@ class TestGPIOService():
         nr_of_events = 0
         while not stop_burst.is_set():
             for button in BUTTON_NAMES:
-                self._edge_callback(BUTTONS[button])
+                self.gpio_service._edge_callback(BUTTONS[button])
                 nr_of_events += 1
             sleep(1/burst_freq)
         return nr_of_events
@@ -156,7 +131,7 @@ class TestGPIOService():
         # Set the button pin to an output with GPIO, LOW as a button press
         GPIO.setup(BUTTONS[button_name], GPIO.OUT, initial=GPIO.HIGH)
         GPIO.output(BUTTONS[button_name], GPIO.LOW)
-        self._edge_callback(BUTTONS[button_name])
+        self.gpio_service._edge_callback(BUTTONS[button_name])
         # Show a progressing time indicator during press period
         start_time = perf_counter()
         elapsed_time = 0.0
@@ -167,9 +142,10 @@ class TestGPIOService():
         print(f"{YELLOW}button press timing was {NC} ", press_timing, end=" ", flush=True)
         # Set the button pin to GPIO, HIGH as a button release
         GPIO.output(BUTTONS[button_name], GPIO.HIGH)
-        self._edge_callback(BUTTONS[button_name])
+        self.gpio_service._edge_callback(BUTTONS[button_name])
         # Reset the button pin back to an input
         GPIO.setup(BUTTONS[button_name], GPIO.IN, pull_up_down=GPIO.PUD_UP)
+
 
 def _stop_all_long_press_timer(test_buttons: TestTouchButtons) -> None:
     """
@@ -205,14 +181,14 @@ def _handle_message(message: dict, test_buttons: TestTouchButtons) -> bool:
     if validated_message:
         if validated_message.data:
             # do the statistics
-            timdat=test_buttons.timing_data
+            timdat=test_buttons.touch_buttons.timing_data
             time_stamp = float(validated_message.data[0])
             # statistics
             button_name = validated_message.state.removeprefix(MESSAGE_BUTTON_SHORT_PRESS)
             if button_name not in BUTTON_NAMES:
                 print("invalid button:", button_name, validated_message)
             else:
-                test_buttons.timing_data.valid_callbacks[button_name] +=1
+                timdat.valid_callbacks[button_name] +=1
 
             timdat.sum_count +=1
             duration = perf_counter() - time_stamp
@@ -239,7 +215,7 @@ def evaluate_test_results(test_buttons: TestTouchButtons, nr_of_events: int) -> 
         nr_of_events = the number of events submitted by gpio callback
         test_buttons = instance of TestTouchButtons
     """
-    timdat = test_buttons.timing_data
+    timdat = test_buttons.touch_buttons.timing_data
     print(f"{YELLOW}==============================================================")
     print (f"min_time={round(timdat.min_time, 4)},"
            f"max_time={round(timdat.max_time, 4)},"
@@ -298,7 +274,7 @@ def _single_button_play_burst_test(test_buttons: TestTouchButtons, burst_freq: f
     * resets all timing data
     * stop the logging temporary, but setting log-level to CRITICAL
     """
-    test_buttons._reset_timing_data()
+    test_buttons.touch_buttons.timing_data._reset_timing_data()
     stop_event = Event()
     keyboard_thread = Thread(target=_keyboard_input, args=(stop_event,))
     keyboard_thread.start()
@@ -322,7 +298,7 @@ def _all_button_burst_test(test_buttons: TestTouchButtons, burst_freq: float) ->
     * resets all timing data
     * stop the logging temporary, but setting log-level to CRITICAL
     """
-    test_buttons._reset_timing_data()
+    test_buttons.touch_buttons.timing_data._reset_timing_data()
     nr_of_events = 0
     stop_event = Event()
     keyboard_thread = Thread(target=_keyboard_input,
@@ -348,7 +324,7 @@ def _btn_press_release_cb_test(test_buttons: TestTouchButtons) -> None:
     Args:
         buttons = instance of TestTouchButtons
     """
-    test_buttons._reset_timing_data()
+    test_buttons.touch_buttons.timing_data._reset_timing_data()
     stop_test = False
     button_name_options = ["Quit"] + BUTTON_NAMES
     selection_done = False
@@ -433,9 +409,9 @@ def _start_module_test():
         match test_choice:
             case 0:
                 print("\nExiting test program\n")
-                test_buttons.button_gpio.gpio_cleanup()
-                test_buttons.button_gpio.gpio_module_test = TEST_DISABLED
-                test_buttons.buttons_module_test = TEST_DISABLED
+                test_buttons.button_gpio.gpio_service.gpio_cleanup()
+                GPIOService.gpio_module_test = TEST_DISABLED
+                TouchButtons.buttons_module_test = TEST_DISABLED
                 test_active = False
             case 1:
                 print(f"\n running {test_options[1]}\n")
