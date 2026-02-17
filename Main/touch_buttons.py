@@ -17,17 +17,21 @@ Created on April 28, 2025
 @status:        Development
 @summary:       Oradio touch buttons module with debounce, per-button callbacks, and selftest
 """
-
+# Standard library imports
 from threading import Timer
 from multiprocessing import Queue
 from time import monotonic
-from singleton import singleton
 
-##### oradio modules ####################
+##### oradio local modules ####################
+from test_classes import TimingData
 from oradio_logging import oradio_log
 from gpio_service import GPIOService
 from oradio_utils import safe_put, OradioMessage
-from test_classes import TimingData
+from system_sounds import play_sound
+
+# To please pylint singleton is placed here.
+# pylint considers the singleton as 1st-party import, which is not the case
+from singleton import singleton
 
 ##### GLOBAL constants ####################
 from oradio_const import (
@@ -41,8 +45,6 @@ from oradio_const import (
     MESSAGE_NO_ERROR,
     SOUND_CLICK
 )
-##### oradio modules ####################
-from system_sounds import play_sound
 
 # -------- LOCAL constants --------
 BUTTON_DEBOUNCE_TIME = 500 # ms, ignore rapid repeats
@@ -70,6 +72,9 @@ class TouchButtons:
         and create instance for GPIOService class for button IO-service
         Args:
             queue: the shared message queue
+        Attributes:
+            buttons_module_test:
+                if TEST_ENABLED then instance of class TimingData added 
         """
         self.message_queue = queue
         self.button_gpio = GPIOService()
@@ -77,7 +82,6 @@ class TouchButtons:
         self.last_trigger_times: dict[str, float] = {}   # keep track on last button press timings
         self.long_press_timers: dict[str, Timer] = {}    # button -> Timer
         self.button_gpio.set_button_edge_event_callback(self._button_event_callback)
-        print("touch-buttons-init", self.buttons_module_test)
         if self.buttons_module_test == TEST_ENABLED:
             # include button press timing data for statistics
             self.timing_data = TimingData()
@@ -93,10 +97,11 @@ class TouchButtons:
             name = [BUTTON_PLAY | BUTTON_STOP |
                     BUTTON_PRESET1 | BUTTON_PRESET2 | BUTTON_PRESET3]
         Attributes:
-        if TEST_ENABLED a data key is added with extra timestamp data
-        {
-          'data': float # timestamp
-        }
+        buttons_module_test
+            if TEST_ENABLED a data key is added with extra timestamp data
+            {
+              'data': float # timestamp
+            }
         """
         message = {}
         message["source"] = MESSAGE_BUTTON_SOURCE
@@ -126,12 +131,12 @@ class TouchButtons:
             name = [BUTTON_PLAY | BUTTON_STOP |
                     BUTTON_PRESET1 | BUTTON_PRESET2 | BUTTON_PRESET3]
         Attributes:
-        if TEST_ENABLED a data key is added with extra timestamp data
-        {
-          'data': float # timestamp
-        }
+        buttons_module_test:
+            if TEST_ENABLED a data key is added with extra timestamp data
+            {
+              'data': float # timestamp
+            }
         """
-        print("touchbuttons event callback", button_data)
         button_name = button_data["name"]
         oradio_log.debug("Button change event: %s = %s", button_name, button_data['state'])
         if button_data["state"] == BUTTON_RELEASED:

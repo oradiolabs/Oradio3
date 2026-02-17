@@ -22,17 +22,10 @@ Created on Jan 22, 2026
 
 """
 import sys
-from threading import Event, Thread, Timer
+from threading import Event, Thread
 from multiprocessing import Queue
 from time import sleep, perf_counter
 from RPi import GPIO
-
-##### oradio modules ####################
-from oradio_logging import oradio_log, DEBUG, CRITICAL
-from touch_buttons import TouchButtons, BUTTON_DEBOUNCE_TIME
-from oradio_utils import input_prompt_int, input_prompt_float, validate_oradio_message
-from gpio_service import BUTTONS, GPIOService
-from test_classes import TimingData
 
 ##### GLOBAL constants ####################
 from oradio_const import (
@@ -47,6 +40,10 @@ from oradio_const import (
 )
 
 ##### oradio modules ####################
+from oradio_logging import oradio_log, DEBUG, CRITICAL
+from touch_buttons import TouchButtons, BUTTON_DEBOUNCE_TIME
+from oradio_utils import input_prompt_int, input_prompt_float, validate_oradio_message
+from gpio_service import BUTTONS, GPIOService
 from remote_debugger import setup_remote_debugging
 
 # pylint: disable=protected-access
@@ -60,7 +57,7 @@ class TestTouchButtons():
     def __init__(self, queue: Queue):
         self.message_queue = queue
         TouchButtons.buttons_module_test = TEST_ENABLED
-        # Create an instance of actual TouchButtons 
+        # Create an instance of actual TouchButtons
         # and add an instance of TestGPIOService,
         # which creates a composition of TouchButtons, TestGPIOService and TimingData
         self.touch_buttons = TouchButtons(queue)
@@ -96,7 +93,6 @@ class TestGPIOService():
         """
         nr_of_events = 0
         while not stop_burst.is_set():
-            print("play callback",BUTTONS[BUTTON_PLAY])
             self.gpio_service._edge_callback(BUTTONS[BUTTON_PLAY])
             nr_of_events += 1
             sleep(1/burst_freq)
@@ -139,7 +135,7 @@ class TestGPIOService():
             sleep(0.2)
             print(f"{YELLOW}*", end=" ", flush=True)
             elapsed_time = perf_counter() - start_time
-        print(f"{YELLOW}button press timing was {NC} ", press_timing, end=" ", flush=True)
+        print(f"{YELLOW}button press timing was {press_timing}{NC} ")
         # Set the button pin to GPIO, HIGH as a button release
         GPIO.output(BUTTONS[button_name], GPIO.HIGH)
         self.gpio_service._edge_callback(BUTTONS[button_name])
@@ -237,7 +233,7 @@ def _check_for_new_message_in_queue(msg_queue: Queue, test_buttons: TestTouchBut
     while True:
         try:
             msg = msg_queue.get()  # blocking
-            print("Received message in Queue: %r", msg)
+            print(f"\n{NC}Received message in Queue: {msg}")
         except KeyError as ex:
             # A required key like 'source' or 'state' is missing
             print(f"Malformed message (missing key): {ex} | {msg}")
@@ -352,6 +348,8 @@ def _btn_press_release_cb_test(test_buttons: TestTouchButtons) -> None:
             test_buttons.button_gpio.simulate_button_press_and_release(
                                                         selected_button_name,
                                                         button_pressed_time)
+            sleep(0.5)
+            stop_test = True
     _stop_all_long_press_timer(test_buttons)
 
 def _burst_test_button(test_buttons: TestTouchButtons, test_choice: int):
@@ -406,6 +404,7 @@ def _start_module_test():
             print(f" {idx} - {name}")
         test_choice = input_prompt_int("Select test number: ", default=-1)
 
+        oradio_log.set_level(CRITICAL)
         match test_choice:
             case 0:
                 print("\nExiting test program\n")
@@ -427,9 +426,9 @@ def _start_module_test():
             case 7:
                 print(f"\n running {test_options[7]}\n")
                 _btn_press_release_cb_test(test_buttons)
-                _ = input("Press any Return key to stop test")
             case _:
                 print("Please input a valid number.")
+    oradio_log.set_level(DEBUG)
 
 if __name__ == '__main__':
     # try to setup a remote debugger connection, if enabled in remote_debugger.py

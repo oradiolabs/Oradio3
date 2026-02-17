@@ -31,18 +31,15 @@ import sys
 from typing import Tuple
 from RPi import GPIO
 
-##### local oradio import modules ####################
-from oradio_utils import input_prompt_int
-from gpio_service import GPIOService, LED_ON, LED_OFF, LEDS, BUTTONS, BOUNCE_MS
-
 ##### GLOBAL constants ####################
 from oradio_const import (
     GREEN, YELLOW, RED, NC,
     LED_NAMES, BUTTON_NAMES,
     DEBUGGER_ENABLED, DEBUGGER_NOT_CONNECTED,
 )
-
 ##### local oradio import modules ####################
+from oradio_utils import input_prompt_int
+from gpio_service import GPIOService, LED_ON, LED_OFF, LEDS, BUTTONS, BOUNCE_MS
 from remote_debugger import setup_remote_debugging
 
 ##### Local constants ####################
@@ -229,7 +226,6 @@ def _single_led_test(test_gpio: GPIOService) -> None:
                     print(f"{RED}Test Result: The selected LED {selected_led_name} is NOT OFF")
             case _:
                 print("Please input a valid number.")
-    return
 
 def _all_leds_off(test_gpio: GPIOService) -> None:
     """

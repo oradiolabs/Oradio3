@@ -23,11 +23,6 @@ from threading import Thread, Event
 import sys
 import math
 
-##### oradio modules ####################
-from led_control import LEDControl
-from oradio_utils import input_prompt_int, input_prompt_float
-
-
 ##### GLOBAL constants ####################
 from oradio_const import (
     LED_NAMES, GREEN, YELLOW, RED, NC,
@@ -35,6 +30,8 @@ from oradio_const import (
 )
 
 ##### oradio modules ####################
+from led_control import LEDControl
+from oradio_utils import input_prompt_int, input_prompt_float
 from remote_debugger import setup_remote_debugging
 
 ##### Local constants ####################

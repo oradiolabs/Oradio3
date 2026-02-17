@@ -52,8 +52,8 @@ BUTTON_PRESET3  = "ButtonPreset3"
 BUTTON_NAMES    = [BUTTON_PLAY, BUTTON_STOP, BUTTON_PRESET1, BUTTON_PRESET2, BUTTON_PRESET3]
 BUTTON_PRESSED  = "button pressed"
 BUTTON_RELEASED = "button released"
-##### SYSTEM SOUND NAMES #######
 
+##### SYSTEM SOUND NAMES #######
 SOUND_START        = "Start"
 SOUND_STOP         = "Stop"
 SOUND_PLAY         = "PLAY"
@@ -200,5 +200,5 @@ DEBUGGER_DISABLED       = "debugger disabled"
 DEBUGGER_ENABLED        = "debugger enabled"
 
 ######## MODULE TEST defines ##########################
-TEST_ENABLED    = "test enabled"
-TEST_DISABLED   = "test disabled"
+TEST_ENABLED  = "test enabled"
+TEST_DISABLED = "test disabled"
