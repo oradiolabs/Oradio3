@@ -35,17 +35,25 @@ NC      = '\x1b[0m'
 # Messages consist of 3 elements: source, state and error
 MESSAGE_NO_ERROR = "None"
 
-################## LED GPIO PINS ##########################
-LEDS = {
-    "LEDPlay":    15,
-    "LEDPreset1": 24,
-    "LEDPreset2": 25,
-    "LEDPreset3":  7,
-    "LEDStop":    23
-}
+########################### LED definitions see UML «led_name» ###################
+LED_PLAY    = "LedPlay"
+LED_STOP    = "LedStop"
+LED_PRESET1 = "LedPreset1"
+LED_PRESET2 = "LedPreset2"
+LED_PRESET3 = "LedPreset3"
+LED_NAMES   =[LED_PLAY, LED_STOP, LED_PRESET1, LED_PRESET2, LED_PRESET3]
+
+############################# #BUTTON definitions see UML «button_name» ###########
+BUTTON_PLAY     = "ButtonPlay"
+BUTTON_STOP     = "ButtonStop"
+BUTTON_PRESET1  = "ButtonPreset1"
+BUTTON_PRESET2  = "ButtonPreset2"
+BUTTON_PRESET3  = "ButtonPreset3"
+BUTTON_NAMES    = [BUTTON_PLAY, BUTTON_STOP, BUTTON_PRESET1, BUTTON_PRESET2, BUTTON_PRESET3]
+BUTTON_PRESSED  = "button pressed"
+BUTTON_RELEASED = "button released"
 
 ##### SYSTEM SOUND NAMES #######
-
 SOUND_START        = "Start"
 SOUND_STOP         = "Stop"
 SOUND_PLAY         = "PLAY"
@@ -129,6 +137,17 @@ MESSAGE_SPOTIFY_SOURCE    = "Spotify message"
 SPOTIFY_EVENT_SOCKET_PORT = 8010
 MPV_SOCKET = "/home/pi/spotify/mpv-socket"
 
+############## TOUCH BUTTONS MESSAGES #################
+MESSAGE_BUTTON_SOURCE      = "Button message"
+MESSAGE_BUTTON_SHORT_PRESS = "Short press:"
+MESSAGE_SHORT_PRESS_BUTTON_PLAY     = MESSAGE_BUTTON_SHORT_PRESS + BUTTON_PLAY
+MESSAGE_SHORT_PRESS_BUTTON_STOP     = MESSAGE_BUTTON_SHORT_PRESS + BUTTON_STOP
+MESSAGE_SHORT_PRESS_BUTTON_PRESET1  = MESSAGE_BUTTON_SHORT_PRESS + BUTTON_PRESET1
+MESSAGE_SHORT_PRESS_BUTTON_PRESET2  = MESSAGE_BUTTON_SHORT_PRESS + BUTTON_PRESET2
+MESSAGE_SHORT_PRESS_BUTTON_PRESET3  = MESSAGE_BUTTON_SHORT_PRESS + BUTTON_PRESET3
+MESSAGE_BUTTON_LONG_PRESS   = "Long press:"
+MESSAGE_LONG_PRESS_BUTTON_PLAY     = MESSAGE_BUTTON_LONG_PRESS + BUTTON_PLAY
+
 # MPV_PLAYER COMMANDS ####
 MPV_PLAYERCTL_PLAY  = "play"
 MPV_PLAYERCTL_PAUSE = "pause"
@@ -174,6 +193,12 @@ SPOTIFY_CONNECT_MPV_STATE_OK               = "Spotify Connect MPV State OK"
 SPOTIFY_CONNECT_CONNECTED = "Spotify Connect is connected"
 SPOTIFY_CONNECT_NOT_CONNECTED = "Spotify Connect is NOT connected"
 
-##### JSON SCHEMA ########
-MODEL_NAME_NOT_FOUND = "Unknown model name, not found in schemas.json"
-MODEL_NAME_FOUND     = "model name found"
+############### Remote Debugger defines ##########################
+DEBUGGER_CONNECTED      = "Debugger connected"
+DEBUGGER_NOT_CONNECTED  = "Debugger not connected"
+DEBUGGER_DISABLED       = "debugger disabled"
+DEBUGGER_ENABLED        = "debugger enabled"
+
+######## MODULE TEST defines ##########################
+TEST_ENABLED  = "test enabled"
+TEST_DISABLED = "test disabled"

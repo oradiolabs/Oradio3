@@ -38,6 +38,47 @@ T - Review na alle module wijzigingen.
 	oradio_control is meermaals heen en weer geslingerd om (tijdelijke) wijzigingen in modules te accomoderen.
 	Zodra die modules gestabiliseerd zijn wordt het tijd om oradio_control na te kijken, op te schonen
 
+2026-02-13 ============================================================================================================================
+
+DEBUG:
+remote_debugger.py:
+Deze module verzorgt een verbinding van de RPI met een IDE op een PC, zodat remote debugging mogelijk is
+R - De setup_remote_debugging() functie kan een verbinding tot stand te brengen.
+R - Er zijn een paar pre-condities waaraan voldaan moet worden om wel of geen remote-debug te kunnen:
+     - Er is een constante REMOTE_DEBUGGER:
+        a) die default op DEBUGGER_DISABLED staat:in dit geval is er geen debugging mogelijk
+        b) de ontwikkelaar kan deze op DEBUGGER_ENABLED zetten: debugger gestart worden mbv setup_remote_debugging() functie
+     - De remote debugger heeft informatie (argumenten) nodig om een verbinding tot stand te brengen bij aanroep van module
+       bijvoorbeeld: python led_control.py -rd yes -ip <ip adres van host> -p <poortnummer van host debugger>
+
+2026-02-13 ============================================================================================================================
+
+GPIO:
+T - Documents/GPIO/GPIO module description.docx updaten
+V - Global defines toegevoegd/opgeschoond
+gpio_service.py:
+V - GPIO beheer consolideren, uit led_control en touch_buttons
+V - GPIO class is singleton en methods zijn thread-safe.
+V - Gebruik Google Docstrings style zoals al in veel ander modules
+V - Stand-alone testen verplaatst naar module_test/gpio_service_test.py
+led_controls.py:
+V - GPIO service methods gebruiken
+V - Gebruik Google Docstrings style zoals al in veel ander modules
+V - Stand-alone testen verplaatst naar module_test/led_control_test.py
+touch_buttons.py:
+V - GPIO service methods gebruiken
+V - Callbacks naar oradio_control vervangen door messages
+V - Gebruik Google Docstrings style zoals al in veel ander modules
+V - Click-sound speelt direct af via play_sound() functie, geen instantie meer nodig
+V - De klasse OradioMessage() geintroduceerd waarmee de message structuur voor oradio berichten wordt gedefinieerd
+V - Een functie validate_oradio_message() die een queue bericht kan valideren op basis van de OradioMessage klasse
+V - Stand-alone testen verplaatst naar module_test/touch_buttons_test.py
+Stand-alone module test scripts:
+V - Een data klasse TimingData geintroduceerd om de statistiek van de tijdsmetingen bij te houden
+V - Performance metingen en rapportage toegevoegd
+V - Remote debugging toegevoegd voor module testen
+=> Review/Rework conclusie: Rework akkoord. Hiermee is review afgesloten
+
 2026-01-12============================================================================================================================
 
 USB:
@@ -85,6 +126,7 @@ V - Use sound constants
 
 2025-12-07============================================================================================================================
 
+LOGGING:
 oradio_logging.py:
 V - log methods safe gemaakt met wrappers dei exceptions afvangen
 V - versturen van WARNING, ERROR en CRITICAL logs naar remote server toegevoegd
@@ -94,20 +136,7 @@ remote_monitoring.py:
 V - Versturen van WARNING, ERROR en CRITICAL logs naar remote server verwijderd
 V - Beheren van HEARTBEAT en SYS_LOG messages afhankelijk gemaakt vna wifi state
 V - Technische documnetatie bijgewerkt
-
-2025-11-10============================================================================================================================
-
-GPIO:
-Henk review: led_control.py
-1 - GPIO zaken ontkoppelen uit led_control.py. De GPIO wordt zowel in led_control als in touch_buttons geinitialiseerd. 
-    Zou op 1 plek moeten. Daarom GPIO zaken in een aparte module gpio_service.py afhandelen. 
-    Daarbij een klasse aanbieden met config en set/get methodes. 
-    Geeft betere abstractie door toevoeging van een hardware abstractie laag
-2 - methodes turn_off_led(), turn_on_led(), turn_on_led_with_delay() moeten een True/False teruggeven
-3 - delayed_off() thread gebruikt een sleep als delay.Beter is om een Timer thread te gebruiken
-4 - control_blinking_led(self, led_name, cycle_time=None), graag de cycle_time parameter specificeren.
-5 - De selftest is niet doelmatig. Beter is om  te testen of de leds ook werkelijk aan of uit staan door de GPIO status op te vragen van de geactiveerde led. 
-    Hiermee test je of de leds werkelijk aan of uit staan.
+=> Review/Rework conclusie: Rework akkoord. Hiermee is review afgesloten
 
 2025-11-18============================================================================================================================
 

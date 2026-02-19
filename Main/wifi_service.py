@@ -18,12 +18,12 @@ Created on December 23, 2024
 @email:         oradioinfo@stichtingoradio.nl
 @status:        Development
 @summary: Class for wifi connectivity services
-    :Documentation
+    Documentation:
         https://networkmanager.dev/
         https://pypi.org/project/nmcli/
         https://superfastpython.com/multiprocessing-in-python/
         https://blogs.gnome.org/dcbw/2016/05/16/networkmanager-and-wifi-scans/
-    :Notes
+    Notes:
         Not used:
             NM can do a connectivity check. See https://wiki.archlinux.org/title/NetworkManager section 4.4
             NM can setup a wifi hotspot that sets up a local private net, with DHCP and IP forwarding

@@ -267,7 +267,8 @@ if __name__ == "__main__":
         """
         Check if a new message is put into the queue
         If so, read the message from queue and display it
-        :param queue = the queue to check for
+        Args:
+            queue = the queue to check for
         """
         while True:
             # Wait indefinitely until a message arrives from the server/wifi service

@@ -18,9 +18,9 @@ Created on December 23, 2024
 @email:         oradioinfo@stichtingoradio.nl
 @status:        Development
 @summary: Class for web interface and web server
-    :Note
-    :Install
-    :Documentation
+    Note:
+    Install:
+    Documentation:
         https://fastapi.tiangolo.com/
 """
 from os import path
@@ -591,7 +591,8 @@ if __name__ == '__main__':
         """
         Check if a new message is put into the queue
         If so, read the message from queue and display it
-        :param queue = the queue to check for
+        Args:
+            queue = the queue to check for
         """
         try:
             while not stop_event.is_set():
