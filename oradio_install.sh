@@ -262,7 +262,6 @@ if [ "$1" != "--continue" ]; then
 		python-mpd2
 		python-multipart
 		concurrent-log-handler
-		pydevd
 	)
 
 	# Ensure Python packages are installed and up-to-date
