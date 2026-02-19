@@ -1,6 +1,7 @@
-pylint
 ruff
 nmcli
+pylint
+pydevd
 smbus2
 fastapi
 uvicorn

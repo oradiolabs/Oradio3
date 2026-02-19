@@ -35,8 +35,6 @@ jobs:
         # Set up Python virtual environment
         python3 -m venv --system-site-packages ~/.venv
         source ~/.venv/bin/activate
-        # Set PYTHONPATH
-        export PYTHONPATH="$GITHUB_WORKSPACE:$GITHUB_WORKSPACE/Main:$GITHUB_WORKSPACE/Main/module_test:$GITHUB_WORKSPACE/.github/workflows"
 
         python -m pip install --upgrade pip
         pip install -r .github/workflows/oradio_modules.txt
@@ -46,7 +44,7 @@ jobs:
 
         # Run pylint - outputs issues or success
         echo "### 🧹 Pylint analysis results" >> "$RESULT_FILE"
-        pylint Main/**/*.py --rcfile=.github/workflows/.pylintrc --output-format=text >> "$RESULT_FILE"
+        PYTHONPATH="$GITHUB_WORKSPACE/module_test" pylint Main/*.py --rcfile=.github/workflows/.pylintrc --output-format=text >> "$RESULT_FILE"
         count_pylint=$(tr -d '\r' < "$RESULT_FILE" | grep -Ec '^[^:]+:[0-9]+:[0-9]+: [A-Z][0-9]{4}:')
         # Static deprecation check
         echo "### 🧹 Ruff static deprecation analysis results" >> "$RESULT_FILE"

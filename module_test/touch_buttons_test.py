@@ -27,6 +27,13 @@ from multiprocessing import Queue
 from time import sleep, perf_counter
 from RPi import GPIO
 
+##### oradio modules ####################
+from oradio_logging import oradio_log, DEBUG, CRITICAL
+from touch_buttons import TouchButtons, BUTTON_DEBOUNCE_TIME
+from oradio_utils import input_prompt_int, input_prompt_float, validate_oradio_message
+from gpio_service import BUTTONS, GPIOService
+from remote_debugger import setup_remote_debugging
+
 ##### GLOBAL constants ####################
 from oradio_const import (
     YELLOW, RED, NC,
@@ -38,14 +45,6 @@ from oradio_const import (
     DEBUGGER_NOT_CONNECTED,
     MESSAGE_BUTTON_SHORT_PRESS
 )
-
-##### oradio modules ####################
-from oradio_logging import oradio_log, DEBUG, CRITICAL
-from touch_buttons import TouchButtons, BUTTON_DEBOUNCE_TIME
-from oradio_utils import input_prompt_int, input_prompt_float, validate_oradio_message
-from gpio_service import BUTTONS, GPIOService
-from remote_debugger import setup_remote_debugging
-
 # pylint: disable=protected-access
 # motivation: for test purposes need to test the local methods
 

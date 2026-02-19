@@ -2,14 +2,12 @@
 # Files or directories to ignore (commonly virtual environments)
 ignore=venv
 
-# Optional: load additional pylint plugins (not needed for basic PEP8 checking)
-load-plugins=
-
 [MESSAGES CONTROL]
 # Disable specific messages that are not strict PEP8 violations or often overly verbose
 # C0301: line too long
 # R0903: too-few-public-methods (e.g. for simple data classes)
-disable=C0301, R0903
+# C0411: wrong import order - To be fixed by converting Oradio3 into a package
+disable=C0301, R0903, C0411
 
 [FORMAT]
 # PEP8 recommends a maximum line length of 79 characters

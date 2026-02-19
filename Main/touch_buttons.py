@@ -17,20 +17,15 @@ Created on April 28, 2025
 @status:        Development
 @summary:       Oradio touch buttons module with debounce, per-button callbacks, and selftest
 """
-# Standard library imports
 from threading import Timer
 from multiprocessing import Queue
 from time import monotonic
 
-##### oradio local modules ####################
-from test_classes import TimingData
+##### oradio modules ####################
 from oradio_logging import oradio_log
-from gpio_service import GPIOService
 from oradio_utils import safe_put, OradioMessage
+from gpio_service import GPIOService
 from system_sounds import play_sound
-
-# To please pylint singleton is placed here.
-# pylint considers the singleton as 1st-party import, which is not the case
 from singleton import singleton
 
 ##### GLOBAL constants ####################
@@ -83,6 +78,8 @@ class TouchButtons:
         self.long_press_timers: dict[str, Timer] = {}    # button -> Timer
         self.button_gpio.set_button_edge_event_callback(self._button_event_callback)
         if self.buttons_module_test == TEST_ENABLED:
+            # We do not want dependency on test_classes during normal operation, only in test mode
+            from test_classes import TimingData     # pylint: disable=import-outside-toplevel
             # include button press timing data for statistics
             self.timing_data = TimingData()
 
@@ -153,7 +150,6 @@ class TouchButtons:
             # another button press detected within the debounce period
             # is considered to be a new button press.
             # The button press was to short, so will be neglected
-#            if self.BUTTONS_MODULE_TEST == TEST_ENABLED:
             if self.buttons_module_test == TEST_ENABLED:
                 print(f"{YELLOW}New {button_name} event in {round(time_diff, 3)} sec",
                       f",events within the debouncing window of {DEBOUNCE_SECONDS}",
@@ -185,7 +181,6 @@ class TouchButtons:
             button_name : [BUTTON_PLAY | BUTTON_STOP |
                             BUTTON_PRESET1 | BUTTON_PRESET2 | BUTTON_PRESET3]
         """
-
         if not self.button_gpio.get_button_state(button_name):
             return  # released during wait; ignore
         # Disarm any timer entry; we’re executing now

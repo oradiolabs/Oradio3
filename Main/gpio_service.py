@@ -68,7 +68,6 @@ BOUNCE_MS = 10  # hardware debounce in GPIO.add_event_detect
 LED_ON = True
 LED_OFF = False
 
-
 @singleton
 class GPIOService:
     """
