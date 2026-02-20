@@ -18,33 +18,6 @@ function scrollToPlaylistInput()
 	window.scrollTo({top: y, behavior: 'smooth'});
 }
 
-// Scroll to top and show menu images
-function showMenuImages() {
-	const nav = document.querySelector('nav');
-	window.scrollTo({ top: 0, behavior: 'smooth' });
-	nav.classList.remove('hide-images');
-}
-
-// Scroll to input and hide menu images
-function hideMenuImages() {
-	const nav = document.querySelector('nav');
-	nav.classList.add('hide-images');
-	scrollToPlaylistInput();
-}
-
-// Show menu images when space allows, otherwise only show the labels
-function updateMenuImages()
-{
-	const playlistSongs = document.getElementById("playlist-songs");
-	const searchSongs = document.getElementById("search-songs");
-
-	// Hide images if both song lists are visible, otherwise show
-	if (playlistSongs.style.display === "block" && searchSongs.style.display === "block")
-		hideMenuImages();
-	else
-		showMenuImages();
-}
-
 /*
  * Function to get the songs for the selected playlist
  * Called:
@@ -72,9 +45,6 @@ async function getPlaylistSongs()
 		// Hide songs list
 		songlist.style.display = "none";
 
-		// Show menu images
-		showMenuImages();
-
 		// Done: no playlist to list songs for
 		return;
 	}
@@ -97,9 +67,6 @@ async function getPlaylistSongs()
 		// Hide songs list
 		songlist.style.display = "none";
 
-		// Show menu images
-		showMenuImages();
-
 		// Done: protected playlist given
 		return;
 	}
@@ -120,9 +87,6 @@ async function getPlaylistSongs()
 		// Hide songs list
 		songlist.style.display = "none";
 
-		// Show menu images
-		showMenuImages();
-
 		// Done: protected playlist given
 		return;
 	}
@@ -136,9 +100,6 @@ async function getPlaylistSongs()
 
 		// Hide songs list
 		songlist.style.display = "none";
-
-		// Show menu images
-		showMenuImages();
 
 		// Done: playlist does not exist
 		return;
@@ -170,9 +131,6 @@ async function getPlaylistSongs()
 			{
 				// Hide songs list
 				songlist.style.display = "none";
-
-				// Show menu images
-				showMenuImages();
 
 				// Notify
 				playlist_notification.innerHTML = `<p class='warning'>Speellijst '${playlist}' bestaat, maar is leeg<br>Zoek liedjes en voeg toe met de <button class="save-button-tiny"></button>-knop</p>`;
@@ -219,9 +177,6 @@ async function getPlaylistSongs()
 			// Show songs list
 			songlist.style.display = "block";
 
-			// Show/hide menu images
-			updateMenuImages()
-
 			// Clear and hide playlist_notification
 			playlist_notification.innerHTML = "";
 			playlist_notification.style.display = "none";
@@ -243,162 +198,6 @@ async function getPlaylistSongs()
 	{
 		playlist_notification.innerHTML = `<p class='error'>${errorMessage}<br>Controleer of de web interface actief is</p>`;
 		playlist_notification.style.display = "block";
-	}
-}
-
-/*
- * Called:
- * - On 'Enter'-key while search input has focus
- * - On 'Zoeken'-button
- * - After playlist changed
- * Does: 
- * - Get songs for search input
- *   - Get search input
- *   - Validate search pattern
- *   - Fetch songs for search input
- *   - Show list of songs and 'Add'-button or search_notification if none
- */
-async function getSearchSongs()
-{
-	// Get search input
-	const search = document.getElementById("search").value.trim();
-
-	// Get songs list container
-	const songlist = document.getElementById("search-songs");
-
-	// Check for search pattern
-	if (!search)
-	{
-		// Hide songs list
-		songlist.style.display = "none";
-
-		// Show menu images
-		showMenuImages();
-
-		// Clear and hide search_notification
-		search_notification.innerHTML = "";
-		search_notification.style.display = "none";
-
-		// Done: nothing to search for
-		return;
-	}
-
-	// Check for minimal search pattern length
-	if ((search.length > 0) && (search.length < 3))
-	{
-		// Hide songs list
-		songlist.style.display = "none";
-
-		// Show menu images
-		showMenuImages();
-
-		// Notify
-		search_notification.innerHTML = `<span class='warning'>Gebruik een zoekopdracht met minimaal 3 karakters</span>`;
-		search_notification.style.display = "block";
-
-		// Done: search pattern too short
-		return;
-	}
-
-	// Set error template
-	const errorMessage = `Ophalen van de liedjes voor '${search}' is mislukt`;
-
-	try
-	{
-		// Fetch search songs
-		const response = await fetch('/get_songs',
-		{
-			method: 'POST',
-			headers: {'Content-Type': 'application/json'},
-			body: JSON.stringify({"source": "search", "pattern": search})
-		});
-
-		// Handle server response
-		if (response.ok)
-		{
-			// Wait for songs to be returned from server
-			const songs = await response.json();
-
-			// Notify if no songs
-			if (!Array.isArray(songs) || songs.length === 0)
-			{
-				// Hide songs list
-				songlist.style.display = "none";
-
-				// Show menu images
-				showMenuImages();
-
-				// Notify
-				search_notification.innerHTML = `<span class='warning'>Geen liedjes gevonden met '${search}' in de naam van de artiest of in de titel<br>Gebruik een andere zoekopdracht</span>`;
-				search_notification.style.display = "block";
-
-				// Done: no songs found
-				return;
-			}
-
-			// Get songs container
-			const ul = songlist.querySelector("ul");
-
-			// Clear songs container
-			ul.innerHTML = "";
-
-			// Add songs to container
-			songs.forEach(song =>
-			{
-				// Create song element
-				const li = document.createElement("li");
-
-				// Song file name
-				li.id = song.file;
-
-				// Song artist and title
-				li.textContent = `${song.artist} - ${song.title}`;
-
-				// Create button element
-				const button = document.createElement("button");
-
-				// Readability
-				button.title = "Toevoegen";
-
-				// Styling
-				button.classList.add("save-button-small");
-
-				// Add button element to song element
-				li.appendChild(button);
-
-				// Add song element to songs container
-				ul.appendChild(li);
-			});
-
-			// Set the scroll position to the top
-			songlist.scrollTop = 0;
-
-			// Show songs list
-			songlist.style.display = "block";
-
-			// Show/hide menu images
-			updateMenuImages()
-
-			// Clear and hide search_notification
-			search_notification.innerHTML = "";
-			search_notification.style.display = "none";
-		}
-		else
-		{
-			// Wait for error to be returned from server
-			const errorData = await response.json();
-
-			// Notify
-			search_notification.innerHTML = `<p class='error'>${errorData.message || errorMessage}</p>`;
-			search_notification.style.display = "block";
-		}
-	}
-
-	// Handle server not responding
-	catch (error)
-	{
-		search_notification.innerHTML = `<p class='error'>${errorMessage}<br>Controleer of de web interface actief is</p>`;
-		search_notification.style.display = "block";
 	}
 }
 
@@ -459,9 +258,6 @@ async function addSong(songfile)
 
 		// Hide songs list
 		songlist.style.display = "none";
-
-		// Show menu images
-		showMenuImages();
 
 		// Done: protected playlist given
 		return;
@@ -656,55 +452,12 @@ async function modifyPlaylist(action, playlist, songfile, errorMessage)
 	}
 }
 
-// Function to submit the song to the server for playback
-async function playSong(notification, songfile, songtitle)
-{
-	// Set error template
-	const errorMessage = `Er is een fout opgetreden bij het indienen van het te spelen liedje '${songtitle}'`;
-
-	document.getElementById(notification);
-	try
-	{
-		// Submit song to play
-		const response = await fetch('/play_song',
-		{
-			method: 'POST',
-			headers: {'Content-Type': 'application/json'},
-			body: JSON.stringify({ "song": songfile })
-		});
-
-		// Handle server response
-		if (!response.ok)
-		{
-			const errorData = await response.json();
-			notification.innerHTML = `<p class='error'>${errorData.message || errorMessage}</p>`;
-			notification.style.display = "block";
-		}
-	}
-
-	// Handle server not responding
-	catch (error)
-	{
-		notification.innerHTML = `<p class='error'>${errorMessage}<br>Controleer of de web interface actief is</p>`;
-		notification.style.display = "block";
-	}
-}
-
 // Run when page is loaded
 document.addEventListener('DOMContentLoaded', function (event)
 {
 	// Get notification elements
 	const playlist_notification = document.getElementById("playlist_notification");
 	const search_notification = document.getElementById("search_notification");
-
-	// Remove focus
-	setTimeout(() =>
-	{
-		document.querySelectorAll('input').forEach(input =>
-		{
-			input.style.pointerEvents = 'auto';
-		});
-	}, 0);
 
 	// Create autocomplete dropdown
 	document.getElementById('autocomplete-input').addEventListener('input', function()

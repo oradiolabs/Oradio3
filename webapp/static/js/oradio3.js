@@ -37,21 +37,53 @@ function hideNotification(notification)
 }
 
 // Close the web interface
-function closeWebInterface()
+function shutdownWebApp()
 {
 	// Remove header and navigation
 	document.querySelectorAll('header, nav').forEach(el => el.remove());
 
 	// Replace main content with message
-	document.querySelector('main').innerHTML = '<div class="closing">' + 
+	document.querySelector('main').innerHTML = '<div class="shuttingdown">' + 
 		'De web interface wordt afgesloten...' +
 	'</div>';
 
     // Show waiting indicator
     showWaiting();
 
-	// Send close command
-	fetch("/close", {method: "POST"});
+	// Send shutdown command
+	postJSON("shutdown")
+}
+
+// Server access wrapper
+async function postJSON(cmd, args = {})
+{
+	try
+	{
+		// Submit the request
+		const response = await fetch('/execute',
+		{
+			method: 'POST',
+			headers: {'Content-Type': 'application/json'},
+			body: JSON.stringify({cmd, args})
+		});
+
+		// Parse JSON safely
+		const data = await response.json().catch(() => ({}));
+
+		// Throw for HTTP errors
+		if (!response.ok)
+			throw new Error(data.message || "Server error");
+
+		return data;
+	}
+	catch (err)
+	{
+		// If it's already a server error, rethrow it
+		if (err instanceof Error && err.message !== "Failed to fetch")
+			throw err;
+
+		throw new Error("Controleer of de webapp actief is");
+	}
 }
 
 /* ========== Initialize Single Page Application (SPA) ========== */
@@ -59,7 +91,7 @@ function closeWebInterface()
 document.addEventListener('DOMContentLoaded', () =>
 {
 	// Assign action to stop button
-	document.querySelector('img.stop-btn').addEventListener("click", closeWebInterface);
+	document.querySelector('img.shutdown-button').addEventListener("click", shutdownWebApp);
 
 	// Observe initial page
 	observeActivePage();
@@ -186,58 +218,33 @@ function hideScrollbox(scrollbox)
 
 /* ========== Dropdown ========== */
 
-// Open dropdown scrollbox on input or icon click
-document.addEventListener("click", async (event) =>
+document.addEventListener("click", (event) =>
 {
-	// IMPORTANT: closest identifies icon and scrollbox identification
+	// IMPORTANT: closest identifies the element near the click
+	const row = event.target.closest(".scrollbox-row");
 	const customSelect = event.target.closest(".custom-select");
 
-	// Close all dropdowns when clicked outside
-	if (!customSelect)
+	// Row click first
+	if (row)
 	{
-		closeDropdowns();
+		handleRowClick(row);
 		return;
 	}
 
-	// Get closest input, icon and scrollbox elements
-	const input = customSelect.querySelector("input");
-	const icon = customSelect.querySelector(".custom-icon");
-	const dropdown = customSelect.querySelector(".scrollbox.dropdown");
-
-	// Click on input or dropdown icon
-	if (event.target === input || event.target === icon)
+	// Click on input/icon
+	if (customSelect)
 	{
-		// Prevent click from propagating to document
-		event.stopPropagation();
-
-		// Close any open dropdown scrollboxes
-		closeDropdowns();
-
-		// Show waiting indicator if scrollbox is not populated
-		if (dropdown.dataset.populated === "false")
-			showWaiting();
-
-		// Show the dropdown scrollbox
-		showScrollbox(dropdown, input)
-
-		if (icon)
-			// Rotate icon to 'open'
-			icon.classList.add('open');
-
-		// Reset scrollbox to top
-		dropdown.scrollTop = 0;
+		handleSelectClick(event.target, customSelect);
+		return;
 	}
+
+	// Clicked outside any custom-select → close all
+	closeDropdowns();
 });
 
-// Select row
-document.addEventListener("click", (event) =>
+// Select row and trigger CALLBACK handler
+function handleRowClick(row)
 {
-	// IMPORTANT: closest identifies row clicked
-	const row = event.target.closest(".scrollbox-row");
-
-	// Ignore if no row clicked
-	if (!row) return;
-
 	// Get closest scrollbox, input and icon elements
 	const scrollbox = row.closest(".scrollbox");
 	const customSelect = row.closest(".custom-select");
@@ -263,7 +270,38 @@ document.addEventListener("click", (event) =>
 
 	// CALLBACK: pass row for follow-up actions
 	onScrollboxSelect(row);
-});
+}
+
+// Open dropdown scrollbox on input or icon click
+function handleSelectClick(target, customSelect)
+{
+	// Get closest input, icon and scrollbox elements
+	const input = customSelect.querySelector("input");
+	const icon = customSelect.querySelector(".custom-icon");
+	const dropdown = customSelect.querySelector(".scrollbox.dropdown");
+
+	// Click on input or dropdown icon
+	if (target === input || target === icon)
+	{
+
+		// Close any open dropdown scrollboxes
+		closeDropdowns();
+
+		// Show waiting indicator if scrollbox is not populated
+		if (dropdown.dataset.populated === "false")
+			showWaiting();
+
+		// Show the dropdown scrollbox
+		showScrollbox(dropdown, input)
+
+		if (icon)
+			// Rotate icon to 'open'
+			icon.classList.add('open');
+
+		// Reset scrollbox to top
+		dropdown.scrollTop = 0;
+	}
+}
 
 // Close dropdown scrollboxes
 function closeDropdowns()
@@ -277,6 +315,38 @@ function closeDropdowns()
 		if (icon) icon.classList.remove('open');
 	});
 }
+
+// Convert songs into scrollbox rows
+function populateSongsScrollbox(type, scrollbox, songs)
+{
+	// Create fragment
+	const fragment = document.createDocumentFragment();
+
+	// Populate fragment
+	songs.forEach(song =>
+	{
+		const row = createRow(`${song.artist} - ${song.title}`);
+		row.dataset.action = "play";
+		row.dataset.songfile = song.file;
+		row.dataset.notify = `notification_${type}`;
+		fragment.appendChild(row);
+	});
+
+    // Replace old rows efficiently
+	scrollbox.replaceChildren(fragment);
+
+	// mark scrollbox as populated
+	scrollbox.dataset.populated = "true";
+
+    // Show the scrollbox if input exists
+    const input = document.getElementById(type);
+    if (input) showScrollbox(scrollbox, input);
+
+	// Reset scrollbox to top
+	scrollbox.scrollTop = 0;
+}
+
+/* ========== CALLBACK ========== */
 
 // CALLBACK: action determined by selected row
 function onScrollboxSelect(row)
@@ -299,20 +369,26 @@ function onScrollboxSelect(row)
 			break;
 
         case "playlist":
-			// Show scrollbox with playlist songs
-			showSongs(row.querySelector(".scrollbox-row-text").textContent.trim())
+			// Show scrollbox with custom playlist songs
+			showSongs(
+				row.dataset.input,
+				row.dataset.target,
+				row.querySelector(".scrollbox-row-text").textContent.trim()
+			);
 			break;
 
-//TODO: buttons en playlists apart afhandelen
         case "play":
 			// Play selected song
-			playSong(row.dataset.file, row.querySelector(".scrollbox-row-text").textContent.trim())
+			playSong(
+				row.dataset.notify,
+				row.dataset.songfile,
+				row.querySelector(".scrollbox-row-text").textContent.trim()
+			);
 			break;
 /*
 TODO:
  playlists
- search songs
-
+ 
         case "playlist":
 			// Get selected preset button
 			// Get selected playlist
@@ -323,4 +399,94 @@ TODO:
         default:
 			console.log("ERROR: Unexpected action for row:", row);
     }
+}
+
+// Submit the song to the server for playback
+async function playSong(notification, songfile, songtitle)
+{
+    const notify = document.getElementById(notification);
+	if (!notify)
+	{
+		console.warn(`playSong(): notification element '${notification}' not found`);
+		return;
+    }
+
+	hideNotification(notify);
+
+	const errorMessage = `Er is een fout opgetreden bij het indienen van het te spelen liedje '${songtitle}'`;
+
+	try
+	{
+		const cmd = "play";
+		const args = { "song": songfile };
+		await postJSON(cmd, args);
+	}
+	catch (err)
+	{
+		showNotification(notify, `<span class="error">${errorMessage}<br>${err.message || 'Onbekende fout'}</span>`);
+		console.error(err);
+	}
+}
+
+// CALLBACK entry point: Show playlist songs in scrollbox
+async function showSongs(input, target, playlist)
+{
+	// Show waiting indicator
+	showWaiting();
+
+	// Show scrollbox with playlist songs
+	const songs = await getPlaylistSongs(playlist);
+
+	if (songs.length)
+		populateSongsScrollbox(input, document.getElementById(target), songs);
+
+	// Show waiting indicator
+	hideWaiting();
+}
+
+// Get the songs for the given playlist
+async function getPlaylistSongs(playlist)
+{
+	// Clear notification
+	hideNotification(notificationPlaylist);
+
+	// Set error template
+	const errorMessage = `Ophalen van de liedjes van speellijst '${playlist}' is mislukt`;
+
+	try
+	{
+		const cmd = "playlist";
+		const args = { "playlist": playlist };
+
+		// Wait for songs to be returned by the server
+		const songs = (await postJSON(cmd, args)) || [];
+
+		// Warn if no songs found
+		if (songs.length === 0)
+		{
+			// Inform user playlist is empty
+			showNotification(notificationPlaylist, `<span class="warning">Speellijst '${playlist}' is leeg</span>`);
+
+			// Failed to fetch songs
+			return [];
+		}
+
+		// Check if playlist is web radio
+		if ((/^https?:/.test(songs[0]['file'])))
+		{
+			// Inform user playlist is webradio
+			showNotification(notificationPlaylist, `<span class="warning">Speellijst '${playlist}' is webradio</span>`);
+
+			// Failed to fetch songs
+			return [];
+		}
+
+		// Return playlist songs
+		return songs;
+	}
+	catch (err)
+	{
+		showNotification(notificationPlaylist, `<span class="error">${errorMessage}<br>${err.message || 'Onbekende fout'}</span>`);
+		console.error(err);
+	}
 }

@@ -118,6 +118,34 @@ async def keep_alive_middleware(request: Request, call_next):
     # Return response for actual request
     return response
 
+#### STATUS ##############################
+
+def _get_sw_info():
+    """
+    Retrieve software configuration information from the software version JSON file
+    Returns: Contains 'serial' and 'version' keys with software info
+             If the file is missing or unreadable, returns default placeholders
+    """
+    oradio_log.debug("Get software info")
+
+    # Try to load software version info
+    try:
+        with open(SOFTWARE_VERSION_FILE, "r", encoding="utf-8") as file:
+            data = load(file)
+            software_info = {
+                "serial": data.get("serial", "missing serial"),
+                "version": data.get("gitinfo", "missing gitinfo")
+            }
+    except FileNotFoundError:
+        oradio_log.error("Software version info '%s' not found", SOFTWARE_VERSION_FILE)
+        software_info = INFO_MISSING
+    except (JSONDecodeError, PermissionError, OSError) as ex_err:
+        oradio_log.error("Failed to read '%s'. error: %s", SOFTWARE_VERSION_FILE, ex_err)
+        software_info = INFO_ERROR
+
+    # Return sanitized data set
+    return software_info
+
 #### FAVICON #############################
 
 @api_app.get("/favicon.ico", include_in_schema=False)
@@ -126,24 +154,6 @@ async def favicon():
     return FileResponse(web_path + "/static/favicon.ico")
 
 #### PLAYLISTS ###########################
-
-@api_app.get("/playlists")
-async def playlists_page(request: Request):
-    """
-    Render the playlists management page
-    This page allows users to:
-     - Manage their playlists (create, add songs, remove songs, delete playlists)
-     - Search songs by artist and title tags
-    Returns: HTML page showing available playlists
-    """
-    oradio_log.debug("Serving playlists page")
-
-    # Return playlist page, directories and playlists as context
-    context = {
-        "directories" : mpd_control.get_directories(),
-        "playlists"   : mpd_control.get_playlists()
-    }
-    return templates.TemplateResponse(request=request, name="playlists.html", context=context)
 
 class Modify(BaseModel):
     """
@@ -184,34 +194,6 @@ async def playlist_modify(modify: Modify):
     return JSONResponse(status_code=400, content={"message": f"De action '{modify.action}' is ongeldig"})
 
 #### SHARED: BUTTONS AND PLAYLISTS #######
-
-class Songs(BaseModel):
-    """
-    Data model for requesting songs
-    source (str): Source type, either 'playlist' or 'search'
-    pattern (str): Playlist name or search pattern depending on the source
-    """
-    source:  str = None
-    pattern: str = None
-
-# POST endpoint to get songs
-@api_app.post("/get_songs")
-async def get_songs(songs: Songs):
-    """
-    Retrieve songs based on the given source and pattern
-    songs (Songs): Contains source type and pattern
-    Returns: Songs from the specified playlist or search results
-    """
-    oradio_log.debug("Serving songs from '%s' for pattern '%s'", songs.source, songs.pattern)
-
-    if songs.source == 'playlist':
-        return mpd_control.get_songs(songs.pattern)
-
-    if songs.source == 'search':
-        return mpd_control.search(songs.pattern)
-
-    oradio_log.error("Invalid source '%s'", songs.source)
-    return JSONResponse(status_code=400, content={"message": f"De source '{songs.source}' is ongeldig"})
 
 #### EXECUTE #############################
 
@@ -378,7 +360,23 @@ async def execute(request: ExecuteRequest):
         else:
             oradio_log.error("Invalid preset '%s'", preset)
 
+    def get_playlist_songs(args: Optional[Dict[str, Any]]):
+        """Get songs for given playlist"""
+        # Extract required arguments, none if no args sent
+        playlist = args.get("playlist") if args else None
+        if not playlist:
+            # Missing required argument
+            raise ValueError("'playlist' vereist argument 'playlist'")
+        return mpd_control.get_songs(playlist)
 
+    def get_search_songs(args: Optional[Dict[str, Any]]):
+        """Get songs for given pattern"""
+        # Extract required arguments, none if no args sent
+        pattern = args.get("pattern") if args else None
+        if not pattern:
+            # Missing required argument
+            raise ValueError("'search' vereist argument 'pattern'")
+        return mpd_control.search(pattern)
 
     # --- Command dispatch dictionary ---
     commands = {
@@ -388,6 +386,8 @@ async def execute(request: ExecuteRequest):
         "spotify": rename_spotify,
         "connect": wifi_connect,
         "preset": save_preset,
+        "playlist": get_playlist_songs,
+        "search": get_search_songs,
         # Add other commands were
     }
 
@@ -407,36 +407,6 @@ async def execute(request: ExecuteRequest):
         # Andere fouten (MPD, server etc.)
         oradio_log.error("Fout bij uitvoeren van '%s': %s", request.cmd, str(e))
         return JSONResponse(status_code=500, content={"message": str(e)})
-
-#### BUTTONS #############################
-
-#### STATUS ##############################
-
-def _get_sw_info():
-    """
-    Retrieve software configuration information from the software version JSON file
-    Returns: Contains 'serial' and 'version' keys with software info
-             If the file is missing or unreadable, returns default placeholders
-    """
-    oradio_log.debug("Get software info")
-
-    # Try to load software version info
-    try:
-        with open(SOFTWARE_VERSION_FILE, "r", encoding="utf-8") as file:
-            data = load(file)
-            software_info = {
-                "serial": data.get("serial", "missing serial"),
-                "version": data.get("gitinfo", "missing gitinfo")
-            }
-    except FileNotFoundError:
-        oradio_log.error("Software version info '%s' not found", SOFTWARE_VERSION_FILE)
-        software_info = INFO_MISSING
-    except (JSONDecodeError, PermissionError, OSError) as ex_err:
-        oradio_log.error("Failed to read '%s'. error: %s", SOFTWARE_VERSION_FILE, ex_err)
-        software_info = INFO_ERROR
-
-    # Return sanitized data set
-    return software_info
 
 #### ORADIO3 ##############################
 

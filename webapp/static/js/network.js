@@ -32,9 +32,13 @@ document.addEventListener('DOMContentLoaded', () =>
 	else
 		showNotification(notificationOldSSID, `Oradio was niet verbonden met wifi`);
 
+	showWaiting();
+	
 	// Fetch networks
 	networksPromise = getNetworks();
 	populateNetworkDropdown();
+
+	hideWaiting();
 
 	// Buttons
 	document.getElementById("submitCredentialsButton").addEventListener("click", submitCredentials);
@@ -63,22 +67,11 @@ document.addEventListener('DOMContentLoaded', () =>
 async function getNetworks()
 {
 	const errorMessage = "Ophalen van de actieve wifi netwerken is mislukt";
+
 	try
 	{
-		const response = await fetch('/get_networks',
-		{
-			method: 'POST',
-			headers: { 'Content-Type': 'application/json' }
-		});
-
-		if (!response.ok)
-		{
-			const errorData = await response.json().catch(() => ({}));
-			showNotification(notificationNetwork, `<span class="error">${errorData.message || errorMessage}</span>`);
-			return [];
-		}
-
-		const networks = (await response.json()) || [];
+		const cmd = "networks";
+		const networks = (await postJSON(cmd)) || [];
 		if (networks.length === 0)
 		{
 			showNotification(notificationNetwork, `<span class="warning">No wifi networks found</span>`);
@@ -89,14 +82,11 @@ async function getNetworks()
 		return networks.sort((a, b) =>
 			a.ssid.localeCompare(b.ssid, undefined, { sensitivity: 'base' })
 		);
-
 	}
 	catch (err)
 	{
-		showNotification(notificationNetwork,
-			`<span class="error">${errorMessage}<br>Controleer of de webapp actief is</span>`);
+		showNotification(notificationNetwork, `<span class="error">${errorMessage}<br>${err.message || 'Onbekende fout'}</span>`);
 		console.error(err);
-		return [];
 	}
 }
 
@@ -118,7 +108,6 @@ async function populateNetworkDropdown()
 	dropdown.replaceChildren(fragment);
 
 	dropdown.dataset.populated = true;
-	hideWaiting();
 }
 
 // CALLBACK entry point: Show/hide password input based on network type
@@ -142,9 +131,9 @@ async function submitCredentials()
 		return;
 	}
 
-	const password = passwordInput.value;
+	const pswd = passwordInput.value;
 	const ignorePassword = passwordBlock.style.display === "none";
-	if (!ignorePassword && password.length < 8)
+	if (!ignorePassword && pswd.length < 8)
 	{
 		showNotification(notificationNetwork, `<span class="error">Wachtwoord moet minimaal 8 karakters zijn</span>`);
 		return;
@@ -154,33 +143,20 @@ async function submitCredentials()
 
 	try
 	{
-		const response = await fetch('/wifi_connect',
-		{
-			method: 'POST',
-			headers: { 'Content-Type': 'application/json' },
-			body: JSON.stringify({ ssid, pswd: password })
-		});
-
-		if (!response.ok)
-		{
-			const errorData = await response.json().catch(() => ({}));
-			showNotification(notificationNetwork, `<span class="error">${errorData.message || errorMessage}</span>`);
-			return;
-		}
-
+		const cmd = "connect";
+		const args = { "ssid": ssid, "pswd": pswd };
 		showWaiting();
-		showNotification(notificationNetwork,
-			`De webapp wordt afgesloten<br>Oradio probeert te verbinden met '${ssid}'`);
+		postJSON(cmd, args);
+		showNotification(notificationNetwork,`De webapp wordt afgesloten<br>Oradio probeert te verbinden met '${ssid}'`);
 	}
 	catch (err)
 	{
-		showNotification(notificationNetwork,
-			`<span class="error">${errorMessage}<br>Controleer of de webapp actief is</span>`);
+		showNotification(notificationNetwork, `<span class="error">${errorMessage}<br>${err.message || 'Onbekende fout'}</span>`);
 		console.error(err);
 	}
 }
 
-// Submit Spotify name
+// Modify Spotify name
 async function submitSpotify()
 {
 	hideNotification(notificationSpotify);
@@ -198,38 +174,22 @@ async function submitSpotify()
 		return;
 	}
 
-	showWaiting();
 	const errorMessage = `Instellen van Spotify naam '${name}' is mislukt`;
+
+	showWaiting();
 
 	try
 	{
-		const response = await fetch('/spotify',
-		{
-			method: 'POST',
-			headers: { 'Content-Type': 'application/json' },
-			body: JSON.stringify({ name })
-		});
-
-		if (!response.ok)
-		{
-			const errorData = await response.json().catch(() => ({}));
-			showNotification(notificationSpotify, `<span class="error">${errorData.message || errorMessage}</span>`);
-			hideWaiting();
-			return;
-		}
-
-		const name = (await response.json()) || [];
-
-		name = await response.json();
+		const cmd = "spotify";
+		const args = { "name": name };
+		name = await postJSON(cmd, args);
 		spotifyInput.value = name;
 		showNotification(notificationSpotify, `<span class="success">De Spotify naam is gewijzigd in '${name}'</span>`);
 		spotify = name;
-
 	}
 	catch (err)
 	{
-		showNotification(notificationSpotify,
-			`<span class="error">${errorMessage}<br>Controleer of de webapp actief is</span>`);
+		showNotification(notificationSpotify, `<span class="error">${errorMessage}<br>${err.message || 'Onbekende fout'}</span>`);
 		console.error(err);
 	}
 

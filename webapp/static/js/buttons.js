@@ -31,6 +31,8 @@ document.addEventListener('DOMContentLoaded', () =>
 		{
 			const row = createRow(option);
 			row.dataset.action = input.id;
+			row.dataset.input = "playlist";
+			row.dataset.target = "playlist-songs";
 			fragment.appendChild(row);
 		});
 		dropdown.replaceChildren(fragment);
@@ -61,179 +63,16 @@ async function savePreset(preset, playlist)
 
 	try
 	{
-		// Send preset and playlist to server
-		const response = await fetch('/save_preset',
-		{
-			method: 'POST',
-			headers: {'Content-Type': 'application/json'},
-			body: JSON.stringify({"preset": preset, "playlist": playlist})
-		});
-
-		// Check for errors
-		if (!response.ok)
-		{
-			// Get fetch error message
-			const errorData = await response.json().catch(() => ({}));
-
-			// Inform user what went wrong
-			showNotification(notificationPresets, `<span class="error">${errorData.message || errorMessage}</span>`);
-		}
+		const cmd = "preset";
+		const args = { "preset": preset, "playlist": playlist };
+		postJSON(cmd, args);
 	}
-
-	// Handle server not responding
 	catch (err)
 	{
-		showNotification(notificationPresets, `<span class="error">${errorMessage}<br>Controleer of de webapp actief is</span>`);
-		console.log(err);
+		showNotification(notificationPresets, `<span class="error">${errorMessage}<br>${err.message || 'Onbekende fout'}</span>`);
+		console.error(err);
 	}
 
-	// Show waiting indicator
+	// Hide waiting indicator
 	hideWaiting();
-}
-
-// CALLBACK entry point: Show playlist songs in scrollbox
-async function showSongs(playlist)
-{
-	// Show waiting indicator
-	showWaiting();
-
-	// Show scrollbox with playlist songs
-	const songs = await getPlaylistSongs(playlist);
-
-	if (songs.length)
-		populateSongsScrollbox(document.getElementById('playlist-songs'), songs);
-
-	// Show waiting indicator
-	hideWaiting();
-}
-
-// Get the songs for the given playlist
-async function getPlaylistSongs(playlist)
-{
-	// Clear notification
-	hideNotification(notificationPlaylist);
-
-	// Set error template
-	const errorMessage = `Ophalen van de liedjes van speellijst '${playlist}' is mislukt`;
-
-	try
-	{
-		// Request songs from server
-		const response = await fetch('/get_songs',
-		{
-			method: 'POST',
-			headers: {'Content-Type': 'application/json'},
-			body: JSON.stringify({"source": "playlist", "pattern": playlist})
-		});
-
-		// Check for errors
-		if (!response.ok)
-		{
-			// Get fetch error message
-			const errorData = await response.json().catch(() => ({}));
-
-			// Inform user what went wrong
-			showNotification(notificationPlaylist, `<span class="error">${errorData.message || errorMessage}</span>`);
-
-			// Failed to fetch playlist songs
-			return [];
-		}
-
-		// Wait for songs to be returned by the server
-		const songs = (await response.json()) || [];
-
-		// Warn if no songs found
-		if (songs.length === 0)
-		{
-			// Inform user playlist is empty
-			showNotification(notificationPlaylist, `<span class="warning">Speellijst '${playlist}' is leeg</span>`);
-
-			// Failed to fetch songs
-			return [];
-		}
-
-		// Check if playlist is web radio
-		if ((/^https?:/.test(songs[0]['file'])))
-		{
-			// Inform user playlist is webradio
-			showNotification(notificationPlaylist, `<span class="warning">Speellijst '${playlist}' is webradio</span>`);
-
-			// Failed to fetch songs
-			return [];
-		}
-
-		// Return playlist songs
-		return songs;
-	}
-
-	// Handle server not responding
-	catch (err)
-	{
-		showNotification(notificationPlaylist, `<span class="error">${errorMessage}<br>Controleer of de webapp actief is</span>`);
-		console.log(err);
-
-		// Failed to fetch songs
-		return [];
-	}
-}
-
-// Convert songs into options
-function populateSongsScrollbox(scrollbox, songs)
-{
-	const fragment = document.createDocumentFragment();
-	songs.forEach(song =>
-	{
-		const row = createRow(`${song.artist} - ${song.title}`);
-		row.dataset.file = song.file;
-		row.dataset.action = "play";
-		fragment.appendChild(row);
-	});
-	scrollbox.replaceChildren(fragment);
-
-	// mark scrollbox as populated
-	scrollbox.dataset.populated = "true";
-
-	// Show the scrollbox for the clicked 
-	showScrollbox(scrollbox, document.getElementById('playlist'))
-
-	// Reset scrollbox to top
-	scrollbox.scrollTop = 0;
-}
-
-// CALLBACK entry point: Submit the song to the server for playback
-async function playSong(songfile, songtitle)
-{
-	// Clear notification
-	hideNotification(notificationPlaylist);
-
-	// Set error template
-	const errorMessage = `Er is een fout opgetreden bij het indienen van het te spelen liedje '${songtitle}'`;
-
-	try
-	{
-		// Submit song to play
-		const response = await fetch('/play_song',
-		{
-			method: 'POST',
-			headers: {'Content-Type': 'application/json'},
-			body: JSON.stringify({ "song": songfile })
-		});
-
-		// Check for errors
-		if (!response.ok)
-		{
-			// Get fetch error message
-			const errorData = await response.json().catch(() => ({}));
-
-			// Inform user what went wrong
-			showNotification(notificationPlaylist, `<span class="error">${errorData.message || errorMessage}</span>`);
-		}
-	}
-
-	// Handle server not responding
-	catch (err)
-	{
-		showNotification(notificationPlaylist, `<span class="error">${errorMessage}<br>Controleer of de webapp actief is</span>`);
-		console.log(err);
-	}
 }

@@ -15,17 +15,41 @@ document.addEventListener('DOMContentLoaded', () =>
 	notificationCustom = document.getElementById("notification_playlists");
 	notificationSearch = document.getElementById("notification_search");
 
+	const input = document.getElementById("custom");
+
+	// Get array with only the names of the playlists which are no webradio
+	const nonWebradioPlaylists = playlists.filter(item => !item.webradio).map(item => item.playlist);
+
 /*
 TODO:
-- auto-complete list when typing custom-input
-- populate custom-list songs box als op item uit custom-input wordt gekozen
 - X iconen toevoegen
 */
-	// Create autocomplete dropdown
-	document.getElementById("custom-input").addEventListener('input', function()
+	function populateAutocompleteList(input)
 	{
-console.log("playlist input used");
-	});
+		// Get input for case insensitive matching
+		const inputValue = input.value.toLowerCase();
+
+		// Show items matching input, empty shows all
+		const matches = inputValue.length
+			? nonWebradioPlaylists.filter(item => item.toLowerCase().includes(inputValue))
+			: nonWebradioPlaylists;
+
+		// Hide aongs when selecting a new playlist
+		hideScrollbox(document.getElementById('custom-songs'));
+
+		// Fill and show autocomplete list if it has entries, hide otherwise
+		if (matches.length)
+		{
+			populateCustomDropdown(matches);
+			showScrollbox(document.getElementById('custom-list'), input);
+		}
+		else
+			hideScrollbox(document.getElementById('custom-list'));
+	}
+
+	// Update list when clicked or while typing
+	input.addEventListener("focus", () => populateAutocompleteList(input));
+	input.addEventListener("input", () => populateAutocompleteList(input));
 
 	// Button
 	document.getElementById("submitSearchButton").addEventListener("click", submitSearch);
@@ -37,6 +61,43 @@ console.log("playlist input used");
 		hideScrollbox(document.getElementById('search-songs'));
 	});
 });
+
+// Populate dropdown with custom playlists
+async function populateCustomDropdown(playlists)
+{
+	// Get dropdown element
+	const dropdown = document.getElementById('custom-list');
+
+	const fragment = document.createDocumentFragment();
+	playlists.forEach(playlist =>
+	{
+		const row = createRow(playlist);
+		row.dataset.action = "playlist";
+		row.dataset.input = "custom";
+		row.dataset.target = "custom-songs";
+		fragment.appendChild(row);
+	});
+	dropdown.replaceChildren(fragment);
+
+	dropdown.dataset.populated = true;
+}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 // Show playlist songs in scrollbox
 async function submitSearch()
@@ -59,8 +120,7 @@ async function submitSearch()
 	// Get songs from server
 	const songs = await getSearchSongs(pattern);
 	if (songs.length)
-// populateSongsScrollbox is nu de versie van buttons.js. playlists versie maken waar ook + iconen in getoond worden, inclusief callbacks
-		populateSongsScrollbox(document.getElementById('search-songs'), songs);
+		populateSongsScrollbox('search', document.getElementById('search-songs'), songs);
 
 	// Show waiting indicator
 	hideWaiting();
@@ -74,28 +134,11 @@ async function getSearchSongs(pattern)
 
 	try
 	{
-		// Request songs matching search pattern from server
-		const response = await fetch('/get_songs',
-		{
-			method: 'POST',
-			headers: {'Content-Type': 'application/json'},
-			body: JSON.stringify({"source": "search", "pattern": pattern})
-		});
-
-		if (!response.ok)
-		{
-			// Get fetch error message
-			const errorData = await response.json().catch(() => ({}));
-
-			// Inform user what went wrong
-			showNotification(notificationSearch, `<span class="error">${errorData.message || errorMessage}</span>`);
-
-			// Failed to fetch playlist songs
-			return [];
-		}
+		const cmd = "search";
+		const args = { "pattern": pattern };
 
 		// Wait for songs to be returned by the server
-		const songs = (await response.json()) || [];
+		const songs = (await postJSON(cmd, args)) || [];
 
 		// Warn if no songs found
 		if (songs.length === 0)
@@ -110,14 +153,9 @@ async function getSearchSongs(pattern)
 		// Return songs matching search pattern
 		return songs;
 	}
-
-	// Handle server not responding
 	catch (err)
 	{
-		showNotification(notificationSearch, `<span class="error">${errorMessage}<br>Controleer of de webapp actief is</span>`);
-		console.log(err);
-
-		// Failed to fetch songs
-		return [];
+		showNotification(notificationSearch, `<span class="error">${errorMessage}<br>${err.message || 'Onbekende fout'}</span>`);
+		console.error(err);
 	}
 }

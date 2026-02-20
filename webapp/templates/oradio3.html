@@ -209,10 +209,14 @@ Design choices:
 				<div class="playlists_grid">
 					<div class="playlists custom-select">
 						<!-- No label -->
-						<input type="text" id="custom-input" name="custom-input" placeholder="Typ naam van speellijst">
+						<input
+							type="text"
+							id="custom"
+							name="custom"
+							placeholder="Typ naam van speellijst"
+						/>
 						<!-- No icon -->
-						<!-- Show custom playlist options -->
-						<div class="scrollbox dropdown" role="listbox" data-populated="false">
+						<div id="custom-list" class="scrollbox dropdown" role="listbox" data-populated="false">
 							<!-- Will be filled by Javascript -->
 						</div>
 					</div>
