@@ -42,13 +42,11 @@ if [ -z "${BASH:-}" ]; then
 	exit 1
 fi
 
-#---------- Ensure connected to internet ----------
+#---------- Ensure access to ElevenLabs ----------
 
-if ! ping -c1 -W2 8.8.8.8 >/dev/null 2>&1; then
-	echo -e "${RED}No internet connection${NC}"
+if ! curl -s --head https://api.elevenlabs.io >/dev/null 2>&1; then
+	echo -e "${RED}No access to ElevenLabs server${NC}"
 	exit 1
-else
-	echo "Connected to Internet"
 fi
 
 #---------- Ensure required packages are installed and up to date ----------
@@ -112,34 +110,32 @@ for package in "${REQUIRED_PACKAGES[@]}"; do
 done
 
 #---------- Prompts ----------
-#  Emontional expressions in TTS model eleven_v3:
-#  [happily], [cheerful], [brightly], [warmly]
 declare -A PROMPTS=(
-	["Preset1_melding.wav"]="[cheerful] één"
-	["Preset2_melding.wav"]="[cheerful] twee"
-	["Preset3_melding.wav"]="[cheerful] drie"
-	["Next_melding.wav"]="[cheerful] Volgende nummer"
-	["Spotify_melding.wav"]="[cheerful] Spotify afspelen."
+	["Preset1_melding.wav"]="één"
+	["Preset2_melding.wav"]="twee."
+	["Preset3_melding.wav"]="drie!"
+	["Next_melding.wav"]="Volgende nummer."
+	["Spotify_melding.wav"]="Spotify afspelen."
 	["WifiConnected_melding.wav"]="Verbonden met wifi."
 	["USBPresent_melding.wav"]="USB-geheugenstick is aanwezig."
-	["NewPlaylistPreset_melding.wav"]="[warmly] Nieuwe afspeellijst wordt afgespeeld."
-	["NewPlaylistWebradio_melding.wav"]="[warmly] De gekozen webradio is ingesteld."
-
-	# “negative” states: keep it gentle/warm, not alarming
-	["NoInternet_melding.wav"]="[gently] Geen internetverbinding."
-	["WifiNotConnected_melding.wav"]="[gently] Geen wifi-verbinding."
-	["NoUSB_melding.wav"]="[gently] USB-geheugenstick verwijderd."
-
-	["OradioAPstarted_melding.wav"]="[warmly] Oradio A P is gestart. Webinterface beschikbaar."
-	["OradioAPstopped_melding.wav"]="[warmly] Oradio A P is gestopt."
+	["NewPreset_melding.wav"]="Nieuwe afspeellijst wordt afgespeeld."
+	["NewWebradio1_melding.wav"]="De gekozen webradio is ingesteld voor knop één."
+	["NewWebradio2_melding.wav"]="De gekozen webradio is ingesteld voor knop twee."
+	["NewWebradio3_melding.wav"]="De gekozen webradio is ingesteld voor knop drie."
+	["NoInternet_melding.wav"]="Geen internetverbinding."
+	["WifiNotConnected_melding.wav"]="Geen WIEFIE verbinding."
+	["NoUSB_melding.wav"]="USB geheugenstick is verwijderd."
+	["OradioAPstarted_melding.wav"]="Oradio A P is gestart. Webinterface beschikbaar."
+	["OradioAPstopped_melding.wav"]="Oradio A P is gestopt."
 )
 
 #---------- Config ----------
 
 # Text-to-speech definitions (ElevenLabs)
-VOICE_ID="7qdUFMklKPaaAVMsBTBt"	# Voice name: Roos
-MODEL_ID="eleven_v3"			# Set TTS model to use
-OUTPUT_FORMAT="pcm_16000"		# returns raw PCM S16LE, mono, at 16 kHz
+# We're using a free plan, therefore voice must be default
+VOICE_ID="pFZP5JQG7iQjIQuC4Bku"		# Lily
+MODEL_ID="eleven_multilingual_v2"	# Set TTS model to use
+OUTPUT_FORMAT="pcm_16000"			# returns raw PCM S16LE, mono, at 16 kHz
 
 # Encrypted Oradio ElevenLabs API key (base64)
 ELEVENLABS_API_KEY_ENC_B64="$(cat <<'EOF'
@@ -184,9 +180,11 @@ else
 fi
 
 if [ -z "${ELEVENLABS_API_KEY:-}" ] || \
-		! HTTP_STATUS=$(curl -s -o /dev/null -w "%{http_code}" -H \
-			"xi-api-key: $ELEVENLABS_API_KEY" https://api.elevenlabs.io/v1/voices) || \
-		[ "$HTTP_STATUS" -ne 200 ]; then
+		! http_status=$(curl -s -o /dev/null -w "%{http_code}" \
+			-H "xi-api-key: $ELEVENLABS_API_KEY" \
+			https://api.elevenlabs.io/v1/voices) || \
+		[ "$http_status" -ne 200 ]; then
+
 	echo -e "${RED}Invalid ElevenLabs API key: wrong password?${NC}"
 	exit 1
 fi
@@ -196,12 +194,6 @@ MIN_SILENCE_BLOCKS=1		# Nr of "silence blocks" to detect at beginning
 MIN_SILENCE_DURATION=0.3	# Minimum duration in seconds to consider silence, need a float for s
 SILENCE_THRESHOLD="0.1%"	# To prevent that low levels are seen as silence, lower = less trimming
 # If a file starts too abruptly (click), reduce trimming by using a **higher** threshold (e.g. `0.3%` or `1%`) and/or shorter duration
-
-# Speech / voice settings:
-# - ELEVENLABS_SPEED is passed directly to ElevenLabs voice_settings.speed.
-#   Typical usable range is roughly 0.7..1.2 (experiment).
-ELEVENLABS_SPEED="${ELEVENLABS_SPEED:-1.0}"
-SPEED="$ELEVENLABS_SPEED"
 
 # Location of generated wav files
 OUTPUT_DIR="$HOME/Oradio3/system_sounds"
@@ -233,57 +225,40 @@ json_escape() {
 
 build_payload() {
 	local text="$1"
-
-	# Validate SPEED: must look like a number. Fallback to 1.0 if not
-	if [[ ! "$SPEED" =~ ^[0-9]+([.][0-9]+)?$ ]]; then
-		SPEED="1.0"
-	fi
+	local seed="$2"
 
 	local esc
 	esc="$(json_escape "$text")"
 
-	# Note: speed is sent as JSON number (not quoted)
-	printf '{"text":"%s","model_id":"%s","voice_settings":{"speed":%s}}' "$esc" "$MODEL_ID" "$SPEED"
+	printf '{"text":"%s","model_id":"%s","language_code": "nl","seed": %d}' "$esc" "$MODEL_ID" "$seed"
 }
 
 synthesize() {
 	local text="$1"
 	local outfile="$2"
+	local seed="$3"
 	local endpoint="https://api.elevenlabs.io/v1/text-to-speech/${VOICE_ID}?output_format=${OUTPUT_FORMAT}"
 
-	echo "Generate: $(basename "$outfile") → \"$text\""
-
 	local payload
-	payload=$(build_payload "$text")
+	payload=$(build_payload "$text" "$seed")
+	echo "Generate $(basename "$outfile") with payload: \"${payload}\""
 
 	# ElevenLabs returns raw PCM (no WAV header) for output_format=pcm_16000
 	# We first download to a temp .pcm, then wrap to a real WAV using sox
 	local tmp_pcm="${outfile}.tmp.pcm"
 	local tmp_wav="${outfile}.tmp.wav"
 
-    # Make POST request, capture both body and HTTP status
-    local response http_status body
-    response=$(curl -s -w "\n%{http_code}" -X POST "$endpoint" \
-        -H "xi-api-key: $ELEVENLABS_API_KEY" \
-        -H "Content-Type: application/json" \
-        -d "$payload" \
-        --output "$tmp_pcm" || true)
+	# Make POST request, capture both body and HTTP status
+	local response http_status body
+	response=$(curl -s -w "\n%{http_code}" -X POST "$endpoint" \
+		-H "xi-api-key: $ELEVENLABS_API_KEY" \
+		-H "Content-Type: application/json" \
+		-d "$payload" \
+		--output "$tmp_pcm" || true)
+	http_status=$(echo "$response" | tail -n1)
+	body=$(echo "$response" | sed '$d')
 
-    http_status=$(echo "$response" | tail -n1)
-    body=$(echo "$response" | sed '$d')
-
-    # Make POST request, capture both body and HTTP status
-    local response http_status body
-    response=$(curl -s -w "\n%{http_code}" -X POST "$endpoint" \
-        -H "xi-api-key: $ELEVENLABS_API_KEY" \
-        -H "Content-Type: application/json" \
-        -d "$payload" \
-        --output "$tmp_pcm" || true)
-
-    local http_status=$(echo "$response" | tail -n1)
-    local body=$(echo "$response" | sed '$d')
-
-    if [ "$http_status" -eq 200 ]; then
+	if [ "$http_status" -eq 200 ]; then
 		# Wrap PCM into WAV: 16 kHz, signed 16-bit little-endian, mono
 		if ! sox -t raw -r 16000 -e signed-integer -b 16 -c 1 "$tmp_pcm" "$tmp_wav" gain -n -1 >/dev/null 2>&1; then
 			echo -e "${RED}Failed to convert PCM to WAV for $(basename "$outfile")${NC}"
@@ -294,7 +269,7 @@ synthesize() {
 		mv "$tmp_wav" "$outfile"
 		rm -f "$tmp_pcm"
 
-    elif [ "$http_status" -eq 401 ]; then
+	elif [ "$http_status" -eq 401 ]; then
 		# Attempt to extract API error message from tmp.pcm
 		if jq -e '.detail.message' "$tmp_pcm" >/dev/null 2>&1; then
 			error_msg=$(jq -r '.detail.message' "$tmp_pcm")
@@ -306,12 +281,15 @@ synthesize() {
 		return 1
 
 	else
-		echo -e "${RED}Unexpeced error from ElevenLabs API:\nHTTP status='$http_status'\nbody= '$body'\nCheck ${tmp_pcm} for details${NC}"
+		echo -e "${RED}Unexpected error from ElevenLabs API:\nHTTP status='$http_status'\nbody= '$body'\nCheck ${tmp_pcm} for details${NC}"
 		return 1
 	fi
 }
 
 trim_silence() {
+
+return 1
+
 	local file="$1"
 	echo "Trim leading and trailing silence from: $file"
 
@@ -369,6 +347,7 @@ sort_array() {
 generated=()
 skipped=()
 trimmed=()
+seed=100
 
 for fname in "${!PROMPTS[@]}"; do
 	path="$OUTPUT_DIR/$fname"
@@ -378,13 +357,14 @@ for fname in "${!PROMPTS[@]}"; do
 		continue
 	fi
 	# Generate
-	if synthesize "${PROMPTS[$fname]}" "$path"; then
+	if synthesize "${PROMPTS[$fname]}" "$path" "$seed"; then
 		generated+=("$path")
 		# Trim
 		if trim_silence "$path"; then
 			trimmed+=("$path")
 		fi
 	fi
+	seed=$((seed + 100))
 done
 
 echo ""
