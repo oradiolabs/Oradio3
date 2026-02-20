@@ -1,0 +1,13 @@
+/*!
+ * @package:      Oradio3
+ * @author url:   https://oradiolabs.nl
+ * @author email: info at oradiolabs dot nl
+ * @copyright:    Stichting Oradio, All rights reserved.
+ * @license:      GNU General Public License version 3; https://www.gnu.org/licenses/gpl-3.0.html
+ */
+
+.presets-grid {
+	display: grid;							/* Enables CSS Grid layout */
+	margin: var(--element-spacing) 0 0 0;	/* Adds spacing above the element to separate it from the element above */
+	grid-template-columns: 0.6fr 1.5fr;		/* Two columns: first column is narrower, second column is wider */
+}
