@@ -25,7 +25,8 @@ Created on December 23, 2024
 """
 from os import path
 from re import match
-from typing import Optional
+from typing import Optional, Dict, Any
+
 from json import load, JSONDecodeError
 from asyncio import sleep, create_task, CancelledError
 from datetime import datetime, timedelta, timezone
@@ -55,10 +56,12 @@ from oradio_const import (
     MESSAGE_REQUEST_CONNECT,
     MESSAGE_REQUEST_STOP,
     MESSAGE_WEB_SERVICE_SOURCE,
-    MESSAGE_WEB_SERVICE_PL_WEBRADIO,
-    MESSAGE_WEB_SERVICE_PL1_CHANGED,
-    MESSAGE_WEB_SERVICE_PL2_CHANGED,
-    MESSAGE_WEB_SERVICE_PL3_CHANGED,
+    MESSAGE_WEB_SERVICE_PL1_PLAYLIST,
+    MESSAGE_WEB_SERVICE_PL2_PLAYLIST,
+    MESSAGE_WEB_SERVICE_PL3_PLAYLIST,
+    MESSAGE_WEB_SERVICE_PL1_WEBRADIO,
+    MESSAGE_WEB_SERVICE_PL2_WEBRADIO,
+    MESSAGE_WEB_SERVICE_PL3_WEBRADIO,
     MESSAGE_WEB_SERVICE_PLAYING_SONG,
     MESSAGE_NO_ERROR,
 )
@@ -210,196 +213,202 @@ async def get_songs(songs: Songs):
     oradio_log.error("Invalid source '%s'", songs.source)
     return JSONResponse(status_code=400, content={"message": f"De source '{songs.source}' is ongeldig"})
 
-class Song(BaseModel):
+#### EXECUTE #############################
+
+class ExecuteRequest(BaseModel):
     """
-    Data model representing a single song to play
-    song (str): Song identifier or path
+    Generic command request:
+    - cmd: command name
+    - args: dictionary of arguments (can have 0 or more entries)
     """
-    song: str = None
+    cmd:  str
+    args: Optional[Dict[str, Any]] = None
 
-# POST endpoint to play song
-@api_app.post("/play_song")
-async def play_song(song: Song):
+# generic POST endpoint
+@api_app.post("/execute")
+async def execute(request: ExecuteRequest):
     """
-    Play the specified song
-    song (Song): The song to play
-    Behavior:
-     - Triggers MPD control to play the song
-     - Sends a notification message indicating a song is playing
-    Returns: None
+    Execute the provided command using relevant arguments
     """
-    oradio_log.debug("play song: '%s'", song.song)
+    oradio_log.debug("Executing '%s' with args '%s'", request.cmd, request.args)
 
-    # Call MPD to play selected song
-    mpd_control.play_song(song.song)
+    # --- Helper functions ---
+    def play_song(args: Optional[Dict[str, Any]]):
+        """Play a song via MPD"""
+        # Extract required argument, none if no args sent
+        songfile = args.get("song") if args else None
+        if not songfile:
+            # Missing required argument
+            raise ValueError("'play' vereist argument 'song'")
 
-    # Create message
-    message = {
-        "source": MESSAGE_WEB_SERVICE_SOURCE,
-        "state" : MESSAGE_WEB_SERVICE_PLAYING_SONG,
-        "error" : MESSAGE_NO_ERROR
-    }
+        # Trigger MPD control to play the song
+        mpd_control.play_song(songfile)
 
-    # Put message in queue
-    oradio_log.debug("Send web service message: %s", message)
-    safe_put(api_app.state.queue, message)
+        # Send notification message
+        message = {
+            "source": MESSAGE_WEB_SERVICE_SOURCE,
+            "state": MESSAGE_WEB_SERVICE_PLAYING_SONG,
+            "error": MESSAGE_NO_ERROR
+        }
+        oradio_log.debug("Send web service message: %s", message)
+        safe_put(api_app.state.queue, message)
 
-#### NETWORK #############################
+        # Success
+        return {"message": f"'{songfile}' is nu te horen"}
 
-# POST endpoint to get wifi networks
-@api_app.post("/get_networks")
-async def get_networks():
-    """
-    Handle POST request to retrieve the SSIDs of active wifi networks
-    Returns: A list of available wifi network SSIDs
-    """
-    oradio_log.debug("Serving active wifi networks")
+    def get_networks(args: Optional[Dict[str, Any]]):
+        """Return available WiFi networks"""
+        return get_wifi_networks()
 
-    # Return available wifi networks
-    return get_wifi_networks()
+    def shutdown_webapp(args: Optional[Dict[str, Any]]):
+        """Shutdown the web server"""
+        # Send a stop message to the service queue
+        message = {"request": MESSAGE_REQUEST_STOP}
+        safe_put(api_app.state.queue, message)
 
-class Credentials(BaseModel):
-    """
-    Data model representing wifi network credentials
-    ssid (str): The SSID (network name) of the Wifi
-    pswd (str): The password for the wifi network
-    """
-    ssid: str = None
-    pswd: str = None
+    def rename_spotify(args: Optional[Dict[str, Any]]):
+        """Modify Spotify device name"""
+        # Extract required argument, none if no args sent
+        name = args.get("name") if args else None
+        if not name:
+            # Missing required argument
+            raise ValueError("'spotify' vereist argument 'name'")
 
-# POST endpoint to connect to wifi network
-@api_app.post("/wifi_connect")
-async def wifi_connect(credentials: Credentials):
-    """
-    Handle POST request to save wifi credentials and initiate connection
-    The credentials are sent to the parent web service
-    credentials (Credentials): The wifi ssid and password
-    """
-    oradio_log.debug("Saving credentials for connection to '%s' to '%s'", credentials.ssid, WIFI_FILE)
+        # Use regex pattern to validate Spotify device name characters
+        pattern = r'^[A-Za-z0-9_-]+$'
+        if not bool(match(pattern, name)):
+            response = f"'{name}' is ongeldig. Alleen hoofdletters, kleine letters, cijfers, - of _ is toegestaan"
+            oradio_log.error(response)
+            # Return fail, so caller can try to recover
+            return JSONResponse(status_code=400, content={"message": response})
 
-    # Send connect message to web service
-    message = {
-        "request": MESSAGE_REQUEST_CONNECT,
-        "ssid"  : credentials.ssid,
-        "pswd"  : credentials.pswd
-    }
-    safe_put(api_app.state.queue, message)
+        # Update the librespot.service file with the new device name
+        cmd = f"sudo sed -i 's/--name \\S*/--name {name}/' /etc/systemd/system/librespot.service"
+        result, response = run_shell_script(cmd)
+        if not result:
+            oradio_log.error("Error during <%s> to set Spotify name, error: %s", cmd, response)
+            # Return fail, so caller can try to recover
+            return JSONResponse(status_code=400, content={"message": response})
 
-class Spotify(BaseModel):
-    """
-    Data model representing the Spotify device name
-    name (str): The Spotify device name (allowed characters: letters, numbers, '-' and '_')
-    """
-    name: str = None
+        # Reload systemd daemon to apply changes in the service file
+        cmd = "sudo systemctl daemon-reload"
+        result, response = run_shell_script(cmd)
+        if not result:
+            oradio_log.error("Error during <%s> to set Spotify name, error: %s", cmd, response)
+            # Return fail, so caller can try to recover
+            return JSONResponse(status_code=400, content={"message": response})
 
-# POST endpoint to set Spotify device name
-@api_app.post("/spotify")
-async def spotify_name(spotify: Spotify):
-    """
-    Handle POST request to update the Spotify device name
-    Validates the device name to ensure it only contains allowed characters,
-    updates the librespot systemd service configuration,
-    reloads systemd, and restarts the librespot service
-    spotify (Spotify): The new Spotify device name
-    Returns: The validated Spotify device name on success, or
-             HTTP 400 with error message if validation or any system command fails
-    """
-    oradio_log.debug("Set Spotify name to '%s'", spotify.name)
+        # Restart the librespot service to activate the new device name
+        cmd = "sudo systemctl restart librespot.service"
+        result, response = run_shell_script(cmd)
+        if not result:
+            oradio_log.error("Error during <%s> to set Spotify name, error: %s", cmd, response)
+            # Return fail, so caller can try to recover
+            return JSONResponse(status_code=400, content={"message": response})
 
-    # Regex pattern to validate Spotify device name characters
-    pattern = r'^[A-Za-z0-9_-]+$'
-    if not bool(match(pattern, spotify.name)):
-        response = f"'{spotify.name}' is ongeldig. Alleen hoofdletters, kleine letters, cijfers, - of _ is toegestaan"
-        oradio_log.error(response)
-        # Return fail, so caller can try to recover
-        return JSONResponse(status_code=400, content={"message": response})
+        # Return the new device name on success
+        return name
 
-    # Update the librespot.service file with the new device name
-    cmd = f"sudo sed -i 's/--name \\S*/--name {spotify.name}/' /etc/systemd/system/librespot.service"
-    result, response = run_shell_script(cmd)
-    if not result:
-        oradio_log.error("Error during <%s> to set Spotify name, error: %s", cmd, response)
-        # Return fail, so caller can try to recover
-        return JSONResponse(status_code=400, content={"message": response})
+    def wifi_connect(args: Optional[Dict[str, Any]]):
+        """Connect to wifi network"""
+        # Extract required arguments, none if no args sent
+        ssid = args.get("ssid") if args else None
+        if not ssid:
+            # Missing required argument
+            raise ValueError("'connect' vereist argument 'ssid'")
+        pswd = args.get("pswd") if args else None
 
-    # Reload systemd daemon to apply changes in the service file
-    cmd = "sudo systemctl daemon-reload"
-    result, response = run_shell_script(cmd)
-    if not result:
-        oradio_log.error("Error during <%s> to set Spotify name, error: %s", cmd, response)
-        # Return fail, so caller can try to recover
-        return JSONResponse(status_code=400, content={"message": response})
+        # Send connect message to web service
+        message = {
+            "request": MESSAGE_REQUEST_CONNECT,
+            "ssid"  : ssid,
+            "pswd"  : pswd
+        }
+        safe_put(api_app.state.queue, message)
 
-    # Restart the librespot service to activate the new device name
-    cmd = "sudo systemctl restart librespot.service"
-    result, response = run_shell_script(cmd)
-    if not result:
-        oradio_log.error("Error during <%s> to set Spotify name, error: %s", cmd, response)
-        # Return fail, so caller can try to recover
-        return JSONResponse(status_code=400, content={"message": response})
+    def save_preset(args: Optional[Dict[str, Any]]):
+        """Save preset playlist"""
+        # Extract required arguments, none if no args sent
+        preset = args.get("preset") if args else None
+        if not preset:
+            # Missing required argument
+            raise ValueError("'preset' vereist argument 'preset'")
+        playlist = args.get("playlist") if args else None
+        if not playlist:
+            # Missing required argument
+            raise ValueError("'preset' vereist argument 'playlist'")
 
-    # Return the new device name on success
-    return spotify.name
+        message = {"source": MESSAGE_WEB_SERVICE_SOURCE, "error": MESSAGE_NO_ERROR}
 
-#### BUTTONS #############################
+        # Mapping of presets to constants per type
+        preset_map = {
+            "preset1": {
+                "playlist": MESSAGE_WEB_SERVICE_PL1_PLAYLIST,
+                "webradio": MESSAGE_WEB_SERVICE_PL1_WEBRADIO,
+            },
+            "preset2": {
+                "playlist": MESSAGE_WEB_SERVICE_PL2_PLAYLIST,
+                "webradio": MESSAGE_WEB_SERVICE_PL2_WEBRADIO,
+            },
+            "preset3": {
+                "playlist": MESSAGE_WEB_SERVICE_PL3_PLAYLIST,
+                "webradio": MESSAGE_WEB_SERVICE_PL3_WEBRADIO,
+            }
+        }
 
-class ChangedPreset(BaseModel):
-    """
-    Data model for assigning a playlist to a preset
-    preset (str): Preset identifier (e.g., 'preset1')
-    playlist (str): Playlist name to assign
-    """
-    preset:   str = None
-    playlist: str = None
+        # Determine type
+        preset_type = "webradio" if mpd_control.is_webradio(mpdlist=playlist) else "playlist"
 
-# POST endpoint to save changed preset
-@api_app.post("/save_preset")
-async def save_preset(changedpreset: ChangedPreset):
-    """
-    Handle saving changes when a playlist is assigned to a preset
-    changedpreset (ChangedPreset): Contains the preset identifier and the playlist to assign
-     - Loads current presets
-     - Updates the specified preset with the new playlist
-     - Stores the updated presets
-     - Sends a notification message to the web service queue about the change
-     - Handles web radio presets differently by sending a specific state message
-     - Logs errors if the preset identifier is invalid
-    """
-    oradio_log.debug("Save changed preset '%s' to playlist '%s'", changedpreset.preset, changedpreset.playlist)
+        # Set message state
+        if preset in preset_map:
+            # load presets
+            presets = load_presets()
 
-    message = {"source": MESSAGE_WEB_SERVICE_SOURCE, "error": MESSAGE_NO_ERROR}
+            # Modify preset
+            presets[preset] = playlist
+            oradio_log.debug("Preset '%s' playlist changed to '%s'", preset, playlist)
 
-    # Message state options
-    preset_map = {
-        "preset1": MESSAGE_WEB_SERVICE_PL1_CHANGED,
-        "preset2": MESSAGE_WEB_SERVICE_PL2_CHANGED,
-        "preset3": MESSAGE_WEB_SERVICE_PL3_CHANGED
-    }
+            # Store presets
+            store_presets(presets)
 
-    if changedpreset.preset in preset_map:
-        # load presets
-        presets = load_presets()
-
-        # Modify preset
-        presets[changedpreset.preset] = changedpreset.playlist
-        oradio_log.debug("Preset '%s' playlist changed to '%s'", changedpreset.preset, changedpreset.playlist)
-
-        # Store presets
-        store_presets(presets)
-
-#REVIEW Onno: Send only which preset has changed, let oradio_control check if changed preset is a webradio or not
-        if mpd_control.is_webradio(mpdlist=changedpreset.playlist):
-            # Send message playlist is web radio
-            message["state"] = MESSAGE_WEB_SERVICE_PL_WEBRADIO
+            # Send message which preset has changed and its type
+            message["state"] = preset_map[preset][preset_type]
             oradio_log.debug("Send web service message: %s", message)
             safe_put(api_app.state.queue, message)
         else:
-            # Send message which playlist has changed
-            message["state"] = preset_map[changedpreset.preset]
-            oradio_log.debug("Send web service message: %s", message)
-            safe_put(api_app.state.queue, message)
-    else:
-        oradio_log.error("Invalid preset '%s'", changedpreset.preset)
+            oradio_log.error("Invalid preset '%s'", preset)
+
+
+
+    # --- Command dispatch dictionary ---
+    commands = {
+        "play": play_song,
+        "networks": get_networks,
+        "shutdown": shutdown_webapp,
+        "spotify": rename_spotify,
+        "connect": wifi_connect,
+        "preset": save_preset,
+        # Add other commands were
+    }
+
+    # --- Check command validity ---
+    if request.cmd not in commands:
+        oradio_log.error("Invalid command '%s'", request.cmd)
+        return JSONResponse(status_code=400, content={"message": f"Opdracht '{request.cmd}' is onbekend"})
+
+    # --- Execute command ---
+    try:
+        result = commands[request.cmd](request.args)
+        return result
+    except ValueError as ve:
+        # Argument ontbreekt of fout
+        return JSONResponse(status_code=400, content={"message": str(ve)})
+    except Exception as e:
+        # Andere fouten (MPD, server etc.)
+        oradio_log.error("Fout bij uitvoeren van '%s': %s", request.cmd, str(e))
+        return JSONResponse(status_code=500, content={"message": str(e)})
+
+#### BUTTONS #############################
 
 #### STATUS ##############################
 
@@ -484,7 +493,7 @@ async def oradio3_page(request: Request):
 
     return templates.TemplateResponse(request=request, name="oradio3.html", context=context)
 
-#### CLOSE ###############################
+#### KEEP ALIVE ######################
 
 async def stop_task():
     """The wait task sending the stop message when timer expires."""
@@ -526,16 +535,6 @@ async def keep_alive():
     # Only create the timer task if it doesn't exist or is done
     if api_app.state.timer_task is None or api_app.state.timer_task.done():
         api_app.state.timer_task = create_task(stop_task())
-
-# POST endpoint to close the server
-@api_app.post("/close")
-async def close():
-    """Handle POST request to close the web server."""
-    oradio_log.debug("Closing the web server")
-
-    # Send a stop message to the service queue
-    message = {"request": MESSAGE_REQUEST_STOP}
-    safe_put(api_app.state.queue, message)
 
 #### CATCH ALL ###########################
 
