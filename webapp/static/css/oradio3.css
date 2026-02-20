@@ -120,17 +120,17 @@ h1 {
 	background-color: var(--background-color);
 }
 
-/* ===== Closing ===== */
-.stop-btn {
+/* ===== Shutdown Webapp ===== */
+.shutdown-button {
 	cursor: pointer;			/* Show element has action */
 }
 
-.stop-btn:hover {
+.shutdown-button:hover {
 	filter: brightness(1.3);	/* Hover effect for stop button */
 	transform: scale(1.1);
 }
 
-.closing {
+.shuttingdown {
 	text-align: center;
 	margin-top: 25vh;			/* 25% of screen height */
 }
