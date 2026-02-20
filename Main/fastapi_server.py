@@ -559,7 +559,7 @@ async def close():
 
 #### CATCH ALL ###########################
 
-@api_app.route("/{full_path:path}", methods=["GET", "POST"])
+@api_app.api_route("/{full_path:path}", methods=["GET", "POST"])
 async def catch_all(request: Request):
     """
     Catch-all endpoint to handle undefined routes.
