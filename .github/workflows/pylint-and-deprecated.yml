@@ -17,7 +17,6 @@ jobs:
       run: |
         sudo apt-get update
         sudo apt-get install -y \
-          pydevd \
           python3-gi \
           python3-dev \
           python3-dbus \
@@ -35,6 +34,8 @@ jobs:
         # Set up Python virtual environment
         python3 -m venv --system-site-packages ~/.venv
         source ~/.venv/bin/activate
+        # Location of Oradio python scripts
+        export PYTHONPATH="$GITHUB_WORKSPACE/Main:$GITHUB_WORKSPACE/module_test"
 
         python -m pip install --upgrade pip
         pip install -r .github/workflows/oradio_modules.txt
@@ -42,48 +43,54 @@ jobs:
         RESULT_FILE=lint_deprecated_result.txt
         : > "$RESULT_FILE"
 
-        # Run pylint - outputs issues or success
-        echo "### 🧹 Pylint analysis results" >> "$RESULT_FILE"
-        PYTHONPATH="$GITHUB_WORKSPACE/module_test" pylint Main/*.py --rcfile=.github/workflows/.pylintrc --output-format=text >> "$RESULT_FILE"
-        count_pylint=$(tr -d '\r' < "$RESULT_FILE" | grep -Ec '^[^:]+:[0-9]+:[0-9]+: [A-Z][0-9]{4}:')
+        # Run pylint on Oradio main scripts - outputs issues or success
+        echo "### 🧹 Pylint Oradio analysis results" >> "$RESULT_FILE"
+        pylint Main/*.py \
+            --rcfile=.github/workflows/.pylintrc \
+            --output-format=text >> "$RESULT_FILE"
+        # Run pylint on module test scripts - outputs issues or success
+        echo "### 🧹 Pylint module test analysis results" >> "$RESULT_FILE"
+        pylint module_test/*.py \
+            --rcfile=.github/workflows/.pylintrc \
+            --output-format=text >> "$RESULT_FILE"
+        pylint_count=$(tr -d '\r' < "$RESULT_FILE" | grep -Ec '^[^:]+:[0-9]+:[0-9]+: [A-Z][0-9]{4}:')
         # Static deprecation check
         echo "### 🧹 Ruff static deprecation analysis results" >> "$RESULT_FILE"
         ruff check Main --select F,D,ERA --extend-ignore D203,D213 | grep -i 'deprecated' >> "$RESULT_FILE"
         count_ruff=$(grep -i 'deprecated' "$RESULT_FILE" | wc -l | tr -d ' ')
-        # Also capture success
+        # Also register success
         if [ "$count_ruff" -eq 0 ]; then
             echo "Static deprecation check did not discover any warnings." >> "$RESULT_FILE"
             echo >> "$RESULT_FILE"
         fi
         # Runtime deprecation check
         echo "### 🧹 Runtime deprecation analysis results " >> "$RESULT_FILE"
-        #python3 .github/workflows/deprecation_check.py >> "$RESULT_FILE"
-        #count_runtime=$(grep 'DEPRECATION:' "$RESULT_FILE" | wc -l | tr -d ' ')
-        echo "Runtime deprecation analysis disabled until after GPIO rework is added " >> "$RESULT_FILE"
-        count_runtime=0
-        # Also capture success
+        python3 module_test/deprecation_check.py >> "$RESULT_FILE"
+        count_runtime=$(grep -E '^DEPRECATION \(.*\):' "$RESULT_FILE" | wc -l | tr -d ' ')
+        # Also register success
         if [ "$count_runtime" -eq 0 ]; then
-            echo "Runtime deprecation check did not discover any warnings." >> "$RESULT_FILE"
+            echo "Runtime check did not discover any deprecation warnings." >> "$RESULT_FILE"
         fi
 
         # Determine emoji + color
-        pylint_emoji=$([ "$count_pylint" -eq 0 ] && echo "✅" || echo "❌")
-        pylint_color=$([ "$count_pylint" -eq 0 ] && echo "green" || echo "red")
+        pylint_emoji=$([ "$pylint_count" -eq 0 ] && echo "✅" || echo "❌")
+        pylint_color=$([ "$pylint_count" -eq 0 ] && echo "green" || echo "red")
         ruff_emoji=$([ "$count_ruff" -eq 0 ] && echo "✅" || echo "⚠️")
         ruff_color=$([ "$count_ruff" -eq 0 ] && echo "green" || echo "orange")
         runtime_emoji=$([ "$count_runtime" -eq 0 ] && echo "✅" || echo "⚠️")
         runtime_color=$([ "$count_runtime" -eq 0 ] && echo "green" || echo "orange")
 
         # Write summary to GitHub
-        echo "### 🧹 Python Lint & Deprecated Summary" >> $GITHUB_STEP_SUMMARY
-        echo "<span style='color:$pylint_color'>Pylint: $count_pylint $pylint_emoji</span> | <span style='color:$ruff_color'>Ruff: $count_ruff $ruff_emoji</span> | <span style='color:$runtime_color'>Runtime: $count_runtime $runtime_emoji</span>" >> $GITHUB_STEP_SUMMARY
+        echo "### 🧹 Python Lint & Deprecation Summary" >> $GITHUB_STEP_SUMMARY
+        echo "<span style='color:$pylint_color'>Pylint issues: $pylint_count $pylint_emoji</span> | \
+              <span style='color:$ruff_color'>Static deprecation warnings: $count_ruff $ruff_emoji</span> | \
+              <span style='color:$runtime_color'>Runtime deprecation warnings: $count_runtime $runtime_emoji</span>" >> $GITHUB_STEP_SUMMARY
 
         # Exit 0 if all counts are 0, otherwise exit 1
-        if [ "$count_pylint" -eq 0 ] && [ "$count_ruff" -eq 0 ] && [ "$count_runtime" -eq 0 ]; then
-            echo "All checks passed. Exiting with code 0."
+        if [ "$pylint_count" -eq 0 ] && [ "$count_ruff" -eq 0 ] && [ "$count_runtime" -eq 0 ]; then
             exit 0
         else
-            echo "One or more checks failed. Exiting with code 1."
+            echo "#### 🚨 **Please address the issues to maintain code quality and prevent technical debt.**" >> $GITHUB_STEP_SUMMARY
             exit 1
         fi
 

@@ -24,13 +24,15 @@ Created on January 15, 2026
     - Ensures deprecation warnings are always shown, even if Python would normally suppress them.
     In short: it’s a centralized, reliable way to track and enforce deprecation warnings in your Python project.
 """
-import warnings
+import os
 import logging
+import inspect
+import warnings
 
 # Logging setup, disabling output
 logging.basicConfig(
     level=logging.WARNING,
-     format="%(asctime)s [%(levelname)s] %(message)s",
+    format="%(asctime)s [%(levelname)s] %(message)s",
     handlers=[logging.NullHandler()]
 )
 logger = logging.getLogger("deprecation")
@@ -41,26 +43,38 @@ _deprecation_queue = []
 # Store original warnings.showwarning function
 _original_showwarning = warnings.showwarning
 
-def handle_deprecation(message, category, filename, lineno, file=None, line=None):
+def handle_deprecation(message, _category, filename, lineno, *_):
     """
-    Custom global warning handler for logging deprecations.
+    Capture deprecation warnings and build a hierarchical file stack/tree.
 
-    Queue all deprecation warnings safely.
-    SWIG/C extensions are safe because we don't log immediately.
-    
+    This handler avoids logging immediately (safe for SWIG/C extensions)
+    and queues all warnings with their full call stack.
+
     Args:
-        message (Warning): The warning message object.
-        category (Type[Warning]): The warning category class.
-        filename (str): Name of the file where the warning occurred.
-        lineno (int): Line number in the file where the warning occurred.
-        file (Optional[object], optional): File object to write the warning to. Defaults to None.
-        line (Optional[str], optional): Source code line where the warning was triggered. Defaults to None.
+        message (Warning): Warning message object
+        _category (type[Warning]): Unused, but required by the warnings.showwarning signature
+        filename (str): Filename where warning was raised
+        lineno (int): Line number of the warning
+        *_: Unused extra arguments required by the warnings.showwarning signature
     """
     msg = str(message)
+
     # Skip known SWIG/C extension warnings
     if "SwigPy" in msg or "_lgpio" in filename:
         return
-    _deprecation_queue.append((message, category, filename, lineno))
+
+    # Initialize the module name
+    module = 'Undefined'
+
+    # Get the Oradio module containing the deprecation
+    for frame_info in inspect.stack():
+        abs_path = os.path.abspath(frame_info.filename)
+        # Only include files relevant to Oradio3 functionality
+        if os.path.isfile(abs_path) and '/Main/' in abs_path:
+            module = os.path.basename(abs_path)
+
+    # Append the warning to the queue
+    _deprecation_queue.append((module, message, filename, lineno))
 
 # Replace the default warning handler with the custom handler
 warnings.showwarning = handle_deprecation
@@ -69,7 +83,7 @@ warnings.showwarning = handle_deprecation
 warnings.simplefilter("always", DeprecationWarning)
 warnings.simplefilter("always", PendingDeprecationWarning)
 
-# Function to flush queued warnings
 def flush_warnings():
-    for message, category, filename, lineno in _deprecation_queue:
-        print(f"DEPRECATION: {message} ({filename}:{lineno})")
+    """Print queued warnings."""
+    for module, message, filename, lineno in _deprecation_queue:
+        print(f"DEPRECATION ({module}): {message} ({filename}:{lineno})")
