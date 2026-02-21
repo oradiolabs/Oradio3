@@ -100,6 +100,6 @@ jobs:
       if: always()
       uses: actions/upload-artifact@v4
       with:
-        name: lint_deprecated_results
+        name: lint_deprecated_results.zip
         path: lint_deprecated_result.txt
         if-no-files-found: ignore
