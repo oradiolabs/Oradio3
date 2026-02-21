@@ -167,10 +167,15 @@ async function addCustomPlaylist(input)
 	const errorMessage = `Opslaan van speellijst '${playlist}' mislukt`;
 
 	// Add playlist on server
-	await modifyPlaylist('Add', playlist, null, errorMessage);
+	if (await modifyPlaylist('Add', playlist, null, errorMessage))
+		// playlist is gone, so also clear the songs
+		customSongs.innerHTML = '';
 
 	// Inform user
 	showNotification(notificationCustom, `<span class='success'>Speellijst '${playlist}' is toegevoegd<br>Zoek liedjes en voeg toe met de <span class="icon-button save-button-tiny"></span>-knop</span>`);
+
+	// Show/hide save buttons
+	updateAddButtons();
 }
 
 // Remove custom playlist if it exists
@@ -197,13 +202,66 @@ async function delCustomPlaylist(input)
 	const errorMessage = `Verwijderen van speellijst '${playlist}' mislukt`;
 
 	// Remove (song from) playlist from server
-	await modifyPlaylist('Remove', playlist, null, errorMessage);
+	if (await modifyPlaylist('Remove', playlist, null, errorMessage))
+		// playlist is gone, so also clear the songs
+		customSongs.innerHTML = '';
 
 	// Clear custom playlist input
 	input.value = "";
 
 	// Inform user
 	showNotification(notificationCustom, `<span class='success'>Speellijst '${playlist}' is verwijderd</span>`);
+
+	// Show/hide save buttons
+	updateAddButtons();
+}
+
+// CALLBACK entry point: Add song to playlist
+async function addSongFromPlaylist(row)
+{
+	// Get songfile to add
+	const songfile = row.dataset.songfile;
+
+	// Get playlist to add song to
+	const playlist = document.getElementById("custom").value.trim();
+
+	// Set error template
+	const errorMessage = `Toevoegen van '${songfile}' aan speellijst '${playlist}' mislukt`;
+
+	// Add (song to) playlist from server
+	if (await modifyPlaylist('Add', playlist, songfile, errorMessage))
+	{
+		// Also add song to scrollbox - faster than reloading
+		const copy = row.cloneNode(true);	// true = deep clone (includes children)
+		const icon = copy.querySelector('.save-button-small');
+		icon.classList.remove('save-button-small');
+		icon.classList.add('delete-button-small');
+		customSongs.appendChild(copy);
+	}
+
+	// Cleanup
+	showScrollbox(customSongs, document.getElementById("custom"));
+}
+
+// CALLBACK entry point: Add song to playlist
+async function delSongFromPlaylist(row)
+{
+	// Get songfile to remove
+	const songfile = row.dataset.songfile;
+
+	// Get playlist to remove song from
+	const playlist = document.getElementById("custom").value.trim();
+
+	// Set error template
+	const errorMessage = `Toevoegen van '${songfile}' aan speellijst '${playlist}' mislukt`;
+
+	// Remove (song to) playlist from server
+    if (await modifyPlaylist('Remove', playlist, songfile, errorMessage))
+		// Also remove song from scrollbox - faster than reloading
+		row.remove();
+
+	// Cleanup
+	showScrollbox(customSongs, document.getElementById("custom"));
 }
 
 // Send playlist and song to server
@@ -216,6 +274,8 @@ async function modifyPlaylist(action, playlist, songfile, errorMessage)
 		const args = { "action": action, "playlist": playlist, "song": songfile };
 		playlists = (await postJSON(cmd, args)) || [];
 		customPlaylists = playlists.filter(item => !item.webradio).map(item => item.playlist);
+		hideWaiting();
+		return true;
 	}
 	catch (err)
 	{
@@ -223,6 +283,7 @@ async function modifyPlaylist(action, playlist, songfile, errorMessage)
 		console.error(err);
 	}
 	hideWaiting();
+	return false;
 }
 
 // Show playlist songs in scrollbox

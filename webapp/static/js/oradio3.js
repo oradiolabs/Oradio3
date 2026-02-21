@@ -227,27 +227,53 @@ function hideScrollbox(scrollbox)
 
 document.addEventListener("click", (event) =>
 {
-	// IMPORTANT: closest identifies the element near the click
-	const row = event.target.closest(".scrollbox-row");
-	const customSelect = event.target.closest(".custom-select");
+    const target = event.target;
 
-	// Row click first
-	if (row)
+	// First: Icon click (only if the clicked element or its ancestor is an icon)
+	const icon = target.closest(".icon-button");
+	if (icon)
 	{
-		handleRowClick(row);
+		const row = icon.closest(".scrollbox-row");
+		handleIconClick(row);
+		event.stopPropagation(); // prevent row click handler
 		return;
 	}
 
-	// Click on input/icon
+	// Second: Row click (only if clicked inside a row but NOT on an icon)
+	const row = target.closest(".scrollbox-row");
+	if (row)
+	{
+		handleRowClick(row);
+		event.stopPropagation(); // prevent custom select click handler
+		return;
+	}
+
+	// Third: Click inside custom-select
+	const customSelect = target.closest(".custom-select");
 	if (customSelect)
 	{
-		handleSelectClick(event.target, customSelect);
+		handleSelectClick(target, customSelect);
 		return;
 	}
 
 	// Clicked outside any custom-select → close all
 	closeDropdowns();
 });
+
+// Select row and trigger CALLBACK handler
+function handleIconClick(row)
+{
+	// Only modify icons in a row
+	if (row)
+	{
+		// Highlight selected row
+		row.parentElement.querySelectorAll(".scrollbox-row").forEach(r => r.classList.remove("selected"));
+		row.classList.add("selected");
+
+		// Change action whn icon is clicked
+		onScrollboxSelect('modify', row);
+	}
+}
 
 // Select row and trigger CALLBACK handler
 function handleRowClick(row)
@@ -279,7 +305,7 @@ function handleRowClick(row)
 	row.classList.add("selected");
 
 	// CALLBACK: pass row for follow-up actions
-	onScrollboxSelect(row);
+	onScrollboxSelect(row.dataset.action, row);
 }
 
 // Open dropdown scrollbox on input or icon click
@@ -327,10 +353,9 @@ function closeDropdowns()
 
 /* ========== CALLBACK ========== */
 
-// CALLBACK: action determined by selected row
-function onScrollboxSelect(row)
+// CALLBACK: action for selected row
+function onScrollboxSelect(action, row)
 {
-	const action = row.dataset.action;
 	switch (action)
 	{
 		case "network":
@@ -364,19 +389,19 @@ function onScrollboxSelect(row)
 				row.querySelector(".scrollbox-row-text").textContent.trim()
 			);
 			break;
-/*
-TODO:
- modify
- 
+
 		case "modify":
-			// Get selected preset button
-			// Get selected playlist
-			// Show scrollbox with playlist songs
-			showSongs(input.value)
+			// Save/remove song from playlist
+			if (row.querySelector(".delete-button-small"))
+				delSongFromPlaylist(row);
+			else if (row.querySelector(".save-button-small"))
+				addSongFromPlaylist(row);
+			else
+				console.error("Undefined modify request for row:", row);
 			break;
-*/
+
 		default:
-			console.log("ERROR: Unexpected action for row:", row);
+			console.error("Unexpected action for row:", row);
 	}
 }
 

@@ -252,20 +252,20 @@ label {
 }
 
 input {
-	width: 100%;							/* Makes the element span the full width of its parent container */
-	height: 40px;							/* Sets a fixed height for the element */
-	padding: 10px;							/* Adds inner spacing on all sides (inside the border) */
-	margin: var(--element-spacing) 0 0 0;	/* Adds spacing above the element to separate it from the element above */
-	border-radius: 5px;						/* Rounds the corners of the element */
+	width: 100%;									/* Makes the element span the full width of its parent container */
+	height: 40px;									/* Sets a fixed height for the element */
+	padding: 10px;									/* Adds inner spacing on all sides (inside the border) */
+	margin: var(--element-spacing) 0 0 0;			/* Adds spacing above the element to separate it from the element above */
+	border-radius: 5px;								/* Rounds the corners of the element */
 	border: 1px solid var(--input-border-color);	/* Adds border using a CSS variable for the color */
-	font-size: 16px;						/* Sets the text size to avoid mobile zoom */
+	font-size: 16px;								/* Sets the text size to avoid mobile zoom */
 	background-color: var(--input-background-color);
 	color: var(--input-text-color); font-weight: normal;
 }
 
 input:focus {
-	outline: none;									/* Remove default color */
-	border-color: var(--input-focus-color);				/* Border color when input is selected */
+	outline: none;											/* Remove default color */
+	border-color: var(--input-focus-color);					/* Border color when input is selected */
 	box-shadow: 0 0 0 3px var(--input-focus-glow-color);	/* Add glow for visibility */
 }
 
@@ -291,7 +291,7 @@ input:focus {
 	border: 1px solid var(--scrollbox-border-color);
 	background-color: var(--scrollbox-background-color);
 	color: var(--input-text-color); font-weight: normal;
-	max-height: var(--scrollbox-height);		/* Limits height and enables scrolling */
+	max-height: var(--scrollbox-height);	/* Limits height and enables scrolling */
 	overflow-y: auto;						/* Vertical scrollbar when content overflows */
 	z-index: 10;							/* Keeps scrollbox above overlapping elements */
 }
@@ -312,7 +312,7 @@ input:focus {
 }
 
 .scrollbox-row:hover {
-	border-radius: 5px;							/* Round the corners */
+	border-radius: 5px;									/* Round the corners */
 	border: 2px solid var(--scrollbox-select-color);	/* Adds highlight border on hover */
 }
 
