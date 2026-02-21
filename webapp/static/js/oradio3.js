@@ -190,14 +190,18 @@ function createRow(option)
 // Show scrollbox, selecting row matching input value
 function showScrollbox(scrollbox, input)
 {
-	// Show scrollbox
-	scrollbox.style.display = 'block';
-
 	// Get text from given input
 	const inputText = input.value.trim();
 
 	// Get rows inside the given scrollbox
 	const rows = scrollbox.querySelectorAll('.scrollbox-row');
+
+	// Hide empty scrollbox
+	if (rows.length === 0)
+	{
+		hideScrollbox(scrollbox);
+		return;
+	}
 
 	// Highlight row matching input
 	rows.forEach(row =>
@@ -208,6 +212,9 @@ function showScrollbox(scrollbox, input)
 		else
 			row.classList.remove('selected');
 	});
+
+	// Show scrollbox
+	scrollbox.style.display = 'block';
 }
 
 // Hide scrollbox (added for maintainability)

@@ -7,51 +7,54 @@
  */
 
 let notificationCustom, notificationSearch;
+let customPlaylists;
 
 // DOMContentLoaded setup for playlists page
 document.addEventListener('DOMContentLoaded', () =>
 {
 	// Get notification elements
-	notificationCustom = document.getElementById("notification_playlists");
+	notificationCustom = document.getElementById("notification_custom");
 	notificationSearch = document.getElementById("notification_search");
 
-	const input = document.getElementById("custom");
-
 	// Get array with only the names of the playlists which are no webradio
-	const nonWebradioPlaylists = playlists.filter(item => !item.webradio).map(item => item.playlist);
+	customPlaylists = playlists.filter(item => !item.webradio).map(item => item.playlist);
+
+	// Get input with custom playlist name
+	const input = document.getElementById("custom");
 
 /*
 TODO:
-- X iconen toevoegen
+- add/del playlists toevoegen
+- +/X iconen met acties toevoegen
 */
 	function populateAutocompleteList(input)
 	{
-		// Get input for case insensitive matching
-		const inputValue = input.value.toLowerCase();
-
-		// Show items matching input, empty shows all
-		const matches = inputValue.length
-			? nonWebradioPlaylists.filter(item => item.toLowerCase().includes(inputValue))
-			: nonWebradioPlaylists;
-
-		// Hide aongs when selecting a new playlist
+		// Hide notification and songs when selecting a new playlist
+		hideNotification(notificationCustom);
 		hideScrollbox(document.getElementById('custom-songs'));
 
+		const listbox = document.getElementById('custom-list');
+
+		// Get input for case insensitive matching
+		const playlist = input.value.toLowerCase();
+
+		// Show items matching input, empty shows all
+		const matches = playlist.length
+			? customPlaylists.filter(item => item.toLowerCase().includes(playlist))
+			: customPlaylists;
+
 		// Fill and show autocomplete list if it has entries, hide otherwise
-		if (matches.length)
-		{
-			populateCustomDropdown(matches);
-			showScrollbox(document.getElementById('custom-list'), input);
-		}
-		else
-			hideScrollbox(document.getElementById('custom-list'));
+		populateCustomDropdown(matches);
+		showScrollbox(listbox, input);
 	}
 
 	// Update list when clicked or while typing
-	input.addEventListener("focus", () => populateAutocompleteList(input));
-	input.addEventListener("input", () => populateAutocompleteList(input));
+	input.addEventListener("focus", (event) => populateAutocompleteList(input));
+	input.addEventListener("input", (event) => populateAutocompleteList(input));
 
-	// Button
+	// Buttons
+	document.getElementById("addButton").addEventListener("click", () => addCustomPlaylist(input));
+	document.getElementById("delButton").addEventListener("click", () => delCustomPlaylist(input));
 	document.getElementById("submitSearchButton").addEventListener("click", submitSearch);
 
 	// Clear notifications and hide songs scrollbox on focus
@@ -68,6 +71,7 @@ async function populateCustomDropdown(playlists)
 	// Get dropdown element
 	const dropdown = document.getElementById('custom-list');
 
+	// Add playlists to dropdown
 	const fragment = document.createDocumentFragment();
 	playlists.forEach(playlist =>
 	{
@@ -79,15 +83,91 @@ async function populateCustomDropdown(playlists)
 	});
 	dropdown.replaceChildren(fragment);
 
+	// Mark populated
 	dropdown.dataset.populated = true;
 }
 
+// Create custom playlist if it does not exist
+async function addCustomPlaylist(input)
+{
+	// Hide notification and songs when adding a new playlist
+	hideNotification(notificationCustom);
+	hideScrollbox(document.getElementById('custom-songs'));
 
+	// Get input value or empty string
+	const playlist = input.value.trim() || "";
 
+	const existsInCustom = customPlaylists.some(n => n.toLowerCase() === playlist.toLowerCase());
+	const existsInDirectory = directories.some(n => n.toLowerCase() === playlist.toLowerCase());
 
+	// Warn if empty or exists, as custom playlist or directory
+	if (!playlist || existsInCustom || existsInDirectory)
+	{
+		showNotification(notificationCustom, `<span class='warning'>Typ een <em>nieuwe</em> speellijstnaam</span>`);
+		return;
+	}
 
+	// Set error template
+	const errorMessage = `Opslaan van speellijst '${playlist}' mislukt`;
 
+	// Add playlist on server
+	await modifyPlaylist('Add', playlist, null, errorMessage);
 
+	// Inform user
+	showNotification(notificationCustom, `<span class='success'>Speellijst '${playlist}' is toegevoegd<br>Zoek liedjes en voeg toe met de <span class="save-button-tiny"></span>-knop</span>`);
+}
+
+// Remove custom playlist if it exists
+async function delCustomPlaylist(input)
+{
+	// Hide notification and songs when removing a playlist
+	hideNotification(notificationCustom);
+	hideScrollbox(document.getElementById('custom-songs'));
+
+	// Get input value or empty string
+	const playlist = input.value.trim() || "";
+
+	const existsInCustom = customPlaylists.some(n => n.toLowerCase() === playlist.toLowerCase());
+	const existsInDirectory = directories.some(n => n.toLowerCase() === playlist.toLowerCase());
+
+	// Warn if empty or not exists or is a directory
+	if (!playlist || !existsInCustom || existsInDirectory)
+	{
+		showNotification(notificationCustom, `<span class='warning'>Kies of typ een <em>bestaande</em> speellijstnaam</span>`);
+		return;
+	}
+
+	// Set error template
+	const errorMessage = `Verwijderen van speellijst '${playlist}' mislukt`;
+
+	// Remove (song from) playlist from server
+	await modifyPlaylist('Remove', playlist, null, errorMessage);
+
+	// Clear custom playlist input
+	input.value = "";
+
+	// Inform user
+	showNotification(notificationCustom, `<span class='success'>Speellijst '${playlist}' is verwijderd</span>`);
+}
+
+// Send playlist and song to server
+async function modifyPlaylist(action, playlist, songfile, errorMessage)
+{
+	showWaiting();
+	try
+	{
+		const cmd = "modify";
+		const args = { "action": action, "playlist": playlist, "song": songfile };
+		playlists = (await postJSON(cmd, args)) || [];
+		customPlaylists = playlists.filter(item => !item.webradio).map(item => item.playlist);
+	}
+	catch (err)
+	{
+		showNotification(notificationCustom, `<span class="error">${errorMessage}<br>${err.message || 'Onbekende fout'}</span>`);
+		console.error(err);
+	}
+	hideWaiting();
+}
 
 
 

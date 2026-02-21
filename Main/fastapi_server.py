@@ -153,48 +153,6 @@ async def favicon():
     """ Handle default browser request for /favicon.ico """
     return FileResponse(web_path + "/static/favicon.ico")
 
-#### PLAYLISTS ###########################
-
-class Modify(BaseModel):
-    """
-    Data model for modifying playlists
-    action (str): The action to perform ('Add' or 'Remove')
-    playlist (str): Name of the playlist to modify
-    song (Optional[str]): Song to add or remove. If None, the playlist itself is created or deleted
-    """
-    action: str = None
-    playlist: str = None
-    song: Optional[str] = None
-
-# POST endpoint to modify playlist
-@api_app.post("/playlist_modify")
-async def playlist_modify(modify: Modify):
-    """
-    Handle playlist modification requests
-     - 'Add': Add a song to a playlist or create a new playlist if it does not exist
-     - 'Remove': Remove a song from a playlist or delete the playlist if no song is specified
-    modify (Modify): Contains the action, playlist name, and optionally a song
-    Returns: Success or error response depending on the action
-    """
-    if modify.action == 'Add':
-        if modify.song is None:
-            oradio_log.debug("Create playlist: '%s'", modify.playlist)
-        else:
-            oradio_log.debug("Add song '%s' to playlist '%s'", modify.song, modify.playlist)
-        return mpd_control.add(modify.playlist, modify.song)
-
-    if modify.action == 'Remove':
-        if modify.song is None:
-            oradio_log.debug("Delete playlist: '%s'", modify.playlist)
-        else:
-            oradio_log.debug("Delete song '%s' from playlist '%s'", modify.song, modify.playlist)
-        return mpd_control.remove(modify.playlist, modify.song)
-
-    oradio_log.error("Unexpected action '%s'", modify.action)
-    return JSONResponse(status_code=400, content={"message": f"De action '{modify.action}' is ongeldig"})
-
-#### SHARED: BUTTONS AND PLAYLISTS #######
-
 #### EXECUTE #############################
 
 # --- Helper functions ---
@@ -281,6 +239,7 @@ def wifi_connect(args: Optional[Dict[str, Any]]):
     if not ssid:
         # Missing required argument
         raise ValueError("'connect' vereist argument 'ssid'")
+    # pswd is optional
     pswd = args.get("pswd") if args else None
 
     # Send connect message to web service
@@ -361,6 +320,45 @@ def get_search_songs(args: Optional[Dict[str, Any]]):
         raise ValueError("'search' vereist argument 'pattern'")
     return mpd_control.search(pattern)
 
+def modify_playlist(args: Optional[Dict[str, Any]]):
+    """Add/remove playlist and/or songs in playlist"""
+    # Extract required arguments, none if no args sent
+    action = args.get("action") if args else None
+    if not action:
+        # Missing required argument
+        raise ValueError("'modify' vereist argument 'action'")
+    playlist = args.get("playlist") if args else None
+    if not playlist:
+        # Missing required argument
+        raise ValueError("'modify' vereist argument 'playlist'")
+    # song is optional
+    song = args.get("song") if args else None
+
+    # Map actions to MPD methods and log messages
+    action_map = {
+        "Add": (mpd_control.add, "Create playlist: '%s'", "Add song '%s' to playlist '%s'"),
+        "Remove": (mpd_control.remove, "Delete playlist: '%s'", "Delete song '%s' from playlist '%s'")
+    }
+
+    # Execute requested action
+    if action in action_map:
+        # Extract function and message from action map
+        func, msg_no_song, msg_with_song = action_map[action]
+        # Log appropriate message
+        if song is None:
+            oradio_log.debug(msg_no_song, playlist)
+        else:
+            oradio_log.debug(msg_with_song, song, playlist)
+        # Execute
+        func(playlist, song)
+
+    else:
+        oradio_log.error("Unexpected action '%s'", action)
+        return JSONResponse(status_code=400, content={"message": f"De action '{action}' is ongeldig"})
+
+    # Return updated custom playlists
+    return mpd_control.get_playlists()
+
 class ExecuteRequest(BaseModel):
     """
     Generic command request:
@@ -388,6 +386,7 @@ async def execute(request: ExecuteRequest):
         "preset": save_preset,
         "playlist": get_playlist_songs,
         "search": get_search_songs,
+        "modify": modify_playlist,
         # Add other commands were
     }
 

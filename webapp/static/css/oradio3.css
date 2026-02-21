@@ -393,6 +393,9 @@ input:focus {
 	margin: 0;						/* Vertical spacing override */
 	display: inline-block;			/* Allows width/height while staying inline */
 	vertical-align: text-bottom;	/* Align icon with text baseline */
+	background-size: contain;		/* Scale the image */
+	background-repeat: no-repeat;
+	background-position: center;	/* Center the image */
 }
 
 .save-button-large:hover,
@@ -400,25 +403,6 @@ input:focus {
 .delete-button-large:hover,
 .delete-button-small:hover {
 	filter: brightness(125%);		/* Brightens icon on hover */
-}
-
-
-.save-button-tiny:hover {
-	filter: brightness(100%);		/* Disable hover brightening for inline icon */
-}
-
-.save-button-tiny {
-	display: inline-block;			/* Allows sizing while flowing with text */
-	vertical-align: text-bottom;	/* Aligns icon with text baseline */
-	background-image: url('../save.png');
-	margin: 0;
-	padding: 0;
-	width: 16px;					/* Icon-size button */
-	height: 16px;
-}
-
-.save-button-tiny:hover {
-	filter: brightness(100%);		/* Disables hover brightening */
 }
 
 /* ===== Status ===== */
