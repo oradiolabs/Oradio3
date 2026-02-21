@@ -393,9 +393,6 @@ input:focus {
 	margin: 0;						/* Vertical spacing override */
 	display: inline-block;			/* Allows width/height while staying inline */
 	vertical-align: text-bottom;	/* Align icon with text baseline */
-	background-size: contain;		/* Scale the image */
-	background-repeat: no-repeat;
-	background-position: center;	/* Center the image */
 }
 
 .save-button-large:hover,

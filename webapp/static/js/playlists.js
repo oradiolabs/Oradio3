@@ -7,6 +7,7 @@
  */
 
 let notificationCustom, notificationSearch;
+let customSongs, searchSongs;
 let customPlaylists;
 
 // DOMContentLoaded setup for playlists page
@@ -16,22 +17,21 @@ document.addEventListener('DOMContentLoaded', () =>
 	notificationCustom = document.getElementById("notification_custom");
 	notificationSearch = document.getElementById("notification_search");
 
+	// Get songs scrollbox elements
+	customSongs = document.getElementById('custom-songs');
+	searchSongs = document.getElementById('search-songs');
+
 	// Get array with only the names of the playlists which are no webradio
 	customPlaylists = playlists.filter(item => !item.webradio).map(item => item.playlist);
 
 	// Get input with custom playlist name
 	const input = document.getElementById("custom");
 
-/*
-TODO:
-- add/del playlists toevoegen
-- +/X iconen met acties toevoegen
-*/
 	function populateAutocompleteList(input)
 	{
 		// Hide notification and songs when selecting a new playlist
 		hideNotification(notificationCustom);
-		hideScrollbox(document.getElementById('custom-songs'));
+		hideScrollbox(customSongs);
 
 		const listbox = document.getElementById('custom-list');
 
@@ -46,11 +46,18 @@ TODO:
 		// Fill and show autocomplete list if it has entries, hide otherwise
 		populateCustomDropdown(matches);
 		showScrollbox(listbox, input);
+
+		// Show/hide save buttons
+		updateAddButtons();
 	}
 
 	// Update list when clicked or while typing
 	input.addEventListener("focus", (event) => populateAutocompleteList(input));
 	input.addEventListener("input", (event) => populateAutocompleteList(input));
+
+	// Show/hide add and del buttons
+	input.addEventListener('inputValueChanged', () => updateAddButtons());
+	customSongs.addEventListener('scrollboxPopulated', () => updateDelButtons());
 
 	// Buttons
 	document.getElementById("addButton").addEventListener("click", () => addCustomPlaylist(input));
@@ -61,9 +68,58 @@ TODO:
 	document.getElementById('search').addEventListener("focus", () =>
 	{
 		hideNotification(notificationSearch);
-		hideScrollbox(document.getElementById('search-songs'));
+		hideScrollbox(searchSongs);
 	});
 });
+
+// Add/remove save buttons to add songs to playlist
+function updateAddButtons()
+{
+	const playlist = document.getElementById("custom").value.trim();
+	const existsInCustom = customPlaylists.some(n => n.toLowerCase() === playlist.toLowerCase());
+
+	// Add save buttons to each row
+	const rows = document.querySelectorAll('#search-songs .scrollbox-row');
+
+	rows.forEach((row, index) =>
+	{
+        const existingButton = row.querySelector('.save-button-small');
+
+		if (playlist && existsInCustom)
+		{
+			// Add if missing
+			if (!existingButton)
+			{
+				const icon = document.createElement('span');
+				icon.className = 'icon-button save-button-small';
+				row.appendChild(icon);
+			}
+		}
+		else
+		{
+            // Remove if it exists
+            if (existingButton)
+                existingButton.remove();
+		}
+	});
+}
+
+function updateDelButtons()
+{
+	// Add remove buttons to each row
+	const rows = document.querySelectorAll('#custom-songs .scrollbox-row');
+
+	rows.forEach((row, index) =>
+	{
+		// Add if missing
+		if (!row.querySelector('.delete-button-small'))
+		{
+			const icon = document.createElement('span');
+			icon.className = 'icon-button delete-button-small';
+			row.appendChild(icon);
+		}
+	});
+}
 
 // Populate dropdown with custom playlists
 async function populateCustomDropdown(playlists)
@@ -92,7 +148,7 @@ async function addCustomPlaylist(input)
 {
 	// Hide notification and songs when adding a new playlist
 	hideNotification(notificationCustom);
-	hideScrollbox(document.getElementById('custom-songs'));
+	hideScrollbox(customSongs);
 
 	// Get input value or empty string
 	const playlist = input.value.trim() || "";
@@ -114,7 +170,7 @@ async function addCustomPlaylist(input)
 	await modifyPlaylist('Add', playlist, null, errorMessage);
 
 	// Inform user
-	showNotification(notificationCustom, `<span class='success'>Speellijst '${playlist}' is toegevoegd<br>Zoek liedjes en voeg toe met de <span class="save-button-tiny"></span>-knop</span>`);
+	showNotification(notificationCustom, `<span class='success'>Speellijst '${playlist}' is toegevoegd<br>Zoek liedjes en voeg toe met de <span class="icon-button save-button-tiny"></span>-knop</span>`);
 }
 
 // Remove custom playlist if it exists
@@ -122,7 +178,7 @@ async function delCustomPlaylist(input)
 {
 	// Hide notification and songs when removing a playlist
 	hideNotification(notificationCustom);
-	hideScrollbox(document.getElementById('custom-songs'));
+	hideScrollbox(customSongs);
 
 	// Get input value or empty string
 	const playlist = input.value.trim() || "";
@@ -169,16 +225,6 @@ async function modifyPlaylist(action, playlist, songfile, errorMessage)
 	hideWaiting();
 }
 
-
-
-
-
-
-
-
-
-
-
 // Show playlist songs in scrollbox
 async function submitSearch()
 {
@@ -200,7 +246,10 @@ async function submitSearch()
 	// Get songs from server
 	const songs = await getSearchSongs(pattern);
 	if (songs.length)
-		populateSongsScrollbox('search', document.getElementById('search-songs'), songs);
+		populateSongsScrollbox('search', searchSongs, songs);
+
+	// Show/hide save buttons
+	updateAddButtons();
 
 	// Show waiting indicator
 	hideWaiting();

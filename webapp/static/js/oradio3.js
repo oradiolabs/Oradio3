@@ -1,9 +1,9 @@
 /*!
- * @package:		Oradio3
- * @author url:		https://oradiolabs.nl
- * @author email:	info at oradiolabs dot nl
- * @copyright:		Stichting Oradio, All rights reserved.
- * @license:		GNU General Public License version 3; https://www.gnu.org/licenses/gpl-3.0.html
+ * @package:      Oradio3
+ * @author url:   https://oradiolabs.nl
+ * @author email: info at oradiolabs dot nl
+ * @copyright:    Stichting Oradio, All rights reserved.
+ * @license:      GNU General Public License version 3; https://www.gnu.org/licenses/gpl-3.0.html
  */
 
 /* ========== Helpers ========== */
@@ -47,8 +47,8 @@ function shutdownWebApp()
 		'De web interface wordt afgesloten...' +
 	'</div>';
 
-    // Show waiting indicator
-    showWaiting();
+	// Show waiting indicator
+	showWaiting();
 
 	// Send shutdown command
 	postJSON("shutdown")
@@ -99,23 +99,6 @@ document.addEventListener('DOMContentLoaded', () =>
 
 /* ========== Navigation ========== */
 
-// Start observing active page
-function observeActivePage()
-{
-	// Unobserve previous pages
-	contentObserver.disconnect();
-
-	const activePage = document.querySelector('.page.active');
-	if (activePage)
-	{
-		// Observe child additions/deletions anywhere in the page
-		contentObserver.observe(activePage, { childList: true, subtree: true });
-
-		// Initial check
-		updatePageScrollState(activePage);
-	}
-}
-
 // Switch active page
 document.querySelectorAll('nav button').forEach(button =>
 {
@@ -147,6 +130,23 @@ document.querySelectorAll('nav button').forEach(button =>
 		page.scrollTop = 0;
 	});
 });
+
+// Start observing active page
+function observeActivePage()
+{
+	// Unobserve previous pages
+	contentObserver.disconnect();
+
+	const activePage = document.querySelector('.page.active');
+	if (activePage)
+	{
+		// Observe child additions/deletions anywhere in the page
+		contentObserver.observe(activePage, { childList: true, subtree: true });
+
+		// Initial check
+		updatePageScrollState(activePage);
+	}
+}
 
 // MutationObserver to track content changes
 const contentObserver = new MutationObserver((mutationsList) =>
@@ -263,6 +263,9 @@ function handleRowClick(row)
 		// Set input value with sanitized row text
 		input.value = row.querySelector(".scrollbox-row-text").textContent.trim();
 
+		// Dispatch a custom input value changed event
+		input.dispatchEvent(new Event('inputValueChanged'));
+
 		// Hide scrollbox
 		hideScrollbox(scrollbox);
 	}
@@ -290,7 +293,6 @@ function handleSelectClick(target, customSelect)
 	// Click on input or dropdown icon
 	if (target === input || target === icon)
 	{
-
 		// Close any open dropdown scrollboxes
 		closeDropdowns();
 
@@ -313,7 +315,7 @@ function handleSelectClick(target, customSelect)
 // Close dropdown scrollboxes
 function closeDropdowns()
 {
-    document.querySelectorAll(".custom-select .scrollbox.dropdown").forEach(scrollbox =>
+	document.querySelectorAll(".custom-select .scrollbox.dropdown").forEach(scrollbox =>
 	{
 		hideScrollbox(scrollbox);
 
@@ -323,50 +325,20 @@ function closeDropdowns()
 	});
 }
 
-// Convert songs into scrollbox rows
-function populateSongsScrollbox(type, scrollbox, songs)
-{
-	// Create fragment
-	const fragment = document.createDocumentFragment();
-
-	// Populate fragment
-	songs.forEach(song =>
-	{
-		const row = createRow(`${song.artist} - ${song.title}`);
-		row.dataset.action = "play";
-		row.dataset.songfile = song.file;
-		row.dataset.notify = `notification_${type}`;
-		fragment.appendChild(row);
-	});
-
-    // Replace old rows efficiently
-	scrollbox.replaceChildren(fragment);
-
-	// mark scrollbox as populated
-	scrollbox.dataset.populated = "true";
-
-    // Show the scrollbox if input exists
-    const input = document.getElementById(type);
-    if (input) showScrollbox(scrollbox, input);
-
-	// Reset scrollbox to top
-	scrollbox.scrollTop = 0;
-}
-
 /* ========== CALLBACK ========== */
 
 // CALLBACK: action determined by selected row
 function onScrollboxSelect(row)
 {
 	const action = row.dataset.action;
-    switch (action)
+	switch (action)
 	{
-        case "network":
+		case "network":
 			// Get selected network ssid
 			const ssid = row.querySelector(".scrollbox-row-text").textContent.trim();
 			// Show password input only if network requires it
 			showPassword(ssid);
-            break;
+			break;
 
 		case "preset1":
 		case "preset2":
@@ -375,7 +347,7 @@ function onScrollboxSelect(row)
 			savePreset(action, row.querySelector(".scrollbox-row-text").textContent.trim());
 			break;
 
-        case "playlist":
+		case "playlist":
 			// Show scrollbox with custom playlist songs
 			showSongs(
 				row.dataset.input,
@@ -384,7 +356,7 @@ function onScrollboxSelect(row)
 			);
 			break;
 
-        case "play":
+		case "play":
 			// Play selected song
 			playSong(
 				row.dataset.notify,
@@ -394,44 +366,17 @@ function onScrollboxSelect(row)
 			break;
 /*
 TODO:
- playlists
+ modify
  
-        case "playlist":
+		case "modify":
 			// Get selected preset button
 			// Get selected playlist
 			// Show scrollbox with playlist songs
 			showSongs(input.value)
-            break;
+			break;
 */
-        default:
+		default:
 			console.log("ERROR: Unexpected action for row:", row);
-    }
-}
-
-// Submit the song to the server for playback
-async function playSong(notification, songfile, songtitle)
-{
-    const notify = document.getElementById(notification);
-	if (!notify)
-	{
-		console.warn(`playSong(): notification element '${notification}' not found`);
-		return;
-    }
-
-	hideNotification(notify);
-
-	const errorMessage = `Er is een fout opgetreden bij het indienen van het te spelen liedje '${songtitle}'`;
-
-	try
-	{
-		const cmd = "play";
-		const args = { "song": songfile };
-		await postJSON(cmd, args);
-	}
-	catch (err)
-	{
-		showNotification(notify, `<span class="error">${errorMessage}<br>${err.message || 'Onbekende fout'}</span>`);
-		console.error(err);
 	}
 }
 
@@ -494,6 +439,66 @@ async function getPlaylistSongs(playlist)
 	catch (err)
 	{
 		showNotification(notificationPlaylist, `<span class="error">${errorMessage}<br>${err.message || 'Onbekende fout'}</span>`);
+		console.error(err);
+	}
+}
+
+// Convert songs into scrollbox rows
+function populateSongsScrollbox(type, scrollbox, songs)
+{
+	// Create fragment
+	const fragment = document.createDocumentFragment();
+
+	// Populate fragment
+	songs.forEach(song =>
+	{
+		const row = createRow(`${song.artist} - ${song.title}`);
+		row.dataset.action = "play";
+		row.dataset.songfile = song.file;
+		row.dataset.notify = `notification_${type}`;
+		fragment.appendChild(row);
+	});
+
+	// Replace old rows efficiently
+	scrollbox.replaceChildren(fragment);
+
+	// mark scrollbox as populated
+	scrollbox.dataset.populated = "true";
+
+	// Show the scrollbox if input exists
+	const input = document.getElementById(type);
+	if (input) showScrollbox(scrollbox, input);
+
+	// Reset scrollbox to top
+	scrollbox.scrollTop = 0;
+
+	// Dispatch a custom scrollbox populated event
+	scrollbox.dispatchEvent(new Event('scrollboxPopulated'));
+}
+
+// Submit the song to the server for playback
+async function playSong(notification, songfile, songtitle)
+{
+	const notify = document.getElementById(notification);
+	if (!notify)
+	{
+		console.warn(`playSong(): notification element '${notification}' not found`);
+		return;
+	}
+
+	hideNotification(notify);
+
+	const errorMessage = `Er is een fout opgetreden bij het indienen van het te spelen liedje '${songtitle}'`;
+
+	try
+	{
+		const cmd = "play";
+		const args = { "song": songfile };
+		await postJSON(cmd, args);
+	}
+	catch (err)
+	{
+		showNotification(notify, `<span class="error">${errorMessage}<br>${err.message || 'Onbekende fout'}</span>`);
 		console.error(err);
 	}
 }
