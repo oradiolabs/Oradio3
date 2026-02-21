@@ -435,8 +435,8 @@ class MPDControl(MPDService):
             # Adding song to playlist
             _ = self._execute("playlistadd", playlist, song)
 
-            # Force MPD to sync its in-memory and on-disk playlist state.
-            _ = self._execute("listplaylistinfo", playlist)
+            # Force MPD to sync its in-memory and on-disk playlist state
+            _ = self._execute("save", playlist)
 
             oradio_log.debug("Song '%s' added to playlist '%s'", song, playlist)
 
@@ -506,8 +506,8 @@ class MPDControl(MPDService):
         # Remove song by index
         _ = self._execute("playlistdelete", playlist, index)
 
-        # Force MPD to sync its in-memory and on-disk playlist state.
-        _ = self._execute("listplaylistinfo", playlist)
+        # Force MPD to sync its in-memory and on-disk playlist state
+        _ = self._execute("save", playlist)
 
         oradio_log.debug("Song '%s' removed from playlist '%s'", song, playlist)
 
