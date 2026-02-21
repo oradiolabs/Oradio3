@@ -372,7 +372,6 @@ class ExecuteRequest(BaseModel):
 
 # generic POST endpoint
 @api_app.post("/execute")
-# REVIEW Onno: find solution for too many statements: move methods outside?
 async def execute(request: ExecuteRequest):
     """
     Execute the provided command using relevant arguments
@@ -404,10 +403,6 @@ async def execute(request: ExecuteRequest):
     except ValueError as ex_err:
         # Argument ontbreekt of fout
         return JSONResponse(status_code=400, content={"message": str(ex_err)})
-    except Exception as ex_err:
-        # Andere fouten (MPD, server etc.)
-        oradio_log.error("Fout bij uitvoeren van '%s': %s", request.cmd, str(ex_err))
-        return JSONResponse(status_code=500, content={"message": str(ex_err)})
 
 #### ORADIO3 ##############################
 
