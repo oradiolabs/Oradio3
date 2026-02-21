@@ -43,7 +43,9 @@ from oradio_const import (
     SOUND_NO_WIFI,
     SOUND_NO_INTERNET,
     SOUND_NEW_PRESET,
-    SOUND_NEW_WEBRADIO,
+    SOUND_NEW_WEBRADIO_1,
+    SOUND_NEW_WEBRADIO_2,
+    SOUND_NEW_WEBRADIO_3,
 )
 
 ##### LOCAL constants ###################
