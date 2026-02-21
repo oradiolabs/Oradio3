@@ -197,6 +197,170 @@ async def playlist_modify(modify: Modify):
 
 #### EXECUTE #############################
 
+# --- Helper functions ---
+def play_song(args: Optional[Dict[str, Any]]):
+    """Play a song via MPD"""
+    # Extract required argument, none if no args sent
+    songfile = args.get("song") if args else None
+    if not songfile:
+        # Missing required argument
+        raise ValueError("'play' vereist argument 'song'")
+
+    # Trigger MPD control to play the song
+    mpd_control.play_song(songfile)
+
+    # Send notification message
+    message = {
+        "source": MESSAGE_WEB_SERVICE_SOURCE,
+        "state": MESSAGE_WEB_SERVICE_PLAYING_SONG,
+        "error": MESSAGE_NO_ERROR
+    }
+    oradio_log.debug("Send web service message: %s", message)
+    safe_put(api_app.state.queue, message)
+
+    # Success
+    return {"message": f"'{songfile}' is nu te horen"}
+
+def get_networks(_args: Optional[Dict[str, Any]]):
+    """Return available WiFi networks"""
+    return get_wifi_networks()
+
+def shutdown_webapp(_args: Optional[Dict[str, Any]]):
+    """Shutdown the web server"""
+    # Send a stop message to the service queue
+    message = {"request": MESSAGE_REQUEST_STOP}
+    safe_put(api_app.state.queue, message)
+
+def rename_spotify(args: Optional[Dict[str, Any]]):
+    """Modify Spotify device name"""
+    # Extract required argument, none if no args sent
+    name = args.get("name") if args else None
+    if not name:
+        # Missing required argument
+        raise ValueError("'spotify' vereist argument 'name'")
+
+    # Use regex pattern to validate Spotify device name characters
+    pattern = r'^[A-Za-z0-9_-]+$'
+    if not bool(match(pattern, name)):
+        response = f"'{name}' is ongeldig. Alleen hoofdletters, kleine letters, cijfers, - of _ is toegestaan"
+        oradio_log.error(response)
+        # Return fail, so caller can try to recover
+        return JSONResponse(status_code=400, content={"message": response})
+
+    # Update the librespot.service file with the new device name
+    cmd = f"sudo sed -i 's/--name \\S*/--name {name}/' /etc/systemd/system/librespot.service"
+    result, response = run_shell_script(cmd)
+    if not result:
+        oradio_log.error("Error during <%s> to set Spotify name, error: %s", cmd, response)
+        # Return fail, so caller can try to recover
+        return JSONResponse(status_code=400, content={"message": response})
+
+    # Reload systemd daemon to apply changes in the service file
+    cmd = "sudo systemctl daemon-reload"
+    result, response = run_shell_script(cmd)
+    if not result:
+        oradio_log.error("Error during <%s> to set Spotify name, error: %s", cmd, response)
+        # Return fail, so caller can try to recover
+        return JSONResponse(status_code=400, content={"message": response})
+
+    # Restart the librespot service to activate the new device name
+    cmd = "sudo systemctl restart librespot.service"
+    result, response = run_shell_script(cmd)
+    if not result:
+        oradio_log.error("Error during <%s> to set Spotify name, error: %s", cmd, response)
+        # Return fail, so caller can try to recover
+        return JSONResponse(status_code=400, content={"message": response})
+
+    # Return the new device name on success
+    return name
+
+def wifi_connect(args: Optional[Dict[str, Any]]):
+    """Connect to wifi network"""
+    # Extract required arguments, none if no args sent
+    ssid = args.get("ssid") if args else None
+    if not ssid:
+        # Missing required argument
+        raise ValueError("'connect' vereist argument 'ssid'")
+    pswd = args.get("pswd") if args else None
+
+    # Send connect message to web service
+    message = {
+        "request": MESSAGE_REQUEST_CONNECT,
+        "ssid"  : ssid,
+        "pswd"  : pswd
+    }
+    safe_put(api_app.state.queue, message)
+
+def save_preset(args: Optional[Dict[str, Any]]):
+    """Save preset playlist"""
+    # Extract required arguments, none if no args sent
+    preset = args.get("preset") if args else None
+    if not preset:
+        # Missing required argument
+        raise ValueError("'preset' vereist argument 'preset'")
+    playlist = args.get("playlist") if args else None
+    if not playlist:
+        # Missing required argument
+        raise ValueError("'preset' vereist argument 'playlist'")
+
+    message = {"source": MESSAGE_WEB_SERVICE_SOURCE, "error": MESSAGE_NO_ERROR}
+
+    # Mapping of presets to constants per type
+    preset_map = {
+        "preset1": {
+            "playlist": MESSAGE_WEB_SERVICE_PL1_PLAYLIST,
+            "webradio": MESSAGE_WEB_SERVICE_PL1_WEBRADIO,
+        },
+        "preset2": {
+            "playlist": MESSAGE_WEB_SERVICE_PL2_PLAYLIST,
+            "webradio": MESSAGE_WEB_SERVICE_PL2_WEBRADIO,
+        },
+        "preset3": {
+            "playlist": MESSAGE_WEB_SERVICE_PL3_PLAYLIST,
+            "webradio": MESSAGE_WEB_SERVICE_PL3_WEBRADIO,
+        }
+    }
+
+    # Determine type
+    preset_type = "webradio" if mpd_control.is_webradio(mpdlist=playlist) else "playlist"
+
+    # Set message state
+    if preset in preset_map:
+        # load presets
+        presets = load_presets()
+
+        # Modify preset
+        presets[preset] = playlist
+        oradio_log.debug("Preset '%s' playlist changed to '%s'", preset, playlist)
+
+        # Store presets
+        store_presets(presets)
+
+        # Send message which preset has changed and its type
+        message["state"] = preset_map[preset][preset_type]
+        oradio_log.debug("Send web service message: %s", message)
+        safe_put(api_app.state.queue, message)
+    else:
+        oradio_log.error("Invalid preset '%s'", preset)
+
+def get_playlist_songs(args: Optional[Dict[str, Any]]):
+    """Get songs for given playlist"""
+    # Extract required arguments, none if no args sent
+    playlist = args.get("playlist") if args else None
+    if not playlist:
+        # Missing required argument
+        raise ValueError("'playlist' vereist argument 'playlist'")
+    return mpd_control.get_songs(playlist)
+
+def get_search_songs(args: Optional[Dict[str, Any]]):
+    """Get songs for given pattern"""
+    # Extract required arguments, none if no args sent
+    pattern = args.get("pattern") if args else None
+    if not pattern:
+        # Missing required argument
+        raise ValueError("'search' vereist argument 'pattern'")
+    return mpd_control.search(pattern)
+
 class ExecuteRequest(BaseModel):
     """
     Generic command request:
@@ -208,175 +372,12 @@ class ExecuteRequest(BaseModel):
 
 # generic POST endpoint
 @api_app.post("/execute")
+# REVIEW Onno: find solution for too many statements: move methods outside?
 async def execute(request: ExecuteRequest):
     """
     Execute the provided command using relevant arguments
     """
     oradio_log.debug("Executing '%s' with args '%s'", request.cmd, request.args)
-
-    # --- Helper functions ---
-    def play_song(args: Optional[Dict[str, Any]]):
-        """Play a song via MPD"""
-        # Extract required argument, none if no args sent
-        songfile = args.get("song") if args else None
-        if not songfile:
-            # Missing required argument
-            raise ValueError("'play' vereist argument 'song'")
-
-        # Trigger MPD control to play the song
-        mpd_control.play_song(songfile)
-
-        # Send notification message
-        message = {
-            "source": MESSAGE_WEB_SERVICE_SOURCE,
-            "state": MESSAGE_WEB_SERVICE_PLAYING_SONG,
-            "error": MESSAGE_NO_ERROR
-        }
-        oradio_log.debug("Send web service message: %s", message)
-        safe_put(api_app.state.queue, message)
-
-        # Success
-        return {"message": f"'{songfile}' is nu te horen"}
-
-    def get_networks(args: Optional[Dict[str, Any]]):
-        """Return available WiFi networks"""
-        return get_wifi_networks()
-
-    def shutdown_webapp(args: Optional[Dict[str, Any]]):
-        """Shutdown the web server"""
-        # Send a stop message to the service queue
-        message = {"request": MESSAGE_REQUEST_STOP}
-        safe_put(api_app.state.queue, message)
-
-    def rename_spotify(args: Optional[Dict[str, Any]]):
-        """Modify Spotify device name"""
-        # Extract required argument, none if no args sent
-        name = args.get("name") if args else None
-        if not name:
-            # Missing required argument
-            raise ValueError("'spotify' vereist argument 'name'")
-
-        # Use regex pattern to validate Spotify device name characters
-        pattern = r'^[A-Za-z0-9_-]+$'
-        if not bool(match(pattern, name)):
-            response = f"'{name}' is ongeldig. Alleen hoofdletters, kleine letters, cijfers, - of _ is toegestaan"
-            oradio_log.error(response)
-            # Return fail, so caller can try to recover
-            return JSONResponse(status_code=400, content={"message": response})
-
-        # Update the librespot.service file with the new device name
-        cmd = f"sudo sed -i 's/--name \\S*/--name {name}/' /etc/systemd/system/librespot.service"
-        result, response = run_shell_script(cmd)
-        if not result:
-            oradio_log.error("Error during <%s> to set Spotify name, error: %s", cmd, response)
-            # Return fail, so caller can try to recover
-            return JSONResponse(status_code=400, content={"message": response})
-
-        # Reload systemd daemon to apply changes in the service file
-        cmd = "sudo systemctl daemon-reload"
-        result, response = run_shell_script(cmd)
-        if not result:
-            oradio_log.error("Error during <%s> to set Spotify name, error: %s", cmd, response)
-            # Return fail, so caller can try to recover
-            return JSONResponse(status_code=400, content={"message": response})
-
-        # Restart the librespot service to activate the new device name
-        cmd = "sudo systemctl restart librespot.service"
-        result, response = run_shell_script(cmd)
-        if not result:
-            oradio_log.error("Error during <%s> to set Spotify name, error: %s", cmd, response)
-            # Return fail, so caller can try to recover
-            return JSONResponse(status_code=400, content={"message": response})
-
-        # Return the new device name on success
-        return name
-
-    def wifi_connect(args: Optional[Dict[str, Any]]):
-        """Connect to wifi network"""
-        # Extract required arguments, none if no args sent
-        ssid = args.get("ssid") if args else None
-        if not ssid:
-            # Missing required argument
-            raise ValueError("'connect' vereist argument 'ssid'")
-        pswd = args.get("pswd") if args else None
-
-        # Send connect message to web service
-        message = {
-            "request": MESSAGE_REQUEST_CONNECT,
-            "ssid"  : ssid,
-            "pswd"  : pswd
-        }
-        safe_put(api_app.state.queue, message)
-
-    def save_preset(args: Optional[Dict[str, Any]]):
-        """Save preset playlist"""
-        # Extract required arguments, none if no args sent
-        preset = args.get("preset") if args else None
-        if not preset:
-            # Missing required argument
-            raise ValueError("'preset' vereist argument 'preset'")
-        playlist = args.get("playlist") if args else None
-        if not playlist:
-            # Missing required argument
-            raise ValueError("'preset' vereist argument 'playlist'")
-
-        message = {"source": MESSAGE_WEB_SERVICE_SOURCE, "error": MESSAGE_NO_ERROR}
-
-        # Mapping of presets to constants per type
-        preset_map = {
-            "preset1": {
-                "playlist": MESSAGE_WEB_SERVICE_PL1_PLAYLIST,
-                "webradio": MESSAGE_WEB_SERVICE_PL1_WEBRADIO,
-            },
-            "preset2": {
-                "playlist": MESSAGE_WEB_SERVICE_PL2_PLAYLIST,
-                "webradio": MESSAGE_WEB_SERVICE_PL2_WEBRADIO,
-            },
-            "preset3": {
-                "playlist": MESSAGE_WEB_SERVICE_PL3_PLAYLIST,
-                "webradio": MESSAGE_WEB_SERVICE_PL3_WEBRADIO,
-            }
-        }
-
-        # Determine type
-        preset_type = "webradio" if mpd_control.is_webradio(mpdlist=playlist) else "playlist"
-
-        # Set message state
-        if preset in preset_map:
-            # load presets
-            presets = load_presets()
-
-            # Modify preset
-            presets[preset] = playlist
-            oradio_log.debug("Preset '%s' playlist changed to '%s'", preset, playlist)
-
-            # Store presets
-            store_presets(presets)
-
-            # Send message which preset has changed and its type
-            message["state"] = preset_map[preset][preset_type]
-            oradio_log.debug("Send web service message: %s", message)
-            safe_put(api_app.state.queue, message)
-        else:
-            oradio_log.error("Invalid preset '%s'", preset)
-
-    def get_playlist_songs(args: Optional[Dict[str, Any]]):
-        """Get songs for given playlist"""
-        # Extract required arguments, none if no args sent
-        playlist = args.get("playlist") if args else None
-        if not playlist:
-            # Missing required argument
-            raise ValueError("'playlist' vereist argument 'playlist'")
-        return mpd_control.get_songs(playlist)
-
-    def get_search_songs(args: Optional[Dict[str, Any]]):
-        """Get songs for given pattern"""
-        # Extract required arguments, none if no args sent
-        pattern = args.get("pattern") if args else None
-        if not pattern:
-            # Missing required argument
-            raise ValueError("'search' vereist argument 'pattern'")
-        return mpd_control.search(pattern)
 
     # --- Command dispatch dictionary ---
     commands = {
@@ -400,13 +401,13 @@ async def execute(request: ExecuteRequest):
     try:
         result = commands[request.cmd](request.args)
         return result
-    except ValueError as ve:
+    except ValueError as ex_err:
         # Argument ontbreekt of fout
-        return JSONResponse(status_code=400, content={"message": str(ve)})
-    except Exception as e:
+        return JSONResponse(status_code=400, content={"message": str(ex_err)})
+    except Exception as ex_err:
         # Andere fouten (MPD, server etc.)
-        oradio_log.error("Fout bij uitvoeren van '%s': %s", request.cmd, str(e))
-        return JSONResponse(status_code=500, content={"message": str(e)})
+        oradio_log.error("Fout bij uitvoeren van '%s': %s", request.cmd, str(ex_err))
+        return JSONResponse(status_code=500, content={"message": str(ex_err)})
 
 #### ORADIO3 ##############################
 
