@@ -43,9 +43,7 @@ from oradio_const import (
     SOUND_NO_WIFI,
     SOUND_NO_INTERNET,
     SOUND_NEW_PRESET,
-    SOUND_NEW_WEBRADIO_1,
-    SOUND_NEW_WEBRADIO_2,
-    SOUND_NEW_WEBRADIO_3,
+    SOUND_NEW_WEBRADIO,
 )
 
 ##### LOCAL constants ###################
@@ -60,22 +58,20 @@ SOUND_FILES = {
     SOUND_PLAY:  f"{SOUND_FILES_PATH}/AAN.wav",
     SOUND_CLICK: f"{SOUND_FILES_PATH}/click.wav",
     # Announcements
-    SOUND_NEXT:           f"{SOUND_FILES_PATH}/Next_melding.wav",
-    SOUND_PRESET1:        f"{SOUND_FILES_PATH}/Preset1_melding.wav",
-    SOUND_PRESET2:        f"{SOUND_FILES_PATH}/Preset2_melding.wav",
-    SOUND_PRESET3:        f"{SOUND_FILES_PATH}/Preset3_melding.wav",
-    SOUND_SPOTIFY:        f"{SOUND_FILES_PATH}/Spotify_melding.wav",
-    SOUND_USB:            f"{SOUND_FILES_PATH}/USBPresent_melding.wav",
-    SOUND_NO_USB:         f"{SOUND_FILES_PATH}/NoUSB_melding.wav",
-    SOUND_AP_START:       f"{SOUND_FILES_PATH}/OradioAPstarted_melding.wav",
-    SOUND_AP_STOP:        f"{SOUND_FILES_PATH}/OradioAPstopped_melding.wav",
-    SOUND_WIFI:           f"{SOUND_FILES_PATH}/WifiConnected_melding.wav",
-    SOUND_NO_WIFI:        f"{SOUND_FILES_PATH}/WifiNotConnected_melding.wav",
-    SOUND_NO_INTERNET:    f"{SOUND_FILES_PATH}/NoInternet_melding.wav",
-    SOUND_NEW_PRESET:     f"{SOUND_FILES_PATH}/NewPreset_melding.wav",
-    SOUND_NEW_WEBRADIO_1: f"{SOUND_FILES_PATH}/NewWebradio1_melding.wav",
-    SOUND_NEW_WEBRADIO_2: f"{SOUND_FILES_PATH}/NewWebradio2_melding.wav",
-    SOUND_NEW_WEBRADIO_3: f"{SOUND_FILES_PATH}/NewWebradio3_melding.wav",
+    SOUND_NEXT:         f"{SOUND_FILES_PATH}/Next_melding.wav",
+    SOUND_PRESET1:      f"{SOUND_FILES_PATH}/Preset1_melding.wav",
+    SOUND_PRESET2:      f"{SOUND_FILES_PATH}/Preset2_melding.wav",
+    SOUND_PRESET3:      f"{SOUND_FILES_PATH}/Preset3_melding.wav",
+    SOUND_SPOTIFY:      f"{SOUND_FILES_PATH}/Spotify_melding.wav",
+    SOUND_USB:          f"{SOUND_FILES_PATH}/USBPresent_melding.wav",
+    SOUND_NO_USB:       f"{SOUND_FILES_PATH}/NoUSB_melding.wav",
+    SOUND_AP_START:     f"{SOUND_FILES_PATH}/OradioAPstarted_melding.wav",
+    SOUND_AP_STOP:      f"{SOUND_FILES_PATH}/OradioAPstopped_melding.wav",
+    SOUND_WIFI:         f"{SOUND_FILES_PATH}/WifiConnected_melding.wav",
+    SOUND_NO_WIFI:      f"{SOUND_FILES_PATH}/WifiNotConnected_melding.wav",
+    SOUND_NO_INTERNET:  f"{SOUND_FILES_PATH}/NoInternet_melding.wav",
+    SOUND_NEW_PRESET:   f"{SOUND_FILES_PATH}/NewPlaylistPreset_melding.wav",
+    SOUND_NEW_WEBRADIO: f"{SOUND_FILES_PATH}/NewPlaylistWebradio_melding.wav",
 }
 
 def play_sound(sound_key: str) -> None:

@@ -118,10 +118,8 @@ declare -A PROMPTS=(
 	["Spotify_melding.wav"]="Spotify afspelen."
 	["WifiConnected_melding.wav"]="Verbonden met wifi."
 	["USBPresent_melding.wav"]="USB-geheugenstick is aanwezig."
-	["NewPreset_melding.wav"]="Nieuwe afspeellijst wordt afgespeeld."
-	["NewWebradio1_melding.wav"]="De gekozen webradio is ingesteld voor knop één."
-	["NewWebradio2_melding.wav"]="De gekozen webradio is ingesteld voor knop twee."
-	["NewWebradio3_melding.wav"]="De gekozen webradio is ingesteld voor knop drie."
+	["NewPlaylistPreset_melding.wav"]="Nieuwe afspeellijst wordt afgespeeld."
+	["NewPlaylistWebradio_melding.wav"]="De gekozen webradio is ingesteld."
 	["NoInternet_melding.wav"]="Geen internetverbinding."
 	["WifiNotConnected_melding.wav"]="Geen WIEFIE verbinding."
 	["NoUSB_melding.wav"]="USB geheugenstick is verwijderd."
@@ -287,9 +285,6 @@ synthesize() {
 }
 
 trim_silence() {
-
-return 1
-
 	local file="$1"
 	echo "Trim leading and trailing silence from: $file"
 

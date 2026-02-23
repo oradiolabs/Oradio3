@@ -90,9 +90,7 @@ from oradio_const import (
     SOUND_NO_WIFI,
     SOUND_NO_INTERNET,
     SOUND_NEW_PRESET,
-    SOUND_NEW_WEBRADIO_1,
-    SOUND_NEW_WEBRADIO_2,
-    SOUND_NEW_WEBRADIO_3,
+    SOUND_NEW_WEBRADIO,
     MESSAGE_BUTTON_SOURCE,
     MESSAGE_SHORT_PRESS_BUTTON_PLAY,
     MESSAGE_SHORT_PRESS_BUTTON_STOP,
@@ -587,17 +585,20 @@ def on_webservice_pl3_changed():
 
 
 def on_web_pl1_webradio_changed():
-    threading.Timer(2, play_sound, args=(SOUND_NEW_WEBRADIO_1,)).start()
+#REVIEW Onno: Er is geen indicatie voor welke preset de webradio is ingesteld
+    threading.Timer(2, play_sound, args=(SOUND_NEW_WEBRADIO,)).start()
     oradio_log.debug("WebService on_web_pl_webradio_changed acknowledged")
 
 
 def on_web_pl2_webradio_changed():
-    threading.Timer(2, play_sound, args=(SOUND_NEW_WEBRADIO_2,)).start()
+#REVIEW Onno: Er is geen indicatie voor welke preset de webradio is ingesteld
+    threading.Timer(2, play_sound, args=(SOUND_NEW_WEBRADIO,)).start()
     oradio_log.debug("WebService on_web_pl_webradio_changed acknowledged")
 
 
 def on_web_pl3_webradio_changed():
-    threading.Timer(2, play_sound, args=(SOUND_NEW_WEBRADIO_3,)).start()
+#REVIEW Onno: Er is geen indicatie voor welke preset de webradio is ingesteld
+    threading.Timer(2, play_sound, args=(SOUND_NEW_WEBRADIO,)).start()
     oradio_log.debug("WebService on_web_pl_webradio_changed acknowledged")
 
 
