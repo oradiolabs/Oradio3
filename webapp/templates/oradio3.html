@@ -12,6 +12,17 @@ Design choices:
 		<meta name="autofocus" content="false">
 		<meta name="viewport" content="width=device-width, initial-scale=1.0">
 
+		<!-- Images -->
+		<link rel="preload" href="../static/logo.png" as="image">
+		<link rel="preload" href="../static/stop.png" as="image">
+		<link rel="preload" href="../static/waiting.gif" as="image">
+		<link rel="preload" href="../static/network.png" as="image">
+		<link rel="preload" href="../static/buttons.png" as="image">
+		<link rel="preload" href="../static/playlists.png" as="image">
+		<link rel="preload" href="../static/status.png" as="image">
+		<link rel="preload" href="../static/save.png" as="image">
+		<link rel="preload" href="../static/delete.png" as="image">
+
 		<!-- CSS -->
 		<link rel="stylesheet" href="../static/css/fontawesome.min.css" />
 		<link rel="stylesheet" href="../static/css/regular.min.css" />
@@ -44,25 +55,29 @@ Design choices:
 		<!-- Header -->
 		<header role="banner" class="header">
 			<img src="../static/logo.png" alt="Oradio logo">
-			<img src="../static/stop.png" alt="Stop" class="shutdown-button">
+			<img src="../static/stop.png" alt="Stop button" class="shutdown-button">
 		</header>
 
 		<!-- Navigation -->
 		<nav role="navigation">
 			<button data-page="network">
-				<span><img src="../static/wifi.png" alt="Netwerk" /><br></span>
+				<img src="../static/network.png" alt="Netwerk" />
+				<br>
 				<div>Netwerk</div>
 			</button>
 			<button data-page="buttons">
-				<span><img src="../static/buttons.png" alt="Knoppen" /><br></span>
+				<img src="../static/buttons.png" alt="Knoppen" />
+				<br>
 				<div>Knoppen</div>
 			</button>
 			<button data-page="playlists">
-				<span><img src="../static/playlists.png" alt="Speellijsten" /><br></span>
+				<img src="../static/playlists.png" alt="Speellijsten" />
+				<br>
 				<div>Lijsten</div>
 			</button>
 			<button data-page="status">
-				<span><img src="../static/status.png" alt="Status" /><br></span>
+				<img src="../static/status.png" alt="Status" />
+				<br>
 				<div>Status</div>
 			</button>
 		</nav>
@@ -101,7 +116,7 @@ Design choices:
 						id="password-input"
 						placeholder="Voer WiFi-wachtwoord in"
 					/>
-					<span id="password-icon" class="custom-icon fa-regular fa-eye" />	<!-- 👁️ icon -->
+					<span id="password-icon" class="custom-icon fa-regular fa-eye"></span>	<!-- 👁️ icon -->
 				</div>
 
 				<!-- Submit wifi credentials -->
