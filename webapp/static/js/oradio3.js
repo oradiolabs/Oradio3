@@ -57,32 +57,51 @@ function shutdownWebApp()
 // Server access wrapper
 async function postJSON(cmd, args = {})
 {
-	try
+	const retries = 2;		// Automatic retry
+	const timeout = 5000;	// ms
+
+	// Retries
+    for (let attempt = 0; attempt <= retries; attempt++)
 	{
-		// Submit the request
-		const response = await fetch('/execute',
+		try
 		{
-			method: 'POST',
-			headers: {'Content-Type': 'application/json'},
-			body: JSON.stringify({cmd, args})
-		});
+			// Timeout
+			const controller = new AbortController();
+			const id = setTimeout(() => controller.abort(), timeout);
 
-		// Parse JSON safely
-		const data = await response.json().catch(() => ({}));
+			// Submit the request
+			const response = await fetch('/execute',
+			{
+				method: 'POST',
+				headers: {'Content-Type': 'application/json'},
+				body: JSON.stringify({cmd, args}),
+				signal: controller.signal
+			});
 
-		// Throw for HTTP errors
-		if (!response.ok)
-			throw new Error(data.message || "Server error");
+			clearTimeout(id);
 
-		return data;
-	}
-	catch (err)
-	{
-		// If it's already a server error, rethrow it
-		if (err instanceof Error && err.message !== "Failed to fetch")
-			throw err;
+			// Throw for HTTP errors
+			if (!response.ok)
+                throw new Error(`HTTP ${response.status}`);
 
-		throw new Error("Controleer of de webapp actief is");
+			// Parse JSON safely
+			const data = await response.json().catch(() => ({}));
+
+			return data;
+		}
+		catch (err)
+		{
+			if (attempt < retries)
+			{
+				// Timeout -> retry
+				console.warn(`Retrying /execute, attempt ${attempt+1}`, err);
+				await new Promise(r => setTimeout(r, 500)); // short backoff
+			}
+			else
+			{
+				throw new Error(`${err.message}. Controleer of de webapp actief is`);
+			}
+		}
 	}
 }
 
