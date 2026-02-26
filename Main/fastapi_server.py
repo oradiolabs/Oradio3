@@ -485,7 +485,7 @@ def modify_playlist(args: Optional[Dict[str, Any]]):
     return mpd_control.get_playlists()
 
 class ExecuteRequest(BaseModel):
-     """
+    """
     Request model for generic command execution.
 
     Attributes:
