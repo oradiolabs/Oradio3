@@ -430,11 +430,13 @@ async function showSongs(input, target, playlist)
 	// Show waiting indicator
 	showWaiting();
 
-	// Show scrollbox with playlist songs
+	// Show scrollbox with playlist songs, hide if empty
 	const songs = await getPlaylistSongs(playlist);
-
+	const scrollbox = document.getElementById(target);
 	if (songs.length)
-		populateSongsScrollbox(input, document.getElementById(target), songs);
+		populateSongsScrollbox(input, scrollbox, songs);
+	else
+		hideScrollbox(scrollbox);
 
 	// Show waiting indicator
 	hideWaiting();
