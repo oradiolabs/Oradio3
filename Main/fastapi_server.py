@@ -112,13 +112,30 @@ async def keep_alive_middleware(request: Request, call_next):
     # Return response for actual request
     return response
 
-#### STATUS ##############################
+#### FAVICON #############################
+
+@api_app.get("/favicon.ico", include_in_schema=False)
+async def favicon():
+    """ Handle default browser request for /favicon.ico """
+    return FileResponse(web_path + "/static/favicon.ico")
+
+#### HELPERS #############################
 
 def _get_sw_info():
     """
-    Retrieve software configuration information from the software version JSON file
-    Returns: Contains 'serial' and 'version' keys with software info
-             If the file is missing or unreadable, returns default placeholders
+    Retrieve software configuration information from the software version file
+
+    The function attempts to read a JSON file containing software metadata.
+    It extracts the serial number and version information. If the file
+    cannot be found or read, default placeholder values are returned.
+
+    Returns:
+        Dict[str, str]: Dictionary containing:
+            - "serial": Software serial number.
+            - "version": Software version (git info).
+
+            Returns INFO_MISSING if the file does not exist.
+            Returns INFO_ERROR if the file is unreadable or invalid.
     """
     oradio_log.debug("Get software info")
 
@@ -140,18 +157,21 @@ def _get_sw_info():
     # Return sanitized data set
     return software_info
 
-#### FAVICON #############################
-
-@api_app.get("/favicon.ico", include_in_schema=False)
-async def favicon():
-    """ Handle default browser request for /favicon.ico """
-    return FileResponse(web_path + "/static/favicon.ico")
-
-#### EXECUTE #############################
-
-# --- Helper functions ---
 def play_song(args: Optional[Dict[str, Any]]):
-    """Play a song via MPD"""
+    """
+    Play a song via MPD.
+
+    Args:
+        args (Optional[Dict[str, Any]]):
+            Dictionary containing:
+                - "song" (str): Path or identifier of the song to play.
+
+    Returns:
+        Dict[str, str]: Confirmation message containing the song name.
+
+    Raises:
+        ValueError: If the required 'song' argument is missing.
+    """
     # Extract required argument, none if no args sent
     songfile = args.get("song") if args else None
     if not songfile:
@@ -174,17 +194,54 @@ def play_song(args: Optional[Dict[str, Any]]):
     return {"message": f"'{songfile}' is nu te horen"}
 
 def get_networks(_args: Optional[Dict[str, Any]]):
-    """Return available WiFi networks"""
+    """
+    Retrieve available WiFi networks.
+
+    Args:
+        _args (Optional[Dict[str, Any]]): Unused.
+
+    Returns:
+        list: list of detected WiFi networks.
+    """
     return get_wifi_networks()
 
 def shutdown_webapp(_args: Optional[Dict[str, Any]]):
-    """Shutdown the web server"""
+    """
+    Shutdown the web server.
+
+    Sends a stop request message to the service queue.
+
+    Args:
+        _args (Optional[Dict[str, Any]]): Unused.
+
+    Returns:
+        None
+    """
     # Send a stop message to the service queue
     message = {"request": MESSAGE_REQUEST_STOP}
     safe_put(api_app.state.queue, message)
 
 def rename_spotify(args: Optional[Dict[str, Any]]):
-    """Modify Spotify device name"""
+    """
+    Modify the Spotify (librespot) device name.
+
+    The name must match the allowed pattern: letters, numbers,
+    hyphen (-), and underscore (_).
+
+    Args:
+        args (Optional[Dict[str, Any]]):
+            Dictionary containing:
+                - "name" (str): New Spotify device name.
+
+    Returns:
+        Union[str, JSONResponse]:
+            - The new device name on success.
+            - JSONResponse with status 400 if validation or system
+              command execution fails.
+
+    Raises:
+        ValueError: If the required 'name' argument is missing.
+    """
     # Extract required argument, none if no args sent
     name = args.get("name") if args else None
     if not name:
@@ -227,7 +284,21 @@ def rename_spotify(args: Optional[Dict[str, Any]]):
     return name
 
 def wifi_connect(args: Optional[Dict[str, Any]]):
-    """Connect to wifi network"""
+    """
+    Send a request to connect to a WiFi network.
+
+    Args:
+        args (Optional[Dict[str, Any]]):
+            Dictionary containing:
+                - "ssid" (str): WiFi network name (required).
+                - "pswd" (str, optional): WiFi password.
+
+    Raises:
+        ValueError: If the required 'ssid' argument is missing.
+
+    Returns:
+        None
+    """
     # Extract required arguments, none if no args sent
     ssid = args.get("ssid") if args else None
     if not ssid:
@@ -245,7 +316,24 @@ def wifi_connect(args: Optional[Dict[str, Any]]):
     safe_put(api_app.state.queue, message)
 
 def save_preset(args: Optional[Dict[str, Any]]):
-    """Save preset playlist"""
+    """
+    Save a playlist or webradio entry as a preset.
+
+    The preset is stored and a corresponding state message
+    is sent to the web service queue.
+
+    Args:
+        args (Optional[Dict[str, Any]]):
+            Dictionary containing:
+                - "preset" (str): Preset key (preset1, preset2, preset3).
+                - "playlist" (str): Playlist or webradio identifier.
+
+    Raises:
+        ValueError: If required arguments are missing.
+
+    Returns:
+        None
+    """
     # Extract required arguments, none if no args sent
     preset = args.get("preset") if args else None
     if not preset:
@@ -297,7 +385,20 @@ def save_preset(args: Optional[Dict[str, Any]]):
         oradio_log.error("Invalid preset '%s'", preset)
 
 def get_playlist_songs(args: Optional[Dict[str, Any]]):
-    """Get songs for given playlist"""
+    """
+    Retrieve all songs in a given playlist.
+
+    Args:
+        args (Optional[Dict[str, Any]]):
+            Dictionary containing:
+                - "playlist" (str): Playlist name.
+
+    Returns:
+        Any: List of songs returned by MPDControl.get_songs().
+
+    Raises:
+        ValueError: If the required 'playlist' argument is missing.
+    """
     # Extract required arguments, none if no args sent
     playlist = args.get("playlist") if args else None
     if not playlist:
@@ -306,7 +407,20 @@ def get_playlist_songs(args: Optional[Dict[str, Any]]):
     return mpd_control.get_songs(playlist)
 
 def get_search_songs(args: Optional[Dict[str, Any]]):
-    """Get songs for given pattern"""
+    """
+    Search for songs matching a pattern.
+
+    Args:
+        args (Optional[Dict[str, Any]]):
+            Dictionary containing:
+                - "pattern" (str): Search pattern.
+
+    Returns:
+        Any: Search results returned by MPDControl.search().
+
+    Raises:
+        ValueError: If the required 'pattern' argument is missing.
+    """
     # Extract required arguments, none if no args sent
     pattern = args.get("pattern") if args else None
     if not pattern:
@@ -315,7 +429,24 @@ def get_search_songs(args: Optional[Dict[str, Any]]):
     return mpd_control.search(pattern)
 
 def modify_playlist(args: Optional[Dict[str, Any]]):
-    """Add/remove playlist and/or songs in playlist"""
+    """
+    Add or remove playlists and/or songs from a playlist.
+
+    Args:
+        args (Optional[Dict[str, Any]]):
+            Dictionary containing:
+                - "action" (str): Either "Add" or "Remove".
+                - "playlist" (str): Playlist name.
+                - "song" (str, optional): Song to add or remove.
+
+    Returns:
+        Union[Any, JSONResponse]:
+            - Updated playlist list on success.
+            - JSONResponse with status 400 if action is invalid.
+
+    Raises:
+        ValueError: If required arguments are missing.
+    """
     # Extract required arguments, none if no args sent
     action = args.get("action") if args else None
     if not action:
@@ -354,10 +485,13 @@ def modify_playlist(args: Optional[Dict[str, Any]]):
     return mpd_control.get_playlists()
 
 class ExecuteRequest(BaseModel):
-    """
-    Generic command request:
-    - cmd: command name
-    - args: dictionary of arguments (can have 0 or more entries)
+     """
+    Request model for generic command execution.
+
+    Attributes:
+        cmd (str): Command name to execute.
+        args (Optional[Dict[str, Any]]): Optional dictionary
+            containing command-specific arguments.
     """
     cmd:  str
     args: Optional[Dict[str, Any]] = None
@@ -366,7 +500,19 @@ class ExecuteRequest(BaseModel):
 @api_app.post("/execute")
 async def execute(request: ExecuteRequest):
     """
-    Execute the provided command using relevant arguments
+    Execute a command based on the provided request payload.
+
+    The command is validated against a dispatch table and then
+    executed with its associated arguments.
+
+    Args:
+        request (ExecuteRequest): Incoming command request.
+
+    Returns:
+        Any:
+            - Command result on success.
+            - JSONResponse with status 400 if the command
+              is invalid or arguments are incorrect.
     """
     oradio_log.debug("Executing '%s' with args '%s'", request.cmd, request.args)
 
@@ -402,14 +548,30 @@ async def execute(request: ExecuteRequest):
 @api_app.get("/oradio3")
 async def oradio3_page(request: Request):
     """
-    Serve the Oradio3 web interface page, with:
-    - network: 
-    - buttons: 
-    - playlists: 
-    - status: hardware and software information
-    Returns: Status page populated with
-              - Oradio serial number from hardware command
-              - Software serial and version
+    Serve the Oradio3 web interface page.
+
+    This endpoint renders the main Oradio3 web interface using a Jinja2
+    template. It gathers system and application state information,
+    including:
+
+    - Previously connected WiFi network
+    - Current Spotify (librespot) device name
+    - Saved presets
+    - Available MPD directories and playlists
+    - Raspberry Pi serial number
+    - Software serial and version information
+
+    Args:
+        request (Request): The incoming HTTP request object.
+
+    Returns:
+        TemplateResponse:
+            Rendered 'oradio3.html' page containing the full web
+            interface context.
+
+        JSONResponse:
+            Returned with status 400 if retrieving the Spotify
+            device name fails.
     """
     oradio_log.debug("Serving Oradio3 page")
 
@@ -455,7 +617,17 @@ async def oradio3_page(request: Request):
 #### KEEP ALIVE ######################
 
 async def stop_task():
-    """The wait task sending the stop message when timer expires."""
+    """
+    Background task that monitors the keep-alive deadline.
+
+    The task sleeps in short intervals until the deadline expires.
+    When expired, a stop message is sent to the service queue.
+    The task exits silently if cancelled.
+
+    Raises:
+        CancelledError: When the task is cancelled due to
+        a keep-alive reset.
+    """
     try:
         # Sleep until timeout unless reset
         while True:
@@ -481,7 +653,15 @@ async def stop_task():
 # POST endpoint to reset the keep alive timer
 @api_app.post("/keep_alive")
 async def keep_alive():
-    """Handle POST request to (re)set the inactive timer for closing the web server."""
+    """
+    Reset or start the inactivity timer for the web server.
+
+    If no keep-alive request is received within KEEP_ALIVE_TIMEOUT
+    seconds, the web server will be instructed to stop.
+
+    Returns:
+        None
+    """
     if api_app.state.timer_deadline is None:
         oradio_log.debug("Starting the keep alive timer")
     else:
@@ -533,9 +713,16 @@ if __name__ == '__main__':
 
     def _check_messages(queue):
         """
-        Check if a new message is put into the queue
-        If so, read the message from queue and display it
-        :param queue = the queue to check for
+        Monitor the message queue and print received messages.
+
+        Intended for stand-alone operation. Continuously checks
+        the queue for new messages and prints them to stdout.
+
+        Args:
+            queue (multiprocessing.Queue): Queue to monitor.
+
+        Returns:
+            None
         """
         try:
             while not stop_event.is_set():
