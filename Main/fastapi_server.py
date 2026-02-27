@@ -112,13 +112,6 @@ async def keep_alive_middleware(request: Request, call_next):
     # Return response for actual request
     return response
 
-#### FAVICON #############################
-
-@api_app.get("/favicon.ico", include_in_schema=False)
-async def favicon():
-    """ Handle default browser request for /favicon.ico """
-    return FileResponse(web_path + "/static/favicon.ico")
-
 #### HELPERS #############################
 
 def _get_sw_info():
