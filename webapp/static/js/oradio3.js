@@ -52,8 +52,8 @@ function shutdownWebApp()
 	// Show waiting indicator
 	showWaiting();
 
-	// Send shutdown command
-	postJSON("shutdown").catch(err => console.error(err));
+	// Fire-and-forget: server may terminate immediately
+	postJSON("shutdown").catch(()=>{});
 }
 
 // Server access wrapper
@@ -110,12 +110,12 @@ async function postJSON(cmd, args = {})
 /* ========== Initialize Single Page Application (SPA) ========== */
 
 // Global variables
-let networks = [], networksPromise, networkInput, passwordBlock, passwordInput, notificationNetwork;	// Network
-let spotifyInput, notificationSpotify;																	// Spotify
-let notificationPresets;																				// Presets
-let playlistInput, playlistSongs, notificationPlaylist;													// Playlist songs
-let customPlaylists, customList, customInput, customSongs, notificationCustom;							// Custom playlists
-let searchInput, searchSongs, notificationSearch;														// Search songs
+let networks = [], networksPromise, networkInput, networkNotification, passwordBlock, passwordInput;	// Network
+let spotifyInput, spotifyNotification;																	// Spotify
+let presetsNotification;																				// Presets
+let playlistInput, playlistSongs, playlistNotification;													// Playlist songs
+let customPlaylists, customList, customInput, customSongs, customNotification;							// Custom playlists
+let searchInput, searchSongs, searchNotification;														// Search songs
 
 // Execute when page is loaded
 document.addEventListener('DOMContentLoaded', () =>
@@ -135,22 +135,22 @@ document.addEventListener('DOMContentLoaded', () =>
 	passwordBlock = document.getElementById('password-block');
 	passwordInput = document.getElementById('password-input');
 	const passwordIcon = document.getElementById('password-icon');
-	notificationNetwork = document.getElementById('notification_network');
+	networkNotification = document.getElementById('notification_network');
 	spotifyInput = document.getElementById('spotify-input');
-	notificationSpotify = document.getElementById('notification_spotify');
+	spotifyNotification = document.getElementById('notification_spotify');
 	// Buttons page
 	playlistInput = document.getElementById('playlist-input'); 
 	playlistSongs = document.getElementById('playlist-songs'); 
-	notificationPlaylist = document.getElementById('notification_playlist');
-	notificationPresets = document.getElementById('notification_presets');
+	playlistNotification = document.getElementById('notification_playlist');
+	presetsNotification = document.getElementById('notification_presets');
 	// Playlists page
 	customInput = document.getElementById("custom-input");
 	customList = document.getElementById('custom-list');
 	customSongs = document.getElementById('custom-songs');
-	notificationCustom = document.getElementById("notification_custom");
+	customNotification = document.getElementById("notification_custom");
 	searchInput = document.getElementById('search-input');
 	searchSongs = document.getElementById('search-songs');
-	notificationSearch = document.getElementById("notification_search");
+	searchNotification = document.getElementById("notification_search");
 
 	// Buttons
 	document.getElementById("submitCredentialsButton").addEventListener("click", submitCredentials);
@@ -171,8 +171,8 @@ document.addEventListener('DOMContentLoaded', () =>
 	populateNetworkDropdown();
 
 	// Clear Network notification when input gets focus
-	networkInput.addEventListener("focus", () => hideNotification(notificationNetwork));
-	passwordInput.addEventListener("focus", () => hideNotification(notificationNetwork));
+	networkInput.addEventListener("focus", () => hideNotification(networkNotification));
+	passwordInput.addEventListener("focus", () => hideNotification(networkNotification));
 
 	// Password toggle
 	passwordIcon.addEventListener("click", () =>
@@ -184,7 +184,7 @@ document.addEventListener('DOMContentLoaded', () =>
 	});
 
 	// Clear Spotify notification when input gets focus
-	spotifyInput.addEventListener("focus", () => hideNotification(notificationSpotify));
+	spotifyInput.addEventListener("focus", () => hideNotification(spotifyNotification));
 
 	// Populate the preset dropdowns with avaialble directories and playlists
 	populatePresetLists();
@@ -192,7 +192,7 @@ document.addEventListener('DOMContentLoaded', () =>
 	// Clear notifications and hide songs scrollbox on focus
 	playlistInput.addEventListener("focus", () =>
 	{
-		hideNotification(notificationPlaylist);
+		hideNotification(playlistNotification);
 		hideScrollbox(playlistSongs);
 	});
 
@@ -203,7 +203,7 @@ document.addEventListener('DOMContentLoaded', () =>
 	function populateAutocompleteList()
 	{
 		// Hide notification and songs when selecting a new playlist
-		hideNotification(notificationCustom);
+		hideNotification(customNotification);
 		hideScrollbox(customSongs);
 
 		// Get input for case insensitive matching
@@ -238,7 +238,7 @@ document.addEventListener('DOMContentLoaded', () =>
 	// Clear notifications and hide search songs scrollbox on focus
 	searchInput.addEventListener("focus", () =>
 	{
-		hideNotification(notificationSearch);
+		hideNotification(searchNotification);
 		hideScrollbox(searchSongs);
 	});
 
@@ -375,7 +375,6 @@ document.addEventListener("click", (event) =>
 	{
 		const row = icon.closest(".scrollbox-row");
 		handleIconClick(row);
-//REVIEW: Moet dit niet aan begin van handler? I toch altijd geval?
 		event.stopPropagation(); // prevent row click handler
 		return;
 	}
@@ -413,10 +412,8 @@ function handleIconClick(row)
 
 		// Save/remove song from playlist
 		if (row.querySelector(".delete-button-small"))
-//REVIEW: Alleen nodige info doorgeven!
 			delSongFromPlaylist(row);
 		else if (row.querySelector(".save-button-small"))
-//REVIEW: Alleen nodige info doorgeven!
 			addSongFromPlaylist(row);
 		else
 			console.error("Undefined modify request for row:", row);
@@ -438,7 +435,7 @@ function handleRowClick(row)
 		input.value = row.querySelector(".scrollbox-row-text").textContent.trim();
 
 		// Dispatch a custom input value changed event
-		input.dispatchEvent(new Event('inputValueChanged'));
+		input.dispatchEvent(new Event('inputValueChanged'), { bubbles: true });
 
 		// Hide scrollbox
 		hideScrollbox(scrollbox);
@@ -528,7 +525,6 @@ function onRowSelect(action, row)
 			// Get scrollbox
 			const scrollbox = document.getElementById(row.dataset.target);
 			// Get playlist
-//REVIEW: is playlist niet gelijk aan input.value?
 			var playlist = row.querySelector(".scrollbox-row-text").textContent.trim();
 			// Get notification
 			const notification = document.getElementById(row.dataset.notify);
@@ -542,7 +538,6 @@ function onRowSelect(action, row)
 			// Get filename of song to play
 			const songfile = row.dataset.songfile;
 			// Get song description
-//REVIEW: is songtext nodig?
 			const songtext = row.querySelector(".scrollbox-row-text").textContent.trim();
 			// Play selected song
 			playSong(notify, songfile, songtext);
@@ -566,7 +561,7 @@ async function getNetworks()
 		const networks = (await postJSON(cmd)) || [];
 		if (networks.length === 0)
 		{
-			showNotification(notificationNetwork, `<span class="warning">No wifi networks found</span>`);
+			showNotification(networkNotification, `<span class="warning">No wifi networks found</span>`);
 			return [];
 		}
 
@@ -577,7 +572,7 @@ async function getNetworks()
 	}
 	catch (err)
 	{
-		showNotification(notificationNetwork, `<span class="error">${errorMessage}<br>${err.message || 'Onbekende fout'}</span>`);
+		showNotification(networkNotification, `<span class="error">${errorMessage}<br>${err.message || 'Onbekende fout'}</span>`);
 		console.error(err);
 	}
 	// Avoid undefined
@@ -605,7 +600,7 @@ async function populateNetworkDropdown()
 	dropdown.replaceChildren(fragment);
 
 	// Mark dropdown as ready
-	dropdown.dataset.populated = true;
+	dropdown.dataset.populated = "true";
 
 	// Hide waiting indicator
 	hideWaiting();
@@ -623,12 +618,12 @@ async function showPassword(ssid)
 // Submit network credentials
 async function submitCredentials()
 {
-	hideNotification(notificationNetwork);
+	hideNotification(networkNotification);
 
 	const ssid = networkInput.value;
 	if (!ssid)
 	{
-		showNotification(notificationNetwork, `<span class="error">Kies een wifi netwerk</span>`);
+		showNotification(networkNotification, `<span class="error">Kies een wifi netwerk</span>`);
 		return;
 	}
 
@@ -636,7 +631,7 @@ async function submitCredentials()
 	const ignorePassword = window.getComputedStyle(passwordBlock).display === "none";
 	if (!ignorePassword && pswd.length < 8)
 	{
-		showNotification(notificationNetwork, `<span class="error">Wachtwoord moet minimaal 8 karakters zijn</span>`);
+		showNotification(networkNotification, `<span class="error">Wachtwoord moet minimaal 8 karakters zijn</span>`);
 		return;
 	}
 
@@ -653,11 +648,11 @@ async function submitCredentials()
 		// Submit credentials to server
 		await postJSON(cmd, args);
 
-		showNotification(notificationNetwork,`De webapp wordt afgesloten<br>Oradio probeert te verbinden met '${ssid}'`);
+		showNotification(networkNotification,`De webapp wordt afgesloten<br>Oradio probeert te verbinden met '${ssid}'`);
 	}
 	catch (err)
 	{
-		showNotification(notificationNetwork, `<span class="error">${errorMessage}<br>${err.message || 'Onbekende fout'}</span>`);
+		showNotification(networkNotification, `<span class="error">${errorMessage}<br>${err.message || 'Onbekende fout'}</span>`);
 		console.error(err);
 	}
 }
@@ -665,18 +660,18 @@ async function submitCredentials()
 // Modify Spotify name
 async function submitSpotify()
 {
-	hideNotification(notificationSpotify);
+	hideNotification(spotifyNotification);
 
 	let name = spotifyInput.value.trim();
 	if (!name)
 	{
-		showNotification(notificationSpotify, `<span class="error">Kies een naam voor in de Spotify app</span>`);
+		showNotification(spotifyNotification, `<span class="error">Kies een naam voor in de Spotify app</span>`);
 		return;
 	}
 
 	if (name === spotify)
 	{
-		showNotification(notificationSpotify, `<span class="warning">'${name}' is al actief</span>`);
+		showNotification(spotifyNotification, `<span class="warning">'${name}' is al actief</span>`);
 		return;
 	}
 
@@ -697,11 +692,11 @@ async function submitSpotify()
 		spotifyInput.value = name;
 		spotify = name;
 
-		showNotification(notificationSpotify, `<span class="success">De Spotify naam is gewijzigd in '${name}'</span>`);
+		showNotification(spotifyNotification, `<span class="success">De Spotify naam is gewijzigd in '${name}'</span>`);
 	}
 	catch (err)
 	{
-		showNotification(notificationSpotify, `<span class="error">${errorMessage}<br>${err.message || 'Onbekende fout'}</span>`);
+		showNotification(spotifyNotification, `<span class="error">${errorMessage}<br>${err.message || 'Onbekende fout'}</span>`);
 		console.error(err);
 	}
 
@@ -732,7 +727,7 @@ function populatePresetLists()
 			row.dataset.action = input.id;
 			row.dataset.input = playlistInput.id;
 			row.dataset.target = playlistSongs.id;
-			row.dataset.notify = notificationPlaylist.id;
+			row.dataset.notify = playlistNotification.id;
 			fragment.appendChild(row);
 		});
 		dropdown.replaceChildren(fragment);
@@ -746,7 +741,7 @@ function populatePresetLists()
 async function savePreset(preset, playlist)
 {
 	// Clear notification
-	hideNotification(notificationPresets);
+	hideNotification(presetsNotification);
 
 	// Show waiting indicator
 	showWaiting();
@@ -762,13 +757,15 @@ async function savePreset(preset, playlist)
 	}
 	catch (err)
 	{
-		showNotification(notificationPresets, `<span class="error">${errorMessage}<br>${err.message || 'Onbekende fout'}</span>`);
+		showNotification(presetsNotification, `<span class="error">${errorMessage}<br>${err.message || 'Onbekende fout'}</span>`);
 		console.error(err);
 	}
 
 	// Hide waiting indicator
 	hideWaiting();
 }
+
+/* ========== Buttons page - playlist songs & Playlists page - search songs ========== */
 
 // CALLBACK entry point: Show playlist songs in scrollbox
 async function showSongs(input, scrollbox, playlist, notification)
@@ -791,7 +788,7 @@ async function showSongs(input, scrollbox, playlist, notification)
 async function getPlaylistSongs(playlist)
 {
 	// Clear notification
-	hideNotification(notificationPlaylist);
+	hideNotification(playlistNotification);
 
 	// Set error template
 	const errorMessage = `Ophalen van de liedjes van speellijst '${playlist}' is mislukt`;
@@ -808,7 +805,7 @@ async function getPlaylistSongs(playlist)
 		if (songs.length === 0)
 		{
 			// Inform user playlist is empty
-			showNotification(notificationPlaylist, `<span class="warning">Speellijst '${playlist}' is leeg</span>`);
+			showNotification(playlistNotification, `<span class="warning">Speellijst '${playlist}' is leeg</span>`);
 
 			// Failed to fetch songs
 			return [];
@@ -818,7 +815,7 @@ async function getPlaylistSongs(playlist)
 		if ((/^https?:/.test(songs[0]['file'])))
 		{
 			// Inform user playlist is webradio
-			showNotification(notificationPlaylist, `<span class="warning">Speellijst '${playlist}' is webradio</span>`);
+			showNotification(playlistNotification, `<span class="warning">Speellijst '${playlist}' is webradio</span>`);
 
 			// Failed to fetch songs
 			return [];
@@ -829,7 +826,7 @@ async function getPlaylistSongs(playlist)
 	}
 	catch (err)
 	{
-		showNotification(notificationPlaylist, `<span class="error">${errorMessage}<br>${err.message || 'Onbekende fout'}</span>`);
+		showNotification(playlistNotification, `<span class="error">${errorMessage}<br>${err.message || 'Onbekende fout'}</span>`);
 		console.error(err);
 	}
 	// Avoid Undefined
@@ -866,7 +863,7 @@ function populateSongsScrollbox(input, scrollbox, songs, notification)
 	scrollbox.scrollTop = 0;
 
 	// Dispatch a custom scrollbox populated event
-	scrollbox.dispatchEvent(new Event('scrollboxPopulated'));
+	scrollbox.dispatchEvent(new Event('scrollboxPopulated'), { bubbles: true });
 }
 
 // Submit the song to the server for playback
@@ -959,20 +956,20 @@ async function populateCustomDropdown(playlists)
 		row.dataset.action = "playlist-input";
 		row.dataset.input = customInput.id;
 		row.dataset.target = customSongs.id;
-		row.dataset.notify = notificationCustom.id;
+		row.dataset.notify = customNotification.id;
 		fragment.appendChild(row);
 	});
 	customList.replaceChildren(fragment);
 
 	// Mark populated
-	customList.dataset.populated = true;
+	customList.dataset.populated = "true";
 }
 
 // Create custom playlist if it does not exist
 async function addCustomPlaylist()
 {
 	// Hide notification, autocomplete list and songs when adding a new playlist
-	hideNotification(notificationCustom);
+	hideNotification(customNotification);
 	hideScrollbox(customSongs);
 	hideScrollbox(customList);
 
@@ -985,7 +982,7 @@ async function addCustomPlaylist()
 	// Warn if empty or exists, as custom playlist or directory
 	if (!playlist || existsInCustom || existsInDirectory)
 	{
-		showNotification(notificationCustom, `<span class='warning'>Typ een <em>nieuwe</em> speellijstnaam</span>`);
+		showNotification(customNotification, `<span class='warning'>Typ een <em>nieuwe</em> speellijstnaam</span>`);
 		return;
 	}
 
@@ -998,7 +995,7 @@ async function addCustomPlaylist()
 		customSongs.innerHTML = '';
 
 	// Inform user
-	showNotification(notificationCustom, `<span class='success'>Speellijst '${playlist}' is toegevoegd<br>Zoek liedjes en voeg toe met de <span class="icon-button save-button-tiny"></span>-knop</span>`);
+	showNotification(customNotification, `<span class='success'>Speellijst '${playlist}' is toegevoegd<br>Zoek liedjes en voeg toe met de <span class="icon-button save-button-tiny"></span>-knop</span>`);
 
 	// Show/hide save buttons
 	updateAddButtons();
@@ -1011,7 +1008,7 @@ async function addCustomPlaylist()
 async function delCustomPlaylist()
 {
 	// Hide notification, autocomplete list and songs when removing a playlist
-	hideNotification(notificationCustom);
+	hideNotification(customNotification);
 	hideScrollbox(customSongs);
 	hideScrollbox(customList);
 
@@ -1024,7 +1021,7 @@ async function delCustomPlaylist()
 	// Warn if empty or not exists or is a directory
 	if (!playlist || !existsInCustom || existsInDirectory)
 	{
-		showNotification(notificationCustom, `<span class='warning'>Kies of typ een <em>bestaande</em> speellijstnaam</span>`);
+		showNotification(customNotification, `<span class='warning'>Kies of typ een <em>bestaande</em> speellijstnaam</span>`);
 		return;
 	}
 
@@ -1037,7 +1034,7 @@ async function delCustomPlaylist()
 	});
 	if (inUse)
 	{
-		showNotification(notificationCustom, `<span class='warning'> 'Speellijst ${playlist}' niet verwijderd, want gekoppeld aan voorkeursknop(pen)</span>`);
+		showNotification(customNotification, `<span class='warning'> 'Speellijst ${playlist}' niet verwijderd, want gekoppeld aan voorkeursknop(pen)</span>`);
 		return;
 	}
 
@@ -1053,7 +1050,7 @@ async function delCustomPlaylist()
 	customInput.value = "";
 
 	// Inform user
-	showNotification(notificationCustom, `<span class='success'>Speellijst '${playlist}' is verwijderd</span>`);
+	showNotification(customNotification, `<span class='success'>Speellijst '${playlist}' is verwijderd</span>`);
 
 	// Show/hide save buttons
 	updateAddButtons();
@@ -1072,7 +1069,7 @@ async function delCustomPlaylist()
 // CALLBACK entry point: Add song to playlist
 async function addSongFromPlaylist(row)
 {
-	hideNotification(notificationCustom);
+	hideNotification(customNotification);
 
 	// Get songfile to add
 	const songfile = row.dataset.songfile;
@@ -1101,7 +1098,7 @@ async function addSongFromPlaylist(row)
 // CALLBACK entry point: Add song to playlist
 async function delSongFromPlaylist(row)
 {
-	hideNotification(notificationCustom);
+	hideNotification(customNotification);
 
 	// Get songfile to remove
 	const songfile = row.dataset.songfile;
@@ -1131,16 +1128,18 @@ async function modifyPlaylist(action, playlist, songfile, errorMessage)
 		const args = { "action": action, "playlist": playlist, "song": songfile };
 		playlists = (await postJSON(cmd, args)) || [];
 		customPlaylists = playlists.filter(item => !item.webradio).map(item => item.playlist);
-		hideWaiting();
 		return true;
 	}
 	catch (err)
 	{
-		showNotification(notificationCustom, `<span class="error">${errorMessage}<br>${err.message || 'Onbekende fout'}</span>`);
+		showNotification(customNotification, `<span class="error">${errorMessage}<br>${err.message || 'Onbekende fout'}</span>`);
 		console.error(err);
+		return false;
 	}
-	hideWaiting();
-	return false;
+	finally
+	{
+		hideWaiting();
+	}
 }
 
 /* ========== Playlist page - Search ========== */
@@ -1148,7 +1147,7 @@ async function modifyPlaylist(action, playlist, songfile, errorMessage)
 // Show playlist songs in scrollbox
 async function submitSearch()
 {
-	hideNotification(notificationSearch);
+	hideNotification(searchNotification);
 
 	// Get search input
 	const pattern = searchInput.value.trim();
@@ -1156,7 +1155,7 @@ async function submitSearch()
 	// Check for minimal search pattern length
 	if (pattern.length < 3)
 	{
-		showNotification(notificationSearch, `<span class='warning'>Gebruik een zoekopdracht met minimaal 3 karakters</span>`);
+		showNotification(searchNotification, `<span class='warning'>Gebruik een zoekopdracht met minimaal 3 karakters</span>`);
 		return;
 	}
 
@@ -1166,7 +1165,7 @@ async function submitSearch()
 	// Get songs from server
 	const songs = await getSearchSongs(pattern);
 	if (songs.length)
-		populateSongsScrollbox(searchInput, searchSongs, songs, notificationSearch);
+		populateSongsScrollbox(searchInput, searchSongs, songs, searchNotification);
 
 	// Show/hide save buttons
 	updateAddButtons();
@@ -1193,7 +1192,7 @@ async function getSearchSongs(pattern)
 		if (songs.length === 0)
 		{
 			// Inform user playlist is empty
-			showNotification(notificationSearch, `<span class='warning'>Geen liedjes gevonden met '${pattern}' in de naam van de artiest of in de titel<br>Gebruik een andere zoekopdracht</span>`);
+			showNotification(searchNotification, `<span class='warning'>Geen liedjes gevonden met '${pattern}' in de naam van de artiest of in de titel<br>Gebruik een andere zoekopdracht</span>`);
 
 			// Failed to fetch songs
 			return [];
@@ -1204,9 +1203,10 @@ async function getSearchSongs(pattern)
 	}
 	catch (err)
 	{
-		showNotification(notificationSearch, `<span class="error">${errorMessage}<br>${err.message || 'Onbekende fout'}</span>`);
+		showNotification(searchNotification, `<span class="error">${errorMessage}<br>${err.message || 'Onbekende fout'}</span>`);
 		console.error(err);
 	}
+	return [];
 }
 
 /* ========== Status page ========== */
