@@ -15,6 +15,20 @@ document.addEventListener('DOMContentLoaded', () =>
 	notificationPresets = document.getElementById('notification_presets');
 	notificationPlaylist = document.getElementById('notification_playlist');
 
+	// Populate the preset dropdowns with avaialble directories and playlists
+	populatePresetLists();
+
+	// Clear notifications and hide songs scrollbox on focus
+	document.getElementById('playlist').addEventListener("focus", () =>
+	{
+		hideNotification(notificationPlaylist);
+		hideScrollbox(document.getElementById('playlist-songs'));
+	});
+});
+
+// Convert directories and playlists into scrollbox rows
+function populatePresetLists()
+{
 	// Get alphabetically sorted array with directories and playlist names
 	const playlistNames = playlists.map(item => item.playlist);
 	let options = directories.concat(playlistNames);
@@ -40,14 +54,7 @@ document.addEventListener('DOMContentLoaded', () =>
 		dropdown.dataset.populated = "true";
 		hideWaiting();
 	});
-
-	// Clear notifications and hide songs scrollbox on focus
-	document.getElementById('playlist').addEventListener("focus", () =>
-	{
-		hideNotification(notificationPlaylist);
-		hideScrollbox(document.getElementById('playlist-songs'));
-	});
-});
+}
 
 // CALLBACK entry point: Submit the changed preset
 async function savePreset(preset, playlist)

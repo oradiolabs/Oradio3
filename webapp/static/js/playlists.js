@@ -176,6 +176,9 @@ async function addCustomPlaylist(input)
 
 	// Show/hide save buttons
 	updateAddButtons();
+
+	// Update dropdowns on buttons page
+	populatePresetLists();
 }
 
 // Remove custom playlist if it exists
@@ -198,6 +201,19 @@ async function delCustomPlaylist(input)
 		return;
 	}
 
+	// Warn if playlist is in use by preset
+	var inUse = false;
+	document.querySelectorAll('.presets').forEach(container =>
+	{
+		if (playlist === container.querySelector('input').value.trim())
+			inUse = true;
+	});
+	if (inUse)
+	{
+		showNotification(notificationCustom, `<span class='warning'> 'Speellijst ${playlist}' is niet verwijderd, want gekoppeld aan voorkeursknop(pen)</span>`);
+		return;
+	}
+
 	// Set error template
 	const errorMessage = `Verwijderen van speellijst '${playlist}' mislukt`;
 
@@ -214,6 +230,16 @@ async function delCustomPlaylist(input)
 
 	// Show/hide save buttons
 	updateAddButtons();
+
+	// On uttons page, update dropdowns
+	populatePresetLists();
+
+	// On buttons page, remove playlist from and songs list
+	if (playlist === document.getElementById("playlist").value.trim())
+	{
+		document.getElementById("playlist").value = "";
+		hideScrollbox(document.getElementById("playlist-songs"));
+	}
 }
 
 // CALLBACK entry point: Add song to playlist
