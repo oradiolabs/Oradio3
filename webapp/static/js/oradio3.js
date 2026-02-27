@@ -768,3 +768,23 @@ async function playSong(notification, songfile, songtitle)
 		console.error(err);
 	}
 }
+
+
+/* ========== Status ========== */
+
+// Prevent auto-detect linking datetime strings
+document.addEventListener("DOMContentLoaded", () =>
+{
+	const zeroWidth = "\u200B"; // zero-width space
+
+	// Select all table cells (adjust selector if needed)
+	document.querySelectorAll("td").forEach(td =>
+	{
+		// Only process if it has text content
+		if (td.textContent.trim().length > 0)
+		{
+			// Insert zero-width space before every digit
+			td.innerHTML = td.textContent.replace(/(\d)/g, zeroWidth + "$1");
+		}
+	});
+});
