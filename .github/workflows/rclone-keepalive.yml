@@ -14,18 +14,14 @@ jobs:
         uses: actions/checkout@v3
 
       - name: Setup rclone
-        uses: rclone/setup-rclone@v1
+        uses: AnimMouse/setup-rclone@v1
         with:
-          version: latest
-
-      - name: Save rclone config from secret
-        run: |
-          mkdir -p ~/.config/rclone
-          echo "${{ secrets.RCLONE_CONFIG }}" > ~/.config/rclone/rclone.conf
+          rclone_config: ${{ secrets.RCLONE_CONFIG }}
 
       - name: Keep OneDrive token alive
         run: |
-          # ogging to see the date/time the token was refreshed
+          # Log the date/time the token was refreshed
           echo "Token refreshed at $(date)"
-          # Only list the top-level folder to trigger refresh, quiet as we only care about the refresh
+          # Only list the top-level folder quiet to trigger refresh
           rclone ls stichtingsharepoint: --max-depth 1 --quiet
+
