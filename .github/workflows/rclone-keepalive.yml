@@ -1,0 +1,31 @@
+name: Keep OneDrive Token Alive
+
+# Runs weekly on Sunday at 00:00 UTC
+on:
+  schedule:
+    - cron: "0 0 * * 0"
+  workflow_dispatch:  # allows manual trigger
+
+jobs:
+  keepalive:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v3
+
+      - name: Setup rclone
+        uses: rclone/setup-rclone@v1
+        with:
+          version: latest
+
+      - name: Save rclone config from secret
+        run: |
+          mkdir -p ~/.config/rclone
+          echo "${{ secrets.RCLONE_CONFIG }}" > ~/.config/rclone/rclone.conf
+
+      - name: Keep OneDrive token alive
+        run: |
+          # ogging to see the date/time the token was refreshed
+          echo "Token refreshed at $(date)"
+          # Only list the top-level folder to trigger refresh, quiet as we only care about the refresh
+          rclone ls stichtingsharepoint: --max-depth 1 --quiet
