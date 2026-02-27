@@ -12,9 +12,12 @@ Design choices:
 		<meta name="autofocus" content="false">
 		<meta name="viewport" content="width=device-width, initial-scale=1.0">
 
+		<!-- favicon -->
+		<link rel="icon" href="/static/images/favicon.ico" type="image/x-icon">
+
 		<!-- Images -->
-		<link rel="preload" href="../static/save.png" as="image">
-		<link rel="preload" href="../static/delete.png" as="image">
+		<link rel="preload" href="../static/images/save.png" as="image">
+		<link rel="preload" href="../static/images/delete.png" as="image">
 
 		<!-- CSS -->
 		<link rel="stylesheet" href="../static/css/fontawesome.min.css" />
@@ -23,8 +26,6 @@ Design choices:
 
 		<!-- JS -->
 		<script src="../static/js/oradio3.js" defer></script>
-		<script src="../static/js/buttons.js" defer></script>
-		<script src="../static/js/playlists.js" defer></script>
 
 		<!-- Template variables -->
 		<script>
@@ -41,33 +42,33 @@ Design choices:
 
 	<body>
 		<!-- Waiting indicator -->
-		<img id="waiting" src="../static/waiting.gif" class="waiting" alt="Bezig met laden..." />
+		<img id="waiting" src="../static/images/waiting.gif" class="waiting" alt="Bezig met laden..." />
 
 		<!-- Header -->
 		<header role="banner" class="header">
-			<img src="../static/logo.png" alt="Oradio logo">
-			<img src="../static/stop.png" alt="Stop button" class="shutdown-button">
+			<img src="../static/images/logo.png" alt="Oradio logo">
+			<img src="../static/images/stop.png" alt="Stop button" class="shutdown-button">
 		</header>
 
 		<!-- Navigation -->
 		<nav role="navigation">
 			<button data-page="network">
-				<img src="../static/network.png" alt="Netwerk" />
+				<img src="../static/images/network.png" alt="Netwerk" />
 				<br>
 				<div>Netwerk</div>
 			</button>
 			<button data-page="buttons">
-				<img src="../static/buttons.png" alt="Knoppen" />
+				<img src="../static/images/buttons.png" alt="Knoppen" />
 				<br>
 				<div>Knoppen</div>
 			</button>
 			<button data-page="playlists">
-				<img src="../static/playlists.png" alt="Speellijsten" />
+				<img src="../static/images/playlists.png" alt="Speellijsten" />
 				<br>
 				<div>Lijsten</div>
 			</button>
 			<button data-page="status">
-				<img src="../static/status.png" alt="Status" />
+				<img src="../static/images/status.png" alt="Status" />
 				<br>
 				<div>Status</div>
 			</button>
@@ -179,8 +180,8 @@ Design choices:
 					<input
 						readonly
 						type="text"
-						id="playlist"
-						name="playlist"
+						id="playlist-input"
+						name="playlist-input"
 						placeholder="Kies een speellijst"
 					/>
 					<span class="custom-icon">&#x25BC;</span> <!-- ▼ icon -->
@@ -217,8 +218,8 @@ Design choices:
 						<!-- No label -->
 						<input
 							type="text"
-							id="custom"
-							name="custom"
+							id="custom-input"
+							name="custom-input"
 							placeholder="Typ naam van speellijst"
 						/>
 						<!-- No icon -->
@@ -249,7 +250,7 @@ Design choices:
 				<h1>Liedjes zoeken</h1>
 
 				<!-- Search songs by artist or title -->
-				<input type="text" id="search" name="search" placeholder="Typ (deel van) naam van artiest of titel" />
+				<input type="text" id="search-input" name="search-input" placeholder="Typ (deel van) naam van artiest of titel" />
 				<button id="submitSearchButton" class="submit">Zoeken</button>
 
 				<!-- Show notifcation, if any -->
