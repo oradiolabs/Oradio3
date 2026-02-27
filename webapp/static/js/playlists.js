@@ -45,7 +45,10 @@ document.addEventListener('DOMContentLoaded', () =>
 
 		// Fill and show autocomplete list if it has entries, hide otherwise
 		populateCustomDropdown(matches);
-		showScrollbox(listbox, input);
+
+		// Do not show empty dropdown
+		if (matches.length === 0)
+			showScrollbox(listbox, input);
 
 		// Show/hide save buttons
 		updateAddButtons();
