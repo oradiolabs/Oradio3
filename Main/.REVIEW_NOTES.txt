@@ -25,18 +25,15 @@ T - Oradio exception introduceren, inclusief handler die gepaste akties neemt.
 	De fout heeft vaak gevolgen voor het gedrag van de Oradio, waardoor de Oradio onverwachte dingen doet.
 	Als de error een Oradio-exception triggert inclusief extra informatie kan de exception handler in extrmis de Oradio opnieuw opstarten.
 
-WEBINTERFACE:
-T - Web interface refactoren naar Single Page Architecture (SPA), voor html, javascript en css.
-	De web interface bestaat nu uit een collectie losse web pagina's, losse javascript en losse css bestanden.
-    Nadeel is dat er veel duplicering van html, javascript en styling is tussen deze pagina's.
-	Dit heeft als risico dat er (zinloze/onbegrijpelijke) verschillen insluipen voor de gebruiker.
-	Het beste is om de web interface te refactoren naar Single Page Architecture (SPA).
-	Bijkomend voordeel is ook dat de server, inclusief de fix voor issue #384, eenvoudiger wordt.
-
 CONTROL:
 T - Review na alle module wijzigingen.
 	oradio_control is meermaals heen en weer geslingerd om (tijdelijke) wijzigingen in modules te accomoderen.
 	Zodra die modules gestabiliseerd zijn wordt het tijd om oradio_control na te kijken, op te schonen
+
+2026-02-27 ============================================================================================================================
+
+WEBINTERFACE:
+V - Web interface refactoren naar Single Page Architecture (SPA), voor html, javascript en css.
 
 2026-02-13 ============================================================================================================================
 

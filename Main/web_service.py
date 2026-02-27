@@ -237,7 +237,9 @@ class WebService:
     def __init__(self, queue):
         """
         Initialize a new WebService instance
-        queue (multiprocessing.Queue): Outgoing queue for sending messages to the controller
+
+        Args:
+            queue (multiprocessing.Queue): Outgoing queue for sending messages to the controller
         """
         # Queue for sending messages to the external controller
         self.outgoing_q = queue
@@ -300,7 +302,9 @@ class WebService:
     def _send_message(self, error):
         """
         Send a structured status message to the controller
-        error (str): Error message or code to include in the message
+
+        Args:
+            error (str): Error message or code to include in the message
         """
         # Build the status message
         message = {
@@ -316,6 +320,7 @@ class WebService:
     def get_state(self):
         """
         Return the current operational state of the web service
+
         Returns: STATE_WEB_SERVICE_ACTIVE if the server is running,
                  STATE_WEB_SERVICE_IDLE otherwise
         """
@@ -498,6 +503,7 @@ if __name__ == '__main__':
         """
         Check if a new message is put into the queue
         If so, read the message from queue and display it
+
         Args:
             queue = the queue to check for
         """

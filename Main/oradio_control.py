@@ -53,10 +53,12 @@ from oradio_const import (
     MESSAGE_VOLUME_CHANGED,
     STATE_WEB_SERVICE_IDLE,
     STATE_WEB_SERVICE_ACTIVE,
-    MESSAGE_WEB_SERVICE_PL1_CHANGED,
-    MESSAGE_WEB_SERVICE_PL2_CHANGED,
-    MESSAGE_WEB_SERVICE_PL3_CHANGED,
-    MESSAGE_WEB_SERVICE_PL_WEBRADIO,
+    MESSAGE_WEB_SERVICE_PL1_PLAYLIST,
+    MESSAGE_WEB_SERVICE_PL2_PLAYLIST,
+    MESSAGE_WEB_SERVICE_PL3_PLAYLIST,
+    MESSAGE_WEB_SERVICE_PL1_WEBRADIO,
+    MESSAGE_WEB_SERVICE_PL2_WEBRADIO,
+    MESSAGE_WEB_SERVICE_PL3_WEBRADIO,
     MESSAGE_WEB_SERVICE_PLAYING_SONG,
     MESSAGE_WEB_SERVICE_SOURCE,
     MESSAGE_SPOTIFY_SOURCE,
@@ -582,8 +584,20 @@ def on_webservice_pl3_changed():
     oradio_log.debug("WebService on_webservice_pl3_changed acknowledged")
 
 
-def on_web_pl_webradio_changed():
-    """Handle WebService: Webradio playlist changed."""
+def on_web_pl1_webradio_changed():
+#REVIEW Onno: Er is geen indicatie voor welke preset de webradio is ingesteld
+    threading.Timer(2, play_sound, args=(SOUND_NEW_WEBRADIO,)).start()
+    oradio_log.debug("WebService on_web_pl_webradio_changed acknowledged")
+
+
+def on_web_pl2_webradio_changed():
+#REVIEW Onno: Er is geen indicatie voor welke preset de webradio is ingesteld
+    threading.Timer(2, play_sound, args=(SOUND_NEW_WEBRADIO,)).start()
+    oradio_log.debug("WebService on_web_pl_webradio_changed acknowledged")
+
+
+def on_web_pl3_webradio_changed():
+#REVIEW Onno: Er is geen indicatie voor welke preset de webradio is ingesteld
     threading.Timer(2, play_sound, args=(SOUND_NEW_WEBRADIO,)).start()
     oradio_log.debug("WebService on_web_pl_webradio_changed acknowledged")
 
@@ -693,10 +707,12 @@ HANDLERS = {
         STATE_WEB_SERVICE_IDLE: on_webservice_idle,
         STATE_WEB_SERVICE_ACTIVE: on_webservice_active,
         MESSAGE_WEB_SERVICE_PLAYING_SONG: on_webservice_playing_song,
-        MESSAGE_WEB_SERVICE_PL1_CHANGED: on_webservice_pl1_changed,
-        MESSAGE_WEB_SERVICE_PL2_CHANGED: on_webservice_pl2_changed,
-        MESSAGE_WEB_SERVICE_PL3_CHANGED: on_webservice_pl3_changed,
-        MESSAGE_WEB_SERVICE_PL_WEBRADIO: on_web_pl_webradio_changed,
+        MESSAGE_WEB_SERVICE_PL1_PLAYLIST: on_webservice_pl1_changed,
+        MESSAGE_WEB_SERVICE_PL2_PLAYLIST: on_webservice_pl2_changed,
+        MESSAGE_WEB_SERVICE_PL3_PLAYLIST: on_webservice_pl3_changed,
+        MESSAGE_WEB_SERVICE_PL1_WEBRADIO: on_web_pl1_webradio_changed,
+        MESSAGE_WEB_SERVICE_PL2_WEBRADIO: on_web_pl2_webradio_changed,
+        MESSAGE_WEB_SERVICE_PL3_WEBRADIO: on_web_pl3_webradio_changed,
     },
     MESSAGE_SPOTIFY_SOURCE: {
         SPOTIFY_CONNECT_CONNECTED_EVENT: on_spotify_connect_connected,
