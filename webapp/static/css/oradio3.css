@@ -366,12 +366,12 @@ input:focus {
 .save-button-large,
 .save-button-small,
 .save-button-tiny {
-	background-image: url('../save.png');	/* Save icon (used by large, small and tiny variants) */
+	background-image: url('../images/save.png');	/* Save icon (used by large, small and tiny variants) */
 }
 
 .delete-button-large,
 .delete-button-small {
-	background-image: url('../delete.png');	/* Delete icon (used by large and small variants only) */
+	background-image: url('../images/delete.png');	/* Delete icon (used by large and small variants only) */
 }
 
 .save-button-large,
