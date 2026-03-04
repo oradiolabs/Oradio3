@@ -8,10 +8,15 @@
 
 /* ========== Helpers ========== */
 
-// Keep-alive ping
-setInterval(() => {
-	fetch("/keep_alive", { method:"POST" }).catch(()=>{});
-}, 2000);
+
+// Execute when all resources are loaded
+window.onload = () =>
+{
+	// Keep-alive ping
+	setInterval(() => {
+		fetch("/keep_alive", { method:"POST" }).catch(()=>{});
+	}, 3000);
+};
 
 // Show waiting indicator
 function showWaiting()
@@ -117,7 +122,7 @@ let playlistInput, playlistSongs, playlistNotification;													// Playlist 
 let customPlaylists, customList, customInput, customSongs, customNotification;							// Custom playlists
 let searchInput, searchSongs, searchNotification;														// Search songs
 
-// Execute when page is loaded
+// Execute when page HTML is loaded
 document.addEventListener('DOMContentLoaded', () =>
 {
 // ===== Initialize: global =====
@@ -161,7 +166,7 @@ document.addEventListener('DOMContentLoaded', () =>
 
 	// Show previous network if available
 	const notificationOldSSID = document.getElementById('notification_oldssid');
-	if (oldssid?.length)
+	if (typeof oldssid !== "undefined" && oldssid && oldssid.length)
 		showNotification(notificationOldSSID, `Oradio was verbonden met '${oldssid}'`);
 	else
 		showNotification(notificationOldSSID, `Oradio was niet verbonden met wifi`);
@@ -241,7 +246,6 @@ document.addEventListener('DOMContentLoaded', () =>
 		hideNotification(searchNotification);
 		hideScrollbox(searchSongs);
 	});
-
 });
 
 /* ========== Navigation ========== */
@@ -435,7 +439,7 @@ function handleRowClick(row)
 		input.value = row.querySelector(".scrollbox-row-text").textContent.trim();
 
 		// Dispatch a custom input value changed event
-		input.dispatchEvent(new Event('inputValueChanged'), { bubbles: true });
+		input.dispatchEvent(new Event('inputValueChanged', { bubbles: true }));
 
 		// Hide scrollbox
 		hideScrollbox(scrollbox);
@@ -863,7 +867,7 @@ function populateSongsScrollbox(input, scrollbox, songs, notification)
 	scrollbox.scrollTop = 0;
 
 	// Dispatch a custom scrollbox populated event
-	scrollbox.dispatchEvent(new Event('scrollboxPopulated'), { bubbles: true });
+	scrollbox.dispatchEvent(new Event('scrollboxPopulated', { bubbles: true }));
 }
 
 // Submit the song to the server for playback
