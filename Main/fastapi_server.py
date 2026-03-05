@@ -72,8 +72,9 @@ INFO_ERROR    = {"serial": "undefined", "version": "undefined"}
 SOFTWARE_VERSION_FILE = "/var/log/oradio_sw_version.log"
 # Stop server if no keep alive message received, in seconds
 KEEP_ALIVE_TIMEOUT = 20     # ping every 3s, so missing 3 pings closes
-# Fully qualified for iOS 15. Force pylint to accept as constant
-ORADIOAP_URL = f"http://{ACCESS_POINT_HOST}"      # pylint: disable=invalid-name
+
+# Fully qualified for iOS 15
+oradioap_url = f"http://{ACCESS_POINT_HOST}"
 
 # Initialise MPD client
 mpd_control = MPDControl()
@@ -707,7 +708,7 @@ async def catch_all(request: Request):
         return FileResponse(web_path + request.url.path)
 
     # Redirect all requests to webapp
-    return RedirectResponse(url=ORADIOAP_URL + "/oradio3", status_code=302)
+    return RedirectResponse(url=oradioap_url + "/oradio3", status_code=302)
 #For debugging use:
 #    return RedirectResponse(url="/oradio3", status_code=302)
 
@@ -720,7 +721,7 @@ if __name__ == '__main__':
     from queue import Empty
 
     # For debugging
-    ORADIOAP_URL = ""
+    oradioap_url = ""
 
 # Most modules use similar code in stand-alone
 # pylint: disable=duplicate-code
