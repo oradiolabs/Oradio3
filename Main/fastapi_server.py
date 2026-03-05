@@ -25,7 +25,7 @@ Created on December 23, 2024
 """
 from os import path
 from re import match
-from typing import Optional, Dict, Any, Final
+from typing import Optional, Dict, Any
 from json import load, JSONDecodeError
 from asyncio import sleep, create_task, CancelledError
 from datetime import datetime, timedelta, timezone
@@ -72,8 +72,8 @@ INFO_ERROR    = {"serial": "undefined", "version": "undefined"}
 SOFTWARE_VERSION_FILE = "/var/log/oradio_sw_version.log"
 # Stop server if no keep alive message received, in seconds
 KEEP_ALIVE_TIMEOUT = 20     # ping every 3s, so missing 3 pings closes
-# Fully qualified for iOS 15. 'Final' to satisfy pylint
-ORADIOAP_URL: Final[str] = f"http://{ACCESS_POINT_HOST}"
+# Fully qualified for iOS 15. Force pylint to accept as constant
+ORADIOAP_URL = f"http://{ACCESS_POINT_HOST}"      # pylint: disable=invalid-name
 
 # Initialise MPD client
 mpd_control = MPDControl()
