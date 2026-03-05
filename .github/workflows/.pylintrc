@@ -31,12 +31,12 @@ max-nested-blocks=5
 # Allow commonly used short variable names (like loop counters)
 good-names=i,j,k,ex,Run,_
 # Regular expressions for naming conventions (PEP8: snake_case and PascalCase)
-const-rgx=^[A-Z_][A-Z0-9_]*$
-variable-rgx=[a-z_][a-z0-9_]{2,30}$
-argument-rgx=[a-z_][a-z0-9_]{2,30}$
-attr-rgx=[a-z_][a-z0-9_]{2,30}$
-class-rgx=[A-Z_][a-zA-Z0-9]+$
-function-rgx=[a-z_][a-z0-9_]{2,30}$
+variable-naming-style=snake_case
+argument-naming-style=snake_case
+attr-naming-style=snake_case
+function-naming-style=snake_case
+class-naming-style=PascalCase
+const-naming-style=UPPER_CASE
 
 [TYPECHECK]
 # Suppress warnings for dynamically defined attributes, e.g., mixins or dynamic classes
