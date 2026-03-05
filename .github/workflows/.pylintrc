@@ -30,6 +30,10 @@ max-nested-blocks=5
 [BASIC]
 # Allow commonly used short variable names (like loop counters)
 good-names=i,j,k,ex,Run,_
+# UPPERCASE == constants
+const-rgx=^[A-Z_][A-Z0-9_]*$
+# lower == variables
+variable-rgx=^[a-z_][a-z0-9_]{2,30}$
 
 # Regular expressions for naming conventions (PEP8: snake_case and PascalCase)
 variable-rgx=[a-z_][a-z0-9_]{2,30}$
