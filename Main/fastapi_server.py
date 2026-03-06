@@ -71,7 +71,7 @@ INFO_ERROR    = {"serial": "undefined", "version": "undefined"}
 # Location of version info
 SOFTWARE_VERSION_FILE = "/var/log/oradio_sw_version.log"
 # Stop server if no keep alive message received, in seconds
-KEEP_ALIVE_TIMEOUT = 20     # ping every 3s, so missing 3 pings closes
+KEEP_ALIVE_TIMEOUT = 5     # ping every 2s, so missing 2 pings closes
 
 # Fully qualified for iOS 15
 oradioap_url = f"http://{ACCESS_POINT_HOST}"

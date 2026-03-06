@@ -15,7 +15,7 @@ window.onload = () =>
 	// Keep-alive ping
 	setInterval(() => {
 		fetch("/keep_alive", { method:"POST" }).catch(()=>{});
-	}, 3000);
+	}, 2000);
 };
 
 // Show waiting indicator
