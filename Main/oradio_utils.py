@@ -168,7 +168,7 @@ def has_internet():
     
     try:
         ip_address = socket.gethostbyname(DNS_HOST)
-        print(f"Resolved IP: {ip_address}")
+        oradio_log.info("Internet available")
         return True
     except (socket.gaierror, socket.timeout) as socket_error:
         return False
