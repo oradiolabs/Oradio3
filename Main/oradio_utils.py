@@ -31,7 +31,6 @@ from subprocess import run
 from typing import Any, Optional, List, Union, Dict
 from pathlib import Path
 from pydantic import BaseModel, ValidationError
-import netifaces
 
 ##### oradio modules ####################
 from oradio_logging import oradio_log
@@ -163,12 +162,12 @@ def has_internet():
     """
     # Timeout to prevent blocking the DNS lookup
     socket.setdefaulttimeout(DNS_TIMEOUT)
-    # 
+
     try:
-        ip_address = socket.gethostbyname(DNS_HOST)
+        _ = socket.gethostbyname(DNS_HOST)
         oradio_log.info("Internet available")
         return True
-    except (socket.gaierror, socket.timeout) as socket_error:
+    except (socket.gaierror, socket.timeout):
         return False
 
 def run_shell_script(script):
