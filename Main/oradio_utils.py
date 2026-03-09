@@ -45,8 +45,8 @@ from oradio_const import (
 
 ##### LOCAL constants ####################
 INTERFACE   = "wlan0"           # Raspberry Pi wireless interface
-DNS_TIMEOUT = 0.5               # seconds
 DNS_HOST    = "google.com"
+DNS_TIMEOUT = 0.5               # seconds
 
 JSON_SCHEMAS_PATH = Path(__file__).parent.resolve()
 JSON_SCHEMAS_FILE = JSON_SCHEMAS_PATH / "schemas.json"
@@ -154,18 +154,16 @@ def validate_oradio_message(message: Union[OradioMessage, Dict[str, Any]]) -> Op
 
 def has_internet():
     """
-    Note: new function to solve issue#461
     Try whether the wifi-connection has internet by using a DNS service to resolve a domain name.
     As domain name is used google.com, which is one of the most reliable and globally available domains. 
-    This will resolve into a IPv4 address,to test DNS and networking connectivity.
-    It Uses DNS (UDP Port 53): DNS lookups are high-priority traffic and typically wake the Wi-Fi radio 
-    from power-saving mode.
-    A timeout is added to prevent blocking the DNS lookup.
+    This will resolve into a IPv4 address,to test DNS and networking connectivity on using UDP Port 53.
+    DNS lookups are high-priority traffic and typically wake the Wi-Fi radio from power-saving mode.
     Returns:
         bool: True if internet is reachable from this interface, False otherwise.
     """
+    # Timeout to prevent blocking the DNS lookup
     socket.setdefaulttimeout(DNS_TIMEOUT)
-    
+    # 
     try:
         ip_address = socket.gethostbyname(DNS_HOST)
         oradio_log.info("Internet available")

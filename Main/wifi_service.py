@@ -192,19 +192,17 @@ class WifiEventListener():
             NM_FAILED: MESSAGE_WIFI_FAIL_CONNECT
         }
         error = error_map.get(new_state, MESSAGE_NO_ERROR)
-        active = "None"
-        # Check for Access Point
+
+        # Check for Access Point or internet access
         if new_state == NM_CONNECTED:
             active = get_wifi_connection()
             if active == ACCESS_POINT_SSID:
                 state = STATE_WIFI_ACCESS_POINT
+            elif has_internet():
+                state = STATE_WIFI_CONNECTED
             else:
-                # issue#461
-                if has_internet():
-                    state = STATE_WIFI_CONNECTED
-                else:
-                    state = MESSAGE_WIFI_FAIL_CONNECT
-                # end issue#461
+                state = MESSAGE_WIFI_FAIL_CONNECT
+
         # Prepare callback message
         message = {"source": MESSAGE_WIFI_SOURCE, "state": state, "error": error}
 
