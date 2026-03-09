@@ -976,7 +976,7 @@ async function addCustomPlaylist()
 	// Get input value or empty string
 	const playlist = customInput.value.trim() || "";
 
-	const existsInCustom = customPlaylists.some(n => n.toLowerCase() === playlist.toLowerCase());
+	const existsInCustom = playlists.some(n => n['playlist'].toLowerCase() === playlist.toLowerCase());
 	const existsInDirectory = directories.some(n => n.toLowerCase() === playlist.toLowerCase());
 
 	// Warn if empty or exists, as custom playlist or directory
