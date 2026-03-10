@@ -45,7 +45,7 @@ from gi.repository import GLib
 ##### oradio modules ####################
 from singleton import singleton
 from oradio_logging import oradio_log
-from oradio_utils import run_shell_script, safe_put
+from oradio_utils import run_shell_script, safe_put, has_internet
 
 ##### GLOBAL constants ####################
 from oradio_const import (
@@ -193,11 +193,15 @@ class WifiEventListener():
         }
         error = error_map.get(new_state, MESSAGE_NO_ERROR)
 
-        # Check for Access Point
+        # Check for Access Point or internet access
         if new_state == NM_CONNECTED:
             active = get_wifi_connection()
             if active == ACCESS_POINT_SSID:
                 state = STATE_WIFI_ACCESS_POINT
+            elif has_internet():
+                state = STATE_WIFI_CONNECTED
+            else:
+                state = MESSAGE_WIFI_FAIL_CONNECT
 
         # Prepare callback message
         message = {"source": MESSAGE_WIFI_SOURCE, "state": state, "error": error}

@@ -31,7 +31,6 @@ from subprocess import run
 from typing import Any, Optional, List, Union, Dict
 from pathlib import Path
 from pydantic import BaseModel, ValidationError
-import netifaces
 
 ##### oradio modules ####################
 from oradio_logging import oradio_log
@@ -45,8 +44,8 @@ from oradio_const import (
 
 ##### LOCAL constants ####################
 INTERFACE   = "wlan0"           # Raspberry Pi wireless interface
+DNS_HOST    = "google.com"
 DNS_TIMEOUT = 0.5               # seconds
-DNS_HOST    = ("8.8.8.8", 53)   # google.com
 
 JSON_SCHEMAS_PATH = Path(__file__).parent.resolve()
 JSON_SCHEMAS_FILE = JSON_SCHEMAS_PATH / "schemas.json"
@@ -152,31 +151,23 @@ def validate_oradio_message(message: Union[OradioMessage, Dict[str, Any]]) -> Op
         oradio_log.error("Message does not match OradioMessage schema: %s", err)
         return None
 
-# handle the error
-def has_internet() -> bool:
+def has_internet():
     """
-    Quickly check if the given interface has internet access.
-    Uses a TCP connection to a known DNS server bound to the interface's IP.
-    NOTE: ping is NOT reliable because the network interface uses power management.
+    Try whether the wifi-connection has internet by using a DNS service to resolve a domain name.
+    As domain name is used google.com, which is one of the most reliable and globally available domains. 
+    This will resolve into a IPv4 address,to test DNS and networking connectivity on using UDP Port 53.
+    DNS lookups are high-priority traffic and typically wake the Wi-Fi radio from power-saving mode.
     Returns:
         bool: True if internet is reachable from this interface, False otherwise.
     """
+    # Timeout to prevent blocking the DNS lookup
+    socket.setdefaulttimeout(DNS_TIMEOUT)
+
     try:
-        # Get IPv4 address of the interface
-        addrs = netifaces.ifaddresses(INTERFACE)
-        src_ip = addrs[netifaces.AF_INET][0]['addr']
-        # Create a TCP socket and bind it to the interface's IP
-        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
-            # Use any free source port
-            sock.bind((src_ip, 0))
-            # Set timeout for trying to connect
-            sock.settimeout(DNS_TIMEOUT)
-            # Attempt connection to DNS server
-            sock.connect(DNS_HOST)
+        _ = socket.gethostbyname(DNS_HOST)
+        oradio_log.info("Internet available")
         return True
-    except (socket.timeout, socket.error, KeyError):
-        # KeyError if interface has no IPv4
-        # socket.timeout / socket.error if connection fails
+    except (socket.gaierror, socket.timeout):
         return False
 
 def run_shell_script(script):

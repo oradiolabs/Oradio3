@@ -22,8 +22,7 @@ jobs:
           python3-dbus \
           python3-jinja2 \
           python3-requests \
-          python3-watchdog \
-          python3-netifaces
+          python3-watchdog
 
     - name: Run Linters and Deprecated Checks
       run: |
