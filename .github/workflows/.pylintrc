@@ -30,7 +30,6 @@ max-nested-blocks=5
 [BASIC]
 # Allow commonly used short variable names (like loop counters)
 good-names=i,j,k,ex,Run,_
-
 # Regular expressions for naming conventions (PEP8: snake_case and PascalCase)
 variable-naming-style=snake_case
 argument-naming-style=snake_case
