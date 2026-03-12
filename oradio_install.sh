@@ -184,7 +184,6 @@ if [ "$1" != "--continue" ]; then
 		python3-jinja2
 		python3-requests
 		python3-watchdog
-		python3-netifaces
 	)
 
 	# Fetch list of upgradable packages
