@@ -73,7 +73,7 @@ SOFTWARE_VERSION_FILE = "/var/log/oradio_sw_version.log"
 # Stop server if no keep alive message received, in seconds
 KEEP_ALIVE_TIMEOUT = 5     # ping every 2s, so missing 2 pings closes
 
-# Fully qualified for iOS 15
+# Fully qualified required by iOS15
 oradioap_url = f"http://{ACCESS_POINT_HOST}"
 
 # Initialise MPD client
