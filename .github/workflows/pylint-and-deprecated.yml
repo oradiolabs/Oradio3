@@ -11,7 +11,7 @@ jobs:
 
     steps:
     - name: Checkout repository
-      uses: actions/checkout@v4
+      uses: actions/checkout@v6
 
     - name: Install dependencies
       run: |
@@ -97,8 +97,9 @@ jobs:
 
     - name: Upload analysis results
       if: always()
-      uses: actions/upload-artifact@v4
+      uses: actions/upload-artifact@v6
       with:
         name: lint_deprecated_results.zip
         path: lint_deprecated_result.txt
         if-no-files-found: ignore
+
