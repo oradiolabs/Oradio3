@@ -57,10 +57,6 @@ SSH_UNIT_FILE="/lib/systemd/system/ssh.service"
 sudo sed -i '/^\[Unit\]/,/^\[/{s/^After=.*/After=basic.target/}' "$SSH_UNIT_FILE"
 echo "Modified $SSH_UNIT_FILE to start after basic.target"
 
-# Replace any line starting with "After=" in the [Unit] section with "After=basic.target"
-sudo sed -i '/^\[Unit\]/,/^\[/{s/^After=.*/After=basic.target/}' "$SSH_UNIT_FILE"
-echo "Modified $SSH_UNIT_FILE to start after basic.target"
-
 # ---------------------------------------
 # /boot/firmware/cmdline.txt optimization
 # ---------------------------------------
@@ -78,10 +74,12 @@ for option_with_comment in "${CMDLINE_OPTS[@]}"; do
     option="${option_with_comment%%[[:space:]]*}"
 	# Add option if not yet present
     if ! grep -q "$option" "$CMDLINE_FILE"; then
+		echo "Adding '$option' to $CMDLINE_FILE"
         sudo sed -i "/\b$option\b/! s/$/ $option/" "$CMDLINE_FILE"
+	else
+		echo "Option '$option' found in $CMDLINE_FILE"
     fi
 done
-echo "Options added to $CMDLINE_FILE"
 
 # -----------------------
 # Kernel Module Blacklist
@@ -109,10 +107,12 @@ for module_with_comment in "${BLACKLIST_CONTENT[@]}"; do
     # Extract only the module name (first token before any whitespace)
     line="blacklist ${module_with_comment%%[[:space:]]*}"
 	if ! grep -Fxq "$line" "$BLACKLIST_FILE"; then
+		echo "Add '$line' to $BLACKLIST_FILE"
 		echo "$line" | sudo tee -a "$BLACKLIST_FILE" > /dev/null || true
+	else
+		echo "'$line' found in $BLACKLIST_FILE"
 	fi
 done
-echo "Kernel modules blacklisted in $BLACKLIST_FILE"
 
 # -----------------------------------------------------------------------------------------
 # Future-proof masking of services and their related units, excluding system-critical units
