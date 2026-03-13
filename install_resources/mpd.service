@@ -2,7 +2,7 @@
 Description=Music Player Daemon
 Documentation=man:mpd(1) man:mpd.conf(5)
 Documentation=file:///usr/share/doc/mpd/html/user.html
-After=network.target sound.target
+After=sound.target
 
 [Service]
 Type=notify
