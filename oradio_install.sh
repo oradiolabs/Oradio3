@@ -46,9 +46,6 @@ SPOTIFY_PATH=$SCRIPT_PATH/Spotify
 # Location of files to install
 RESOURCES_PATH=$SCRIPT_PATH/install_resources
 
-# Constant where Python looks for importing
-PYTHONPATH=$MAIN_PATH:$SCRIPT_PATH/.github/workflows
-
 # Ensure logging directory exists
 mkdir -p "$LOGGING_PATH" || { echo -e "${RED}Failed to create directory $LOGGING_PATH${NC}"; exit 1; }
 
