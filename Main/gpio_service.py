@@ -253,7 +253,7 @@ class GPIOService:
             state = BUTTON_RELEASED
         button_data["state"] = state
         button_data["name"] = button_name
-        if self.edge_event_callback:
+        if callable(self.edge_event_callback):
             if self.gpio_module_test == TEST_ENABLED:
                 # When TEST_ENABLED, the module test requires the button_data, being:
                 # button state = BUTTON_PRESSED
