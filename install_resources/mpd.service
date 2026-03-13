@@ -5,9 +5,9 @@ Documentation=file:///usr/share/doc/mpd/html/user.html
 After=sound.target
 
 [Service]
-Type=notify
+Type=simple
 EnvironmentFile=/etc/default/mpd
-ExecStart=/usr/bin/mpd --systemd /etc/mpd.conf
+ExecStart=/usr/bin/mpd --no-daemon /etc/mpd.conf
 
 # Enable this setting to ask systemd to watch over MPD, see
 # systemd.service(5).  This is disabled by default because it causes
