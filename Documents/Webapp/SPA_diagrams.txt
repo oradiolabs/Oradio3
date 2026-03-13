@@ -1,0 +1,161 @@
+SPA structure:
+┌───────────────────────────┐
+│         HEADER            │
+│  [Logo] [Title] [Buttons] │
+└─────────────┬─────────────┘
+              │
+              ▼
+┌───────────────────────────┐
+│          NAVBAR           │
+│  [Network] [Buttons]      │
+│  [Playlists] [Status]     │
+└─────────────┬─────────────┘
+              │
+              ▼
+┌─────────────────────────────┐
+│         PAGES SPA           │
+│                             │
+│   ┌──────────┐              │
+│   │ Network  │              │
+│   │ ┌─────┐  │              │
+│   │ │SSID │  │ <- dropdown  │
+│   │ │PW   │  │ <- input     │
+│   │ └─────┘  │              │
+│   └──────────┘              │
+│                             │
+│   ┌──────────┐              │
+│   │ Buttons  │              │
+│   │ [Play]   │              │
+│   │ [Pause]  │              │
+│   │ [Stop]   │              │
+│   └──────────┘              │
+│                             │
+│   ┌──────────┐              │
+│   │ Playlists│              │
+│   │ ┌──────┐ │              │
+│   │ │List  │ │ <- scrollbox │
+│   │ │Search│ │ <- input     │
+│   │ └──────┘ │              │
+│   └──────────┘              │
+│                             │
+│   ┌──────────┐              │
+│   │ Status   │              │
+│   │ ┌──────┐ │              │
+│   │ │Info  │ │ <- server    │
+│   │ │Logs  │ │ <- scroll    │
+│   │ └──────┘ │              │
+│   └──────────┘              │
+└─────────────┬───────────────┘
+              │
+              ▼
+┌──────────────────────────────┐
+│      NOTIFICATIONS           │
+│  [Success] [Warning] [Error] │
+│  auto-hide after delay       │
+└──────────────────────────────┘
+Explanation:
+- Header – always visible, contains branding and top-level buttons.
+- Navbar – SPA navigation; clicking a tab shows the respective page.
+- Pages – only one visible at a time; each page contains scrollboxes, inputs, and dropdowns.
+- Scrollboxes / Dropdowns – reusable components for lists (e.g., network SSID, playlists, logs).
+- Notifications – global overlay, triggered by any action; hidden when initiating a new action.
+
+-------------------------------------------------------------------------------------------------
+
+Event flows:
+                  ┌─────────────────────┐
+                  │   PAGE NAVIGATION   │
+                  │ Click nav button →  │
+                  │  activate page      │
+                  └─────────┬───────────┘
+                            │
+                            ▼
+                  ┌─────────────────────┐
+                  │  ACTIVE PAGE SHOWN  │
+                  │ hide other pages    │
+                  │ hide notifications  │
+                  └─────────┬───────────┘
+                            │
+       ┌────────────────────┼─────────────────────┐
+       ▼                    ▼                     ▼
+┌──────────────┐      ┌──────────────┐     ┌──────────────┐
+│  NETWORK     │      │  BUTTONS     │     │  PLAYLISTS   │
+│  PAGE        │      │  PAGE        │     │  PAGE        │
+└──────────────┘      └──────────────┘     └──────────────┘
+       │                    │                      │
+       │                    │                      │
+       │                    │                      │
+       │ 1. Fetch networks  │                      │
+       │  getNetworks()     │                      │
+       ▼                    │                      │
+┌──────────────┐            │                      │
+│ Populate SSID│            │                      │
+│ dropdown     │            │                      │
+└───────┬──────┘            │                      │
+        │                   │                      │
+        │                   │                      │
+        │  User clicks row  │                      │
+        ▼                   │                      │
+┌──────────────┐            │                      │
+│ showPassword │            │                      │
+│ (if required)│            │                      │
+└───────┬──────┘            │                      │
+        │                   │                      │
+        │  User enters      │                      │
+        │  password         │                      │
+        ▼                   │                      │
+┌──────────────────────┐    │                      │
+│ submitCredentials()  │    │                      │
+│  → postJSON(connect) │    │                      │
+│  → show waiting      │    │                      │
+│  → show notification │    │                      │
+└──────────────────────┘    │                      │
+                            │                      │
+           ┌────────────────┼──────────────────────┼──┐
+           │                │                         │
+           │ User clicks    │                         │
+           │ preset row     │                         │
+           ▼                ▼                         ▼
+    ┌─────────────┐  ┌─────────────┐         ┌──────────────────┐
+    │ savePreset()│  │ showSongs() │         │ submitSpotify()  │
+    │ postJSON()  │  │ postJSON()  │         │  → postJSON()    │
+    │ showWaiting │  │ showWaiting │         │  showNotification│
+    └─────────────┘  └──────┬──────┘         └──────────────────┘
+                            │
+                            ▼
+                      ┌─────────────┐
+                      │ populate    │
+                      │ scrollbox   │
+                      │ with songs  │
+                      └──────┬──────┘
+                             │
+               ┌─────────────┼─────────────────────┐
+               │                                   │
+               ▼                                   ▼
+       User clicks row                     User clicks icon
+       (play song)                         (add/remove song)
+       ┌──────────────┐                     ┌──────────────┐
+       │ playSong()   │                     │ modify row   │
+       │ postJSON()   │                     │ add/delete   │
+       │ showWaiting  │                     │ showWaiting  │
+       │ showNotify() │                     │ showNotify() │
+       └──────────────┘                     └──────────────┘
+
+All pages/components → showNotification()
+All waiting actions → showWaiting() / hideWaiting()
+Click outside dropdowns → closeDropdowns()
+Scrollboxes update → observeActivePage() → updatePageScrollState()
+
+Key Points in This Flow:
+- Navigation triggers page switching, hides inactive pages, resets scroll.
+- Dropdowns / Scrollboxes: clicking input/icon opens dropdown → select row → triggers callback (network, preset, playlist, play, modify).
+- Network page:
+  - Row selection may show password field.
+  - Submitting credentials posts to server, shows waiting, and updates notification.
+- Spotify: simple input → post to server → show success/error.
+- Buttons / Playlists: row selection triggers saving presets, showing playlist songs, or playing songs.
+- Song management: small icon buttons trigger add/remove actions with server.
+- Notifications: appear for all success/warning/error cases.
+- Global waiting indicator: shown during network requests, hidden afterwards.
+- Click outside dropdowns closes all dropdowns and resets icons.
+- Page scroll detection hides/shows nav images dynamically.

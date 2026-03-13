@@ -25,20 +25,20 @@ GREEN='\033[1;32m'
 NC='\033[0m'
 
 # The script uses bash constructs
-if [ -z "$BASH" ]; then
+if [ -z "${BASH:-}" ]; then
 	echo "${RED}This script requires bash${NC}"
 	exit 1
 fi
 
-# Get the script name and path
+# Get the script path and name
+SCRIPT_PATH=$HOME/Oradio3
 SCRIPT_NAME=$(basename $BASH_SOURCE)
-SCRIPT_PATH=$( cd -- "$( dirname -- "${BASH_SOURCE}" )" &> /dev/null && pwd )
 
 # Working directory
 cd $SCRIPT_PATH
 
-# Location of Python files
-PYTHON_PATH=$SCRIPT_PATH/Python
+# Location of Oradio3 program
+MAIN_PATH=$SCRIPT_PATH/Main
 # Location of log files
 LOGGING_PATH=$SCRIPT_PATH/logging
 # Spotify directory
@@ -46,9 +46,15 @@ SPOTIFY_PATH=$SCRIPT_PATH/Spotify
 # Location of files to install
 RESOURCES_PATH=$SCRIPT_PATH/install_resources
 
-# Ensure directory exists and define log files
+# Constant where Python looks for importing
+PYTHONPATH=$MAIN_PATH:$SCRIPT_PATH/.github/workflows
+
+# Ensure logging directory exists
 mkdir -p "$LOGGING_PATH" || { echo -e "${RED}Failed to create directory $LOGGING_PATH${NC}"; exit 1; }
+
+# Define log files
 LOGFILE_USB=$LOGGING_PATH/usb.log
+LOGFILE_MPD=$LOGGING_PATH/mpd.log
 LOGFILE_SPOTIFY=$LOGGING_PATH/spotify.log
 LOGFILE_INSTALL=$LOGGING_PATH/install.log
 LOGFILE_TRACEBACK=$LOGGING_PATH/traceback.log
@@ -77,50 +83,49 @@ unset REBOOT_NEEDED
 # Clear flag indicating installation error
 unset INSTALL_ERROR
 
-# Install file and run follow-up command
+# Install file replacing placeholders and execute follow-up commands
 function install_resource {
-	if [ $# -lt 2 ]; then
-		echo -e "${RED}install_resource has too few arguments: '$@'${NC}"
+    if [ $# -lt 2 ]; then
+        echo -e "${RED}install_resource has too few arguments: '$@'${NC}"
+		echo "Usage: $0 src dst"
 		# Stop with error flag
-		INSTALL_ERROR=1
-	else
-		if [ -f $1.template ]; then
-			# Create by replacing placeholders
-			cp $1.template $1
+        INSTALL_ERROR=1
+        return
+    fi
 
-			sed -i "s/PLACEHOLDER_USER/$(id -un)/g" $1
-			sed -i "s/PLACEHOLDER_GROUP/$(id -gn)/g" $1
+	SRC=$1
+	DST=$2
+	shift 2
 
-			replace=`echo $PYTHON_PATH | sed 's/\//\\\\\//g'`
-			sed -i "s/PLACEHOLDER_PYTHON_PATH/$replace/g" $1
-			replace=`echo $SPOTIFY_PATH | sed 's/\//\\\\\//g'`
-			sed -i "s/PLACEHOLDER_SPOTIFY_PATH/$replace/g" $1
-			replace=`echo $LOGGING_PATH | sed 's/\//\\\\\//g'`
-			sed -i "s/PLACEHOLDER_LOGGING_PATH/$replace/g" $1
+    if [ -f "$SRC.template" ]; then
 
-			replace=`echo $LOGFILE_USB | sed 's/\//\\\\\//g'`
-			sed -i "s/PLACEHOLDER_LOGFILE_USB/$replace/g" $1
-			replace=`echo $LOGFILE_SPOTIFY | sed 's/\//\\\\\//g'`
-			sed -i "s/PLACEHOLDER_LOGFILE_SPOTIFY/$replace/g" $1
-			replace=`echo $LOGFILE_INSTALL | sed 's/\//\\\\\//g'`
-			sed -i "s/PLACEHOLDER_LOGFILE_INSTALL/$replace/g" $1
-			replace=`echo $LOGFILE_TRACEBACK | sed 's/\//\\\\\//g'`
-			sed -i "s/PLACEHOLDER_LOGFILE_TRACEBACK/$replace/g" $1
-		fi
+		# Create by replacing placeholders
+        cp "$SRC.template" "$SRC"
 
-		if ! sudo cmp -s $1 $2 >/dev/null 2>&1; then
-			# Install the configuration
-			sudo cp $1 $2
+		# Replace placeholders
+        sed -i "s/PLACEHOLDER_USER/$(id -un)/g" "$SRC"
+        sed -i "s/PLACEHOLDER_GROUP/$(id -gn)/g" "$SRC"
+		for VAR_NAME in MAIN_PATH SPOTIFY_PATH LOGGING_PATH LOGFILE_USB LOGFILE_MPD LOGFILE_INSTALL LOGFILE_SPOTIFY LOGFILE_TRACEBACK; do
+			VALUE="${!VAR_NAME}"
+			# Escape & because sed treats it specially
+			ESCAPED_VALUE=$(echo "$VALUE" | sed 's/[&]/\\&/g')
+			PLACEHOLDER="PLACEHOLDER_${VAR_NAME}"
+			# Use | as delimiter instead of /
+			sed -i "s|$PLACEHOLDER|$ESCAPED_VALUE|g" "$SRC"
+		done
+    fi
 
-			# Execute any extra arguments
-			while [ $# -gt 2 ]; do
-				# Execute argument
-				eval $3
-				# Remove first argument from list
-				shift
-			done
-		fi
-	fi
+    # Install only if files differ
+    if ! cmp -s "$SRC" "$DST"; then
+		echo "Installing '$SRC' to '$DST'"
+        sudo cp "$SRC" "$DST"
+
+        # Execute any extra commands
+        for CMD in "$@"; do
+			echo "Executing: '$CMD'"
+            sudo bash -c "$CMD"
+        done
+    fi
 }
 
 ########## INITIALIZE END ##########
@@ -150,13 +155,12 @@ if [ "$1" != "--continue" ]; then
 
 	# Update lists if to old
 	if (( age > MAX_AGE )); then
+		echo -e "${YELLOW}Package lists out of date, updating...${NC}"
 		sudo apt-get update
 		# Save time lists were updated
 		date +%s | sudo tee "$STAMP_FILE" >/dev/null
-		echo -e "${GREEN}Package lists updated, stamp file updated${NC}"
-	else
-		echo -e "${GREEN}Package lists are up to date${NC}"
 	fi
+	echo -e "${GREEN}Package lists are up to date${NC}"
 	# NOTE: We do not upgrade: https://forums.raspberrypi.com/viewtopic.php?p=2310861&hilit=oradio#p2310861
 
 ########## OS PACKAGES END ##########
@@ -167,17 +171,19 @@ if [ "$1" != "--continue" ]; then
 #   Add any additionally required packages to 'LINUX_PACKAGES'  #
 #***************************************************************#
 	LINUX_PACKAGES=(
-		git
 		jq
+		git
+		mpd
+		mpc
+		caps
+		iptables
+		raspotify
 		python3-gi
 		python3-dev
 		python3-dbus
-		libasound2-dev
-		libasound2-plugin-equal
-		mpd
-		mpc
-		iptables
-		raspotify
+		python3-jinja2
+		python3-requests
+		python3-watchdog
 	)
 
 	# Fetch list of upgradable packages
@@ -232,39 +238,33 @@ if [ "$1" != "--continue" ]; then
 	# Activate the python virtual environment in current environment
 	source ~/.venv/bin/activate
 
-	# Activate python virtual environment when logging in: add if not yet present
-	sudo grep -qxF 'source ~/.venv/bin/activate' ~/.bashrc || echo 'source ~/.venv/bin/activate' >> ~/.bashrc
+	# Activate python virtual environment when logging in if not yet present
+	ADDTOBASHRC="source ~/.venv/bin/activate"
+	grep -qxF "${ADDTOBASHRC}" ~/.bashrc || echo "${ADDTOBASHRC}" >> ~/.bashrc
 
+	# Set paths to python scripts if not yet present
+	ADDTOBASHRC="export PYTHONPATH="${SCRIPT_PATH}/Main:${SCRIPT_PATH}/module_test""
+	grep -qxF "${ADDTOBASHRC}" ~/.bashrc || echo "${ADDTOBASHRC}"  >> ~/.bashrc
+	
 	# Progress report
 	echo -e "${GREEN}Python virtual environment configured${NC}"
 
 	# https://www.raspberrypi.com/documentation/computers/os.html#use-python-on-a-raspberry-pi
-#OMJ: Uitzoeken welke van deze packages als python3-<xxx> package te installeren zijn en dan verplaatsen naar Oradio3 PACKAGES hierboven
+
 #***************************************************************#
 #   Add any additionally required Python modules to 'PYTHON'    #
 #***************************************************************#
 	PYTHON_PACKAGES=(
-		pip
-		python-mpd2
-		smbus2
-		rpi-lgpio
-		concurrent-log-handler
-		requests
 		nmcli
-		netifaces
-		pyalsaaudio
-		vcgencmd
-		watchdog
-		pydantic
 		fastapi
-		JinJa2
-		uvicorn[standard]
+		uvicorn
+		python-mpd2
 		python-multipart
+		concurrent-log-handler
 	)
 
 	# Ensure Python packages are installed and up-to-date
 	for package in "${PYTHON_PACKAGES[@]}"; do
-
 		installed_version=$(python -c "
 import sys
 try:
@@ -276,7 +276,6 @@ try:
 except:
     sys.exit(1)
 ")
-
 		if [ $? -ne 0 ]; then
 			echo -e "${YELLOW}$package is missing: installing...${NC}"
 			# On --use-pep517 see https://peps.python.org/pep-0517/
@@ -351,7 +350,7 @@ else # Execute if this script IS automatically started after reboot
 	# Restore normal behaviour after reboot
 	sudo sed -i "\#^bash $SCRIPT_PATH/$SCRIPT_NAME --continue\$#d" ~/.bashrc
 
-	# Enable raspi-config to auto-login to console
+	# Disable raspi-config to auto-login to console
 	sudo raspi-config nonint do_boot_behaviour B1
 
 ########## REBOOT RUN END ##########
@@ -418,9 +417,9 @@ EOL'
 fi
 
 # Ensure defined state when booting: service removes /media/usb_ready
-install_resource $RESOURCES_PATH/usb-prepare.service /etc/systemd/system/usb-prepare.service 'sudo systemctl enable usb-prepare.service'
+install_resource $RESOURCES_PATH/usb-prepare.service /etc/systemd/system/usb-prepare.service 'systemctl enable usb-prepare.service'
 # Configure the USB mount script
-install_resource $RESOURCES_PATH/usb-mount.sh /usr/local/bin/usb-mount.sh 'sudo chmod +x /usr/local/bin/usb-mount.sh'
+install_resource $RESOURCES_PATH/usb-mount.sh /usr/local/bin/usb-mount.sh 'chmod +x /usr/local/bin/usb-mount.sh'
 # Configure the USB service
 install_resource $RESOURCES_PATH/usb-mount@.service /etc/systemd/system/usb-mount@.service
 # Install rules if new or changed and reload to activate
@@ -436,21 +435,18 @@ install_resource $RESOURCES_PATH/modules /etc/modules
 # Progress report
 echo -e "${GREEN}i2c installed and configured${NC}"
 
-# Install equalizer settings with rw rights
-install_resource $RESOURCES_PATH/alsaequal.bin /etc/alsaequal.bin 'sudo chmod 666 /etc/alsaequal.bin'
-# Install audio configuration, activate SoftVolSpotCon, set volume to normal level
-# NOTE: Requires the Oradio3 boot config to be installed and activate
+# Install audio configuration, set volume to reasonable level, play silence to activate
 install_resource $RESOURCES_PATH/asound.conf /etc/asound.conf \
-		'speaker-test -D SoftVolSpotCon1 -c2 >/dev/null 2>&1' \
-		'speaker-test -D SoftVolSysSound -c2 >/dev/null 2>&1' \
-		'speaker-test -D SoftVolMPD -c2 >/dev/null 2>&1' \
-		'amixer -c 0 cset name="Digital Playback Volume" 120'
+	'amixer -c 0 cset name="Digital Playback Volume" 120'\
+	'aplay -D SpotCon_in /dev/zero -f FLOAT_LE -c 2 -r 44100 -d 1' \
+	'aplay -D MPD_in /dev/zero -f FLOAT_LE -c 2 -r 44100 -d 1' \
+	'aplay -D SysSound_in /dev/zero -f FLOAT_LE -c 2 -r 44100 -d 1'
 # Configure MPD
 install_resource $RESOURCES_PATH/mpd.conf /etc/mpd.conf
 # Install empty MPD database (prevents MPD updating when starting
 install_resource $RESOURCES_PATH/mpd.database /var/lib/mpd/tag_cache
 # Configure the MPD service to start on boot
-install_resource $RESOURCES_PATH/mpd.service /lib/systemd/system/mpd.service 'sudo systemctl enable mpd.service'
+install_resource $RESOURCES_PATH/mpd.service /lib/systemd/system/mpd.service 'systemctl enable mpd.service'
 # Progress report
 echo -e "${GREEN}Audio installed and configured${NC}"
 
@@ -460,36 +456,39 @@ install_resource $RESOURCES_PATH/logrotate.conf /etc/logrotate.d/oradio
 echo -e "${GREEN}Log files rotation configured${NC}"
 
 # Configure Spotify connect
-install_resource $RESOURCES_PATH/spotify_event_handler.sh /usr/local/bin/spotify_event_handler.sh 'sudo chmod +x /usr/local/bin/spotify_event_handler.sh'
-# Configure the Librespot service to start on boot
-install_resource $RESOURCES_PATH/librespot.service /etc/systemd/system/librespot.service 'sudo systemctl enable librespot.service'
+# Ensure logfile exists with correct ownership and permissions before starting librespot
+touch $LOGFILE_SPOTIFY
 # Ensure Spotify directory and flag files exist with default '0' and correct ownership and permissions
 mkdir -p "$SPOTIFY_PATH" || { echo -e "${RED}Failed to create directory $SPOTIFY_PATH${NC}"; exit 1; }
 for flag in spotactive.flag spotplaying.flag; do
 	file="$SPOTIFY_PATH/$flag"
 	if [ ! -f "$file" ]; then
 		echo "0" >"$file" || { echo -e "${RED}Failed to write $file${NC}"; exit 1; }
-		chown "$(id -un):$(id -gn)" "$file" 2>/dev/null || { echo -e "${RED}chown failed for $file${NC}"; exit 1; }
-		chmod 644 "$file" 2>/dev/null || { echo -e "${RED}chmod failed for $file${NC}"; exit 1; }
+#		chown "$(id -un):$(id -gn)" "$file" 2>/dev/null || { echo -e "${RED}chown failed for $file${NC}"; exit 1; }
+#		chmod 644 "$file" 2>/dev/null || { echo -e "${RED}chmod failed for $file${NC}"; exit 1; }
 	fi
 done
+# install librespot event handler script
+install_resource $RESOURCES_PATH/spotify_event_handler.sh /usr/local/bin/spotify_event_handler.sh 'chmod +x /usr/local/bin/spotify_event_handler.sh'
+# Configure the Librespot service to start on boot
+install_resource $RESOURCES_PATH/librespot.service /etc/systemd/system/librespot.service 'systemctl enable librespot.service'
 # Progress report
 echo -e "${GREEN}Spotify connect functionality is installed and configured${NC}"
 
 # Install the send_log_files_to_rms script
-install_resource $RESOURCES_PATH/send_log_files_to_rms.sh /usr/local/bin/send_log_files_to_rms.sh 'sudo chmod +x /usr/local/bin/send_log_files_to_rms.sh'
+install_resource $RESOURCES_PATH/send_log_files_to_rms.sh /usr/local/bin/send_log_files_to_rms.sh 'chmod +x /usr/local/bin/send_log_files_to_rms.sh'
 # Install the about script
-install_resource $RESOURCES_PATH/about /usr/local/bin/about 'sudo chmod +x /usr/local/bin/about'
+install_resource $RESOURCES_PATH/about /usr/local/bin/about 'chmod +x /usr/local/bin/about'
 # Progress report
 echo -e "${GREEN}Support tools installed${NC}"
 
 # Configure the oradio service to start on boot
-install_resource $RESOURCES_PATH/usb_low_idle_power.service /etc/systemd/system/usb_low_idle_power.service 'sudo systemctl enable usb_low_idle_power.service'
+install_resource $RESOURCES_PATH/usb_low_idle_power.service /etc/systemd/system/usb_low_idle_power.service 'systemctl enable usb_low_idle_power.service'
 # Progress report
 echo -e "${GREEN}Power save features configured${NC}"
 
 # Configure the oradio service to start on boot
-install_resource $RESOURCES_PATH/oradio.service /etc/systemd/system/oradio.service 'sudo systemctl enable oradio.service'
+install_resource $RESOURCES_PATH/oradio.service /etc/systemd/system/oradio.service 'systemctl enable oradio.service'
 # Progress report
 echo -e "${GREEN}Start Oradio3 on boot configured${NC}"
 

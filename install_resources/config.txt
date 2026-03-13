@@ -70,6 +70,7 @@ dtparam=act_led_trigger=none
 dtparam=act_led_activelow=off # the off is ok, for act it is reversed!
 
 #### Oradio audio options ####
+# Use memory-mapped interface for low latency real-time audio streaming
 dtoverlay=i2s-mmap
+# DigiAMP+ overlay. When the Pi powers on, the amplifier is immediately enabled
 dtoverlay=rpi-digiampplus,unmute_amp
-

@@ -1,0 +1,762 @@
+#!/usr/bin/env python3
+"""
+
+  ####   #####     ##    #####      #     ####
+ #    #  #    #   #  #   #    #     #    #    #
+ #    #  #    #  #    #  #    #     #    #    #
+ #    #  #####   ######  #    #     #    #    #
+ #    #  #   #   #    #  #    #     #    #    #
+  ####   #    #  #    #  #####      #     ####
+
+
+Created on December 23, 2024
+@author:        Henk Stevens & Olaf Mastenbroek & Onno Janssen
+@copyright:     Copyright 2024, Oradio Stichting
+@license:       GNU General Public License (GPL)
+@organization:  Oradio Stichting
+@version:       2
+@email:         oradioinfo@stichtingoradio.nl
+@status:        Development
+@summary: Class for web interface and web server
+    Note:
+    Install:
+    Documentation:
+        https://fastapi.tiangolo.com/
+"""
+from os import path
+from re import match
+from typing import Optional, Dict, Any
+from json import load, JSONDecodeError
+from asyncio import sleep, create_task, CancelledError
+from datetime import datetime, timedelta, timezone
+from pydantic import BaseModel
+from fastapi import FastAPI, Request
+from fastapi.staticfiles import StaticFiles
+from fastapi.templating import Jinja2Templates
+from fastapi.responses import FileResponse, JSONResponse
+from starlette.responses import RedirectResponse
+
+#### oradio modules ######################
+from oradio_logging import oradio_log
+from oradio_utils import get_serial, safe_put, run_shell_script, load_presets, store_presets
+from wifi_service import get_wifi_networks, get_saved_network
+from mpd_control import MPDControl
+
+#### GLOBAL constants ####################
+from oradio_const import (
+    GREEN, NC,
+    WEB_SERVER_HOST,
+    WEB_SERVER_PORT,
+    MESSAGE_REQUEST_CONNECT,
+    MESSAGE_REQUEST_STOP,
+    MESSAGE_WEB_SERVICE_SOURCE,
+    MESSAGE_WEB_SERVICE_PL1_PLAYLIST,
+    MESSAGE_WEB_SERVICE_PL2_PLAYLIST,
+    MESSAGE_WEB_SERVICE_PL3_PLAYLIST,
+    MESSAGE_WEB_SERVICE_PL1_WEBRADIO,
+    MESSAGE_WEB_SERVICE_PL2_WEBRADIO,
+    MESSAGE_WEB_SERVICE_PL3_WEBRADIO,
+    MESSAGE_WEB_SERVICE_PLAYING_SONG,
+    MESSAGE_NO_ERROR,
+)
+
+#### LOCAL constants #####################
+# Web file with wifi credentials
+WIFI_FILE     = "/tmp/Wifi_invoer.json"
+# templates
+EMPTY_PRESETS = {"preset1": "", "preset2": "", "preset3": ""}
+INFO_MISSING  = {"serial": "not found", "version": "not found"}
+INFO_ERROR    = {"serial": "undefined", "version": "undefined"}
+# Location of version info
+SOFTWARE_VERSION_FILE = "/var/log/oradio_sw_version.log"
+# Stop server if no keep alive message received, in seconds
+KEEP_ALIVE_TIMEOUT = 5
+
+# Initialise MPD client
+mpd_control = MPDControl()
+
+# Get the web server app
+api_app = FastAPI()
+
+# Get the path for the server to mount/find the web pages and associated resources
+web_path = path.dirname(path.dirname(path.realpath(__file__))) + "/webapp"
+
+# Mount static files
+api_app.mount("/static", StaticFiles(directory=web_path+"/static"), name="static")
+
+# Initialize templates with custom filters and globals
+templates = Jinja2Templates(directory=web_path+"/templates")
+
+# Store in api_app.state to persists over multiple HTTP requests and application lifetime
+api_app.state.timer_task = None         # The actual timer task
+api_app.state.timer_deadline = None     # When the timer should expire
+
+# Catch any request before doing anything else
+@api_app.middleware("http")
+async def keep_alive_middleware(request: Request, call_next):
+    """Manage keep_alive counter while executing requests."""
+    if request.url.path != "/keep_alive" and api_app.state.timer_task and not api_app.state.timer_task.done():
+        # Stop the running keep-alive timer
+        api_app.state.timer_task.cancel()
+        api_app.state.timer_deadline = None
+        api_app.state.timer_task = None
+        oradio_log.debug("Keep-alive timer stopped")
+
+    # Process the actual request
+    response = await call_next(request)
+
+    if request.url.path != "/keep_alive" and not request.query_params.get("redirected"):
+        # Restart timeout counter if not redirected
+        await keep_alive()
+
+    # Return response for actual request
+    return response
+
+#### HELPERS #############################
+
+def _get_sw_info():
+    """
+    Retrieve software configuration information from the software version file
+
+    The function attempts to read a JSON file containing software metadata.
+    It extracts the serial number and version information. If the file
+    cannot be found or read, default placeholder values are returned.
+
+    Returns:
+        Dict[str, str]: Dictionary containing:
+            - "serial": Software serial number.
+            - "version": Software version (git info).
+
+            Returns INFO_MISSING if the file does not exist.
+            Returns INFO_ERROR if the file is unreadable or invalid.
+    """
+    oradio_log.debug("Get software info")
+
+    # Try to load software version info
+    try:
+        with open(SOFTWARE_VERSION_FILE, "r", encoding="utf-8") as file:
+            data = load(file)
+            software_info = {
+                "serial": data.get("serial", "missing serial"),
+                "version": data.get("gitinfo", "missing gitinfo")
+            }
+    except FileNotFoundError:
+        oradio_log.error("Software version info '%s' not found", SOFTWARE_VERSION_FILE)
+        software_info = INFO_MISSING
+    except (JSONDecodeError, PermissionError, OSError) as ex_err:
+        oradio_log.error("Failed to read '%s'. error: %s", SOFTWARE_VERSION_FILE, ex_err)
+        software_info = INFO_ERROR
+
+    # Return sanitized data set
+    return software_info
+
+def play_song(args: Optional[Dict[str, Any]]):
+    """
+    Play a song via MPD.
+
+    Args:
+        args (Optional[Dict[str, Any]]):
+            Dictionary containing:
+                - "song" (str): Path or identifier of the song to play.
+
+    Returns:
+        Dict[str, str]: Confirmation message containing the song name.
+
+    Raises:
+        ValueError: If the required 'song' argument is missing.
+    """
+    # Extract required argument, none if no args sent
+    songfile = args.get("song") if args else None
+    if not songfile:
+        # Missing required argument
+        raise ValueError("'play' vereist argument 'song'")
+
+    # Trigger MPD control to play the song
+    mpd_control.play_song(songfile)
+
+    # Send notification message
+    message = {
+        "source": MESSAGE_WEB_SERVICE_SOURCE,
+        "state": MESSAGE_WEB_SERVICE_PLAYING_SONG,
+        "error": MESSAGE_NO_ERROR
+    }
+    oradio_log.debug("Send web service message: %s", message)
+    safe_put(api_app.state.queue, message)
+
+    # Success
+    return {"message": f"'{songfile}' is nu te horen"}
+
+def get_networks(_args: Optional[Dict[str, Any]]):
+    """
+    Retrieve available WiFi networks.
+
+    Args:
+        _args (Optional[Dict[str, Any]]): Unused.
+
+    Returns:
+        list: list of detected WiFi networks.
+    """
+    return get_wifi_networks()
+
+def shutdown_webapp(_args: Optional[Dict[str, Any]]):
+    """
+    Shutdown the web server.
+
+    Sends a stop request message to the service queue.
+
+    Args:
+        _args (Optional[Dict[str, Any]]): Unused.
+
+    Returns:
+        None
+    """
+    # Send a stop message to the service queue
+    message = {"request": MESSAGE_REQUEST_STOP}
+    safe_put(api_app.state.queue, message)
+
+def rename_spotify(args: Optional[Dict[str, Any]]):
+    """
+    Modify the Spotify (librespot) device name.
+
+    The name must match the allowed pattern: letters, numbers,
+    hyphen (-), and underscore (_).
+
+    Args:
+        args (Optional[Dict[str, Any]]):
+            Dictionary containing:
+                - "name" (str): New Spotify device name.
+
+    Returns:
+        Union[str, JSONResponse]:
+            - The new device name on success.
+            - JSONResponse with status 400 if validation or system
+              command execution fails.
+
+    Raises:
+        ValueError: If the required 'name' argument is missing.
+    """
+    # Extract required argument, none if no args sent
+    name = args.get("name") if args else None
+    if not name:
+        # Missing required argument
+        raise ValueError("'spotify' vereist argument 'name'")
+
+    # Use regex pattern to validate Spotify device name characters
+    pattern = r'^[A-Za-z0-9_-]+$'
+    if not bool(match(pattern, name)):
+        response = f"'{name}' is ongeldig. Alleen hoofdletters, kleine letters, cijfers, - of _ is toegestaan"
+        oradio_log.error(response)
+        # Return fail, so caller can try to recover
+        return JSONResponse(status_code=400, content={"message": response})
+
+    # Update the librespot.service file with the new device name
+    cmd = f"sudo sed -i 's/--name \\S*/--name {name}/' /etc/systemd/system/librespot.service"
+    result, response = run_shell_script(cmd)
+    if not result:
+        oradio_log.error("Error during <%s> to set Spotify name, error: %s", cmd, response)
+        # Return fail, so caller can try to recover
+        return JSONResponse(status_code=400, content={"message": response})
+
+    # Reload systemd daemon to apply changes in the service file
+    cmd = "sudo systemctl daemon-reload"
+    result, response = run_shell_script(cmd)
+    if not result:
+        oradio_log.error("Error during <%s> to set Spotify name, error: %s", cmd, response)
+        # Return fail, so caller can try to recover
+        return JSONResponse(status_code=400, content={"message": response})
+
+    # Restart the librespot service to activate the new device name
+    cmd = "sudo systemctl restart librespot.service"
+    result, response = run_shell_script(cmd)
+    if not result:
+        oradio_log.error("Error during <%s> to set Spotify name, error: %s", cmd, response)
+        # Return fail, so caller can try to recover
+        return JSONResponse(status_code=400, content={"message": response})
+
+    # Return the new device name on success
+    return name
+
+def wifi_connect(args: Optional[Dict[str, Any]]):
+    """
+    Send a request to connect to a WiFi network.
+
+    Args:
+        args (Optional[Dict[str, Any]]):
+            Dictionary containing:
+                - "ssid" (str): WiFi network name (required).
+                - "pswd" (str, optional): WiFi password.
+
+    Raises:
+        ValueError: If the required 'ssid' argument is missing.
+
+    Returns:
+        None
+    """
+    # Extract required arguments, none if no args sent
+    ssid = args.get("ssid") if args else None
+    if not ssid:
+        # Missing required argument
+        raise ValueError("'connect' vereist argument 'ssid'")
+    # pswd is optional
+    pswd = args.get("pswd") if args else None
+
+    # Send connect message to web service
+    message = {
+        "request": MESSAGE_REQUEST_CONNECT,
+        "ssid"  : ssid,
+        "pswd"  : pswd
+    }
+    safe_put(api_app.state.queue, message)
+
+def save_preset(args: Optional[Dict[str, Any]]):
+    """
+    Save a playlist or webradio entry as a preset.
+
+    The preset is stored and a corresponding state message
+    is sent to the web service queue.
+
+    Args:
+        args (Optional[Dict[str, Any]]):
+            Dictionary containing:
+                - "preset" (str): Preset key (preset1, preset2, preset3).
+                - "playlist" (str): Playlist or webradio identifier.
+
+    Raises:
+        ValueError: If required arguments are missing.
+
+    Returns:
+        None
+    """
+    # Extract required arguments, none if no args sent
+    preset = args.get("preset") if args else None
+    if not preset:
+        # Missing required argument
+        raise ValueError("'preset' vereist argument 'preset'")
+    playlist = args.get("playlist") if args else None
+    if not playlist:
+        # Missing required argument
+        raise ValueError("'preset' vereist argument 'playlist'")
+
+    message = {"source": MESSAGE_WEB_SERVICE_SOURCE, "error": MESSAGE_NO_ERROR}
+
+    # Mapping of presets to constants per type
+    preset_map = {
+        "preset1": {
+            "playlist": MESSAGE_WEB_SERVICE_PL1_PLAYLIST,
+            "webradio": MESSAGE_WEB_SERVICE_PL1_WEBRADIO,
+        },
+        "preset2": {
+            "playlist": MESSAGE_WEB_SERVICE_PL2_PLAYLIST,
+            "webradio": MESSAGE_WEB_SERVICE_PL2_WEBRADIO,
+        },
+        "preset3": {
+            "playlist": MESSAGE_WEB_SERVICE_PL3_PLAYLIST,
+            "webradio": MESSAGE_WEB_SERVICE_PL3_WEBRADIO,
+        }
+    }
+
+    # Determine type
+    preset_type = "webradio" if mpd_control.is_webradio(mpdlist=playlist) else "playlist"
+
+    # Set message state
+    if preset in preset_map:
+        # load presets
+        presets = load_presets()
+
+        # Modify preset
+        presets[preset] = playlist
+        oradio_log.debug("Preset '%s' playlist changed to '%s'", preset, playlist)
+
+        # Store presets
+        store_presets(presets)
+
+        # Send message which preset has changed and its type
+        message["state"] = preset_map[preset][preset_type]
+        oradio_log.debug("Send web service message: %s", message)
+        safe_put(api_app.state.queue, message)
+    else:
+        oradio_log.error("Invalid preset '%s'", preset)
+
+def get_playlist_songs(args: Optional[Dict[str, Any]]):
+    """
+    Retrieve all songs in a given playlist.
+
+    Args:
+        args (Optional[Dict[str, Any]]):
+            Dictionary containing:
+                - "playlist" (str): Playlist name.
+
+    Returns:
+        Any: List of songs returned by MPDControl.get_songs().
+
+    Raises:
+        ValueError: If the required 'playlist' argument is missing.
+    """
+    # Extract required arguments, none if no args sent
+    playlist = args.get("playlist") if args else None
+    if not playlist:
+        # Missing required argument
+        raise ValueError("'playlist' vereist argument 'playlist'")
+    return mpd_control.get_songs(playlist)
+
+def get_search_songs(args: Optional[Dict[str, Any]]):
+    """
+    Search for songs matching a pattern.
+
+    Args:
+        args (Optional[Dict[str, Any]]):
+            Dictionary containing:
+                - "pattern" (str): Search pattern.
+
+    Returns:
+        Any: Search results returned by MPDControl.search().
+
+    Raises:
+        ValueError: If the required 'pattern' argument is missing.
+    """
+    # Extract required arguments, none if no args sent
+    pattern = args.get("pattern") if args else None
+    if not pattern:
+        # Missing required argument
+        raise ValueError("'search' vereist argument 'pattern'")
+    return mpd_control.search(pattern)
+
+def modify_playlist(args: Optional[Dict[str, Any]]):
+    """
+    Add or remove playlists and/or songs from a playlist.
+
+    Args:
+        args (Optional[Dict[str, Any]]):
+            Dictionary containing:
+                - "action" (str): Either "Add" or "Remove".
+                - "playlist" (str): Playlist name.
+                - "song" (str, optional): Song to add or remove.
+
+    Returns:
+        Union[Any, JSONResponse]:
+            - Updated playlist list on success.
+            - JSONResponse with status 400 if action is invalid.
+
+    Raises:
+        ValueError: If required arguments are missing.
+    """
+    # Extract required arguments, none if no args sent
+    action = args.get("action") if args else None
+    if not action:
+        # Missing required argument
+        raise ValueError("'modify' vereist argument 'action'")
+    playlist = args.get("playlist") if args else None
+    if not playlist:
+        # Missing required argument
+        raise ValueError("'modify' vereist argument 'playlist'")
+    # song is optional
+    song = args.get("song") if args else None
+
+    # Map actions to MPD methods and log messages
+    action_map = {
+        "Add": (mpd_control.add, "Create playlist: '%s'", "Add song '%s' to playlist '%s'"),
+        "Remove": (mpd_control.remove, "Delete playlist: '%s'", "Delete song '%s' from playlist '%s'")
+    }
+
+    # Execute requested action
+    if action in action_map:
+        # Extract function and message from action map
+        func, msg_no_song, msg_with_song = action_map[action]
+        # Log appropriate message
+        if song is None:
+            oradio_log.debug(msg_no_song, playlist)
+        else:
+            oradio_log.debug(msg_with_song, song, playlist)
+        # Execute
+        func(playlist, song)
+
+    else:
+        oradio_log.error("Unexpected action '%s'", action)
+        return JSONResponse(status_code=400, content={"message": f"De action '{action}' is ongeldig"})
+
+    # Return updated custom playlists
+    return mpd_control.get_playlists()
+
+class ExecuteRequest(BaseModel):
+    """
+    Request model for generic command execution.
+
+    Attributes:
+        cmd (str): Command name to execute.
+        args (Optional[Dict[str, Any]]): Optional dictionary
+            containing command-specific arguments.
+    """
+    cmd:  str
+    args: Optional[Dict[str, Any]] = None
+
+# generic POST endpoint
+@api_app.post("/execute")
+async def execute(request: ExecuteRequest):
+    """
+    Execute a command based on the provided request payload.
+
+    The command is validated against a dispatch table and then
+    executed with its associated arguments.
+
+    Args:
+        request (ExecuteRequest): Incoming command request.
+
+    Returns:
+        Any:
+            - Command result on success.
+            - JSONResponse with status 400 if the command
+              is invalid or arguments are incorrect.
+    """
+    oradio_log.debug("Executing '%s' with args '%s'", request.cmd, request.args)
+
+    # --- Command dispatch dictionary ---
+    commands = {
+        "play": play_song,
+        "networks": get_networks,
+        "shutdown": shutdown_webapp,
+        "spotify": rename_spotify,
+        "connect": wifi_connect,
+        "preset": save_preset,
+        "playlist": get_playlist_songs,
+        "search": get_search_songs,
+        "modify": modify_playlist,
+        # Add other commands were
+    }
+
+    # --- Check command validity ---
+    if request.cmd not in commands:
+        oradio_log.error("Invalid command '%s'", request.cmd)
+        return JSONResponse(status_code=400, content={"message": f"Opdracht '{request.cmd}' is onbekend"})
+
+    # --- Execute command ---
+    try:
+        result = commands[request.cmd](request.args)
+        return result
+    except ValueError as ex_err:
+        # Argument ontbreekt of fout
+        return JSONResponse(status_code=400, content={"message": str(ex_err)})
+
+#### ORADIO3 ##############################
+
+@api_app.get("/oradio3")
+async def oradio3_page(request: Request):
+    """
+    Serve the Oradio3 web interface page.
+
+    This endpoint renders the main Oradio3 web interface using a Jinja2
+    template. It gathers system and application state information,
+    including:
+
+    - Previously connected WiFi network
+    - Current Spotify (librespot) device name
+    - Saved presets
+    - Available MPD directories and playlists
+    - Raspberry Pi serial number
+    - Software serial and version information
+
+    Args:
+        request (Request): The incoming HTTP request object.
+
+    Returns:
+        TemplateResponse:
+            Rendered 'oradio3.html' page containing the full web
+            interface context.
+
+        JSONResponse:
+            Returned with status 400 if retrieving the Spotify
+            device name fails.
+    """
+    oradio_log.debug("Serving Oradio3 page")
+
+    # --- Network page info ---
+
+    # Get the network Oradio was connected to before starting access point, empty string if None
+    oldssid = get_saved_network()
+
+    # Get Spotify name
+    oradio_log.debug("Get Spotify name")
+    cmd = "systemctl show librespot | sed -n 's/.*--name \\([^ ]*\\).*/\\1/p' | uniq"
+    result, response = run_shell_script(cmd)
+    if not result:
+        oradio_log.error("Error during <%s> to get Spotify name, error: %s", cmd, response)
+        # Return fail, so caller can try to recover
+        return JSONResponse(status_code=400, content={"message": response})
+    spotify = response
+
+    # --- Status page info ---
+
+    # Get RPI serial number
+    serial = get_serial()
+
+    # Get software configuration info
+    sw_info = _get_sw_info()
+
+    context = {
+        # Return saved wifi connection and spotify name as context
+        "oldssid"     : oldssid,
+        "spotify"     : spotify,
+        # Return presets, directories and playlists as context
+        "presets"     : load_presets(),
+        "directories" : mpd_control.get_directories(),
+        "playlists"   : mpd_control.get_playlists(),
+        # Return serial and active wifi connection as context
+        "serial"      : serial,
+        "sw_serial"   : sw_info['serial'],
+        "sw_version"  : sw_info['version'],
+    }
+
+    return templates.TemplateResponse(request=request, name="oradio3.html", context=context)
+
+#### KEEP ALIVE ######################
+
+async def stop_task():
+    """
+    Background task that monitors the keep-alive deadline.
+
+    The task sleeps in short intervals until the deadline expires.
+    When expired, a stop message is sent to the service queue.
+    The task exits silently if cancelled.
+
+    Raises:
+        CancelledError: When the task is cancelled due to
+        a keep-alive reset.
+    """
+    try:
+        # Sleep until timeout unless reset
+        while True:
+            # Compute remaining time until deadline
+            remaining = (api_app.state.timer_deadline - datetime.now(timezone.utc)).total_seconds()
+
+            # If deadline passed, break the loop
+            if remaining <= 0:
+                break
+
+            # Sleep a short time (or until deadline, whichever is smaller)
+            await sleep(min(remaining, 0.2))
+
+        # Timer expired: Send stop message
+        message = {"request": MESSAGE_REQUEST_STOP}
+        safe_put(api_app.state.queue, message)
+        oradio_log.debug("Keep alive timer expired: closing the web server")
+
+    except CancelledError:
+        # Timer cancelled (because a new keep alive request arrived)
+        pass
+
+# POST endpoint to reset the keep alive timer
+@api_app.post("/keep_alive")
+async def keep_alive():
+    """
+    Reset or start the inactivity timer for the web server.
+
+    If no keep-alive request is received within KEEP_ALIVE_TIMEOUT
+    seconds, the web server will be instructed to stop.
+
+    Returns:
+        None
+    """
+    if api_app.state.timer_deadline is None:
+        oradio_log.debug("Starting the keep alive timer")
+    else:
+        remaining = (api_app.state.timer_deadline - datetime.now(timezone.utc)).total_seconds()
+        oradio_log.debug("Time remaining: %f. Resetting the keep alive timer", remaining)
+
+    # Set the new deadline
+    api_app.state.timer_deadline = datetime.now(timezone.utc) + timedelta(seconds=KEEP_ALIVE_TIMEOUT)
+
+    # Only create the timer task if it doesn't exist or is done
+    if api_app.state.timer_task is None or api_app.state.timer_task.done():
+        api_app.state.timer_task = create_task(stop_task())
+
+#### CATCH ALL ###########################
+
+@api_app.api_route("/{full_path:path}", methods=["GET", "POST"])
+async def catch_all(request: Request):
+    """
+    Catch-all endpoint to handle undefined routes.
+    - Ignore /static/ requests
+    - Redirects the client to '/oradio3'.
+
+    Args:
+        request (Request): The incoming HTTP request.
+
+    Returns:
+        RedirectResponse: Redirects the client to '/buttons'.
+    """
+    oradio_log.debug("Catchall triggered for path: %s", request.url.path)
+
+    # Do not intercept /static/ requests
+    if request.url.path.startswith("/static/"):
+        return FileResponse(web_path + request.url.path)
+
+    # Redirect all requests to webapp
+#REVIEW Onno: Do I need to use redirected=1? If yes, document why
+    return RedirectResponse(url="/oradio3?redirected=1", status_code=302)
+
+# Entry point for stand-alone operation
+if __name__ == '__main__':
+
+    # Imports only relevant when stand-alone
+    import uvicorn
+    from multiprocessing import Process, Event, Queue
+    from queue import Empty
+
+# Most modules use similar code in stand-alone
+# pylint: disable=duplicate-code
+
+    def _check_messages(queue):
+        """
+        Monitor the message queue and print received messages.
+
+        Intended for stand-alone operation. Continuously checks
+        the queue for new messages and prints them to stdout.
+
+        Args:
+            queue (multiprocessing.Queue): Queue to monitor.
+
+        Returns:
+            None
+        """
+        try:
+            while not stop_event.is_set():
+                try:
+                    # Wait for message with 1s timeout
+                    message = queue.get(block=True, timeout=0.5)
+                    # Show message received
+                    print(f"\n{GREEN}Message received: '{message}'{NC}\n")
+                except Empty:
+                    continue
+        except KeyboardInterrupt:
+            print("Listener process interrupted by KeyboardInterrupt")
+
+    # Initialize
+    stop_event = Event()
+    message_queue = Queue()
+
+    # Start  process to monitor the message queue
+    message_listener = Process(target=_check_messages, args=(message_queue,))
+    message_listener.start()
+
+    # Pass the queue to the web server
+    api_app.state.queue = message_queue
+
+    try:
+        # Start the web server with log level 'trace'. log_config=Nonoe: Prevent overriding our log setup
+        uvicorn.run(
+            api_app,
+            host=WEB_SERVER_HOST,
+            port=WEB_SERVER_PORT,
+            log_config=None,
+            log_level="debug",      # trace | debug | info | warning | errror | critical
+            # >= 2s is safe for small devices and small networks
+            ws_ping_interval = 3,   # Send ping every X seconds
+            ws_ping_timeout = 3,    # Close connection if no pong in X seconds
+            lifespan="off",         # Uvicorn server will not wait for or execute startup/shutdown events
+        )
+    except KeyboardInterrupt:
+        # Stop listening to messages
+        stop_event.set()
+        message_listener.join()
+
+# Restore temporarily disabled pylint duplicate code check
+# pylint: enable=duplicate-code
