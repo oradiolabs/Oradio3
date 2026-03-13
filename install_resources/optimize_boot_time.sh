@@ -43,7 +43,7 @@ for package_with_comment in "${PACKAGES_TO_REMOVE[@]}"; do
 		sudo apt-get purge -y "$package" >/dev/null
 		echo "Package '$package' removed"
 	else
-		echo "Package '$package' already removed"
+		echo "Package '$package' is purged"
 	fi
 done
 
