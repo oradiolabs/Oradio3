@@ -92,14 +92,14 @@ def play_sound(sound_key: str) -> None:
         oradio_log.debug("Sound file does not exist or is not a file: %s", sound_file)
         return
 
-    # FOR ANALYSIS: Log time since power-on
+    # FOR ANALYSIS: Get time since power-on
     if sound_key == SOUND_START:
         try:
-            with open("/proc/uptime", "r") as f:
-                uptime = float(f.readline().split()[0])
+            with open("/proc/uptime", "r", encoding="utf-8") as file:
+                uptime = float(file.readline().split()[0])
             oradio_log.debug("Playing %s %.2f seconds after power-on", sound_file, uptime)
-        except (FileNotFoundError, ValueError, IndexError) as e:
-            oradio_log.warning("Could not read uptime: %s", e)
+        except (FileNotFoundError, ValueError, IndexError) as ex_err:
+            oradio_log.warning("Could not read uptime: %s", ex_err)
 
     # Command to play sound
     cmd = f"aplay -D '{SYSTEM_SOUND_SINK}' {sound_file}"
