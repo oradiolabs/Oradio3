@@ -7,11 +7,7 @@ After=network.target sound.target
 [Service]
 Type=notify
 EnvironmentFile=/etc/default/mpd
-# Force use of /etc/mpd.conf
 ExecStart=/usr/bin/mpd --systemd /etc/mpd.conf
-
-# Run mpc clear after MPD has started
-ExecStartPost=/usr/bin/mpc clear
 
 # Enable this setting to ask systemd to watch over MPD, see
 # systemd.service(5).  This is disabled by default because it causes
