@@ -54,9 +54,6 @@ function shutdownWebApp()
 		'De web interface wordt afgesloten...' +
 	'</div>';
 
-	// Show waiting indicator
-	showWaiting();
-
 	// Fire-and-forget: server may terminate immediately
 	postJSON("shutdown").catch(()=>{});
 }
@@ -66,6 +63,9 @@ async function postJSON(cmd, args = {})
 {
 	const retries = 2;		// Automatic retry
 	const timeout = 5000;	// ms
+
+	// Show waiting indicator
+	showWaiting();
 
 	// Retries
     for (let attempt = 0; attempt <= retries; attempt++)
@@ -115,12 +115,12 @@ async function postJSON(cmd, args = {})
 /* ========== Initialize Single Page Application (SPA) ========== */
 
 // Global variables
-let networks = [], networksPromise, networkInput, networkNotification, passwordBlock, passwordInput;	// Network
-let spotifyInput, spotifyNotification;																	// Spotify
-let presetsNotification;																				// Presets
-let playlistInput, playlistSongs, playlistNotification;													// Playlist songs
-let customPlaylists, customList, customInput, customSongs, customNotification;							// Custom playlists
-let searchInput, searchSongs, searchNotification;														// Search songs
+let networks = [], networkInput, networkNotification, passwordBlock, passwordInput;		// Network
+let spotifyInput, spotifyNotification;													// Spotify
+let presetsNotification;																// Presets
+let playlistInput, playlistSongs, playlistNotification;									// Playlist songs
+let customPlaylists, customList, customInput, customSongs, customNotification;			// Custom playlists
+let searchInput, searchSongs, searchNotification;										// Search songs
 
 // Execute when page HTML is loaded
 document.addEventListener('DOMContentLoaded', () =>
@@ -171,12 +171,17 @@ document.addEventListener('DOMContentLoaded', () =>
 	else
 		showNotification(notificationOldSSID, `Oradio was niet verbonden met wifi`);
 
-	// Load dropdown with available WiFi networks
-	networksPromise = getNetworks();
-	populateNetworkDropdown();
+	// When network input gets focus
+	networkInput.addEventListener("focus", async () =>
+	{
+		// Clear Network notification
+		hideNotification(networkNotification)
+		
+		// Populate dropdown with wifi networks broadcasing their SSID
+		await populateNetworkDropdown();
+	});
 
-	// Clear Network notification when input gets focus
-	networkInput.addEventListener("focus", () => hideNotification(networkNotification));
+	// Clear Network notification when password input gets focus
 	passwordInput.addEventListener("focus", () => hideNotification(networkNotification));
 
 	// Password toggle
@@ -188,10 +193,10 @@ document.addEventListener('DOMContentLoaded', () =>
 		passwordIcon.classList.toggle("fa-eye-slash", isHidden);
 	});
 
-	// Clear Spotify notification when input gets focus
+	// Clear Spotify notification when spotify input gets focus
 	spotifyInput.addEventListener("focus", () => hideNotification(spotifyNotification));
 
-	// Populate the preset dropdowns with avaialble directories and playlists
+	// Populate the preset dropdowns with available directories and playlists
 	populatePresetLists();
 
 	// Clear notifications and hide songs scrollbox on focus
@@ -393,10 +398,10 @@ document.addEventListener("click", (event) =>
 	}
 
 	// Third: Click inside custom-select
-	const customSelect = target.closest(".custom-select");
-	if (customSelect)
+	const select = target.closest(".custom-select");
+	if (select)
 	{
-		handleSelectClick(target, customSelect);
+		handleSelectClick(target, select);
 		return;
 	}
 
@@ -429,9 +434,9 @@ function handleRowClick(row)
 {
 	// Get closest scrollbox, input and icon elements
 	const scrollbox = row.closest(".scrollbox");
-	const customSelect = row.closest(".custom-select");
-	const input = customSelect.querySelector("input");
-	const icon = customSelect.querySelector(".custom-icon");
+	const select = row.closest(".custom-select");
+	const input = select.querySelector("input");
+	const icon = select.querySelector(".custom-icon");
 
 	if (input)
 	{
@@ -454,26 +459,22 @@ function handleRowClick(row)
 	row.classList.add("selected");
 
 	// CALLBACK: pass row for follow-up actions
-	onRowSelect(row.dataset.action, row);
+	onRowSelect(select.dataset.action, row, select.dataset.notification);
 }
 
 // Open dropdown scrollbox on input or icon click
-function handleSelectClick(target, customSelect)
+function handleSelectClick(target, select)
 {
 	// Get closest input, icon and scrollbox elements
-	const input = customSelect.querySelector("input");
-	const icon = customSelect.querySelector(".custom-icon");
-	const dropdown = customSelect.querySelector(".scrollbox.dropdown");
+	const input = select.querySelector("input");
+	const icon = select.querySelector(".custom-icon");
+	const dropdown = select.querySelector(".scrollbox.dropdown");
 
 	// Click on input or dropdown icon
 	if (target === input || target === icon)
 	{
 		// Close any open dropdown scrollboxes
 		closeDropdowns();
-
-		// Show waiting indicator if scrollbox is not populated
-		if (dropdown.dataset.populated === "false")
-			showWaiting();
 
 		// Show the dropdown scrollbox
 		showScrollbox(dropdown, input)
@@ -503,7 +504,7 @@ function closeDropdowns()
 /* ========== CALLBACK ========== */
 
 // CALLBACK: action for selected row
-function onRowSelect(action, row)
+function onRowSelect(action, row, notification)
 {
 	switch (action)
 	{
@@ -530,21 +531,17 @@ function onRowSelect(action, row)
 			const scrollbox = document.getElementById(row.dataset.target);
 			// Get playlist
 			var playlist = row.querySelector(".scrollbox-row-text").textContent.trim();
-			// Get notification
-			const notification = document.getElementById(row.dataset.notify);
 			// Show scrollbox with custom playlist songs
 			showSongs(input, scrollbox, playlist, notification);
 			break;
 
 		case "play":
-			// Get related notification
-			const notify = row.dataset.notify;
 			// Get filename of song to play
 			const songfile = row.dataset.songfile;
 			// Get song description
 			const songtext = row.querySelector(".scrollbox-row-text").textContent.trim();
 			// Play selected song
-			playSong(notify, songfile, songtext);
+			playSong(notification, songfile, songtext);
 			break;
 
 		default:
@@ -586,11 +583,8 @@ async function getNetworks()
 // Populate dropdown with networks
 async function populateNetworkDropdown()
 {
-	// Show waiting indicator
-	showWaiting();
-
-	// Wait for networks
-	const networks = await networksPromise;
+	// Wait for active wifi networks
+	const networks = await getNetworks();
 
 	// Populate dropdown with wifi network id's
 	const dropdown = document.querySelector('.network.custom-select .scrollbox.dropdown');
@@ -598,13 +592,9 @@ async function populateNetworkDropdown()
 	networks.forEach(network =>
 	{
 		const row = createRow(network.ssid);
-		row.dataset.action = "network";
 		fragment.appendChild(row);
 	});
 	dropdown.replaceChildren(fragment);
-
-	// Mark dropdown as ready
-	dropdown.dataset.populated = "true";
 
 	// Hide waiting indicator
 	hideWaiting();
@@ -614,7 +604,6 @@ async function populateNetworkDropdown()
 async function showPassword(ssid)
 {
 	passwordInput.value = "";
-	const networks = await networksPromise;
 	const network = networks.find(n => n.ssid === ssid);
 	passwordBlock.style.display = (!network || network.type === "closed") ? "block" : "none";
 }
@@ -645,9 +634,6 @@ async function submitCredentials()
 	{
 		const cmd = "connect";
 		const args = { "ssid": ssid, "pswd": pswd };
-
-		// Show waiting indicator
-		showWaiting();
 
 		// Submit credentials to server
 		await postJSON(cmd, args);
@@ -680,9 +666,6 @@ async function submitSpotify()
 	}
 
 	const errorMessage = `Instellen van Spotify naam '${name}' is mislukt`;
-
-	// Show waiting indicator
-	showWaiting();
 
 	try
 	{
@@ -728,16 +711,11 @@ function populatePresetLists()
 		options.forEach(option =>
 		{
 			const row = createRow(option);
-			row.dataset.action = input.id;
 			row.dataset.input = playlistInput.id;
 			row.dataset.target = playlistSongs.id;
-			row.dataset.notify = playlistNotification.id;
 			fragment.appendChild(row);
 		});
 		dropdown.replaceChildren(fragment);
-
-		dropdown.dataset.populated = "true";
-		hideWaiting();
 	});
 }
 
@@ -746,9 +724,6 @@ async function savePreset(preset, playlist)
 {
 	// Clear notification
 	hideNotification(presetsNotification);
-
-	// Show waiting indicator
-	showWaiting();
 
 	// Set error template
 	const errorMessage = `Koppelen van '${preset}' is mislukt`;
@@ -774,9 +749,6 @@ async function savePreset(preset, playlist)
 // CALLBACK entry point: Show playlist songs in scrollbox
 async function showSongs(input, scrollbox, playlist, notification)
 {
-	// Show waiting indicator
-	showWaiting();
-
 	// Show scrollbox with playlist songs, hide if empty
 	const songs = await getPlaylistSongs(playlist);
 	if (songs.length)
@@ -847,17 +819,12 @@ function populateSongsScrollbox(input, scrollbox, songs, notification)
 	songs.forEach(song =>
 	{
 		const row = createRow(`${song.artist} - ${song.title}`);
-		row.dataset.action = "play";
 		row.dataset.songfile = song.file;
-		row.dataset.notify = notification.id;
 		fragment.appendChild(row);
 	});
 
 	// Replace old rows efficiently
 	scrollbox.replaceChildren(fragment);
-
-	// mark scrollbox as populated
-	scrollbox.dataset.populated = "true";
 
 	// Show the scrollbox if input exists
 	if (input)
@@ -895,6 +862,9 @@ async function playSong(notification, songfile, songtitle)
 		showNotification(notify, `<span class="error">${errorMessage}<br>${err.message || 'Onbekende fout'}</span>`);
 		console.error(err);
 	}
+
+	// Hide waiting indicator
+	hideWaiting();
 }
 
 /* ========== Playlist page - custom ========== */
@@ -929,6 +899,9 @@ function updateAddButtons()
                 existingButton.remove();
 		}
 	});
+
+	// Custom playlists may have been added
+	populatePresetLists();
 }
 
 // Add delete buttons to remove songs from playlist
@@ -947,6 +920,9 @@ function updateDelButtons()
 			row.appendChild(icon);
 		}
 	});
+
+	// Custom playlists may have been removed
+	populatePresetLists();
 }
 
 // Populate dropdown with custom playlists
@@ -957,16 +933,11 @@ async function populateCustomDropdown(playlists)
 	playlists.forEach(playlist =>
 	{
 		const row = createRow(playlist);
-		row.dataset.action = "playlist-input";
 		row.dataset.input = customInput.id;
 		row.dataset.target = customSongs.id;
-		row.dataset.notify = customNotification.id;
 		fragment.appendChild(row);
 	});
 	customList.replaceChildren(fragment);
-
-	// Mark populated
-	customList.dataset.populated = "true";
 }
 
 // Create custom playlist if it does not exist
@@ -1003,9 +974,6 @@ async function addCustomPlaylist()
 
 	// Show/hide save buttons
 	updateAddButtons();
-
-	// Update dropdowns on buttons page
-	populatePresetLists();
 }
 
 // Remove custom playlist if it exists
@@ -1058,9 +1026,6 @@ async function delCustomPlaylist()
 
 	// Show/hide save buttons
 	updateAddButtons();
-
-	// On Buttons page, update dropdowns
-	populatePresetLists();
 
 	// On buttons page, remove playlist from and songs list
 	if (playlist === playlistInput.value.trim())
@@ -1125,7 +1090,6 @@ async function delSongFromPlaylist(row)
 // Send playlist and song to server
 async function modifyPlaylist(action, playlist, songfile, errorMessage)
 {
-	showWaiting();
 	try
 	{
 		const cmd = "modify";
@@ -1142,6 +1106,7 @@ async function modifyPlaylist(action, playlist, songfile, errorMessage)
 	}
 	finally
 	{
+		// Hide waiting indicator
 		hideWaiting();
 	}
 }
@@ -1159,12 +1124,9 @@ async function submitSearch()
 	// Check for minimal search pattern length
 	if (pattern.length < 3)
 	{
-		showNotification(searchNotification, `<span class='warning'>Gebruik een zoekopdracht met minimaal 3 karakters</span>`);
+		showNotification(searchNotification, `<span class='warning'>Typ zoekopdracht met minstens 3 tekens</span>`);
 		return;
 	}
-
-	// Show waiting indicator
-	showWaiting();
 
 	// Get songs from server
 	const songs = await getSearchSongs(pattern);
@@ -1174,7 +1136,7 @@ async function submitSearch()
 	// Show/hide save buttons
 	updateAddButtons();
 
-	// Show waiting indicator
+	// Hide waiting indicator
 	hideWaiting();
 }
 
