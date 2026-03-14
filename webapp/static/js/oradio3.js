@@ -166,8 +166,17 @@ document.addEventListener('DOMContentLoaded', () =>
 	else
 		showNotification(notificationOldSSID, `Oradio was niet verbonden met wifi`);
 
-	// Clear Network notification when input gets focus
-	networkInput.addEventListener("focus", () => hideNotification(networkNotification));
+	// When network input gets focus
+	networkInput.addEventListener("focus", async () =>
+	{
+		// Clear Network notification
+		hideNotification(networkNotification)
+		
+		// Populate dropdown with wifi networks broadcasing their SSID
+		await populateNetworkDropdown();
+	});
+
+	// Clear Network notification when password input gets focus
 	passwordInput.addEventListener("focus", () => hideNotification(networkNotification));
 
 	// Password toggle
@@ -179,7 +188,7 @@ document.addEventListener('DOMContentLoaded', () =>
 		passwordIcon.classList.toggle("fa-eye-slash", isHidden);
 	});
 
-	// Clear Spotify notification when input gets focus
+	// Clear Spotify notification when spotify input gets focus
 	spotifyInput.addEventListener("focus", () => hideNotification(spotifyNotification));
 
 	// Populate the preset dropdowns with available directories and playlists
@@ -242,34 +251,6 @@ document.addEventListener('DOMContentLoaded', () =>
 
 /* ========== Navigation ========== */
 
-// Page initialization
-function initPage(pageId)
-{
-	switch (pageId)
-	{
-		case "network":
-			// Refresh with currently active networks
-			populateNetworkDropdown();
-			break;
-
-		case "buttons":
-			// Custom playlists may have been added/removed
-			populatePresetLists();
-			break;
-
-		case "playlists":
-			// Custom drowpdown is dynamically updated on select / typing
-			break;
-
-		case "status":
-			// Nothing dynamic
-			break;
-
-		default:
-			console.warn("No initializer for page:", pageId);
-	}
-}
-
 // Switch active page
 document.querySelectorAll('nav button').forEach(button =>
 {
@@ -293,9 +274,6 @@ document.querySelectorAll('nav button').forEach(button =>
 
 		// Show new active page
 		page.classList.add('active');
-
-		// Initialize page content
-		initPage(page.id);
 
 		// Observe new active page
 		observeActivePage();
@@ -917,6 +895,9 @@ function updateAddButtons()
                 existingButton.remove();
 		}
 	});
+
+	// Custom playlists may have been added
+	populatePresetLists();
 }
 
 // Add delete buttons to remove songs from playlist
@@ -935,6 +916,9 @@ function updateDelButtons()
 			row.appendChild(icon);
 		}
 	});
+
+	// Custom playlists may have been removed
+	populatePresetLists();
 }
 
 // Populate dropdown with custom playlists
