@@ -84,7 +84,7 @@ Design choices:
 				</div>
 
 				<!-- Network SSID -->
-				<div class="network custom-select">
+				<div class="network custom-select" data-action="network" data-notification="notification_network">
 					<label for="ssid-input">Netwerk:</label>
 					<input
 						readonly
@@ -95,7 +95,7 @@ Design choices:
 					/>
 					<span class="custom-icon">&#x25BC;</span> <!-- ▼ icon -->
 					<!-- Show network options -->
-					<div class="scrollbox dropdown" role="listbox" data-populated="false">
+					<div class="scrollbox dropdown" role="listbox">
 						<!-- Will be filled by Javascript -->
 					</div>
 				</div>
@@ -148,7 +148,7 @@ Design choices:
 				{% for preset in presets %}
 					<div class="presets-grid">
 						<label for="{{ preset }}">Voorkeur {{ loop.index }}:</label>
-						<div class="presets custom-select">
+						<div class="presets custom-select" data-action="{{ preset }}">
 							<input
 								readonly
 								type="text"
@@ -159,7 +159,7 @@ Design choices:
 							/>
 							<span class="custom-icon">&#x25BC;</span> <!-- ▼ icon -->
 							<!-- Show preset options -->
-							<div class="scrollbox dropdown" role="listbox" data-populated="false">
+							<div class="scrollbox dropdown" role="listbox">
 								<!-- Will be filled by Javascript -->
 							</div>
 						</div>
@@ -175,7 +175,7 @@ Design choices:
 				<h1>Liedjes van speellijst bekijken</h1>
 
 				<!-- Select playlist -->
-				<div class="presets custom-select">
+				<div class="presets custom-select" data-action="playlist-input" data-notification="notification_presets">
 					<!-- No label -->
 					<input
 						readonly
@@ -186,7 +186,7 @@ Design choices:
 					/>
 					<span class="custom-icon">&#x25BC;</span> <!-- ▼ icon -->
 					<!-- Show playlist options -->
-					<div class="scrollbox dropdown" role="listbox" data-populated="false">
+					<div class="scrollbox dropdown" role="listbox">
 						<!-- Will be filled by Javascript -->
 					</div>
 				</div>
@@ -197,11 +197,11 @@ Design choices:
 				</div>
 
 				<!-- Show playlist songs -->
-				<div class="songs custom-select">
+				<div class="songs custom-select" data-action="play" data-notification="notification_playlist">
 					<!-- No label -->
 					<!-- No input -->
 					<!-- No icon -->
-					<div id="playlist-songs" class="scrollbox" role="listbox" data-populated="false">
+					<div id="playlist-songs" class="scrollbox" role="listbox">
 						<!-- Will be filled by Javascript -->
 					</div>
 				</div>
@@ -214,7 +214,7 @@ Design choices:
 
 				<!-- Manage custom playlists -->
 				<div class="playlists_grid">
-					<div class="playlists custom-select">
+					<div class="playlists custom-select" data-action="playlist-input">
 						<!-- No label -->
 						<input
 							type="text"
@@ -223,7 +223,7 @@ Design choices:
 							placeholder="Typ naam van speellijst"
 						/>
 						<!-- No icon -->
-						<div id="custom-list" class="scrollbox dropdown" role="listbox" data-populated="false">
+						<div id="custom-list" class="scrollbox dropdown" role="listbox" data-notification="notification_custom">
 							<!-- Will be filled by Javascript -->
 						</div>
 					</div>
@@ -237,11 +237,11 @@ Design choices:
 				</div>
 
 				<!-- Show custom list songs -->
-				<div class="songs custom-select">
+				<div class="songs custom-select" data-action="play" data-notification="notification_custom">
 					<!-- No label -->
 					<!-- No input -->
 					<!-- No icon -->
-					<div id="custom-songs" class="scrollbox" role="listbox" data-populated="false">
+					<div id="custom-songs" class="scrollbox" role="listbox">
 						<!-- Will be filled by Javascript -->
 					</div>
 				</div>
@@ -259,11 +259,11 @@ Design choices:
 				</div>
 
 				<!-- Show songs found -->
-				<div class="songs custom-select">
+				<div class="songs custom-select" data-action="play" data-notification="notification_search">
 					<!-- No label -->
 					<!-- No input -->
 					<!-- No icon -->
-					<div id="search-songs" class="scrollbox" role="listbox" data-populated="false">
+					<div id="search-songs" class="scrollbox" role="listbox">
 						<!-- Will be filled by Javascript -->
 					</div>
 				</div>
