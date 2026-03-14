@@ -81,7 +81,6 @@ _saved_lock = Lock()                # Process-safe read/write _saved_network
 def set_saved_network(network) -> None:
     """
     Set the last active wifi network in a thread-safe manner.
-
     Args:
         network (str): The SSID of the network to save.
     """
@@ -91,7 +90,6 @@ def set_saved_network(network) -> None:
 def get_saved_network() -> str:
     """
     Get the last active wifi network in a thread-safe manner.
-
     Returns:
         str: The SSID of the last saved network.
     """
@@ -106,7 +104,6 @@ class WifiEventListener():
       for the 'StateChanged' signal on the wireless device interface to track wifi connection state changes
     - Runs a GLib main loop in a background thread to handle asynchronous signals without blocking the main application
     """
-
     def __init__(self) -> None:
         """
         Initialize the listener by setting up the D-Bus main loop integration,
@@ -166,13 +163,11 @@ class WifiEventListener():
     def _wifi_state_changed(self, new_state, _old_state, _reason) -> None:
         """
         Callback for wifi state changes. Notifies subscribers.
-
         Args:
             new_state (int): New state of the wifi device.
             _old_state (int): The previous device state (unused, underscore avoids pylint warning)
             _reason (int): Reason for state change (unused, underscore avoids pylint warning)
         """
-
         # Only act on final meaningful states
         if new_state not in (NM_DISCONNECTED, NM_CONNECTED, NM_FAILED):
             return
@@ -214,7 +209,6 @@ class WifiEventListener():
     def subscribe(self, queue) -> None:
         """
         Subscribe a queue to receive wifi state messages.
-
         Args:
             queue (Queue): The queue object to receive messages.
         """
@@ -223,7 +217,6 @@ class WifiEventListener():
     def unsubscribe(self, queue) -> None:
         """
         Remove a subscriber queue.
-
         Args:
             queue (Queue): The queue object to remove.
         """
@@ -243,7 +236,6 @@ class WifiService():
         Initialize wifi service and its dependencies
         Start background processes/threads for wifi monitoring
         Send initial wifi state message
-
         Args:
             queue (Queue): Queue for sending wifi state messages
         """
@@ -261,7 +253,6 @@ class WifiService():
     def _send_message(self, error) -> None:
         """
         Send a wifi state message with error info to the parent queue
-
         Args:
             error (str): Error code or MESSAGE_NO_ERROR if no error
         """
@@ -278,7 +269,6 @@ class WifiService():
     def get_state(self) -> str:
         """
         Retrieve the current wifi connection state
-
         Returns:
             str: One of the STATE_WIFI_* constants
         """
@@ -297,7 +287,6 @@ class WifiService():
     def wifi_connect(self, ssid, pswd) -> None:
         """
         Add/modify wifi network config and initiate connection in a background process
-
         Args:
             ssid (str): wifi network SSID
             pswd (str): wifi network password (empty string for open networks)
@@ -324,7 +313,6 @@ class WifiService():
     def _wifi_connect_process(self, network) -> None:
         """
         Connect to the given wifi network
-
         Args:
             network (str): SSID of the wifi network to connect to
         """
@@ -360,12 +348,10 @@ class WifiService():
 def _nmcli_try(func, *args, **kwargs) -> tuple[bool, object | None]:
     """
     Safely call a nmcli function with logging.
-
     Args:
         func (callable): The nmcli function to call.
         *args: Positional arguments for the function.
         **kwargs: Keyword arguments for the function.
-
     Returns:
         tuple[bool, object | None]: (success, result). `success` is True if call succeeded,
         `result` contains the nmcli function output or None on failure.
@@ -377,136 +363,90 @@ def _nmcli_try(func, *args, **kwargs) -> tuple[bool, object | None]:
         oradio_log.error("nmcli call failed for %s: %s", func.__name__, ex_err)
         return False, None
 
-def parse_nmcli_output(nmcli_output) -> list:
+class WifiScanner:
     """
-    Parse nmcli scan results into a list of unique Wi-Fi networks.
-    Networks are deduplicated by SSID, sorted by descending signal strength,
-    and labeled as either "open" or "closed" depending on whether security
-    is enabled. The device's own access point SSID is excluded.
-
-    Args:
-        nmcli_output (list): List of nmcli network objects, each
-        optionally exposing ssid, signal, and security attributes.
-
-    Returns:
-        list: A list of dictionaries with keys:
-            - "ssid" (str): Network name
-            - "type" (str): "open" or "closed"
+    Fast Wi-Fi scanner for Raspberry Pi.
+    - Always read NetworkManager cache (fast)
+    - Background scans keep results fresh
+    - Excludes Oradio access points
     """
-    seen_ssids = set()
-    networks_formatted = []
+    def __init__(self):
+        # Initialize with wifi scan
+        _, _ = _nmcli_try(nmcli.device.wifi, None, True)
 
-    # Sort by signal strength descending if available, else keep order
-    sorted_networks = sorted(
-        nmcli_output, key=lambda n: getattr(n, "signal", 0), reverse=True
-    )
+    def _async_rescan(self) -> None:
+        # Trigger an asynchronous wifi rescan in the background
+        Thread(target=_nmcli_try, args=(nmcli.device.wifi, None, True), daemon=True).start()
 
-    # Add unique, ignore own Access Point
-    for network in sorted_networks:
-        ssid = getattr(network, "ssid", "")
-        if ssid and ssid != ACCESS_POINT_SSID and ssid not in seen_ssids:
-            seen_ssids.add(ssid)
-            networks_formatted.append({
-                "ssid": ssid,
-                "type": "closed" if getattr(network, "security", False) else "open"
-            })
+    def _parse_nmcli_output(self, nmcli_output) -> list:
+        """
+        Parse nmcli scan results into a list of unique Wi-Fi networks.
+        Networks are deduplicated by SSID, sorted by descending signal strength,
+        and labeled as either "open" or "closed" depending on whether security
+        is enabled. The device's own access point SSID is excluded.
+        Args:
+            nmcli_output (list): List of nmcli network objects, each
+            optionally exposing ssid, signal, and security attributes.
+        Returns:
+            list: A list of dictionaries with keys:
+                - "ssid" (str): Network name
+                - "type" (str): "open" or "closed"
+        """
+        seen_ssids = set()
+        networks_formatted = []
 
-    # List of network SSIDs + password required or not
-    return networks_formatted
+        # Sort by signal strength descending if available, else keep order
+        sorted_networks = sorted(
+            nmcli_output, key=lambda n: getattr(n, "signal", 0), reverse=True
+        )
 
-def parse_iw_output(iw_output) -> list:
-    """
-    Parse the output of `iw scan` and return available networks.
-    Sorts networks by signal strength descending and filters duplicate SSIDs.
+        # Add unique, ignore own Access Point
+        for network in sorted_networks:
+            ssid = getattr(network, "ssid", "")
+            if ssid and ssid != ACCESS_POINT_SSID and ssid not in seen_ssids:
+                seen_ssids.add(ssid)
+                networks_formatted.append({
+                    "ssid": ssid,
+                    "type": "closed" if getattr(network, "security", False) else "open"
+                })
 
-    Args:
-        iw_output (str): Raw string output from `iw dev wlan0 scan`.
+        # List of network SSIDs + password required or not
+        return networks_formatted
 
-    Returns:
-        list[dict[str, str]]: List of networks with keys 'ssid' and 'type' ('open' or 'closed').
-    """
-    networks = []
-    ssid, signal, security = "", -1000, False
+    def get_active_ssids(self) -> list:
+        """
+        Return a list of available wifi networks
+        Returns:
+            List[Dict[str, str]] -> [{"ssid": str, "type": "open" | "closed"}]
+        """
+        oradio_log.debug("Scanning for wifi networks...")
 
-    for line in iw_output.splitlines():
-        line = line.strip()
-        if line.startswith("BSS"):
-            if ssid:  # Only append if we have an SSID
-                networks.append((ssid, signal, security))
-            ssid, signal, security = "", -1000, False
-        elif "SSID:" in line:
-            ssid = line.split("SSID:", 1)[1].strip()
-        elif "signal:" in line:
-            match = search(r"signal:\s+(-?\d+(?:\.\d+)?) dBm", line)
-            if match:
-                signal = float(match.group(1))
-        elif "capability:" in line:
-            security = "closed" if "Privacy" in line else "open"
+        # Get cached wifi networks from NetworkManager without triggering a new scan
+        is_ok, nmcli_output = _nmcli_try(nmcli.device.wifi, None, False)
+        if is_ok and nmcli_output:
+            networks = self._parse_nmcli_output(nmcli_output)
+        else:
+            oradio_log.warning("No networks found in cached NM scan")
+            networks = []
 
-    # Append last network
-    if ssid:
-        networks.append((ssid, signal, security))
+        # Trigger an asynchronous wifi rescan in the background
+        self._async_rescan()
 
-    # Sort by signal descending
-    networks.sort(key=lambda x: x[1], reverse=True)
+        # Return list of wifi networks broadcasting their ssid
+        return networks
 
-    # Filter unique SSIDs while preserving order
-    seen_ssids = set()
-    networks_formatted = [
-        {"ssid": n[0], "type": n[2]}
-        for n in networks
-        if n[0] not in seen_ssids and not seen_ssids.add(n[0])
-    ]
-
-    # List of network SSIDs + password required or not
-    return networks_formatted
-
+_wifi_scanner = WifiScanner()
 def get_wifi_networks() -> list:
     """
-    Get all available wifi networks, except Oradio access points.
-    Tries NetworkManager (nmcli) first, then falls back to iw scan if needed.
-
-    Note: If nmcli and iw both fail we can try forcing the scan using the NetworkMangage D-Bus API to trigger a scan
-    https://gitlab.freedesktop.org/NetworkManager/NetworkManager/-/blob/main/examples/python/gi/show-wifi-networks.py
-    
+    Get active wifi networks using WifiScanner
     Returns:
-        List[Dict[str, str]]: list of {"ssid": str, "type": "open"/"closed"}
+        List[Dict[str, str]]: list of {"ssid": str, "type": "open"/ | "closed"}
     """
-    networks = []
-
-    oradio_log.debug("Scanning for wifi networks...")
-
-    # 1️. Try nmcli scan
-    is_ok, nmcli_output = _nmcli_try(nmcli.device.wifi, None, True)
-    if is_ok and nmcli_output:
-        # Filter on required info
-        networks = parse_nmcli_output(nmcli_output)
-    else:
-        oradio_log.warning("Failed or empty nmcli scan")
-
-    # 2. Fallback to iw scan if nmcli found nothing
-    if not networks:
-        oradio_log.debug("Attempting fallback scan using iw...")
-        cmd = "sudo iw dev wlan0 scan flush"
-        result, response = run_shell_script(cmd)
-        if result and response:
-            # Filter on required info
-            networks = parse_iw_output(response)
-        else:
-            oradio_log.error("Failed iw scan: %s", response)
-            return []
-
-    # 3. Check if any networks found at all
-    if not networks:
-        oradio_log.warning("No networks found on either nmcli or iw scan")
-
-    # Return list of wifi networks broadcasting their ssid
-    return networks
+    return _wifi_scanner.get_active_ssids()
 
 def get_wifi_connection() -> str | None:
     """
     Get active wifi connection
-
     Returns:
         str | None: Connected network ID (SSID), or Nnoe if not found
     """
