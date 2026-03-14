@@ -31,7 +31,6 @@ Created on December 23, 2024
             Connecting to captive portal.
             Connecting to VPN
 """
-from re import search
 from threading import Thread
 from multiprocessing import Process, Queue, Lock
 from subprocess import CalledProcessError
