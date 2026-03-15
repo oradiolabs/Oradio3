@@ -47,8 +47,9 @@ from oradio_const import (
     GREEN, NC,
     WEB_SERVER_HOST,
     WEB_SERVER_PORT,
-    MESSAGE_REQUEST_CONNECT,
+    ACCESS_POINT_HOST,
     MESSAGE_REQUEST_STOP,
+    MESSAGE_REQUEST_CONNECT,
     MESSAGE_WEB_SERVICE_SOURCE,
     MESSAGE_WEB_SERVICE_PL1_PLAYLIST,
     MESSAGE_WEB_SERVICE_PL2_PLAYLIST,
@@ -62,7 +63,7 @@ from oradio_const import (
 
 #### LOCAL constants #####################
 # Web file with wifi credentials
-WIFI_FILE     = "/tmp/Wifi_invoer.json"
+WIFI_FILE = "/tmp/Wifi_invoer.json"
 # templates
 EMPTY_PRESETS = {"preset1": "", "preset2": "", "preset3": ""}
 INFO_MISSING  = {"serial": "not found", "version": "not found"}
@@ -70,7 +71,10 @@ INFO_ERROR    = {"serial": "undefined", "version": "undefined"}
 # Location of version info
 SOFTWARE_VERSION_FILE = "/var/log/oradio_sw_version.log"
 # Stop server if no keep alive message received, in seconds
-KEEP_ALIVE_TIMEOUT = 5
+KEEP_ALIVE_TIMEOUT = 5     # ping every 2s, so missing 2 pings closes
+
+# Fully qualified required by iOS15
+oradioap_url = f"http://{ACCESS_POINT_HOST}"
 
 # Initialise MPD client
 mpd_control = MPDControl()
@@ -88,28 +92,39 @@ api_app.mount("/static", StaticFiles(directory=web_path+"/static"), name="static
 templates = Jinja2Templates(directory=web_path+"/templates")
 
 # Store in api_app.state to persists over multiple HTTP requests and application lifetime
+api_app.state.timer_started = False     # Initialize idle timer
 api_app.state.timer_task = None         # The actual timer task
 api_app.state.timer_deadline = None     # When the timer should expire
 
 # Catch any request before doing anything else
 @api_app.middleware("http")
 async def keep_alive_middleware(request: Request, call_next):
-    """Manage keep_alive counter while executing requests."""
-    if request.url.path != "/keep_alive" and api_app.state.timer_task and not api_app.state.timer_task.done():
-        # Stop the running keep-alive timer
-        api_app.state.timer_task.cancel()
-        api_app.state.timer_deadline = None
-        api_app.state.timer_task = None
-        oradio_log.debug("Keep-alive timer stopped")
+    """
+    Stops the keep-alive timer while processing any request,
+    and restarts it afterward for all non-keep_alive requests.
+    Timer only restarts after first keep_alive ping.
+    """
+    # Pause timer for any request except /keep_alive
+    if request.url.path != "/keep_alive" and api_app.state.timer_started:
+        task = getattr(api_app.state, "timer_task", None)
+        if task and not task.done():
+            task.cancel()
+            api_app.state.timer_task = None
+            api_app.state.timer_deadline = None
+            oradio_log.debug("Keep-alive timer stopped for request %s", request.url.path)
 
-    # Process the actual request
+    # Process the request
     response = await call_next(request)
 
-    if request.url.path != "/keep_alive" and not request.query_params.get("redirected"):
-        # Restart timeout counter if not redirected
-        await keep_alive()
+    # Restart timer only if it has been started by a /keep_alive ping
+    if request.url.path != "/keep_alive" and api_app.state.timer_started:
+        # Reset deadline
+        api_app.state.timer_deadline = datetime.now(timezone.utc) + timedelta(seconds=KEEP_ALIVE_TIMEOUT)
+        # Start new timer task if not running
+        if not getattr(api_app.state, "timer_task", None) or api_app.state.timer_task.done():
+            api_app.state.timer_task = create_task(stop_task())
+        oradio_log.debug("Keep-alive timer restarted for request %s", request.url.path)
 
-    # Return response for actual request
     return response
 
 #### HELPERS #############################
@@ -647,26 +662,29 @@ async def stop_task():
 @api_app.post("/keep_alive")
 async def keep_alive():
     """
-    Reset or start the inactivity timer for the web server.
-
-    If no keep-alive request is received within KEEP_ALIVE_TIMEOUT
-    seconds, the web server will be instructed to stop.
-
-    Returns:
-        None
+    Reset or start the inactivity timer.
+    First ping starts the timer.
     """
-    if api_app.state.timer_deadline is None:
-        oradio_log.debug("Starting the keep alive timer")
-    else:
-        remaining = (api_app.state.timer_deadline - datetime.now(timezone.utc)).total_seconds()
-        oradio_log.debug("Time remaining: %f. Resetting the keep alive timer", remaining)
+    now = datetime.now(timezone.utc)
 
-    # Set the new deadline
-    api_app.state.timer_deadline = datetime.now(timezone.utc) + timedelta(seconds=KEEP_ALIVE_TIMEOUT)
+    # Start first ping
+    if not api_app.state.timer_started:
+        api_app.state.timer_started = True
+        print("Keep-alive timer started on first ping")
 
-    # Only create the timer task if it doesn't exist or is done
-    if api_app.state.timer_task is None or api_app.state.timer_task.done():
+    # Log time remaining until timeout
+    if api_app.state.timer_deadline:
+        remaining = (api_app.state.timer_deadline - now).total_seconds()
+        oradio_log.debug("Keep-alive timer reset, %f seconds remaining", remaining)
+
+    # Update deadline
+    api_app.state.timer_deadline = now + timedelta(seconds=KEEP_ALIVE_TIMEOUT)
+
+    # Start task if none exists or has finished
+    if not api_app.state.timer_task or api_app.state.timer_task.done():
         api_app.state.timer_task = create_task(stop_task())
+
+    return JSONResponse({"status": "ok"})
 
 #### CATCH ALL ###########################
 
@@ -690,8 +708,7 @@ async def catch_all(request: Request):
         return FileResponse(web_path + request.url.path)
 
     # Redirect all requests to webapp
-#REVIEW Onno: Do I need to use redirected=1? If yes, document why
-    return RedirectResponse(url="/oradio3?redirected=1", status_code=302)
+    return RedirectResponse(url=oradioap_url + "/oradio3", status_code=302)
 
 # Entry point for stand-alone operation
 if __name__ == '__main__':
@@ -700,6 +717,9 @@ if __name__ == '__main__':
     import uvicorn
     from multiprocessing import Process, Event, Queue
     from queue import Empty
+
+    # For debugging
+    oradioap_url = ""
 
 # Most modules use similar code in stand-alone
 # pylint: disable=duplicate-code
