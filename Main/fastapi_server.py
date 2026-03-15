@@ -709,8 +709,6 @@ async def catch_all(request: Request):
 
     # Redirect all requests to webapp
     return RedirectResponse(url=oradioap_url + "/oradio3", status_code=302)
-#For debugging use:
-#    return RedirectResponse(url="/oradio3", status_code=302)
 
 # Entry point for stand-alone operation
 if __name__ == '__main__':
