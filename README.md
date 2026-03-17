@@ -3,7 +3,7 @@ This repo contains an install script to load and configure the required to prepa
 This SD card is then to be used in an Oradio3, available from https://stichtingoradio.nl
 ## Installation
 
-Create an SD card using the Bookworm 64bit Lite image:
+Create an SD card using the Trixie 64bit Lite image:
 - Set hostname (e.g. oradio)
 - Enable SSH with password authentication
 - Configure SSH username and password (e.g. pi and oradio)
@@ -19,15 +19,15 @@ Start the Oradio3 with the SD card inserted.
 When the Oradio3 has configured itself after first boot SSH into the Oradio3 with your login and password.<br>
 <ins>Note</ins>: If you provided a hostname when creating the SD card you can ssh to &lt;hostname&gt;.local
 
-At the prompt, to _install the latest release_, execute command:
+At the prompt, to install the _latest release_, execute command:
 
     bash <(curl https://oradiolabs.nl/Oradio3/install)
 
-Or, at the prompt, to _install the main branch_, execute command:
+Or, at the prompt, to install the _main branch_, execute command:
 
     bash <(curl https://oradiolabs.nl/Oradio3/install) main
 
-Or, at the prompt, to _install your branch_, execute command:
+Or, at the prompt, to install _your branch_, execute command:
 
     bash <(curl https://oradiolabs.nl/Oradio3/install) <branch name>
 
