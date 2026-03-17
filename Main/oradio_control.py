@@ -22,10 +22,7 @@ Created on Januari 31`, 2025
 @summary: Oradio control and statemachine
  
 """
-import subprocess
-import shutil
 import threading
-import sys
 from time import sleep
 from multiprocessing import Queue
 
