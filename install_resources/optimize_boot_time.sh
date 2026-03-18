@@ -119,7 +119,6 @@ done
 # -----------------------------------------------------------------------------------------
 SERVICES_TO_MASK=(
 	apt-daily						# No daily apt updates
-	e2scrub_reap					# Trust no ext4 errors
 	fstrim.timer					# Not relevant for SD card
 	dpkg-db-backup					# No dpkgs backup needed
 	rpi-eeprom-update				# No update of bootloader EEPROM
