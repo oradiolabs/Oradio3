@@ -2,7 +2,7 @@
 
 [Unit]
 Description=Librespot
-After=network.target
+Before=network.target
 
 [Service]
 # Direct stdout and stderr of the executed process write to the logfile
@@ -35,4 +35,4 @@ Restart=always
 RestartSec=10
 
 [Install]
-WantedBy=multi-user.target
+WantedBy=oradio.service

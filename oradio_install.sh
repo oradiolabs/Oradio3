@@ -229,6 +229,7 @@ if [ "$1" != "--continue" ]; then
 
 	# If needed, prepare python virtual environment including system site packages
 	if [ -n "${REBUILD_PYTHON_ENV:-}" ]; then
+		echo "Configuring Python virtual environment"
 		python3 -m venv --system-site-packages ~/.venv
 	fi
 
@@ -356,6 +357,9 @@ fi
 
 ########## CONFIGURATION BEGIN ##########
 
+# Minimize Oradio boot time
+bash "$RESOURCES_PATH/optimize_boot_time.sh"
+
 # Activate wireless interface
 # https://www.raspberrypi.com/documentation/computers/configuration.html#wlan-country-2
 sudo raspi-config nonint do_wifi_country NL		# Implicitly activates wifi
@@ -461,8 +465,6 @@ for flag in spotactive.flag spotplaying.flag; do
 	file="$SPOTIFY_PATH/$flag"
 	if [ ! -f "$file" ]; then
 		echo "0" >"$file" || { echo -e "${RED}Failed to write $file${NC}"; exit 1; }
-#		chown "$(id -un):$(id -gn)" "$file" 2>/dev/null || { echo -e "${RED}chown failed for $file${NC}"; exit 1; }
-#		chmod 644 "$file" 2>/dev/null || { echo -e "${RED}chmod failed for $file${NC}"; exit 1; }
 	fi
 done
 # install librespot event handler script
