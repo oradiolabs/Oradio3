@@ -115,12 +115,12 @@ async function postJSON(cmd, args = {})
 /* ========== Initialize Single Page Application (SPA) ========== */
 
 // Global variables
-let networks = [], networkInput, networkNotification, passwordBlock, passwordInput;		// Network
-let spotifyInput, spotifyNotification;													// Spotify
-let presetsNotification;																// Presets
-let playlistInput, playlistSongs, playlistNotification;									// Playlist songs
-let customPlaylists, customList, customInput, customSongs, customNotification;			// Custom playlists
-let searchInput, searchSongs, searchNotification;										// Search songs
+let networks = [], networksPromise, networkInput, networkNotification, passwordBlock, passwordInput;	// Network
+let spotifyInput, spotifyNotification;																	// Spotify
+let presetsNotification;																				// Presets
+let playlistInput, playlistSongs, playlistNotification;													// Playlist songs
+let customPlaylists, customList, customInput, customSongs, customNotification;							// Custom playlists
+let searchInput, searchSongs, searchNotification;														// Search songs
 
 // Execute when page HTML is loaded
 document.addEventListener('DOMContentLoaded', () =>
@@ -177,6 +177,9 @@ document.addEventListener('DOMContentLoaded', () =>
 		// Clear Network notification
 		hideNotification(networkNotification)
 		
+		// Get active networks
+		networksPromise = getNetworks();
+
 		// Populate dropdown with wifi networks broadcasing their SSID
 		await populateNetworkDropdown();
 	});
@@ -584,7 +587,7 @@ async function getNetworks()
 async function populateNetworkDropdown()
 {
 	// Wait for active wifi networks
-	const networks = await getNetworks();
+	const networks = await networksPromise;
 
 	// Populate dropdown with wifi network id's
 	const dropdown = document.querySelector('.network.custom-select .scrollbox.dropdown');
@@ -604,7 +607,10 @@ async function populateNetworkDropdown()
 async function showPassword(ssid)
 {
 	passwordInput.value = "";
+	const networks = await networksPromise;
+console.log("networks=", networks);
 	const network = networks.find(n => n.ssid === ssid);
+console.log("network=", network);
 	passwordBlock.style.display = (!network || network.type === "closed") ? "block" : "none";
 }
 
