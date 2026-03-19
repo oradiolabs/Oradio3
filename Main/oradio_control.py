@@ -22,10 +22,7 @@ Created on Januari 31`, 2025
 @summary: Oradio control and statemachine
  
 """
-import subprocess
-import shutil
 import threading
-import sys
 from time import sleep
 from multiprocessing import Queue
 
@@ -143,46 +140,8 @@ mpd_control.update_database()
 
 # Initialise power supply controller, to optimse supply voltage for the various states
 power_supply_service = PowerSupplyService()
-#----------GPIO clean up---------
 
-def _gpio_in_use() -> bool:
-    """
-    Return True if any process has /dev/gpiochip0 or /dev/gpiochip1 open.
-    Uses 'fuser' which exits 0 when there are users, 1 when none.
-    If 'fuser' isn't available, assume 'not in use' (best-effort).
-    """
-    if shutil.which("fuser") is None:
-        return False
-
-    for dev in ("/dev/gpiochip0", "/dev/gpiochip1"):
-        res = subprocess.run(
-            ["fuser", "-s", dev],
-            check=False,
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
-        )
-        if res.returncode == 0:
-            return True
-    return False
-
-
-def _demand_free_gpio_or_exit() -> None:
-    """Exit with a helpful message if gpiochips are busy."""
-    if _gpio_in_use():
-        oradio_log.error(
-            "GPIO is busy (/dev/gpiochip* in use). "
-            "Stop that process first, e.g.:\n"
-            "  sudo fuser -v /dev/gpiochip0 /dev/gpiochip1\n"
-            "  sudo fuser -k /dev/gpiochip0 /dev/gpiochip1\n"
-            "Or kill the previous test process (thonny, old oradio_control, etc.)."
-        )
-        sys.exit(1)
-
-
-# Run this *before* instantiating LEDControl()
-_demand_free_gpio_or_exit()
-
-# --------Instantiate  led control
+# Instantiate  led control
 leds = LEDControl()
 
 # ----------------------State Machine------------------

@@ -58,7 +58,7 @@ log_file			"PLACEHOLDER_LOGFILE_MPD"
 # it was brought down. This setting is disabled by default and the server
 # state will be reset on server start up.
 #
-state_file			"/var/lib/mpd/state"
+state_file			"/dev/null"
 #
 # The location of the sticker database. This is a database which
 # manages dynamic information attached to songs.
@@ -128,7 +128,7 @@ metadata_to_use		"artist,title"
 # This setting enables automatic update of MPD's database when files in
 # music_directory are changed.
 #
-#auto_update		"yes"
+auto_update			"no"
 #
 # Limit the depth of the directories being watched, 0 means only watch
 # the music directory itself. There is no limit by default.
@@ -173,7 +173,7 @@ metadata_to_use		"artist,title"
 # If this setting is set, MPD will require password authorization. The password
 # setting can be specified multiple times for different password profiles.
 #
-#password			"password@read,add,control,admin"
+#password				"password@read,add,control,admin"
 #
 # This setting specifies the permissions a user has who has not yet logged in.
 #
@@ -262,7 +262,7 @@ decoder {
 #
 #audio_output {
 #	type		"shout"
-#	encoder		"vorbis"		# optional
+#	encoder		"vorbis"				# optional
 #	name		"My Shout Stream"
 #	host		"localhost"
 #	port		"8000"
@@ -271,14 +271,14 @@ decoder {
 #	quality		"5.0"
 #	bitrate		"128"
 #	format		"44100:16:1"
-##	protocol	"icecast2"		# optional
-##	user		"source"		# optional
+##	protocol	"icecast2"				# optional
+##	user		"source"				# optional
 ##	description	"My Stream Description"	# optional
 ##	url			"http://example.com"	# optional
-##	genre		"jazz"			# optional
-##	public		"no"			# optional
-##	timeout		"2"				# optional
-##	mixer_type	"software"		# optional
+##	genre		"jazz"					# optional
+##	public		"no"					# optional
+##	timeout		"2"						# optional
+##	mixer_type	"software"				# optional
 #}
 #
 # An example of a recorder output:
@@ -316,7 +316,7 @@ decoder {
 #	name		"My Pulse Output"
 ##	server		"remote_server"			# optional
 ##	sink		"remote_server_sink"	# optional
-##	media_role	"media_role"			#optional
+##	media_role	"media_role"			# optional
 #}
 #
 # An example of a winmm output (Windows multimedia API).
@@ -389,12 +389,12 @@ decoder {
 # more details about ReplayGain.
 # This setting is off by default.
 #
-replaygain			"track"
+replaygain					"track"
 #
 # This setting sets the pre-amp used for files that have ReplayGain tags. By
 # default this setting is disabled.
 #
-replaygain_preamp	"0"
+replaygain_preamp			"0"
 #
 # This setting sets the pre-amp used for files that do NOT have ReplayGain tags.
 # By default this setting is disabled.
@@ -408,13 +408,13 @@ replaygain_missing_preamp	"-4"
 # above its original level. If replaygain_limit is disabled such amplification
 # might occur. By default this setting is enabled.
 #
-replaygain_limit	"no"
+replaygain_limit			"no"
 #
 # This setting enables on-the-fly normalization volume adjustment. This will
 # result in the volume of all playing audio to be adjusted so the output has
 # equal "loudness". This setting is disabled by default.
 #
-#volume_normalization	"no"
+#volume_normalization		"no"
 #
 ###############################################################################
 
@@ -423,7 +423,7 @@ replaygain_limit	"no"
 # If file or directory names do not display correctly for your locale then you
 # may need to modify this setting.
 #
-filesystem_charset		"UTF-8"
+filesystem_charset			"UTF-8"
 #
 ###############################################################################
 
