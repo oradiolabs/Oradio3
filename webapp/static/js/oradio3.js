@@ -608,9 +608,7 @@ async function showPassword(ssid)
 {
 	passwordInput.value = "";
 	const networks = await networksPromise;
-console.log("networks=", networks);
 	const network = networks.find(n => n.ssid === ssid);
-console.log("network=", network);
 	passwordBlock.style.display = (!network || network.type === "closed") ? "block" : "none";
 }
 
