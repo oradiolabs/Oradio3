@@ -91,33 +91,32 @@ class GPIOService:
         self.edge_event_callback = None
         # Fast channel -> name lookup
         self.gpio_to_button = {}
+
         # The GPIO.BCM refers to a numbering system used in the RPi.GPIO library for Raspberry Pi,
         # The GPIO pins are based on the Broadcom chip's pin numbers, so set to GPIO.BCM
         GPIO.setmode(GPIO.BCM)
+
         # Initialize the configured LED pins
         for _, pin in LEDS.items():
             try:
                 GPIO.setup(pin, GPIO.OUT, initial=GPIO.HIGH)
             except RuntimeError as err:
                 oradio_log.error("Error setting LED output for pin %s: %s", pin, err)
-        oradio_log.debug("LEDControl initialized: All LEDs OFF")
+
         # Initialize the BUTTON pins
         for button_name, pin in BUTTONS.items():
             try:
                 GPIO.setup(pin, GPIO.IN, pull_up_down=GPIO.PUD_UP)
             except RuntimeError as err:
                 oradio_log.error("Error setting BUTTON input for pin %s: %s", pin, err)
+
             # dictionary for a fast channel -> name lookup
             self.gpio_to_button[pin] = button_name
-            # Ensure clean slate; ignore if not previously set
+
+            # Ensure clean slate: disable if set, do nothing if not previously set
             GPIO.remove_event_detect(pin)
-            # The remove_event_detect is a silent function, will not raise error or exception
-            # will disable event detection if active
-            try:
-                GPIO.add_event_detect(pin, GPIO.BOTH, callback=self._edge_callback, bouncetime=BOUNCE_MS)
-            except RuntimeError as err:
-                oradio_log.error("Error setting up event detection for pin %s: %s", pin, err)
-        oradio_log.debug("Buttons initialized")
+
+        oradio_log.debug("GPIO initialized")
 
     def gpio_cleanup(self) -> None:
         """
@@ -223,6 +222,26 @@ class GPIOService:
             # Note: a pressed button has value GPIO.LOW
         return button_state
 
+    def enable_button_events(self) -> None:
+        """
+        Enable GPIO edge detection AFTER callback is set.
+        This prevents race conditions during startup.
+        """
+        if not callable(self.edge_event_callback):
+            oradio_log.error("Cannot enable button events: callback not set")
+            return
+
+        for pin in BUTTONS.values():
+            try:
+                # Ensure clean slate: disable if set, do nothing if not previously set
+                GPIO.remove_event_detect(pin)
+                # Set event handler for GPIO pin
+                GPIO.add_event_detect(pin, GPIO.BOTH, callback=self._edge_callback, bouncetime=BOUNCE_MS)
+            except RuntimeError as err:
+                oradio_log.error("Error enabling event detection for pin %s: %s", pin, err)
+
+        oradio_log.debug("Button event detection enabled")
+
     def _edge_callback(self, channel: int) -> None:
         """
         Unified handler for both press (falling) and release (rising) edges.
@@ -240,29 +259,35 @@ class GPIOService:
                     * state = BUTTON_PRESSED
                 TEST_DISABLED = Default mode, no extra data for testing
         """
+        if not callable(self.edge_event_callback):
+            oradio_log.error("no callback function found")
+            return
+
         if self.gpio_module_test == TEST_ENABLED:
             button_event_ts = perf_counter()  # timestamp the start of this function
-        button_data = {}
+
         button_name = self.gpio_to_button[channel]
         if not button_name:
             return
+
         button_value = GPIO.input(channel)
         if button_value == GPIO.LOW:
             state = BUTTON_PRESSED
         else:
             state = BUTTON_RELEASED
-        button_data["state"] = state
-        button_data["name"] = button_name
-        if callable(self.edge_event_callback):
-            if self.gpio_module_test == TEST_ENABLED:
-                # When TEST_ENABLED, the module test requires the button_data, being:
-                # button state = BUTTON_PRESSED
-                # timing data = current time-stamp
-                button_data["state"] = BUTTON_PRESSED
-                button_data["data"] = button_event_ts
-            self.edge_event_callback(button_data)
-        else:
-            oradio_log.error("no callback function found")
+
+        button_data = {
+            "state": state,
+            "name": button_name
+        }
+
+        if self.gpio_module_test == TEST_ENABLED:
+            # When TEST_ENABLED, the module test requires the button_data, being:
+            # button state = BUTTON_PRESSED
+            # timing data = current time-stamp
+            button_data["state"] = BUTTON_PRESSED
+            button_data["data"] = button_event_ts
+        self.edge_event_callback(button_data)
 
 
 # Entry point for stand-alone operation
