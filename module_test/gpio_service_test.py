@@ -160,6 +160,7 @@ def led_selection() -> Tuple[int, str]:
     led_name_option = ["Quit"] + LED_NAMES + ["LedUnknown"]
     selection_done = False
     selected_led_name = "LED_UNKNOWN"
+    selected_led_nr = -1
     while not selection_done:
         #Show test menu with the selection options
         for idx, led_name in enumerate(led_name_option, start=0):
@@ -169,17 +170,17 @@ def led_selection() -> Tuple[int, str]:
             case 0:
                 print("\nReturning to previous selection...\n")
                 selection_done = True
-            case 1 | 2 | 3 | 4 | 5 | 6: # 5 leds + 1 unknown
+            case 1 | 2 | 3 | 4 | 5: # 5 leds
                 selection_done = True
                 selected_led_nr = menu_choice-1
-                if menu_choice == 6:
-                    led_pin = -1
-                else:
-                    led_pin = LEDS[LED_NAMES[selected_led_nr]]
+                led_pin = LEDS[LED_NAMES[selected_led_nr]]
                 print(f"\nThe selected LED is {led_name_option[menu_choice]} using pin {led_pin}\n")
+            case 6: # led unknown
+                selected_led_nr = -1
+                selection_done = True
             case _:
                 print("Please input a valid test option.")
-    if selected_led_nr != 6:
+    if selected_led_nr != -1:
         selected_led_name = LED_NAMES[selected_led_nr]
     return menu_choice, selected_led_name
 
