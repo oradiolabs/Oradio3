@@ -62,7 +62,10 @@ class TestTouchButtons():
         self.touch_buttons = TouchButtons(queue)
         self.button_gpio = TestGPIOService()
         # Add performance measurement methods
+        # Register callback FIRST
         self.touch_buttons.button_gpio.set_button_edge_event_callback(self.touch_buttons._button_event_callback)
+        # THEN enable interrupts
+        self.button_gpio.gpio_service.enable_button_events()
 
 class TestGPIOService():
     """
@@ -255,7 +258,10 @@ def _callback_test(buttons: TestTouchButtons):
     for button_name in BUTTON_NAMES:
         button_data["state"] = MESSAGE_BUTTON_SHORT_PRESS + button_name
         button_data['name']  = button_name
+        # Register callback FIRST
         buttons.touch_buttons._button_event_callback(button_data)
+        # THEN enable interrupts
+        buttons.button_gpio.gpio_service.enable_button_events()
         sleep(1)
 
 def _single_button_play_burst_test(test_buttons: TestTouchButtons, burst_freq: float) -> None:

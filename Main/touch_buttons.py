@@ -76,7 +76,12 @@ class TouchButtons:
         self.button_press_times: dict[str, float] = {}   # keep track on button press timings
         self.last_trigger_times: dict[str, float] = {}   # keep track on last button press timings
         self.long_press_timers: dict[str, Timer] = {}    # button -> Timer
+
+        # Register callback FIRST
         self.button_gpio.set_button_edge_event_callback(self._button_event_callback)
+        # THEN enable interrupts
+        self.button_gpio.enable_button_events()
+
         if self.buttons_module_test == TEST_ENABLED:
             # We do not want dependency on test_classes during normal operation, only in test mode
             from test_classes import TimingData     # pylint: disable=import-outside-toplevel
