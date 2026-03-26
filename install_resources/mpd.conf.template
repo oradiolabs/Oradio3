@@ -104,7 +104,7 @@ bind_to_address		"localhost"
 # troubleshooting. Available setting arguments are "notice", "info", "verbose",
 # "warning" and "error".
 #
-#log_level			"notice"
+log_level			"warning"
 #
 # Setting "restore_paused" to "yes" puts MPD into pause mode instead
 # of starting playback after startup.
