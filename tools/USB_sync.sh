@@ -78,71 +78,13 @@ if [ -z "${BASH:-}" ]; then
 	exit 1
 fi
 
-#---------- Ensure connected to internet ----------
-
-if ! ping -c1 -W2 8.8.8.8 >/dev/null 2>&1; then
-	echo -e "${RED}No internet connection${NC}"
-	exit 1
-else
-	echo "Connected to Internet"
-fi
-
 #---------- Ensure required packages are installed and up to date ----------
 
-STAMP_FILE="/var/lib/apt/last_update_stamp"
-MAX_AGE=$((6 * 3600))	# 6 hours in seconds
+# Get script path
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
-# Get last time the list was updated, 0 if never
-if [[ -f "$STAMP_FILE" ]]; then
-	last_update=$(cat "$STAMP_FILE")
-else
-	last_update=0
-fi
-
-# Get time since last update
-current_time=$(date +%s)
-age=$((current_time - last_update))
-
-# Update lists if to old
-if (( age > MAX_AGE )); then
-	sudo apt-get update
-	# Save time lists were updated
-	date +%s | sudo tee "$STAMP_FILE" >/dev/null
-	echo "Package lists updated"
-else
-	echo "Package lists are up to date"
-fi
-# NOTE: We do not upgrade: https://forums.raspberrypi.com/viewtopic.php?p=2310861&hilit=oradio#p2310861
-
-# Fetch list of upgradable packages
-UPGRADABLE=$(apt list --upgradable 2>/dev/null | cut -d/ -f1)
-
-# Create associative array for fast lookup
-declare -A UPGRADABLE_MAP
-for package in $UPGRADABLE; do
-	UPGRADABLE_MAP["$package"]=1
-done
-
-# Required packages
-REQUIRED_PACKAGES=(
-	rclone
-)
-
-# Ensure packages are installed and up-to-date
-for package in "${REQUIRED_PACKAGES[@]}"; do
-	if dpkg -s "$package" &>/dev/null; then
-		# Check if installed package can be upgraded
-		if [[ ${UPGRADABLE_MAP["$package"]+_} ]]; then
-			echo -e "${YELLOW}$package is outdated: upgrading...${NC}"
-			sudo apt-get install -y "$package"
-		else
-			echo "$package is up-to-date"
-		fi
-	else
-		echo -e "${YELLOW}$package is missing: installing...${NC}"
-		sudo apt-get install -y "$package"
-	fi
-done
+# Install/update required packages
+sudo bash $SCRIPT_DIR/pkg-helper.sh rclone
 
 #---------- Configure cleanup and restore on exit ----------
 
@@ -285,6 +227,46 @@ fi
 
 # Unmount silently, ignoring errors if not mounted
 sudo umount "$DEVICE" 2>/dev/null || true
+
+#---------- USB health check ----------
+
+echo "USB Health Check for $DEVICE"
+
+set +e
+#Options:
+# -a: automatically repair the filesystem
+# -f: salvage unused chains to files
+# -t: test for bad clusters
+# -U: allow only uppercase characters in volume and boot label
+sudo fsck -a -f -t -U "$DEVICE"
+FSCK_EXIT=$?
+set -e
+case "$FSCK_EXIT" in
+	0)
+		echo -e "${GREEN}fsck: no errors found${NC}"
+		;;
+	1)
+		echo -e "${YELLOW}fsck: errors found and fixed${NC}"
+		;;
+	2)
+		echo -e "${YELLOW}fsck: reboot required${NC}"
+		;;
+	4)
+		echo -e "${RED}fsck: errors NOT fixed. Aborting${NC}"
+		exit 1
+		;;
+	8|16)
+		echo -e "${RED}fsck: operational error (code $FSCK_EXIT). Aborting${NC}"
+		exit 1
+		;;
+	32)
+		echo -e "${YELLOW}fsck: user cancelled${NC}"
+		;;
+	*)
+		echo -e "${RED}fsck: unknown error (code $FSCK_EXIT). Aborting${NC}"
+		exit 1
+		;;
+esac
 
 # Mount with desired options
 OPTS="rw,users,uid=0,gid=100,fmask=111,dmask=000,utf8=1"
