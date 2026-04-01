@@ -236,7 +236,7 @@ echo "USB Health Check for $DEVICE"
 # -a   automatically repair the filesystem
 # -t   test for bad clusters
 # -U   allow only uppercase characters in volume and boot label
-if ! sudo fsck -a -t -U "$DEVICE"; then 
+if ! sudo fsck.vfat -a -t -U "$DEVICE"; then 
 	echo -e "${RED}fsck: errors found. Fix before retrying. Aborting${NC}"
 	exit 1
 fi
