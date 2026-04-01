@@ -225,7 +225,10 @@ def shutdown_webapp(_args: Optional[Dict[str, Any]]):
     Returns:
         None
     """
-    # Send a stop message to the service queue
+    # First reset idle timer
+    api_app.state.timer_started = False
+
+    # Then send a stop message to the service queue
     message = {"request": MESSAGE_REQUEST_STOP}
     safe_put(api_app.state.queue, message)
 
@@ -315,7 +318,10 @@ def wifi_connect(args: Optional[Dict[str, Any]]):
     # pswd is optional
     pswd = args.get("pswd") if args else None
 
-    # Send connect message to web service
+    # First reset idle timer
+    api_app.state.timer_started = False
+
+    # Then send connect message to web service
     message = {
         "request": MESSAGE_REQUEST_CONNECT,
         "ssid"  : ssid,
@@ -649,7 +655,12 @@ async def stop_task():
             # Sleep a short time (or until deadline, whichever is smaller)
             await sleep(min(remaining, 0.2))
 
-        # Timer expired: Send stop message
+        # Timer expired
+
+        # First reset idle timer
+        api_app.state.timer_started = False
+
+        # Then send stop message
         message = {"request": MESSAGE_REQUEST_STOP}
         safe_put(api_app.state.queue, message)
         oradio_log.debug("Keep alive timer expired: closing the web server")
