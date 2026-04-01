@@ -232,41 +232,15 @@ sudo umount "$DEVICE" 2>/dev/null || true
 
 echo "USB Health Check for $DEVICE"
 
-set +e
-#Options:
-# -a: automatically repair the filesystem
-# -f: salvage unused chains to files
-# -t: test for bad clusters
-# -U: allow only uppercase characters in volume and boot label
-sudo fsck -a -f -t -U "$DEVICE"
-FSCK_EXIT=$?
-set -e
-case "$FSCK_EXIT" in
-	0)
-		echo -e "${GREEN}fsck: no errors found${NC}"
-		;;
-	1)
-		echo -e "${YELLOW}fsck: errors found and fixed${NC}"
-		;;
-	2)
-		echo -e "${YELLOW}fsck: reboot required${NC}"
-		;;
-	4)
-		echo -e "${RED}fsck: errors NOT fixed. Aborting${NC}"
-		exit 1
-		;;
-	8|16)
-		echo -e "${RED}fsck: operational error (code $FSCK_EXIT). Aborting${NC}"
-		exit 1
-		;;
-	32)
-		echo -e "${YELLOW}fsck: user cancelled${NC}"
-		;;
-	*)
-		echo -e "${RED}fsck: unknown error (code $FSCK_EXIT). Aborting${NC}"
-		exit 1
-		;;
-esac
+# Options:
+# -a   automatically repair the filesystem
+# -t   test for bad clusters
+# -U   allow only uppercase characters in volume and boot label
+if ! sudo fsck -a -t -U "$DEVICE"; then 
+	echo -e "${RED}fsck: errors found. Fix before retrying. Aborting${NC}"
+	exit 1
+fi
+echo -e "${GREEN}fsck: no errors found${NC}"
 
 # Mount with desired options
 OPTS="rw,users,uid=0,gid=100,fmask=111,dmask=000,utf8=1"
