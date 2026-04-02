@@ -58,7 +58,7 @@ log_file			"PLACEHOLDER_LOGFILE_MPD"
 # it was brought down. This setting is disabled by default and the server
 # state will be reset on server start up.
 #
-state_file			"/dev/null"
+#state_file			"/var/lib/mpd/state"
 #
 # The location of the sticker database. This is a database which
 # manages dynamic information attached to songs.
