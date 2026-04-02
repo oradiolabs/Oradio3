@@ -92,7 +92,6 @@ api_app.mount("/static", StaticFiles(directory=web_path+"/static"), name="static
 templates = Jinja2Templates(directory=web_path+"/templates")
 
 # Store in api_app.state to persists over multiple HTTP requests and application lifetime
-api_app.state.timer_started = False     # Initialize idle timer
 api_app.state.timer_task = None         # The actual timer task
 api_app.state.timer_deadline = None     # When the timer should expire
 
@@ -225,10 +224,7 @@ def shutdown_webapp(_args: Optional[Dict[str, Any]]):
     Returns:
         None
     """
-    # First reset idle timer
-    api_app.state.timer_started = False
-
-    # Then send a stop message to the service queue
+    # Send a stop message to the service queue
     message = {"request": MESSAGE_REQUEST_STOP}
     safe_put(api_app.state.queue, message)
 
@@ -318,10 +314,7 @@ def wifi_connect(args: Optional[Dict[str, Any]]):
     # pswd is optional
     pswd = args.get("pswd") if args else None
 
-    # First reset idle timer
-    api_app.state.timer_started = False
-
-    # Then send connect message to web service
+    # Send connect message to web service
     message = {
         "request": MESSAGE_REQUEST_CONNECT,
         "ssid"  : ssid,
@@ -655,12 +648,7 @@ async def stop_task():
             # Sleep a short time (or until deadline, whichever is smaller)
             await sleep(min(remaining, 0.2))
 
-        # Timer expired
-
-        # First reset idle timer
-        api_app.state.timer_started = False
-
-        # Then send stop message
+        # Timer expired: send stop message
         message = {"request": MESSAGE_REQUEST_STOP}
         safe_put(api_app.state.queue, message)
         oradio_log.debug("Keep alive timer expired: closing the web server")
