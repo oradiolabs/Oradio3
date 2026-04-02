@@ -92,7 +92,6 @@ api_app.mount("/static", StaticFiles(directory=web_path+"/static"), name="static
 templates = Jinja2Templates(directory=web_path+"/templates")
 
 # Store in api_app.state to persists over multiple HTTP requests and application lifetime
-api_app.state.timer_started = False     # Initialize idle timer
 api_app.state.timer_task = None         # The actual timer task
 api_app.state.timer_deadline = None     # When the timer should expire
 
@@ -649,7 +648,7 @@ async def stop_task():
             # Sleep a short time (or until deadline, whichever is smaller)
             await sleep(min(remaining, 0.2))
 
-        # Timer expired: Send stop message
+        # Timer expired: send stop message
         message = {"request": MESSAGE_REQUEST_STOP}
         safe_put(api_app.state.queue, message)
         oradio_log.debug("Keep alive timer expired: closing the web server")

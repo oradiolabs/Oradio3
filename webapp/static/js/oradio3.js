@@ -8,15 +8,38 @@
 
 /* ========== Helpers ========== */
 
+//Track if keep alive is active
+let keepAliveStarted = false;
 
-// Execute when all resources are loaded
-window.onload = () =>
+// Single gatekeeper to start sending keep alive messages
+function tryStart()
 {
-	// Keep-alive ping
+	// Debounce multiple starts
+	if (keepAliveStarted) return;
+
+	// Mark keep alive messaging started
+	keepAliveStarted = true;
+
+	// Send keep alive messages if page is visible
 	setInterval(() => {
-		fetch("/keep_alive", { method:"POST" }).catch(()=>{});
-	}, 2000);
-};
+		if (document.visibilityState !== "visible") return;
+		fetch("/keep_alive", { method: "POST" }).catch(() => {});
+	}, 2000); // stabieler dan 2s op mobile
+}
+
+// Lifecycle events (ALWAYS guarded)
+document.addEventListener("visibilitychange", tryStart);	// Visibility changes
+document.addEventListener("DOMContentLoaded", tryStart);	// Important for iOS
+window.addEventListener("pageshow", tryStart);				// iOS + BFCache
+window.addEventListener("focus", tryStart);					// Desktop/mobile
+
+// User interaction fallback
+["click", "touchstart", "keydown"].forEach(evt => {
+	document.addEventListener(evt, tryStart, {
+		once: true,		// Execute event once
+		passive: true	// Don't use preventDefault: better responsiveness
+	});
+});
 
 // Show waiting indicator
 function showWaiting()

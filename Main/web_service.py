@@ -375,6 +375,7 @@ class WebService:
                 return
 
         # Start the web server
+        api_app.state.timer_started = False     # Initialize timer not running
         if not self.uvicorn_server.start():
             # Send message web server did not start
             self._send_message(MESSAGE_WEB_SERVICE_FAIL_START)
