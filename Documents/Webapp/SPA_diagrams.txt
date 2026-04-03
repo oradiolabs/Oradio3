@@ -147,6 +147,7 @@ Click outside dropdowns → closeDropdowns()
 Scrollboxes update → observeActivePage() → updatePageScrollState()
 
 Key Points in This Flow:
+- When page becomes VISIBLE keep-alive requests are sent every 2 seconds.
 - Navigation triggers page switching, hides inactive pages, resets scroll.
 - Dropdowns / Scrollboxes: clicking input/icon opens dropdown → select row → triggers callback (network, preset, playlist, play, modify).
 - Network page:
@@ -159,3 +160,4 @@ Key Points in This Flow:
 - Global waiting indicator: shown during network requests, hidden afterwards.
 - Click outside dropdowns closes all dropdowns and resets icons.
 - Page scroll detection hides/shows nav images dynamically.
+- The web server stops when it does not receive keep-alive messages for 5s (client web interface hidden/stopped, client disconnects, ...)
