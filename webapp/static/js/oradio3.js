@@ -984,7 +984,7 @@ async function addCustomPlaylist()
 	// Warn if empty or exists, as custom playlist or directory
 	if (!playlist || existsInCustom || existsInDirectory)
 	{
-		showNotification(customNotification, `<span class='warning'>'De naam ${playlist}' is bezet.<br>Kies een andere speellijstnaam</span>`);
+		showNotification(customNotification, `<span class='warning'>De naam '${playlist}' is bezet.<br>Kies een andere speellijstnaam</span>`);
 		return;
 	}
 
