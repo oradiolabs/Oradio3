@@ -232,31 +232,24 @@ sudo umount "$DEVICE" 2>/dev/null || true
 
 echo "USB Health Check for $DEVICE"
 
+set -euo pipefail
+
 # 1. Quick scan (read-only)
-sudo fsck.fat -n "$DEVICE"
-if [ $? -eq 0 ]; then
+if sudo fsck.fat -n "$DEVICE"; then
 	echo -e "${GREEN}Quick scan: no errors found${NC}"
 else
-	echo -e "${YELLOW}Quick scan: errors found${NC}"
-
-	read -r -p "Do you want to repair? [Y/n]: " answer
-
-	if [[ "$answer" =~ ^[nN]$ ]]; then
-		echo -e "${RED}Errors found, please repair with (low level) format${NC}"
-		exit 1
-	fi
+	echo -e "${YELLOW}Quick scan: errors found, trying to repair${NC}"
 
 	# 2. Repair
-	if sudo fsck.fat -a -f "$DEVICE"; then
-		echo -e "${GREEN}Filesystem OK after repair${NC}"
-	else
-		echo -e "${RED}Errors found, please repair with (low level) format${NC}"
+	sudo fsck.fat -a -f "$DEVICE" || rc=$?
+	rc=${rc:-0}
+	if [ "$rc" -ge 2 ]; then
+		echo -e "${RED}Repair failed (code $rc)${NC}"
 		exit 1
 	fi
 
 	# 3. Re-check (must be clean)
-	sudo fsck.fat -n "$DEVICE"
-	if sudo fsck.fat -n "$DEVICE"; then
+	if ! sudo fsck.fat -n "$DEVICE"; then
 		echo -e "${RED}Errors found, please repair with (low level) format${NC}"
 		exit 1
 	fi
