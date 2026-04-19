@@ -31,9 +31,11 @@ Or, at the prompt, to install _your branch_, execute command:
 
     bash <(curl https://oradiolabs.nl/Oradio3/install) <branch name>
 
-The script will install and configure required packages and services.
+The script will install and configure required packages and services.<br>
+<ins>Note:</ins> The script may prompt you for the Oradio password.
 
-Wait for the installation to finish. <ins>Note</ins>: this can take up to half an hour.
+Wait for the installation to finish.<br>
+<ins>Note</ins>: this can take up to half an hour.
 
 ## Finish
 
