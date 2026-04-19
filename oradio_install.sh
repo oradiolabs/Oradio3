@@ -26,7 +26,14 @@ NC='\033[0m'
 
 # The script uses bash constructs
 if [ -z "${BASH:-}" ]; then
-	echo "${RED}This script requires bash${NC}"
+	echo "${RED}Aborting: This script requires bash${NC}"
+	exit 1
+fi
+
+# Enable passwordless sudo (no password prompt running sudo)
+# https://www.raspberrypi.com/documentation/computers/configuration.html#disable-sudo-password
+if ! sudo -p "Enter Oradio3 password: " raspi-config nonint do_sudo_pass 1; then
+	echo -e "${RED}Aborting: Incorrect password${NC}"
 	exit 1
 fi
 
@@ -47,7 +54,7 @@ SPOTIFY_PATH=$SCRIPT_PATH/Spotify
 RESOURCES_PATH=$SCRIPT_PATH/install_resources
 
 # Ensure logging directory exists
-mkdir -p "$LOGGING_PATH" || { echo -e "${RED}Failed to create directory $LOGGING_PATH${NC}"; exit 1; }
+mkdir -p "$LOGGING_PATH" || { echo -e "${RED}Aborting: Failed to create directory $LOGGING_PATH${NC}"; exit 1; }
 
 # Define log files
 LOGFILE_USB=$LOGGING_PATH/usb.log
@@ -66,7 +73,7 @@ trap 'exec > /dev/tty 2>&1; wait' EXIT
 TARGETOS="Debian GNU/Linux 13 (trixie)"
 OSVERSION=$(lsb_release -a | grep "Description:" | cut -d$'\t' -f2)
 if [ "$OSVERSION" != "$TARGETOS" ]; then
-	echo -e "${RED}Invalid OS version: $OSVERSION${NC}"
+	echo -e "${RED}Aborting: Invalid OS version: $OSVERSION${NC}"
 	# Stop with error flag
 	exit 1
 fi
@@ -83,7 +90,7 @@ unset INSTALL_ERROR
 # Install file replacing placeholders and execute follow-up commands
 function install_resource {
     if [ $# -lt 2 ]; then
-        echo -e "${RED}install_resource has too few arguments: '$@'${NC}"
+        echo -e "${RED}Aborting: install_resource has too few arguments: '$@'${NC}"
 		echo "Usage: $0 src dst"
 		# Stop with error flag
         INSTALL_ERROR=1
@@ -460,11 +467,11 @@ echo -e "${GREEN}Log files rotation configured${NC}"
 # Ensure logfile exists with correct ownership and permissions before starting librespot
 touch $LOGFILE_SPOTIFY
 # Ensure Spotify directory and flag files exist with default '0' and correct ownership and permissions
-mkdir -p "$SPOTIFY_PATH" || { echo -e "${RED}Failed to create directory $SPOTIFY_PATH${NC}"; exit 1; }
+mkdir -p "$SPOTIFY_PATH" || { echo -e "${RED}Aborting: Failed to create directory $SPOTIFY_PATH${NC}"; exit 1; }
 for flag in spotactive.flag spotplaying.flag; do
 	file="$SPOTIFY_PATH/$flag"
 	if [ ! -f "$file" ]; then
-		echo "0" >"$file" || { echo -e "${RED}Failed to write $file${NC}"; exit 1; }
+		echo "0" >"$file" || { echo -e "${RED}Aborting: Failed to write $file${NC}"; exit 1; }
 	fi
 done
 # install librespot event handler script
@@ -493,7 +500,7 @@ echo -e "${GREEN}Start Oradio3 on boot configured${NC}"
 
 # Stop if any installation failed
 if [ -v INSTALL_ERROR ]; then
-	echo -e "${RED}Installation completed with errors${NC}"
+	echo -e "${RED}Aborting: Installation completed with errors${NC}"
 	# Stop with error flag
 	exit 1
 fi
