@@ -21,7 +21,8 @@ function tryStart()
 	keepAliveStarted = true;
 
 	// Send keep alive messages if page is visible
-	setInterval(() => {
+	setInterval(() =>
+	{
 		if (document.visibilityState !== "visible") return;
 		fetch("/keep_alive", { method: "POST" }).catch(() => {});
 	}, 2000); // stabieler dan 2s op mobile
@@ -34,11 +35,16 @@ window.addEventListener("pageshow", tryStart);				// iOS + BFCache
 window.addEventListener("focus", tryStart);					// Desktop/mobile
 
 // User interaction fallback
-["click", "touchstart", "keydown"].forEach(evt => {
-	document.addEventListener(evt, tryStart, {
-		once: true,		// Execute event once
-		passive: true	// Don't use preventDefault: better responsiveness
-	});
+["click", "touchstart", "keydown"].forEach(event =>
+{
+	document.addEventListener(
+		event,
+		tryStart,
+		{
+			once: true,		// Execute event once
+			passive: true	// Don't use preventDefault: better responsiveness
+		}
+	);
 });
 
 // Show waiting indicator
@@ -57,25 +63,47 @@ function hideWaiting()
 function showNotification(notification, message)
 {
 	notification.innerHTML = message;
-	notification.style.display = 'block';
+	notification.style.display = "block";
 }
 
 // Hide notification
 function hideNotification(notification)
 {
-	notification.style.display = 'none';
+	notification.style.display = "none";
+}
+
+// Log message on server
+async function server_log(message)
+{
+	// Log on console
+	console.log(message);
+
+	// Log on server
+	try
+	{
+		const cmd = "log_message";
+		const args = { "message": message };
+
+		// Submit log message to server
+		await postJSON(cmd, args);
+	}
+	catch (err)
+	{
+		console.error(err);
+	}
+
+	// Hide waiting indicator
+	hideWaiting();
 }
 
 // Close the web interface
 function shutdownWebApp()
 {
 	// Remove header and navigation
-	document.querySelectorAll('header, nav').forEach(el => el.remove());
+	document.querySelectorAll("header, nav").forEach(el => el.remove());
 
 	// Replace main content with message
-	document.querySelector('main').innerHTML = '<div class="shuttingdown">' + 
-		'De web interface wordt afgesloten...' +
-	'</div>';
+	document.querySelector("main").innerHTML = 	"<div class=\"shuttingdown\"De web interface wordt afgesloten...</div>";
 
 	// Fire-and-forget: server may terminate immediately
 	postJSON("shutdown").catch(()=>{});
@@ -100,10 +128,10 @@ async function postJSON(cmd, args = {})
 			const id = setTimeout(() => controller.abort(), timeout);
 
 			// Submit the request
-			const response = await fetch('/execute',
+			const response = await fetch("/execute",
 			{
-				method: 'POST',
-				headers: {'Content-Type': 'application/json'},
+				method: "POST",
+				headers: {"Content-Type": "application/json"},
 				body: JSON.stringify({cmd, args}),
 				signal: controller.signal
 			});
@@ -146,12 +174,12 @@ let customPlaylists, customList, customInput, customSongs, customNotification;		
 let searchInput, searchSongs, searchNotification;														// Search songs
 
 // Execute when page HTML is loaded
-document.addEventListener('DOMContentLoaded', () =>
+document.addEventListener("DOMContentLoaded", () =>
 {
 // ===== Initialize: global =====
 
 	// Buttons
-	document.querySelector('img.shutdown-button').addEventListener("click", shutdownWebApp);
+	document.querySelector("img.shutdown-button").addEventListener("click", shutdownWebApp);
 
 	// Navigation: Observe initial page
 	observeActivePage();
@@ -159,25 +187,25 @@ document.addEventListener('DOMContentLoaded', () =>
 // ===== Initialize: Network =====
 
 	// Network page
-	networkInput = document.getElementById('ssid-input');
-	passwordBlock = document.getElementById('password-block');
-	passwordInput = document.getElementById('password-input');
-	const passwordIcon = document.getElementById('password-icon');
-	networkNotification = document.getElementById('notification_network');
-	spotifyInput = document.getElementById('spotify-input');
-	spotifyNotification = document.getElementById('notification_spotify');
+	networkInput = document.getElementById("ssid-input");
+	passwordBlock = document.getElementById("password-block");
+	passwordInput = document.getElementById("password-input");
+	const passwordIcon = document.getElementById("password-icon");
+	networkNotification = document.getElementById("notification_network");
+	spotifyInput = document.getElementById("spotify-input");
+	spotifyNotification = document.getElementById("notification_spotify");
 	// Buttons page
-	playlistInput = document.getElementById('playlist-input'); 
-	playlistSongs = document.getElementById('playlist-songs'); 
-	playlistNotification = document.getElementById('notification_playlist');
-	presetsNotification = document.getElementById('notification_presets');
+	playlistInput = document.getElementById("playlist-input"); 
+	playlistSongs = document.getElementById("playlist-songs"); 
+	playlistNotification = document.getElementById("notification_playlist");
+	presetsNotification = document.getElementById("notification_presets");
 	// Playlists page
 	customInput = document.getElementById("custom-input");
-	customList = document.getElementById('custom-list');
-	customSongs = document.getElementById('custom-songs');
+	customList = document.getElementById("custom-list");
+	customSongs = document.getElementById("custom-songs");
 	customNotification = document.getElementById("notification_custom");
-	searchInput = document.getElementById('search-input');
-	searchSongs = document.getElementById('search-songs');
+	searchInput = document.getElementById("search-input");
+	searchSongs = document.getElementById("search-songs");
 	searchNotification = document.getElementById("notification_search");
 
 	// Buttons
@@ -188,11 +216,11 @@ document.addEventListener('DOMContentLoaded', () =>
 	document.getElementById("submitSearchButton").addEventListener("click", submitSearch);
 
 	// Show previous network if available
-	const notificationOldSSID = document.getElementById('notification_oldssid');
+	const notificationOldSSID = document.getElementById("notification_oldssid");
 	if (typeof oldssid !== "undefined" && oldssid && oldssid.length)
 		showNotification(notificationOldSSID, `Oradio was verbonden met '${oldssid}'`);
 	else
-		showNotification(notificationOldSSID, `Oradio was niet verbonden met wifi`);
+		showNotification(notificationOldSSID, "Oradio was niet verbonden met wifi");
 
 	// When network input gets focus
 	networkInput.addEventListener("focus", async () =>
@@ -253,6 +281,8 @@ document.addEventListener('DOMContentLoaded', () =>
 		// Fill and show autocomplete list if it has entries, hide otherwise
 		populateCustomDropdown(matches);
 
+//OMJ: debug why on input focus the dropdown becomes visible when there are no matches
+console.log("populateAutocompleteList: matches.length=", matches.length);
 		// Do not show empty dropdown
 		if (matches.length > 0)
 			showScrollbox(customList, customInput);
@@ -268,8 +298,8 @@ document.addEventListener('DOMContentLoaded', () =>
 	customInput.addEventListener("input", (event) => populateAutocompleteList());
 
 	// Show/hide add and del buttons
-	customInput.addEventListener('inputValueChanged', () => updateAddButtons());
-	customSongs.addEventListener('scrollboxPopulated', () => updateDelButtons());
+	customInput.addEventListener("inputValueChanged", () => updateAddButtons());
+	customSongs.addEventListener("scrollboxPopulated", () => updateDelButtons());
 
 	// Clear notifications and hide search songs scrollbox on focus
 	searchInput.addEventListener("focus", () =>
@@ -282,28 +312,28 @@ document.addEventListener('DOMContentLoaded', () =>
 /* ========== Navigation ========== */
 
 // Switch active page
-document.querySelectorAll('nav button').forEach(button =>
+document.querySelectorAll("nav button").forEach(button =>
 {
-	button.addEventListener('click', () =>
+	button.addEventListener("click", () =>
 	{
 		// Get new target page
 		const page = document.getElementById(button.dataset.page);
 
 		// Only switch if page exists and is not already active
-		if (!page || page.classList.contains('active'))
+		if (!page || page.classList.contains("active"))
 			return; // Do nothing if same page
 
 		// Hide waiting indicator
 		hideWaiting();
 
 		// Hide all pages
-		document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
+		document.querySelectorAll(".page").forEach(p => p.classList.remove("active"));
 
 		// Hide notifications, except persistent
-		document.querySelectorAll('.notification:not(.persistent)').forEach(element => { element.style.display = 'none'; });
+		document.querySelectorAll(".notification:not(.persistent)").forEach(element => { element.style.display = "none"; });
 
 		// Show new active page
-		page.classList.add('active');
+		page.classList.add("active");
 
 		// Observe new active page
 		observeActivePage();
@@ -313,39 +343,138 @@ document.querySelectorAll('nav button').forEach(button =>
 	});
 });
 
+/* ========== Fit content to screen ========== */
+
+// MutationObserver to track content changes
+const contentObserver = new MutationObserver((mutationsList) =>
+{
+	// We only care about the active page
+	const activePage = document.querySelector(".page.active");
+	if (activePage)
+		updatePageScrollState(activePage);
+});
+
 // Start observing active page
 function observeActivePage()
 {
 	// Unobserve previous pages
 	contentObserver.disconnect();
 
-	const activePage = document.querySelector('.page.active');
+	const activePage = document.querySelector(".page.active");
 	if (activePage)
 	{
-		// Observe child additions/deletions anywhere in the page
-		contentObserver.observe(activePage, { childList: true, subtree: true });
+		// Observe child additions/deletions en style en class attribute changes anywhere in the page
+		contentObserver.observe(
+			activePage,
+			{
+				childList: true,
+				subtree: true,
+				attributes: true,
+				attributeFilter: ["style", "class"]
+			}
+		);
 
 		// Initial check
 		updatePageScrollState(activePage);
 	}
 }
 
-// MutationObserver to track content changes
-const contentObserver = new MutationObserver((mutationsList) =>
+// Draw debug line
+function draw_line(color, position)
 {
-	// We only care about the active page
-	const activePage = document.querySelector('.page.active');
-	if (activePage)
-		updatePageScrollState(activePage);
-});
+	// Create div element
+	const line = document.createElement("div");
+
+	// Add class name
+	line.className = "debug-line";
+
+	// Style as line
+	line.style.position = "absolute";
+	line.style.top = position + "px";
+	line.style.left = "0";
+	line.style.width = "100%";
+	line.style.height = "1.5px";
+	line.style.backgroundColor = color;
+	line.style.pointerEvents = "none";
+	line.style.zIndex = "9999";
+
+	// Add line to page
+	document.body.appendChild(line);
+}
+
+// Remove alle debug lines
+function clear_lines()
+{
+	document.querySelectorAll(".debug-line").forEach(el => el.remove());
+}
+
+function getPageBottom()
+{
+	const page = document.querySelector(".page.active");
+
+	let maxBottom = 0;
+
+	page.querySelectorAll(":scope > *").forEach(el =>
+	{
+		const style = getComputedStyle(el);
+		if (style.display === "none" || style.visibility === "hidden") return;
+
+		const rect = el.getBoundingClientRect();
+		const bottom = rect.bottom + window.scrollY;
+
+		maxBottom = Math.max(maxBottom, bottom);
+	});
+
+	return maxBottom;
+}
 
 // Check if page needs scrolling
 function updatePageScrollState(page)
 {
-	const navImages = document.querySelectorAll('nav button span');
-	const hidden = page.scrollHeight > page.clientHeight;
-	navImages.forEach(img => img.style.display = hidden ? 'none' : '');
+	// Get the safe bottom vertical position
+	const safeBottom =	parseFloat(getComputedStyle(document.documentElement).getPropertyValue("--safe-bottom"));
+
+	// Get the vertical position of the last visible element on the page
+	const lastBottom = getPageBottom();
+
+	// Get the navigation heights with and without images
+	const navHeightWithImages =	parseFloat(getComputedStyle(document.documentElement).getPropertyValue("--nav-height-max"));
+	const navHeightWithoutImages =	parseFloat(getComputedStyle(document.documentElement).getPropertyValue("--nav-height-min"));
+
+	// Get the vertical position of the navigation bar including images
+	const navTop = document.documentElement.scrollHeight - safeBottom - navHeightWithImages;
+
+//clear_lines();
+//draw_line("green", lastBottom);
+//draw_line("red", navTop);
+
+	// Tweak the scroll threshold and navigation menu images for optimal screen usage
+	if (navTop > lastBottom)
+	{
+		// Set scroll threshold to navigation with images
+		document.documentElement.style.setProperty("--navigation-height", (safeBottom + navHeightWithImages) + "px");
+
+		// Navigation images fit, so show them
+		document.querySelectorAll("nav button span").forEach(img => img.style.display = "block");
+	}
+	else
+	{
+		// Set scroll threshold to navigation without images
+		document.documentElement.style.setProperty("--navigation-height", (safeBottom + navHeightWithoutImages) + "px");
+
+		// Navigation images do not fit, so hide them
+		document.querySelectorAll("nav button span").forEach(img => img.style.display = "none");
+	}
+
+server_log(`
+OMJ) safeBottom=${safeBottom}
+OMJ) lastBottom=${lastBottom}
+OMJ) navTop=${navTop}
+`);
 }
+
+// Refresh after window resize, including rotation
+window.addEventListener("resize", observeActivePage);	// Safari goes into full screen mode if rotation means scrolling
 
 /* ========== Scrollbox ========== */
 
@@ -376,33 +505,33 @@ function showScrollbox(scrollbox, input)
 	const inputText = input.value.trim();
 
 	// Get rows inside the given scrollbox
-	const rows = scrollbox.querySelectorAll('.scrollbox-row');
+	const rows = scrollbox.querySelectorAll(".scrollbox-row");
 
 	// Highlight row matching input
 	rows.forEach(row =>
 	{
-		const rowText = row.querySelector('.scrollbox-row-text').textContent.trim() || '';
+		const rowText = row.querySelector(".scrollbox-row-text").textContent.trim() || "";
 		if (rowText === inputText)
-			row.classList.add('selected');
+			row.classList.add("selected");
 		else
-			row.classList.remove('selected');
+			row.classList.remove("selected");
 	});
 
 	// Show scrollbox
-	scrollbox.style.display = 'block';
+	scrollbox.style.display = "block";
 }
 
 // Hide scrollbox (added for maintainability)
 function hideScrollbox(scrollbox)
 {
-	scrollbox.style.display = 'none';
+	scrollbox.style.display = "none";
 }
 
 /* ========== Dropdown ========== */
 
 document.addEventListener("click", (event) =>
 {
-    const target = event.target;
+	const target = event.target;
 
 	// First: Icon click (only if the clicked element or its ancestor is an icon)
 	const icon = target.closest(".icon-button");
@@ -470,15 +599,15 @@ function handleRowClick(row)
 		input.value = row.querySelector(".scrollbox-row-text").textContent.trim();
 
 		// Dispatch a custom input value changed event
-		input.dispatchEvent(new Event('inputValueChanged', { bubbles: true }));
+		input.dispatchEvent(new Event("inputValueChanged", { bubbles: true }));
 
 		// Hide scrollbox
 		hideScrollbox(scrollbox);
 	}
 
 	if (icon)
-		// Rotate icon to 'closed'
-		icon.classList.remove('open');
+		// Rotate icon to "closed"
+		icon.classList.remove("open");
 
 	// Highlight selected row
 	scrollbox.querySelectorAll(".scrollbox-row").forEach(r => r.classList.remove("selected"));
@@ -506,8 +635,8 @@ function handleSelectClick(target, select)
 		showScrollbox(dropdown, input)
 
 		if (icon)
-			// Rotate icon to 'open'
-			icon.classList.add('open');
+			// Rotate icon to "open"
+			icon.classList.add("open");
 
 		// Reset scrollbox to top
 		dropdown.scrollTop = 0;
@@ -519,11 +648,13 @@ function closeDropdowns()
 {
 	document.querySelectorAll(".custom-select .scrollbox.dropdown").forEach(scrollbox =>
 	{
-		hideScrollbox(scrollbox);
+		// If open, close dropdown scrollbox
+		if (getComputedStyle(scrollbox).display !== "none")
+			hideScrollbox(scrollbox);
 
-		// If present, rotate icon to 'closed'
+		// If present, rotate icon to "closed"
 		const icon = scrollbox.closest(".custom-select")?.querySelector(".custom-icon");
-		if (icon) icon.classList.remove('open');
+		if (icon) icon.classList.remove("open");
 	});
 }
 
@@ -594,12 +725,12 @@ async function getNetworks()
 
 		// Sort alphabetically
 		return networks.sort((a, b) =>
-			a.ssid.localeCompare(b.ssid, undefined, { sensitivity: 'base' })
+			a.ssid.localeCompare(b.ssid, undefined, { sensitivity: "base" })
 		);
 	}
 	catch (err)
 	{
-		showNotification(networkNotification, `<span class="error">${errorMessage}<br>${err.message || 'Onbekende fout'}</span>`);
+		showNotification(networkNotification, `<span class="error">${errorMessage}<br>${err.message || "Onbekende fout"}</span>`);
 		console.error(err);
 	}
 	// Avoid undefined
@@ -613,7 +744,7 @@ async function populateNetworkDropdown()
 	const networks = await networksPromise;
 
 	// Populate dropdown with wifi network id's
-	const dropdown = document.querySelector('.network.custom-select .scrollbox.dropdown');
+	const dropdown = document.querySelector(".network.custom-select .scrollbox.dropdown");
 	const fragment = document.createDocumentFragment();
 	networks.forEach(network =>
 	{
@@ -669,7 +800,7 @@ async function submitCredentials()
 	}
 	catch (err)
 	{
-		showNotification(networkNotification, `<span class="error">${errorMessage}<br>${err.message || 'Onbekende fout'}</span>`);
+		showNotification(networkNotification, `<span class="error">${errorMessage}<br>${err.message || "Onbekende fout"}</span>`);
 		console.error(err);
 	}
 }
@@ -710,7 +841,7 @@ async function submitSpotify()
 	}
 	catch (err)
 	{
-		showNotification(spotifyNotification, `<span class="error">${errorMessage}<br>${err.message || 'Onbekende fout'}</span>`);
+		showNotification(spotifyNotification, `<span class="error">${errorMessage}<br>${err.message || "Onbekende fout"}</span>`);
 		console.error(err);
 	}
 
@@ -729,10 +860,10 @@ function populatePresetLists()
 	options.sort((a, b) => a.toLowerCase().localeCompare(b.toLowerCase()));
 
 	// Create dropdown lists with options and actions
-	document.querySelectorAll('.presets').forEach(container =>
+	document.querySelectorAll(".presets").forEach(container =>
 	{
-		const input = container.querySelector('input');
-		const dropdown = container.querySelector('.scrollbox.dropdown');
+		const input = container.querySelector("input");
+		const dropdown = container.querySelector(".scrollbox.dropdown");
 
 		const fragment = document.createDocumentFragment();
 		options.forEach(option =>
@@ -763,7 +894,7 @@ async function savePreset(preset, playlist)
 	}
 	catch (err)
 	{
-		showNotification(presetsNotification, `<span class="error">${errorMessage}<br>${err.message || 'Onbekende fout'}</span>`);
+		showNotification(presetsNotification, `<span class="error">${errorMessage}<br>${err.message || "Onbekende fout"}</span>`);
 		console.error(err);
 	}
 
@@ -815,7 +946,7 @@ async function getPlaylistSongs(playlist)
 		}
 
 		// Check if playlist is web radio
-		if ((/^https?:/.test(songs[0]['file'])))
+		if ((/^https?:/.test(songs[0]["file"])))
 		{
 			// Inform user playlist is webradio
 			showNotification(playlistNotification, `<span class="warning">Speellijst '${playlist}' is webradio</span>`);
@@ -829,7 +960,7 @@ async function getPlaylistSongs(playlist)
 	}
 	catch (err)
 	{
-		showNotification(playlistNotification, `<span class="error">${errorMessage}<br>${err.message || 'Onbekende fout'}</span>`);
+		showNotification(playlistNotification, `<span class="error">${errorMessage}<br>${err.message || "Onbekende fout"}</span>`);
 		console.error(err);
 	}
 	// Avoid Undefined
@@ -861,7 +992,7 @@ function populateSongsScrollbox(input, scrollbox, songs, notification)
 	scrollbox.scrollTop = 0;
 
 	// Dispatch a custom scrollbox populated event
-	scrollbox.dispatchEvent(new Event('scrollboxPopulated', { bubbles: true }));
+	scrollbox.dispatchEvent(new Event("scrollboxPopulated", { bubbles: true }));
 }
 
 // Submit the song to the server for playback
@@ -886,7 +1017,7 @@ async function playSong(notification, songfile, songtitle)
 	}
 	catch (err)
 	{
-		showNotification(notify, `<span class="error">${errorMessage}<br>${err.message || 'Onbekende fout'}</span>`);
+		showNotification(notify, `<span class="error">${errorMessage}<br>${err.message || "Onbekende fout"}</span>`);
 		console.error(err);
 	}
 
@@ -903,19 +1034,19 @@ function updateAddButtons()
 	const existsInCustom = customPlaylists.some(n => n.toLowerCase() === playlist.toLowerCase());
 
 	// Add save buttons to each row
-	const rows = document.querySelectorAll('#search-songs .scrollbox-row');
+	const rows = document.querySelectorAll("#search-songs .scrollbox-row");
 
 	rows.forEach((row, index) =>
 	{
-        const existingButton = row.querySelector('.save-button-small');
+        const existingButton = row.querySelector(".save-button-small");
 
 		if (playlist && existsInCustom)
 		{
 			// Add if missing
 			if (!existingButton)
 			{
-				const icon = document.createElement('span');
-				icon.className = 'icon-button save-button-small';
+				const icon = document.createElement("span");
+				icon.className = "icon-button save-button-small";
 				row.appendChild(icon);
 			}
 		}
@@ -935,15 +1066,15 @@ function updateAddButtons()
 function updateDelButtons()
 {
 	// Add remove buttons to each row
-	const rows = document.querySelectorAll('#custom-songs .scrollbox-row');
+	const rows = document.querySelectorAll("#custom-songs .scrollbox-row");
 
 	rows.forEach((row, index) =>
 	{
 		// Add if missing
-		if (!row.querySelector('.delete-button-small'))
+		if (!row.querySelector(".delete-button-small"))
 		{
-			const icon = document.createElement('span');
-			icon.className = 'icon-button delete-button-small';
+			const icon = document.createElement("span");
+			icon.className = "icon-button delete-button-small";
 			row.appendChild(icon);
 		}
 	});
@@ -978,13 +1109,13 @@ async function addCustomPlaylist()
 	// Get input value or empty string
 	const playlist = customInput.value.trim() || "";
 
-	const existsInCustom = playlists.some(n => n['playlist'].toLowerCase() === playlist.toLowerCase());
+	const existsInCustom = playlists.some(n => n["playlist"].toLowerCase() === playlist.toLowerCase());
 	const existsInDirectory = directories.some(n => n.toLowerCase() === playlist.toLowerCase());
 
 	// Warn if empty or exists, as custom playlist or directory
 	if (!playlist || existsInCustom || existsInDirectory)
 	{
-		showNotification(customNotification, `<span class='warning'>De naam '${playlist}' is bezet.<br>Kies een andere speellijstnaam</span>`);
+		showNotification(customNotification, `<span class="warning">De naam '${playlist}' is bezet.<br>Kies een andere speellijstnaam</span>`);
 		return;
 	}
 
@@ -992,12 +1123,12 @@ async function addCustomPlaylist()
 	const errorMessage = `Opslaan van speellijst '${playlist}' mislukt`;
 
 	// Add playlist on server
-	if (await modifyPlaylist('Add', playlist, null, errorMessage))
+	if (await modifyPlaylist("Add", playlist, null, errorMessage))
 		// playlist is gone, so also clear the songs
-		customSongs.innerHTML = '';
+		customSongs.innerHTML = "";
 
 	// Inform user
-	showNotification(customNotification, `<span class='success'>Speellijst '${playlist}' is toegevoegd<br>Zoek liedjes en voeg toe met de <span class="icon-button save-button-tiny"></span>-knop</span>`);
+	showNotification(customNotification, `<span class="success">Speellijst '${playlist}' is toegevoegd<br>Zoek liedjes en voeg toe met de <span class="icon-button save-button-tiny"></span>-knop</span>`);
 
 	// Show/hide save buttons
 	updateAddButtons();
@@ -1020,20 +1151,20 @@ async function delCustomPlaylist()
 	// Warn if empty or not exists or is a directory
 	if (!playlist || !existsInCustom || existsInDirectory)
 	{
-		showNotification(customNotification, `<span class='warning'>Kies of typ een <em>bestaande</em> speellijstnaam</span>`);
+		showNotification(customNotification, `<span class="warning">Kies of typ een <em>bestaande</em> speellijstnaam</span>`);
 		return;
 	}
 
 	// Warn if playlist is in use by preset
 	var inUse = false;
-	document.querySelectorAll('.presets').forEach(container =>
+	document.querySelectorAll(".presets").forEach(container =>
 	{
-		if (playlist === container.querySelector('input').value.trim())
+		if (playlist === container.querySelector("input").value.trim())
 			inUse = true;
 	});
 	if (inUse)
 	{
-		showNotification(customNotification, `<span class='warning'> 'Speellijst ${playlist}' niet verwijderd, want gekoppeld aan voorkeursknop(pen)</span>`);
+		showNotification(customNotification, `<span class="warning"> Speellijst '${playlist}' niet verwijderd, want gekoppeld aan voorkeursknop(pen)</span>`);
 		return;
 	}
 
@@ -1041,15 +1172,15 @@ async function delCustomPlaylist()
 	const errorMessage = `Verwijderen van speellijst '${playlist}' mislukt`;
 
 	// Remove (song from) playlist from server
-	if (await modifyPlaylist('Remove', playlist, null, errorMessage))
+	if (await modifyPlaylist("Remove", playlist, null, errorMessage))
 		// playlist is gone, so also clear the songs
-		customSongs.innerHTML = '';
+		customSongs.innerHTML = "";
 
 	// Clear custom playlist input
 	customInput.value = "";
 
 	// Inform user
-	showNotification(customNotification, `<span class='success'>Speellijst '${playlist}' is verwijderd</span>`);
+	showNotification(customNotification, `<span class="success">Speellijst '${playlist}' is verwijderd</span>`);
 
 	// Show/hide save buttons
 	updateAddButtons();
@@ -1077,13 +1208,13 @@ async function addSongFromPlaylist(row)
 	const errorMessage = `Toevoegen van '${songfile}' aan speellijst '${playlist}' mislukt`;
 
 	// Add (song to) playlist from server
-	if (await modifyPlaylist('Add', playlist, songfile, errorMessage))
+	if (await modifyPlaylist("Add", playlist, songfile, errorMessage))
 	{
 		// Also add song to scrollbox - faster than reloading
 		const copy = row.cloneNode(true);	// true = deep clone (includes children)
-		const icon = copy.querySelector('.save-button-small');
-		icon.classList.remove('save-button-small');
-		icon.classList.add('delete-button-small');
+		const icon = copy.querySelector(".save-button-small");
+		icon.classList.remove("save-button-small");
+		icon.classList.add("delete-button-small");
 		customSongs.appendChild(copy);
 	}
 
@@ -1106,7 +1237,7 @@ async function delSongFromPlaylist(row)
 	const errorMessage = `Verwijderen van '${songfile}' uit speellijst '${playlist}' mislukt`;
 
 	// Remove (song to) playlist from server
-    if (await modifyPlaylist('Remove', playlist, songfile, errorMessage))
+    if (await modifyPlaylist("Remove", playlist, songfile, errorMessage))
 		// Also remove song from scrollbox - faster than reloading
 		row.remove();
 
@@ -1127,7 +1258,7 @@ async function modifyPlaylist(action, playlist, songfile, errorMessage)
 	}
 	catch (err)
 	{
-		showNotification(customNotification, `<span class="error">${errorMessage}<br>${err.message || 'Onbekende fout'}</span>`);
+		showNotification(customNotification, `<span class="error">${errorMessage}<br>${err.message || "Onbekende fout"}</span>`);
 		console.error(err);
 		return false;
 	}
@@ -1151,7 +1282,7 @@ async function submitSearch()
 	// Check for minimal search pattern length
 	if (pattern.length < 3)
 	{
-		showNotification(searchNotification, `<span class='warning'>Typ zoekopdracht met minstens 3 tekens</span>`);
+		showNotification(searchNotification, `<span class="warning">Typ zoekopdracht met minstens 3 tekens</span>`);
 		return;
 	}
 
@@ -1185,7 +1316,7 @@ async function getSearchSongs(pattern)
 		if (songs.length === 0)
 		{
 			// Inform user playlist is empty
-			showNotification(searchNotification, `<span class='warning'>Geen liedjes gevonden met '${pattern}' in de naam van de artiest of in de titel<br>Gebruik een andere zoekopdracht</span>`);
+			showNotification(searchNotification, `<span class="warning">Geen liedjes gevonden met '${pattern}' in de naam van de artiest of in de titel<br>Gebruik een andere zoekopdracht</span>`);
 
 			// Failed to fetch songs
 			return [];
@@ -1196,7 +1327,7 @@ async function getSearchSongs(pattern)
 	}
 	catch (err)
 	{
-		showNotification(searchNotification, `<span class="error">${errorMessage}<br>${err.message || 'Onbekende fout'}</span>`);
+		showNotification(searchNotification, `<span class="error">${errorMessage}<br>${err.message || "Onbekende fout"}</span>`);
 		console.error(err);
 	}
 	return [];
