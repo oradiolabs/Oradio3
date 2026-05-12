@@ -9,11 +9,15 @@
 /* ===== CSS Variables ===== */
 :root {
 	/* --- Layout --- */
-	--header-height: 50px;		/* Page content start below the header */
-	--navigation-height: 50px;	/* Without the images. Page content scrolling threshold */
-	--max-page-width: 600px;	/* Layout on large screens */
-	--element-spacing: 5px;		/* Vertcal separation between layount elements */
-	--scrollbox-height: 200px;	/* Vertical size of scrollbox */
+	--header-height: 50px;						/* Page content start below the header */
+	--nav-height-min: 50px;						/* Page content scrolling threshold without images */
+	--nav-height-max: 90px;						/* Page content scrolling threshold with images */
+	--nav-height-actual: var(--nav-height-min);	/* Actual page content scrolling threshold */
+	--max-page-width: 600px;					/* Layout on large screens */
+	--element-spacing: 5px;						/* Vertical separation between layount elements */
+	--scrollbox-height: 200px;					/* Vertical size of scrollbox */
+	--scrollbar-width: 8px;						/* Scrollbar width */
+	--safe-bottom: env(safe-area-inset-bottom);	/* Navigation bar height */
 
 	/* --- Colors: rgb+opacity (1=solid, 0=transparent) --- */
 	--color-alabaster: rgba(234, 231, 220, 1);
@@ -64,7 +68,7 @@
 *,
 *::before,
 *::after {
-	box-sizing: border-box;	/*  Ensure widths/heights include padding & border on all elements */
+	box-sizing: border-box;		/*  Ensure widths/heights include padding & border on all elements */
 	margin: 0;
 	padding: 0;
 }
@@ -76,21 +80,22 @@ html {
 }
 
 body {
+	width: 100%;
+	height: 100%;
 	display: flex;										/* Align elements side by side */
-	font-family: Roboto, Helvetica, Arial, sans-serif;	/* Prefer Roboto, fallback in order given */
 	font-size: 16px;									/* Prevent zooming in iOS Safari */
-	margin: 0; padding: 0;								/* Start with clean layout */
+	font-family: Roboto, Helvetica, Arial, sans-serif;	/* Prefer Roboto, fallback in order given */
 	background-color: var(--background-color);			/* Set default background color */
 	color: var(--text-color); font-weight: normal;		/* Set default text color and text thinkness */
 	justify-content: center;							/* Center elements by default */
-	width: 100%; height: 100%;
+	margin: 0; padding: 0;								/* Start with clean layout */
 }
 
 h1 {
 	font-size: 20px;						/* Set the size of the text */
 	text-align: center;						/* Center the text horizontally */
-	border: none;							/* Remove any default border */
 	margin: var(--element-spacing) 0 0 0;	/* Adds spacing above the element to separate it from the element above */
+	border: none;							/* Remove any default border */
 	border-radius: 5px;						/* Round the corners */
 	padding: 5px 10px 5px 10px;				/* Adds spacing: top right bottom left */
 	background-color: var(--header-background-color);
@@ -139,7 +144,7 @@ h1 {
 nav {
 	display: flex;					/* Align elements side by side */
 	position: fixed;				/* Stick to viewport */
-	bottom: 0;						/* At the bottom */
+	bottom: var(--safe-bottom);		/* At the bottom, above the navigatino bar */
 	width: var(--max-page-width);	/* Limit for large screens */
 	gap: 10px;						/* Space between buttons */
 	padding: 5px 5px 10px 5px;		/* Some padding */
@@ -181,12 +186,12 @@ nav button span.hidden + div {
 
 /* ===== Page Layout ===== */
 .page {
-	display: none;						/* Hide the element */
-	width: 90vw;						/* Mobile-friendly layout */
-	max-width: var(--max-page-width);	/* Limit for large screens */
-	margin-top: var(--header-height);	/* Fixed height for header */
-    overflow-y: auto;					/* Enable vertical scrolling */
-    height: calc(100dvh - var(--header-height) - var(--navigation-height));
+	display: none;								/* Hide the element */
+	margin-top: var(--header-height);			/* Fixed height for header */
+	width: min(var(--max-page-width), 90vw);	/* Mobile-friendly layout */
+	overflow-y: auto;							/* Enable vertical scrolling when needed */
+	padding-right: 8px;							/* Scrollbar breathing room */
+	height: calc(100dvh - var(--header-height) - var(--navigation-height));
 }
 
 .active {
@@ -255,10 +260,10 @@ input {
 	width: 100%;									/* Makes the element span the full width of its parent container */
 	height: 40px;									/* Sets a fixed height for the element */
 	padding: 10px;									/* Adds inner spacing on all sides (inside the border) */
+	font-size: 16px;								/* Sets the text size to avoid mobile zoom */
 	margin: var(--element-spacing) 0 0 0;			/* Adds spacing above the element to separate it from the element above */
 	border-radius: 5px;								/* Rounds the corners of the element */
 	border: 1px solid var(--input-border-color);	/* Adds border using a CSS variable for the color */
-	font-size: 16px;								/* Sets the text size to avoid mobile zoom */
 	background-color: var(--input-background-color);
 	color: var(--input-text-color); font-weight: normal;
 }
@@ -284,23 +289,16 @@ input:focus {
 }
 
 .scrollbox {
-	width: 100%;							/* Full viewport width */
-	display: none;							/* Hide the element */
-	font-size: 16px;						/* Sets the text size to avoid mobile zoom */
-	margin: var(--element-spacing) 0 0 0;	/* Adds spacing above the element to separate it from the element above */
-	border: 1px solid var(--scrollbox-border-color);
+	display: none;												/* Hide the element */
+	font-size: 16px;											/* Sets the text size to avoid mobile zoom */
+	margin: var(--element-spacing) 0 0 0;						/* Adds spacing above the element to separate it from the element above */
+	box-shadow: inset 0 0 0 1px var(--scrollbox-border-color);	/* Avoid subpixel rendering errors */
 	background-color: var(--scrollbox-background-color);
 	color: var(--input-text-color); font-weight: normal;
-	max-height: var(--scrollbox-height);	/* Limits height and enables scrolling */
-	overflow-y: auto;						/* Vertical scrollbar when content overflows */
-	z-index: 10;							/* Keeps scrollbox above overlapping elements */
-}
-
-.scrollbox::-webkit-scrollbar {
-	width: 8px;									/* Firefox */
-}
-.scrollbox::-webkit-scrollbar-thumb {
-	background: var(--scrollbox-border-color);	/* Chrome */
+	width: 100%;												/* Full viewport width */
+	max-height: var(--scrollbox-height);						/* Limits height and enables scrolling */
+	overflow-y: auto;											/* Vertical scrollbar when content overflows */
+	z-index: 10;												/* Keeps scrollbox above overlapping elements */
 }
 
 .scrollbox-row {
@@ -329,6 +327,16 @@ input:focus {
 	background-color: var(--scrollbox-select-color);	/* Highlights row while selected */
 }
 
+/* ===== Scrollbars ===== */
+.page::-webkit-scrollbar,
+.scrollbox::-webkit-scrollbar {
+	width: var(--scrollbar-width);
+}
+.page::-webkit-scrollbar-thumb,
+.scrollbox::-webkit-scrollbar-thumb {
+	background: var(--scrollbox-border-color);
+}
+
 /* ===== Password ===== */
 .password {
 	display: none;			/* Hide the element */
@@ -342,7 +350,7 @@ input:focus {
 .presets-grid {
 	display: grid;							/* Enables CSS Grid layout */
 	margin: var(--element-spacing) 0 0 0;	/* Adds spacing above the element to separate it from the element above */
-	grid-template-columns: 0.6fr 1.5fr;		/* Two columns: first column is narrower, second column is wider */
+	grid-template-columns: 1fr 4fr;			/* Two columns: first column is narrower, second column is wider */
 }
 
 .playlists_grid {

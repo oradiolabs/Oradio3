@@ -68,8 +68,10 @@ WIFI_FILE = "/tmp/Wifi_invoer.json"
 EMPTY_PRESETS = {"preset1": "", "preset2": "", "preset3": ""}
 INFO_MISSING  = {"serial": "not found", "version": "not found"}
 INFO_ERROR    = {"serial": "undefined", "version": "undefined"}
+
 # Location of version info
 SOFTWARE_VERSION_FILE = "/var/log/oradio_sw_version.log"
+
 # Stop server if no keep alive message received, in seconds
 KEEP_ALIVE_TIMEOUT = 5     # ping every 2s, so missing 2 pings closes
 
@@ -491,6 +493,27 @@ def modify_playlist(args: Optional[Dict[str, Any]]):
     # Return updated custom playlists
     return mpd_control.get_playlists()
 
+def log_message(args: Optional[Dict[str, Any]]):
+    """
+    Log web interface message.
+    Args:
+        args (Optional[Dict[str, Any]]):
+            Dictionary containing:
+                - "message" (str): message to log.
+    Raises:
+        ValueError: If required arguments are missing.
+    Returns:
+        None
+    """
+    # Extract required arguments, none if no args sent
+    message = args.get("message") if args else None
+    if not message:
+        # Missing required argument
+        raise ValueError("'modify' vereist argument 'message'")
+
+    # Log message
+    oradio_log.debug("Web interface: %s", message)
+
 class ExecuteRequest(BaseModel):
     """
     Request model for generic command execution.
@@ -534,6 +557,7 @@ async def execute(request: ExecuteRequest):
         "playlist": get_playlist_songs,
         "search": get_search_songs,
         "modify": modify_playlist,
+        "log_message": log_message,
         # Add other commands were
     }
 
@@ -756,8 +780,8 @@ if __name__ == '__main__':
     message_listener = Process(target=_check_messages, args=(message_queue,))
     message_listener.start()
 
-    # Pass the queue to the web server
-    api_app.state.queue = message_queue
+    api_app.state.timer_started = False     # Initialize timer not running
+    api_app.state.queue = message_queue     # Pass the queue to the web server
 
     try:
         # Start the web server with log level 'trace'. log_config=Nonoe: Prevent overriding our log setup

@@ -53,23 +53,35 @@ Design choices:
 		<!-- Navigation -->
 		<nav role="navigation">
 			<button data-page="network">
-				<img src="../static/images/network.png" alt="Netwerk" />
-				<br>
+				<!-- Span is hidden if content needs scrolling -->
+				<span>
+					<img src="../static/images/network.png" alt="Netwerk" />
+					<br>
+				</span>
 				<div>Netwerk</div>
 			</button>
 			<button data-page="buttons">
-				<img src="../static/images/buttons.png" alt="Knoppen" />
-				<br>
+				<!-- Span is hidden if content needs scrolling -->
+				<span>
+					<img src="../static/images/buttons.png" alt="Knoppen" />
+					<br>
+				</span>
 				<div>Knoppen</div>
 			</button>
 			<button data-page="playlists">
-				<img src="../static/images/playlists.png" alt="Speellijsten" />
-				<br>
+				<!-- Span is hidden if content needs scrolling -->
+				<span>
+					<img src="../static/images/playlists.png" alt="Speellijsten" />
+					<br>
+				</span>
 				<div>Lijsten</div>
 			</button>
 			<button data-page="status">
-				<img src="../static/images/status.png" alt="Status" />
-				<br>
+				<!-- Span is hidden if content needs scrolling -->
+				<span>
+					<img src="../static/images/status.png" alt="Status" />
+					<br>
+				</span>
 				<div>Status</div>
 			</button>
 		</nav>
@@ -147,7 +159,7 @@ Design choices:
 				<!-- Link playlists to presets -->
 				{% for preset in presets %}
 					<div class="presets-grid">
-						<label for="{{ preset }}">Voorkeur {{ loop.index }}:</label>
+						<label for="{{ preset }}">Knop {{ loop.index }}:</label>
 						<div class="presets custom-select" data-action="{{ preset }}">
 							<input
 								readonly
