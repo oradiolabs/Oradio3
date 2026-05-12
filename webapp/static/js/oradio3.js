@@ -281,8 +281,6 @@ document.addEventListener("DOMContentLoaded", () =>
 		// Fill and show autocomplete list if it has entries, hide otherwise
 		populateCustomDropdown(matches);
 
-//OMJ: debug why on input focus the dropdown becomes visible when there are no matches
-console.log("populateAutocompleteList: matches.length=", matches.length);
 		// Do not show empty dropdown
 		if (matches.length > 0)
 			showScrollbox(customList, customInput);
