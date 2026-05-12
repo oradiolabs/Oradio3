@@ -72,7 +72,7 @@ function hideNotification(notification)
 	notification.style.display = "none";
 }
 
-// Log message on server
+// Log message on console and server
 async function server_log(message)
 {
 	// Log on console
@@ -379,52 +379,30 @@ function observeActivePage()
 	}
 }
 
-// Draw debug line
-function draw_line(color, position)
-{
-	// Create div element
-	const line = document.createElement("div");
-
-	// Add class name
-	line.className = "debug-line";
-
-	// Style as line
-	line.style.position = "absolute";
-	line.style.top = position + "px";
-	line.style.left = "0";
-	line.style.width = "100%";
-	line.style.height = "1.5px";
-	line.style.backgroundColor = color;
-	line.style.pointerEvents = "none";
-	line.style.zIndex = "9999";
-
-	// Add line to page
-	document.body.appendChild(line);
-}
-
-// Remove alle debug lines
-function clear_lines()
-{
-	document.querySelectorAll(".debug-line").forEach(el => el.remove());
-}
-
+// Get bottom position of last visible element on page
 function getPageBottom()
 {
+	// Get active page
 	const page = document.querySelector(".page.active");
 
+	// Initialize
 	let maxBottom = 0;
 
+	// Iterate over elements on page
 	page.querySelectorAll(":scope > *").forEach(el =>
 	{
+		// Ignor hidden elements
 		const style = getComputedStyle(el);
 		if (style.display === "none" || style.visibility === "hidden") return;
 
-		const rect = el.getBoundingClientRect();
-		const bottom = rect.bottom + window.scrollY;
+		// Get bottom position
+		const bottom = el.getBoundingClientRect().bottom + window.scrollY;
 
+		// Keep last position
 		maxBottom = Math.max(maxBottom, bottom);
 	});
 
+	// Return vertical position of bottom of last visible element
 	return maxBottom;
 }
 
@@ -444,10 +422,6 @@ function updatePageScrollState(page)
 	// Get the vertical position of the navigation bar including images
 	const navTop = document.documentElement.scrollHeight - safeBottom - navHeightWithImages;
 
-//clear_lines();
-//draw_line("green", lastBottom);
-//draw_line("red", navTop);
-
 	// Tweak the scroll threshold and navigation menu images for optimal screen usage
 	if (navTop > lastBottom)
 	{
@@ -465,16 +439,16 @@ function updatePageScrollState(page)
 		// Navigation images do not fit, so hide them
 		document.querySelectorAll("nav button span").forEach(img => img.style.display = "none");
 	}
-
-server_log(`
-OMJ) safeBottom=${safeBottom}
-OMJ) lastBottom=${lastBottom}
-OMJ) navTop=${navTop}
-`);
 }
 
-// Refresh after window resize, including rotation
-window.addEventListener("resize", observeActivePage);	// Safari goes into full screen mode if rotation means scrolling
+// Refresh after window resize or rotation
+function refreshLayout()
+{
+	// Allow transition to finish before doing own stuff
+	setTimeout(() => { observeActivePage();	}, 100);
+}
+window.addEventListener("resize", refreshLayout);				// Android & Desktop
+window.addEventListener("orientationchange", refreshLayout);	// Apple
 
 /* ========== Scrollbox ========== */
 
