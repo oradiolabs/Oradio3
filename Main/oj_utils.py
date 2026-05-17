@@ -20,7 +20,7 @@ Created on May 15, 2026
 @summary:
     Provides a top level command and error queue with safe wrapper methods
 """
-from queue import Empty, Full
+from queue import Full
 from multiprocessing import Queue
 from dataclasses import dataclass
 
@@ -192,8 +192,7 @@ def get_command_message() -> CommandMessage | None:
     """
     Retrieve a message from the command queue
     Returns:
-        The next message from the command queue, or None if the queue
-        is empty or unavailable
+        The next message from the command queue, or None if the queue is unavailable
     """
     # Attempt to safely retrieve a message from the command queue
     return _safe_get(_command_queue, CMD_QUEUE_NAME)
@@ -211,8 +210,7 @@ def get_error_message() -> ErrorMessage | None:
     """
     Retrieve a message from the error queue
     Returns:
-        The next message from the error queue, or None if the queue
-        is empty or unavailable
+        The next message from the error queue, or None if the queue is unavailable
     """
     # Attempt to safely retrieve a message from the error queue
     return _safe_get(_error_queue, ERR_QUEUE_NAME)

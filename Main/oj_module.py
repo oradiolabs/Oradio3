@@ -27,19 +27,21 @@ from multiprocessing import Process
 from oj_utils import put_error_message, ErrorMessage, put_command_message, CommandMessage
 
 def dangerous():
+    """ Placeholder """
     raise Exception("boom")
 
-def worker(type="main"):
-    put_command_message(CommandMessage("worker", f"[MODULE] worker in {type} context started"))
+def worker(context="main"):
+    """ Placeholder """
+    put_command_message(CommandMessage("worker", f"[MODULE] worker in {context} context started"))
     try:
         dangerous()
     except Exception:
-        put_error_message(ErrorMessage(f"worker", f"[MODULE] worker in {type} context failed"))
+        put_error_message(ErrorMessage("worker", f"[MODULE] worker in {context} context failed"))
 
 def start_thread():
+    """ Placeholder """
     Thread(target=worker, args=("thread",), daemon=True).start()
 
 def start_process():
-    p = Process(target=worker, args=("process",))
-    p.start()
-    return p
+    """ Placeholder """
+    Process(target=worker, args=("process",)).start()

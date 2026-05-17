@@ -55,7 +55,7 @@ def main():
     Thread(target=_cmd_loop, daemon=True).start()
 
     # Start the error queue handler service
-    error_service = ErrorService()
+    _ = ErrorService()
 
     # Start worker (direct call example)
     print("[MAIN] Testing error service in main context...")
@@ -89,10 +89,3 @@ if __name__ == "__main__":
         main()
     except KeyboardInterrupt:
         print("\n[MAIN] Shutting down...")
-    except Exception:
-        pass
-
-
-
-
-
