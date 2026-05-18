@@ -19,6 +19,7 @@ Created on May 15, 2026
 @status:        Development
 @summary:
     Provides a top level command and error queue with safe wrapper methods
+    IMPORTANT: Validating messages on put --> trust messages on get
 """
 from queue import Full
 from multiprocessing import Queue
@@ -43,6 +44,15 @@ class CommandMessage:
     source: str
     message: str
 
+    def is_valid(self) -> bool:
+        """ Validate """
+        return (
+            isinstance(self.source, str)
+            and isinstance(self.message, str)
+            and self.source.strip() != ""
+            and self.message.strip() != ""
+        )
+
 @dataclass
 class ErrorMessage:
     """
@@ -54,6 +64,15 @@ class ErrorMessage:
     source: str
     message: str
 
+    def is_valid(self) -> bool:
+        """ Validate """
+        return (
+            isinstance(self.source, str)
+            and isinstance(self.message, str)
+            and self.source.strip() != ""
+            and self.message.strip() != ""
+        )
+
 # Queue used for internal command messages
 _command_queue = Queue(maxsize=MAX_QUEUE_SIZE)
 
@@ -61,37 +80,6 @@ _command_queue = Queue(maxsize=MAX_QUEUE_SIZE)
 _error_queue = Queue(maxsize=MAX_QUEUE_SIZE)
 
 ##### Helpers ####################
-
-def _is_valid_command(msg: object) -> bool:
-    """
-    Validate whether an object is a well-formed CommandMessage
-    Args:
-        msg: Any object received from the queue
-    Returns:
-        True if the object is a valid CommandMessage, False otherwise
-    """
-    # Must be correct type first
-    if not isinstance(msg, CommandMessage):
-        return False
-
-    # Ensure required fields are valid strings
-    return isinstance(msg.source, str) and isinstance(msg.message, str)
-
-
-def _is_valid_error(msg: object) -> bool:
-    """
-    Validate whether an object is a well-formed ErrorMessage
-    Args:
-        msg: Any object received from the queue
-    Returns:
-        True if the object is a valid ErrorMessage, False otherwise
-    """
-    # Must be correct type first
-    if not isinstance(msg, ErrorMessage):
-        return False
-
-    # Ensure required fields are valid strings
-    return isinstance(msg.source, str) and isinstance(msg.message, str)
 
 def _safe_put(queue: Queue, message: CommandMessage | ErrorMessage, queue_name: str) -> bool:
     """
@@ -107,13 +95,15 @@ def _safe_put(queue: Queue, message: CommandMessage | ErrorMessage, queue_name: 
     """
     # Validate CommandMessage
     if isinstance(message, CommandMessage):
-        if not _is_valid_command(message):
+        # Validate whether message is a well-formed CommandMessage
+        if not message.is_valid():
             oradio_log.error("Invalid CommandMessage rejected: %r", message)
             return False
 
     # Validate ErrorMessage
     elif isinstance(message, ErrorMessage):
-        if not _is_valid_error(message):
+        # Validate whether message is a well-formed ErrorMessage
+        if not message.is_valid():
             oradio_log.error("Invalid ErrorMessage rejected: %r", message)
             return False
 
@@ -146,6 +136,7 @@ def _safe_put(queue: Queue, message: CommandMessage | ErrorMessage, queue_name: 
 def _safe_get(queue: Queue, queue_name: str) -> CommandMessage | ErrorMessage | None:
     """
     Safely retrieve and validate a message from a multiprocessing queue
+    Messages can be trusted as they are validated upon sending
     Args:
         queue: Source multiprocessing queue
         queue_name: Human-readable name for logging
@@ -153,18 +144,8 @@ def _safe_get(queue: Queue, queue_name: str) -> CommandMessage | ErrorMessage | 
         A valid CommandMessage or ErrorMessage, or None if errors found
     """
     try:
-        # Wait for a message indefinitly
-        message = queue.get()
-
-        # Validate retrieved message
-        if _is_valid_command(message):
-            return message  # valid command message
-
-        if _is_valid_error(message):
-            return message  # valid error message
-
-        # Reject invalid payload
-        oradio_log.error("Invalid message received from '%s': %r", queue_name, message)
+        # Wait for a message indefinitely
+        return queue.get()
 
     except (OSError, EOFError) as ex_err:
         # Queue is closed, corrupted, or no longer available
@@ -174,41 +155,53 @@ def _safe_get(queue: Queue, queue_name: str) -> CommandMessage | ErrorMessage | 
         # Rare internal multiprocessing queue failure
         oradio_log.critical("Queue '%s' internal error during get: %s", queue_name, ex_err, exc_info=True)
 
-    # Error condition
+    # Error getting message from queue
     return None
 
 ##### Public API ####################
 
-def put_command_message(command: CommandMessage) -> bool:
+def put_command_message(message: CommandMessage) -> bool:
     """
-    Put a command message into the command queue
+    Put a _command_ message into the _command_ queue
     Args:
-        command: Command message to enqueue
+        message: Command message to enqueue
     """
+    # Validate
+    if not isinstance(message, CommandMessage):
+        oradio_log.error("Wrong message type for queue '%s': %r", CMD_QUEUE_NAME, message)
+        return False
+
     # Attempt to enqueue the command message safely
-    return _safe_put(_command_queue, command, CMD_QUEUE_NAME)
+    return _safe_put(_command_queue, message, CMD_QUEUE_NAME)
 
 def get_command_message() -> CommandMessage | None:
     """
-    Retrieve a message from the command queue
+    Retrieve a command message from the command queue
+    Messages can be trusted as they are validated upon sending
     Returns:
         The next message from the command queue, or None if the queue is unavailable
     """
     # Attempt to safely retrieve a message from the command queue
     return _safe_get(_command_queue, CMD_QUEUE_NAME)
 
-def put_error_message(error: ErrorMessage) -> bool:
+def put_error_message(message: ErrorMessage) -> bool:
     """
-    Put an error message into the error queue
+    Put an _error_ message into the _error_ queue
     Args:
-        error: Error message to enqueue
+        message: Error message to enqueue
     """
+    # Validate
+    if not isinstance(message, ErrorMessage):
+        oradio_log.error("Wrong message type for queue '%s': %r", ERR_QUEUE_NAME, message)
+        return False
+
     # Attempt to enqueue the error message safely
-    return _safe_put(_error_queue, error, ERR_QUEUE_NAME)
+    return _safe_put(_error_queue, message, ERR_QUEUE_NAME)
 
 def get_error_message() -> ErrorMessage | None:
     """
-    Retrieve a message from the error queue
+    Retrieve an error message from the error queue
+    Messages can be trusted as they are validated upon sending
     Returns:
         The next message from the error queue, or None if the queue is unavailable
     """
