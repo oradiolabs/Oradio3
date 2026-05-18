@@ -95,11 +95,10 @@ if __name__ == '__main__':
 
     # Imports only relevant when stand-alone
     import os
-    from time import sleep
     from multiprocessing import Process
 
     # GLOBAL constants
-    from oradio_const import RED, GREEN, YELLOW, NC
+    from oradio_const import RED, GREEN, NC
 
     def _command_loop():
         """ Get messages from command queue """
