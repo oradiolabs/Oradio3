@@ -37,11 +37,10 @@ import logging
 import traceback
 import subprocess
 import faulthandler
-from os import popen
 from sys import stderr
 from time import sleep
+from queue import Queue
 from pathlib import Path
-from queue import Queue, Full
 from datetime import datetime
 from contextlib import ExitStack
 from logging.handlers import QueueHandler, QueueListener
@@ -93,12 +92,12 @@ faulthandler.enable(file=stderr)
 def _get_rpi_serial() -> str:
     """Extract serial from Raspberry Pi."""
     try:
-        with open("/proc/cpuinfo", "r") as file:
+        with open("/proc/cpuinfo", "r", encoding="utf-8") as file:
             for line in file:
                 if line.startswith("Serial"):
                     serial = line.split(":", 1)[1].strip()
                     return serial.lstrip("0") or "0"
-    except Exception:
+    except (FileNotFoundError, PermissionError, OSError):
         pass
     return "Unsupported platform"
 

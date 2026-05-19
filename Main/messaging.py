@@ -243,11 +243,15 @@ def _fatal_exit(message: str, *, exc: BaseException | None = None, code: int = 1
     for handler in logger.handlers:
         try:
             handler.flush()
-        except Exception:
+        except (OSError, ValueError, EOFError):
             pass
 
-    # If your logger uses file handlers, this helps ensure disk flush
+    # Ensure disk flush
     logging.shutdown()
+
+    # Flush console buffers
+    sys.stderr.flush()
+    sys.stdout.flush()
 
     # Exit python execution
     sys.exit(code)
