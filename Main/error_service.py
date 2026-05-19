@@ -25,7 +25,7 @@ from threading import Thread
 
 ##### Oradio modules ####################
 from oradio_logging import oradio_log
-from oj_utils import (
+from messaging import (
     ErrorMessage,
     get_error_message,
     put_error_message,
@@ -36,37 +36,28 @@ from oj_utils import (
 
 class ErrorService:
     """
-    Background service responsible for handling runtime error messages
-
+    Background service responsible for handling runtime error messages.
     The service continuously monitors the shared error queue for incoming
     error messages and applies predefined mitigation or recovery actions
-    based on the error source
-
-    Known errors are handled automatically when possible
-    Unknown errors are logged as a fail-safe mechanism
+    based on the error source.
+    Known errors are handled automatically when possible.
+    Unknown errors are logged as a fail-safe mechanism.
     """
     def __init__(self):
         """
-        Initialize and start the error handling service
-
+        Initialize and start the error handling service.
         A daemon thread is started automatically, allowing the service
         to run continuously in the background without blocking the main
-        application thread
+        application thread.
         """
         Thread(target=self._error_handler, daemon=True).start()
 
     def _error_handler(self):
         """
-        Error handling loop
-
-        Continuously waits for error messages from the shared queue
+        Error handling loop.
+        Continuously waits for error messages from the shared queue.
         When an error is received, the service attempts to recover
-        from known error conditions by issuing appropriate commands
-
-        Behavior:
-            - Retries if no message could be retrieved
-            - Handles known worker-related errors by sending a reset command
-            - Logs unknown errors for debugging and fail-safe purposes
+        from known error conditions by issuing appropriate commands.
         """
         while True:
             # Wait for error message
@@ -100,7 +91,7 @@ if __name__ == '__main__':
     # GLOBAL constants
     from oradio_const import RED, GREEN, NC
 
-    def _command_loop():
+    def _command_listener():
         """ Get messages from command queue """
         while True:
             # Wait for command message
@@ -131,8 +122,8 @@ if __name__ == '__main__':
             " 0-Quit\n"
             " 1-Send COMMAND message to COMMAND queue\n"
             " 2-Send ERROR message to ERROR queue\n"
-            " 3-Send ERROR message to COMMAND queue\n"
-            " 4-Send COMMAND message to ERROR queue\n"
+            " 3-Send ERROR message to COMMAND queue --> stops application!\n"
+            " 4-Send COMMAND message to ERROR queue --> stops application!\n"
             " 5-From thread: Send messages to queues\n"
             " 6-From process: Send messages to queues\n"
             "select: "
@@ -152,36 +143,24 @@ if __name__ == '__main__':
                     break
                 case 1:
                     print("\nSending command message to command queue...")
-                    result = put_command_message(CommandMessage("worker", "command message in command queue"))
+                    put_command_message(CommandMessage("worker", "command message in command queue"))
                     sleep(0.5)  # Allow for message to propagate
-                    if result:
-                        print(f"{GREEN}Success sending command message to command queue{NC}\n")
-                    else:
-                        print(f"{RED}Failed sending command message to command queue{NC}\n")
+                    print(f"{GREEN}Success sending command message to command queue{NC}\n")
                 case 2:
-                    print("\nSending error message to error queue...\n")
-                    result = put_error_message(ErrorMessage("worker", "error message in error queue"))
+                    print("\nSending error message to error queue...")
+                    put_error_message(ErrorMessage("worker", "error message in error queue"))
                     sleep(0.5)  # Allow for message to propagate
-                    if result:
-                        print(f"{GREEN}Success sending error message to error queue{NC}\n")
-                    else:
-                        print(f"{RED}Failed sending error message to error queue{NC}\n")
+                    print(f"{GREEN}Success sending error message to error queue{NC}\n")
                 case 3:
-                    print("\nSending error message to command queue...\n")
-                    result = put_command_message(ErrorMessage("worker", "error message in command queue"))
+                    print("\nSending error message to command queue...")
+                    put_command_message(ErrorMessage("worker", "error message in command queue"))
                     sleep(0.5)  # Allow for message to propagate
-                    if result:
-                        print(f"{RED}Failed catching error sending error message to command queue{NC}\n")
-                    else:
-                        print(f"{GREEN}Success catching error sending error message to command queue{NC}\n")
+                    print(f"{RED}Failed catching error sending error message to command queue{NC}\n")
                 case 4:
-                    print("\nSending command message to error queue...\n")
-                    result = put_error_message(CommandMessage("worker", "command message in error queue"))
+                    print("\nSending command message to error queue...")
+                    put_error_message(CommandMessage("worker", "command message in error queue"))
                     sleep(0.5)  # Allow for message to propagate
-                    if result:
-                        print(f"{RED}Failed catching error sending command message to error queue{NC}\n")
-                    else:
-                        print(f"{GREEN}Success catching error sending command message to error queue{NC}\n")
+                    print(f"{RED}Failed catching error sending command message to error queue{NC}\n")
                 case 5:
                     print("\nIn thread: sending messages to queues...")
                     Thread(target=_worker, args=("thread",), daemon=True).start()
@@ -197,7 +176,7 @@ if __name__ == '__main__':
     ErrorService()
 
     # Start process to monitor the message queue
-    Thread(target=_command_loop, daemon=True).start()
+    Thread(target=_command_listener, daemon=True).start()
 
     # Present menu with tests
     interactive_menu()
