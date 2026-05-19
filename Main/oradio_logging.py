@@ -44,6 +44,7 @@ from pathlib import Path
 from queue import Queue, Full
 from datetime import datetime
 from contextlib import ExitStack
+from logging.handlers import QueueHandler, QueueListener
 from logging import DEBUG, INFO, WARNING, ERROR, CRITICAL
 from concurrent_log_handler import ConcurrentRotatingFileHandler
 from requests import post, RequestException, Timeout
@@ -68,7 +69,7 @@ ORADIO_LOG_FILE_STR = str(ORADIO_LOG_PATH / 'oradio.log')
 ORADIO_LOG_FILESIZE = 512 * 1024   # 512 KB
 ORADIO_LOG_BACKUPS  = 1
 # Items to queue when busy
-ASYNC_QUEUE_SIZE = 10000
+QUEUE_SIZE = 10000
 # Robust remote access
 MAX_RETRIES    = 3
 BACKOFF_FACTOR = 2
@@ -85,14 +86,21 @@ logging.addLevelName(TRACE, "TRACE")
 logging.Logger.trace = trace
 
 # Enable Python faulthandler for crashes
-faulthandler.enable()
+faulthandler.enable(file=stderr)
 
 # ----- Helpers -----
 
 def _get_rpi_serial() -> str:
     """Extract serial from Raspberry Pi."""
-    serial = popen('vcgencmd otp_dump | grep "28:" | cut -c 4-').read().strip()
-    return serial or "Unsupported platform"
+    try:
+        with open("/proc/cpuinfo", "r") as file:
+            for line in file:
+                if line.startswith("Serial"):
+                    serial = line.split(":", 1)[1].strip()
+                    return serial.lstrip("0") or "0"
+    except Exception:
+        pass
+    return "Unsupported platform"
 
 def _has_internet() -> bool:
     """
@@ -132,86 +140,14 @@ class ColorFormatter(logging.Formatter):
 
 # ----- Safe logger Handlers -----
 
-class SafeHandler(logging.Handler):
-    """Base logging handler that prevents logging exceptions from crashing the program."""
-    def emit(self, record) -> None:
-        """Wrap safe_emit in try/except to avoid logging failures."""
-        try:
-            self.safe_emit(record)
-        # Catching ALL exceptions is fallback, makes logger safe
-        except Exception as ex_err:     # pylint: disable=broad-exception-caught
-            print(f"[SafeHandler fallback] {record.getMessage()}. Exception: {ex_err}", file=stderr)
-            traceback.print_exc(file=stderr)
-
-    def safe_emit(self, record) -> None:
-        """To be implemented by subclasses."""
-        raise NotImplementedError
-
-class SafeQueueHandler(SafeHandler):
-    """Queue-based handler to safely handle asynchronous logging."""
-    def __init__(self, queue) -> None:
-        super().__init__()
-        self.handler = logging.handlers.QueueHandler(queue)
-
-    def safe_emit(self, record) -> None:
-        """Emit record to queue, or warn if the queue is full."""
-        try:
-            self.handler.emit(record)
-        except Full:
-            print(f"[SafeQueueHandler] Queue is full. Dropping log: {record.getMessage()}", file=stderr)
-        # Catching ALL exceptions is fallback, makes logger safe
-        except Exception as ex_err:     # pylint: disable=broad-exception-caught
-            print(f"[SafeQueueHandler fallback] {record.getMessage()}. Exception: {ex_err}", file=stderr)
-            traceback.print_exc(file=stderr)
-
-class StreamSafeHandler(SafeHandler):
-    """Safe console logging handler that prints logs to stdout/stderr."""
-    def __init__(self) -> None:
-        super().__init__()
-        self.handler = logging.StreamHandler()
-
-    def setFormatter(self, fmt) -> None:
-        """Set the formatter for both this handler and underlying StreamHandler."""
-        super().setFormatter(fmt)
-        self.handler.setFormatter(fmt)
-
-    def safe_emit(self, record) -> None:
-        """Safely emit record to console."""
-        try:
-            self.handler.emit(record)
-        # Catching ALL exceptions is fallback, makes logger safe
-        except Exception as ex_err:     # pylint: disable=broad-exception-caught
-            print(f"[StreamSafeHandler fallback] {record.getMessage()}. Exception: {ex_err}", file=stderr)
-            traceback.print_exc(file=stderr)
-
-class ConcurrentRotatingFileSafeHandler(SafeHandler):
-    """Concurrent rotating file handler that safely logs to file."""
-    def __init__(self, filename, max_bytes, backup_count) -> None:
-        super().__init__()
-        self.handler = ConcurrentRotatingFileHandler(filename, maxBytes=max_bytes, backupCount=backup_count)
-
-    def setFormatter(self, fmt) -> None:
-        """Set formatter for both wrapper and internal handler."""
-        super().setFormatter(fmt)
-        self.handler.setFormatter(fmt)
-
-    def safe_emit(self, record) -> None:
-        """Safely save record to file."""
-        try:
-            self.handler.emit(record)
-        # Catching ALL exceptions is fallback, makes logger safe
-        except Exception as ex_err:     # pylint: disable=broad-exception-caught
-            print(f"[ConcurrentRotatingFileSafeHandler fallback] {record.getMessage()}. Exception: {ex_err}", file=stderr)
-            traceback.print_exc(file=stderr)
-
-class RemotePostSafeHandler(SafeHandler):
+class SafeRemotePostHandler(logging.Handler):
     """Send WARNING+ log messages to a remote HTTP server safely."""
     def __init__(self, url: str) -> None:
         super().__init__()
         self._url = url
         self._serial = _get_rpi_serial()
 
-    def safe_emit(self, record) -> None:
+    def emit(self, record) -> None:
         """Send WARNING, ERROR, CRITICAL messages to remote server if connected to internet."""
         if record.levelno < WARNING or not _has_internet():
             return
@@ -245,7 +181,7 @@ class RemotePostSafeHandler(SafeHandler):
                         # Success, exit retry loop
                         break
                     except (RequestException, Timeout) as ex_err:
-                        logging.getLogger().warning("[RemotePostSafeHandler] Attempt %d failed: %s", attempt, ex_err)
+                        logging.getLogger(__name__).warning("[SafeRemotePostHandler] Attempt %d failed: %s", attempt, ex_err)
                         if attempt == MAX_RETRIES:
                             # Let fallback mechanism take over
                             raise
@@ -255,54 +191,71 @@ class RemotePostSafeHandler(SafeHandler):
         # Catching ALL exceptions is fallback, makes logger safe
         except Exception as ex_err:     # pylint: disable=broad-exception-caught
             # Log failures using root logger to avoid recursion
-            logging.getLogger().error("[RemotePostSafeHandler fallback] Failed to POST log: %s", ex_err, exc_info=True)
+            logging.getLogger(__name__).error("[SafeRemotePostHandler fallback] Failed to POST log: %s", ex_err, exc_info=True)
 
 # ----- Safe logger wrapper -----
 
 class SafeLogger:
-    """Wrapper around standard logger providing safe logging to console, file and remote."""
+    """
+    Logging wrapper using QueueHandler + QueueListener architecture.
+    Architecture:
+        Logger → QueueHandler → log_queue → QueueListener → real handlers
+    """
     def __init__(self, name=None, level=DEBUG) -> None:
+        # Get system logger
         self._logger = logging.getLogger(name)
         self._logger.setLevel(level)
+
+        # Get color formatter
         self._formatter = ColorFormatter()
 
-        if not self._logger.handlers:
-            # Ensure log directory exists
-            ORADIO_LOG_PATH.mkdir(parents=True, exist_ok=True)
+        # Ensure log directory exists
+        ORADIO_LOG_PATH.mkdir(parents=True, exist_ok=True)
 
-            # Async logging queue handler
-            queue_handler = SafeQueueHandler(Queue(maxsize=ASYNC_QUEUE_SIZE))
-            self._logger.addHandler(queue_handler)
+        # Create shared log queue
+        self._log_queue = Queue(maxsize=QUEUE_SIZE)
 
-            # Add console handler only when running in a real terminal
-            if stderr.isatty():
-                console_handler = StreamSafeHandler()
-                console_handler.setFormatter(self._formatter)
-                self._logger.addHandler(console_handler)
+        # REAL output handlers (consumers)
+        handlers = []
 
-            # File handler with rotation
-            file_handler = ConcurrentRotatingFileSafeHandler(
-                ORADIO_LOG_FILE_STR,
-                ORADIO_LOG_FILESIZE,
-                ORADIO_LOG_BACKUPS,
-            )
-            file_handler.setFormatter(self._formatter)
-            self._logger.addHandler(file_handler)
+        # Console handler
+        if stderr.isatty():
+            console_handler = logging.StreamHandler()
+            console_handler.setFormatter(self._formatter)
+            handlers.append(console_handler)
 
-            # Remote logging handler
-            remote_handler = RemotePostSafeHandler(REMOTE_SERVER)
-            self._logger.addHandler(remote_handler)
+        # File handler (rotating, thread-safe)
+        file_handler = ConcurrentRotatingFileHandler(
+            filename=ORADIO_LOG_FILE_STR,
+            maxBytes=ORADIO_LOG_FILESIZE,
+            backupCount=ORADIO_LOG_BACKUPS,
+        )
+        file_handler.setFormatter(self._formatter)
+        handlers.append(file_handler)
 
-            # Replace default Uvicorn handlers
-            for logger_name in ("uvicorn", "uvicorn.error", "uvicorn.access"):
-                logger = logging.getLogger(logger_name)
-                logger.setLevel(ORADIO_LOG_LEVEL)
-                # Remove Uvicorn's default handlers
-                logger.handlers = []
-                # Add safe handlers
-                for handler in self._logger.handlers:
-                    logger.addHandler(handler)
-                logger.propagate = False
+        # Remote handler
+        remote_handler = SafeRemotePostHandler(REMOTE_SERVER)
+        handlers.append(remote_handler)
+
+        # QueueListener (consumer)
+        self._listener = QueueListener(self._log_queue, *handlers, respect_handler_level=True)
+        self._listener.start()
+
+        # QueueHandler (producer)
+        queue_handler = QueueHandler(self._log_queue)
+        queue_handler.setLevel(level)
+
+        # IMPORTANT: replace all handlers with queue handler
+        self._logger.handlers.clear()
+        self._logger.addHandler(queue_handler)
+
+        # Uvicorn integration
+        for logger_name in ("uvicorn", "uvicorn.error", "uvicorn.access"):
+            uv_logger = logging.getLogger(logger_name)
+            uv_logger.setLevel(level)
+            if queue_handler not in uv_logger.handlers:
+                uv_logger.addHandler(queue_handler)
+            uv_logger.propagate = False
 
 # ----- Convenience logging methods -----
 
@@ -327,7 +280,7 @@ class SafeLogger:
         """Log a message with INFO severity level."""
         self._safe_log(INFO, msg, *args, **kwargs)
     def warning(self, msg, *args, **kwargs) -> None:
-        """Log a message with WARNNIG severity level."""
+        """Log a message with WARNING severity level."""
         self._safe_log(WARNING, msg, *args, **kwargs)
     def error(self, msg, *args, **kwargs) -> None:
         """Log a message with ERROR severity level."""
@@ -343,6 +296,10 @@ class SafeLogger:
     def set_level(self, level) -> None:
         """Set the logging level for this logger."""
         self._logger.setLevel(level)
+
+    def shutdown(self):
+        """Shutdown logging queue listener."""
+        self._listener.stop()
 
 # ----- Instantiate system logger -----
 
