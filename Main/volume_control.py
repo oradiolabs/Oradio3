@@ -39,17 +39,17 @@ from oradio_const import (
 # Volume scaling and clamping units
 ADC_MIN   = 0
 ADC_MAX   = 1023
-VOL_MIN   = "50%"
-VOL_MAX   = "90%"
+VOL_MIN   = "50%"       # 104
+VOL_MAX   = "100%"      # 207
 # ALSA volume controls
 VOLUME_CONTROL_MPD       = "VolumeMPD"
 VOLUME_CONTROL_SPOTIFY   = "VolumeSpotCon2"
 VOLUME_CONTROL_SYS_SOUND = "VolumeSysSound"
 VOLUME_CONTROL_MASTER    = "Digital Playback Volume"
 # Default source volume levels
-DEFAULT_VOLUME_MPD       = "100%"   # 255
-DEFAULT_VOLUME_SPOTIFY   = "100%"   # 255
-DEFAULT_VOLUME_SYS_SOUND = "100%"   # 255
+DEFAULT_VOLUME_MPD       = "100%"
+DEFAULT_VOLUME_SPOTIFY   = "100%"
+DEFAULT_VOLUME_SYS_SOUND = "90%"
 # MCP3021 - A/D Converter
 MCP3021_ADDRESS      = 0x4D
 READ_DATA_REGISTER   = 0x00
