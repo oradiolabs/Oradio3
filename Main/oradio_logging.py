@@ -33,6 +33,7 @@ Created on January 17, 2025
     https://pypi.org/project/concurrent-log-handler/
 """
 import json
+import atexit
 import logging
 import traceback
 import subprocess
@@ -105,7 +106,6 @@ def _has_internet() -> bool:
     """
     Check for internet access using NetworkManager.
     NOTE: ping is NOT reliable because the network interface uses power management.
-
     Returns:
         bool: True if internet is reachable, False otherwise.
     """
@@ -142,13 +142,13 @@ class ColorFormatter(logging.Formatter):
 class SafeRemotePostHandler(logging.Handler):
     """Send WARNING+ log messages to a remote HTTP server safely."""
     def __init__(self, url: str) -> None:
-        super().__init__()
+        super().__init__(level=WARNING) # Use logging framework to only handle WARNING+ level messages
         self._url = url
         self._serial = _get_rpi_serial()
 
     def emit(self, record) -> None:
-        """Send WARNING, ERROR, CRITICAL messages to remote server if connected to internet."""
-        if record.levelno < WARNING or not _has_internet():
+        """Send messages to remote server if connected to internet."""
+        if not _has_internet():
             return
 
         # Compile context for POST request
@@ -162,30 +162,28 @@ class SafeRemotePostHandler(logging.Handler):
                         })
         }
 
-        # Compile files in logging directory for POST request
-        send_files = ORADIO_LOG_PATH.glob("*.log")
-
         try:
-            # Use ExitStack to safely open multiple files
-            with ExitStack() as stack:
-                payload_files = {f.name: (f.name, stack.enter_context(f.open("rb"))) for f in send_files}
-
-                # Retry loop
-                for attempt in range(1, MAX_RETRIES + 1):
-                    try:
+            # Retry loop
+            for attempt in range(1, MAX_RETRIES + 1):
+                try:
+                    # Use ExitStack to safely open multiple files
+                    with ExitStack() as stack:
+                        # Compile files in logging directory for POST request
+                        send_files = ORADIO_LOG_PATH.glob("*.log")
+                        payload_files = {f.name: (f.name, stack.enter_context(f.open("rb"))) for f in send_files}
                         # Send POST with files
                         response = post(self._url, data=payload_info, files=payload_files, timeout=POST_TIMEOUT)
                         # Check for any errors
                         response.raise_for_status()
                         # Success, exit retry loop
                         break
-                    except (RequestException, Timeout) as ex_err:
-                        logging.getLogger(__name__).warning("[SafeRemotePostHandler] Attempt %d failed: %s", attempt, ex_err)
-                        if attempt == MAX_RETRIES:
-                            # Let fallback mechanism take over
-                            raise
-                        # Exponential backoff
-                        sleep(BACKOFF_FACTOR ** (attempt - 1))
+                except (RequestException, Timeout) as ex_err:
+                    logging.getLogger(__name__).warning("[SafeRemotePostHandler] Attempt %d failed: %s", attempt, ex_err)
+                    if attempt == MAX_RETRIES:
+                        # Let fallback mechanism take over
+                        raise
+                    # Exponential backoff
+                    sleep(BACKOFF_FACTOR ** (attempt - 1))
 
         # Catching ALL exceptions is fallback, makes logger safe
         except Exception as ex_err:     # pylint: disable=broad-exception-caught
@@ -205,14 +203,14 @@ class SafeLogger:
         self._logger = logging.getLogger(name)
         self._logger.setLevel(level)
 
+        # Create shared log queue
+        self._log_queue = Queue(maxsize=QUEUE_SIZE)
+
         # Get color formatter
         self._formatter = ColorFormatter()
 
         # Ensure log directory exists
         ORADIO_LOG_PATH.mkdir(parents=True, exist_ok=True)
-
-        # Create shared log queue
-        self._log_queue = Queue(maxsize=QUEUE_SIZE)
 
         # REAL output handlers (consumers)
         handlers = []
@@ -239,21 +237,23 @@ class SafeLogger:
         # QueueListener (consumer)
         self._listener = QueueListener(self._log_queue, *handlers, respect_handler_level=True)
         self._listener.start()
+        atexit.register(self.shutdown)
+        # Flush + stop on normal exit
 
         # QueueHandler (producer)
-        queue_handler = QueueHandler(self._log_queue)
-        queue_handler.setLevel(level)
+        self._queue_handler = QueueHandler(self._log_queue)
+        self._queue_handler.setLevel(level)
 
         # IMPORTANT: replace all handlers with queue handler
         self._logger.handlers.clear()
-        self._logger.addHandler(queue_handler)
+        self._logger.addHandler(self._queue_handler)
 
         # Uvicorn integration
         for logger_name in ("uvicorn", "uvicorn.error", "uvicorn.access"):
             uv_logger = logging.getLogger(logger_name)
             uv_logger.setLevel(level)
-            if queue_handler not in uv_logger.handlers:
-                uv_logger.addHandler(queue_handler)
+            if self._queue_handler not in uv_logger.handlers:
+                uv_logger.addHandler(self._queue_handler)
             uv_logger.propagate = False
 
 # ----- Convenience logging methods -----
@@ -293,8 +293,9 @@ class SafeLogger:
         self._safe_log(ERROR, msg, *args, **kwargs)
 
     def set_level(self, level) -> None:
-        """Set the logging level for this logger."""
+        """Set the logging level for the logger and its queue handler."""
         self._logger.setLevel(level)
+        self._queue_handler.setLevel(level)
 
     def shutdown(self):
         """Shutdown logging queue listener."""
