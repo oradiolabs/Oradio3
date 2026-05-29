@@ -401,7 +401,6 @@ if __name__ == '__main__':
                         cmd_thread.append(Thread(target=handler, args=(Topic.COMMAND, cmd_queue[cmd_index], cmd_index,), daemon=True))
                         cmd_thread[cmd_index].start()
                         cmd_index += 1
-                    print(f"cmd_index={cmd_index}")
                 case 2:
                     n = input("Enter number of ERROR handlers to subscribe: ")
                     for i in range(int(n)):
@@ -410,7 +409,6 @@ if __name__ == '__main__':
                         err_thread.append(Thread(target=handler, args=(Topic.ERROR, err_queue[err_index], err_index,), daemon=True))
                         err_thread[err_index].start()
                         err_index += 1
-                    print(f"err_index={err_index}")
                 case 3:
                     if cmd_index == 0:
                         print(f"{YELLOW}No subscribed COMMAND handlers{NC}")
