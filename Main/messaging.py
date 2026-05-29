@@ -23,6 +23,7 @@ Created on May 28, 2026
         Validating messages on publish
         Errors stop application execution
 """
+import os
 import sys
 import logging
 from enum import Enum
@@ -299,32 +300,23 @@ def fatal_exit(message: str, *, exc: BaseException | None = None, code: int = 1)
     Log a fatal error, flush logging handlers, and terminate execution.
     Intended for unrecoverable infrastructure failures such as
     queue corruption, invalid internal state, or IPC failure.
+    Uses os._exit to ensure termination from any thread, including
+    daemon threads where sys.exit would only exit the calling thread.
     Args:
         message: Human-readable fatal error description
         exc: Optional exception associated with the failure
         code: Process exit status code. Defaults to 1
-    Raises:
-        SystemExit: Always raised to terminate execution
     """
     oradio_log.critical(message, exc_info=exc is not None)
-
-    # Flush all logging handlers
-    logger = logging.getLogger()
-    for log_handler in logger.handlers:
-        try:
-            log_handler.flush()
-        except (OSError, ValueError, EOFError):
-            pass
-
     # Ensure disk flush
-    logging.shutdown()
+    oradio_log.shutdown()
 
     # Flush console buffers
     sys.stderr.flush()
     sys.stdout.flush()
 
     # Exit python execution
-    sys.exit(code)
+    os._exit(code)
 
 # Entry point for stand-alone operation
 if __name__ == '__main__':
