@@ -262,7 +262,8 @@ class SafeLogger:
         """Internal helper to log messages safely."""
         try:
             # Use stacklevel=3 to skip SafeLogger wrapper
-            self._logger.log(level, msg, *args, stacklevel=3, **kwargs)
+            kwargs.setdefault("stacklevel", 3)
+            self._logger.log(level, msg, *args, **kwargs)
         # Catching ALL exceptions is fallback, makes logger safe
         except Exception as ex_err:     # pylint: disable=broad-exception-caught
             print(f"[SafeLogger fallback] {msg}. Exception: {ex_err}", file=stderr)
