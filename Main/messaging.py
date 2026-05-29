@@ -25,7 +25,6 @@ Created on May 28, 2026
 """
 import os
 import sys
-import logging
 from enum import Enum
 from queue import Full
 from typing import Any, NoReturn
