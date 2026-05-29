@@ -49,7 +49,7 @@ class ErrorService:
         application thread.
         """
         self._queue = subscribe_errors()
-        Thread(target=_error_handler, args=(self._queue,), daemon=True).start()
+        Thread(target=self._error_handler, args=(self._queue,), daemon=True).start()
 
     def _error_handler(self, queue):
         """
