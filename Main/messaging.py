@@ -306,7 +306,9 @@ def fatal_exit(message: str, *, exc: BaseException | None = None, code: int = 1)
         exc: Optional exception associated with the failure
         code: Process exit status code. Defaults to 1
     """
-    oradio_log.critical(message, exc_info=exc is not None)
+    # stacklevel needs to be 4 to show the file and line where fatal_exit is called
+    oradio_log.critical(message, stacklevel=4, exc_info=exc is not None)
+
     # Ensure disk flush
     oradio_log.shutdown()
 
