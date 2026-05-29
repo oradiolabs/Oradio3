@@ -26,10 +26,19 @@ from threading import Thread
 ##### Oradio modules ####################
 from oradio_logging import oradio_log
 from messaging import (
+    CommandMessage,
+    subscribe_commands,
+    publish_command,
+    unsubscribe_commands,
     ErrorMessage,
+    subscribe_errors,
+    publish_error,
+    unsubscribe_errors,
+    safe_get,
+    fatal_exit,
+
     get_error_message,
     put_error_message,
-    CommandMessage,
     get_command_message,
     put_command_message,
 )
@@ -37,9 +46,8 @@ from messaging import (
 class ErrorService:
     """
     Background service responsible for handling runtime error messages.
-    The service continuously monitors the shared error queue for incoming
-    error messages and applies predefined mitigation or recovery actions
-    based on the error source.
+    The service continuously monitors for incoming error messages and
+    applies mitigation or recovery actions based on the error source.
     Known errors are handled automatically when possible.
     Unknown errors are logged as a fail-safe mechanism.
     """
@@ -50,9 +58,10 @@ class ErrorService:
         to run continuously in the background without blocking the main
         application thread.
         """
-        Thread(target=self._error_handler, daemon=True).start()
+        self._queue = subscribe_errors()
+        Thread(target=_error_handler, args=(self._queue,), daemon=True).start()
 
-    def _error_handler(self):
+    def _error_handler(self, queue):
         """
         Error handling loop.
         Continuously waits for error messages from the shared queue.
@@ -61,7 +70,7 @@ class ErrorService:
         """
         while True:
             # Wait for error message
-            error = get_error_message()
+            error = safe_get(queue)
 
             # Error getting message
             if error is None:
@@ -74,45 +83,21 @@ class ErrorService:
             # Mitigation logic for known errors
 #OMJ: Nog te implementeren
 #            if error.source == "worker":
-#                put_command_message(CommandMessage("error service", "reset"))
+#                publish_command(CommandMessage("error service", "command message"))
 #                continue
 
-            # Fail-safe for unknown error
-            oradio_log.error("[ERROR SERVICE] Unknown error!")
-#OMJ: Wat doen we met unknown errors?
+            # Fail-safe for unknown errors
+            fatal_exit(f"[ERROR SERVICE] Unhandled error: {error!r}")
 
 # Entry point for stand-alone operation
 if __name__ == '__main__':
 
-    # Imports only relevant when stand-alone
-    import os
-    from multiprocessing import Process
-
     # GLOBAL constants
-    from oradio_const import RED, GREEN, NC
+    from oradio_const import GREEN, NC
 
-    def _command_listener():
-        """ Get messages from command queue """
-        while True:
-            # Wait for command message
-            command = get_command_message()
+    # Most modules use similar code in stand-alone
+    # pylint: disable=duplicate-code
 
-            # Error getting message
-            if command is None:
-                # Mitigate messaging error
-                sleep(1)
-                continue
-
-            print(f"[COMMAND SERVICE]: source={command.source}, message={command.message}")
-            # Do something based on the source and command arguments
-
-    def _worker(context="main"):
-        """ Send command and error messages """
-        put_command_message(CommandMessage("worker", f"worker in {context} context: command message in command queue"))
-        put_error_message(ErrorMessage("worker", f"worker in {context} context: error message in error queue"))
-
-    # Pylint PEP8 ignoring limit of max 12 branches is ok for test menu
-#    def interactive_menu(queue) -> None:    # pylint: disable=too-many-branches
     def interactive_menu() -> None:
         """ Show menu with test options """
 
@@ -120,12 +105,7 @@ if __name__ == '__main__':
         input_selection = (
             "Select a function, input the number:\n"
             " 0-Quit\n"
-            " 1-Send COMMAND message to COMMAND queue\n"
-            " 2-Send ERROR message to ERROR queue\n"
-            " 3-Send ERROR message to COMMAND queue --> stops application!\n"
-            " 4-Send COMMAND message to ERROR queue --> stops application!\n"
-            " 5-From thread: Send messages to queues\n"
-            " 6-From process: Send messages to queues\n"
+            " 1-Publish ERROR <xxx> message\n"
             "select: "
         )
 
@@ -142,47 +122,16 @@ if __name__ == '__main__':
                     print("\nExiting test program...\n")
                     break
                 case 1:
-                    print("\nSending command message to command queue...")
-                    put_command_message(CommandMessage("worker", "command message in command queue"))
+                    print("\nPublish error message...")
+                    publish_error(ErrorMessage("worker", "error message"))
                     sleep(0.5)  # Allow for message to propagate
-                    print(f"{GREEN}Success sending command message to command queue{NC}\n")
-                case 2:
-                    print("\nSending error message to error queue...")
-                    put_error_message(ErrorMessage("worker", "error message in error queue"))
-                    sleep(0.5)  # Allow for message to propagate
-                    print(f"{GREEN}Success sending error message to error queue{NC}\n")
-                case 3:
-                    print("\nSending error message to command queue...")
-                    put_command_message(ErrorMessage("worker", "error message in command queue"))
-                    sleep(0.5)  # Allow for message to propagate
-                    print(f"{RED}Failed catching error sending error message to command queue{NC}\n")
-                case 4:
-                    print("\nSending command message to error queue...")
-                    put_error_message(CommandMessage("worker", "command message in error queue"))
-                    sleep(0.5)  # Allow for message to propagate
-                    print(f"{RED}Failed catching error sending command message to error queue{NC}\n")
-                case 5:
-                    print("\nIn thread: sending messages to queues...")
-                    Thread(target=_worker, args=("thread",), daemon=True).start()
-                    sleep(0.5)  # Allow for message to propagate
-                    print("")   # For clean layout
-                case 6:
-                    print("\nIn process: sending messages to queues...")
-                    Process(target=_worker, args=("process",)).start()
-                    sleep(0.5)  # Allow for message to propagate
-                    print("")   # For clean layout
+                    print(f"{GREEN}Success publishing error message{NC}\n")
 
     # Start the error queue handler service
     ErrorService()
 
-    # Start process to monitor the message queue
-    Thread(target=_command_listener, daemon=True).start()
-
     # Present menu with tests
     interactive_menu()
 
-    # Stop execution immediately
-    os._exit(0)
-
-# Restore temporarily disabled pylint duplicate code check
-# pylint: enable=duplicate-code
+    # Restore temporarily disabled pylint duplicate code check
+    # pylint: enable=duplicate-code
