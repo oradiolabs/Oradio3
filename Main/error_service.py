@@ -49,9 +49,9 @@ class ErrorService:
         application thread.
         """
         self._queue = subscribe_errors()
-        Thread(target=self._error_handler, args=(self._queue,), daemon=True).start()
+        Thread(target=self._error_handler, daemon=True).start()
 
-    def _error_handler(self, queue):
+    def _error_handler(self):
         """
         Error handling loop.
         Continuously waits for error messages from the shared queue.
@@ -60,13 +60,7 @@ class ErrorService:
         """
         while True:
             # Wait for error message
-            error = safe_get(queue)
-
-            # Error getting message
-            if error is None:
-                # Mitigate messaging error
-                sleep(1)
-                continue
+            error = safe_get(self._queue)
 
             oradio_log.debug("[ERROR SERVICE] received: %r", error)
 
@@ -76,7 +70,8 @@ class ErrorService:
 #                publish_command(CommandMessage("error service", "command message"))
 #                continue
 
-            # Fail-safe for unknown errors
+            # Policy: any unhandled error is treated as unrecoverable.
+            # fatal_exit terminates the application to prevent undefined behaviour.
             fatal_exit(f"[ERROR SERVICE] Unhandled error: {error!r}")
 
 # Entry point for stand-alone operation
