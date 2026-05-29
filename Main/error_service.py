@@ -26,21 +26,11 @@ from threading import Thread
 ##### Oradio modules ####################
 from oradio_logging import oradio_log
 from messaging import (
-    CommandMessage,
-    subscribe_commands,
-    publish_command,
-    unsubscribe_commands,
     ErrorMessage,
     subscribe_errors,
     publish_error,
-    unsubscribe_errors,
     safe_get,
     fatal_exit,
-
-    get_error_message,
-    put_error_message,
-    get_command_message,
-    put_command_message,
 )
 
 class ErrorService:
