@@ -9,7 +9,7 @@
   ####   #    #  #    #  #####      #     ####
 
 
-Created on May 15, 2026
+Created on May 28, 2026
 @author:        Henk Stevens & Olaf Mastenbroek & Onno Janssen
 @copyright:     Copyright, Oradio Stichting
 @license:       GNU General Public License (GPL)
@@ -18,25 +18,34 @@ Created on May 15, 2026
 @email:         oradioinfo@stichtingoradio.nl
 @status:        Development
 @summary:
-    Provides a top level command and error queue with safe wrapper methods
+    Provides publish-subscribe messaging pattern
     IMPORTANT:
-        Validating messages on put --> trust messages on get
-        Application execution is stopped on queue errors
+        Validating messages on publish
+        Errors stop application execution
 """
 import sys
 import logging
+from enum import Enum
 from queue import Full
-from typing import NoReturn
-from multiprocessing import Queue
+from typing import Any, NoReturn
 from dataclasses import dataclass
+from multiprocessing import Lock, Queue
 
 ##### Oradio modules ####################
+from singleton import singleton
 from oradio_logging import oradio_log
 
 ##### LOCAL constants ####################
-MAX_QUEUE_SIZE = 100                # Maximum number of messages for queues
-CMD_QUEUE_NAME = "command_queue"    # Human readable name for command queue
-ERR_QUEUE_NAME = "error_queue"      # Human readable name for error queue
+MAX_QUEUE_SIZE = 100
+
+class Topic(str, Enum):
+    """
+    Valid pub-sub topics.
+    Inherits from str so members can be used directly as string keys,
+    e.g. in JSON serialisation and log output, without explicit .value access.
+    """
+    COMMAND = "COMMAND"
+    ERROR = "ERROR"
 
 @dataclass(frozen=True) # Immutable instances after creation
 class CommandMessage:
@@ -48,6 +57,7 @@ class CommandMessage:
     """
     source: str
     message: str
+    data: Any = None    # Optional
 
     def is_valid(self) -> bool:
         """
@@ -55,6 +65,7 @@ class CommandMessage:
         A valid message:
         - contains string values for all fields
         - contains non-empty, non-whitespace-only values
+        data is anything and optional, so not validated.
         Returns:
             True if the message is structurally valid, otherwise False.
         """
@@ -92,143 +103,13 @@ class ErrorMessage:
             and self.message.strip()
         )
 
-# Queue used for internal command messages
-_command_queue = Queue(maxsize=MAX_QUEUE_SIZE)
-
-# Queue used for internal error messages
-_error_queue = Queue(maxsize=MAX_QUEUE_SIZE)
-
 ##### Helpers ####################
-
-def _safe_put(queue: Queue, message: CommandMessage | ErrorMessage, queue_name: str) -> None:
-    """
-    Safely validate and enqueue a message into a multiprocessing queue.
-    Validation is performed before enqueueing to ensure only well-formed messages enter the system.
-    This function operates in non-blocking mode, terminates the application on errors.
-    Args:
-        queue: Target multiprocessing queue
-        message: Message to enqueue (CommandMessage or ErrorMessage)
-        queue_name: Human-readable name for logging
-    """
-    # Validate CommandMessage
-    if isinstance(message, CommandMessage):
-        # Validate whether message is a well-formed CommandMessage
-        if not message.is_valid():
-            _fatal_exit(f"Invalid CommandMessage rejected: {message}")
-
-    # Validate ErrorMessage
-    elif isinstance(message, ErrorMessage):
-        # Validate whether message is a well-formed ErrorMessage
-        if not message.is_valid():
-            _fatal_exit(f"Invalid ErrorMessage rejected: {message}")
-
-    # Reject unknown types
-    else:
-        _fatal_exit(f"Unknown message type rejected: {message}")
-
-    # Enqueue safely
-    try:
-        # Use non-blocking mode so queue.Full can be raised immediately
-        queue.put_nowait(message)
-
-    except Full:
-        # Queue has reached its capacity
-        _fatal_exit(f"Queue '{queue_name}' is full. Message: {message}")
-
-    except (OSError, EOFError, ValueError) as ex_err:
-        # Queue is closed, corrupted, or no longer available
-        _fatal_exit(f"Queue '{queue_name}' is closed/broken — failed to put message: {message}", exc=ex_err)
-
-    except AssertionError as ex_err:
-        # Rare internal multiprocessing queue failure
-        _fatal_exit(f"Queue '{queue_name}' internal error on put: {message}", exc=ex_err)
-
-def _safe_get(queue: Queue, queue_name: str) -> CommandMessage | ErrorMessage:
-    """
-    Safely retrieve and validate a message from a multiprocessing queue.
-    This function blocks until a message becomes available, terminates the application on errors.
-    Messages can be trusted as they are validated upon sending.
-    Args:
-        queue: Source multiprocessing queue
-        queue_name: Human-readable name for logging
-    Returns:
-        A valid CommandMessage or ErrorMessage
-    """
-    try:
-        # Wait for a message indefinitely
-        return queue.get()
-
-    except (OSError, EOFError, BrokenPipeError) as ex_err:
-        # Queue is closed, corrupted, or no longer available
-        _fatal_exit(f"Queue '{queue_name}' is closed/broken — failed to get message", exc=ex_err)
-
-    except AssertionError as ex_err:
-        # Rare internal multiprocessing queue failure
-        _fatal_exit(f"Queue '{queue_name}' internal error on get", exc=ex_err)
-
-##### Public API ####################
-
-def put_command_message(message: CommandMessage) -> None:
-    """
-    Insert a command message into the internal command queue.
-    The message type is verified before enqueueing.
-    Additional structural validation is performed by `_safe_put()`.
-    Args:
-        message: Command message to enqueue
-    """
-    # Validate
-    if not isinstance(message, CommandMessage):
-        _fatal_exit(f"Wrong message type for queue '{CMD_QUEUE_NAME}': {message}")
-
-    # Attempt to enqueue the command message safely
-    _safe_put(_command_queue, message, CMD_QUEUE_NAME)
-
-def get_command_message() -> CommandMessage:
-    """
-    Retrieve the next command message from the command queue.
-    The returned message can be trusted because all messages are
-    validated before entering the queue system.
-    This function blocks until a message becomes available or a
-    fatal queue error occurs.
-    Returns:
-        The next available `CommandMessage`
-    """
-    # Attempt to safely retrieve a message from the command queue
-    return _safe_get(_command_queue, CMD_QUEUE_NAME)
-
-def put_error_message(message: ErrorMessage) -> None:
-    """
-    Insert an error message into the internal error queue.
-    The message type is verified before enqueueing.
-    Additional structural validation is performed by `_safe_put()`.
-    Args:
-        message: Error message to enqueue
-    """
-    # Validate
-    if not isinstance(message, ErrorMessage):
-        _fatal_exit(f"Wrong message type for queue '{ERR_QUEUE_NAME}': {message}")
-
-    # Attempt to enqueue the error message safely
-    _safe_put(_error_queue, message, ERR_QUEUE_NAME)
-
-def get_error_message() -> ErrorMessage:
-    """
-    Retrieve the next error message from the error queue.
-    The returned message can be trusted because all messages are
-    validated before entering the queue system.
-    This function blocks until a message becomes available or a
-    fatal queue error occurs.
-    Returns:
-        The next available `ErrorMessage`
-    """
-    # Attempt to safely retrieve a message from the error queue
-    return _safe_get(_error_queue, ERR_QUEUE_NAME)
 
 def _fatal_exit(message: str, *, exc: BaseException | None = None, code: int = 1) -> NoReturn:
     """
     Log a fatal error, flush logging handlers, and terminate execution.
-    This function is intended for unrecoverable infrastructure failures
-    such as queue corruption, invalid internal state, or IPC failure.
+    Intended for unrecoverable infrastructure failures such as
+    queue corruption, invalid internal state, or IPC failure.
     Args:
         message: Human-readable fatal error description
         exc: Optional exception associated with the failure
@@ -240,9 +121,9 @@ def _fatal_exit(message: str, *, exc: BaseException | None = None, code: int = 1
 
     # Flush all logging handlers
     logger = logging.getLogger()
-    for handler in logger.handlers:
+    for log_handler in logger.handlers:
         try:
-            handler.flush()
+            log_handler.flush()
         except (OSError, ValueError, EOFError):
             pass
 
@@ -255,3 +136,343 @@ def _fatal_exit(message: str, *, exc: BaseException | None = None, code: int = 1
 
     # Exit python execution
     sys.exit(code)
+
+##### Pub-Sub Infrastructure ####################
+
+@singleton
+class PubSubManager:
+    """
+    Manages command and error subscribers
+    Maintains a registry of per-topic subscriber queues and provides
+    thread-safe subscribe, unsubscribe, and publish operations.
+    """
+    def __init__(self):
+        self._subscribers: dict[Topic, list[Queue]] = {
+            Topic.COMMAND: [],
+            Topic.ERROR: [],
+        }
+
+        # multiprocessing.Lock and multiprocessing.Queue are used intentionally
+        # over their threading equivalents. This ensures the pub-sub infrastructure
+        # is safe for use across both threads and child processes without change.
+        self.lock = Lock()
+
+    def subscribe(self, topic: Topic) -> Queue:
+        """
+        Subscribe a new queue to receive messages for a given topic.
+        Args:
+            topic: The topic to subscribe to
+        Returns:
+            A new Queue that will receive published messages for the topic
+        """
+        # Validate topic
+        if topic not in self._subscribers:
+            _fatal_exit(f"Unknown topic: {topic!r}")
+
+        # Create and add queue for publishing messages
+        with self.lock:
+            queue = Queue(maxsize=MAX_QUEUE_SIZE)
+            self._subscribers[topic].append(queue)
+            return queue
+
+    def unsubscribe(self, topic: Topic, queue: Queue) -> None:
+        """
+        Unsubscribe a queue from a given topic.
+        Args:
+            topic: The topic to unsubscribe from
+            queue: The queue object to remove
+        """
+        # Validate topic
+        if topic not in self._subscribers:
+            _fatal_exit(f"Unknown topic: {topic!r}")
+
+        # Thread-safe remove queue for publishing messages
+        fatal_error = None
+        fatal_exception = None
+        with self.lock:
+            try:
+                self._subscribers[topic].remove(queue)
+            except ValueError as ex_err:
+                fatal_error = f"Queue not found for topic {topic!r} during unsubscribe"
+                fatal_exception = ex_err
+
+        # Note: _fatal_exit is intentionally called outside the lock.
+        # Storing the error and breaking out of the `with` block first ensures
+        # the lock is released before terminating, preventing other threads from
+        # hanging on acquire() during shutdown.
+        if fatal_error:
+            _fatal_exit(fatal_error, exc=fatal_exception)
+
+    def publish(self, topic: Topic, message: CommandMessage | ErrorMessage) -> None:
+        """
+        Publish a message to all subscribers of a given topic.
+        Note: Callers are responsible for validating message type and structure
+        before calling this method. Use publish_command() or publish_error()
+        from the public API, which enforce this.
+        Terminates the application if the queue is full or broken.
+        Args:
+            topic: The topic to publish to
+            message: The validated message to deliver
+        """
+        # Validate topic
+        if topic not in self._subscribers:
+            _fatal_exit(f"Unknown topic: {topic!r}")
+
+        # Thread-safe publish to all subscribers, collecting any failures
+        fatal_errors: list[tuple[str, BaseException | None]] = []
+        with self.lock:
+            for queue in self._subscribers[topic]:
+                try:
+                    queue.put_nowait(message)
+                except Full:
+                    fatal_errors.append((f"Queue for topic {topic!r} is full. Message: {message}", None))
+                except (OSError, EOFError, ValueError) as ex_err:
+                    fatal_errors.append((f"Queue for topic {topic!r} is closed/broken: {message}", ex_err))
+                except AssertionError as ex_err:
+                    fatal_errors.append((f"Queue for topic {topic!r} internal error: {message}", ex_err))
+
+        # Note: _fatal_exit is intentionally called outside the lock.
+        # Storing the errors ensures the lock is released before terminating,
+        # preventing other threads from hanging on acquire() during shutdown.
+        if fatal_errors:
+            # Log all failures except the last, then fatal-exit on the last
+            for error, exc in fatal_errors[:-1]:
+                oradio_log.critical(error, exc_info=exc is not None)
+            last_error, last_exc = fatal_errors[-1]
+            _fatal_exit(last_error, exc=last_exc)
+
+# Global PubSub manager
+pubsub = PubSubManager()
+
+##### Public API ####################
+
+def subscribe_commands() -> Queue:
+    """Subscribe a new queue to receive command messages"""
+    return pubsub.subscribe(Topic.COMMAND)
+
+def subscribe_errors() -> Queue:
+    """Subscribe a new queue to receive error messages"""
+    return pubsub.subscribe(Topic.ERROR)
+
+def unsubscribe_commands(queue: Queue) -> None:
+    """
+    Unsubscribe a queue from command messages
+    Args:
+        queue: The queue object to remove
+    """
+    pubsub.unsubscribe(Topic.COMMAND, queue)
+
+def unsubscribe_errors(queue: Queue) -> None:
+    """
+    Unsubscribe a queue from error messages
+    Args:
+        queue: The queue object to remove
+    """
+    pubsub.unsubscribe(Topic.ERROR, queue)
+
+def publish_command(message: CommandMessage) -> None:
+    """
+    Publish a command message to all subscribers.
+    The message type is verified before publishing.
+    Args:
+        message: The CommandMessage to publish
+    """
+    # Validate message type
+    if not isinstance(message, CommandMessage):
+        _fatal_exit(f"Wrong message type for publish_command: {message}")
+
+    # Validate message structure
+    if not message.is_valid():
+        _fatal_exit(f"Invalid CommandMessage rejected: {message}")
+
+    # Attempt to publish the command message safely
+    pubsub.publish(Topic.COMMAND, message)
+
+def publish_error(message: ErrorMessage) -> None:
+    """
+    Publish an error message to all subscribers.
+    The message type is verified before publishing.
+    Args:
+        message: Error message to enqueue
+    """
+    # Validate message type
+    if not isinstance(message, ErrorMessage):
+        _fatal_exit(f"Wrong message type for publish_error: {message}")
+
+    # Validate message structure
+    if not message.is_valid():
+        _fatal_exit(f"Invalid ErrorMessage rejected: {message}")
+
+    # Attempt to publish the error message safely
+    pubsub.publish(Topic.ERROR, message)
+
+def safe_get(queue: Queue) -> CommandMessage | ErrorMessage | NoReturn:
+    """
+    Safely retrieve a message from a multiprocessing queue.
+    Messages can be trusted as structurally valid; validation occurs at
+    publish time. Terminates the application if the queue becomes broken.
+    Args:
+        queue: The source multiprocessing queue to read from
+    Returns:
+        A valid CommandMessage or ErrorMessage
+    """
+    try:
+        # Wait for a message indefinitely
+        return queue.get()
+
+    except (OSError, EOFError, BrokenPipeError) as ex_err:
+        # Queue is closed, corrupted, or no longer available
+        _fatal_exit("Queue is closed/broken — failed to get message", exc=ex_err)
+
+    except AssertionError as ex_err:
+        # Rare internal multiprocessing queue failure
+        _fatal_exit("Queue internal error on get", exc=ex_err)
+
+# Entry point for stand-alone operation
+if __name__ == '__main__':
+
+    # Imports only relevant when stand-alone
+    from time import sleep
+    from threading import Thread
+    from multiprocessing import Process     # pylint: disable=ungrouped-imports
+
+    # GLOBAL constants
+    from oradio_const import RED, YELLOW, GREEN, NC
+
+    # Most modules use similar code in stand-alone
+    # pylint: disable=duplicate-code
+
+    def handler(topic: Topic, queue: Queue, index: int) -> None:
+        """Receive and print messages from a subscribed queue."""
+        while True:
+            message = safe_get(queue)
+            print(f"[{topic}] - Handler {index} - Message received: {message!r}")
+
+    # Pylint PEP8 ignoring limit of max 12 branches is ok for test menu
+    def interactive_menu() -> None:     # pylint: disable=too-many-branches,too-many-statements
+        """ Show menu with test options """
+
+        # Show menu with test options
+        input_selection = (
+            "Select a function, input the number:\n"
+            " 0-Quit\n"
+            " 1-Subscribe n COMMAND message handlers\n"
+            " 2-Subscribe n ERROR message handlers\n"
+            " 3-Publish COMMAND message\n"
+            " 4-Publish ERROR message\n"
+            " 5-Publish COMMAND message with extra data\n"
+            " 6-Publish COMMAND message from THREAD\n"
+            " 7-Publish ERROR message from THREAD\n"
+            " 8-Publish COMMAND message from PROCESS\n"
+            " 9-Publish ERROR message from PROCESS\n"
+            "10-Publish invalid COMMAND message\n"
+            "11-Publish invalid ERROR message\n"
+            "select: "
+        )
+
+        # Initialize
+        cmd_index = 0
+        err_index = 0
+        cmd_queue = []
+        err_queue = []
+        cmd_thread = []
+        err_thread = []
+
+        # User command loop
+        while True:
+            # Get user input
+            try:
+                function_nr = int(input(input_selection))
+            except ValueError:
+                function_nr = -1
+            # Execute selected function
+            match function_nr:
+                case 0:
+                    print("\nExiting test program...\n")
+                    # Stop listening to messages
+                    for q in range(cmd_index):
+                        unsubscribe_commands(cmd_queue[q])
+                    for q in range(err_index):
+                        unsubscribe_errors(err_queue[q])
+                    break
+                case 1:
+                    n = input("Enter number of COMMAND handlers to subscribe: ")
+                    for i in range(int(n)):
+                        print(f"Subscribe COMMAND handler {cmd_index+i}...")
+                        cmd_queue.append(subscribe_commands())
+                        cmd_thread.append(Thread(target=handler, args=(Topic.COMMAND, cmd_queue[cmd_index], cmd_index,), daemon=True))
+                        cmd_thread[cmd_index].start()
+                        cmd_index += 1
+                case 2:
+                    n = input("Enter number of ERROR handlers to subscribe: ")
+                    for i in range(int(n)):
+                        print(f"Subscribe ERROR handler {err_index+i}...")
+                        err_queue.append(subscribe_errors())
+                        err_thread.append(Thread(target=handler, args=(Topic.ERROR, err_queue[err_index], err_index,), daemon=True))
+                        err_thread[err_index].start()
+                        err_index += 1
+                case 3:
+                    if cmd_index == 0:
+                        print(f"{YELLOW}No subscribed COMMAND handlers{NC}")
+                    print("Publishing COMMAND message...")
+                    publish_command(CommandMessage("worker", "command message"))
+                    sleep(0.5)  # Allow for message to propagate
+                    print(f"{GREEN}Success publishing COMMAND message{NC}\n")
+                case 4:
+                    if err_index == 0:
+                        print(f"{YELLOW}No subscribed ERROR handlers{NC}")
+                    print("Publishing ERROR message...")
+                    publish_error(ErrorMessage("worker", "error message"))
+                    sleep(0.5)  # Allow for message to propagate
+                    print(f"{GREEN}Success publishing ERROR message{NC}\n")
+                case 5:
+                    if cmd_index == 0:
+                        print(f"{YELLOW}No subscribed COMMAND handlers{NC}")
+                    print("Publishing COMMAND message with extra data...")
+                    publish_command(CommandMessage("worker", "command message", "extra data"))
+                    sleep(0.5)  # Allow for message to propagate
+                    print(f"{GREEN}Success publishing COMMAND message with extra data{NC}\n")
+                case 6:
+                    if cmd_index == 0:
+                        print(f"{YELLOW}No subscribed COMMAND handlers{NC}")
+                    print("\nPublish COMMAND messages from THREAD...")
+                    Thread(target=publish_command, args=(CommandMessage("worker", "command message from thread"),), daemon=True).start()
+                    sleep(0.5)  # Allow for message to propagate
+                    print(f"{GREEN}Success publishing COMMAND message from THREAD{NC}\n")
+                case 7:
+                    if err_index == 0:
+                        print(f"{YELLOW}No subscribed ERROR handlers{NC}")
+                    print("\nPublish ERROR messages from THREAD...")
+                    Thread(target=publish_error, args=(ErrorMessage("worker", "error message from thread"),), daemon=True).start()
+                    sleep(0.5)  # Allow for message to propagate
+                    print(f"{GREEN}Success publishing ERROR message from THREAD{NC}\n")
+                case 8:
+                    if cmd_index == 0:
+                        print(f"{YELLOW}No subscribed COMMAND handlers{NC}")
+                    print("\nPublish COMMAND messages from PROCESS...")
+                    Process(target=publish_command, args=(CommandMessage("worker", "command message from process"),), daemon=True).start()
+                    sleep(0.5)  # Allow for message to propagate
+                    print(f"{GREEN}Success publishing COMMAND message from PROCESS{NC}\n")
+                case 9:
+                    if err_index == 0:
+                        print(f"{YELLOW}No subscribed ERROR handlers{NC}")
+                    print("\nPublish ERROR messages from PROCESS...")
+                    Process(target=publish_error, args=(ErrorMessage("worker", "error message from process"),), daemon=True).start()
+                    sleep(0.5)  # Allow for message to propagate
+                    print(f"{GREEN}Success publishing ERROR message from PROCESS{NC}\n")
+                case 10:
+                    print("Publishing invalid COMMAND message...")
+                    publish_command(ErrorMessage("worker", "error message"))
+                    sleep(0.5)  # Allow for message to propagate
+                    print(f"{RED}Failed catching error sending error message to command queue{NC}\n")
+                case 11:
+                    print("Publishing invalid ERROR message...")
+                    publish_error(CommandMessage("worker", "command message"))
+                    sleep(0.5)  # Allow for message to propagate
+                    print(f"{RED}Failed catching error sending command message to error queue{NC}\n")
+
+    # Present menu with tests
+    interactive_menu()
+
+    # Restore temporarily disabled pylint duplicate code check
+    # pylint: enable=duplicate-code
