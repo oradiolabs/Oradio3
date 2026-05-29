@@ -103,40 +103,6 @@ class ErrorMessage:
             and self.message.strip()
         )
 
-##### Helpers ####################
-
-def _fatal_exit(message: str, *, exc: BaseException | None = None, code: int = 1) -> NoReturn:
-    """
-    Log a fatal error, flush logging handlers, and terminate execution.
-    Intended for unrecoverable infrastructure failures such as
-    queue corruption, invalid internal state, or IPC failure.
-    Args:
-        message: Human-readable fatal error description
-        exc: Optional exception associated with the failure
-        code: Process exit status code. Defaults to 1
-    Raises:
-        SystemExit: Always raised to terminate execution
-    """
-    oradio_log.critical(message, exc_info=exc is not None)
-
-    # Flush all logging handlers
-    logger = logging.getLogger()
-    for log_handler in logger.handlers:
-        try:
-            log_handler.flush()
-        except (OSError, ValueError, EOFError):
-            pass
-
-    # Ensure disk flush
-    logging.shutdown()
-
-    # Flush console buffers
-    sys.stderr.flush()
-    sys.stdout.flush()
-
-    # Exit python execution
-    sys.exit(code)
-
 ##### Pub-Sub Infrastructure ####################
 
 @singleton
@@ -167,7 +133,7 @@ class PubSubManager:
         """
         # Validate topic
         if topic not in self._subscribers:
-            _fatal_exit(f"Unknown topic: {topic!r}")
+            fatal_exit(f"Unknown topic: {topic!r}")
 
         # Create and add queue for publishing messages
         with self.lock:
@@ -184,7 +150,7 @@ class PubSubManager:
         """
         # Validate topic
         if topic not in self._subscribers:
-            _fatal_exit(f"Unknown topic: {topic!r}")
+            fatal_exit(f"Unknown topic: {topic!r}")
 
         # Thread-safe remove queue for publishing messages
         fatal_error = None
@@ -196,12 +162,12 @@ class PubSubManager:
                 fatal_error = f"Queue not found for topic {topic!r} during unsubscribe"
                 fatal_exception = ex_err
 
-        # Note: _fatal_exit is intentionally called outside the lock.
+        # Note: fatal_exit is intentionally called outside the lock.
         # Storing the error and breaking out of the `with` block first ensures
         # the lock is released before terminating, preventing other threads from
         # hanging on acquire() during shutdown.
         if fatal_error:
-            _fatal_exit(fatal_error, exc=fatal_exception)
+            fatal_exit(fatal_error, exc=fatal_exception)
 
     def publish(self, topic: Topic, message: CommandMessage | ErrorMessage) -> None:
         """
@@ -216,7 +182,7 @@ class PubSubManager:
         """
         # Validate topic
         if topic not in self._subscribers:
-            _fatal_exit(f"Unknown topic: {topic!r}")
+            fatal_exit(f"Unknown topic: {topic!r}")
 
         # Thread-safe publish to all subscribers, collecting any failures
         fatal_errors: list[tuple[str, BaseException | None]] = []
@@ -231,7 +197,7 @@ class PubSubManager:
                 except AssertionError as ex_err:
                     fatal_errors.append((f"Queue for topic {topic!r} internal error: {message}", ex_err))
 
-        # Note: _fatal_exit is intentionally called outside the lock.
+        # Note: fatal_exit is intentionally called outside the lock.
         # Storing the errors ensures the lock is released before terminating,
         # preventing other threads from hanging on acquire() during shutdown.
         if fatal_errors:
@@ -239,7 +205,7 @@ class PubSubManager:
             for error, exc in fatal_errors[:-1]:
                 oradio_log.critical(error, exc_info=exc is not None)
             last_error, last_exc = fatal_errors[-1]
-            _fatal_exit(last_error, exc=last_exc)
+            fatal_exit(last_error, exc=last_exc)
 
 # Global PubSub manager
 pubsub = PubSubManager()
@@ -279,11 +245,11 @@ def publish_command(message: CommandMessage) -> None:
     """
     # Validate message type
     if not isinstance(message, CommandMessage):
-        _fatal_exit(f"Wrong message type for publish_command: {message}")
+        fatal_exit(f"Wrong message type for publish_command: {message}")
 
     # Validate message structure
     if not message.is_valid():
-        _fatal_exit(f"Invalid CommandMessage rejected: {message}")
+        fatal_exit(f"Invalid CommandMessage rejected: {message}")
 
     # Attempt to publish the command message safely
     pubsub.publish(Topic.COMMAND, message)
@@ -297,11 +263,11 @@ def publish_error(message: ErrorMessage) -> None:
     """
     # Validate message type
     if not isinstance(message, ErrorMessage):
-        _fatal_exit(f"Wrong message type for publish_error: {message}")
+        fatal_exit(f"Wrong message type for publish_error: {message}")
 
     # Validate message structure
     if not message.is_valid():
-        _fatal_exit(f"Invalid ErrorMessage rejected: {message}")
+        fatal_exit(f"Invalid ErrorMessage rejected: {message}")
 
     # Attempt to publish the error message safely
     pubsub.publish(Topic.ERROR, message)
@@ -322,11 +288,43 @@ def safe_get(queue: Queue) -> CommandMessage | ErrorMessage | NoReturn:
 
     except (OSError, EOFError, BrokenPipeError) as ex_err:
         # Queue is closed, corrupted, or no longer available
-        _fatal_exit("Queue is closed/broken — failed to get message", exc=ex_err)
+        fatal_exit("Queue is closed/broken — failed to get message", exc=ex_err)
 
     except AssertionError as ex_err:
         # Rare internal multiprocessing queue failure
-        _fatal_exit("Queue internal error on get", exc=ex_err)
+        fatal_exit("Queue internal error on get", exc=ex_err)
+
+def fatal_exit(message: str, *, exc: BaseException | None = None, code: int = 1) -> NoReturn:
+    """
+    Log a fatal error, flush logging handlers, and terminate execution.
+    Intended for unrecoverable infrastructure failures such as
+    queue corruption, invalid internal state, or IPC failure.
+    Args:
+        message: Human-readable fatal error description
+        exc: Optional exception associated with the failure
+        code: Process exit status code. Defaults to 1
+    Raises:
+        SystemExit: Always raised to terminate execution
+    """
+    oradio_log.critical(message, exc_info=exc is not None)
+
+    # Flush all logging handlers
+    logger = logging.getLogger()
+    for log_handler in logger.handlers:
+        try:
+            log_handler.flush()
+        except (OSError, ValueError, EOFError):
+            pass
+
+    # Ensure disk flush
+    logging.shutdown()
+
+    # Flush console buffers
+    sys.stderr.flush()
+    sys.stdout.flush()
+
+    # Exit python execution
+    sys.exit(code)
 
 # Entry point for stand-alone operation
 if __name__ == '__main__':
