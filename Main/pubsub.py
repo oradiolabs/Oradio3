@@ -121,9 +121,9 @@ def _fatal_exit(message: str, *, exc: BaseException | None = None, code: int = 1
 
     # Flush all logging handlers
     logger = logging.getLogger()
-    for handler in logger.handlers:
+    for log_handler in logger.handlers:
         try:
-            handler.flush()
+            log_handler.flush()
         except (OSError, ValueError, EOFError):
             pass
 
@@ -334,7 +334,7 @@ if __name__ == '__main__':
     # Imports only relevant when stand-alone
     from time import sleep
     from threading import Thread
-    from multiprocessing import Process
+    from multiprocessing import Process     # pylint: disable=ungrouped-imports
 
     # GLOBAL constants
     from oradio_const import RED, YELLOW, GREEN, NC
@@ -343,11 +343,13 @@ if __name__ == '__main__':
     # pylint: disable=duplicate-code
 
     def handler(topic: Topic, queue: Queue, index: int) -> None:
+        """Receive and print messages from a subscribed queue."""
         while True:
             message = safe_get(queue)
             print(f"[{topic}] - Handler {index} - Message received: {message!r}")
 
-    def interactive_menu() -> None:
+    # Pylint PEP8 ignoring limit of max 12 branches is ok for test menu
+    def interactive_menu() -> None:     # pylint: disable=too-many-branches,too-many-statements
         """ Show menu with test options """
 
         # Show menu with test options
