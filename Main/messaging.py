@@ -356,8 +356,8 @@ if __name__ == '__main__':
             " 7-Publish ERROR message from THREAD\n"
             " 8-Publish COMMAND message from PROCESS\n"
             " 9-Publish ERROR message from PROCESS\n"
-            "10-Publish invalid COMMAND message\n"
-            "11-Publish invalid ERROR message\n"
+            "10-Publish invalid COMMAND message (exits python application)\n"
+            "11-Publish invalid ERROR message (exits python application)\n"
             "select: "
         )
 
