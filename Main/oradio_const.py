@@ -126,6 +126,8 @@ STATE_USB_PRESENT = "USB drive present"
 STATE_USB_ABSENT  = "USB drive absent"
 # USB messages
 MESSAGE_USB_SOURCE = "USB message"
+MESSAGE_USB_ERROR_FILE = "USB file error"
+MESSAGE_USB_ERROR_SERVICE = "USB service error"
 
 ################## AUDIO #############################
 PRESETS_FILE = USB_SYSTEM + "/presets.json"
