@@ -757,6 +757,53 @@ def sync_usb_presence_from_service():
 
 shared_queue = Queue()  # Create a shared queue
 
+##### PROXY-begin: link subscription to legacy messaging #####
+
+from threading import Thread
+from messaging import subscribe_commands, safe_get   # pylint: disable=ungrouped-imports
+from oradio_utils import safe_put   # pylint: disable=ungrouped-imports
+
+class CommandService:
+    """
+    Background service responsible for handling runtime command messages.
+    The service continuously monitors for incoming command messages and
+    passes them on as legacy messages for the state machine to handle.
+    """
+    def __init__(self, queue):
+        """
+        Initialize and start the error handling service.
+        A daemon thread is started automatically, allowing the service
+        to run continuously in the background without blocking the main
+        application thread.
+        """
+        self.legacy_queue = queue
+        self.cmd_queue = subscribe_commands()
+        Thread(target=self._command_handler, daemon=True).start()
+
+    def _command_handler(self):
+        """
+        Command handling loop.
+        Continuously waits for command messages from the shared queue.
+        When a command is received, the service forwards it.
+        """
+        while True:
+            # Wait for command message
+            command = safe_get(self.cmd_queue)
+            oradio_log.debug("[COMMAND SERVICE] received: %r", command)
+            # Convert new message to legacy message
+            message = {
+                "source": command.source,
+                "state": command.message,
+                "error": MESSAGE_NO_ERROR if command.data is None else command.data,
+            }
+            oradio_log.debug("[COMMAND SERVICE] forward: %s", message)
+            safe_put(self.legacy_queue, message)
+
+# Start the command queue handler service
+CommandService(shared_queue)
+
+##### PROXY-end: link subscription to legacy messaging #####
+
 # Instantiate the state machine
 state_machine = StateMachine()
 
@@ -768,7 +815,7 @@ remote_monitor = RMService()
 spotify_connect = SpotifyConnect(shared_queue)
 
 # Initialize the oradio_usb class
-oradio_usb_service = USBService(shared_queue)
+oradio_usb_service = USBService()
 # sync the usb_present tracker
 sync_usb_presence_from_service()
 
