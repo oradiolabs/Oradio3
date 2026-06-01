@@ -759,9 +759,9 @@ shared_queue = Queue()  # Create a shared queue
 
 ##### PROXY-begin: link subscription to legacy messaging #####
 
-from threading import Thread
-from messaging import subscribe_commands, safe_get   # pylint: disable=ungrouped-imports
-from oradio_utils import safe_put   # pylint: disable=ungrouped-imports
+from threading import Thread                        # pylint: disable=wrong-import-position
+from messaging import subscribe_commands, safe_get  # pylint: disable=ungrouped-imports,wrong-import-position
+from oradio_utils import safe_put                   # pylint: disable=ungrouped-imports,wrong-import-position
 
 class CommandService:
     """
