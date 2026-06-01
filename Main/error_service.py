@@ -77,8 +77,8 @@ class ErrorService:
 # Entry point for stand-alone operation
 if __name__ == '__main__':
 
-    # GLOBAL constants
-    from oradio_const import GREEN, NC
+    # Imports only relevant when stand-alone
+    from oradio_const import YELLOW, GREEN, NC
 
     # Most modules use similar code in stand-alone
     # pylint: disable=duplicate-code
@@ -111,6 +111,8 @@ if __name__ == '__main__':
                     publish_error(ErrorMessage("worker", "error message"))
                     sleep(0.5)  # Allow for message to propagate
                     print(f"{GREEN}Success publishing error message{NC}\n")
+                case _:
+                    print(f"\n{YELLOW}Please input a valid number{NC}\n")
 
     # Start the error queue handler service
     ErrorService()
