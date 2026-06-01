@@ -336,14 +336,13 @@ if __name__ == '__main__':
             print(f"[{topic}] - Message received: {message!r}")
 
     def interactive_menu() -> None:
-       """
-       Present an interactive menu for manual USB service testing.
+        """
+        Present an interactive menu for manual USB service testing.
  
         Starts the USB monitor and loops until the user selects quit (0).
         Options allow querying the current state and simulating insert/remove
         events by creating or deleting the marker file via sudo.
         """
-
         # Show menu with test options
         input_selection = (
             "Select a function, input the number:\n"
