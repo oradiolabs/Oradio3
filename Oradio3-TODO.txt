@@ -1,0 +1,38 @@
+Actions:
+1. Module name
+2. Use messaging
+3. Cleanup coding
+4. Cleanup doc strings
+5. Cleanup inline comments
+6. Update technical documentation
+
+TODO:
+backlighting.py
+error_service.py
+fastapi_service.py
+gpio_service.py
+i2c_service.py
+led_control.py
+mpd_control.py
+mpd_monitor.py
+mpd_service.py
+oradio_const.py
+oradio_control.py
+oradio_logging.py
+oradio_utils.py
+power_supply_control.py
+remote_monitoring.py
+schemas.json
+spotify_connect_direct.py
+system_sounds.py
+touch_buttons.py
+volume_control.py
+web_service.py
+wifi_service.py
+
+
+DONE:
+1+2+3+4+5+6 messaging.py
+1+2+3+4+5+6 singleton.py
+1+2+3+4+5+6 throttling_monitor.py
+1+2+3+4+5+6 usb_service.py
