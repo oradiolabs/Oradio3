@@ -64,19 +64,19 @@ USB_WIFI_FILE = path.join(USB_MOUNT_POINT, "Wifi_invoer.json")
 class USBObserver(FileSystemEventHandler):
     """
     Singleton watchdog handler for USB marker file creation and deletion.
- 
+
     Monitors USB_STATEFILE to detect USB drive insertion and removal.
     On state changes, publishes STATE_USB_PRESENT or STATE_USB_ABSENT
     via the command message bus. On initialisation, also attempts to import
     WiFi credentials from the USB drive if it is already mounted.
- 
+
     The @singleton decorator ensures only one instance exists per process,
     preventing duplicate observer registrations.
     """
     def __init__(self) -> None:
         """
         Initialise USB state based on whether the drive is currently mounted.
- 
+
         Publishes the correct initial state and, if the USB is already present,
         attempts to import any WiFi credentials found on the drive.
         """
@@ -93,10 +93,10 @@ class USBObserver(FileSystemEventHandler):
     def on_created(self, event) -> None:
         """
         Handle watchdog callback when USB_STATEFILE is created.
- 
+
         The OS creates this marker file when the ORADIO USB drive is mounted.
         Publishes STATE_USB_PRESENT to signal that the USB drive is available.
- 
+
         Args:
             event: Watchdog FileCreatedEvent describing the created file.
         """
@@ -108,11 +108,11 @@ class USBObserver(FileSystemEventHandler):
     def on_deleted(self, event) -> None:
         """
         Handle watchdog callback when USB_STATEFILE is deleted.
- 
+
         The OS deletes this marker file when the ORADIO USB drive is unmounted.
         Publishes STATE_USB_ABSENT to signal that the USB drive is no longer
         available.
- 
+
         Args:
             event: Watchdog FileDeletedEvent describing the deleted file.
         """
@@ -125,15 +125,15 @@ class USBObserver(FileSystemEventHandler):
     def _validate_network(network: dict[str, object], index: int) -> str | None:
         """
         Validate a single network entry from the WiFi credentials file.
- 
+
         Checks that the entry is a dict, contains the required SSID and
         PASSWORD fields, and that those values meet length/type constraints.
- 
+
         Args:
             network: Parsed network object from the JSON networks list.
             index:   1-based position of this entry in the file, used in error
                      messages to help the user locate the offending entry.
- 
+
         Returns:
             A semicolon-separated string of error descriptions if any validation
             checks fail, or None if the entry is valid.
@@ -179,21 +179,20 @@ class USBObserver(FileSystemEventHandler):
     def _import_usb_wifi_networks(self) -> None:
         """
         Import WiFi credentials from Wifi_invoer.json on the USB drive.
- 
+
         Reads and validates the JSON credentials file. For each valid network
         entry the credentials are registered with NetworkManager. If all entries
         are valid the source file is deleted from the USB drive so it is not
         re-imported on the next insertion.
- 
+
         The expected JSON structure is::
- 
             {
                 "networks": [
                     {"SSID": "MyNetwork", "PASSWORD": "secret123"},
                     {"SSID": "OpenNet",   "PASSWORD": ""}
                 ]
             }
- 
+
         On any read, parse, or validation error an MESSAGE_USB_ERROR_FILE
         error message is published. The file is *not* deleted when errors are
         found, allowing the user to correct and re-insert the drive.
@@ -263,7 +262,7 @@ class USBObserver(FileSystemEventHandler):
 class USBService:
     """
     High-level USB monitoring service.
- 
+
     Creates and starts a watchdog Observer that tracks the USB marker file
     via the singleton USBObserver handler. Provides a convenience method
     to query the current USB state by inspecting the mount point directly.
@@ -271,7 +270,7 @@ class USBService:
     def __init__(self):
         """
         Initialise and start the watchdog observer for USB state monitoring.
- 
+
         Schedules USBObserver on USB_STATEPATH (non-recursive) and
         starts the observer thread. Logs an error and publishes
         MESSAGE_USB_ERROR_SERVICE if the observer thread fails to start.
@@ -296,10 +295,10 @@ class USBService:
     def get_state(self) -> str:
         """
         Return the current USB drive state by inspecting the mount point.
- 
+
         This is a direct filesystem check and reflects the real-time mount
         status, independent of any cached or published state.
- 
+
         Returns:
             STATE_USB_PRESENT if the ORADIO USB drive is currently mounted,
             STATE_USB_ABSENT otherwise.
@@ -323,10 +322,10 @@ if __name__ == '__main__':
     def topic_handler(topic: Topic, queue: Queue) -> None:
         """
         Print messages received on a subscribed message queue.
- 
-        Runs in a daemon thread; blocks on ``safe_get`` until a message arrives,
+
+        Runs in a daemon thread; blocks on safe_get until a message arrives,
         then prints it and loops.
- 
+
         Args:
             topic: The topic this handler is subscribed to (used for labelling).
             queue: The queue from which messages are consumed.
@@ -338,7 +337,7 @@ if __name__ == '__main__':
     def interactive_menu() -> None:
         """
         Present an interactive menu for manual USB service testing.
- 
+
         Starts the USB monitor and loops until the user selects quit (0).
         Options allow querying the current state and simulating insert/remove
         events by creating or deleting the marker file via sudo.
