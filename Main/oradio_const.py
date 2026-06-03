@@ -129,6 +129,10 @@ MESSAGE_USB_SOURCE = "USB message"
 MESSAGE_USB_ERROR_FILE = "USB file error"
 MESSAGE_USB_ERROR_SERVICE = "USB service error"
 
+################## THROTTLING #############################
+MESSAGE_THROTTLING_SOURCE = "Throttling message"
+MESSAGE_THROTTLING_ERROR_THROTTLED = "RPi throttled"
+
 ################## AUDIO #############################
 PRESETS_FILE = USB_SYSTEM + "/presets.json"
 
