@@ -5,6 +5,7 @@ Actions:
 4. Cleanup doc strings
 5. Cleanup inline comments
 6. Update technical documentation
+7. Move command and error messages to messaging
 
 TODO:
 backlighting.py
