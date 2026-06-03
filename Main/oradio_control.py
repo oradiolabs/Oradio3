@@ -40,8 +40,8 @@ from web_service import WebService
 from oradio_utils import has_internet, validate_oradio_message
 from power_supply_control import PowerSupplyService
 from system_sounds import play_sound    # For better readability. pylint: disable=wrong-import-order
-# Runs a background thread logging throttled events
-import throttled_monitor     # pylint: disable=unused-import
+# Runs a background thread logging throttling events
+import throttling_monitor     # pylint: disable=unused-import
 
 ##### GLOBAL constants ####################
 from oradio_const import (
