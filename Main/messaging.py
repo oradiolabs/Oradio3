@@ -72,8 +72,8 @@ class CommandMessage:
         return (
             isinstance(self.source, str)
             and isinstance(self.message, str)
-            and self.source.strip()
-            and self.message.strip()
+            and bool(self.source.strip())
+            and bool(self.message.strip())
         )
 
 @dataclass(frozen=True) # Immutable instances after creation
@@ -99,8 +99,8 @@ class ErrorMessage:
         return (
             isinstance(self.source, str)
             and isinstance(self.message, str)
-            and self.source.strip()
-            and self.message.strip()
+            and bool(self.source.strip())
+            and bool(self.message.strip())
         )
 
 ##### Pub-Sub Infrastructure ####################
