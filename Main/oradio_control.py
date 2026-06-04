@@ -766,7 +766,7 @@ shared_queue = Queue()  # Create a shared queue
 
 from oradio_utils import safe_put           # pylint: disable=ungrouped-imports,wrong-import-position
 
-def _command_handler(command, legacy_queue) -> bool:
+def _command_handler(command, legacy_queue) -> None:
     """
     Command handling loop.
     When a command is received, the service forwards it.

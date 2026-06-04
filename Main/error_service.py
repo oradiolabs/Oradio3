@@ -39,7 +39,7 @@ from messaging import (
 TEST_SOURCE = "Test error message"
 UNEXPECTED = "Unexpected source"
 
-def _error_handler(error) -> bool | None:
+def _error_handler(error) -> bool | None:   # pylint: disable=inconsistent-return-statements
     """
     Error handling loop.
     Attempts to recover from known error conditions.
