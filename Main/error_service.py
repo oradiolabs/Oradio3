@@ -56,9 +56,9 @@ def _error_handler(error) -> bool | None:
             return False
     elif error.source == USB_SOURCE:
         if error.message == USB_ERROR_FILE:
-            oradio_log.debug("USB file error mitigation to be implemented"
+            oradio_log.debug("USB file error mitigation to be implemented")
         if error.message == USB_ERROR_SERVICE:
-            oradio_log.debug("USB service error mitigation to be implemented"
+            oradio_log.debug("USB service error mitigation to be implemented")
         else:
             oradio_log.debug("Unexpected USB error: '%s'", error.message)
             return False
