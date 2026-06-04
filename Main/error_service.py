@@ -64,7 +64,7 @@ def error_handler(error) -> bool | None:   # pylint: disable=inconsistent-return
 
     if error.source == THROTTLING_SOURCE:
         if error.message == THROTTLING_ERROR_THROTTLED:
-            # TODO: implement throttle-recovery logic (e.g. back-off, retry)
+# NIET VERGETEN: implement throttle-recovery logic (e.g. back-off, retry)
             oradio_log.debug("Throttled mitigation to be implemented")
         else:
             oradio_log.debug("Unexpected throttling error: '%s'", error.message)
@@ -72,10 +72,10 @@ def error_handler(error) -> bool | None:   # pylint: disable=inconsistent-return
 
     elif error.source == USB_SOURCE:
         if error.message == USB_ERROR_FILE:
-            # TODO: implement file-level USB error recovery (e.g. re-mount, rescan)
+# NIET VERGETEN: implement file-level USB error recovery (e.g. re-mount, rescan)
             oradio_log.debug("USB file error mitigation to be implemented")
         elif error.message == USB_ERROR_SERVICE:
-            # TODO: implement USB service recovery (e.g. restart udev / service)
+# NIET VERGETEN: implement USB service recovery (e.g. restart udev / service)
             oradio_log.debug("USB service error mitigation to be implemented")
         else:
             oradio_log.debug("Unexpected USB error: '%s'", error.message)
