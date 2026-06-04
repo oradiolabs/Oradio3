@@ -27,58 +27,48 @@ from threading import Thread
 from oradio_logging import oradio_log
 from messaging import (
     ErrorMessage,
-    subscribe_errors,
     publish_error,
-    safe_get,
-    fatal_exit,
+    subscribe_errors,
+    THROTTLING_SOURCE,
+    THROTTLING_ERROR_THROTTLED,
+    USB_SOURCE,
+    USB_ERROR_FILE,
+    USB_ERROR_SERVICE,
 )
 
-class ErrorService:
+##### LOCAL constants ####################
+TEST_SOURCE = "Test error message"
+UNEXPECTED = "Unexpected source"
+
+def _error_handler(error) -> bool:
     """
-    Background service responsible for handling runtime error messages.
-    The service continuously monitors for incoming error messages and
-    applies mitigation or recovery actions based on the error source.
-    Known errors are handled automatically when possible.
-    Unknown errors are logged as a fail-safe mechanism.
+    Error handling loop.
+    Attempts to recover from known error conditions.
+    Returns:
+    True if if message was handled, False if not.
     """
-    def __init__(self):
-        """
-        Initialize and start the error handling service.
-        A daemon thread is started automatically, allowing the service
-        to run continuously in the background without blocking the main
-        application thread.
-        """
-        self._queue = subscribe_errors()
-        Thread(target=self._error_handler, daemon=True).start()
+    # Mitigation logic for known errors
+    oradio_log.debug("Error message received: %r", error)
+    if error.source == THROTTLING_SOURCE:
+        oradio_log.debug("Mitigating throttling error: '%s'", error.message)
+    elif error.source == USB_SOURCE:
+        oradio_log.debug("Mitigating USB error: '%s'", error.message)
+    elif error.source == TEST_SOURCE:
+        oradio_log.debug("Mitigating test error: '%s'", error.message)
+    else:
+        # Error not recognized
+        return False
 
-    def _error_handler(self):
-        """
-        Error handling loop.
-        Continuously waits for error messages from the shared queue.
-        When an error is received, the service attempts to recover
-        from known error conditions by issuing appropriate commands.
-        """
-        while True:
-            # Wait for error message
-            error = safe_get(self._queue)
-
-            oradio_log.debug("[ERROR SERVICE] received: %r", error)
-
-            # Mitigation logic for known errors
-#OMJ: Nog te implementeren
-#            if error.source == "worker":
-#                publish_command(CommandMessage("error service", "command message"))
-#                continue
-
-            # Policy: any unhandled error is treated as unrecoverable.
-            # fatal_exit terminates the application to prevent undefined behaviour.
-            fatal_exit(f"[ERROR SERVICE] Unhandled error: {error!r}")
+# Initialize and start the error handling service.
+# A daemon thread is started automatically, allowing the service to run
+# continuously in the background without blocking the main application thread.
+subscribe_errors(_error_handler)
 
 # Entry point for stand-alone operation
 if __name__ == '__main__':
 
     # Imports only relevant when stand-alone
-    from oradio_const import YELLOW, GREEN, NC
+    from oradio_const import RED, YELLOW, GREEN, NC
 
     # Most modules use similar code in stand-alone
     # pylint: disable=duplicate-code
@@ -90,7 +80,8 @@ if __name__ == '__main__':
         input_selection = (
             "Select a function, input the number:\n"
             " 0-Quit\n"
-            " 1-Publish ERROR <xxx> message\n"
+            " 1-Publish TEST message\n"
+            " 2-Publish UNEXPECTED message (exits python application)\n"
             "select: "
         )
 
@@ -108,14 +99,16 @@ if __name__ == '__main__':
                     break
                 case 1:
                     print("\nPublish error message...")
-                    publish_error(ErrorMessage("worker", "error message"))
+                    publish_error(ErrorMessage(TEST_SOURCE, "error test message"))
                     sleep(0.5)  # Allow for message to propagate
                     print(f"{GREEN}Success publishing error message{NC}\n")
+                case 2:
+                    print("\nPublish unexpected message...")
+                    publish_error(ErrorMessage(UNEXPECTED, "Unexpected message"))
+                    sleep(0.5)  # Allow for message to propagate
+                    print(f"{RED}Failed catching unknown error{NC}\n")
                 case _:
                     print(f"\n{YELLOW}Please input a valid number{NC}\n")
-
-    # Start the error queue handler service
-    ErrorService()
 
     # Present menu with tests
     interactive_menu()

@@ -121,17 +121,6 @@ USB_MOUNT_PATH  = "/media"
 USB_MOUNT_POINT = USB_MOUNT_PATH + "/oradio"
 USB_MUSIC       = USB_MOUNT_POINT + "/Muziek"
 USB_SYSTEM      = USB_MOUNT_POINT + "/Systeem"
-# USB states
-STATE_USB_PRESENT = "USB drive present"
-STATE_USB_ABSENT  = "USB drive absent"
-# USB messages
-MESSAGE_USB_SOURCE = "USB message"
-MESSAGE_USB_ERROR_FILE = "USB file error"
-MESSAGE_USB_ERROR_SERVICE = "USB service error"
-
-################## THROTTLING #############################
-MESSAGE_THROTTLING_SOURCE = "Throttling message"
-MESSAGE_THROTTLING_ERROR_THROTTLED = "RPi throttled"
 
 ################## AUDIO #############################
 PRESETS_FILE = USB_SYSTEM + "/presets.json"

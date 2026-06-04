@@ -43,6 +43,14 @@ from system_sounds import play_sound    # For better readability. pylint: disabl
 # Runs a background thread logging throttling events
 import throttling_monitor     # pylint: disable=unused-import
 
+# Moved from oradio_const
+from messaging import (
+    subscribe_commands,
+    USB_SOURCE,
+    USB_ABSENT,
+    USB_PRESENT,
+)
+
 ##### GLOBAL constants ####################
 from oradio_const import (
     MESSAGE_NO_ERROR,
@@ -63,9 +71,6 @@ from oradio_const import (
     SPOTIFY_CONNECT_DISCONNECTED_EVENT,
     SPOTIFY_CONNECT_PAUSED_EVENT,
     SPOTIFY_CONNECT_PLAYING_EVENT,
-    MESSAGE_USB_SOURCE,
-    STATE_USB_ABSENT,
-    STATE_USB_PRESENT,
     MESSAGE_WIFI_SOURCE,
     MESSAGE_WIFI_FAIL_CONNECT,
     STATE_WIFI_ACCESS_POINT,
@@ -651,9 +656,9 @@ HANDLERS = {
     MESSAGE_VOLUME_SOURCE: {
         MESSAGE_VOLUME_CHANGED: on_volume_changed,
     },
-    MESSAGE_USB_SOURCE: {
-        STATE_USB_ABSENT: on_usb_absent,
-        STATE_USB_PRESENT: on_usb_present,
+    USB_SOURCE: {
+        USB_ABSENT: on_usb_absent,
+        USB_PRESENT: on_usb_present,
         # "USB error": on_usb_error,
     },
     MESSAGE_WIFI_SOURCE: {
@@ -743,10 +748,10 @@ def sync_usb_presence_from_service():
     state = oradio_usb_service.get_state()
     oradio_log.info("USB service raw state: %r", state)
 
-    if state == STATE_USB_PRESENT:
+    if state == USB_PRESENT:
         usb_present.set()
         oradio_log.info("USB presence synced: present")
-    elif state == STATE_USB_ABSENT:
+    elif state == USB_ABSENT:
         usb_present.clear()
         oradio_log.info("USB presence synced: absent")
     else:
@@ -757,52 +762,36 @@ def sync_usb_presence_from_service():
 
 shared_queue = Queue()  # Create a shared queue
 
-##### PROXY-begin: link subscription to legacy messaging #####
+##### Messaging PROXY-begin #####
 
-from threading import Thread                        # pylint: disable=wrong-import-position
-from messaging import subscribe_commands, safe_get  # pylint: disable=ungrouped-imports,wrong-import-position
-from oradio_utils import safe_put                   # pylint: disable=ungrouped-imports,wrong-import-position
+from oradio_utils import safe_put           # pylint: disable=ungrouped-imports,wrong-import-position
 
-class CommandService:
+def _command_handler(command, legacy_queue) -> bool:
     """
-    Background service responsible for handling runtime command messages.
-    The service continuously monitors for incoming command messages and
-    passes them on as legacy messages for the state machine to handle.
+    Command handling loop.
+    When a command is received, the service forwards it.
     """
-    def __init__(self, queue):
-        """
-        Initialize and start the error handling service.
-        A daemon thread is started automatically, allowing the service
-        to run continuously in the background without blocking the main
-        application thread.
-        """
-        self.legacy_queue = queue
-        self.cmd_queue = subscribe_commands()
-        Thread(target=self._command_handler, daemon=True).start()
+    oradio_log.debug("[COMMAND PROXY SERVICE] received: %r", command)
+    # Convert new message to legacy message
+    message = {
+        "source": command.source,
+        "state": command.message,
+        "error": MESSAGE_NO_ERROR if command.data is None else command.data,
+    }
+    oradio_log.debug("[COMMAND PROXY SERVICE] forward: %s", message)
+    safe_put(legacy_queue, message)
 
-    def _command_handler(self):
-        """
-        Command handling loop.
-        Continuously waits for command messages from the shared queue.
-        When a command is received, the service forwards it.
-        """
-        while True:
-            # Wait for command message
-            command = safe_get(self.cmd_queue)
-            oradio_log.debug("[COMMAND SERVICE] received: %r", command)
-            # Convert new message to legacy message
-            message = {
-                "source": command.source,
-                "state": command.message,
-                "error": MESSAGE_NO_ERROR if command.data is None else command.data,
-            }
-            oradio_log.debug("[COMMAND SERVICE] forward: %s", message)
-            safe_put(self.legacy_queue, message)
+# Initialize and start the command handling service.
+# A daemon thread is started automatically, allowing the service to run
+# continuously in the background without blocking the main application thread.
+subscribe_commands(_command_handler, (shared_queue,))
 
-# Start the command queue handler service
-CommandService(shared_queue)
+# Initialize and start the error handling service.
+# A daemon thread is started automatically, allowing the service to run
+# continuously in the background without blocking the main application thread.
+import error_service  # pylint: disable=wrong-import-position
 
-##### PROXY-end: link subscription to legacy messaging #####
+##### Messaging PROXY-end #####
 
 # Instantiate the state machine
 state_machine = StateMachine()

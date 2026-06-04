@@ -39,17 +39,21 @@ from singleton import singleton
 from oradio_logging import oradio_log
 from wifi_service import networkmanager_add
 from oradio_utils import run_shell_script
-from messaging import CommandMessage, publish_command, ErrorMessage, publish_error
+from messaging import (
+    CommandMessage,
+    ErrorMessage,
+    publish_command,
+    publish_error,
+    USB_SOURCE,
+    USB_PRESENT,
+    USB_ABSENT,
+    USB_ERROR_FILE,
+    USB_ERROR_SERVICE,
+)
 
 ##### GLOBAL constants ####################
-from oradio_const import (
-    USB_MOUNT_POINT,           # Filesystem path where the ORADIO USB drive is auto-mounted
-    STATE_USB_PRESENT,         # State token indicating USB drive is connected
-    STATE_USB_ABSENT,          # State token indicating USB drive is not connected
-    MESSAGE_USB_SOURCE,        # Message source identifier for USB-related messages
-    MESSAGE_USB_ERROR_FILE,    # Error code for file-related USB errors (e.g. bad WiFi JSON)
-    MESSAGE_USB_ERROR_SERVICE, # Error code for service-level USB errors (e.g. observer failed)
-)
+# Filesystem path where the ORADIO USB drive is auto-mounted
+from oradio_const import USB_MOUNT_POINT
 
 ##### LOCAL constants ####################
 # Directory watched by the observer for the USB marker file
@@ -66,7 +70,7 @@ class USBObserver(FileSystemEventHandler):
     Singleton watchdog handler for USB marker file creation and deletion.
 
     Monitors USB_STATEFILE to detect USB drive insertion and removal.
-    On state changes, publishes STATE_USB_PRESENT or STATE_USB_ABSENT
+    On state changes, publishes USB_PRESENT or USB_ABSENT
     via the command message bus. On initialisation, also attempts to import
     WiFi credentials from the USB drive if it is already mounted.
 
@@ -84,18 +88,18 @@ class USBObserver(FileSystemEventHandler):
         # covering the case where the USB was already inserted before this
         # service started.
         if path.ismount(USB_MOUNT_POINT):
-            publish_command(CommandMessage(MESSAGE_USB_SOURCE, STATE_USB_PRESENT))
+            publish_command(CommandMessage(USB_SOURCE, USB_PRESENT))
             # USB already mounted: try to import any WiFi credentials on the drive
             self._import_usb_wifi_networks()
         else:
-            publish_command(CommandMessage(MESSAGE_USB_SOURCE, STATE_USB_ABSENT))
+            publish_command(CommandMessage(USB_SOURCE, USB_ABSENT))
 
     def on_created(self, event) -> None:
         """
         Handle watchdog callback when USB_STATEFILE is created.
 
         The OS creates this marker file when the ORADIO USB drive is mounted.
-        Publishes STATE_USB_PRESENT to signal that the USB drive is available.
+        Publishes USB_PRESENT to signal that the USB drive is available.
 
         Args:
             event: Watchdog FileCreatedEvent describing the created file.
@@ -103,14 +107,14 @@ class USBObserver(FileSystemEventHandler):
         # Ignore directory events and any files other than the specific marker file
         if not event.is_directory and event.src_path == USB_STATEFILE:
             oradio_log.debug("USB inserted")
-            publish_command(CommandMessage(MESSAGE_USB_SOURCE, STATE_USB_PRESENT))
+            publish_command(CommandMessage(USB_SOURCE, USB_PRESENT))
 
     def on_deleted(self, event) -> None:
         """
         Handle watchdog callback when USB_STATEFILE is deleted.
 
         The OS deletes this marker file when the ORADIO USB drive is unmounted.
-        Publishes STATE_USB_ABSENT to signal that the USB drive is no longer
+        Publishes USB_ABSENT to signal that the USB drive is no longer
         available.
 
         Args:
@@ -119,7 +123,7 @@ class USBObserver(FileSystemEventHandler):
         # Ignore directory events and any files other than the specific marker file
         if not event.is_directory and event.src_path == USB_STATEFILE:
             oradio_log.debug("USB removed")
-            publish_command(CommandMessage(MESSAGE_USB_SOURCE, STATE_USB_ABSENT))
+            publish_command(CommandMessage(USB_SOURCE, USB_ABSENT))
 
     @staticmethod
     def _validate_network(network: dict[str, object], index: int) -> str | None:
@@ -193,7 +197,7 @@ class USBObserver(FileSystemEventHandler):
                 ]
             }
 
-        On any read, parse, or validation error an MESSAGE_USB_ERROR_FILE
+        On any read, parse, or validation error an USB_ERROR_FILE
         error message is published. The file is *not* deleted when errors are
         found, allowing the user to correct and re-insert the drive.
         """
@@ -211,14 +215,14 @@ class USBObserver(FileSystemEventHandler):
         except (JSONDecodeError, IOError) as ex_err:
             # Covers malformed JSON and filesystem errors (permissions, I/O)
             oradio_log.error("Failed to read or parse '%s': error: %s", USB_WIFI_FILE, ex_err)
-            publish_error(ErrorMessage(MESSAGE_USB_SOURCE, MESSAGE_USB_ERROR_FILE))
+            publish_error(ErrorMessage(USB_SOURCE, USB_ERROR_FILE))
             return
 
         # Validate top-level structure
         # The root object must contain a "networks" key whose value is a list
         if "networks" not in data or not isinstance(data["networks"], list):
             oradio_log.error("'networks' must be a list")
-            publish_error(ErrorMessage(MESSAGE_USB_SOURCE, MESSAGE_USB_ERROR_FILE))
+            publish_error(ErrorMessage(USB_SOURCE, USB_ERROR_FILE))
             return
 
         # Validate and register each network entry
@@ -231,7 +235,7 @@ class USBObserver(FileSystemEventHandler):
                 # surface all errors in this pass
                 all_valid = False
                 oradio_log.error(err_msg)
-                publish_error(ErrorMessage(MESSAGE_USB_SOURCE, MESSAGE_USB_ERROR_FILE))
+                publish_error(ErrorMessage(USB_SOURCE, USB_ERROR_FILE))
             else:
                 # Strip surrounding whitespace from SSID (passwords allow internal spaces)
                 ssid = network["SSID"].strip()
@@ -242,7 +246,7 @@ class USBObserver(FileSystemEventHandler):
                     oradio_log.info("Network '%s' added to NetworkManager", ssid)
                 else:
                     oradio_log.error("Failed to add '%s' to NetworkManager", ssid)
-                    publish_error(ErrorMessage(MESSAGE_USB_SOURCE, MESSAGE_USB_ERROR_FILE))
+                    publish_error(ErrorMessage(USB_SOURCE, USB_ERROR_FILE))
 
         # Clean up the credentials file if everything was valid
         # Deleting the file prevents re-import on the next USB insertion and
@@ -253,11 +257,11 @@ class USBObserver(FileSystemEventHandler):
                 oradio_log.info("'%s' removed", USB_WIFI_FILE)
             except (FileNotFoundError, PermissionError) as ex_err:
                 oradio_log.error("Failed to remove '%s': %s", USB_WIFI_FILE, ex_err)
-                publish_error(ErrorMessage(MESSAGE_USB_SOURCE, MESSAGE_USB_ERROR_FILE))
+                publish_error(ErrorMessage(USB_SOURCE, USB_ERROR_FILE))
         else:
             # Leave the file in place so the user can correct the errors
             oradio_log.error("'%s' has errors, is not removed", USB_WIFI_FILE)
-            publish_error(ErrorMessage(MESSAGE_USB_SOURCE, MESSAGE_USB_ERROR_FILE))
+            publish_error(ErrorMessage(USB_SOURCE, USB_ERROR_FILE))
 
 class USBService:
     """
@@ -273,7 +277,7 @@ class USBService:
 
         Schedules USBObserver on USB_STATEPATH (non-recursive) and
         starts the observer thread. Logs an error and publishes
-        MESSAGE_USB_ERROR_SERVICE if the observer thread fails to start.
+        USB_ERROR_SERVICE if the observer thread fails to start.
         """
         # Create the watchdog observer that will run in a background thread
         self.observer = Observer()
@@ -288,7 +292,7 @@ class USBService:
         # (e.g. inotify limit reached) without raising an exception
         if not self.observer.is_alive():
             oradio_log.error("USB observer failed to start: no USB present/absent info available")
-            publish_error(ErrorMessage(MESSAGE_USB_SOURCE, MESSAGE_USB_ERROR_SERVICE))
+            publish_error(ErrorMessage(USB_SOURCE, USB_ERROR_SERVICE))
 
         oradio_log.info("USB observer started")
 
@@ -300,39 +304,33 @@ class USBService:
         status, independent of any cached or published state.
 
         Returns:
-            STATE_USB_PRESENT if the ORADIO USB drive is currently mounted,
-            STATE_USB_ABSENT otherwise.
+            USB_PRESENT if the ORADIO USB drive is currently mounted,
+            USB_ABSENT otherwise.
         """
         if path.ismount(USB_MOUNT_POINT):
-            return STATE_USB_PRESENT
-        return STATE_USB_ABSENT
+            return USB_PRESENT
+        return USB_ABSENT
 
 # Entry point for stand-alone operation
 if __name__ == '__main__':
 
     # Imports only relevant when stand-alone
-    from threading import Thread                                                # pylint: disable=wrong-import-position
-    from multiprocessing import Queue                                           # pylint: disable=wrong-import-position
-    from messaging import Topic, subscribe_commands, subscribe_errors, safe_get # pylint: disable=ungrouped-imports,wrong-import-position
-    from oradio_const import RED, YELLOW, NC                                    # pylint: disable=ungrouped-imports,wrong-import-position
+    from threading import Thread                                        # pylint: disable=wrong-import-position
+    from multiprocessing import Queue                                   # pylint: disable=wrong-import-position
+    from messaging import Topic, subscribe_commands, subscribe_errors   # pylint: disable=ungrouped-imports,wrong-import-position
+    from oradio_const import RED, YELLOW, NC                            # pylint: disable=ungrouped-imports,wrong-import-position
 
     # Most stand-alone entry points share this pattern; pylint would flag it as duplicate code across modules.
     # pylint: disable=duplicate-code
 
-    def topic_handler(topic: Topic, queue: Queue) -> None:
+    def topic_handler(message, topic) -> None:
         """
         Print messages received on a subscribed message queue.
-
-        Runs in a daemon thread; blocks on safe_get until a message arrives,
-        then prints it and loops.
-
         Args:
+            message: The message received in the subscribed queue
             topic: The topic this handler is subscribed to (used for labelling).
-            queue: The queue from which messages are consumed.
         """
-        while True:
-            message = safe_get(queue)
-            print(f"[{topic}] - Message received: {message!r}")
+        print(f"[{topic}] - Message received: {message!r}")
 
     def interactive_menu() -> None:
         """
@@ -389,11 +387,8 @@ if __name__ == '__main__':
                     print(f"\n{YELLOW}Please input a valid number{NC}\n")
 
     # Subscribe to command and error topics before starting the service so no messages are missed during initialisation
-    cmd_queue = subscribe_commands()
-    Thread(target=topic_handler, args=(Topic.COMMAND, cmd_queue), daemon=True).start()
-    # Start error messages listener
-    err_queue = subscribe_errors()
-    Thread(target=topic_handler, args=(Topic.ERROR, err_queue), daemon=True).start()
+    subscribe_commands(topic_handler, (Topic.COMMAND,))
+    subscribe_errors(topic_handler, (Topic.ERROR,))
 
     # Launch the interactive test menu (blocks until the user quits)
     interactive_menu()

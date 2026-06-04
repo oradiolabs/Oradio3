@@ -27,6 +27,7 @@ import os
 import sys
 from enum import Enum
 from queue import Full
+from threading import Thread
 from typing import Any, NoReturn
 from dataclasses import dataclass
 from multiprocessing import Lock, Queue
@@ -35,7 +36,60 @@ from multiprocessing import Lock, Queue
 from singleton import singleton
 from oradio_logging import oradio_log
 
+##### Messaging constants ####################
+# Throttling
+THROTTLING_SOURCE = "Throttling message"
+THROTTLING_ERROR_THROTTLED = "RPi throttled"
+# USB
+USB_SOURCE = "USB message"
+USB_ABSENT = "USB drive absent"
+USB_PRESENT = "USB drive present"
+USB_ERROR_FILE = "USB file error"
+USB_ERROR_SERVICE = "USB service error"
+
+'''
+# wifi
+MESSAGE_WIFI_SOURCE          = "Wifi message"
+MESSAGE_WIFI_FAIL_CONFIG     = "Failed to save credentials in NetworkManager"
+MESSAGE_WIFI_FAIL_START_AP   = "Failed to start access point"
+MESSAGE_WIFI_FAIL_CONNECT    = "Wifi failed to connect"
+MESSAGE_WIFI_FAIL_STOP_AP    = "Failed to stop access point"
+MESSAGE_WIFI_FAIL_DISCONNECT = "Wifi failed to disconnect"
+# Messages from fastapi to web service
+MESSAGE_REQUEST_CONNECT = "connect to wifi network"
+MESSAGE_REQUEST_STOP    = "stop web service"
+# web service
+MESSAGE_WEB_SERVICE_SOURCE       = "web service message"
+MESSAGE_WEB_SERVICE_PL1_PLAYLIST = "PL1 changed to playlist"
+MESSAGE_WEB_SERVICE_PL2_PLAYLIST = "PL2 changed to playlist"
+MESSAGE_WEB_SERVICE_PL3_PLAYLIST = "PL3 changed to playlist"
+MESSAGE_WEB_SERVICE_PL1_WEBRADIO = "PL1 changed to webradio"
+MESSAGE_WEB_SERVICE_PL2_WEBRADIO = "PL2 changed to webradio"
+MESSAGE_WEB_SERVICE_PL3_WEBRADIO = "PL3 changed to webradio"
+MESSAGE_WEB_SERVICE_PLAYING_SONG = "web service plays a song"
+MESSAGE_WEB_SERVICE_FAIL_START   = "web service failed to start"
+MESSAGE_WEB_SERVICE_FAIL_STOP    = "web service failed to stop"
+# Volume
+MESSAGE_VOLUME_SOURCE  = "Vol Control message"
+MESSAGE_VOLUME_CHANGED = "Volume changed"
+# Spotify
+MESSAGE_SPOTIFY_SOURCE    = "Spotify message"
+# Touch buttons
+MESSAGE_BUTTON_SOURCE      = "Button message"
+MESSAGE_BUTTON_SHORT_PRESS = "Short press:"
+MESSAGE_SHORT_PRESS_BUTTON_PLAY     = MESSAGE_BUTTON_SHORT_PRESS + BUTTON_PLAY
+MESSAGE_SHORT_PRESS_BUTTON_STOP     = MESSAGE_BUTTON_SHORT_PRESS + BUTTON_STOP
+MESSAGE_SHORT_PRESS_BUTTON_PRESET1  = MESSAGE_BUTTON_SHORT_PRESS + BUTTON_PRESET1
+MESSAGE_SHORT_PRESS_BUTTON_PRESET2  = MESSAGE_BUTTON_SHORT_PRESS + BUTTON_PRESET2
+MESSAGE_SHORT_PRESS_BUTTON_PRESET3  = MESSAGE_BUTTON_SHORT_PRESS + BUTTON_PRESET3
+MESSAGE_BUTTON_LONG_PRESS   = "Long press:"
+MESSAGE_LONG_PRESS_BUTTON_PLAY     = MESSAGE_BUTTON_LONG_PRESS + BUTTON_PLAY
+'''
+
+
+
 ##### LOCAL constants ####################
+
 MAX_QUEUE_SIZE = 100
 
 class Topic(str, Enum):
@@ -103,176 +157,9 @@ class ErrorMessage:
             and bool(self.message.strip())
         )
 
-##### Pub-Sub Infrastructure ####################
+##### Helpers ##################################
 
-@singleton
-class PubSubManager:
-    """
-    Manages command and error subscribers
-    Maintains a registry of per-topic subscriber queues and provides
-    thread-safe subscribe, unsubscribe, and publish operations.
-    """
-    def __init__(self):
-        self._subscribers: dict[Topic, list[Queue]] = {
-            Topic.COMMAND: [],
-            Topic.ERROR: [],
-        }
-
-        # multiprocessing.Lock and multiprocessing.Queue are used intentionally
-        # over their threading equivalents. This ensures the pub-sub infrastructure
-        # is safe for use across both threads and child processes without change.
-        self.lock = Lock()
-
-    def subscribe(self, topic: Topic) -> Queue:
-        """
-        Subscribe a new queue to receive messages for a given topic.
-        Args:
-            topic: The topic to subscribe to
-        Returns:
-            A new Queue that will receive published messages for the topic
-        """
-        # Validate topic
-        if topic not in self._subscribers:
-            fatal_exit(f"Unknown topic: {topic!r}")
-
-        # Create and add queue for publishing messages
-        with self.lock:
-            queue = Queue(maxsize=MAX_QUEUE_SIZE)
-            self._subscribers[topic].append(queue)
-            return queue
-
-    def unsubscribe(self, topic: Topic, queue: Queue) -> None:
-        """
-        Unsubscribe a queue from a given topic.
-        Args:
-            topic: The topic to unsubscribe from
-            queue: The queue object to remove
-        """
-        # Validate topic
-        if topic not in self._subscribers:
-            fatal_exit(f"Unknown topic: {topic!r}")
-
-        # Thread-safe remove queue for publishing messages
-        fatal_error = None
-        fatal_exception = None
-        with self.lock:
-            try:
-                self._subscribers[topic].remove(queue)
-            except ValueError as ex_err:
-                fatal_error = f"Queue not found for topic {topic!r} during unsubscribe"
-                fatal_exception = ex_err
-
-        # Note: fatal_exit is intentionally called outside the lock.
-        # Storing the error and breaking out of the `with` block first ensures
-        # the lock is released before terminating, preventing other threads from
-        # hanging on acquire() during shutdown.
-        if fatal_error:
-            fatal_exit(fatal_error, exc=fatal_exception)
-
-    def publish(self, topic: Topic, message: CommandMessage | ErrorMessage) -> None:
-        """
-        Publish a message to all subscribers of a given topic.
-        Note: Callers are responsible for validating message type and structure
-        before calling this method. Use publish_command() or publish_error()
-        from the public API, which enforce this.
-        Terminates the application if the queue is full or broken.
-        Args:
-            topic: The topic to publish to
-            message: The validated message to deliver
-        """
-        # Validate topic
-        if topic not in self._subscribers:
-            fatal_exit(f"Unknown topic: {topic!r}")
-
-        # Thread-safe publish to all subscribers, collecting any failures
-        fatal_errors: list[tuple[str, BaseException | None]] = []
-        with self.lock:
-            for queue in self._subscribers[topic]:
-                try:
-                    queue.put_nowait(message)
-                except Full:
-                    fatal_errors.append((f"Queue for topic {topic!r} is full. Message: {message}", None))
-                except (OSError, EOFError, ValueError) as ex_err:
-                    fatal_errors.append((f"Queue for topic {topic!r} is closed/broken: {message}", ex_err))
-                except AssertionError as ex_err:
-                    fatal_errors.append((f"Queue for topic {topic!r} internal error: {message}", ex_err))
-
-        # Note: fatal_exit is intentionally called outside the lock.
-        # Storing the errors ensures the lock is released before terminating,
-        # preventing other threads from hanging on acquire() during shutdown.
-        if fatal_errors:
-            # Log all failures except the last, then fatal-exit on the last
-            for error, exc in fatal_errors[:-1]:
-                oradio_log.critical(error, exc_info=exc is not None)
-            last_error, last_exc = fatal_errors[-1]
-            fatal_exit(last_error, exc=last_exc)
-
-# Global PubSub manager
-pubsub = PubSubManager()
-
-##### Public API ####################
-
-def subscribe_commands() -> Queue:
-    """Subscribe a new queue to receive command messages"""
-    return pubsub.subscribe(Topic.COMMAND)
-
-def subscribe_errors() -> Queue:
-    """Subscribe a new queue to receive error messages"""
-    return pubsub.subscribe(Topic.ERROR)
-
-def unsubscribe_commands(queue: Queue) -> None:
-    """
-    Unsubscribe a queue from command messages
-    Args:
-        queue: The queue object to remove
-    """
-    pubsub.unsubscribe(Topic.COMMAND, queue)
-
-def unsubscribe_errors(queue: Queue) -> None:
-    """
-    Unsubscribe a queue from error messages
-    Args:
-        queue: The queue object to remove
-    """
-    pubsub.unsubscribe(Topic.ERROR, queue)
-
-def publish_command(message: CommandMessage) -> None:
-    """
-    Publish a command message to all subscribers.
-    The message type is verified before publishing.
-    Args:
-        message: The CommandMessage to publish
-    """
-    # Validate message type
-    if not isinstance(message, CommandMessage):
-        fatal_exit(f"Wrong message type for publish_command: {message}")
-
-    # Validate message structure
-    if not message.is_valid():
-        fatal_exit(f"Invalid CommandMessage rejected: {message}")
-
-    # Attempt to publish the command message safely
-    pubsub.publish(Topic.COMMAND, message)
-
-def publish_error(message: ErrorMessage) -> None:
-    """
-    Publish an error message to all subscribers.
-    The message type is verified before publishing.
-    Args:
-        message: Error message to enqueue
-    """
-    # Validate message type
-    if not isinstance(message, ErrorMessage):
-        fatal_exit(f"Wrong message type for publish_error: {message}")
-
-    # Validate message structure
-    if not message.is_valid():
-        fatal_exit(f"Invalid ErrorMessage rejected: {message}")
-
-    # Attempt to publish the error message safely
-    pubsub.publish(Topic.ERROR, message)
-
-def safe_get(queue: Queue) -> CommandMessage | ErrorMessage | NoReturn:
+def _safe_get(queue: Queue) -> CommandMessage | ErrorMessage | NoReturn:
     """
     Safely retrieve a message from a multiprocessing queue.
     Messages can be trusted as structurally valid; validation occurs at
@@ -288,13 +175,13 @@ def safe_get(queue: Queue) -> CommandMessage | ErrorMessage | NoReturn:
 
     except (OSError, EOFError, BrokenPipeError) as ex_err:
         # Queue is closed, corrupted, or no longer available
-        fatal_exit("Queue is closed/broken — failed to get message", exc=ex_err)
+        _fatal_exit("Queue is closed/broken — failed to get message", exc=ex_err)
 
     except AssertionError as ex_err:
         # Rare internal multiprocessing queue failure
-        fatal_exit("Queue internal error on get", exc=ex_err)
+        _fatal_exit("Queue internal error on get", exc=ex_err)
 
-def fatal_exit(message: str, *, exc: BaseException | None = None, code: int = 1) -> NoReturn:
+def _fatal_exit(message: str, *, exc: BaseException | None = None, code: int = 1) -> NoReturn:
     """
     Log a fatal error, flush logging handlers, and terminate execution.
     Intended for unrecoverable infrastructure failures such as
@@ -306,7 +193,7 @@ def fatal_exit(message: str, *, exc: BaseException | None = None, code: int = 1)
         exc: Optional exception associated with the failure
         code: Process exit status code. Defaults to 1
     """
-    # stacklevel needs to be 4 to show the file and line where fatal_exit is called
+    # stacklevel needs to be 4 to show the file and line where _fatal_exit is called
     oradio_log.critical(message, stacklevel=4, exc_info=exc is not None)
 
     # Ensure disk flush
@@ -318,6 +205,237 @@ def fatal_exit(message: str, *, exc: BaseException | None = None, code: int = 1)
 
     # Exit python execution
     os._exit(code)
+
+##### Pub-Sub Infrastructure ####################
+
+def _subscription_listener(topic: Topic, queue: Queue, callback: callable, args: tuple) -> None:
+    """
+    Long-running loop that drives a subscriber callback.
+    Intended to run in a dedicated daemon thread created by subscribe().
+    Retrieves messages from the queue with _safe_get() and forwards each
+    one to the callback as callback(message, *args).
+    Args:
+        topic:    The topic this listener is serving (used for log context only)
+        queue:    The subscriber queue to drain
+        callback: Callable invoked for every received message
+        args:     Extra positional arguments forwarded to the callback
+    """
+    while True:
+        message = _safe_get(queue)
+        if callback(message, *args) is False:
+            # Policy: any unhandled message is treated as unrecoverable.
+            # _fatal_exit terminates the application to prevent undefined behaviour.
+            _fatal_exit(f"Unhandled message: {message!r}")
+ 
+@singleton
+class PubSubManager:
+    """
+    Manages command and error subscribers
+    Maintains a registry of per-topic subscriber queues and provides
+    thread-safe subscribe, unsubscribe, and publish operations.
+    """
+    def __init__(self):
+        self._subscribers: dict[Topic, list[Queue]] = {
+            Topic.COMMAND: [],
+            Topic.ERROR: [],
+        }
+
+        # Stores the most recent message per source, per topic.
+        # New subscribers receive all cached messages on subscribe so they
+        # immediately have a consistent view of the last known state.
+        self._last_messages: dict[Topic, dict[str, CommandMessage | ErrorMessage]] = {
+            Topic.COMMAND: {},
+            Topic.ERROR: {},
+        }
+
+        # multiprocessing.Lock and multiprocessing.Queue are used intentionally
+        # over their threading equivalents. This ensures the pub-sub infrastructure
+        # is safe for use across both threads and child processes without change.
+        self.lock = Lock()
+
+    def subscribe(self, topic: Topic, callback: callable, args: tuple = ()):
+        """
+        Subscribe a new queue to receive messages for a given topic.
+        All cached messages (the last message per source) are immediately
+        enqueued into the new queue so the subscriber starts with a
+        consistent view of the last known state.
+        When a callback is supplied a daemon thread is started automatically.
+        The thread calls callback(message, *args) for every received message,
+        eliminating the need for callers to write their own listener loop.
+        When no callback is given the queue is returned for the caller to
+        drain manually (original behaviour, fully backward-compatible).
+        Args:
+            topic:    The topic to subscribe to
+            callback: Callable invoked for every received message.
+                      Signature: callback(message, *args)
+            args:     Extra positional arguments forwarded to the callback.
+        """
+        # Validate topic
+        if topic not in self._subscribers:
+            _fatal_exit(f"Unknown topic: {topic!r}")
+
+        # Validate callback
+        if not callable(callback):
+            _fatal_exit(f"callback must be callable, got: {callback!r}")
+
+        # Create and add queue for publishing messages.
+        # Replay cached messages inside the same lock so the new subscriber
+        # cannot miss a publish that races with subscription.
+        fatal_errors: list[tuple[str, BaseException | None]] = []
+        with self.lock:
+            queue = Queue(maxsize=MAX_QUEUE_SIZE)
+            self._subscribers[topic].append(queue)
+
+            # Deliver the last known message for every source to the new subscriber
+            for cached_message in self._last_messages[topic].values():
+                try:
+                    queue.put_nowait(cached_message)
+                except Full:
+                    fatal_errors.append((
+                        f"New subscriber queue for topic {topic!r} is full "
+                        f"while replaying cached message: {cached_message}",
+                        None,
+                    ))
+                except (OSError, EOFError, ValueError) as ex_err:
+                    fatal_errors.append((
+                        f"New subscriber queue for topic {topic!r} is closed/broken "
+                        f"while replaying cached message: {cached_message}",
+                        ex_err,
+                    ))
+
+        # Note: _fatal_exit is intentionally called outside the lock.
+        if fatal_errors:
+            for error, exc in fatal_errors[:-1]:
+                oradio_log.critical(error, exc_info=exc is not None)
+            last_error, last_exc = fatal_errors[-1]
+            _fatal_exit(last_error, exc=last_exc)
+
+        # Start a listener thread for callback provided.
+        # The thread is started after the lock is released; any messages
+        # published between cache-replay and thread-start land in the queue
+        # and will be picked up when the thread begins draining it.
+        Thread(target=_subscription_listener, args=(topic, queue, callback, args), daemon=True).start()
+
+    def publish(self, topic: Topic, message: CommandMessage | ErrorMessage) -> None:
+        """
+        Publish a message to all subscribers of a given topic.
+        The last message per source is cached; subsequent subscribers will
+        receive it on subscribe. Any previous cached message for the same
+        source is replaced.
+        Note: Callers are responsible for validating message type and structure
+        before calling this method. Use publish_command() or publish_error()
+        from the public API, which enforce this.
+        Terminates the application if the queue is full or broken.
+        Args:
+            topic: The topic to publish to
+            message: The validated message to deliver
+        """
+        # Validate topic
+        if topic not in self._subscribers:
+            _fatal_exit(f"Unknown topic: {topic!r}")
+
+        # Thread-safe publish to all subscribers, collecting any failures.
+        # Cache the most recent message per source inside the same lock so
+        # the cache is always consistent with what subscribers have received.
+        fatal_errors: list[tuple[str, BaseException | None]] = []
+        with self.lock:
+            # Replace the previous cached message for this source (if any)
+            self._last_messages[topic][message.source] = message
+
+            for queue in self._subscribers[topic]:
+                try:
+                    queue.put_nowait(message)
+                except Full:
+                    fatal_errors.append((f"Queue for topic {topic!r} is full. Message: {message}", None))
+                except (OSError, EOFError, ValueError) as ex_err:
+                    fatal_errors.append((f"Queue for topic {topic!r} is closed/broken: {message}", ex_err))
+                except AssertionError as ex_err:
+                    fatal_errors.append((f"Queue for topic {topic!r} internal error: {message}", ex_err))
+
+        # Note: _fatal_exit is intentionally called outside the lock.
+        # Storing the errors ensures the lock is released before terminating,
+        # preventing other threads from hanging on acquire() during shutdown.
+        if fatal_errors:
+            # Log all failures except the last, then fatal-exit on the last
+            for error, exc in fatal_errors[:-1]:
+                oradio_log.critical(error, exc_info=exc is not None)
+            last_error, last_exc = fatal_errors[-1]
+            _fatal_exit(last_error, exc=last_exc)
+
+# Global PubSub manager
+pubsub = PubSubManager()
+
+##### Public API ####################
+
+def subscribe_commands(callback: callable, args: tuple = ()) -> None:
+    """
+    Subscribe a new queue to receive command messages.
+    The queue is pre-populated with the last command message for every
+    source that has published since the application started.
+    When callback is provided a daemon thread is started automatically;
+    it calls callback(message, *args) for each received message so the
+    caller does not need to manage a listener loop manually.
+    Args:
+        callback: Optional callable invoked for every received message.
+                  Signature: callback(message, *args)
+        args:     Extra positional arguments forwarded to the callback.
+    """
+    pubsub.subscribe(Topic.COMMAND, callback, args)
+
+def subscribe_errors(callback: callable, args: tuple = ()) -> None:
+    """
+    Subscribe a new queue to receive error messages.
+    The queue is pre-populated with the last error message for every
+    source that has published since the application started.
+    When callback is provided a daemon thread is started automatically;
+    it calls callback(message, *args) for each received message so the
+    caller does not need to manage a listener loop manually.
+    Args:
+        callback: Optional callable invoked for every received message.
+                  Signature: callback(message, *args)
+        args:     Extra positional arguments forwarded to the callback.
+    """
+    pubsub.subscribe(Topic.ERROR, callback, args)
+
+def publish_command(message: CommandMessage) -> None:
+    """
+    Publish a command message to all subscribers.
+    The most recent message per source is cached; late subscribers receive
+    it automatically on subscribe.
+    The message type is verified before publishing.
+    Args:
+        message: The CommandMessage to publish
+    """
+    # Validate message type
+    if not isinstance(message, CommandMessage):
+        _fatal_exit(f"Wrong message type for publish_command: {message}")
+
+    # Validate message structure
+    if not message.is_valid():
+        _fatal_exit(f"Invalid CommandMessage rejected: {message}")
+
+    # Attempt to publish the command message safely
+    pubsub.publish(Topic.COMMAND, message)
+
+def publish_error(message: ErrorMessage) -> None:
+    """
+    Publish an error message to all subscribers.
+    The most recent message per source is cached; late subscribers receive
+    it automatically on subscribe.
+    The message type is verified before publishing.
+    Args:
+        message: Error message to enqueue
+    """
+    # Validate message type
+    if not isinstance(message, ErrorMessage):
+        _fatal_exit(f"Wrong message type for publish_error: {message}")
+
+    # Validate message structure
+    if not message.is_valid():
+        _fatal_exit(f"Invalid ErrorMessage rejected: {message}")
+
+    # Attempt to publish the error message safely
+    pubsub.publish(Topic.ERROR, message)
 
 # Entry point for stand-alone operation
 if __name__ == '__main__':
@@ -333,12 +451,9 @@ if __name__ == '__main__':
     # Most modules use similar code in stand-alone
     # pylint: disable=duplicate-code
 
-    def handler(topic: Topic, queue: Queue, index: int) -> None:
-        """Receive and print messages from a subscribed queue."""
-        while True:
-            message = safe_get(queue)
-            print(f"[{topic}] - Handler {index} - Message received: {message!r}")
-
+    def handler(message, topic, index) -> None:
+        print(f"[{topic}] - Handler {index} - Message received: {message!r}")
+        
     # Pylint PEP8 ignoring limit of max 12 branches is ok for test menu
     def interactive_menu() -> None:     # pylint: disable=too-many-branches,too-many-statements
         """ Show menu with test options """
@@ -364,10 +479,6 @@ if __name__ == '__main__':
         # Initialize
         cmd_index = 0
         err_index = 0
-        cmd_queue = []
-        err_queue = []
-        cmd_thread = []
-        err_thread = []
 
         # User command loop
         while True:
@@ -380,27 +491,18 @@ if __name__ == '__main__':
             match function_nr:
                 case 0:
                     print("\nExiting test program...\n")
-                    # Stop listening to messages
-                    for q in range(cmd_index):
-                        unsubscribe_commands(cmd_queue[q])
-                    for q in range(err_index):
-                        unsubscribe_errors(err_queue[q])
                     break
                 case 1:
                     n = input("Enter number of COMMAND handlers to subscribe: ")
                     for i in range(int(n)):
-                        print(f"Subscribe COMMAND handler {cmd_index+i}...")
-                        cmd_queue.append(subscribe_commands())
-                        cmd_thread.append(Thread(target=handler, args=(Topic.COMMAND, cmd_queue[cmd_index], cmd_index,), daemon=True))
-                        cmd_thread[cmd_index].start()
+                        print(f"Subscribe COMMAND handler {cmd_index}...")
+                        subscribe_commands(handler, args=(Topic.COMMAND, cmd_index,))
                         cmd_index += 1
                 case 2:
                     n = input("Enter number of ERROR handlers to subscribe: ")
                     for i in range(int(n)):
-                        print(f"Subscribe ERROR handler {err_index+i}...")
-                        err_queue.append(subscribe_errors())
-                        err_thread.append(Thread(target=handler, args=(Topic.ERROR, err_queue[err_index], err_index,), daemon=True))
-                        err_thread[err_index].start()
+                        print(f"Subscribe ERROR handler {err_index}...")
+                        subscribe_errors(handler, args=(Topic.ERROR, err_index,))
                         err_index += 1
                 case 3:
                     if cmd_index == 0:
