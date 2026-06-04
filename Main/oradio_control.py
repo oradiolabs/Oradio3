@@ -789,7 +789,7 @@ subscribe_commands(_command_handler, (shared_queue,))
 # Initialize and start the error handling service.
 # A daemon thread is started automatically, allowing the service to run
 # continuously in the background without blocking the main application thread.
-import error_service  # pylint: disable=wrong-import-position
+import error_service  # pylint: disable=wrong-import-position,unused-import
 
 ##### Messaging PROXY-end #####
 

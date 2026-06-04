@@ -21,7 +21,6 @@ Created on May 15, 2026
     Provides a top level error resolution service
 """
 from time import sleep
-from threading import Thread
 
 ##### Oradio modules ####################
 from oradio_logging import oradio_log
@@ -40,7 +39,7 @@ from messaging import (
 TEST_SOURCE = "Test error message"
 UNEXPECTED = "Unexpected source"
 
-def _error_handler(error) -> bool:
+def _error_handler(error) -> bool | None:
     """
     Error handling loop.
     Attempts to recover from known error conditions.
@@ -50,9 +49,19 @@ def _error_handler(error) -> bool:
     # Mitigation logic for known errors
     oradio_log.debug("Error message received: %r", error)
     if error.source == THROTTLING_SOURCE:
-        oradio_log.debug("Mitigating throttling error: '%s'", error.message)
+        if error.message == THROTTLING_ERROR_THROTTLED:
+            oradio_log.debug("Throttled mitigation to be implemented"
+        else:
+            oradio_log.debug("Unexpected throttling error: '%s'", error.message)
+            return False
     elif error.source == USB_SOURCE:
-        oradio_log.debug("Mitigating USB error: '%s'", error.message)
+        if error.message == USB_ERROR_FILE:
+            oradio_log.debug("USB file error mitigation to be implemented"
+        if error.message == USB_ERROR_SERVICE:
+            oradio_log.debug("USB service error mitigation to be implemented"
+        else:
+            oradio_log.debug("Unexpected USB error: '%s'", error.message)
+            return False
     elif error.source == TEST_SOURCE:
         oradio_log.debug("Mitigating test error: '%s'", error.message)
     else:

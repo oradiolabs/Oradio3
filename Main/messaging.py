@@ -208,7 +208,7 @@ def _fatal_exit(message: str, *, exc: BaseException | None = None, code: int = 1
 
 ##### Pub-Sub Infrastructure ####################
 
-def _subscription_listener(topic: Topic, queue: Queue, callback: callable, args: tuple) -> None:
+def _subscription_listener(queue: Queue, callback: callable, args: tuple) -> None:
     """
     Long-running loop that drives a subscriber callback.
     Intended to run in a dedicated daemon thread created by subscribe().
@@ -226,7 +226,7 @@ def _subscription_listener(topic: Topic, queue: Queue, callback: callable, args:
             # Policy: any unhandled message is treated as unrecoverable.
             # _fatal_exit terminates the application to prevent undefined behaviour.
             _fatal_exit(f"Unhandled message: {message!r}")
- 
+
 @singleton
 class PubSubManager:
     """
@@ -314,7 +314,7 @@ class PubSubManager:
         # The thread is started after the lock is released; any messages
         # published between cache-replay and thread-start land in the queue
         # and will be picked up when the thread begins draining it.
-        Thread(target=_subscription_listener, args=(topic, queue, callback, args), daemon=True).start()
+        Thread(target=_subscription_listener, args=(queue, callback, args), daemon=True).start()
 
     def publish(self, topic: Topic, message: CommandMessage | ErrorMessage) -> None:
         """
@@ -442,7 +442,6 @@ if __name__ == '__main__':
 
     # Imports only relevant when stand-alone
     from time import sleep
-    from threading import Thread
     from multiprocessing import Process     # pylint: disable=ungrouped-imports
 
     # GLOBAL constants
@@ -452,8 +451,9 @@ if __name__ == '__main__':
     # pylint: disable=duplicate-code
 
     def handler(message, topic, index) -> None:
+        """Monitor messaging queue"""
         print(f"[{topic}] - Handler {index} - Message received: {message!r}")
-        
+
     # Pylint PEP8 ignoring limit of max 12 branches is ok for test menu
     def interactive_menu() -> None:     # pylint: disable=too-many-branches,too-many-statements
         """ Show menu with test options """
@@ -494,13 +494,13 @@ if __name__ == '__main__':
                     break
                 case 1:
                     n = input("Enter number of COMMAND handlers to subscribe: ")
-                    for i in range(int(n)):
+                    for _ in range(int(n)):
                         print(f"Subscribe COMMAND handler {cmd_index}...")
                         subscribe_commands(handler, args=(Topic.COMMAND, cmd_index,))
                         cmd_index += 1
                 case 2:
                     n = input("Enter number of ERROR handlers to subscribe: ")
-                    for i in range(int(n)):
+                    for _ in range(int(n)):
                         print(f"Subscribe ERROR handler {err_index}...")
                         subscribe_errors(handler, args=(Topic.ERROR, err_index,))
                         err_index += 1

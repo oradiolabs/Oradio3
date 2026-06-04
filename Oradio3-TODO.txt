@@ -9,12 +9,12 @@ Actions:
 
 TODO:
 backlighting.py
-	error_service.py: Extend with error messages from other modules
+	error_service.py: Update doc strings and inline comments. Extend with error messages from other modules
 fastapi_service.py
 gpio_service.py
 i2c_service.py
 led_control.py
-	messaging.py: Add unsubscribe == stop thread. Update technical documentation
+	messaging.py: Add unsubscribe -> stop thread. Update doc strings and inline comments. Update technical documentation
 mpd_control.py
 mpd_monitor.py
 mpd_service.py
@@ -28,9 +28,9 @@ schemas.json
 	singleton.py: Ok
 spotify_connect_direct.py
 system_sounds.py
-	throttling_monitor.py: Update technical documentation
+	throttling_monitor.py: Update doc strings and inline comments. Update technical documentation
 touch_buttons.py
-	usb_service.py: Update technical documentation
+	usb_service.py: Update doc strings and inline comments. Update technical documentation
 volume_control.py
 web_service.py
 wifi_service.py

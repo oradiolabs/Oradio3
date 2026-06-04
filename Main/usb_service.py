@@ -315,8 +315,6 @@ class USBService:
 if __name__ == '__main__':
 
     # Imports only relevant when stand-alone
-    from threading import Thread                                        # pylint: disable=wrong-import-position
-    from multiprocessing import Queue                                   # pylint: disable=wrong-import-position
     from messaging import Topic, subscribe_commands, subscribe_errors   # pylint: disable=ungrouped-imports,wrong-import-position
     from oradio_const import RED, YELLOW, NC                            # pylint: disable=ungrouped-imports,wrong-import-position
 
