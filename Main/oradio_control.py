@@ -46,6 +46,7 @@ import throttling_monitor     # pylint: disable=unused-import
 # Moved from oradio_const
 from messaging import (
     subscribe_commands,
+    subscribe_errors,
     USB_SOURCE,
     USB_ABSENT,
     USB_PRESENT,
@@ -781,15 +782,17 @@ def _command_handler(command, legacy_queue) -> None:
     oradio_log.debug("[COMMAND PROXY SERVICE] forward: %s", message)
     safe_put(legacy_queue, message)
 
-# Initialize and start the command handling service.
-# A daemon thread is started automatically, allowing the service to run
-# continuously in the background without blocking the main application thread.
+# Register _command_handler with the messaging layer.  subscribe_commands() starts
+# a daemon thread internally, so the handler runs in the background without blocking
+# the main application thread, and is automatically torn down when the process exits.
 subscribe_commands(_command_handler, (shared_queue,))
 
-# Initialize and start the error handling service.
-# A daemon thread is started automatically, allowing the service to run
-# continuously in the background without blocking the main application thread.
-import error_service  # pylint: disable=wrong-import-position,unused-import
+from error_service import error_handler     # pylint: disable=wrong-import-position
+
+# Register error_handler with the messaging layer.  subscribe_errors() starts
+# a daemon thread internally, so the handler runs in the background without blocking
+# the main application thread, and is automatically torn down when the process exits.
+subscribe_errors(error_handler)
 
 ##### Messaging PROXY-end #####
 

@@ -9,7 +9,7 @@ Actions:
 
 TODO:
 backlighting.py
-	error_service.py: Update doc strings and inline comments. Extend with error messages from other modules
+	error_service.py: Extend with error messages from other modules
 fastapi_service.py
 gpio_service.py
 i2c_service.py
@@ -19,7 +19,7 @@ mpd_control.py
 mpd_monitor.py
 mpd_service.py
 oradio_const.py
-	oradio_control.py: Patched with messaging proxy for commands and errors
+	oradio_control.py: Patched with messaging proxy for commands and errors. Refactor according to design from Henk
 oradio_logging.py
 oradio_utils.py
 power_supply_control.py
@@ -28,7 +28,7 @@ schemas.json
 	singleton.py: Ok
 spotify_connect_direct.py
 system_sounds.py
-	throttling_monitor.py: Update doc strings and inline comments. Update technical documentation
+	throttling_monitor.py: Ok
 touch_buttons.py
 	usb_service.py: Update doc strings and inline comments. Update technical documentation
 volume_control.py
@@ -43,4 +43,6 @@ wifi_service.py
 
 
  
+review, update doc strings and inline comments
  
+ I want technical documentation
