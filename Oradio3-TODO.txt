@@ -6,6 +6,7 @@ Actions:
 - Cleanup inline comments
 - Update technical documentation
 - Move message constants to messaging
+- Cleanup python files: Remove `` and spaces at end of lines
 
 TODO:
 	backlighting.py
@@ -36,12 +37,5 @@ usb_service.py: Ok
 	wifi_service.py
 
 
-
-
-
-
-
-
- 
 Claude: review, update doc strings and inline comments -> intelligent merge
 ChatGPT: I want technical documentation -> download as MS Word, review
