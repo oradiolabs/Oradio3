@@ -50,7 +50,7 @@ def _error_handler(error) -> bool | None:
     oradio_log.debug("Error message received: %r", error)
     if error.source == THROTTLING_SOURCE:
         if error.message == THROTTLING_ERROR_THROTTLED:
-            oradio_log.debug("Throttled mitigation to be implemented"
+            oradio_log.debug("Throttled mitigation to be implemented")
         else:
             oradio_log.debug("Unexpected throttling error: '%s'", error.message)
             return False
