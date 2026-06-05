@@ -81,39 +81,14 @@ POST_TIMEOUT  = (5, 30)  # (connect timeout, read timeout)
 # Access point
 ACCESS_POINT_HOST = "108.156.60.1"  # wsj.com
 ACCESS_POINT_SSID = "OradioAP"
-# wifi states
-STATE_WIFI_IDLE         = "Wifi is not connected"
-STATE_WIFI_CONNECTED    = "Wifi connected"
-STATE_WIFI_ACCESS_POINT = "Wifi configured as access point"
-# wifi messages
-MESSAGE_WIFI_SOURCE          = "Wifi message"
-MESSAGE_WIFI_FAIL_CONFIG     = "Failed to save credentials in NetworkManager"
-MESSAGE_WIFI_FAIL_START_AP   = "Failed to start access point"
-MESSAGE_WIFI_FAIL_CONNECT    = "Wifi failed to connect"
-MESSAGE_WIFI_FAIL_STOP_AP    = "Failed to stop access point"
-MESSAGE_WIFI_FAIL_DISCONNECT = "Wifi failed to disconnect"
 
 ################## WEB SERVICE #############################
 # Web server address
 WEB_SERVER_HOST = "0.0.0.0"
 WEB_SERVER_PORT = 8000
-# Web service states
-STATE_WEB_SERVICE_IDLE   = "web service is idle"
-STATE_WEB_SERVICE_ACTIVE = "web service is running"
 # Messages from fastapi to web service
 MESSAGE_REQUEST_CONNECT = "connect to wifi network"
 MESSAGE_REQUEST_STOP    = "stop web service"
-# Messages from web service to parent
-MESSAGE_WEB_SERVICE_SOURCE       = "web service message"
-MESSAGE_WEB_SERVICE_PL1_PLAYLIST = "PL1 changed to playlist"
-MESSAGE_WEB_SERVICE_PL2_PLAYLIST = "PL2 changed to playlist"
-MESSAGE_WEB_SERVICE_PL3_PLAYLIST = "PL3 changed to playlist"
-MESSAGE_WEB_SERVICE_PL1_WEBRADIO = "PL1 changed to webradio"
-MESSAGE_WEB_SERVICE_PL2_WEBRADIO = "PL2 changed to webradio"
-MESSAGE_WEB_SERVICE_PL3_WEBRADIO = "PL3 changed to webradio"
-MESSAGE_WEB_SERVICE_PLAYING_SONG = "web service plays a song"
-MESSAGE_WEB_SERVICE_FAIL_START   = "web service failed to start"
-MESSAGE_WEB_SERVICE_FAIL_STOP    = "web service failed to stop"
 
 ################## USB #############################
 # Paths

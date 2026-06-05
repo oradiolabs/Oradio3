@@ -34,6 +34,10 @@ from messaging import (
     USB_SOURCE,
     USB_ERROR_FILE,
     USB_ERROR_SERVICE,
+    WIFI_SOURCE,
+    WIFI_ERROR_NMCLI,
+    WIFI_ERROR_CONNECT,
+    WIFI_ERROR_DISCONNECT,
 )
 
 ##### LOCAL constants ####################
@@ -77,6 +81,21 @@ def error_handler(error) -> bool | None:   # pylint: disable=inconsistent-return
         elif error.message == USB_ERROR_SERVICE:
 # NIET VERGETEN: implement USB service recovery (e.g. restart udev / service)
             oradio_log.debug("USB service error mitigation to be implemented")
+        else:
+            oradio_log.debug("Unexpected USB error: '%s'", error.message)
+            return False
+
+    elif error.source == WIFI_SOURCE:
+        if error.message == WIFI_ERROR_NMCLI:
+# NIET VERGETEN: implement failed to interact with NetworkManager error recovery
+            oradio_log.debug("Failed to interact with NetworkManager error mitigation to be implemented")
+        elif error.message == WIFI_ERROR_CONNECT:
+# NIET VERGETEN: implement wifi connect failed recovery
+# LET OP: wordt in legacy wifi_service als command verstuurd en in oradio_control in state machine afgehandeld
+            oradio_log.debug("Wifi connect failed error mitigation to be implemented")
+        elif error.message == WIFI_ERROR_DISCONNECT:
+# NIET VERGETEN: implement wifi disconnect failed recovery
+            oradio_log.debug("Wifi disconnect failed error mitigation to be implemented")
         else:
             oradio_log.debug("Unexpected USB error: '%s'", error.message)
             return False

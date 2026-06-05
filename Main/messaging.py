@@ -37,37 +37,41 @@ from oradio_logging import oradio_log
 
 ##### Messaging constants ####################
 # Throttling
-THROTTLING_SOURCE = "Throttling message"
+THROTTLING_SOURCE          = "Throttling message"
 THROTTLING_ERROR_THROTTLED = "RPi throttled"
 # USB
-USB_SOURCE = "USB message"
-USB_ABSENT = "USB drive absent"
-USB_PRESENT = "USB drive present"
-USB_ERROR_FILE = "USB file error"
+USB_SOURCE        = "USB message"
+USB_ABSENT        = "USB drive absent"
+USB_PRESENT       = "USB drive present"
+USB_ERROR_FILE    = "USB file error"
 USB_ERROR_SERVICE = "USB service error"
-
-'''
 # wifi
-MESSAGE_WIFI_SOURCE          = "Wifi message"
-MESSAGE_WIFI_FAIL_CONFIG     = "Failed to save credentials in NetworkManager"
-MESSAGE_WIFI_FAIL_START_AP   = "Failed to start access point"
-MESSAGE_WIFI_FAIL_CONNECT    = "Wifi failed to connect"
-MESSAGE_WIFI_FAIL_STOP_AP    = "Failed to stop access point"
-MESSAGE_WIFI_FAIL_DISCONNECT = "Wifi failed to disconnect"
+WIFI_SOURCE           = "Wifi message"
+WIFI_CONNECTED        = "Wifi connected"
+WIFI_DISCONNECTED     = "Wifi disconnected"
+WIFI_ACCESS_POINT     = "Wifi configured as access point"
+WIFI_ERROR_NMCLI      = "NetworkManager wrapper failed"
+WIFI_ERROR_CONNECT    = "Wifi failed to connect"
+WIFI_ERROR_DISCONNECT = "Wifi failed to disconnect"
+WIFI_ERROR_AP_START   = "Failed to start access point"
+WIFI_ERROR_AP_STOP    = "Failed to stop access point"
+# Web interface
+WEB_SOURCE       = "web service message"
+WEB_IDLE         = "web service is idle"
+WEB_ACTIVE       = "web service is running"
+WEB_PL1_PLAYLIST = "PL1 changed to playlist"
+WEB_PL2_PLAYLIST = "PL2 changed to playlist"
+WEB_PL3_PLAYLIST = "PL3 changed to playlist"
+WEB_PL1_WEBRADIO = "PL1 changed to webradio"
+WEB_PL2_WEBRADIO = "PL2 changed to webradio"
+WEB_PL3_WEBRADIO = "PL3 changed to webradio"
+WEB_PLAYING_SONG = "web service plays a song"
+WEB_ERROR_START  = "web service failed to start"
+WEB_ERROR_STOP   = "web service failed to stop"
+'''
 # Messages from fastapi to web service
 MESSAGE_REQUEST_CONNECT = "connect to wifi network"
 MESSAGE_REQUEST_STOP    = "stop web service"
-# web service
-MESSAGE_WEB_SERVICE_SOURCE       = "web service message"
-MESSAGE_WEB_SERVICE_PL1_PLAYLIST = "PL1 changed to playlist"
-MESSAGE_WEB_SERVICE_PL2_PLAYLIST = "PL2 changed to playlist"
-MESSAGE_WEB_SERVICE_PL3_PLAYLIST = "PL3 changed to playlist"
-MESSAGE_WEB_SERVICE_PL1_WEBRADIO = "PL1 changed to webradio"
-MESSAGE_WEB_SERVICE_PL2_WEBRADIO = "PL2 changed to webradio"
-MESSAGE_WEB_SERVICE_PL3_WEBRADIO = "PL3 changed to webradio"
-MESSAGE_WEB_SERVICE_PLAYING_SONG = "web service plays a song"
-MESSAGE_WEB_SERVICE_FAIL_START   = "web service failed to start"
-MESSAGE_WEB_SERVICE_FAIL_STOP    = "web service failed to stop"
 # Volume
 MESSAGE_VOLUME_SOURCE  = "Vol Control message"
 MESSAGE_VOLUME_CHANGED = "Volume changed"
