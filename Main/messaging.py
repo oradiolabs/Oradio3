@@ -53,8 +53,6 @@ WIFI_ACCESS_POINT     = "Wifi configured as access point"
 WIFI_ERROR_NMCLI      = "NetworkManager wrapper failed"
 WIFI_ERROR_CONNECT    = "Wifi failed to connect"
 WIFI_ERROR_DISCONNECT = "Wifi failed to disconnect"
-WIFI_ERROR_AP_START   = "Failed to start access point"
-WIFI_ERROR_AP_STOP    = "Failed to stop access point"
 # Web interface
 WEB_SOURCE       = "web service message"
 WEB_IDLE         = "web service is idle"
