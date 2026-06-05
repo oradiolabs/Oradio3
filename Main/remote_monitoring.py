@@ -24,7 +24,7 @@ Created on February 8, 2025
     RMS server once per hour, and immediately sends a one-off SYS_INFO message
     containing hardware/software identification.  The heartbeat is stopped
     whenever WiFi is disconnected.
- 
+
     Helper functions collect Raspberry Pi telemetry (serial number,
     temperature, hardware model, OS version) and the project software version.
     A thin exponential-backoff retry loop guards against transient network
@@ -85,13 +85,13 @@ POST_TIMEOUT   = 5    # Per-attempt HTTP timeout in seconds
 def _get_rpi_serial() -> str:
     """
     Return the Raspberry Pi's unique OTP serial number.
- 
+
     Reads the serial from the OTP (One-Time Programmable) register via
-    ``vcgencmd otp_dump``.  The result is used as a stable device identifier
+    vcgencmd otp_dump.  The result is used as a stable device identifier
     in RMS messages.
- 
+
     Returns:
-        str: 8-character hex serial number, or ``"Unsupported platform"``
+        str: 8-character hex serial number, or "Unsupported platform"
             if the command is unavailable (e.g. non-RPi hardware).
     """
     serial = os.popen('vcgencmd otp_dump | grep "28:" | cut -c 4-').read().strip()
@@ -100,13 +100,13 @@ def _get_rpi_serial() -> str:
 def _get_temperature() -> str:
     """
     Return the Raspberry Pi SoC temperature in degrees Celsius.
- 
-    Queries the on-chip thermal sensor via ``vcgencmd measure_temp`` and
+
+    Queries the on-chip thermal sensor via vcgencmd measure_temp and
     strips the surrounding label/units, returning only the numeric value
-    (e.g. ``"52.1"``).
- 
+    (e.g. "52.1").
+
     Returns:
-        str: Temperature as a numeric string (°C), or ``"Unsupported platform"``
+        str: Temperature as a numeric string (°C), or "Unsupported platform"
             if the command is unavailable.
     """
     temperature = os.popen('vcgencmd measure_temp | cut -c 6-9').read().strip()
@@ -115,12 +115,12 @@ def _get_temperature() -> str:
 def _get_rpi_version() -> str:
     """
     Return the Raspberry Pi hardware model string.
- 
-    Reads the ``Model`` field from ``/proc/cpuinfo``, which describes the
-    board revision (e.g. ``"Raspberry Pi 4 Model B Rev 1.4"``).
- 
+
+    Reads the Model field from /proc/cpuinfo, which describes the
+    board revision (e.g. "Raspberry Pi 4 Model B Rev 1.4").
+
     Returns:
-        str: Human-readable hardware model, or ``"Unsupported platform"``
+        str: Human-readable hardware model, or "Unsupported platform"
             if the field is absent.
     """
     version = os.popen("cat /proc/cpuinfo | grep Model | cut -d':' -f2").read().strip()
@@ -129,14 +129,14 @@ def _get_rpi_version() -> str:
 def _get_os_version() -> str:
     """
     Return the operating system distribution description.
- 
-    Calls ``lsb_release -a`` and extracts the ``Description`` line, which
+
+    Calls lsb_release -a and extracts the Description line, which
     contains the full OS name and version (e.g.
-    ``"Raspberry Pi OS Lite (bookworm)"``)
- 
+    "Raspberry Pi OS Lite (bookworm)")
+
     Returns:
-        str: OS description string, or ``"Unsupported platform"`` if
-            ``lsb_release`` is not available.
+        str: OS description string, or "Unsupported platform" if
+            lsb_release is not available.
     """
     version = os.popen("lsb_release -a | grep 'Description:' | cut -d':' -f2").read().strip()
     return version or "Unsupported platform"
@@ -144,14 +144,14 @@ def _get_os_version() -> str:
 def _get_sw_version() -> str:
     """
     Return the Oradio software version from the deployment log file.
- 
+
     Reads :data:`SW_LOG_FILE` (a JSON file written by the deployment
-    pipeline) and returns a combined string of the ``serial`` and
-    ``gitinfo`` fields, e.g. ``"v2.3.1 (abc1234)"``.
- 
+    pipeline) and returns a combined string of the serial and
+    gitinfo fields, e.g. "v2.3.1 (abc1234)".
+
     Returns:
-        str: Version string in the form ``"<serial> (<gitinfo>)"``, or
-            ``"Invalid SW version"`` if the file is missing, cannot be
+        str: Version string in the form "<serial> (<gitinfo>)", or
+            "Invalid SW version" if the file is missing, cannot be
             parsed as JSON, or lacks the expected keys.
     """
     try:
@@ -168,16 +168,16 @@ def _get_sw_version() -> str:
 def _handle_response_command(response_text) -> None:
     """
     Extract and execute a shell command embedded in the RMS server response.
- 
-    The RMS server may include a ``'command'`` directive in its response body
-    (PHP array syntax: ``'command' => <cmd>``).  When found, the command is
-    passed to ``/usr/bin/bash`` for execution and the output is logged.
- 
+
+    The RMS server may include a 'command' directive in its response body
+    (PHP array syntax: 'command' => <cmd>).  When found, the command is
+    passed to /usr/bin/bash for execution and the output is logged.
+
     .. warning::
         Executing arbitrary commands from a remote server is a security risk.
         This function must only remain in place until command validation is
-        moved to ``oradio_control``.
- 
+        moved to oradio_control.
+
     Args:
         response_text (str): Raw text body returned by the RMS server.
     """
@@ -187,9 +187,9 @@ def _handle_response_command(response_text) -> None:
         command = match.group(1).strip()
         oradio_log.debug("Run command '%s' from RMS server", command)
         try:
-            # ``executable`` must be set explicitly; without it Python falls
-            # back to ``/bin/sh`` which may lack bash-specific features.
-            # ``text=True`` decodes stdout/stderr to str for readable logging.
+            # executable must be set explicitly; without it Python falls
+            # back to /bin/sh which may lack bash-specific features.
+            # text=True decodes stdout/stderr to str for readable logging.
             result = subprocess.run(
                 command,
                 shell=True,
@@ -209,22 +209,22 @@ def _handle_response_command(response_text) -> None:
 class Heartbeat(Timer):
     """
     Repeating daemon timer that fires a callback at a fixed interval.
- 
+
     Inherits from :class:`threading.Timer` and overrides :meth:`run` so that
     the callback executes immediately on start, then repeats every
-    ``interval`` seconds until :meth:`cancel` is called.
- 
-    Decorated with :func:`singleton` so that only one ``Heartbeat`` instance
+    interval seconds until :meth:`cancel` is called.
+
+    Decorated with :func:`singleton` so that only one Heartbeat instance
     exists at any time.  Use the class-level helpers :meth:`start_heartbeat`
     and :meth:`stop_heartbeat` instead of instantiating directly.
     """
-    # Prevents concurrent start/stop calls from racing on ``cls.instance``
+    # Prevents concurrent start/stop calls from racing on cls.instance
     start_lock = Lock()
 
     def __init__(self, interval, function, args=None, kwargs=None) -> None:
         """
         Initialise the heartbeat timer.
- 
+
         Args:
             interval (int): Time in seconds between successive callback calls.
             function (callable): Callback to invoke on each tick.
@@ -236,11 +236,11 @@ class Heartbeat(Timer):
     def run(self) -> None:
         """
         Run the callback immediately, then repeat every *interval* seconds.
- 
+
         Overrides :meth:`threading.Timer.run`.  The loop continues until
-        :meth:`cancel` sets ``self.finished``, at which point
-        :meth:`threading.Event.wait` returns ``True`` and the loop exits.
- 
+        :meth:`cancel` sets self.finished, at which point
+        :meth:`threading.Event.wait` returns True and the loop exits.
+
         Exceptions raised by the callback are caught and logged so that a
         single failing tick does not terminate the timer thread.
         """
@@ -260,9 +260,9 @@ class Heartbeat(Timer):
     def start_heartbeat(cls, interval, function, args=None, kwargs=None) -> None:
         """
         Stop any running heartbeat and start a new one.
- 
-        Thread-safe: uses ``start_lock`` to serialise concurrent calls.
- 
+
+        Thread-safe: uses start_lock to serialise concurrent calls.
+
         Args:
             interval (int): Time in seconds between successive callback calls.
             function (callable): Callback to invoke on each tick.
@@ -287,8 +287,8 @@ class Heartbeat(Timer):
     def stop_heartbeat(cls) -> None:
         """
         Cancel the running heartbeat timer, if any.
- 
-        Thread-safe: uses ``start_lock`` to serialise concurrent calls.
+
+        Thread-safe: uses start_lock to serialise concurrent calls.
         Does nothing if no heartbeat is currently running.
         """
         with cls.start_lock:
@@ -303,7 +303,7 @@ class Heartbeat(Timer):
 class RMService:
     """
     Manage communication with the Remote Monitoring Service (RMS).
- 
+
     Responsibilities:
     - Listen for WiFi connect/disconnect events via the messaging layer.
     - Start a repeating :class:`Heartbeat` and send an initial
@@ -311,16 +311,17 @@ class RMService:
     - Stop the heartbeat when WiFi is lost.
     - Send :data:`HEARTBEAT` and :data:`SYS_INFO` POST requests to the RMS
       server, with exponential-backoff retries on failure.
- 
+
     Usage::
         rms = RMService()   # starts the wifi event listener automatically
         ...
         rms.close()         # unsubscribes listener and stops heartbeat
     """
     def __init__(self) -> None:
-        """Initialise the service and register for WiFi state change events.
- 
-        Caches the device serial number and subscribes ``_wifi_listener`` to
+        """
+        Initialise the service and register for WiFi state change events.
+
+        Caches the device serial number and subscribes _wifi_listener to
         the messaging layer.  The subscription starts an internal daemon
         thread, so no additional setup is required by the caller.
         """
@@ -335,14 +336,14 @@ class RMService:
     def _wifi_listener(self, message) -> None:
         """
         React to WiFi state-change messages and manage the heartbeat timer.
- 
+
         Called by the messaging layer whenever a WiFi event is published.
         Starts the heartbeat (and sends SYS_INFO) on connect; stops it on
         disconnect.
- 
+
         Args:
             message: WiFi event message from the messaging layer.  The
-                ``state`` attribute (or equivalent field) must be one of
+                state attribute (or equivalent field) must be one of
                 :data:`WIFI_CONNECTED` or :data:`WIFI_DISCONNECTED`.
         """
         if message == WIFI_DISCONNECTED:
@@ -357,17 +358,18 @@ class RMService:
             oradio_log.debug("WiFi connected. Heartbeat started and system info sent.")
 
     def send_message(self, msg_type) -> None:
-        """Build and POST a message to the RMS server.
- 
+        """
+        Build and POST a message to the RMS server.
+
         Constructs a payload dict containing a timestamp, device serial, and
         message type.  Appends type-specific data (temperature for
         :data:`HEARTBEAT`; hardware/software info for :data:`SYS_INFO`), then
         sends the payload via HTTP POST with up to :data:`MAX_RETRIES`
         attempts using exponential backoff.
- 
+
         Any command directive found in the server response is forwarded to
         :func:`_handle_response_command`.
- 
+
         Args:
             msg_type (str): One of :data:`HEARTBEAT` or :data:`SYS_INFO`.
         """
@@ -401,7 +403,7 @@ class RMService:
         # Retry loop with exponential backoff: delays are 1s, 2s, 4s, ...
         for attempt in range(1, MAX_RETRIES + 1):
             try:
-                # ``files=None`` keeps the Content-Type as application/x-www-form-urlencoded
+                # files=None keeps the Content-Type as application/x-www-form-urlencoded
                 response = post(RMS_SERVER_URL, data=payload_info, files=None, timeout=POST_TIMEOUT)
                 # Check for any errors
                 response.raise_for_status()
@@ -422,14 +424,14 @@ class RMService:
                 "Unexpected status code=%s, response.headers=%s",
                 response.status_code, response.headers
             )
- 
+
         # Act on any command the RMS server included in its response body
         _handle_response_command(response.text)
 
     def close(self) -> None:
         """
         Tear down the RMS service cleanly.
- 
+
         Unsubscribes the WiFi event listener (releasing the messaging-layer
         token) and cancels the heartbeat timer if it is running.
         """
@@ -444,7 +446,7 @@ if __name__ == "__main__":
 
     def interactive_menu() -> None:
         """Run an interactive command-line menu for manual RMService testing.
- 
+
         Creates a :class:`WifiService` and :class:`RMService` instance, then
         presents a numbered menu that lets a developer exercise each public
         method without running the full Oradio application stack.
