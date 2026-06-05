@@ -11,7 +11,7 @@ Actions:
 TODO:
 	backlighting.py
 error_service.py: Extend with error messages from other modules
-	fastapi_service.py
+fastapi_service.py: Ok
 	gpio_service.py
 	i2c_service.py
 	led_control.py
@@ -24,7 +24,7 @@ oradio_control.py: Patched with messaging proxy for commands and errors. Refacto
 	oradio_logging.py
 	oradio_utils.py
 	power_supply_control.py
-	remote_monitoring.py
+remote_monitoring.py: doc strings en comments + update technical document
 	schemas.json
 singleton.py: Ok
 	spotify_connect_direct.py
@@ -33,8 +33,8 @@ throttling_monitor.py: Ok
 	touch_buttons.py
 usb_service.py: Ok
 	volume_control.py
-	web_service.py
-	wifi_service.py
+web_service.py: doc strings en comments + update technical documents
+wifi_service.py: Ok
 
 
 Claude: review, update doc strings and inline comments -> intelligent merge
