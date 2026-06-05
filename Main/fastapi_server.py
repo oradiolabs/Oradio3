@@ -19,7 +19,7 @@ Created on December 23, 2024
 @status:        Development
 @summary:       Web interface and FastAPI web server for Oradio.
     Serves the Oradio3 single-page application, exposes a generic
-    ``/execute`` command endpoint, and manages a keep-alive timer that
+    /execute command endpoint, and manages a keep-alive timer that
     shuts the server down when the browser stops pinging.
     Documentation:
         https://fastapi.tiangolo.com/
@@ -108,23 +108,23 @@ api_app.state.timer_deadline = None     # UTC datetime when the timer should fir
 async def keep_alive_middleware(request: Request, call_next):
     """
     Pause and restart the keep-alive timer around every non-ping request.
- 
-    The keep-alive timer is started by the first ``/keep_alive`` ping from the
+
+    The keep-alive timer is started by the first /keep_alive ping from the
     browser.  For all subsequent non-ping requests, this middleware cancels the
     running timer before passing the request to the handler, then restarts it
     with a fresh deadline once the response is ready.  This prevents the server
     from timing out while it is actively serving a request.
- 
-    ``/keep_alive`` requests are passed through without touching the timer, as
-    the ``/keep_alive`` endpoint manages the deadline itself.
- 
-    ``api_app.state.timer_started`` acts as a gate: the timer is only
+
+    /keep_alive requests are passed through without touching the timer, as
+    the /keep_alive endpoint manages the deadline itself.
+
+    api_app.state.timer_started acts as a gate: the timer is only
     managed here after the first ping has armed it.
- 
+
     Args:
         request:   The incoming HTTP request.
         call_next: ASGI callable that forwards the request to the route handler.
- 
+
     Returns:
         The HTTP response produced by the route handler.
     """
@@ -143,7 +143,7 @@ async def keep_alive_middleware(request: Request, call_next):
 
     # Restart the timer after the response is ready, again only for non-ping
     # requests once the timer has been armed
-     if request.url.path != "/keep_alive" and api_app.state.timer_started:
+    if request.url.path != "/keep_alive" and api_app.state.timer_started:
         # Reset deadline
         api_app.state.timer_deadline = datetime.now(timezone.utc) + timedelta(seconds=KEEP_ALIVE_TIMEOUT)
         # Start new timer task if not running
@@ -158,14 +158,14 @@ async def keep_alive_middleware(request: Request, call_next):
 def _get_sw_info():
     """
     Read software version metadata from the version file.
- 
-    Parses the JSON file at ``SOFTWARE_VERSION_FILE`` and extracts the
-    ``serial`` and ``gitinfo`` fields.
- 
+
+    Parses the JSON file at SOFTWARE_VERSION_FILE and extracts the
+    serial and gitinfo fields.
+
     Returns:
-        A ``{"serial": str, "version": str}`` dict on success.
-        ``INFO_MISSING`` if the file does not exist.
-        ``INFO_ERROR`` if the file is present but unreadable or invalid.
+        A {"serial": str, "version": str} dict on success.
+        INFO_MISSING if the file does not exist.
+        INFO_ERROR if the file is present but unreadable or invalid.
     """
     oradio_log.debug("Get software info")
 
@@ -188,17 +188,17 @@ def _get_sw_info():
 
 def play_song(args: Optional[Dict[str, Any]]):
     """
-    Play a song via MPD and publish a ``WEB_PLAYING_SONG`` command.
- 
+    Play a song via MPD and publish a WEB_PLAYING_SONG command.
+
     Args:
-        args: Dict containing ``"song"`` (str) — path or identifier of the
+        args: Dict containing "song" (str) — path or identifier of the
               song to play.
- 
+
     Returns:
-        ``{"message": str}`` confirming the song that was started.
- 
+        {"message": str} confirming the song that was started.
+
     Raises:
-        ValueError: If ``args`` is ``None`` or does not contain ``"song"``.
+        ValueError: If args is None or does not contain "song".
     """
     # Extract required argument, none if no args sent
     songfile = args.get("song") if args else None
@@ -219,22 +219,22 @@ def play_song(args: Optional[Dict[str, Any]]):
 def get_networks(_args: Optional[Dict[str, Any]]):
     """
     Return the list of currently visible WiFi networks.
- 
+
     Args:
         _args: Unused (leading underscore suppresses the pylint warning).
- 
+
     Returns:
-        A list of ``{"ssid": str, "type": "open" | "closed"}`` dicts as
-        returned by ``get_wifi_networks()``.
+        A list of {"ssid": str, "type": "open" | "closed"} dicts as
+        returned by get_wifi_networks().
     """
     return get_wifi_networks()
 
 def shutdown_webapp(_args: Optional[Dict[str, Any]]):
     """Request a graceful web server shutdown via the service queue.
- 
-    Places a ``MESSAGE_REQUEST_STOP`` message on ``api_app.state.queue`` so
+
+    Places a MESSAGE_REQUEST_STOP message on api_app.state.queue so
     the owning process can stop uvicorn cleanly.
- 
+
     Args:
         _args: Unused (leading underscore suppresses the pylint warning).
     """
@@ -245,21 +245,21 @@ def shutdown_webapp(_args: Optional[Dict[str, Any]]):
 def rename_spotify(args: Optional[Dict[str, Any]]):
     """
     Rename the Spotify (librespot) device and restart the service.
- 
+
     Validates the new name against the allowed character set, then updates
-    the ``librespot.service`` unit file via ``sed``, reloads the systemd
+    the librespot.service unit file via sed, reloads the systemd
     daemon, and restarts the service.
- 
+
     Args:
-        args: Dict containing ``"name"`` (str) — the new Spotify device name.
-              Allowed characters: letters, digits, hyphen (``-``), underscore (``_``).
- 
+        args: Dict containing "name" (str) — the new Spotify device name.
+              Allowed characters: letters, digits, hyphen (-), underscore (_).
+
     Returns:
-        The new device name string on success, or a ``JSONResponse`` with
+        The new device name string on success, or a JSONResponse with
         status 400 if validation fails or any shell command errors.
- 
+
     Raises:
-        ValueError: If ``args`` is ``None`` or does not contain ``"name"``.
+        ValueError: If args is None or does not contain "name".
     """
     # Extract required arguments, none if no args sent
     name = args.get("name") if args else None
@@ -305,17 +305,17 @@ def rename_spotify(args: Optional[Dict[str, Any]]):
 def wifi_connect(args: Optional[Dict[str, Any]]):
     """
     Send a WiFi connection request to the service queue.
- 
-    Places a ``MESSAGE_REQUEST_CONNECT`` message containing the SSID and
-    optional password on ``api_app.state.queue`` for the owning process to act on.
- 
+
+    Places a MESSAGE_REQUEST_CONNECT message containing the SSID and
+    optional password on api_app.state.queue for the owning process to act on.
+
     Args:
         args: Dict containing:
-            ``"ssid"`` (str, required) — target network name.
-            ``"pswd"`` (str, optional) — network password; omit for open networks.
- 
+            "ssid" (str, required) — target network name.
+            "pswd" (str, optional) — network password; omit for open networks.
+
     Raises:
-        ValueError: If ``args`` is ``None`` or does not contain ``"ssid"``.
+        ValueError: If args is None or does not contain "ssid".
     """
     # Extract required arguments, none if no args sent
     ssid = args.get("ssid") if args else None
@@ -336,20 +336,20 @@ def wifi_connect(args: Optional[Dict[str, Any]]):
 def save_preset(args: Optional[Dict[str, Any]]):
     """
     Save a playlist or webradio entry as a preset and publish the change.
- 
+
     Persists the updated preset mapping and sends the appropriate
-    ``WEB_PL*_PLAYLIST`` or ``WEB_PL*_WEBRADIO`` command so other modules
+    WEB_PL*_PLAYLIST or WEB_PL*_WEBRADIO command so other modules
     are notified of the change.
- 
+
     Args:
         args: Dict containing:
-            ``"preset"`` (str, required) — preset key: ``"preset1"``,
-            ``"preset2"``, or ``"preset3"``.
-            ``"playlist"`` (str, required) — playlist or webradio identifier
+            "preset" (str, required) — preset key: "preset1",
+            "preset2", or "preset3".
+            "playlist" (str, required) — playlist or webradio identifier
             to assign to the preset.
- 
+
     Raises:
-        ValueError: If ``args`` is ``None`` or either required key is missing.
+        ValueError: If args is None or either required key is missing.
     """
     # Extract required arguments, none if no args sent
     preset = args.get("preset") if args else None
@@ -392,15 +392,15 @@ def save_preset(args: Optional[Dict[str, Any]]):
 def get_playlist_songs(args: Optional[Dict[str, Any]]):
     """
     Return all songs contained in a given playlist.
- 
+
     Args:
-        args: Dict containing ``"playlist"`` (str) — playlist name.
- 
+        args: Dict containing "playlist" (str) — playlist name.
+
     Returns:
-        The list of songs returned by ``MPDControl.get_songs()``.
- 
+        The list of songs returned by MPDControl.get_songs().
+
     Raises:
-        ValueError: If ``args`` is ``None`` or does not contain ``"playlist"``.
+        ValueError: If args is None or does not contain "playlist".
     """
     # Extract required arguments, none if no args sent
     playlist = args.get("playlist") if args else None
@@ -414,15 +414,15 @@ def get_playlist_songs(args: Optional[Dict[str, Any]]):
 def get_search_songs(args: Optional[Dict[str, Any]]):
     """
     Return songs matching a search pattern.
- 
+
     Args:
-        args: Dict containing ``"pattern"`` (str) — search string.
- 
+        args: Dict containing "pattern" (str) — search string.
+
     Returns:
-        The list of matching songs returned by ``MPDControl.search()``.
- 
+        The list of matching songs returned by MPDControl.search().
+
     Raises:
-        ValueError: If ``args`` is ``None`` or does not contain ``"pattern"``.
+        ValueError: If args is None or does not contain "pattern".
     """
     # Extract required arguments, none if no args sent
     pattern = args.get("pattern") if args else None
@@ -435,20 +435,20 @@ def get_search_songs(args: Optional[Dict[str, Any]]):
 
 def modify_playlist(args: Optional[Dict[str, Any]]):
     """Add or remove a song or playlist via MPD and return the updated playlist list.
- 
+
     Args:
         args: Dict containing:
-            ``"action"`` (str, required) — ``"Add"`` or ``"Remove"``.
-            ``"playlist"`` (str, required) — target playlist name.
-            ``"song"`` (str, optional) — song to add or remove; omit to
+            "action" (str, required) — "Add" or "Remove".
+            "playlist" (str, required) — target playlist name.
+            "song" (str, optional) — song to add or remove; omit to
             operate on the playlist itself.
- 
+
     Returns:
         The updated list of custom playlists on success, or a
-        ``JSONResponse`` with status 400 if ``action`` is not recognised.
- 
+        JSONResponse with status 400 if action is not recognised.
+
     Raises:
-        ValueError: If ``args`` is ``None`` or a required key is missing.
+        ValueError: If args is None or a required key is missing.
     """
     # Extract required arguments, none if no args sent
     action = args.get("action") if args else None
@@ -490,15 +490,15 @@ def modify_playlist(args: Optional[Dict[str, Any]]):
 def log_message(args: Optional[Dict[str, Any]]):
     """
     Log a message originating from the web interface.
- 
+
     Allows the browser-side JavaScript to write entries into the server-side
     log for debugging purposes.
- 
+
     Args:
-        args: Dict containing ``"message"`` (str) — the text to log.
- 
+        args: Dict containing "message" (str) — the text to log.
+
     Raises:
-        ValueError: If ``args`` is ``None`` or does not contain ``"message"``.
+        ValueError: If args is None or does not contain "message".
     """
     # Extract required arguments, none if no args sent
     message = args.get("message") if args else None
@@ -511,8 +511,8 @@ def log_message(args: Optional[Dict[str, Any]]):
 
 class ExecuteRequest(BaseModel):
     """
-    Request body model for the ``/execute`` endpoint.
- 
+    Request body model for the /execute endpoint.
+
     Attributes:
         cmd:  Name of the command to execute.
         args: Optional dict of command-specific arguments.
@@ -525,16 +525,16 @@ class ExecuteRequest(BaseModel):
 async def execute(request: ExecuteRequest):
     """
     Dispatch a command from the web interface to the appropriate handler.
- 
-    Looks up ``request.cmd`` in the command dispatch table and calls the
-    associated function with ``request.args``.
- 
+
+    Looks up request.cmd in the command dispatch table and calls the
+    associated function with request.args.
+
     Args:
-        request: Parsed ``ExecuteRequest`` body from the POST payload.
- 
+        request: Parsed ExecuteRequest body from the POST payload.
+
     Returns:
         The handler's return value on success (type varies by command), or a
-        ``JSONResponse`` with status 400 if the command name is unknown or a
+        JSONResponse with status 400 if the command name is unknown or a
         required argument is missing.
     """
     oradio_log.debug("Executing '%s' with args '%s'", request.cmd, request.args)
@@ -573,17 +573,17 @@ async def execute(request: ExecuteRequest):
 async def oradio3_page(request: Request):
     """
     Render and serve the Oradio3 web interface page.
- 
+
     Assembles the full template context by gathering the last connected
     WiFi network, the current Spotify device name, saved presets, available
     MPD directories and playlists, and software version information.
- 
+
     Args:
         request: The incoming HTTP request (passed through to the template engine).
- 
+
     Returns:
-        A ``TemplateResponse`` rendering ``oradio3.html`` with the assembled
-        context, or a ``JSONResponse`` with status 400 if reading the Spotify
+        A TemplateResponse rendering oradio3.html with the assembled
+        context, or a JSONResponse with status 400 if reading the Spotify
         device name fails.
     """
     oradio_log.debug("Serving Oradio3 page")
@@ -632,12 +632,12 @@ async def oradio3_page(request: Request):
 async def stop_task():
     """
     Background asyncio task that fires when the keep-alive deadline passes.
- 
+
     Polls the deadline in short intervals so cancellation is responsive.
-    Once the deadline is reached, places a ``MESSAGE_REQUEST_STOP`` message on
+    Once the deadline is reached, places a MESSAGE_REQUEST_STOP message on
     the service queue to trigger a graceful shutdown.
- 
-    If the task is cancelled (because a new ``/keep_alive`` ping reset the
+
+    If the task is cancelled (because a new /keep_alive ping reset the
     deadline) it exits silently without sending the stop message.
     """
     try:
@@ -667,14 +667,14 @@ async def stop_task():
 async def keep_alive():
     """
     Reset the inactivity timer; arm it on the first call.
- 
-    The first ping arms the timer (sets ``timer_started = True``) so that
-    ``keep_alive_middleware`` begins managing it for subsequent requests.
-    Every ping then refreshes the deadline and ensures a ``stop_task``
+
+    The first ping arms the timer (sets timer_started = True) so that
+    keep_alive_middleware begins managing it for subsequent requests.
+    Every ping then refreshes the deadline and ensures a stop_task
     coroutine is running.
- 
+
     Returns:
-        ``JSONResponse({"status": "ok"})`` always.
+        JSONResponse({"status": "ok"}) always.
     """
     now = datetime.now(timezone.utc)
 
@@ -703,17 +703,17 @@ async def keep_alive():
 async def catch_all(request: Request):
     """
     Handle any request that did not match a defined route.
- 
-    Passes ``/static/`` requests through to the static file handler.
-    All other unmatched paths are redirected to ``/oradio3`` via the
+
+    Passes /static/ requests through to the static file handler.
+    All other unmatched paths are redirected to /oradio3 via the
     fully-qualified access-point URL.
- 
+
     Args:
         request: The incoming HTTP request.
- 
+
     Returns:
-        A ``FileResponse`` for ``/static/`` paths, or a ``302 RedirectResponse``
-        to ``{oradioap_url}/oradio3`` for all other unmatched paths.
+        A FileResponse for /static/ paths, or a 302 RedirectResponse
+        to {oradioap_url}/oradio3 for all other unmatched paths.
     """
     oradio_log.debug("Catchall triggered for path: %s", request.url.path)
 
@@ -751,13 +751,13 @@ if __name__ == '__main__':
 
     def _check_messages(queue):
         """Monitor the service message queue and print received messages.
- 
-        Runs in a child process. Loops until ``stop_event`` is set, printing
-        each message from ``queue`` as it arrives. Exits cleanly on
-        ``KeyboardInterrupt``.
- 
+
+        Runs in a child process. Loops until stop_event is set, printing
+        each message from queue as it arrives. Exits cleanly on
+        KeyboardInterrupt.
+
         Args:
-            queue: ``multiprocessing.Queue`` to drain.
+            queue: multiprocessing.Queue to drain.
         """
         try:
             while not stop_event.is_set():
