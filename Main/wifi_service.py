@@ -32,7 +32,7 @@ Created on December 23, 2024
         Connecting to VPN.
 """
 from threading import Thread
-from multiprocessing import Process, Queue, Lock
+from multiprocessing import Process, Lock
 from subprocess import CalledProcessError
 import nmcli
 import nmcli._exception as nmcli_exc
@@ -44,7 +44,7 @@ from gi.repository import GLib
 ##### oradio modules ####################
 from singleton import singleton
 from oradio_logging import oradio_log
-from oradio_utils import run_shell_script, safe_put  # has_internet removed: NM Connectivity property is used instead
+from oradio_utils import run_shell_script  # has_internet removed: NM Connectivity property is used instead
 from messaging import (
     CommandMessage,
     publish_command,
@@ -54,6 +54,7 @@ from messaging import (
     WIFI_CONNECTED,
     WIFI_DISCONNECTED,
     WIFI_ACCESS_POINT,
+    WIFI_ERROR_DBUS,
     WIFI_ERROR_NMCLI,
     WIFI_ERROR_CONNECT,
     WIFI_ERROR_DISCONNECT,
@@ -63,7 +64,6 @@ from messaging import (
 from oradio_const import (
     ACCESS_POINT_HOST,
     ACCESS_POINT_SSID,
-    MESSAGE_NO_ERROR,
 )
 
 ##### LOCAL constants ####################

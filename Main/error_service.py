@@ -35,6 +35,7 @@ from messaging import (
     USB_ERROR_FILE,
     USB_ERROR_SERVICE,
     WIFI_SOURCE,
+    WIFI_ERROR_DBUS,
     WIFI_ERROR_NMCLI,
     WIFI_ERROR_CONNECT,
     WIFI_ERROR_DISCONNECT,
@@ -47,7 +48,8 @@ TEST_SOURCE = "Test error message"
 # Placeholder source name used to exercise the unrecognised-error code path
 UNEXPECTED = "Unexpected source"
 
-def error_handler(error) -> bool | None:   # pylint: disable=inconsistent-return-statements
+# Pylint allows more than 12 branches here because this is a test menu
+def error_handler(error) -> bool | None:   # pylint: disable=too-many-branches,inconsistent-return-statements
     """
     Handle an incoming error message and attempt mitigation.
 
@@ -86,6 +88,9 @@ def error_handler(error) -> bool | None:   # pylint: disable=inconsistent-return
             return False
 
     elif error.source == WIFI_SOURCE:
+        if error.message == WIFI_ERROR_DBUS:
+# NIET VERGETEN: implement D-Bus event handler error recovery
+            oradio_log.debug("Failed D-Bus event handler error mitigation to be implemented")
         if error.message == WIFI_ERROR_NMCLI:
 # NIET VERGETEN: implement failed to interact with NetworkManager error recovery
             oradio_log.debug("Failed to interact with NetworkManager error mitigation to be implemented")
