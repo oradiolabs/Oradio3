@@ -28,16 +28,15 @@ import json
 import subprocess
 from time import sleep
 from datetime import datetime
+from threading import Timer, Lock
 from platform import python_version
-from threading import Thread, Timer, Lock
-from multiprocessing import Queue
 from requests import post, RequestException, Timeout
 
 ##### oradio modules ####################
 from singleton import singleton
-from oradio_logging import oradio_log
-from oradio_utils import get_serial, safe_put
+from oradio_utils import get_serial
 from wifi_service import WifiService
+from oradio_logging import oradio_log
 from messaging import (
     subscribe_commands,
     unsubscribe_commands,
@@ -232,11 +231,11 @@ class RMService:
 
     def _wifi_listener(self, message) -> None:
         """Thread that processes messages from WifiService and manage heartbeat."""
-        if state == WIFI_DISCONNECTED:
+        if message == WIFI_DISCONNECTED:
             # Use class method to stop the heartbeat timer
             Heartbeat.stop_heartbeat()
 
-        if state == WIFI_CONNECTED:
+        if message == WIFI_CONNECTED:
             # Use class method to start the heartbeat timer
             Heartbeat.start_heartbeat(HEARTBEAT_REPEAT, self.send_message, args = (HEARTBEAT,))
             # Send system info
