@@ -50,6 +50,21 @@ from messaging import (
     USB_SOURCE,
     USB_ABSENT,
     USB_PRESENT,
+    WIFI_SOURCE,
+    WIFI_CONNECTED,
+    WIFI_DISCONNECTED,
+    WIFI_ACCESS_POINT,
+    WIFI_ERROR_CONNECT,
+    WEB_SOURCE,
+    WEB_IDLE,
+    WEB_ACTIVE,
+    WEB_PL1_PLAYLIST,
+    WEB_PL2_PLAYLIST,
+    WEB_PL3_PLAYLIST,
+    WEB_PL1_WEBRADIO,
+    WEB_PL2_WEBRADIO,
+    WEB_PL3_WEBRADIO,
+    WEB_PLAYING_SONG,
 )
 
 ##### GLOBAL constants ####################
@@ -57,26 +72,11 @@ from oradio_const import (
     MESSAGE_NO_ERROR,
     MESSAGE_VOLUME_SOURCE,
     MESSAGE_VOLUME_CHANGED,
-    STATE_WEB_SERVICE_IDLE,
-    STATE_WEB_SERVICE_ACTIVE,
-    MESSAGE_WEB_SERVICE_PL1_PLAYLIST,
-    MESSAGE_WEB_SERVICE_PL2_PLAYLIST,
-    MESSAGE_WEB_SERVICE_PL3_PLAYLIST,
-    MESSAGE_WEB_SERVICE_PL1_WEBRADIO,
-    MESSAGE_WEB_SERVICE_PL2_WEBRADIO,
-    MESSAGE_WEB_SERVICE_PL3_WEBRADIO,
-    MESSAGE_WEB_SERVICE_PLAYING_SONG,
-    MESSAGE_WEB_SERVICE_SOURCE,
     MESSAGE_SPOTIFY_SOURCE,
     SPOTIFY_CONNECT_CONNECTED_EVENT,
     SPOTIFY_CONNECT_DISCONNECTED_EVENT,
     SPOTIFY_CONNECT_PAUSED_EVENT,
     SPOTIFY_CONNECT_PLAYING_EVENT,
-    MESSAGE_WIFI_SOURCE,
-    MESSAGE_WIFI_FAIL_CONNECT,
-    STATE_WIFI_ACCESS_POINT,
-    STATE_WIFI_CONNECTED,
-    STATE_WIFI_IDLE,
     SOUND_START,
     SOUND_STOP,
     SOUND_PLAY,
@@ -662,22 +662,22 @@ HANDLERS = {
         USB_PRESENT: on_usb_present,
         # "USB error": on_usb_error,
     },
-    MESSAGE_WIFI_SOURCE: {
-        STATE_WIFI_IDLE: on_wifi_not_connected,
-        STATE_WIFI_CONNECTED: on_wifi_connected,
-        STATE_WIFI_ACCESS_POINT: on_wifi_access_point,
-        MESSAGE_WIFI_FAIL_CONNECT: on_wifi_fail_connect,
+    WIFI_SOURCE: {
+        WIFI_DISCONNECTED: on_wifi_not_connected,
+        WIFI_CONNECTED: on_wifi_connected,
+        WIFI_ACCESS_POINT: on_wifi_access_point,
+        WIFI_ERROR_CONNECT: on_wifi_fail_connect,
     },
-    MESSAGE_WEB_SERVICE_SOURCE: {
-        STATE_WEB_SERVICE_IDLE: on_webservice_idle,
-        STATE_WEB_SERVICE_ACTIVE: on_webservice_active,
-        MESSAGE_WEB_SERVICE_PLAYING_SONG: on_webservice_playing_song,
-        MESSAGE_WEB_SERVICE_PL1_PLAYLIST: on_webservice_pl1_changed,
-        MESSAGE_WEB_SERVICE_PL2_PLAYLIST: on_webservice_pl2_changed,
-        MESSAGE_WEB_SERVICE_PL3_PLAYLIST: on_webservice_pl3_changed,
-        MESSAGE_WEB_SERVICE_PL1_WEBRADIO: on_web_pl1_webradio_changed,
-        MESSAGE_WEB_SERVICE_PL2_WEBRADIO: on_web_pl2_webradio_changed,
-        MESSAGE_WEB_SERVICE_PL3_WEBRADIO: on_web_pl3_webradio_changed,
+    WEB_SOURCE: {
+        WEB_IDLE: on_webservice_idle,
+        WEB_ACTIVE: on_webservice_active,
+        WEB_PLAYING_SONG: on_webservice_playing_song,
+        WEB_PL1_PLAYLIST: on_webservice_pl1_changed,
+        WEB_PL2_PLAYLIST: on_webservice_pl2_changed,
+        WEB_PL3_PLAYLIST: on_webservice_pl3_changed,
+        WEB_PL1_WEBRADIO: on_web_pl1_webradio_changed,
+        WEB_PL2_WEBRADIO: on_web_pl2_webradio_changed,
+        WEB_PL3_WEBRADIO: on_web_pl3_webradio_changed,
     },
     MESSAGE_SPOTIFY_SOURCE: {
         SPOTIFY_CONNECT_CONNECTED_EVENT: on_spotify_connect_connected,
@@ -799,7 +799,6 @@ subscribe_errors(error_handler)
 # Instantiate the state machine
 state_machine = StateMachine()
 
-#REVIEW Onno: Gebruik shared queue om remote commando's door oradio control te laten doen, inclusief feedback naar gebruiker
 # Instantiate remote monitor managing the heartbeat and sys_info messages when wifi state changes
 remote_monitor = RMService()
 
@@ -807,8 +806,9 @@ remote_monitor = RMService()
 spotify_connect = SpotifyConnect(shared_queue)
 
 # Initialize the oradio_usb class
+# REVIEW Onno: start de USB monitor
 oradio_usb_service = USBService()
-# sync the usb_present tracker
+# REVIEW Onno: sync_usb_presence_from_service is overbodig, want USB status komt via de command queue
 sync_usb_presence_from_service()
 
 touch_buttons = TouchButtons(shared_queue)
@@ -816,8 +816,10 @@ touch_buttons = TouchButtons(shared_queue)
 
 volume_control = VolumeControl(shared_queue)
 
-# ---------Initialize the web_service---------
-oradio_web_service = WebService(shared_queue)
+# REVIEW Onno: start de NetworkManager event listener
+oradio_wifi_service = WifiService()
+
+oradio_web_service = WebService()
 
 # inject the services into the Statemachine
 state_machine.set_services(oradio_web_service)
