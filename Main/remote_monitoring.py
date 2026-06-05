@@ -38,12 +38,16 @@ from singleton import singleton
 from oradio_logging import oradio_log
 from oradio_utils import get_serial, safe_put
 from wifi_service import WifiService
+from messaging import (
+    subscribe_commands,
+    unsubscribe_commands,
+    WIFI_DISCONNECTED,
+    WIFI_CONNECTED,
+)
 
 ##### GLOBAL constants ####################
 from oradio_const import (
     YELLOW, NC,
-    STATE_WIFI_IDLE,
-    STATE_WIFI_CONNECTED,
 )
 
 ##### LOCAL constants ####################
@@ -221,47 +225,23 @@ class RMService:
         # Cach Raspberry Pi serial number
         self._serial = get_serial()
 
-        # Queue for receiving messages from wifi service
-        self._wifi_queue = Queue()
+        # Register _command_handler with the messaging layer.  subscribe_commands() starts
+        # a daemon thread internally, so the handler runs in the background without blocking
+        # the main application thread, and is automatically torn down when the process exits.
+        self.token = subscribe_commands(self._wifi_listener)
 
-        # Start wifi listener thread
-        self._listener_thread = Thread(target=self._wifi_listener, daemon=True)
-        self._listener_thread.start()
-
-        # Create the wifi service interface
-        self.wifi_service = WifiService(self._wifi_queue)
-
-    def _wifi_listener(self) -> None:
+    def _wifi_listener(self, message) -> None:
         """Thread that processes messages from WifiService and manage heartbeat."""
-        while True:
-            # Wait indefinitely until a message arrives from the server/wifi service
-            message = self._wifi_queue.get(block=True, timeout=None)
-            oradio_log.debug("Message received: '%s'", message)
+        if state == WIFI_DISCONNECTED:
+            # Use class method to stop the heartbeat timer
+            Heartbeat.stop_heartbeat()
 
-            # Get the wifi message
-            state = message.get("state")
-
-            # Check if the thread needs to stop
-            if state == STOP_LISTENER:
-                # Use class method to stop the heartbeat timer
-                Heartbeat.stop_heartbeat()
-                # Stop the message listener
-                break
-
-            if state == STATE_WIFI_IDLE:
-                # Use class method to stop the heartbeat timer
-                Heartbeat.stop_heartbeat()
-                # Continue listening for further messages
-                continue
-
-            if state == STATE_WIFI_CONNECTED:
-                # Use class method to start the heartbeat timer
-                Heartbeat.start_heartbeat(HEARTBEAT_REPEAT, self.send_message, args = (HEARTBEAT,))
-                # Send system info
-                self.send_message(SYS_INFO)
-                oradio_log.debug("WiFi connected. Heartbeat started and system info sent.")
-                # Continue listening for further messages
-                continue
+        if state == WIFI_CONNECTED:
+            # Use class method to start the heartbeat timer
+            Heartbeat.start_heartbeat(HEARTBEAT_REPEAT, self.send_message, args = (HEARTBEAT,))
+            # Send system info
+            self.send_message(SYS_INFO)
+            oradio_log.debug("WiFi connected. Heartbeat started and system info sent.")
 
     def send_message(self, msg_type) -> None:
         """
@@ -323,27 +303,18 @@ class RMService:
     def close(self) -> None:
         """Stop wifi listener and heartbeat safely."""
         # Unsubscribe from wifi service
-        self.wifi_service.close()
+        unsubscribe_commands(self.token)
 
-        # Send message for wifi mmessage listener to stop
-        safe_put(self._wifi_queue, {"state": STOP_LISTENER})
-
-        # Avoid hanging forever if the thread is stuck in I/O
-        self._listener_thread.join(timeout=LISTENER_TIMEOUT)
-
-        if self._listener_thread.is_alive():
-            oradio_log.error("Join timed out: wifi listener thread is still running")
+        # Use class method to stop the heartbeat timer
+        Heartbeat.stop_heartbeat()
 
 if __name__ == "__main__":
 
-# Most modules use similar code in stand-alone
-# pylint: disable=duplicate-code
+    # Most modules use similar code in stand-alone
+    # pylint: disable=duplicate-code
 
     def interactive_menu() -> None:
         """Show menu with test options"""
-        # Instantiate RMS service
-        rms = RMService()
-
         input_selection = (
             "Select a function, input the number.\n"
             " 0-Quit\n"
@@ -355,6 +326,12 @@ if __name__ == "__main__":
             " 6-Disconnect wifi\n"
             "Select: "
         )
+
+        # Create the wifi service interface
+        wifi_service = WifiService()
+
+        # Instantiate RMS service
+        rms = RMService()
 
         # User command loop
         while True:
@@ -387,18 +364,18 @@ if __name__ == "__main__":
                     name = input("Enter SSID of the network to add: ")
                     pswrd = input("Enter password for the network to add (empty for open network): ")
                     if name:
-                        rms.wifi_service.wifi_connect(name, pswrd)
+                        wifi_service.wifi_connect(name, pswrd)
                         print(f"\nConnecting with '{name}'. Check messages for result\n")
                     else:
                         print(f"\n{YELLOW}No network given{NC}\n")
                 case 6:
                     print("\nDisconnecting wifi...\n")
-                    rms.wifi_service.wifi_disconnect()
+                    wifi_service.wifi_disconnect()
                 case _:
                     print("\nPlease input a valid number\n")
 
     # Present menu with tests
     interactive_menu()
 
-# Restore temporarily disabled pylint duplicate code check
-# pylint: enable=duplicate-code
+    # Restore temporarily disabled pylint duplicate code check
+    # pylint: enable=duplicate-code
