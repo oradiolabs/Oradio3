@@ -57,7 +57,6 @@ from messaging import (
 
 #### GLOBAL constants ####################
 from oradio_const import (
-    GREEN, NC,
     WEB_SERVER_HOST,
     WEB_SERVER_PORT,
     ACCESS_POINT_HOST,
@@ -729,8 +728,10 @@ if __name__ == '__main__':
 
     # Imports only needed for the interactive self-test
     import uvicorn
+    from queue import Empty
+    from multiprocessing import Event, Queue, Process
     from messaging import Topic, subscribe_commands, subscribe_errors   # pylint: disable=ungrouped-imports,wrong-import-position
-    from oradio_const import RED, GREEN, YELLOW, NC                     # pylint: disable=ungrouped-imports,wrong-import-position
+    from oradio_const import GREEN, NC                                  # pylint: disable=ungrouped-imports,wrong-import-position
 
     # Most stand-alone entry points share this pattern across modules
     # pylint: disable=duplicate-code
