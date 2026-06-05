@@ -29,14 +29,14 @@ Created on December 23, 2024
 import time
 import socket
 from pathlib import Path
+from multiprocessing import Queue
 from threading import Thread, Event, Lock
-from multiprocessing import Process, Queue
 import asyncio
 import uvicorn
 
 ##### oradio modules ####################
 from oradio_logging import oradio_log, ORADIO_LOG_LEVEL
-from oradio_utils import safe_put, run_shell_script
+from oradio_utils import run_shell_script
 from fastapi_server import api_app
 from wifi_service import WifiService, get_wifi_connection
 from messaging import (
@@ -56,7 +56,6 @@ from messaging import (
 
 ##### GLOBAL constants ####################
 from oradio_const import (
-    RED, GREEN, YELLOW, NC,
     ACCESS_POINT_HOST,
     ACCESS_POINT_SSID,
     WEB_SERVER_HOST,
