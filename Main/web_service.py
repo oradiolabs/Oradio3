@@ -41,7 +41,6 @@ import time
 from pathlib import Path
 from multiprocessing import Queue
 from threading import Thread, Lock
-import asyncio
 import uvicorn
 
 ##### oradio modules ####################
@@ -93,8 +92,7 @@ class UvicornServerThread:
     Manage a Uvicorn ASGI server running in a background daemon thread.
 
     Uses uvicorn.Server.run() as the thread target directly, and polls
-    server.started (set by Uvicorn once sockets are bound) to determine
-    readiness — no socket probing or asyncio wrapping required.
+    server.started (set by Uvicorn once sockets are bound) to determine readiness.
 
     A fresh Server instance is created on each call to start() so that
     internal Uvicorn state (started, should_exit) is always clean.
@@ -144,7 +142,6 @@ class UvicornServerThread:
             oradio_log.info("Starting Uvicorn server...")
             self._server = uvicorn.Server(self._config)
 
-            # server.run() calls asyncio.run(self.serve()) internally
             self._thread = Thread(target=self._server.run, daemon=True)
             self._thread.start()
 
