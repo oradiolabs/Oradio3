@@ -67,6 +67,7 @@ WEB_PL3_WEBRADIO = "PL3 changed to webradio"
 WEB_PLAYING_SONG = "web service plays a song"
 WEB_ERROR_START  = "web service failed to start"
 WEB_ERROR_STOP   = "web service failed to stop"
+
 '''
 # Messages from fastapi to web service
 MESSAGE_REQUEST_CONNECT = "connect to wifi network"
@@ -87,8 +88,6 @@ MESSAGE_SHORT_PRESS_BUTTON_PRESET3  = MESSAGE_BUTTON_SHORT_PRESS + BUTTON_PRESET
 MESSAGE_BUTTON_LONG_PRESS   = "Long press:"
 MESSAGE_LONG_PRESS_BUTTON_PLAY     = MESSAGE_BUTTON_LONG_PRESS + BUTTON_PLAY
 '''
-
-
 
 ##### LOCAL constants ####################
 
@@ -167,7 +166,7 @@ class ErrorMessage:
 
 ##### Helpers ##################################
 
-def _safe_get(queue: Queue) -> CommandMessage | ErrorMessage | NoReturn:
+def _safe_get(queue: Queue) -> CommandMessage | ErrorMessage | object:
     """
     Retrieve the next item from a multiprocessing queue, blocking until available.
 
@@ -181,11 +180,9 @@ def _safe_get(queue: Queue) -> CommandMessage | ErrorMessage | NoReturn:
         queue: The multiprocessing queue to read from.
 
     Returns:
-        The next item from the queue (a CommandMessage, ErrorMessage,
-        or _STOP_SENTINEL).
+        The next item from the queue (a CommandMessage, ErrorMessage, or _STOP_SENTINEL).
     """
     try:
-        # Wait for a message indefinitely
         return queue.get()
 
     except (OSError, EOFError, BrokenPipeError) as ex_err:
@@ -223,7 +220,7 @@ def _fatal_exit(message: str, *, exc: BaseException | None = None, code: int = 1
     sys.stderr.flush()
     sys.stdout.flush()
 
-    # Exit python execution
+    # Immediate exit python execution witohut any cleanup
     os._exit(code)
 
 ##### Pub-Sub Infrastructure ####################
@@ -354,10 +351,13 @@ class PubSubManager:
             last_error, last_exc = fatal_errors[-1]
             _fatal_exit(last_error, exc=last_exc)
 
-        # Start the listener thread after releasing the lock.  Any messages
-        # published between cache-replay and thread-start land in the queue
-        # and will be drained once the thread begins running.
-        Thread(target=_subscription_listener, args=(queue, callback, args), daemon=True).start()
+        # Store the thread before starting it so unsubscribe() can join it.
+        # Any messages published between cache-replay and thread-start are
+        # buffered in the queue and drained once the thread begins running.
+        thread = Thread(target=_subscription_listener, args=(queue, callback, args), daemon=True)
+        with self.lock:
+            self._threads[queue] = thread
+        thread.start()
 
         # Return the queue as an opaque subscription token for unsubscribe()
         return queue
