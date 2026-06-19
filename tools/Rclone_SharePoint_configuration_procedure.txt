@@ -1,0 +1,357 @@
+RCLONE SHAREPOINT CONFIGURATION AND TOKEN RENEWAL PROCEDURE
+Stichting Oradio – Raspberry Pi headless setup
+
+Purpose
+-------
+This document describes how to create a completely new rclone SharePoint
+configuration on a headless Raspberry Pi, while using a browser on a Mac or
+other computer for the Microsoft login.
+
+The complete rclone configuration is created and stored on the Raspberry Pi.
+The Mac is only used to open the Microsoft authorization page.
+
+Important security note
+-----------------------
+Never copy or publish the contents of rclone.conf or the token shown during
+configuration. The file contains an access token and a refresh token.
+
+Use the following permissions for the finished configuration file:
+
+    chmod 600 /home/pi/.config/rclone/rclone.conf
+
+
+1. Start an SSH session with port forwarding
+---------------------------------------------
+
+On the Mac, open Terminal and connect to the Raspberry Pi:
+
+    ssh -L 53682:127.0.0.1:53682 pi@oradio
+
+If the hostname does not resolve, use the Raspberry Pi IP address:
+
+    ssh -L 53682:127.0.0.1:53682 pi@192.168.1.xxx
+
+The -L option forwards port 53682 from the Mac to the temporary rclone
+authorization server on the Raspberry Pi.
+
+Keep this SSH session open until the configuration has finished.
+
+
+2. Start with a new rclone configuration
+----------------------------------------
+
+Create the configuration directory:
+
+    mkdir -p /home/pi/.config/rclone
+
+Optional: back up an existing configuration:
+
+    cp /home/pi/.config/rclone/rclone.conf \
+       /home/pi/.config/rclone/rclone.conf.backup-$(date +%Y%m%d-%H%M%S) \
+       2>/dev/null || true
+
+Remove the active configuration to start completely fresh:
+
+    rm -f /home/pi/.config/rclone/rclone.conf
+
+Start rclone config:
+
+    rclone --config /home/pi/.config/rclone/rclone.conf config
+
+
+3. Create the new remote
+------------------------
+
+At the rclone menu choose:
+
+    n
+
+For the remote name enter:
+
+    stichtingsharepoint
+
+Do not include a colon.
+
+For the storage type enter:
+
+    onedrive
+
+For client_id press Enter.
+
+For client_secret press Enter.
+
+For the Microsoft cloud region choose the default global option, usually by
+pressing Enter.
+
+For advanced configuration answer:
+
+    n
+
+
+4. Authorize through the browser on the Mac
+-------------------------------------------
+
+At:
+
+    Use web browser to automatically authenticate rclone with remote?
+
+answer:
+
+    y
+
+Rclone will display a URL similar to:
+
+    http://127.0.0.1:53682/auth?state=...
+
+Copy the complete URL and open it in the browser on the Mac.
+
+Because the SSH connection was started with port forwarding, this local URL
+on the Mac is forwarded to rclone running on the Raspberry Pi.
+
+In the browser:
+
+1. Sign in with the Stichting Oradio Microsoft account.
+2. Approve access if requested.
+3. Wait for the confirmation page.
+4. Return to the SSH terminal.
+
+The Raspberry Pi should report:
+
+    NOTICE: Got code
+
+A message such as:
+
+    channel 3: open failed: connect failed: Connection refused
+
+may appear after authorization. This is harmless when "Got code" has already
+been shown. It normally means the temporary authorization server has already
+closed while the browser or tunnel attempted one final connection.
+
+
+5. Select the SharePoint site
+-----------------------------
+
+At:
+
+    Option config_type.
+    Type of connection
+
+choose:
+
+    3
+
+This selects:
+
+    Sharepoint site name or URL
+
+Enter this site URL:
+
+    https://stichtingoradio.sharepoint.com/sites/StichtingOradioOneDrive
+
+Do not use the longer browser URL containing:
+
+    Shared Documents/Forms/AllItems.aspx
+
+
+6. Select the document library
+------------------------------
+
+Rclone should show:
+
+    1 / Documents (documentLibrary)
+
+Choose:
+
+    1
+
+Rclone may then report:
+
+    Found drive "root" of type "documentLibrary"
+    URL: https://stichtingoradio.sharepoint.com/sites/StichtingOradioOneDrive/Shared%20Documents
+
+At:
+
+    Drive OK?
+
+answer:
+
+    y
+
+At:
+
+    Keep this "stichtingsharepoint" remote?
+
+answer:
+
+    y
+
+When returned to the main configuration menu, quit with:
+
+    q
+
+
+7. Test the new configuration
+-----------------------------
+
+Test the known top-level folder:
+
+    rclone --config /home/pi/.config/rclone/rclone.conf \
+      lsd stichtingsharepoint:Docs_StichtingOradio
+
+Expected folders include:
+
+    Documentation_RW
+    Evaluaties
+    Masterplan_planning
+    Music_Read_Only
+    Promotie_Materiaal_Intern
+    Releases
+    Serial_HW_coupling_Read_only
+    Social
+
+Test the exact USB source folder:
+
+    rclone --config /home/pi/.config/rclone/rclone.conf \
+      lsd stichtingsharepoint:Docs_StichtingOradio/Music_Read_Only/Oradio3USB
+
+If both commands work, the SharePoint configuration is correct.
+
+
+8. Protect the configuration file
+---------------------------------
+
+Restrict the file permissions:
+
+    chmod 600 /home/pi/.config/rclone/rclone.conf
+
+
+9. Encrypt the configuration for the USB sync script
+-----------------------------------------------------
+
+Create an encrypted copy:
+
+    openssl enc -aes-256-cbc -pbkdf2 -salt \
+      -in /home/pi/.config/rclone/rclone.conf \
+      -out /tmp/sharepoint.conf.enc \
+      -base64
+
+Enter the same encryption password expected by the USB sync script.
+
+
+10. Verify the encrypted configuration
+--------------------------------------
+
+Decrypt it temporarily:
+
+    openssl enc -d -aes-256-cbc -pbkdf2 -base64 \
+      -in /tmp/sharepoint.conf.enc \
+      -out /tmp/rclone-test.conf
+
+Test the decrypted configuration:
+
+    rclone --config /tmp/rclone-test.conf \
+      lsd stichtingsharepoint:Docs_StichtingOradio/Music_Read_Only/Oradio3USB
+
+If the test succeeds, remove the temporary plaintext file:
+
+    shred -u /tmp/rclone-test.conf
+
+
+11. Replace the encrypted block in the USB sync script
+------------------------------------------------------
+
+Display the encrypted Base64 block:
+
+    cat /tmp/sharepoint.conf.enc
+
+Copy all Base64 lines and replace the old encrypted data in the USB sync script
+between:
+
+    -----BEGIN ENCRYPTED RCLOUD CONFIG-----
+
+and:
+
+    -----END ENCRYPTED RCLOUD CONFIG-----
+
+Keep both marker lines.
+
+The structure must remain:
+
+    cat <<'ENCRYPTED' > "$RCLONE_TMP"
+    -----BEGIN ENCRYPTED RCLOUD CONFIG-----
+    U2FsdGVkX1...
+    ...new encrypted Base64 data...
+    -----END ENCRYPTED RCLOUD CONFIG-----
+    ENCRYPTED
+
+
+12. Test the complete USB sync script
+-------------------------------------
+
+Run the USB sync script and choose the dry-run option first:
+
+    Do you only want to check for differences? [y/N]: y
+
+Confirm that the script reports:
+
+    SharePoint connection verified successfully
+
+Only after the dry run succeeds should the real synchronization be started.
+
+
+13. Clean up
+------------
+
+Remove the temporary encrypted file after the script has been updated and
+tested:
+
+    rm -f /tmp/sharepoint.conf.enc
+
+
+Token renewal notes
+-------------------
+
+Microsoft refresh tokens may stop working after a long period without use or
+because of Microsoft account or tenant security policies.
+
+To reduce the chance of expiry, run a small rclone command periodically, for
+example with a systemd timer:
+
+    rclone --config /home/pi/.config/rclone/rclone.conf \
+      lsd stichtingsharepoint: >/dev/null
+
+Important: the persistent rclone.conf and the encrypted copy embedded in the
+USB sync script are separate. If the token in rclone.conf is renewed, the
+encrypted block in the USB sync script must also be regenerated and replaced.
+
+
+Troubleshooting
+---------------
+
+1. "Couldn't decode response"
+   Ensure the same rclone version is used on both systems when using the
+   rclone authorize method. This procedure avoids that issue by using the
+   browser callback through SSH port forwarding.
+
+2. "channel 3: open failed: connect failed: Connection refused"
+   This is harmless if "NOTICE: Got code" has already appeared.
+
+3. Wrong SharePoint site or library
+   Use:
+
+       https://stichtingoradio.sharepoint.com/sites/StichtingOradioOneDrive
+
+   and select:
+
+       Documents (documentLibrary)
+
+4. Configuration works but USB script fails
+   The USB script may still contain an older encrypted configuration block.
+   Re-encrypt the current rclone.conf and replace the embedded block.
+
+5. Never share tokens
+   Do not publish output containing:
+   - access_token
+   - refresh_token
+   - token JSON
+   - the complete contents of rclone.conf
