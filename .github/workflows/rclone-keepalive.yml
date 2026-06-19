@@ -11,7 +11,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repo
-        uses: actions/checkout@v3
+        uses: actions/checkout@v6
 
       - name: Setup rclone
         uses: AnimMouse/setup-rclone@v1
@@ -20,8 +20,8 @@ jobs:
 
       - name: Keep OneDrive token alive
         run: |
-          # Log the date/time the token was refreshed
-          echo "Token refreshed at $(date)"
           # Only list the top-level folder quiet to trigger refresh
           rclone ls stichtingsharepoint: --max-depth 1 --quiet
+          # Log the date/time the token was refreshed
+          echo "Token refreshed at $(date)"
 
