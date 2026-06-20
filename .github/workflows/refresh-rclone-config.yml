@@ -1,4 +1,4 @@
-name: Refresh rclone config - test
+name: Refresh rclone config
 
 on:
   schedule:
@@ -30,7 +30,8 @@ jobs:
             -pass "pass:${PASSPHRASE}"
 
       - name: Refresh token (lightweight SharePoint call)
-        run: rclone lsd sharepoint: --max-depth 1
+        run: |
+          rclone lsd sharepoint: --max-depth 1
 
       - name: Re-encrypt updated config
         env:
