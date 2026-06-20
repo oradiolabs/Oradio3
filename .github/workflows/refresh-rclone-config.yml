@@ -1,4 +1,4 @@
-name: Refresh rclone config
+name: Refresh rclone config - test
 
 on:
   schedule:
