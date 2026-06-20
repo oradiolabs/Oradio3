@@ -55,12 +55,7 @@ jobs:
           asset_id=$(curl -fsSL \
             -H "Authorization: token ${GH_TOKEN}" \
             "${api}/releases/${release_id}/assets" \
-            | python3 -c "
-import sys, json
-assets = json.load(sys.stdin)
-match = next((a['id'] for a in assets if a['name'] == 'rclone.conf.enc'), None)
-print(match or '')
-")
+            | python3 -c "import sys,json; d=json.load(sys.stdin); print(next((a['id'] for a in d if a['name']=='rclone.conf.enc'), ''))")
 
           if [[ -n "$asset_id" ]]; then
             curl -fsSL -X DELETE \
