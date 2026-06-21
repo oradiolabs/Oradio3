@@ -232,7 +232,7 @@ Create an encrypted copy:
 
     openssl enc -aes-256-cbc -pbkdf2 -salt \
       -in /home/pi/.config/rclone/rclone.conf \
-      -out /tmp/sharepoint.conf.enc \
+      -out /tmp/rclone.conf.enc \
       -base64
 
 Enter the same encryption password expected by the USB sync script.
@@ -244,7 +244,7 @@ Enter the same encryption password expected by the USB sync script.
 Decrypt it temporarily:
 
     openssl enc -d -aes-256-cbc -pbkdf2 -base64 \
-      -in /tmp/sharepoint.conf.enc \
+      -in /tmp/rclone.conf.enc \
       -out /tmp/rclone-test.conf
 
 Test the decrypted configuration:
@@ -257,33 +257,15 @@ If the test succeeds, remove the temporary plaintext file:
     shred -u /tmp/rclone-test.conf
 
 
-11. Replace the encrypted block in the USB sync script
+11. Add/Replace the encrypted rclone config file in GitHub
 ------------------------------------------------------
 
-Display the encrypted Base64 block:
+Open web browser with https://github.com/oradiolabs/Oradio3/releases/edit/config
 
-    cat /tmp/sharepoint.conf.enc
-
-Copy all Base64 lines and replace the old encrypted data in the USB sync script
-between:
-
-    -----BEGIN ENCRYPTED RCLOUD CONFIG-----
-
-and:
-
-    -----END ENCRYPTED RCLOUD CONFIG-----
-
-Keep both marker lines.
-
-The structure must remain:
-
-    cat <<'ENCRYPTED' > "$RCLONE_TMP"
-    -----BEGIN ENCRYPTED RCLOUD CONFIG-----
-    U2FsdGVkX1...
-    ...new encrypted Base64 data...
-    -----END ENCRYPTED RCLOUD CONFIG-----
-    ENCRYPTED
-
+Under Assets:
+	If present, remove existing rclone.conf.enc
+	Attach the above create rclone.conf.enc
+	Click on Update release button
 
 12. Test the complete USB sync script
 -------------------------------------
@@ -305,27 +287,32 @@ Only after the dry run succeeds should the real synchronization be started.
 Remove the temporary encrypted file after the script has been updated and
 tested:
 
-    rm -f /tmp/sharepoint.conf.enc
+    rm -f /tmp/rclone.conf.enc
 
 
-Token renewal notes
--------------------
+14. Token renewal
+-----------------
 
-Microsoft refresh tokens may stop working after a long period without use or
-because of Microsoft account or tenant security policies.
+Microsoft refresh tokens expire after a long period without use, or when
+enforced by Microsoft account or tenant security policies.
 
-To reduce the chance of expiry, run a small rclone command periodically, for
-example with a systemd timer:
+Token renewal is handled automatically by the monthly GitHub Actions workflow
+(refresh-rclone-config.yml), which runs on the 1st of every month. It connects
+to SharePoint using the current token, which causes Microsoft to issue a fresh
+token. The updated rclone.conf is then re-encrypted and uploaded to GitHub
+Releases (tag: config), replacing the previous rclone.conf.enc.
 
-    rclone --config /home/pi/.config/rclone/rclone.conf \
-      lsd stichtingsharepoint: >/dev/null
+No manual action is required unless the token has already expired before the
+next scheduled run. In that case, follow the full procedure from step 1 to
+create a new configuration and upload the new rclone.conf.enc manually.
 
-Important: the persistent rclone.conf and the encrypted copy embedded in the
-USB sync script are separate. If the token in rclone.conf is renewed, the
-encrypted block in the USB sync script must also be regenerated and replaced.
+Important: the rclone.conf on the Raspberry Pi and the encrypted rclone.conf.enc
+in GitHub Releases are separate. If rclone.conf is manually renewed on the Pi,
+the encrypted copy in GitHub Releases must also be regenerated and re-uploaded
+(steps 9–11).
 
 
-Troubleshooting
+15. Troubleshooting
 ---------------
 
 1. "Couldn't decode response"
@@ -346,8 +333,7 @@ Troubleshooting
        Documents (documentLibrary)
 
 4. Configuration works but USB script fails
-   The USB script may still contain an older encrypted configuration block.
-   Re-encrypt the current rclone.conf and replace the embedded block.
+   Upload the new rclone.conf.enc to GitHub Releases (tag: config).
 
 5. Never share tokens
    Do not publish output containing:

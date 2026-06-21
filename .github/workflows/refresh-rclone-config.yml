@@ -1,0 +1,72 @@
+name: Refresh rclone config
+
+on:
+  schedule:
+    - cron: '0 3 1 * *'     # 03:00 UTC on the 1st of every month
+  workflow_dispatch:        # allow manual trigger from the Actions tab
+
+jobs:
+  refresh:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write       # allow GH_TOKEN update
+
+    steps:
+      - name: Install rclone
+        run: curl https://rclone.org/install.sh | sudo bash
+
+      - name: Download config
+        run: |
+          curl -fsSL "https://github.com/${{ github.repository }}/releases/download/config/rclone.conf.enc" -o rclone.conf.enc
+
+      - name: Decrypt rclone config
+        env:
+          PASSPHRASE: ${{ secrets.RCLONE_PASSPHRASE }}
+        run: |
+          mkdir -p ~/.config/rclone
+          openssl enc -d -aes-256-cbc -pbkdf2 -salt -base64 \
+            -in rclone.conf.enc \
+            -out ~/.config/rclone/rclone.conf \
+            -pass "pass:${PASSPHRASE}"
+
+      - name: Refresh token (lightweight SharePoint call)
+        run: |
+          rclone lsd stichtingsharepoint: --max-depth 1
+
+      - name: Re-encrypt updated config
+        env:
+          PASSPHRASE: ${{ secrets.RCLONE_PASSPHRASE }}
+        run: |
+          openssl enc -aes-256-cbc -pbkdf2 -salt -base64 \
+            -in ~/.config/rclone/rclone.conf \
+            -out rclone.conf.enc \
+            -pass "pass:${PASSPHRASE}"
+
+      - name: Upload updated config
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          api="https://api.github.com/repos/${{ github.repository }}"
+
+          release_id=$(curl -fsSL \
+            -H "Authorization: token ${GH_TOKEN}" \
+            "${api}/releases/tags/config" \
+            | python3 -c "import sys,json; print(json.load(sys.stdin)['id'])")
+
+          asset_id=$(curl -fsSL \
+            -H "Authorization: token ${GH_TOKEN}" \
+            "${api}/releases/${release_id}/assets" \
+            | python3 -c "import sys,json; d=json.load(sys.stdin); print(next((a['id'] for a in d if a['name']=='rclone.conf.enc'), ''))")
+
+          if [[ -n "$asset_id" ]]; then
+            curl -fsSL -X DELETE \
+              -H "Authorization: token ${GH_TOKEN}" \
+              "${api}/releases/assets/${asset_id}" > /dev/null
+          fi
+
+          curl -fsSL -X POST \
+            -H "Authorization: token ${GH_TOKEN}" \
+            -H "Content-Type: application/octet-stream" \
+            --data-binary @rclone.conf.enc \
+            "https://uploads.github.com/repos/${{ github.repository }}/releases/${release_id}/assets?name=rclone.conf.enc" \
+            > /dev/null
