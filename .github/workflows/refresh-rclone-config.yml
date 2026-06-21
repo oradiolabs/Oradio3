@@ -31,7 +31,7 @@ jobs:
 
       - name: Refresh token (lightweight SharePoint call)
         run: |
-          rclone lsd sharepoint: --max-depth 1
+          rclone ls stichtingsharepoint: --max-depth 1
 
       - name: Re-encrypt updated config
         env:
