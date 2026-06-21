@@ -8,6 +8,8 @@ on:
 jobs:
   refresh:
     runs-on: ubuntu-latest
+    permissions:
+      contents: write       # allow GH_TOKEN update
 
     steps:
       - name: Install rclone
@@ -15,9 +17,7 @@ jobs:
 
       - name: Download config
         run: |
-          curl -fsSL \
-            "https://github.com/${{ github.repository }}/releases/download/config/rclone.conf.enc" \
-            -o rclone.conf.enc
+          curl -fsSL "https://github.com/${{ github.repository }}/releases/download/config/rclone.conf.enc" -o rclone.conf.enc
 
       - name: Decrypt rclone config
         env:
@@ -31,7 +31,7 @@ jobs:
 
       - name: Refresh token (lightweight SharePoint call)
         run: |
-          rclone ls stichtingsharepoint: --max-depth 1
+          rclone lsd stichtingsharepoint: --max-depth 1
 
       - name: Re-encrypt updated config
         env:
