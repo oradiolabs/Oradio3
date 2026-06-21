@@ -8,13 +8,13 @@
 #  ####   #    #  #    #  #####      #     ####
 #
 # Created on November 2, 2025
-# @author:        Henk Stevens & Olaf Mastenbroek & Onno Janssen
-# @copyright:     Stichting Oradio
-# @license:       GNU General Public License (GPL)
-# @organization:  Stichting Oradio
-# @version:       1
-# @email:         info@stichtingoradio.nl
-# @status:        Development
+# @author:		 Henk Stevens & Olaf Mastenbroek & Onno Janssen
+# @copyright:	 Stichting Oradio
+# @license:		 GNU General Public License (GPL)
+# @organization: Stichting Oradio
+# @version:	   	 2
+# @email:		 info@stichtingoradio.nl
+# @status:		 Development
 # @purpose:		 Synchronizes SharePoint content to USB using rclone.
 #		The rclone config contains OAuth tokens and is stored AES-256-CBC encrypted
 #		in GitHub Releases. It is fetched, decrypted at runtime, and never written to
@@ -51,12 +51,12 @@ function cleanup {
 	local signal="${1:-EXIT}"	# trap signal: EXIT, INT, TERM
 	local exitcode="${2:-0}"	# optional exit code for EXIT
 
-    # Reset terminal state if running interactively
-    if [ -t 0 ]; then
-        stty sane
-    fi
+	# Reset terminal state if running interactively
+	if [ -t 0 ]; then
+		stty sane
+	fi
 
-    # Run only once (guards against overlapping trap signals)
+	# Run only once (guards against overlapping trap signals)
 	if $CLEANUP_DONE; then
 		return
 	fi
@@ -75,14 +75,14 @@ function cleanup {
 			;;
 	esac
 
-    # Wipe decryption password from memory
-    unset PW
+	# Wipe decryption password from memory
+	unset PW
 
-    # Remove any /tmp files created by this script (tracked via RCLONE_* vars)
+	# Remove any /tmp files created by this script (tracked via RCLONE_* vars)
 	rclone_vars=$(compgen -v | grep '^RCLONE_' || true)  # safe even if no matches
 	if [ -n "$rclone_vars" ]; then
 		while IFS= read -r var; do
-			val="${!var:-}"          # safe default if unset
+			val="${!var:-}"		  # safe default if unset
 			if [ -n "$val" ] && [ -f "$val" ]; then
 				rm -f "$val" && echo " - Removed $val"
 			fi
@@ -91,7 +91,7 @@ function cleanup {
 		echo "No temporrary files removed"
 	fi
 
-    # Remount USB with original options if it was unmounted by this script
+	# Remount USB with original options if it was unmounted by this script
 	if  [[ -n "${OPTIONS:-}" && -n "${DEVICE:-}" && -b "${DEVICE:-}" && -n "${MOUNTPOINT:-}" ]]; then
 		sudo umount "$DEVICE" 2>/dev/null || true
 		if sudo mount -t vfat -o "$OPTIONS" "$DEVICE" "$MOUNTPOINT"; then
@@ -103,7 +103,7 @@ function cleanup {
 		echo "USB not remounted"
 	fi
 
-    # Restart services in reverse stop order
+	# Restart services in reverse stop order
 	if [ "${STOPPED_SERVICES+set}" = set ] && [ "${#STOPPED_SERVICES[@]}" -gt 0 ]; then
 		for (( idx=${#STOPPED_SERVICES[@]}-1; idx>=0; idx-- )); do
 			service="${STOPPED_SERVICES[idx]}"
@@ -278,7 +278,7 @@ if [[ "$answer" =~ ^[Yy]$ ]]; then
 	DRYRUN_FLAG="--dry-run"
 	echo -e "${YELLOW}Dry-run mode enabled: USB will not be updated${NC}"
 else
-    DRYRUN_FLAG=""
+	DRYRUN_FLAG=""
 	echo -e "${YELLOW}Dry-run mode disabled: USB content will be overwritten${NC}"
 fi
 
@@ -292,32 +292,32 @@ SHAREPOINT="stichtingsharepoint:Docs_StichtingOradio/Music_Read_Only/Oradio3USB"
 echo "$(date +'%Y-%m-%d %H:%M:%S'): Start synchronizing SharePoint content to USB" | tee -a "$LOGFILE"
 
 # Run the sync with options:
-#   --stats=1s              Updates stats every second
-#   --stats-one-line        Condenses stats to a single line, without timestamp
-#   --stats-log-level       Forces final summary even when non-interactive
-#   --progress              Shows live progress
-#   --checksum              Compares by content, not just size/mtime
-#   --delete-during         Deletes obsolete files during transfer (faster than after)
-#   --exclude               Skips Windows metadata folder
+#   --stats=1s			Updates stats every second
+#   --stats-one-line	Condenses stats to a single line, without timestamp
+#   --stats-log-level	Forces final summary even when non-interactive
+#   --progress			Shows live progress
+#   --checksum			Compares by content, not just size/mtime
+#   --delete-during		Deletes obsolete files during transfer (faster than after)
+#   --exclude			Skips Windows metadata folder
 if rclone sync "$SHAREPOINT" "$MOUNTPOINT" \
-    --config "$RCLONE_CFG" \
-    --stats=1s \
-    --stats-one-line \
-    --stats-log-level NOTICE \
-    --progress \
-    --checksum \
-    --delete-during \
-    --exclude "System Volume Information/**" \
-    $DRYRUN_FLAG; then
+	--config "$RCLONE_CFG" \
+	--stats=1s \
+	--stats-one-line \
+	--stats-log-level NOTICE \
+	--progress \
+	--checksum \
+	--delete-during \
+	--exclude "System Volume Information/**" \
+	$DRYRUN_FLAG; then
 	# Send colored output to terminal, plain to logfile
 	if [[ -n "$DRYRUN_FLAG" ]]; then
 		MSG="Finished check — dry-run, no changes made"
-        echo "$(date +'%Y-%m-%d %H:%M:%S'): $MSG" >> "$LOGFILE"
-        echo -e "${GREEN}$(date +'%Y-%m-%d %H:%M:%S'): Finished check${NC} — ${YELLOW}dry-run, no changes made${NC}"
+		echo "$(date +'%Y-%m-%d %H:%M:%S'): $MSG" >> "$LOGFILE"
+		echo -e "${GREEN}$(date +'%Y-%m-%d %H:%M:%S'): Finished check${NC} — ${YELLOW}dry-run, no changes made${NC}"
 	else
-        MSG="Finished sync"
-        echo "$(date +'%Y-%m-%d %H:%M:%S'): $MSG" >> "$LOGFILE"
-        echo -e "${GREEN}$(date +'%Y-%m-%d %H:%M:%S'): $MSG${NC}"
+		MSG="Finished sync"
+		echo "$(date +'%Y-%m-%d %H:%M:%S'): $MSG" >> "$LOGFILE"
+		echo -e "${GREEN}$(date +'%Y-%m-%d %H:%M:%S'): $MSG${NC}"
 	fi
 else
 	RC=$?
