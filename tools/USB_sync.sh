@@ -291,17 +291,24 @@ SHAREPOINT="stichtingsharepoint:Docs_StichtingOradio/Music_Read_Only/Oradio3USB"
 
 echo "$(date +'%Y-%m-%d %H:%M:%S'): Start synchronizing SharePoint content to USB" | tee -a "$LOGFILE"
 
-# Run the sync with options
+# Run the sync with options:
+#   --stats=1s              Updates stats every second
+#   --stats-one-line        Condenses stats to a single line, without timestamp
+#   --stats-log-level       Forces final summary even when non-interactive
+#   --progress              Shows live progress
+#   --checksum              Compares by content, not just size/mtime
+#   --delete-during         Deletes obsolete files during transfer (faster than after)
+#   --exclude               Skips Windows metadata folder
 if rclone sync "$SHAREPOINT" "$MOUNTPOINT" \
-	--config "$RCLONE_CFG" \
-	--stats=1s \									# Updates stats every second
-	--stats-one-line \								# condense stats to a single line, without timestamp
-	--stats-log-level NOTICE \						# Forces rclone to print the final total summary when done — even if not interactive
-	--progress \									# Shows live progress (interactive)
-	--checksum \									# Compare by content, not just size/mtime
-	--delete-during \								# Delete obsolete files during transfer (faster than after)
-	--exclude "System Volume Information/**" \		# Skip unwanted files
-	$DRYRUN_FLAG; then
+    --config "$RCLONE_CFG" \
+    --stats=1s \
+    --stats-one-line \
+    --stats-log-level NOTICE \
+    --progress \
+    --checksum \
+    --delete-during \
+    --exclude "System Volume Information/**" \
+    $DRYRUN_FLAG; then
 	# Send colored output to terminal, plain to logfile
 	if [[ -n "$DRYRUN_FLAG" ]]; then
 		MSG="Finished check — dry-run, no changes made"
