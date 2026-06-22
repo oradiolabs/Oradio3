@@ -730,7 +730,7 @@ if __name__ == '__main__':
     import uvicorn
     from queue import Empty
     from multiprocessing import Event, Queue, Process
-    from messaging import Topic             # pylint: disable=ungrouped-imports,wrong-import-position
+    from messaging import Topic, Errors     # pylint: disable=ungrouped-imports,wrong-import-position
     from oradio_const import GREEN, NC      # pylint: disable=ungrouped-imports,wrong-import-position
 
     # Most stand-alone entry points share this pattern across modules
