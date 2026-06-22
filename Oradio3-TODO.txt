@@ -18,7 +18,7 @@ error_service.py: Extend with error messages from other modules
 	mpd_monitor.py
 	mpd_service.py
 	oradio_const.py
-oradio_control.py: Patched with messaging proxy for commands and errors. Refactor according to design from Henk
+oradio_control.py: Patch with messaging proxy for commands and errors
 	oradio_logging.py
 	oradio_utils.py
 	power_supply_control.py
