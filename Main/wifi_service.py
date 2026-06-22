@@ -46,10 +46,10 @@ from singleton import singleton
 from oradio_logging import oradio_log
 from oradio_utils import run_shell_script  # has_internet removed: NM Connectivity property is used instead
 from messaging import (
-    CommandMessage,
-    Commands.publish,
+    Errors,
+    Commands,
     ErrorMessage,
-    Errors.publish,
+    CommandMessage,
     WIFI_SOURCE,
     WIFI_CONNECTED,
     WIFI_DISCONNECTED,
@@ -735,8 +735,8 @@ def _networkmanager_del(network) -> bool:
 if __name__ == '__main__':
 
     # Imports only needed for the interactive self-test
-    from messaging import Topic, Commands.subscribe, Errors.subscribe   # pylint: disable=ungrouped-imports,wrong-import-position
-    from oradio_const import RED, GREEN, YELLOW, NC                     # pylint: disable=ungrouped-imports,wrong-import-position
+    from messaging import Topic                         # pylint: disable=ungrouped-imports,wrong-import-position
+    from oradio_const import RED, GREEN, YELLOW, NC     # pylint: disable=ungrouped-imports,wrong-import-position
 
     # Most stand-alone entry points share this pattern across modules
     # pylint: disable=duplicate-code

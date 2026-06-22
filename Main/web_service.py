@@ -49,10 +49,10 @@ from oradio_utils import run_shell_script
 from fastapi_server import api_app
 from wifi_service import WifiService, get_wifi_connection
 from messaging import (
-    CommandMessage,
-    Commands.publish,
+    Errors,
+    Commands,
     ErrorMessage,
-    Errors.publish,
+    CommandMessage,
     WIFI_DISCONNECTED,
     WIFI_CONNECTED,
     WIFI_ACCESS_POINT,
@@ -486,8 +486,8 @@ if __name__ == '__main__':
     # Imports only relevant when running stand-alone
     import requests
     import subprocess
-    from messaging import Topic, Commands.subscribe, Errors.subscribe   # pylint: disable=ungrouped-imports,wrong-import-position
-    from oradio_const import RED, YELLOW, NC                            # pylint: disable=ungrouped-imports,wrong-import-position
+    from messaging import Topic                 # pylint: disable=ungrouped-imports,wrong-import-position
+    from oradio_const import RED, YELLOW, NC    # pylint: disable=ungrouped-imports,wrong-import-position
 
     # Most stand-alone entry points share this pattern; pylint flags it as duplicate code across modules.
     # pylint: disable=duplicate-code

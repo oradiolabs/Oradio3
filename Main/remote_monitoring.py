@@ -46,8 +46,7 @@ from oradio_utils import get_serial
 from wifi_service import WifiService
 from oradio_logging import oradio_log
 from messaging import (
-    Commands.subscribe,
-    Commands.unsubscribe,
+    Commands,
     WIFI_DISCONNECTED,
     WIFI_CONNECTED,
 )

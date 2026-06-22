@@ -43,8 +43,8 @@ from oradio_utils import get_serial, safe_put, run_shell_script, load_presets, s
 from wifi_service import get_wifi_networks, get_saved_network
 from mpd_control import MPDControl
 from messaging import (
+    Commands,
     CommandMessage,
-    Commands.publish,
     WEB_SOURCE,
     WEB_PL1_PLAYLIST,
     WEB_PL2_PLAYLIST,
@@ -730,8 +730,8 @@ if __name__ == '__main__':
     import uvicorn
     from queue import Empty
     from multiprocessing import Event, Queue, Process
-    from messaging import Topic, Commands.subscribe, Errors.subscribe   # pylint: disable=ungrouped-imports,wrong-import-position
-    from oradio_const import GREEN, NC                                  # pylint: disable=ungrouped-imports,wrong-import-position
+    from messaging import Topic             # pylint: disable=ungrouped-imports,wrong-import-position
+    from oradio_const import GREEN, NC      # pylint: disable=ungrouped-imports,wrong-import-position
 
     # Most stand-alone entry points share this pattern across modules
     # pylint: disable=duplicate-code

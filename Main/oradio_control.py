@@ -46,8 +46,8 @@ import throttling_monitor     # pylint: disable=unused-import
 
 # Moved from oradio_const
 from messaging import (
-    Commands.subscribe,
-    Errors.subscribe,
+    Errors,
+    Commands,
     USB_SOURCE,
     USB_ABSENT,
     USB_PRESENT,

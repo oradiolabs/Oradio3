@@ -40,10 +40,10 @@ from oradio_logging import oradio_log
 from wifi_service import networkmanager_add
 from oradio_utils import run_shell_script
 from messaging import (
-    CommandMessage,
+    Errors,
+    Commands,
     ErrorMessage,
-    Commands.publish,
-    Errors.publish,
+    CommandMessage,
     USB_SOURCE,
     USB_PRESENT,
     USB_ABSENT,
@@ -319,8 +319,8 @@ class USBService:
 if __name__ == '__main__':
 
     # Imports only relevant when stand-alone
-    from messaging import Topic, Commands.subscribe, Errors.subscribe   # pylint: disable=ungrouped-imports,wrong-import-position
-    from oradio_const import RED, YELLOW, NC                            # pylint: disable=ungrouped-imports,wrong-import-position
+    from messaging import Topic                 # pylint: disable=ungrouped-imports,wrong-import-position
+    from oradio_const import RED, YELLOW, NC    # pylint: disable=ungrouped-imports,wrong-import-position
 
     # Most stand-alone entry points share this pattern; pylint would flag it as duplicate code across modules.
     # pylint: disable=duplicate-code

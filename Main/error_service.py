@@ -26,9 +26,8 @@ from time import sleep
 ##### Oradio modules ####################
 from oradio_logging import oradio_log
 from messaging import (
+    Errors,
     ErrorMessage,
-    Errors.publish,
-    Errors.subscribe,
     THROTTLING_SOURCE,
     THROTTLING_ERROR_THROTTLED,
     USB_SOURCE,

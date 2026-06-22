@@ -37,8 +37,8 @@ from typing import List
 from singleton import singleton
 from oradio_logging import oradio_log
 from messaging import (
+    Errors,
     ErrorMessage,
-    Errors.publish,
     THROTTLING_SOURCE,
     THROTTLING_ERROR_THROTTLED,
 )
