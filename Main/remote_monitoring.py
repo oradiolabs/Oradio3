@@ -47,6 +47,7 @@ from wifi_service import WifiService
 from oradio_logging import oradio_log
 from messaging import (
     Commands,
+    WIFI_SOURCE,
     WIFI_DISCONNECTED,
     WIFI_CONNECTED,
 )
@@ -330,7 +331,7 @@ class RMService:
         # Commands.subscribe() starts a background daemon thread that calls
         # _wifi_listener whenever a matching message is published.  The
         # returned token is stored so the subscription can be cancelled later.
-        self.token = Commands.subscribe(self._wifi_listener)
+        self.token = Commands.subscribe(self._wifi_listener, sources=(WIFI_SOURCE,))
 
     def _wifi_listener(self, message) -> None:
         """

@@ -265,7 +265,9 @@ class PubSubManager:
     is safe for use across both threads and child processes without change.
     """
     def __init__(self):
-        self._subscribers: dict[Topic, list[Queue]] = {
+        # Each subscriber entry is a (queue, source_filter) pair.
+        # source_filter is a frozenset of allowed source names, or None for no filtering.
+        self._subscribers: dict[Topic, list[tuple[Queue, frozenset[str] | None]]] = {
             Topic.COMMAND: [],
             Topic.ERROR: [],
         }
@@ -284,13 +286,15 @@ class PubSubManager:
 
         self.lock = Lock()
 
-    def subscribe(self, topic: Topic, callback: callable, args: tuple = ()) -> Queue:
+    def subscribe(self, topic: Topic, callback: callable, args: tuple = (), sources: tuple[str, ...] | None = None) -> Queue:
         """
         Register a new subscriber for a given topic and start its listener thread.
 
-        Creates a new Queue, appends it to the topic's subscriber list,
-        and replays all cached messages (the last message per source) into the
+        Creates a new Queue, appends it to the topic's subscriber list, and
+        replays all cached messages (the last message per source) into the
         queue so the new subscriber starts with a consistent state.
+        When sources is provided, only cached messages whose source is in
+        the filter are replayed.
 
         A daemon thread is started immediately to drive the callback; it calls
         callback(message, *args) for every subsequently received message,
@@ -304,10 +308,13 @@ class PubSubManager:
             callback: Callable invoked for every received message.
                       Signature: callback(message, *args).
             args:     Extra positional arguments forwarded to the callback.
+            sources:  Optional tuple of source names to filter on. When provided,
+                      only messages whose source is in the tuple reach the
+                      callback; all others are silently discarded.
+                      When None (default), all messages are forwarded.
 
         Returns:
-            The subscriber Queue to use as an opaque token with
-            unsubscribe().
+            The subscriber Queue to use as an opaque token with unsubscribe().
         """
         # Validate topic
         if topic not in self._subscribers:
@@ -317,6 +324,16 @@ class PubSubManager:
         if not callable(callback):
             _fatal_exit(f"callback must be callable, got: {callback!r}")
 
+        # Validate sources
+        if sources is not None:
+            if not isinstance(sources, tuple) or not all(isinstance(s, str) for s in sources):
+                _fatal_exit(f"sources must be a tuple of strings or None, got: {sources!r}")
+            if not sources:
+                _fatal_exit("sources must not be empty; pass None to receive all messages")
+
+        # Convert to frozenset once for O(1) lookups in the listener thread
+        source_filter: frozenset[str] | None = frozenset(sources) if sources is not None else None
+
         # Collect any errors that occur during cache replay so the lock can be
         # released before calling _fatal_exit (prevents other threads hanging
         # on acquire() during shutdown).
@@ -324,11 +341,15 @@ class PubSubManager:
 
         with self.lock:
             queue = Queue(maxsize=MAX_QUEUE_SIZE)
-            self._subscribers[topic].append(queue)
+            self._subscribers[topic].append((queue, source_filter))
 
             # Replay cached messages inside the lock so a publish racing with
             # this subscribe cannot slip between cache-replay and registration.
+            # Apply the source filter so the queue is not filled with messages
+            # that would be rejected at publish time anyway.
             for cached_message in self._last_messages[topic].values():
+                if source_filter is not None and cached_message.source not in source_filter:
+                    continue
                 try:
                     queue.put_nowait(cached_message)
                 except Full:
@@ -384,12 +405,14 @@ class PubSubManager:
             _fatal_exit(f"Unknown topic: {topic!r}")
 
         with self.lock:
-            if token not in self._subscribers[topic]:
+            # Find the entry by queue (the token); the filter is not needed here.
+            entry = next((e for e in self._subscribers[topic] if e[0] is token), None)
+            if entry is None:
                 oradio_log.warning("unsubscribe called for a queue not registered on topic %r — ignored", topic)
                 return
             # Remove from registry first so no new messages are enqueued after
             # this point; the sentinel we are about to send will be the last item.
-            self._subscribers[topic].remove(token)
+            self._subscribers[topic].remove(entry)
 
         # Send the sentinel outside the lock; the queue is no longer in the
         # registry so publish() cannot enqueue anything after this point.
@@ -448,7 +471,11 @@ class PubSubManager:
             # what has been delivered to subscribers.
             self._last_messages[topic][message.source] = message
 
-            for queue in self._subscribers[topic]:
+            for queue, source_filter in self._subscribers[topic]:
+                # Apply source filter before touching the queue so rejected
+                # messages never consume queue space or cause a thread wake-up.
+                if source_filter is not None and message.source not in source_filter:
+                    continue
                 try:
                     queue.put_nowait(message)
                 except Full:
@@ -487,13 +514,15 @@ class Commands:
     """
 
     @staticmethod
-    def subscribe(callback: callable, args: tuple = ()) -> Queue:
+    def subscribe(callback: callable, args: tuple = (), sources: tuple[str, ...] | None = None) -> Queue:
         """
         Subscribe to command messages and start a listener thread.
 
         The new subscriber queue is pre-populated with the last command message
         for every source that has published since the application started, giving
         the subscriber an immediately consistent view of the current state.
+        When sources is provided, only messages from those sources are
+        replayed and subsequently forwarded to the callback.
 
         A daemon thread is started automatically; it calls
         callback(message, *args) for each received message so the caller
@@ -503,12 +532,15 @@ class Commands:
             callback: Callable invoked for every received message.
                       Signature: callback(message, *args).
             args:     Extra positional arguments forwarded to the callback.
+            sources:  Optional tuple of source names to filter on, e.g.
+                      (USB_SOURCE, WIFI_SOURCE). When None (default), all
+                      sources are forwarded.
 
         Returns:
             An opaque subscription token (Queue) to pass to
             Commands.unsubscribe() when the subscription is no longer needed.
         """
-        return _pubsub.subscribe(Topic.COMMAND, callback, args)
+        return _pubsub.subscribe(Topic.COMMAND, callback, args, sources)
 
     @staticmethod
     def unsubscribe(token: Queue) -> None:
@@ -562,13 +594,15 @@ class Errors:
     """
 
     @staticmethod
-    def subscribe(callback: callable, args: tuple = ()) -> Queue:
+    def subscribe(callback: callable, args: tuple = (), sources: tuple[str, ...] | None = None) -> Queue:
         """
         Subscribe to error messages and start a listener thread.
 
         The new subscriber queue is pre-populated with the last error message
         for every source that has published since the application started, giving
         the subscriber an immediately consistent view of the current state.
+        When sources is provided, only messages from those sources are
+        replayed and subsequently forwarded to the callback.
 
         A daemon thread is started automatically; it calls
         callback(message, *args) for each received message so the caller
@@ -578,12 +612,15 @@ class Errors:
             callback: Callable invoked for every received message.
                       Signature: callback(message, *args).
             args:     Extra positional arguments forwarded to the callback.
+            sources:  Optional tuple of source names to filter on, e.g.
+                      (USB_SOURCE, WIFI_SOURCE). When None (default), all
+                      sources are forwarded.
 
         Returns:
             An opaque subscription token (Queue) to pass to
             Errors.unsubscribe() when the subscription is no longer needed.
         """
-        return _pubsub.subscribe(Topic.ERROR, callback, args)
+        return _pubsub.subscribe(Topic.ERROR, callback, args, sources)
 
     @staticmethod
     def unsubscribe(token: Queue) -> None:
