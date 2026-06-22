@@ -429,8 +429,8 @@ class PubSubManager:
         Terminates the application if any subscriber queue is full or broken.
 
         Callers must validate message type and structure before calling this
-        method. Use the public publish_command() or publish_error()
-        helpers, which enforce these checks.
+        method. Use the public Commands or Errors class methods, which
+        enforce these checks.
 
         Args:
             topic:   The topic to publish to.
@@ -467,125 +467,159 @@ class PubSubManager:
             _fatal_exit(last_error, exc=last_exc)
 
 # Global PubSub manager (singleton — only one instance per process)
-pubsub = PubSubManager()
+_pubsub = PubSubManager()
 
 ##### Public API ####################
 
-def subscribe_commands(callback: callable, args: tuple = ()) -> Queue:
+class Commands:
     """
-    Subscribe to command messages and start a listener thread.
+    Namespace for publishing, subscribing, and unsubscribing command messages.
 
-    The new subscriber queue is pre-populated with the last command message
-    for every source that has published since the application started, giving
-    the subscriber an immediately consistent view of the current state.
+    All methods are static; this class is never instantiated. Grouping
+    operations by topic (Commands / Errors) rather than exposing nine
+    top-level functions keeps the public surface small and makes the
+    topic explicit at every call-site without requiring a topic argument.
 
-    A daemon thread is started automatically; it calls
-    callback(message, *args) for each received message so the caller
-    does not need to manage a listener loop manually.
-
-    Args:
-        callback: Callable invoked for every received message.
-                  Signature: callback(message, *args).
-        args:     Extra positional arguments forwarded to the callback.
-
-    Returns:
-        An opaque subscription token (Queue) to pass to
-        unsubscribe_commands() when the subscription is no longer needed.
+    Usage:
+        token = Commands.subscribe(my_callback)
+        Commands.publish(CommandMessage("worker", "start"))
+        Commands.unsubscribe(token)
     """
-    return pubsub.subscribe(Topic.COMMAND, callback, args)
 
-def subscribe_errors(callback: callable, args: tuple = ()) -> Queue:
+    @staticmethod
+    def subscribe(callback: callable, args: tuple = ()) -> Queue:
+        """
+        Subscribe to command messages and start a listener thread.
+
+        The new subscriber queue is pre-populated with the last command message
+        for every source that has published since the application started, giving
+        the subscriber an immediately consistent view of the current state.
+
+        A daemon thread is started automatically; it calls
+        callback(message, *args) for each received message so the caller
+        does not need to manage a listener loop manually.
+
+        Args:
+            callback: Callable invoked for every received message.
+                      Signature: callback(message, *args).
+            args:     Extra positional arguments forwarded to the callback.
+
+        Returns:
+            An opaque subscription token (Queue) to pass to
+            Commands.unsubscribe() when the subscription is no longer needed.
+        """
+        return _pubsub.subscribe(Topic.COMMAND, callback, args)
+
+    @staticmethod
+    def unsubscribe(token: Queue) -> None:
+        """
+        Stop a command subscriber's listener thread and remove it from the topic.
+
+        Safe to call more than once for the same token; repeated calls are
+        logged as warnings and ignored.
+
+        Args:
+            token: The Queue returned by the matching Commands.subscribe() call.
+        """
+        _pubsub.unsubscribe(Topic.COMMAND, token)
+
+    @staticmethod
+    def publish(message: CommandMessage) -> None:
+        """
+        Validate and publish a command message to all subscribers.
+
+        The most recent message per source is cached; late subscribers receive
+        it automatically during cache replay on subscribe.
+
+        Terminates the application if message is not a CommandMessage or
+        fails structural validation.
+
+        Args:
+            message: The CommandMessage to publish.
+        """
+        if not isinstance(message, CommandMessage):
+            _fatal_exit(f"Wrong message type for Commands.publish: {message!r}")
+
+        if not message.is_valid():
+            _fatal_exit(f"Invalid CommandMessage rejected: {message!r}")
+
+        _pubsub.publish(Topic.COMMAND, message)
+
+
+class Errors:
     """
-    Subscribe to error messages and start a listener thread.
+    Namespace for publishing, subscribing, and unsubscribing error messages.
 
-    The new subscriber queue is pre-populated with the last error message
-    for every source that has published since the application started, giving
-    the subscriber an immediately consistent view of the current state.
+    All methods are static; this class is never instantiated. Grouping
+    operations by topic (Commands / Errors) rather than exposing nine
+    top-level functions keeps the public surface small and makes the
+    topic explicit at every call-site without requiring a topic argument.
 
-    A daemon thread is started automatically; it calls
-    callback(message, *args) for each received message so the caller
-    does not need to manage a listener loop manually.
-
-    Args:
-        callback: Callable invoked for every received message.
-                  Signature: callback(message, *args).
-        args:     Extra positional arguments forwarded to the callback.
-
-    Returns:
-        An opaque subscription token (Queue) to pass to
-        unsubscribe_errors() when the subscription is no longer needed.
+    Usage:
+        token = Errors.subscribe(my_callback)
+        Errors.publish(ErrorMessage("worker", "something went wrong"))
+        Errors.unsubscribe(token)
     """
-    return pubsub.subscribe(Topic.ERROR, callback, args)
 
-def unsubscribe_commands(token: Queue) -> None:
-    """
-    Stop a command subscriber's listener thread and remove it from the topic.
+    @staticmethod
+    def subscribe(callback: callable, args: tuple = ()) -> Queue:
+        """
+        Subscribe to error messages and start a listener thread.
 
-    Passes the subscription token returned by subscribe_commands() back to
-    PubSubManager.unsubscribe(). Safe to call more than once for the same
-    token; repeated calls are logged as warnings and ignored.
+        The new subscriber queue is pre-populated with the last error message
+        for every source that has published since the application started, giving
+        the subscriber an immediately consistent view of the current state.
 
-    Args:
-        token: The Queue returned by the matching subscribe_commands()
-               call.
-    """
-    pubsub.unsubscribe(Topic.COMMAND, token)
+        A daemon thread is started automatically; it calls
+        callback(message, *args) for each received message so the caller
+        does not need to manage a listener loop manually.
 
-def unsubscribe_errors(token: Queue) -> None:
-    """
-    Stop an error subscriber's listener thread and remove it from the topic.
+        Args:
+            callback: Callable invoked for every received message.
+                      Signature: callback(message, *args).
+            args:     Extra positional arguments forwarded to the callback.
 
-    Passes the subscription token returned by subscribe_errors() back to
-    PubSubManager.unsubscribe(). Safe to call more than once for the same
-    token; repeated calls are logged as warnings and ignored.
+        Returns:
+            An opaque subscription token (Queue) to pass to
+            Errors.unsubscribe() when the subscription is no longer needed.
+        """
+        return _pubsub.subscribe(Topic.ERROR, callback, args)
 
-    Args:
-        token: The Queue returned by the matching subscribe_errors()
-               call.
-    """
-    pubsub.unsubscribe(Topic.ERROR, token)
+    @staticmethod
+    def unsubscribe(token: Queue) -> None:
+        """
+        Stop an error subscriber's listener thread and remove it from the topic.
 
-def publish_command(message: CommandMessage) -> None:
-    """
-    Validate and publish a command message to all subscribers.
+        Safe to call more than once for the same token; repeated calls are
+        logged as warnings and ignored.
 
-    The most recent message per source is cached; late subscribers receive it
-    automatically during cache replay on subscribe.
+        Args:
+            token: The Queue returned by the matching Errors.subscribe() call.
+        """
+        _pubsub.unsubscribe(Topic.ERROR, token)
 
-    Terminates the application if message is not a CommandMessage or
-    fails structural validation.
+    @staticmethod
+    def publish(message: ErrorMessage) -> None:
+        """
+        Validate and publish an error message to all subscribers.
 
-    Args:
-        message: The CommandMessage to publish.
-    """
-    if not isinstance(message, CommandMessage):
-        _fatal_exit(f"Wrong message type for publish_command: {message}")
+        The most recent message per source is cached; late subscribers receive
+        it automatically during cache replay on subscribe.
 
-    if not message.is_valid():
-        _fatal_exit(f"Invalid CommandMessage rejected: {message}")
+        Terminates the application if message is not an ErrorMessage or
+        fails structural validation.
 
-    pubsub.publish(Topic.COMMAND, message)
+        Args:
+            message: The ErrorMessage to publish.
+        """
+        if not isinstance(message, ErrorMessage):
+            _fatal_exit(f"Wrong message type for Errors.publish: {message!r}")
 
-def publish_error(message: ErrorMessage) -> None:
-    """
-    Validate and publish an error message to all subscribers.
+        if not message.is_valid():
+            _fatal_exit(f"Invalid ErrorMessage rejected: {message!r}")
 
-    The most recent message per source is cached; late subscribers receive it
-    automatically during cache replay on subscribe.
+        _pubsub.publish(Topic.ERROR, message)
 
-    Terminates the application if message is not an ErrorMessage or
-    fails structural validation.
-
-    Args:
-        message: The ErrorMessage to publish.
-    """
-    if not isinstance(message, ErrorMessage):
-        _fatal_exit(f"Wrong message type for publish_error: {message}")
-
-    if not message.is_valid():
-        _fatal_exit(f"Invalid ErrorMessage rejected: {message}")
-
-    pubsub.publish(Topic.ERROR, message)
 
 # Entry point for stand-alone operation
 if __name__ == '__main__':
@@ -621,10 +655,9 @@ if __name__ == '__main__':
         command and error messages (including from threads and processes), and
         deliberately triggering the invalid-message fatal-exit path.
 
-        Subscription tokens returned by subscribe_commands and
-        subscribe_errors are stored in cmd_tokens and err_tokens
-        respectively so that individual handlers can later be unsubscribed by
-        their assigned index.
+        Subscription tokens returned by Commands.subscribe and Errors.subscribe
+        are stored in cmd_tokens and err_tokens respectively so that individual
+        handlers can later be unsubscribed by their assigned index.
         """
 
         # Show menu with test options
@@ -673,77 +706,77 @@ if __name__ == '__main__':
                     n = input("Enter number of COMMAND handlers to subscribe: ")
                     for _ in range(int(n)):
                         print(f"Subscribe COMMAND handler {cmd_index}...")
-                        token = subscribe_commands(handler, args=(Topic.COMMAND, cmd_index,))
+                        token = Commands.subscribe(handler, args=(Topic.COMMAND, cmd_index,))
                         cmd_tokens[cmd_index] = token
                         cmd_index += 1
                 case 2:
                     n = input("Enter number of ERROR handlers to subscribe: ")
                     for _ in range(int(n)):
                         print(f"Subscribe ERROR handler {err_index}...")
-                        token = subscribe_errors(handler, args=(Topic.ERROR, err_index,))
+                        token = Errors.subscribe(handler, args=(Topic.ERROR, err_index,))
                         err_tokens[err_index] = token
                         err_index += 1
                 case 3:
                     if not cmd_tokens:
                         print(f"{YELLOW}No subscribed COMMAND handlers{NC}")
                     print("Publishing COMMAND message...")
-                    publish_command(CommandMessage("worker", "command message"))
+                    Commands.publish(CommandMessage("worker", "command message"))
                     sleep(0.5)  # Allow for message to propagate
                     print(f"{GREEN}Success publishing COMMAND message{NC}\n")
                 case 4:
                     if not err_tokens:
                         print(f"{YELLOW}No subscribed ERROR handlers{NC}")
                     print("Publishing ERROR message...")
-                    publish_error(ErrorMessage("worker", "error message"))
+                    Errors.publish(ErrorMessage("worker", "error message"))
                     sleep(0.5)  # Allow for message to propagate
                     print(f"{GREEN}Success publishing ERROR message{NC}\n")
                 case 5:
                     if not cmd_tokens:
                         print(f"{YELLOW}No subscribed COMMAND handlers{NC}")
                     print("Publishing COMMAND message with extra data...")
-                    publish_command(CommandMessage("worker", "command message", "extra data"))
+                    Commands.publish(CommandMessage("worker", "command message", "extra data"))
                     sleep(0.5)  # Allow for message to propagate
                     print(f"{GREEN}Success publishing COMMAND message with extra data{NC}\n")
                 case 6:
                     if not cmd_tokens:
                         print(f"{YELLOW}No subscribed COMMAND handlers{NC}")
                     print("\nPublish COMMAND messages from THREAD...")
-                    Thread(target=publish_command, args=(CommandMessage("worker", "command message from thread"),), daemon=True).start()
+                    Thread(target=Commands.publish, args=(CommandMessage("worker", "command message from thread"),), daemon=True).start()
                     sleep(0.5)  # Allow for message to propagate
                     print(f"{GREEN}Success publishing COMMAND message from THREAD{NC}\n")
                 case 7:
                     if not err_tokens:
                         print(f"{YELLOW}No subscribed ERROR handlers{NC}")
                     print("\nPublish ERROR messages from THREAD...")
-                    Thread(target=publish_error, args=(ErrorMessage("worker", "error message from thread"),), daemon=True).start()
+                    Thread(target=Errors.publish, args=(ErrorMessage("worker", "error message from thread"),), daemon=True).start()
                     sleep(0.5)  # Allow for message to propagate
                     print(f"{GREEN}Success publishing ERROR message from THREAD{NC}\n")
                 case 8:
                     if not cmd_tokens:
                         print(f"{YELLOW}No subscribed COMMAND handlers{NC}")
                     print("\nPublish COMMAND messages from PROCESS...")
-                    Process(target=publish_command, args=(CommandMessage("worker", "command message from process"),), daemon=True).start()
+                    Process(target=Commands.publish, args=(CommandMessage("worker", "command message from process"),), daemon=True).start()
                     sleep(0.5)  # Allow for message to propagate
                     print(f"{GREEN}Success publishing COMMAND message from PROCESS{NC}\n")
                 case 9:
                     if not err_tokens:
                         print(f"{YELLOW}No subscribed ERROR handlers{NC}")
                     print("\nPublish ERROR messages from PROCESS...")
-                    Process(target=publish_error, args=(ErrorMessage("worker", "error message from process"),), daemon=True).start()
+                    Process(target=Errors.publish, args=(ErrorMessage("worker", "error message from process"),), daemon=True).start()
                     sleep(0.5)  # Allow for message to propagate
                     print(f"{GREEN}Success publishing ERROR message from PROCESS{NC}\n")
                 case 10:
-                    # Deliberately pass an ErrorMessage to the command publisher
+                    # Deliberately pass an ErrorMessage to Commands.publish
                     # to exercise the type-check fatal-exit path
                     print("Publishing invalid COMMAND message...")
-                    publish_command(ErrorMessage("worker", "error message"))
+                    Commands.publish(ErrorMessage("worker", "error message"))
                     sleep(0.5)  # Allow for message to propagate
                     print(f"{RED}Failed catching error sending error message to command queue{NC}\n")
                 case 11:
-                    # Deliberately pass a CommandMessage to the error publisher
+                    # Deliberately pass a CommandMessage to Errors.publish
                     # to exercise the type-check fatal-exit path
                     print("Publishing invalid ERROR message...")
-                    publish_error(CommandMessage("worker", "command message"))
+                    Errors.publish(CommandMessage("worker", "command message"))
                     sleep(0.5)  # Allow for message to propagate
                     print(f"{RED}Failed catching error sending command message to error queue{NC}\n")
                 case 12:
@@ -761,7 +794,7 @@ if __name__ == '__main__':
                             print(f"{YELLOW}Handler {idx} is not subscribed{NC}\n")
                         else:
                             print(f"Unsubscribing COMMAND handler {idx}...")
-                            unsubscribe_commands(cmd_tokens.pop(idx))
+                            Commands.unsubscribe(cmd_tokens.pop(idx))
                             sleep(0.5)  # Allow the sentinel to propagate
                             print(f"{GREEN}COMMAND handler {idx} unsubscribed{NC}\n")
                 case 13:
@@ -779,7 +812,7 @@ if __name__ == '__main__':
                             print(f"{YELLOW}Handler {idx} is not subscribed{NC}\n")
                         else:
                             print(f"Unsubscribing ERROR handler {idx}...")
-                            unsubscribe_errors(err_tokens.pop(idx))
+                            Errors.unsubscribe(err_tokens.pop(idx))
                             sleep(0.5)  # Allow the sentinel to propagate
                             print(f"{GREEN}ERROR handler {idx} unsubscribed{NC}\n")
                 case _:

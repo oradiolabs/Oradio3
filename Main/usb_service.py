@@ -42,8 +42,8 @@ from oradio_utils import run_shell_script
 from messaging import (
     CommandMessage,
     ErrorMessage,
-    publish_command,
-    publish_error,
+    Commands.publish,
+    Errors.publish,
     USB_SOURCE,
     USB_PRESENT,
     USB_ABSENT,
@@ -89,11 +89,11 @@ class USBObserver(FileSystemEventHandler):
         WiFi credential import if the drive is already mounted.
         """
         if path.ismount(USB_MOUNT_POINT):
-            publish_command(CommandMessage(USB_SOURCE, USB_PRESENT))
+            Commands.publish(CommandMessage(USB_SOURCE, USB_PRESENT))
             # Drive is already mounted: attempt to import any WiFi credentials
             self._import_usb_wifi_networks()
         else:
-            publish_command(CommandMessage(USB_SOURCE, USB_ABSENT))
+            Commands.publish(CommandMessage(USB_SOURCE, USB_ABSENT))
 
     def on_created(self, event) -> None:
         """
@@ -108,7 +108,7 @@ class USBObserver(FileSystemEventHandler):
         # Ignore directory events and any files other than the specific marker file
         if not event.is_directory and event.src_path == USB_STATEFILE:
             oradio_log.debug("USB inserted")
-            publish_command(CommandMessage(USB_SOURCE, USB_PRESENT))
+            Commands.publish(CommandMessage(USB_SOURCE, USB_PRESENT))
 
     def on_deleted(self, event) -> None:
         """
@@ -124,7 +124,7 @@ class USBObserver(FileSystemEventHandler):
         # Ignore directory events and any files other than the specific marker file
         if not event.is_directory and event.src_path == USB_STATEFILE:
             oradio_log.debug("USB removed")
-            publish_command(CommandMessage(USB_SOURCE, USB_ABSENT))
+            Commands.publish(CommandMessage(USB_SOURCE, USB_ABSENT))
 
     @staticmethod
     def _validate_network(network: dict[str, object], index: int) -> str | None:
@@ -220,13 +220,13 @@ class USBObserver(FileSystemEventHandler):
         except (JSONDecodeError, IOError) as ex_err:
             # Covers malformed JSON and filesystem errors (permissions, I/O)
             oradio_log.error("Failed to read or parse '%s': error: %s", USB_WIFI_FILE, ex_err)
-            publish_error(ErrorMessage(USB_SOURCE, USB_ERROR_FILE))
+            Errors.publish(ErrorMessage(USB_SOURCE, USB_ERROR_FILE))
             return
 
         # The root object must contain a "networks" key whose value is a list
         if "networks" not in data or not isinstance(data["networks"], list):
             oradio_log.error("'networks' must be a list")
-            publish_error(ErrorMessage(USB_SOURCE, USB_ERROR_FILE))
+            Errors.publish(ErrorMessage(USB_SOURCE, USB_ERROR_FILE))
             return
 
         # Validate every entry first; track whether all pass so we know if it
@@ -239,7 +239,7 @@ class USBObserver(FileSystemEventHandler):
                 # errors in this pass rather than stopping at the first failure
                 all_valid = False
                 oradio_log.error(err_msg)
-                publish_error(ErrorMessage(USB_SOURCE, USB_ERROR_FILE))
+                Errors.publish(ErrorMessage(USB_SOURCE, USB_ERROR_FILE))
             else:
                 # Strip surrounding whitespace from SSID; passwords allow
                 # internal spaces so those are left untouched
@@ -252,7 +252,7 @@ class USBObserver(FileSystemEventHandler):
                 else:
                     all_valid = False
                     oradio_log.error("Failed to add '%s' to NetworkManager", ssid)
-                    publish_error(ErrorMessage(USB_SOURCE, USB_ERROR_FILE))
+                    Errors.publish(ErrorMessage(USB_SOURCE, USB_ERROR_FILE))
 
         if all_valid:
            # Remove the credentials file to prevent re-import and to avoid
@@ -262,11 +262,11 @@ class USBObserver(FileSystemEventHandler):
                 oradio_log.info("'%s' removed", USB_WIFI_FILE)
             except (FileNotFoundError, PermissionError) as ex_err:
                 oradio_log.error("Failed to remove '%s': %s", USB_WIFI_FILE, ex_err)
-                publish_error(ErrorMessage(USB_SOURCE, USB_ERROR_FILE))
+                Errors.publish(ErrorMessage(USB_SOURCE, USB_ERROR_FILE))
         else:
             # Leave the file in place so the user can correct the errors
             oradio_log.error("'%s' has errors, is not removed", USB_WIFI_FILE)
-            publish_error(ErrorMessage(USB_SOURCE, USB_ERROR_FILE))
+            Errors.publish(ErrorMessage(USB_SOURCE, USB_ERROR_FILE))
 
 class USBService:
     """
@@ -296,7 +296,7 @@ class USBService:
         # (e.g. inotify limit reached) without raising an exception
         if not self.observer.is_alive():
             oradio_log.error("USB observer failed to start: no USB present/absent info available")
-            publish_error(ErrorMessage(USB_SOURCE, USB_ERROR_SERVICE))
+            Errors.publish(ErrorMessage(USB_SOURCE, USB_ERROR_SERVICE))
 
         oradio_log.info("USB observer started")
 
@@ -319,7 +319,7 @@ class USBService:
 if __name__ == '__main__':
 
     # Imports only relevant when stand-alone
-    from messaging import Topic, subscribe_commands, subscribe_errors   # pylint: disable=ungrouped-imports,wrong-import-position
+    from messaging import Topic, Commands.subscribe, Errors.subscribe   # pylint: disable=ungrouped-imports,wrong-import-position
     from oradio_const import RED, YELLOW, NC                            # pylint: disable=ungrouped-imports,wrong-import-position
 
     # Most stand-alone entry points share this pattern; pylint would flag it as duplicate code across modules.
@@ -329,7 +329,7 @@ if __name__ == '__main__':
         """
         Print any message received on a subscribed message bus topic.
 
-        Passed as a callback to subscribe_commands and subscribe_errors
+        Passed as a callback to Commands.subscribe and Errors.subscribe
         so that all bus traffic is visible during interactive testing.
 
         Args:
@@ -395,8 +395,8 @@ if __name__ == '__main__':
 
     # Subscribe to command and error topics before starting the service so no
     # messages published during initialisation are missed
-    subscribe_commands(topic_handler, (Topic.COMMAND,))
-    subscribe_errors(topic_handler, (Topic.ERROR,))
+    Commands.subscribe(topic_handler, (Topic.COMMAND,))
+    Errors.subscribe(topic_handler, (Topic.ERROR,))
 
     # Launch the interactive test menu (blocks until the user quits)
     interactive_menu()

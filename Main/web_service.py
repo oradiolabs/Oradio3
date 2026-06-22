@@ -50,9 +50,9 @@ from fastapi_server import api_app
 from wifi_service import WifiService, get_wifi_connection
 from messaging import (
     CommandMessage,
-    publish_command,
+    Commands.publish,
     ErrorMessage,
-    publish_error,
+    Errors.publish,
     WIFI_DISCONNECTED,
     WIFI_CONNECTED,
     WIFI_ACCESS_POINT,
@@ -244,7 +244,7 @@ class WebService:
         self.server_listener.start()
 
         # Announce initial state so the controller starts from a known baseline
-        publish_command(CommandMessage(WEB_SOURCE, self.state))
+        Commands.publish(CommandMessage(WEB_SOURCE, self.state))
 
     ##### Private helpers #####
 
@@ -270,7 +270,7 @@ class WebService:
         """
         rules = self._get_nat_rules()
         if rules is None:
-            publish_error(ErrorMessage(WEB_SOURCE, WEB_ERROR_START))
+            Errors.publish(ErrorMessage(WEB_SOURCE, WEB_ERROR_START))
             return False
         if _IPTABLES_REDIRECT_RULE in rules:
             return True  # Already present; nothing to do
@@ -281,7 +281,7 @@ class WebService:
         result, error = run_shell_script(cmd)
         if not result:
             oradio_log.error("Failed to add port redirect rule: %s", error)
-            publish_error(ErrorMessage(WEB_SOURCE, WEB_ERROR_START))
+            Errors.publish(ErrorMessage(WEB_SOURCE, WEB_ERROR_START))
             return False
         return True
 
@@ -294,7 +294,7 @@ class WebService:
         """
         rules = self._get_nat_rules()
         if rules is None:
-            publish_error(ErrorMessage(WEB_SOURCE, WEB_ERROR_STOP))
+            Errors.publish(ErrorMessage(WEB_SOURCE, WEB_ERROR_STOP))
             return False
         if _IPTABLES_REDIRECT_RULE not in rules:
             return True  # Already absent; nothing to do
@@ -305,7 +305,7 @@ class WebService:
         result, error = run_shell_script(cmd)
         if not result:
             oradio_log.error("Failed to remove port redirect rule: %s", error)
-            publish_error(ErrorMessage(WEB_SOURCE, WEB_ERROR_STOP))
+            Errors.publish(ErrorMessage(WEB_SOURCE, WEB_ERROR_STOP))
             return False
         return True
 
@@ -322,7 +322,7 @@ class WebService:
         result, error = run_shell_script(cmd)
         if not result:
             oradio_log.error("Failed to write DNS redirect config: %s", error)
-            publish_error(ErrorMessage(WEB_SOURCE, WEB_ERROR_START))
+            Errors.publish(ErrorMessage(WEB_SOURCE, WEB_ERROR_START))
             return False
         return True
 
@@ -338,7 +338,7 @@ class WebService:
         result, error = run_shell_script(f"sudo rm -f {_DNS_REDIRECT_CONF}")
         if not result:
             oradio_log.error("Failed to remove DNS redirect config: %s", error)
-            publish_error(ErrorMessage(WEB_SOURCE, WEB_ERROR_STOP))
+            Errors.publish(ErrorMessage(WEB_SOURCE, WEB_ERROR_STOP))
             return False
         return True
 
@@ -361,7 +361,7 @@ class WebService:
         while self.wifi_service.get_state() not in target_states:
             if time.time() > deadline:
                 oradio_log.error("Timeout waiting for WiFi state in %s", target_states)
-                publish_error(ErrorMessage(WEB_SOURCE, error_type))
+                Errors.publish(ErrorMessage(WEB_SOURCE, error_type))
                 return False
             time.sleep(1)  # 1-second polling interval avoids busy-waiting
         return True
@@ -442,13 +442,13 @@ class WebService:
         api_app.state.timer_started = False
         if not self.uvicorn_server.start():
             oradio_log.error("Uvicorn server failed to start")
-            publish_error(ErrorMessage(WEB_SOURCE, WEB_ERROR_START))
+            Errors.publish(ErrorMessage(WEB_SOURCE, WEB_ERROR_START))
             return
 
         if not self._wait_for_wifi_state({WIFI_ACCESS_POINT}, WEB_ERROR_START):
             return
 
-        publish_command(CommandMessage(WEB_SOURCE, self.state))
+        Commands.publish(CommandMessage(WEB_SOURCE, self.state))
 
     def stop(self):
         """
@@ -470,14 +470,14 @@ class WebService:
             self.wifi_service.wifi_disconnect()
 
         if not self.uvicorn_server.stop():
-            publish_error(ErrorMessage(WEB_SOURCE, WEB_ERROR_STOP))
+            Errors.publish(ErrorMessage(WEB_SOURCE, WEB_ERROR_STOP))
 
         self._remove_port_redirect()
         self._remove_dns_redirect()
 
         self._wait_for_wifi_state({WIFI_DISCONNECTED, WIFI_CONNECTED}, WEB_ERROR_STOP)
 
-        publish_command(CommandMessage(WEB_SOURCE, self.state))
+        Commands.publish(CommandMessage(WEB_SOURCE, self.state))
 
 
 # Entry point for stand-alone operation
@@ -486,7 +486,7 @@ if __name__ == '__main__':
     # Imports only relevant when running stand-alone
     import requests
     import subprocess
-    from messaging import Topic, subscribe_commands, subscribe_errors   # pylint: disable=ungrouped-imports,wrong-import-position
+    from messaging import Topic, Commands.subscribe, Errors.subscribe   # pylint: disable=ungrouped-imports,wrong-import-position
     from oradio_const import RED, YELLOW, NC                            # pylint: disable=ungrouped-imports,wrong-import-position
 
     # Most stand-alone entry points share this pattern; pylint flags it as duplicate code across modules.
@@ -496,7 +496,7 @@ if __name__ == '__main__':
         """
         Print any message received on a subscribed message bus topic.
 
-        Passed as a callback to subscribe_commands() and subscribe_errors()
+        Passed as a callback to Commands.subscribe() and Errors.subscribe()
         so that all bus traffic is visible during interactive testing.
 
         Args:
@@ -590,8 +590,8 @@ if __name__ == '__main__':
 
     # Subscribe before constructing WebService so no bus messages published
     # during initialisation are missed by the test handler
-    subscribe_commands(topic_handler, (Topic.COMMAND,))
-    subscribe_errors(topic_handler, (Topic.ERROR,))
+    Commands.subscribe(topic_handler, (Topic.COMMAND,))
+    Errors.subscribe(topic_handler, (Topic.ERROR,))
 
     interactive_menu()
 

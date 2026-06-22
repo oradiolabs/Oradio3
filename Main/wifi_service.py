@@ -47,9 +47,9 @@ from oradio_logging import oradio_log
 from oradio_utils import run_shell_script  # has_internet removed: NM Connectivity property is used instead
 from messaging import (
     CommandMessage,
-    publish_command,
+    Commands.publish,
     ErrorMessage,
-    publish_error,
+    Errors.publish,
     WIFI_SOURCE,
     WIFI_CONNECTED,
     WIFI_DISCONNECTED,
@@ -132,7 +132,7 @@ def _nmcli_try(func, *args, **kwargs) -> tuple[bool, object | None]:
         return True, result
     except (*nmcli_exceptions, CalledProcessError, OSError) as ex_err:  # * unpacks nmcli_exceptions into a flat exception tuple
         oradio_log.error("nmcli call failed for %s: %s", func.__name__, ex_err)
-        publish_error(ErrorMessage(WIFI_SOURCE, WIFI_ERROR_NMCLI))
+        Errors.publish(ErrorMessage(WIFI_SOURCE, WIFI_ERROR_NMCLI))
         return False, None
 
 
@@ -242,16 +242,16 @@ class WifiEventListener():
 
         except DBusException as ex_err:
             oradio_log.error("Failed to connect to NetworkManager D-Bus: %s", ex_err.get_dbus_message())
-            publish_error(ErrorMessage(WIFI_SOURCE, WIFI_ERROR_DBUS))
+            Errors.publish(ErrorMessage(WIFI_SOURCE, WIFI_ERROR_DBUS))
             return
         except OSError as ex_err:
             oradio_log.error("D-Bus connection error: %s", ex_err)
-            publish_error(ErrorMessage(WIFI_SOURCE, WIFI_ERROR_DBUS))
+            Errors.publish(ErrorMessage(WIFI_SOURCE, WIFI_ERROR_DBUS))
             return
 
         if not self._wifi_path:
             oradio_log.error("No wifi device found")
-            publish_error(ErrorMessage(WIFI_SOURCE, WIFI_ERROR_DBUS))
+            Errors.publish(ErrorMessage(WIFI_SOURCE, WIFI_ERROR_DBUS))
             return
 
         # Register the state-change callback for the specific WiFi device path.
@@ -274,7 +274,7 @@ class WifiEventListener():
         # (e.g. GLib resource limit reached) without raising an exception.
         if not self.dbus_receiver.is_alive():
             oradio_log.error("D-Bus receiver thread failed to start: WiFi state changes will not be reported")
-            publish_error(ErrorMessage(WIFI_SOURCE, WIFI_ERROR_DBUS))
+            Errors.publish(ErrorMessage(WIFI_SOURCE, WIFI_ERROR_DBUS))
             return
 
         oradio_log.info("Wifi event listener started")
@@ -339,7 +339,7 @@ class WifiEventListener():
                 # Connected to the Oradio's own access point (AP mode);
                 # connectivity check is not relevant here
                 oradio_log.debug("Publish wifi service message: %s", WIFI_ACCESS_POINT)
-                publish_command(CommandMessage(WIFI_SOURCE, WIFI_ACCESS_POINT))
+                Commands.publish(CommandMessage(WIFI_SOURCE, WIFI_ACCESS_POINT))
             else:
                 # Read NM's connectivity assessment — it has already probed
                 # for internet access so no separate round-trip is needed here
@@ -347,20 +347,20 @@ class WifiEventListener():
                 if connectivity == NM_CONNECTIVITY_FULL:
                     # External network with confirmed internet access
                     oradio_log.debug("Publish wifi service message: %s", WIFI_CONNECTED)
-                    publish_command(CommandMessage(WIFI_SOURCE, WIFI_CONNECTED))
+                    Commands.publish(CommandMessage(WIFI_SOURCE, WIFI_CONNECTED))
                 else:
                     # NM_CONNECTIVITY_PORTAL, NM_CONNECTIVITY_LIMITED, or NM_CONNECTIVITY_NONE:
                     # IP may be assigned but there is no usable internet route
                     oradio_log.debug("Publish wifi service error: %s", WIFI_ERROR_CONNECT)
-                    publish_error(ErrorMessage(WIFI_SOURCE, WIFI_ERROR_CONNECT))
+                    Errors.publish(ErrorMessage(WIFI_SOURCE, WIFI_ERROR_CONNECT))
 
         elif new_state == NM_DISCONNECTED:
             oradio_log.debug("Publish wifi service message: %s", WIFI_DISCONNECTED)
-            publish_command(CommandMessage(WIFI_SOURCE, WIFI_DISCONNECTED))
+            Commands.publish(CommandMessage(WIFI_SOURCE, WIFI_DISCONNECTED))
 
         else:   # NM_FAILED — NetworkManager could not complete the connection
             oradio_log.debug("Publish wifi service error: %s", WIFI_ERROR_CONNECT)
-            publish_error(ErrorMessage(WIFI_SOURCE, WIFI_ERROR_CONNECT))
+            Errors.publish(ErrorMessage(WIFI_SOURCE, WIFI_ERROR_CONNECT))
 
 class WifiService():
     """
@@ -386,7 +386,7 @@ class WifiService():
 
         # Publish the current state immediately so subscribers don't have to
         # wait for the first state-change signal from NetworkManager
-        publish_command(CommandMessage(WIFI_SOURCE, self.get_state()))
+        Commands.publish(CommandMessage(WIFI_SOURCE, self.get_state()))
 
     def get_state(self) -> str:
         """
@@ -473,7 +473,7 @@ class WifiService():
         if active:
             if not _wifi_down(active):
                 oradio_log.error("Failed to disconnect from '%s'", active)
-                publish_error(ErrorMessage(WIFI_SOURCE, WIFI_ERROR_DISCONNECT))
+                Errors.publish(ErrorMessage(WIFI_SOURCE, WIFI_ERROR_DISCONNECT))
             else:
                 # WifiEventListener publishes the WIFI_DISCONNECTED state
                 oradio_log.info("Disconnected from: '%s'", active)
@@ -735,7 +735,7 @@ def _networkmanager_del(network) -> bool:
 if __name__ == '__main__':
 
     # Imports only needed for the interactive self-test
-    from messaging import Topic, subscribe_commands, subscribe_errors   # pylint: disable=ungrouped-imports,wrong-import-position
+    from messaging import Topic, Commands.subscribe, Errors.subscribe   # pylint: disable=ungrouped-imports,wrong-import-position
     from oradio_const import RED, GREEN, YELLOW, NC                     # pylint: disable=ungrouped-imports,wrong-import-position
 
     # Most stand-alone entry points share this pattern across modules
@@ -745,7 +745,7 @@ if __name__ == '__main__':
         """
         Print any message received on a subscribed message bus topic.
 
-        Passed as a callback to subscribe_commands and subscribe_errors
+        Passed as a callback to Commands.subscribe and Errors.subscribe
         so that all bus traffic is visible during interactive testing.
 
         Args:
@@ -841,8 +841,8 @@ if __name__ == '__main__':
 
     # Subscribe to command and error topics before starting the service so no
     # messages published during initialisation are missed
-    subscribe_commands(topic_handler, (Topic.COMMAND,))
-    subscribe_errors(topic_handler, (Topic.ERROR,))
+    Commands.subscribe(topic_handler, (Topic.COMMAND,))
+    Errors.subscribe(topic_handler, (Topic.ERROR,))
 
     # Launch the interactive test menu; blocks until the user quits
     interactive_menu()

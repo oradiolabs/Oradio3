@@ -44,7 +44,7 @@ from wifi_service import get_wifi_networks, get_saved_network
 from mpd_control import MPDControl
 from messaging import (
     CommandMessage,
-    publish_command,
+    Commands.publish,
     WEB_SOURCE,
     WEB_PL1_PLAYLIST,
     WEB_PL2_PLAYLIST,
@@ -210,7 +210,7 @@ def play_song(args: Optional[Dict[str, Any]]):
 
     # Send notification message
     oradio_log.debug("Send web service message: %s", WEB_PLAYING_SONG)
-    publish_command(CommandMessage(WEB_SOURCE, WEB_PLAYING_SONG))
+    Commands.publish(CommandMessage(WEB_SOURCE, WEB_PLAYING_SONG))
 
     # Success
     return {"message": f"'{songfile}' is nu te horen"}
@@ -383,7 +383,7 @@ def save_preset(args: Optional[Dict[str, Any]]):
 
         # Send message which preset has changed and its type
         oradio_log.debug("Send web service message: %s", preset_map[preset][preset_type])
-        publish_command(CommandMessage(WEB_SOURCE, preset_map[preset][preset_type]))
+        Commands.publish(CommandMessage(WEB_SOURCE, preset_map[preset][preset_type]))
     else:
         oradio_log.error("Unexpected preset '%s'", preset)
         raise ValueError(f"De preset '{preset}'is ongeldig")
@@ -730,7 +730,7 @@ if __name__ == '__main__':
     import uvicorn
     from queue import Empty
     from multiprocessing import Event, Queue, Process
-    from messaging import Topic, subscribe_commands, subscribe_errors   # pylint: disable=ungrouped-imports,wrong-import-position
+    from messaging import Topic, Commands.subscribe, Errors.subscribe   # pylint: disable=ungrouped-imports,wrong-import-position
     from oradio_const import GREEN, NC                                  # pylint: disable=ungrouped-imports,wrong-import-position
 
     # Most stand-alone entry points share this pattern across modules
@@ -740,7 +740,7 @@ if __name__ == '__main__':
         """
         Print any message received on a subscribed message bus topic.
 
-        Passed as a callback to subscribe_commands and subscribe_errors
+        Passed as a callback to Commands.subscribe and Errors.subscribe
         so that all bus traffic is visible during interactive testing.
 
         Args:
@@ -777,8 +777,8 @@ if __name__ == '__main__':
 
     # Subscribe to command and error topics before starting the service so no
     # messages published during initialisation are missed
-    subscribe_commands(topic_handler, (Topic.COMMAND,))
-    subscribe_errors(topic_handler, (Topic.ERROR,))
+    Commands.subscribe(topic_handler, (Topic.COMMAND,))
+    Errors.subscribe(topic_handler, (Topic.ERROR,))
 
     # Initialize
     stop_event = Event()

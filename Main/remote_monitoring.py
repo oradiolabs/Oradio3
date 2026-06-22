@@ -46,8 +46,8 @@ from oradio_utils import get_serial
 from wifi_service import WifiService
 from oradio_logging import oradio_log
 from messaging import (
-    subscribe_commands,
-    unsubscribe_commands,
+    Commands.subscribe,
+    Commands.unsubscribe,
     WIFI_DISCONNECTED,
     WIFI_CONNECTED,
 )
@@ -328,10 +328,10 @@ class RMService:
         # Cache serial number once; used in every outgoing RMS message
         self._serial = get_serial()
 
-        # subscribe_commands() starts a background daemon thread that calls
+        # Commands.subscribe() starts a background daemon thread that calls
         # _wifi_listener whenever a matching message is published.  The
         # returned token is stored so the subscription can be cancelled later.
-        self.token = subscribe_commands(self._wifi_listener)
+        self.token = Commands.subscribe(self._wifi_listener)
 
     def _wifi_listener(self, message) -> None:
         """
@@ -435,7 +435,7 @@ class RMService:
         Unsubscribes the WiFi event listener (releasing the messaging-layer
         token) and cancels the heartbeat timer if it is running.
         """
-        unsubscribe_commands(self.token)
+        Commands.unsubscribe(self.token)
         Heartbeat.stop_heartbeat()
 
 # Entry point for stand-alone operation

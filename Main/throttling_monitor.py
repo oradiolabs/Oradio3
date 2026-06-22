@@ -38,7 +38,7 @@ from singleton import singleton
 from oradio_logging import oradio_log
 from messaging import (
     ErrorMessage,
-    publish_error,
+    Errors.publish,
     THROTTLING_SOURCE,
     THROTTLING_ERROR_THROTTLED,
 )
@@ -122,7 +122,7 @@ class RPiThrottlingMonitor:
         if value & 0xFFFF0000:
             reasons = self._decode_flags(value, 0xFFFF0000)
             oradio_log.warning("RPi HEALTH WARNING (since boot): %s", ", ".join(reasons))
-            publish_error(ErrorMessage(THROTTLING_SOURCE, THROTTLING_ERROR_THROTTLED))
+            Errors.publish(ErrorMessage(THROTTLING_SOURCE, THROTTLING_ERROR_THROTTLED))
 
         # Start the background polling thread.
         self.start()
@@ -197,7 +197,7 @@ class RPiThrottlingMonitor:
                     # One or more throttling conditions just became active.
                     reasons = self._decode_flags(value, ACTIVE_MASK)
                     oradio_log.warning("RPi throttling ENTERED: %s", ", ".join(reasons))
-                    publish_error(ErrorMessage(THROTTLING_SOURCE, THROTTLING_ERROR_THROTTLED))
+                    Errors.publish(ErrorMessage(THROTTLING_SOURCE, THROTTLING_ERROR_THROTTLED))
                 else:
                     # All throttling conditions have cleared.
                     oradio_log.warning("RPi throttling CLEARED")
@@ -236,7 +236,7 @@ class RPiThrottlingMonitor:
         # exception, so we check is_alive() explicitly.
         if not self._thread.is_alive():
             oradio_log.error("Throttled monitor failed to start: no throttled info available")
-            publish_error(ErrorMessage(THROTTLING_SOURCE, THROTTLING_ERROR_THROTTLED))
+            Errors.publish(ErrorMessage(THROTTLING_SOURCE, THROTTLING_ERROR_THROTTLED))
 
     def stop(self) -> None:
         """

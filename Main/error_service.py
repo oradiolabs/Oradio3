@@ -27,8 +27,8 @@ from time import sleep
 from oradio_logging import oradio_log
 from messaging import (
     ErrorMessage,
-    publish_error,
-    subscribe_errors,
+    Errors.publish,
+    Errors.subscribe,
     THROTTLING_SOURCE,
     THROTTLING_ERROR_THROTTLED,
     USB_SOURCE,
@@ -155,22 +155,22 @@ if __name__ == '__main__':
                 case 1:
                     # Publish a known test error; handler should accept it
                     print("\nPublish error message...")
-                    publish_error(ErrorMessage(TEST_SOURCE, "error test message"))
+                    Errors.publish(ErrorMessage(TEST_SOURCE, "error test message"))
                     sleep(0.5)  # Allow for message to propagate
                     print(f"{GREEN}Success publishing error message{NC}\n")
                 case 2:
                     # Publish an unrecognised error; handler should return False
                     print("\nPublish unexpected message...")
-                    publish_error(ErrorMessage(UNEXPECTED, "Unexpected message"))
+                    Errors.publish(ErrorMessage(UNEXPECTED, "Unexpected message"))
                     sleep(0.5)  # Allow for message to propagate
                     print(f"{RED}Failed catching unknown error{NC}\n")
                 case _:
                     print(f"\n{YELLOW}Please input a valid number{NC}\n")
 
-    # Register error_handler with the messaging layer.  subscribe_errors() starts
+    # Register error_handler with the messaging layer.  Errors.subscribe() starts
     # a daemon thread internally, so the handler runs in the background without blocking
     # the main application thread, and is automatically torn down when the process exits.
-    subscribe_errors(error_handler)
+    Errors.subscribe(error_handler)
 
     # Present menu with tests
     interactive_menu()
