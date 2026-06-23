@@ -1,24 +1,19 @@
 Actions:
-- Is the module name logical? consistent?
-- Replace legacy queue with new messaging + relocate messaging constants
-- Use Claude to review, cleanup doc strings and inline comments and check result
-
-Prompts:
-- Claude: Review, update doc strings and inline comments
+1. Is the module name logical? consistent?
+2. Replace legacy queue with new messaging + relocate messaging constants
+3. Use Claude to review, cleanup doc strings and inline comments and check result
+4. Verify changes do not break functionality
+5. Create base class or (mixin?) for starting/running/stopping messaging threads
 
 TODO:
 	backlighting.py
-error_service.py: Extend with error messages from other modules
 	gpio_service.py
 	i2c_service.py
 	led_control.py
 	mpd_control.py
 	mpd_monitor.py
 	mpd_service.py
-	oradio_const.py
-oradio_control.py: Patch with messaging proxy for commands and errors
-	oradio_logging.py
-	oradio_utils.py
+	oradio_control.py
 	power_supply_control.py
 	schemas.json
 	spotify_connect_direct.py
@@ -26,13 +21,26 @@ oradio_control.py: Patch with messaging proxy for commands and errors
 	touch_buttons.py
 	volume_control.py
 
-DONE:
-messaging.py
-singleton.py
-*throttling_monitor.py
-*usb_service.py
-*wifi_service.py
-*web_service.py
-*fastapi_service.py
+
+DONE 1:
+oradio_const.py: Renamed to constants.py
+oradio_logging.py: Renamed to log_service.py
+oradio_utils.py: Renamed to utilities.py
+
+DONE 2:
+error_service.py: TODO - extend with error messages from other modules
+messaging.py: TODO - migrate messaging defines from constants.py
+throttling_monitor.py
+usb_service.py
+wifi_service.py
 remote_monitoring.py
+
+DONE 3:
+fastapi_service.py
+web_service.py
+
+DONE 4:
+
+DONE 5:
+singleton.py
 
