@@ -33,7 +33,7 @@ from subprocess import check_output
 from threading import Thread, Event
 from typing import List
 
-##### oradio modules ####################
+##### oradio modules ################
 from singleton import singleton
 from oradio_logging import oradio_log
 from messaging import (
@@ -43,7 +43,7 @@ from messaging import (
     THROTTLING_ERROR_THROTTLED,
 )
 
-##### LOCAL constants ####################
+##### LOCAL constants ###############
 
 # Throttle flag definitions: Bit meanings from vcgencmd documentation.
 # The lower nibble (bits 0-3) reflects the *current* hardware state; the
@@ -249,7 +249,7 @@ class RPiThrottlingMonitor:
         """
         self._stop_event.set()
 
-    # ----- Test mode API -----
+##### Test mode API #################
 
     def enable_test_mode(self) -> None:
         """
@@ -302,11 +302,13 @@ class RPiThrottlingMonitor:
 # module is imported, without requiring any explicit setup by the caller.
 throttling_monitor = RPiThrottlingMonitor()
 
-# ----- Standalone test menu -----
+##### Stand-alone entry point #######
+
 if __name__ == "__main__":
 
     from time import sleep
-    from oradio_const import YELLOW, NC     # pylint: disable=wrong-import-position
+    from oradio_const import YELLOW, NC                 # pylint: disable=wrong-import-position
+    from messaging import Topic, DebugMessageHandler    # pylint: disable=ungrouped-imports,wrong-import-position
 
     # Most modules use similar code in stand-alone
     # pylint: disable=duplicate-code
@@ -323,7 +325,9 @@ if __name__ == "__main__":
         """
         # Enter test mode so hardware state is bypassed.
         throttling_monitor.enable_test_mode()
-        sleep(0.5)  # Allow for print output to propagate
+
+        # Allow for print output to propagate
+        sleep(0.5)
 
         input_selection = (
             "Select a function, input the number.\n"
@@ -372,8 +376,14 @@ if __name__ == "__main__":
                 case _:
                     print(f"\n{YELLOW}Please input a valid number{NC}\n")
 
+    # Subscribe to error topics so messages published are printed to console
+    err_handler = DebugMessageHandler(Topic.ERROR)
+
     # Present menu with tests
     interactive_menu()
+
+    # Stop printing published error messages
+    err_handler.stop()
 
     # Restore temporarily disabled pylint duplicate code check
     # pylint: enable=duplicate-code
