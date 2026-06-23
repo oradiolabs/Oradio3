@@ -37,7 +37,7 @@ from fastapi.templating import Jinja2Templates
 from fastapi.responses import FileResponse, JSONResponse
 from starlette.responses import RedirectResponse
 
-#### oradio modules ######################
+#### oradio modules #################
 from oradio_logging import oradio_log
 from oradio_utils import get_serial, safe_put, run_shell_script, load_presets, store_presets
 from wifi_service import get_wifi_networks, get_saved_network
@@ -55,7 +55,7 @@ from messaging import (
     WEB_PLAYING_SONG,
 )
 
-#### GLOBAL constants ####################
+#### GLOBAL constants ###############
 from oradio_const import (
     WEB_SERVER_HOST,
     WEB_SERVER_PORT,
@@ -64,7 +64,7 @@ from oradio_const import (
     MESSAGE_REQUEST_CONNECT,
 )
 
-#### LOCAL constants #####################
+#### LOCAL constants ################
 # Fallback values returned by _get_sw_info() when the version file is absent or unreadable
 INFO_MISSING = {"serial": "not found", "version": "not found"}
 INFO_ERROR   = {"serial": "undefined", "version": "undefined"}
@@ -152,7 +152,7 @@ async def keep_alive_middleware(request: Request, call_next):
 
     return response
 
-#### HELPERS #############################
+##### Helpers #######################
 
 def _get_sw_info():
     """
@@ -566,7 +566,7 @@ async def execute(request: ExecuteRequest):
         # Argument ontbreekt of fout
         return JSONResponse(status_code=400, content={"message": str(ex_err)})
 
-#### ORADIO3 ##############################
+##### Oradio3 #######################
 
 @api_app.get("/oradio3")
 async def oradio3_page(request: Request):
@@ -626,7 +626,7 @@ async def oradio3_page(request: Request):
 
     return templates.TemplateResponse(request=request, name="oradio3.html", context=context)
 
-#### KEEP ALIVE ######################
+##### Keep Alive ####################
 
 async def stop_task():
     """
@@ -696,7 +696,7 @@ async def keep_alive():
 
     return JSONResponse({"status": "ok"})
 
-#### CATCH ALL ###########################
+##### Catch all #####################
 
 @api_app.api_route("/{full_path:path}", methods=["GET", "POST"])
 async def catch_all(request: Request):
@@ -723,32 +723,19 @@ async def catch_all(request: Request):
     # Redirect all requests to webapp
     return RedirectResponse(url=oradioap_url + "/oradio3", status_code=302)
 
-# Entry point for stand-alone operation
+##### Stand-alone entry point #######
+
 if __name__ == '__main__':
 
-    # Imports only needed for the interactive self-test
+    # Imports only relevant when running stand-alone
     import uvicorn
     from queue import Empty
+    from oradio_const import YELLOW, NC                 # pylint: disable=ungrouped-imports,wrong-import-position
+    from messaging import Topic, DebugMessageHandler    # pylint: disable=ungrouped-imports,wrong-import-position
     from multiprocessing import Event, Queue, Process
-    from messaging import Topic, Errors     # pylint: disable=ungrouped-imports,wrong-import-position
-    from oradio_const import GREEN, NC      # pylint: disable=ungrouped-imports,wrong-import-position
 
     # Most stand-alone entry points share this pattern across modules
     # pylint: disable=duplicate-code
-
-    def topic_handler(message, topic) -> None:
-        """
-        Print any message received on a subscribed message bus topic.
-
-        Passed as a callback to Commands.subscribe and Errors.subscribe
-        so that all bus traffic is visible during interactive testing.
-
-        Args:
-            message: The CommandMessage or ErrorMessage received.
-            topic:   The bus topic on which the message arrived, used as a
-                     label in the printed output.
-        """
-        print(f"[{topic}] - Message received: {message!r}")
 
     def _check_messages(queue):
         """Monitor the service message queue and print received messages.
@@ -775,10 +762,8 @@ if __name__ == '__main__':
     # Override to relative URLs so the redirect works outside the access point network
     oradioap_url = ""
 
-    # Subscribe to command and error topics before starting the service so no
-    # messages published during initialisation are missed
-    Commands.subscribe(topic_handler, (Topic.COMMAND,))
-    Errors.subscribe(topic_handler, (Topic.ERROR,))
+    # Subscribe to command topics so messages published are printed to console
+    cmd_handler = DebugMessageHandler(Topic.COMMAND)
 
     # Initialize
     stop_event = Event()
@@ -809,6 +794,8 @@ if __name__ == '__main__':
         # Stop listening to messages
         stop_event.set()
         message_listener.join()
+        # Stop printing published command messages
+        cmd_handler.stop()
 
     # Restore temporarily disabled pylint duplicate code check
     # pylint: enable=duplicate-code

@@ -19,10 +19,10 @@ Created on February 8, 2025
 @status:        Development
 @summary:
     Provides the RMService class for communication with the Remote Monitoring
-    Service (RMS).  On every WiFi-connected event the service starts a
+    Service (RMS). On every WiFi-connected event the service starts a
     repeating heartbeat timer that POSTs a lightweight status message to the
     RMS server once per hour, and immediately sends a one-off SYS_INFO message
-    containing hardware/software identification.  The heartbeat is stopped
+    containing hardware/software identification. The heartbeat is stopped
     whenever WiFi is disconnected.
 
     Helper functions collect Raspberry Pi telemetry (serial number,
@@ -36,28 +36,29 @@ import json
 import subprocess
 from time import sleep
 from datetime import datetime
-from threading import Timer, Lock
 from platform import python_version
+from threading import Thread, Timer, Lock
 from requests import post, RequestException, Timeout
 
-##### oradio modules ####################
+##### oradio modules ################
 from singleton import singleton
 from oradio_utils import get_serial
 from wifi_service import WifiService
 from oradio_logging import oradio_log
 from messaging import (
     Commands,
+    safe_get,
     WIFI_SOURCE,
     WIFI_DISCONNECTED,
     WIFI_CONNECTED,
 )
 
-##### GLOBAL constants ####################
+##### GLOBAL constants ##############
 from oradio_const import (
     YELLOW, NC,
 )
 
-##### LOCAL constants ####################
+##### LOCAL constants ###############
 # RMS message type identifiers
 HEARTBEAT = 'HEARTBEAT'
 SYS_INFO  = 'SYS_INFO'
@@ -80,14 +81,14 @@ MAX_RETRIES    = 3    # Maximum number of POST attempts before giving up
 BACKOFF_FACTOR = 2    # Base for exponential backoff: delay = BACKOFF_FACTOR ** (attempt - 1)
 POST_TIMEOUT   = 5    # Per-attempt HTTP timeout in seconds
 
-# ----- Helpers -----
+##### Helpers #######################
 
 def _get_rpi_serial() -> str:
     """
     Return the Raspberry Pi's unique OTP serial number.
 
     Reads the serial from the OTP (One-Time Programmable) register via
-    vcgencmd otp_dump.  The result is used as a stable device identifier
+    vcgencmd otp_dump. The result is used as a stable device identifier
     in RMS messages.
 
     Returns:
@@ -145,7 +146,7 @@ def _get_sw_version() -> str:
     """
     Return the Oradio software version from the deployment log file.
 
-    Reads :data:`SW_LOG_FILE` (a JSON file written by the deployment
+    Reads SW_LOG_FILE (a JSON file written by the deployment
     pipeline) and returns a combined string of the serial and
     gitinfo fields, e.g. "v2.3.1 (abc1234)".
 
@@ -170,7 +171,7 @@ def _handle_response_command(response_text) -> None:
     Extract and execute a shell command embedded in the RMS server response.
 
     The RMS server may include a 'command' directive in its response body
-    (PHP array syntax: 'command' => <cmd>).  When found, the command is
+    (PHP array syntax: 'command' => <cmd>). When found, the command is
     passed to /usr/bin/bash for execution and the output is logged.
 
     .. warning::
@@ -210,13 +211,13 @@ class Heartbeat(Timer):
     """
     Repeating daemon timer that fires a callback at a fixed interval.
 
-    Inherits from :class:`threading.Timer` and overrides :meth:`run` so that
+    Inherits from threading.Timer and overrides run so that
     the callback executes immediately on start, then repeats every
-    interval seconds until :meth:`cancel` is called.
+    interval seconds until cancel is called.
 
-    Decorated with :func:`singleton` so that only one Heartbeat instance
-    exists at any time.  Use the class-level helpers :meth:`start_heartbeat`
-    and :meth:`stop_heartbeat` instead of instantiating directly.
+    Decorated with singleton so that only one Heartbeat instance
+    exists at any time. Use the class-level helpers start_heartbeat
+    and stop_heartbeat instead of instantiating directly.
     """
     # Prevents concurrent start/stop calls from racing on cls.instance
     start_lock = Lock()
@@ -237,9 +238,9 @@ class Heartbeat(Timer):
         """
         Run the callback immediately, then repeat every *interval* seconds.
 
-        Overrides :meth:`threading.Timer.run`.  The loop continues until
-        :meth:`cancel` sets self.finished, at which point
-        :meth:`threading.Event.wait` returns True and the loop exits.
+        Overrides threading.Timer.run. The loop continues until
+        cancel sets self.finished, at which point  threading.Event.wait
+        returns True and the loop exits.
 
         Exceptions raised by the callback are caught and logged so that a
         single failing tick does not terminate the timer thread.
@@ -306,72 +307,102 @@ class RMService:
 
     Responsibilities:
     - Listen for WiFi connect/disconnect events via the messaging layer.
-    - Start a repeating :class:`Heartbeat` and send an initial
-      :data:`SYS_INFO` message when WiFi becomes available.
+    - Start a repeating Heartbeat and send an initial SYS_INFO message
+    when WiFi becomes available.
     - Stop the heartbeat when WiFi is lost.
-    - Send :data:`HEARTBEAT` and :data:`SYS_INFO` POST requests to the RMS
+    - Send HEARTBEAT and SYS_INFO POST requests to the RMS
       server, with exponential-backoff retries on failure.
-
-    Usage::
-        rms = RMService()   # starts the wifi event listener automatically
-        ...
-        rms.close()         # unsubscribes listener and stops heartbeat
     """
+    # Sentinel value placed in a subscriber queue to signal the listener thread
+    # to exit cleanly.
+    _STOP_SENTINEL = "__STOP__"
+
+    # How long (seconds) DebugMessageHandler.stop() waits for its listener thread to
+    # finish after the sentinel has been delivered, before logging a warning.
+    _JOIN_TIMEOUT = 2.0
+
     def __init__(self) -> None:
         """
         Initialise the service and register for WiFi state change events.
 
         Caches the device serial number and subscribes _wifi_listener to
-        the messaging layer.  The subscription starts an internal daemon
+        the messaging layer. The subscription starts an internal daemon
         thread, so no additional setup is required by the caller.
         """
         # Cache serial number once; used in every outgoing RMS message
         self._serial = get_serial()
 
-        # Commands.subscribe() starts a background daemon thread that calls
-        # _wifi_listener whenever a matching message is published.  The
-        # returned token is stored so the subscription can be cancelled later.
-        self.token = Commands.subscribe(self._wifi_listener, sources=(WIFI_SOURCE,))
+        # Subscribe to wifi messages
+        self._queue = Commands.subscribe(sources=(WIFI_SOURCE,))
 
-    def _wifi_listener(self, message) -> None:
+        # Start queue listener thread
+        self._thread = Thread(target=self._wifi_listener, daemon=True,)
+        self._thread.start()
+
+    def _wifi_listener(self) -> None:
         """
         React to WiFi state-change messages and manage the heartbeat timer.
 
         Called by the messaging layer whenever a WiFi event is published.
         Starts the heartbeat (and sends SYS_INFO) on connect; stops it on
         disconnect.
-
-        Args:
-            message: WiFi event message from the messaging layer.  The
-                state attribute (or equivalent field) must be one of
-                :data:`WIFI_CONNECTED` or :data:`WIFI_DISCONNECTED`.
         """
-        if message == WIFI_DISCONNECTED:
-            # Use class method to stop the heartbeat timer
-            Heartbeat.stop_heartbeat()
+        while True:
+            message = safe_get(self._queue)
+            oradio_log.debug("message: %s", message)
 
-        if message == WIFI_CONNECTED:
-            # Use class method to start the heartbeat timer
-            Heartbeat.start_heartbeat(HEARTBEAT_REPEAT, self.send_message, args = (HEARTBEAT,))
-            # Immediately report hardware/software identity on every new connection
-            self.send_message(SYS_INFO)
-            oradio_log.debug("WiFi connected. Heartbeat started and system info sent.")
+            # self._STOP_SENTINEL means exit cleanly.
+            if message == self._STOP_SENTINEL:
+                return
+
+            if message == WIFI_DISCONNECTED:
+                # Use class method to stop the heartbeat timer
+                Heartbeat.stop_heartbeat()
+
+            if message == WIFI_CONNECTED:
+                # Use class method to start the heartbeat timer
+                Heartbeat.start_heartbeat(HEARTBEAT_REPEAT, self.send_message, args = (HEARTBEAT,))
+                # Immediately report hardware/software identity on every new connection
+                self.send_message(SYS_INFO)
+                oradio_log.debug("WiFi connected. Heartbeat started and system info sent.")
+
+    def stop(self) -> None:
+        """
+        Stop the listener thread and heartbeat timer cleanly.
+
+        The queue is first removed from the pub-sub registry so no further
+        messages can arrive. A sentinel value is then enqueued to wake the
+        listener thread, after which join() waits for it to terminate.
+        """
+        # Remove from registry first — no new messages after this point.
+        Commands.unsubscribe(self._queue)
+
+        # Wake the listener thread and request a clean shutdown.
+        self._queue.put_nowait(self._STOP_SENTINEL)
+
+        # Wait for the thread to exit.
+        self._thread.join(timeout=self._JOIN_TIMEOUT)
+        if self._thread.is_alive():
+            oradio_log.warning("Listener thread did not stop within timeout")
+
+        # Stop the heartbeat timer
+        Heartbeat.stop_heartbeat()
 
     def send_message(self, msg_type) -> None:
         """
         Build and POST a message to the RMS server.
 
         Constructs a payload dict containing a timestamp, device serial, and
-        message type.  Appends type-specific data (temperature for
-        :data:`HEARTBEAT`; hardware/software info for :data:`SYS_INFO`), then
-        sends the payload via HTTP POST with up to :data:`MAX_RETRIES`
+        message type. Appends type-specific data (temperature for
+        HEARTBEAT; hardware/software info for SYS_INFO), then
+        sends the payload via HTTP POST with up to MAX_RETRIES
         attempts using exponential backoff.
 
         Any command directive found in the server response is forwarded to
-        :func:`_handle_response_command`.
+        _handle_response_command.
 
         Args:
-            msg_type (str): One of :data:`HEARTBEAT` or :data:`SYS_INFO`.
+            msg_type (str): One of HEARTBEAT or SYS_INFO.
         """
         # Base fields present in every message type
         payload_info = {
@@ -428,26 +459,21 @@ class RMService:
         # Act on any command the RMS server included in its response body
         _handle_response_command(response.text)
 
-    def close(self) -> None:
-        """
-        Tear down the RMS service cleanly.
+##### Stand-alone entry point #######
 
-        Unsubscribes the WiFi event listener (releasing the messaging-layer
-        token) and cancels the heartbeat timer if it is running.
-        """
-        Commands.unsubscribe(self.token)
-        Heartbeat.stop_heartbeat()
-
-# Entry point for stand-alone operation
 if __name__ == "__main__":
+
+    # Imports only relevant when running stand-alone
+    from messaging import Topic, DebugMessageHandler    # pylint: disable=ungrouped-imports,wrong-import-position
 
     # Most modules use similar code in stand-alone
     # pylint: disable=duplicate-code
 
     def interactive_menu() -> None:
-        """Run an interactive command-line menu for manual RMService testing.
+        """
+        Run an interactive command-line menu for manual RMService testing.
 
-        Creates a :class:`WifiService` and :class:`RMService` instance, then
+        Creates a WifiService and RMService instance, then
         presents a numbered menu that lets a developer exercise each public
         method without running the full Oradio application stack.
         """
@@ -482,7 +508,7 @@ if __name__ == "__main__":
             match function_nr:
                 case 0:
                     print("\nExiting test program...\n")
-                    rms.close()
+                    rms.stop()
                     break
                 case 1:
                     print("\nSend HEARTBEAT test message to Remote Monitoring Service...\n")
@@ -508,7 +534,7 @@ if __name__ == "__main__":
                     print("\nDisconnecting wifi...\n")
                     wifi_service.wifi_disconnect()
                 case _:
-                    print("\nPlease input a valid number\n")
+                    print(f"\n{YELLOW}Please input a valid number{NC}\n")
 
     # Present menu with tests
     interactive_menu()

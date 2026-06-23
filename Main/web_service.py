@@ -43,7 +43,7 @@ from multiprocessing import Queue
 from threading import Thread, Lock
 import uvicorn
 
-##### oradio modules ####################
+##### oradio modules ################
 from oradio_logging import oradio_log, ORADIO_LOG_LEVEL
 from oradio_utils import run_shell_script
 from fastapi_server import api_app
@@ -63,7 +63,7 @@ from messaging import (
     WEB_ERROR_STOP,
 )
 
-##### GLOBAL constants ####################
+##### GLOBAL constants ##############
 from oradio_const import (
     ACCESS_POINT_HOST,
     ACCESS_POINT_SSID,
@@ -73,7 +73,7 @@ from oradio_const import (
     MESSAGE_REQUEST_STOP,
 )
 
-##### LOCAL constants ####################
+##### LOCAL constants ###############
 READY_TIMEOUT  = 15  # Seconds to wait for server readiness or WiFi state transitions
 SOCKET_TIMEOUT = 3   # WebSocket ping interval/timeout in seconds; safe for small devices and networks
 
@@ -86,7 +86,6 @@ _IPTABLES_REDIRECT_RULE = (
 # dnsmasq config file that resolves all hostnames to the captive portal address.
 _DNS_REDIRECT_CONF = Path("/etc/NetworkManager/dnsmasq-shared.d/redirect.conf")
 
-
 class UvicornServerThread:
     """
     Manage a Uvicorn ASGI server running in a background daemon thread.
@@ -97,7 +96,6 @@ class UvicornServerThread:
     A fresh Server instance is created on each call to start() so that
     internal Uvicorn state (started, should_exit) is always clean.
     """
-
     def __init__(self, app, host=WEB_SERVER_HOST, port=WEB_SERVER_PORT, level=ORADIO_LOG_LEVEL):
         """
         Initialise the manager without starting the server.
@@ -197,7 +195,6 @@ class UvicornServerThread:
             not self._server.should_exit
         )
 
-
 class WebService:
     """
     Manage the Captive Portal web interface over WiFi or a hosted access point.
@@ -218,7 +215,6 @@ class WebService:
     FastAPI routes write to, and translates queue messages into service actions
     (WiFi connect, portal stop) without blocking the ASGI event loop.
     """
-
     def __init__(self):
         """
         Initialise the WebService and start the background message listener.
@@ -246,7 +242,7 @@ class WebService:
         # Announce initial state so the controller starts from a known baseline
         Commands.publish(CommandMessage(WEB_SOURCE, self.state))
 
-    ##### Private helpers #####
+##### Private helpers ###############
 
     def _get_nat_rules(self):
         """
@@ -397,7 +393,7 @@ class WebService:
             elif request == MESSAGE_REQUEST_STOP:
                 self.stop()
 
-    ##### Public interface #####
+##### Public interface ##############
 
     @property
     def state(self):
@@ -479,33 +475,18 @@ class WebService:
 
         Commands.publish(CommandMessage(WEB_SOURCE, self.state))
 
+##### Stand-alone entry point #######
 
-# Entry point for stand-alone operation
 if __name__ == '__main__':
 
     # Imports only relevant when running stand-alone
     import requests
     import subprocess
-    from messaging import Topic                 # pylint: disable=ungrouped-imports,wrong-import-position
-    from oradio_const import RED, YELLOW, NC    # pylint: disable=ungrouped-imports,wrong-import-position
+    from oradio_const import RED, YELLOW, NC            # pylint: disable=ungrouped-imports,wrong-import-position
+    from messaging import Topic, DebugMessageHandler    # pylint: disable=ungrouped-imports,wrong-import-position
 
     # Most stand-alone entry points share this pattern; pylint flags it as duplicate code across modules.
     # pylint: disable=duplicate-code
-
-    def topic_handler(message, topic) -> None:
-        """
-        Print any message received on a subscribed message bus topic.
-
-        Passed as a callback to Commands.subscribe() and Errors.subscribe()
-        so that all bus traffic is visible during interactive testing.
-
-        Args:
-            message: The CommandMessage or ErrorMessage received from the bus.
-            topic:   The bus topic on which the message arrived; used as a
-                     label in the printed output.
-        """
-        print(f"[{topic}] - Message received: {message!r}")
-
 
     def interactive_menu():  # pylint: disable=too-many-branches
         """
@@ -533,10 +514,12 @@ if __name__ == '__main__':
         )
 
         while True:
+
+            # Safely parse integer input; treat non-numeric input as invalid.
             try:
                 function_nr = int(input(input_selection))
             except ValueError:
-                function_nr = -1  # Treat non-integer input as an invalid selection
+                function_nr = -1  # Sentinel that falls through to the default case
 
             match function_nr:
                 case 0:
@@ -588,12 +571,16 @@ if __name__ == '__main__':
                 case _:
                     print(f"\n{YELLOW}Please input a valid number{NC}\n")
 
-    # Subscribe before constructing WebService so no bus messages published
-    # during initialisation are missed by the test handler
-    Commands.subscribe(topic_handler, (Topic.COMMAND,))
-    Errors.subscribe(topic_handler, (Topic.ERROR,))
+    # Subscribe to command and error topics so messages published are printed to console
+    cmd_handler = DebugMessageHandler(Topic.COMMAND)
+    err_handler = DebugMessageHandler(Topic.ERROR)
 
+    # Launch the interactive test menu; blocks until the user quits
     interactive_menu()
+
+    # Stop printing published messages
+    cmd_handler.stop()
+    err_handler.stop()
 
     # Restore temporarily disabled pylint duplicate code check
     # pylint: enable=duplicate-code

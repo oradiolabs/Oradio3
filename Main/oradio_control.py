@@ -768,29 +768,78 @@ shared_queue = Queue()  # Create a shared queue
 
 from oradio_utils import safe_put           # pylint: disable=ungrouped-imports,wrong-import-position
 
-def _command_handler(command, legacy_queue) -> None:
+class ProxyCommandHandler:
     """
-    Command handling loop.
-    When a command is received, the service forwards it.
-    """
-    oradio_log.debug("[COMMAND PROXY SERVICE] received: %r", command)
-    # Convert new message to legacy message
-    message = {
-        "source": command.source,
-        "state": command.message,
-        "error": MESSAGE_NO_ERROR if command.data is None else command.data,
-    }
-    oradio_log.debug("[COMMAND PROXY SERVICE] forward: %s", message)
-    safe_put(legacy_queue, message)
+    Wraps a subscriber queue in a daemon thread that prints received messages.
 
-# Register _command_handler with the messaging layer.  Commands.subscribe() starts
-# a daemon thread internally, so the handler runs in the background without blocking
+    Used only in the interactive test menu. Production code reads from the
+    queue directly via safe_get() rather than using this wrapper.
+    """
+    # Sentinel value placed in a subscriber queue to signal the listener thread
+    # to exit cleanly.
+    _STOP_SENTINEL = "__STOP__"
+
+    # How long (seconds) DebugMessageHandler.stop() waits for its listener thread to
+    # finish after the sentinel has been delivered, before logging a warning.
+    _JOIN_TIMEOUT = 2.0
+
+    def __init__(self, shared_q):
+        self._legacy_q = shared_q
+        self._queue = Commands.subscribe()
+
+        # Start queue listener thread
+        self._thread = Thread(target=self._subscription_listener, daemon=True,)
+        self._thread.start()
+
+    def _subscription_listener(self) -> None:
+        """
+        When a command is received, the service forwards it.
+        """
+        while True:
+            command = safe_get(self._queue)
+
+            # self._STOP_SENTINEL means exit cleanly.
+            if command == self._STOP_SENTINEL:
+                return
+
+            oradio_log.debug("[COMMAND PROXY SERVICE] received: %r", command)
+            # Convert new message to legacy message
+            message = {
+                "source": command.source,
+                "state": command.message,
+                "error": MESSAGE_NO_ERROR if command.data is None else command.data,
+            }
+            oradio_log.debug("[COMMAND PROXY SERVICE] forward: %s", message)
+            safe_put(self._legacy_q, message)
+
+    def stop(self) -> None:
+        """
+        Stop the listener thread cleanly.
+
+        The queue is first removed from the pub-sub registry so no further
+        messages can arrive. A sentinel value is then enqueued to wake the
+        listener thread, after which join() waits for it to terminate.
+        """
+        # Remove from registry first — no new messages after this point.
+        Commands.unsubscribe(self._queue)
+
+        # Wake the listener thread and request a clean shutdown.
+        self._queue.put_nowait(self._STOP_SENTINEL)
+
+        # Wait for the thread to exit.
+        self._thread.join(timeout=self._JOIN_TIMEOUT)
+        if self._thread.is_alive():
+            oradio_log.warning("Listener thread did not stop within timeout")
+
+
+# Register _command_handler with the messaging layer. ProxyCommandHandler starts
+# a daemon thread, so the handler runs in the background without blocking
 # the main application thread, and is automatically torn down when the process exits.
-Commands.subscribe(_command_handler, (shared_queue,))
+ProxyCommandHandler(shared_queue)
 
 from error_service import error_handler     # pylint: disable=wrong-import-position
 
-# Register error_handler with the messaging layer.  Errors.subscribe() starts
+# Register error_handler with the messaging layer. Errors.subscribe() starts
 # a daemon thread internally, so the handler runs in the background without blocking
 # the main application thread, and is automatically torn down when the process exits.
 Errors.subscribe(error_handler)

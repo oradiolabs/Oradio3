@@ -564,7 +564,9 @@ class DebugMessageHandler:
         self._thread.start()
 
     def _subscription_listener(self) -> None:
-        """Drain the queue and print each message until the sentinel arrives."""
+        """
+        Drain the queue and print each message until the sentinel arrives.
+        """
         while True:
             message = safe_get(self._queue)
 

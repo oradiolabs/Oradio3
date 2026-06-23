@@ -758,11 +758,12 @@ if __name__ == '__main__':
         wifi_service = WifiService()
 
         while True:
+
+            # Safely parse integer input; treat non-numeric input as invalid.
             try:
                 function_nr = int(input(input_selection))
             except ValueError:
-                # Non-integer input; fall through to the default case
-                function_nr = -1
+                function_nr = -1  # Sentinel that falls through to the default case
 
             match function_nr:
                 case 0:

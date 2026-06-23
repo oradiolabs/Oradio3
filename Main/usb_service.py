@@ -361,16 +361,14 @@ if __name__ == '__main__':
         # Instantiate the service; the watchdog observer thread starts here
         monitor = USBService()
 
-        # User command loop
         while True:
-            # Get user input
+
+            # Safely parse integer input; treat non-numeric input as invalid.
             try:
                 function_nr = int(input(input_selection))
             except ValueError:
-                # Non-integer input; fall through to the default case
-                function_nr = -1
+                function_nr = -1  # Sentinel that falls through to the default case
 
-            # Execute selected function
             match function_nr:
                 case 0:
                     print("\nExiting test program...\n")
