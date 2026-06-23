@@ -40,10 +40,10 @@ def singleton(cls) -> object:
     subclassing and isinstance() behaviour remain normal.
     """
     # Holds the single shared instance.
-    cls._singleton_instance = None
+    cls.singleton_instance = None
 
     # Protects instance creation against concurrent first-call races.
-    cls._singleton_lock = Lock()
+    cls.singleton_lock = Lock()
 
     # Saved so init_once can delegate to it after the first-run guard.
     original_init = cls.__init__
@@ -67,14 +67,14 @@ def singleton(cls) -> object:
         against a race between two simultaneous first calls.
         """
         # Fast path: instance already exists, no locking needed.
-        if cls._singleton_instance is None:
-            with cls._singleton_lock:
+        if cls.singleton_instance is None:
+            with cls.singleton_lock:
                 # Slow path: re-check now that we hold the lock.
-                if cls._singleton_instance is None:
+                if cls.singleton_instance is None:
                     # Call object.__new__ directly to bypass our patched
                     # __new__ and avoid infinite recursion.
-                    cls._singleton_instance = object.__new__(subcls)
-        return cls._singleton_instance
+                    cls.singleton_instance = object.__new__(subcls)
+        return cls.singleton_instance
 
     # Replace __new__ and __init__ on the class itself so that subclasses
     # and isinstance() checks continue to work normally.
