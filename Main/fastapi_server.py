@@ -666,20 +666,21 @@ if __name__ == '__main__':
     # Most stand-alone entry points share this pattern across modules
     # pylint: disable=duplicate-code
 
-    def _check_messages(queue, stop_event):
+#REVIEW Onno: stop_event/stop_flag is tijdelijk, verdwijnt na refactor met messaging
+    def _check_messages(queue, stop_flag):
         """
         Monitor the service message queue and print received messages.
 
-        Runs in a child process. Loops until stop_event is set, printing
+        Runs in a child process. Loops until stop_flag is set, printing
         each message from queue as it arrives. Exits cleanly on
         KeyboardInterrupt.
 
         Args:
             queue:      multiprocessing.Queue to drain.
-            stop_event: multiprocessing.Event signalling the loop to exit.
+            stop_flag: multiprocessing.Event signalling the loop to exit.
         """
         try:
-            while not stop_event.is_set():
+            while not stop_flag.is_set():
                 try:
                     message = queue.get(block=True, timeout=0.5)
                     print(f"\n{GREEN}Message received: '{message}'{NC}\n")
