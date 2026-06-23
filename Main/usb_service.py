@@ -319,8 +319,8 @@ class USBService:
 if __name__ == '__main__':
 
     # Imports only relevant when stand-alone
-    from messaging import Topic                 # pylint: disable=ungrouped-imports,wrong-import-position
-    from oradio_const import RED, YELLOW, NC    # pylint: disable=ungrouped-imports,wrong-import-position
+    from oradio_const import RED, YELLOW, NC            # pylint: disable=ungrouped-imports,wrong-import-position
+    from messaging import Topic, DebugMessageHandler    # pylint: disable=ungrouped-imports,wrong-import-position
 
     # Most stand-alone entry points share this pattern; pylint would flag it as duplicate code across modules.
     # pylint: disable=duplicate-code
@@ -393,13 +393,16 @@ if __name__ == '__main__':
                 case _:
                     print(f"\n{YELLOW}Please input a valid number{NC}\n")
 
-    # Subscribe to command and error topics before starting the service so no
-    # messages published during initialisation are missed
-    Commands.subscribe(topic_handler, (Topic.COMMAND,))
-    Errors.subscribe(topic_handler, (Topic.ERROR,))
+    # Subscribe to command and error topics so messages published are printed to console
+    cmd_handler = DebugMessageHandler(Topic.COMMAND)
+    err_handler = DebugMessageHandler(Topic.ERROR)
 
     # Launch the interactive test menu (blocks until the user quits)
     interactive_menu()
+
+    # Stop printing published messages
+    cmd_handler.stop()
+    err_handler.stop()
 
     # Re-enable the duplicate-code check for any code that follows
     # pylint: enable=duplicate-code
