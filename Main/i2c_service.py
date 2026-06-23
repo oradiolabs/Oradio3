@@ -30,9 +30,7 @@ from oradio_logging import oradio_log
 from singleton import singleton
 
 ##### GLOBAL constants ####################
-from oradio_const import (
-    GREEN, YELLOW, RED, NC,
-)
+from constants import GREEN, YELLOW, RED, NC
 
 ##### Local constants ####################
 I2C_RETRIES = 3

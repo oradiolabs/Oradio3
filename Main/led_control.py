@@ -31,7 +31,7 @@ from gpio_service import GPIOService
 from singleton import singleton
 
 ##### GLOBAL constants ####################
-from oradio_const import (LED_NAMES)
+from constants import LED_NAMES
 
 @singleton
 class LEDControl:

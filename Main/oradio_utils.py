@@ -36,7 +36,7 @@ from pydantic import BaseModel, ValidationError
 from oradio_logging import oradio_log
 
 ##### GLOBAL constants ####################
-from oradio_const import (
+from constants import (
     YELLOW, NC,
     PRESETS_FILE,
     USB_SYSTEM,

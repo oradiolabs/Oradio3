@@ -37,7 +37,7 @@ from gpio_service import GPIOService, LED_ON, LED_OFF, LEDS, BUTTONS, BOUNCE_MS
 from remote_debugger import setup_remote_debugging
 
 ##### GLOBAL constants ####################
-from oradio_const import (
+from constants import (
     GREEN, YELLOW, RED, NC,
     LED_NAMES, BUTTON_NAMES,
     DEBUGGER_ENABLED, DEBUGGER_NOT_CONNECTED,

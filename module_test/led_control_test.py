@@ -29,7 +29,7 @@ from oradio_utils import input_prompt_int, input_prompt_float
 from remote_debugger import setup_remote_debugging
 
 ##### GLOBAL constants ####################
-from oradio_const import (
+from constants import (
     LED_NAMES, GREEN, YELLOW, RED, NC,
     DEBUGGER_NOT_CONNECTED, DEBUGGER_ENABLED
 )

@@ -23,7 +23,7 @@ import sys
 from threading import Event, Thread
 
 ##### GLOBAL constants ####################
-from oradio_const import (
+from constants import (
     GREEN, RED, YELLOW, NC,
     DEBUGGER_NOT_CONNECTED, DEBUGGER_ENABLED,
     MESSAGE_SHORT_PRESS_BUTTON_PLAY, MESSAGE_SHORT_PRESS_BUTTON_STOP,

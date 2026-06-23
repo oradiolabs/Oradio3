@@ -29,7 +29,7 @@ from system_sounds import play_sound
 from singleton import singleton
 
 ##### GLOBAL constants ####################
-from oradio_const import (
+from constants import (
     YELLOW, NC,
     BUTTON_PLAY,
     BUTTON_RELEASED,

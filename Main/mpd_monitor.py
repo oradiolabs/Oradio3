@@ -33,9 +33,7 @@ from mpd_service import MPDService
 
 
 ##### GLOBAL constants ####################
-from oradio_const import (
-    YELLOW, NC,
-)
+from constants import YELLOW, NC
 
 ##### Local constants ####################
 # Mapping of MPD idle events to typical client actions

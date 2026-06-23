@@ -61,7 +61,7 @@ from messaging import (
 )
 
 ##### GLOBAL constants ##############
-from oradio_const import (
+from constants import (
     ACCESS_POINT_HOST,
     ACCESS_POINT_SSID,
 )
@@ -725,7 +725,7 @@ def _networkmanager_del(network) -> bool:
 if __name__ == '__main__':
 
     # Imports only relevant when stand-alone
-    from oradio_const import RED, GREEN, YELLOW, NC     # pylint: disable=ungrouped-imports,wrong-import-position
+    from constants import RED, GREEN, YELLOW, NC        # pylint: disable=ungrouped-imports,wrong-import-position
     from messaging import Topic, DebugMessageHandler    # pylint: disable=ungrouped-imports,wrong-import-position
 
     # Most stand-alone entry points share this pattern across modules

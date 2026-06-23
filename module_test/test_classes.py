@@ -19,7 +19,7 @@ Created on Jan 22, 2026
     * Classes for testing and simulations
 """
 ##### oradio modules ####################
-from oradio_const import (BUTTON_NAMES)
+from constants import (BUTTON_NAMES)
 
 class TimingData():
     """

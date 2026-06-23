@@ -27,8 +27,8 @@ from queue import Full  # for queue-full errors in send_event
 # Oradio modules
 from oradio_logging import oradio_log
 
-# Constants from oradio_const
-from oradio_const import (
+# Constants from constants
+from constants import (
     MESSAGE_NO_ERROR,
     MESSAGE_SPOTIFY_SOURCE,
     SPOTIFY_CONNECT_CONNECTED_EVENT,

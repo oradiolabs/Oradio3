@@ -53,7 +53,7 @@ from messaging import (
 
 ##### GLOBAL constants ##############
 # Filesystem path where the ORADIO USB drive is auto-mounted by the OS
-from oradio_const import USB_MOUNT_POINT
+from constants import USB_MOUNT_POINT
 
 ##### LOCAL constants ###############
 # Directory watched by the observer for filesystem events
@@ -320,7 +320,7 @@ class USBService:
 if __name__ == '__main__':
 
     # Imports only relevant when stand-alone
-    from oradio_const import RED, YELLOW, NC            # pylint: disable=ungrouped-imports,wrong-import-position
+    from constants import RED, YELLOW, NC               # pylint: disable=ungrouped-imports,wrong-import-position
     from messaging import Topic, DebugMessageHandler    # pylint: disable=ungrouped-imports,wrong-import-position
 
     # Most stand-alone entry points share this pattern; pylint would flag it as duplicate code across modules.

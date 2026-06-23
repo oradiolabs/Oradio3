@@ -31,9 +31,7 @@ from oradio_logging import oradio_log
 from i2c_service import I2CService
 
 ##### GLOBAL constants ####################
-from oradio_const import (
-    YELLOW, NC,
-)
+from constants import YELLOW, NC
 
 ##### Local constants ####################
 # TSL2591 - Ambient Light Sensor

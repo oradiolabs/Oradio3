@@ -38,7 +38,7 @@ from singleton import singleton
 from oradio_logging import oradio_log
 
 ##### GLOBAL constants ##############
-from oradio_const import (
+from constants import (
     RED, YELLOW, GREEN, NC,
     STOP_SENTINEL,
     JOIN_TIMEOUT,

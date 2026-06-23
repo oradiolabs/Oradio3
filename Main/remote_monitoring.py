@@ -52,7 +52,7 @@ from messaging import (
 )
 
 ##### GLOBAL constants ##############
-from oradio_const import (
+from constants import (
     YELLOW, NC,
     STOP_SENTINEL,
     JOIN_TIMEOUT,

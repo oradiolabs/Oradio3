@@ -35,7 +35,7 @@ from gpio_service import BUTTONS, GPIOService
 from remote_debugger import setup_remote_debugging
 
 ##### GLOBAL constants ####################
-from oradio_const import (
+from constants import (
     YELLOW, RED, NC,
     BUTTON_NAMES,
     BUTTON_PLAY,

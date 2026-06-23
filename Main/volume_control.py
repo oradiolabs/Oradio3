@@ -28,7 +28,7 @@ from i2c_service import I2CService
 from oradio_utils import safe_put, run_shell_script
 
 ##### GLOBAL constants ####################
-from oradio_const import (
+from constants import (
     GREEN, YELLOW, NC,
     MESSAGE_VOLUME_SOURCE,
     MESSAGE_VOLUME_CHANGED,

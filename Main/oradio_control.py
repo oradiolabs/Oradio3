@@ -44,7 +44,7 @@ from system_sounds import play_sound    # For better readability. pylint: disabl
 # Runs a background thread logging throttling events
 import throttling_monitor     # pylint: disable=unused-import
 
-# Moved from oradio_const
+# Moved from constants
 from messaging import (
     Commands,
     safe_get,
@@ -69,7 +69,7 @@ from messaging import (
 )
 
 ##### GLOBAL constants ####################
-from oradio_const import (
+from constants import (
     STOP_SENTINEL,
     JOIN_TIMEOUT,
     MESSAGE_NO_ERROR,

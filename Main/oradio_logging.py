@@ -53,7 +53,7 @@ from requests import post, RequestException, Timeout
 # NOTE: Do not import oradio modules using oradio_log to avoid circular imports
 
 ##### GLOBAL constants ##################
-from oradio_const import (
+from constants import (
     BLUE, GREY, WHITE, YELLOW, RED, MAGENTA, NC,
     REMOTE_SERVER,
     POST_TIMEOUT,

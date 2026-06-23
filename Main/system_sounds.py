@@ -24,7 +24,7 @@ from pathlib import Path
 from oradio_logging import oradio_log
 
 ##### GLOBAL constants ####################
-from oradio_const import (
+from constants import (
     RED, YELLOW, NC,
     SOUND_START,
     SOUND_STOP,

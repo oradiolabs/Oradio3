@@ -40,7 +40,7 @@ from oradio_utils import load_presets
 from mpd_service import MPDService
 
 ##### GLOBAL constants ####################
-from oradio_const import (
+from constants import (
     GREEN, YELLOW, NC,
     USB_MUSIC,
 )

@@ -64,7 +64,7 @@ from messaging import (
 )
 
 ##### GLOBAL constants ##############
-from oradio_const import (
+from constants import (
     ACCESS_POINT_HOST,
     ACCESS_POINT_SSID,
     WEB_SERVER_HOST,
@@ -482,7 +482,7 @@ if __name__ == '__main__':
     # Imports only relevant when running stand-alone
     import requests
     import subprocess
-    from oradio_const import RED, YELLOW, NC            # pylint: disable=ungrouped-imports,wrong-import-position
+    from constants import RED, YELLOW, NC               # pylint: disable=ungrouped-imports,wrong-import-position
     from messaging import Topic, DebugMessageHandler    # pylint: disable=ungrouped-imports,wrong-import-position
 
     # Most stand-alone entry points share this pattern; pylint flags it as duplicate code across modules.

@@ -33,7 +33,7 @@ import os
 import socket
 
 ##### oradio modules ####################
-from oradio_const import (
+from constants import (
     YELLOW, GREEN, NC,
     DEBUGGER_CONNECTED,
     DEBUGGER_NOT_CONNECTED,

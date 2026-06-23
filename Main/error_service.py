@@ -44,7 +44,7 @@ from messaging import (
 )
 
 ##### GLOBAL constants ##############
-from oradio_const import (
+from constants import (
     STOP_SENTINEL,
     JOIN_TIMEOUT,
 )
@@ -182,7 +182,7 @@ if __name__ == '__main__':
 
     # Imports only relevant when stand-alone
     from messaging import ErrorMessage      # pylint: disable=ungrouped-imports,wrong-import-position
-    from oradio_const import YELLOW, NC     # pylint: disable=ungrouped-imports,wrong-import-position
+    from constants import YELLOW, NC        # pylint: disable=ungrouped-imports,wrong-import-position
 
     # Most modules use similar code in stand-alone
     # pylint: disable=duplicate-code

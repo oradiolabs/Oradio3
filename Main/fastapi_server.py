@@ -56,7 +56,7 @@ from messaging import (
 )
 
 #### GLOBAL constants ###############
-from oradio_const import (
+from constants import (
     WEB_SERVER_HOST,
     WEB_SERVER_PORT,
     ACCESS_POINT_HOST,
@@ -730,7 +730,7 @@ if __name__ == '__main__':
     # Imports only relevant when running stand-alone
     import uvicorn
     from queue import Empty
-    from oradio_const import GREEN, NC                  # pylint: disable=ungrouped-imports,wrong-import-position
+    from constants import GREEN, NC                     # pylint: disable=ungrouped-imports,wrong-import-position
     from messaging import Topic, DebugMessageHandler    # pylint: disable=ungrouped-imports,wrong-import-position
     from multiprocessing import Event, Queue, Process
 

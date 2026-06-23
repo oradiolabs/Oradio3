@@ -37,7 +37,7 @@ from oradio_logging import oradio_log
 from singleton import singleton
 
 ##### GLOBAL constants ####################
-from oradio_const import (
+from constants import (
     LED_PLAY, LED_STOP,
     LED_PRESET1, LED_PRESET2, LED_PRESET3,
     LED_NAMES,
