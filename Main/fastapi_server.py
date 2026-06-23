@@ -11,16 +11,17 @@
 
 Created on December 23, 2024
 @author:        Henk Stevens & Olaf Mastenbroek & Onno Janssen
-@copyright:     Copyright 2024, Oradio Stichting
+@copyright:     Copyright, Oradio Stichting
 @license:       GNU General Public License (GPL)
 @organization:  Oradio Stichting
-@version:       2
+@version:       3
 @email:         oradioinfo@stichtingoradio.nl
 @status:        Development
 @summary:       Web interface and FastAPI web server for Oradio.
-    Serves the Oradio3 single-page application, exposes a generic
-    /execute command endpoint, and manages a keep-alive timer that
-    shuts the server down when the browser stops pinging.
+    Serves the Oradio3 single-page application via the /oradio3 route,
+    exposes a generic /execute command endpoint, manages a keep-alive
+    timer that shuts the server down when the browser stops pinging,
+    and redirects all unmatched paths back to /oradio3.
     Documentation:
         https://fastapi.tiangolo.com/
 """
@@ -77,7 +78,7 @@ SOFTWARE_VERSION_FILE = "/var/log/oradio_sw_version.log"
 KEEP_ALIVE_TIMEOUT = 5
 
 # Full URL required by some mobile browsers (e.g. iOS Safari) that reject bare
-# hostnames in redirect responses
+# hostnames in redirect responses.
 oradioap_url = f"http://{ACCESS_POINT_HOST}"
 
 # Initialise MPD client
@@ -96,29 +97,26 @@ api_app.mount("/static", StaticFiles(directory=web_path+"/static"), name="static
 templates = Jinja2Templates(directory=web_path+"/templates")
 
 # Per-request-cycle timer state stored on the app so it persists across requests.
-# IMPORTANT: api_app.state.timer_started must be initialised by the caller
-# (e.g. the __main__ block or the service that launches uvicorn) before the
-# first HTTP request arrives, otherwise keep_alive_middleware will raise
-# AttributeError.  Set it to False to indicate the timer has not yet been armed.
-api_app.state.timer_task     = None     # The active asyncio timer task, or None
-api_app.state.timer_deadline = None     # UTC datetime when the timer should fire
+# timer_started acts as a gate: keep_alive_middleware only manages the timer
+# after the first /keep_alive ping has set it to True.
+api_app.state.timer_task     = None   # The active asyncio timer task, or None
+api_app.state.timer_deadline = None   # UTC datetime when the timer should fire
+api_app.state.timer_started  = False  # Becomes True after the first /keep_alive ping
 
 @api_app.middleware("http")
 async def keep_alive_middleware(request: Request, call_next):
     """
     Pause and restart the keep-alive timer around every non-ping request.
 
-    The keep-alive timer is started by the first /keep_alive ping from the
-    browser.  For all subsequent non-ping requests, this middleware cancels the
-    running timer before passing the request to the handler, then restarts it
-    with a fresh deadline once the response is ready.  This prevents the server
-    from timing out while it is actively serving a request.
+    The keep-alive timer is armed by the first /keep_alive ping from the
+    browser (timer_started = True). For all subsequent non-ping requests,
+    this middleware cancels the running timer before passing the request to
+    the handler, then restarts it with a fresh deadline once the response
+    is ready. This prevents the server from timing out while actively
+    serving a request.
 
     /keep_alive requests are passed through without touching the timer, as
     the /keep_alive endpoint manages the deadline itself.
-
-    api_app.state.timer_started acts as a gate: the timer is only
-    managed here after the first ping has armed it.
 
     Args:
         request:   The incoming HTTP request.
@@ -128,7 +126,7 @@ async def keep_alive_middleware(request: Request, call_next):
         The HTTP response produced by the route handler.
     """
     # Pause the timer for any request other than /keep_alive, but only after
-    # the timer has been armed by the first ping
+    # the timer has been armed by the first ping.
     if request.url.path != "/keep_alive" and api_app.state.timer_started:
         task = getattr(api_app.state, "timer_task", None)
         if task and not task.done():
@@ -141,11 +139,9 @@ async def keep_alive_middleware(request: Request, call_next):
     response = await call_next(request)
 
     # Restart the timer after the response is ready, again only for non-ping
-    # requests once the timer has been armed
+    # requests once the timer has been armed.
     if request.url.path != "/keep_alive" and api_app.state.timer_started:
-        # Reset deadline
         api_app.state.timer_deadline = datetime.now(timezone.utc) + timedelta(seconds=KEEP_ALIVE_TIMEOUT)
-        # Start new timer task if not running
         if not getattr(api_app.state, "timer_task", None) or api_app.state.timer_task.done():
             api_app.state.timer_task = create_task(stop_task())
         oradio_log.debug("Keep-alive timer restarted for request %s", request.url.path)
@@ -154,7 +150,7 @@ async def keep_alive_middleware(request: Request, call_next):
 
 ##### Helpers #######################
 
-def _get_sw_info():
+def _get_sw_info() -> dict:
     """
     Read software version metadata from the version file.
 
@@ -162,8 +158,8 @@ def _get_sw_info():
     serial and gitinfo fields.
 
     Returns:
-        A {"serial": str, "version": str} dict on success.
-        INFO_MISSING if the file does not exist.
+        dict with keys "serial" (str) and "version" (str) on success.
+        Falls back to INFO_MISSING if the file does not exist, or
         INFO_ERROR if the file is present but unreadable or invalid.
     """
     oradio_log.debug("Get software info")
@@ -172,8 +168,8 @@ def _get_sw_info():
         with open(SOFTWARE_VERSION_FILE, "r", encoding="utf-8") as file:
             data = load(file)
             software_info = {
-                "serial": data.get("serial", "missing serial"),
-                "version": data.get("gitinfo", "missing gitinfo")
+                "serial" : data.get("serial",  "missing serial"),
+                "version": data.get("gitinfo", "missing gitinfo"),
             }
     except FileNotFoundError:
         oradio_log.error("Software version info '%s' not found", SOFTWARE_VERSION_FILE)
@@ -182,7 +178,6 @@ def _get_sw_info():
         oradio_log.error("Failed to read '%s'. error: %s", SOFTWARE_VERSION_FILE, ex_err)
         software_info = INFO_ERROR
 
-    # Return sanitized data set
     return software_info
 
 def play_song(args: Optional[Dict[str, Any]]):
@@ -199,20 +194,15 @@ def play_song(args: Optional[Dict[str, Any]]):
     Raises:
         ValueError: If args is None or does not contain "song".
     """
-    # Extract required argument, none if no args sent
     songfile = args.get("song") if args else None
     if not songfile:
-        # Missing required argument
         raise ValueError("'play' vereist argument 'song'")
 
-    # Trigger MPD control to play the song
     mpd_control.play_song(songfile)
 
-    # Send notification message
     oradio_log.debug("Send web service message: %s", WEB_PLAYING_SONG)
     Commands.publish(CommandMessage(WEB_SOURCE, WEB_PLAYING_SONG))
 
-    # Success
     return {"message": f"'{songfile}' is nu te horen"}
 
 def get_networks(_args: Optional[Dict[str, Any]]):
@@ -220,7 +210,7 @@ def get_networks(_args: Optional[Dict[str, Any]]):
     Return the list of currently visible WiFi networks.
 
     Args:
-        _args: Unused (leading underscore suppresses the pylint warning).
+        _args: Unused; accepted to match the command handler signature.
 
     Returns:
         A list of {"ssid": str, "type": "open" | "closed"} dicts as
@@ -229,17 +219,16 @@ def get_networks(_args: Optional[Dict[str, Any]]):
     return get_wifi_networks()
 
 def shutdown_webapp(_args: Optional[Dict[str, Any]]):
-    """Request a graceful web server shutdown via the service queue.
+    """
+    Request a graceful web server shutdown via the service queue.
 
     Places a MESSAGE_REQUEST_STOP message on api_app.state.queue so
     the owning process can stop uvicorn cleanly.
 
     Args:
-        _args: Unused (leading underscore suppresses the pylint warning).
+        _args: Unused; accepted to match the command handler signature.
     """
-    # Send a stop message to the service queue
-    message = {"request": MESSAGE_REQUEST_STOP}
-    safe_put(api_app.state.queue, message)
+    safe_put(api_app.state.queue, {"request": MESSAGE_REQUEST_STOP})
 
 def rename_spotify(args: Optional[Dict[str, Any]]):
     """
@@ -260,45 +249,38 @@ def rename_spotify(args: Optional[Dict[str, Any]]):
     Raises:
         ValueError: If args is None or does not contain "name".
     """
-    # Extract required arguments, none if no args sent
     name = args.get("name") if args else None
     if not name:
-        # Missing required argument
         raise ValueError("'spotify' vereist argument 'name'")
 
-    # Validate that the name contains only safe characters before passing it to sed
+    # Validate that the name contains only safe characters before passing it to sed.
     pattern = r'^[A-Za-z0-9_-]+$'
     if not bool(match(pattern, name)):
         response = f"'{name}' is ongeldig. Alleen hoofdletters, kleine letters, cijfers, - of _ is toegestaan"
         oradio_log.error(response)
-        # Return fail, so caller can try to recover
         return JSONResponse(status_code=400, content={"message": response})
 
-    # Replace the --name argument in the librespot service unit file
+    # Replace the --name argument in the librespot service unit file.
     cmd = f"sudo sed -i 's/--name \\S*/--name {name}/' /etc/systemd/system/librespot.service"
     result, response = run_shell_script(cmd)
     if not result:
         oradio_log.error("Error during <%s> to set Spotify name, error: %s", cmd, response)
-        # Return fail, so caller can try to recover
         return JSONResponse(status_code=400, content={"message": response})
 
-    # Reload systemd so it picks up the modified unit file
+    # Reload systemd so it picks up the modified unit file.
     cmd = "sudo systemctl daemon-reload"
     result, response = run_shell_script(cmd)
     if not result:
         oradio_log.error("Error during <%s> to set Spotify name, error: %s", cmd, response)
-        # Return fail, so caller can try to recover
         return JSONResponse(status_code=400, content={"message": response})
 
-    # Restart librespot to apply the new device name immediately
+    # Restart librespot to apply the new device name immediately.
     cmd = "sudo systemctl restart librespot.service"
     result, response = run_shell_script(cmd)
     if not result:
         oradio_log.error("Error during <%s> to set Spotify name, error: %s", cmd, response)
-        # Return fail, so caller can try to recover
         return JSONResponse(status_code=400, content={"message": response})
 
-    # Return the new device name on success
     return name
 
 def wifi_connect(args: Optional[Dict[str, Any]]):
@@ -316,21 +298,17 @@ def wifi_connect(args: Optional[Dict[str, Any]]):
     Raises:
         ValueError: If args is None or does not contain "ssid".
     """
-    # Extract required arguments, none if no args sent
     ssid = args.get("ssid") if args else None
     if not ssid:
-        # Missing required argument
         raise ValueError("'connect' vereist argument 'ssid'")
-    # pswd is optional
+
     pswd = args.get("pswd") if args else None
 
-    # Send connect message to web service
-    message = {
+    safe_put(api_app.state.queue, {
         "request": MESSAGE_REQUEST_CONNECT,
-        "ssid"  : ssid,
-        "pswd"  : pswd
-    }
-    safe_put(api_app.state.queue, message)
+        "ssid"   : ssid,
+        "pswd"   : pswd,
+    })
 
 def save_preset(args: Optional[Dict[str, Any]]):
     """
@@ -348,45 +326,38 @@ def save_preset(args: Optional[Dict[str, Any]]):
             to assign to the preset.
 
     Raises:
-        ValueError: If args is None or either required key is missing.
+        ValueError: If args is None, either required key is missing, or
+            the preset key is not one of the three recognised values.
     """
-    # Extract required arguments, none if no args sent
     preset = args.get("preset") if args else None
     if not preset:
-        # Missing required argument
         raise ValueError("'preset' vereist argument 'preset'")
+
     playlist = args.get("playlist") if args else None
     if not playlist:
-        # Missing required argument
         raise ValueError("'preset' vereist argument 'playlist'")
 
-    # Map preset keys to their per-type messaging constants
+    # Map preset keys to their per-type messaging constants.
     preset_map = {
         "preset1": {"playlist": WEB_PL1_PLAYLIST, "webradio": WEB_PL1_WEBRADIO},
         "preset2": {"playlist": WEB_PL2_PLAYLIST, "webradio": WEB_PL2_WEBRADIO},
-        "preset3": {"playlist": WEB_PL3_PLAYLIST, "webradio": WEB_PL3_WEBRADIO}
+        "preset3": {"playlist": WEB_PL3_PLAYLIST, "webradio": WEB_PL3_WEBRADIO},
     }
 
-    # Determine whether this is a webradio or local playlist entry
+    if preset not in preset_map:
+        oradio_log.error("Unexpected preset '%s'", preset)
+        raise ValueError(f"De preset '{preset}' is ongeldig")
+
+    # Determine whether this is a webradio or local playlist entry.
     preset_type = "webradio" if mpd_control.is_webradio(mpdlist=playlist) else "playlist"
 
-    if preset in preset_map:
-        # load presets
-        presets = load_presets()
+    presets = load_presets()
+    presets[preset] = playlist
+    oradio_log.debug("Preset '%s' playlist changed to '%s'", preset, playlist)
+    store_presets(presets)
 
-        # Modify preset
-        presets[preset] = playlist
-        oradio_log.debug("Preset '%s' playlist changed to '%s'", preset, playlist)
-
-        # Store presets
-        store_presets(presets)
-
-        # Send message which preset has changed and its type
-        oradio_log.debug("Send web service message: %s", preset_map[preset][preset_type])
-        Commands.publish(CommandMessage(WEB_SOURCE, preset_map[preset][preset_type]))
-    else:
-        oradio_log.error("Unexpected preset '%s'", preset)
-        raise ValueError(f"De preset '{preset}'is ongeldig")
+    oradio_log.debug("Send web service message: %s", preset_map[preset][preset_type])
+    Commands.publish(CommandMessage(WEB_SOURCE, preset_map[preset][preset_type]))
 
 def get_playlist_songs(args: Optional[Dict[str, Any]]):
     """
@@ -401,13 +372,10 @@ def get_playlist_songs(args: Optional[Dict[str, Any]]):
     Raises:
         ValueError: If args is None or does not contain "playlist".
     """
-    # Extract required arguments, none if no args sent
     playlist = args.get("playlist") if args else None
     if not playlist:
-        # Missing required argument
         raise ValueError("'playlist' vereist argument 'playlist'")
 
-    # Return playlist songs
     return mpd_control.get_songs(playlist)
 
 def get_search_songs(args: Optional[Dict[str, Any]]):
@@ -423,17 +391,15 @@ def get_search_songs(args: Optional[Dict[str, Any]]):
     Raises:
         ValueError: If args is None or does not contain "pattern".
     """
-    # Extract required arguments, none if no args sent
     pattern = args.get("pattern") if args else None
     if not pattern:
-        # Missing required argument
         raise ValueError("'search' vereist argument 'pattern'")
 
-    # Return matching songs
     return mpd_control.search(pattern)
 
 def modify_playlist(args: Optional[Dict[str, Any]]):
-    """Add or remove a song or playlist via MPD and return the updated playlist list.
+    """
+    Add or remove a song or playlist via MPD and return the updated playlist list.
 
     Args:
         args: Dict containing:
@@ -443,47 +409,39 @@ def modify_playlist(args: Optional[Dict[str, Any]]):
             operate on the playlist itself.
 
     Returns:
-        The updated list of custom playlists on success, or a
-        JSONResponse with status 400 if action is not recognised.
+        The updated list of custom playlists on success.
 
     Raises:
-        ValueError: If args is None or a required key is missing.
+        ValueError: If args is None, a required key is missing, or
+            action is not "Add" or "Remove".
     """
-    # Extract required arguments, none if no args sent
     action = args.get("action") if args else None
     if not action:
-        # Missing required argument
         raise ValueError("'modify' vereist argument 'action'")
+
     playlist = args.get("playlist") if args else None
     if not playlist:
-        # Missing required argument
         raise ValueError("'modify' vereist argument 'playlist'")
-    # song is optional
+
     song = args.get("song") if args else None
 
-    # Map action strings to the MPD method and the appropriate log message templates
+    # Map action strings to the MPD method and appropriate log message templates.
     action_map = {
-        "Add": (mpd_control.add, "Create playlist: '%s'", "Add song '%s' to playlist '%s'"),
-        "Remove": (mpd_control.remove, "Delete playlist: '%s'", "Delete song '%s' from playlist '%s'")
+        "Add"   : (mpd_control.add,    "Create playlist: '%s'",      "Add song '%s' to playlist '%s'"),
+        "Remove": (mpd_control.remove, "Delete playlist: '%s'", "Delete song '%s' from playlist '%s'"),
     }
 
-    # Execute requested action
-    if action in action_map:
-        # Extract function and message from action map
-        func, msg_no_song, msg_with_song = action_map[action]
-        # Log appropriate message
-        if song is None:
-            oradio_log.debug(msg_no_song, playlist)
-        else:
-            oradio_log.debug(msg_with_song, song, playlist)
-        # Execute
-        func(playlist, song)
-
-    else:
+    if action not in action_map:
         oradio_log.error("Unexpected action '%s'", action)
-        raise ValueError(f"De action '{action}'is ongeldig")
+        raise ValueError(f"De action '{action}' is ongeldig")
 
-    # Return updated custom playlists
+    func, msg_no_song, msg_with_song = action_map[action]
+    if song is None:
+        oradio_log.debug(msg_no_song, playlist)
+    else:
+        oradio_log.debug(msg_with_song, song, playlist)
+    func(playlist, song)
+
     return mpd_control.get_playlists()
 
 def log_message(args: Optional[Dict[str, Any]]):
@@ -499,14 +457,13 @@ def log_message(args: Optional[Dict[str, Any]]):
     Raises:
         ValueError: If args is None or does not contain "message".
     """
-    # Extract required arguments, none if no args sent
     message = args.get("message") if args else None
     if not message:
-        # Missing required argument
-        raise ValueError("'modify' vereist argument 'message'")
+        raise ValueError("'log_message' vereist argument 'message'")
 
-    # Log message
     oradio_log.debug("Web interface: %s", message)
+
+##### Execute #######################
 
 class ExecuteRequest(BaseModel):
     """
@@ -519,7 +476,6 @@ class ExecuteRequest(BaseModel):
     cmd:  str
     args: Optional[Dict[str, Any]] = None
 
-# generic POST endpoint
 @api_app.post("/execute")
 async def execute(request: ExecuteRequest):
     """
@@ -538,32 +494,28 @@ async def execute(request: ExecuteRequest):
     """
     oradio_log.debug("Executing '%s' with args '%s'", request.cmd, request.args)
 
-    # --- Command dispatch dictionary ---
     commands = {
-        "play": play_song,
-        "networks": get_networks,
-        "shutdown": shutdown_webapp,
-        "spotify": rename_spotify,
-        "connect": wifi_connect,
-        "preset": save_preset,
-        "playlist": get_playlist_songs,
-        "search": get_search_songs,
-        "modify": modify_playlist,
+        "play"       : play_song,
+        "networks"   : get_networks,
+        "shutdown"   : shutdown_webapp,
+        "spotify"    : rename_spotify,
+        "connect"    : wifi_connect,
+        "preset"     : save_preset,
+        "playlist"   : get_playlist_songs,
+        "search"     : get_search_songs,
+        "modify"     : modify_playlist,
         "log_message": log_message,
-        # Add other commands were
+        # Add other commands here
     }
 
-    # --- Check command validity ---
     if request.cmd not in commands:
         oradio_log.error("Invalid command '%s'", request.cmd)
         return JSONResponse(status_code=400, content={"message": f"Opdracht '{request.cmd}' is onbekend"})
 
-    # --- Execute command ---
     try:
         result = commands[request.cmd](request.args)
         return result
     except ValueError as ex_err:
-        # Argument ontbreekt of fout
         return JSONResponse(status_code=400, content={"message": str(ex_err)})
 
 ##### Oradio3 #######################
@@ -587,41 +539,30 @@ async def oradio3_page(request: Request):
     """
     oradio_log.debug("Serving Oradio3 page")
 
-    # --- Network page info ---
-
-    # Last WiFi network connected before the access point was started (empty string if none)
+    # Last WiFi network connected before the access point was started (empty string if none).
     oldssid = get_saved_network()
 
-    # Read the current Spotify device name from the running service unit
+    # Read the current Spotify device name from the running service unit.
     oradio_log.debug("Get Spotify name")
     cmd = "systemctl show librespot | sed -n 's/.*--name \\([^ ]*\\).*/\\1/p' | uniq"
     result, response = run_shell_script(cmd)
     if not result:
         oradio_log.error("Error during <%s> to get Spotify name, error: %s", cmd, response)
-        # Return fail, so caller can try to recover
         return JSONResponse(status_code=400, content={"message": response})
     spotify = response
 
-    # --- Status page info ---
-
-    # Get RPI serial number
-    serial = get_serial()
-
-    # Get software configuration info
+    serial  = get_serial()
     sw_info = _get_sw_info()
 
     context = {
-        # Return saved wifi connection and spotify name as context
-        "oldssid"     : oldssid,
-        "spotify"     : spotify,
-        # Return presets, directories and playlists as context
-        "presets"     : load_presets(),
-        "directories" : mpd_control.get_directories(),
-        "playlists"   : mpd_control.get_playlists(),
-        # Return serial and active wifi connection as context
-        "serial"      : serial,
-        "sw_serial"   : sw_info['serial'],
-        "sw_version"  : sw_info['version'],
+        "oldssid"    : oldssid,
+        "spotify"    : spotify,
+        "presets"    : load_presets(),
+        "directories": mpd_control.get_directories(),
+        "playlists"  : mpd_control.get_playlists(),
+        "serial"     : serial,
+        "sw_serial"  : sw_info["serial"],
+        "sw_version" : sw_info["version"],
     }
 
     return templates.TemplateResponse(request=request, name="oradio3.html", context=context)
@@ -632,7 +573,7 @@ async def stop_task():
     """
     Background asyncio task that fires when the keep-alive deadline passes.
 
-    Polls the deadline in short intervals so cancellation is responsive.
+    Polls the deadline in 200 ms increments so cancellation is responsive.
     Once the deadline is reached, places a MESSAGE_REQUEST_STOP message on
     the service queue to trigger a graceful shutdown.
 
@@ -640,28 +581,20 @@ async def stop_task():
     deadline) it exits silently without sending the stop message.
     """
     try:
-        # Sleep until timeout unless reset
         while True:
-            # Compute remaining time until deadline
             remaining = (api_app.state.timer_deadline - datetime.now(timezone.utc)).total_seconds()
-
-            # If deadline passed, break the loop
             if remaining <= 0:
                 break
-
-            # Sleep in short increments so cancellation is picked up quickly
+            # Sleep in 200 ms increments so cancellation is picked up quickly.
             await sleep(min(remaining, 0.2))
 
-        # Deadline reached: request server shutdown
-        message = {"request": MESSAGE_REQUEST_STOP}
-        safe_put(api_app.state.queue, message)
+        safe_put(api_app.state.queue, {"request": MESSAGE_REQUEST_STOP})
         oradio_log.debug("Keep alive timer expired: closing the web server")
 
     except CancelledError:
-        # Task was cancelled because the keep-alive deadline was reset; exit cleanly
+        # Task was cancelled because the keep-alive deadline was reset; exit cleanly.
         pass
 
-# POST endpoint to reset the keep alive timer
 @api_app.post("/keep_alive")
 async def keep_alive():
     """
@@ -677,20 +610,19 @@ async def keep_alive():
     """
     now = datetime.now(timezone.utc)
 
-    # Start first ping
+    # Arm the timer on the first ping.
     if not api_app.state.timer_started:
         api_app.state.timer_started = True
         oradio_log.debug("Keep-alive timer started on first ping")
 
-    # Log time remaining until timeout
     if api_app.state.timer_deadline:
         remaining = (api_app.state.timer_deadline - now).total_seconds()
         oradio_log.debug("Keep-alive timer reset, %f seconds remaining", remaining)
 
-    # Advance the deadline
+    # Advance the deadline.
     api_app.state.timer_deadline = now + timedelta(seconds=KEEP_ALIVE_TIMEOUT)
 
-    # Start a new stop_task only if none is running
+    # Start a new stop_task only if none is currently running.
     if not api_app.state.timer_task or api_app.state.timer_task.done():
         api_app.state.timer_task = create_task(stop_task())
 
@@ -716,18 +648,15 @@ async def catch_all(request: Request):
     """
     oradio_log.debug("Catchall triggered for path: %s", request.url.path)
 
-    # Serve static assets directly rather than redirecting them
     if request.url.path.startswith("/static/"):
         return FileResponse(web_path + request.url.path)
 
-    # Redirect all requests to webapp
     return RedirectResponse(url=oradioap_url + "/oradio3", status_code=302)
 
 ##### Stand-alone entry point #######
 
 if __name__ == '__main__':
 
-    # Imports only relevant when running stand-alone
     import uvicorn
     from queue import Empty
     from constants import GREEN, NC                     # pylint: disable=ungrouped-imports,wrong-import-position
@@ -737,64 +666,58 @@ if __name__ == '__main__':
     # Most stand-alone entry points share this pattern across modules
     # pylint: disable=duplicate-code
 
-    def _check_messages(queue):
-        """Monitor the service message queue and print received messages.
+    def _check_messages(queue, stop_event):
+        """
+        Monitor the service message queue and print received messages.
 
         Runs in a child process. Loops until stop_event is set, printing
         each message from queue as it arrives. Exits cleanly on
         KeyboardInterrupt.
 
         Args:
-            queue: multiprocessing.Queue to drain.
+            queue:      multiprocessing.Queue to drain.
+            stop_event: multiprocessing.Event signalling the loop to exit.
         """
         try:
             while not stop_event.is_set():
                 try:
-                    # Wait for message with 1s timeout
                     message = queue.get(block=True, timeout=0.5)
-                    # Show message received
                     print(f"\n{GREEN}Message received: '{message}'{NC}\n")
                 except Empty:
                     continue
         except KeyboardInterrupt:
             print("Listener process interrupted by KeyboardInterrupt")
 
-    # Override to relative URLs so the redirect works outside the access point network
+    # Override to relative URLs so the redirect works outside the access point network.
     oradioap_url = ""
 
-    # Subscribe to command topics so messages published are printed to console
+    # Subscribe to command topics so messages published are printed to console.
     cmd_handler = DebugMessageHandler(Topic.COMMAND)
 
-    # Initialize
-    stop_event = Event()
+    stop_event    = Event()
     message_queue = Queue()
 
-    # Spawn the message monitor before starting uvicorn so no messages are missed
-    message_listener = Process(target=_check_messages, args=(message_queue,))
+    # Spawn the message monitor before starting uvicorn so no messages are missed.
+    message_listener = Process(target=_check_messages, args=(message_queue, stop_event))
     message_listener.start()
 
-    # Arm the timer state required by keep_alive_middleware
-    api_app.state.timer_started = False
+    # timer_started is already False from the module-level initialisation above.
     api_app.state.queue = message_queue
 
     try:
-        # Start the web server with log level 'trace'. log_config=None: Prevent overriding our log setup
         uvicorn.run(
             api_app,
             host=WEB_SERVER_HOST,
             port=WEB_SERVER_PORT,
-            log_config=None,
-            log_level="debug",      # trace | debug | info | warning | errror | critical
-            # Ping interval and timeout >= 2 s are safe for small devices and slow networks
-            ws_ping_interval = 3,   # Send ping every X seconds
-            ws_ping_timeout = 3,    # Close connection if no pong in X seconds
-            lifespan="off",         # Uvicorn server will not wait for or execute startup/shutdown events
+            log_config=None,        # Prevent uvicorn overriding our log setup
+            log_level="debug",      # trace | debug | info | warning | error | critical
+            ws_ping_interval=3,     # Send WebSocket ping every 3 seconds
+            ws_ping_timeout=3,      # Close connection if no pong within 3 seconds
+            lifespan="off",         # Do not wait for startup/shutdown lifecycle events
         )
     except KeyboardInterrupt:
-        # Stop listening to messages
         stop_event.set()
         message_listener.join()
-        # Stop printing published command messages
         cmd_handler.stop()
 
     # Restore temporarily disabled pylint duplicate code check
