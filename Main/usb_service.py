@@ -51,11 +51,11 @@ from messaging import (
     USB_ERROR_SERVICE,
 )
 
-##### GLOBAL constants ####################
+##### GLOBAL constants ##############
 # Filesystem path where the ORADIO USB drive is auto-mounted by the OS
 from oradio_const import USB_MOUNT_POINT
 
-##### LOCAL constants ####################
+##### LOCAL constants ###############
 # Directory watched by the observer for filesystem events
 USB_STATEPATH = "/run"
 
@@ -315,7 +315,8 @@ class USBService:
             return USB_PRESENT
         return USB_ABSENT
 
-# Entry point for stand-alone operation
+##### Stand-alone entry point #######
+
 if __name__ == '__main__':
 
     # Imports only relevant when stand-alone
