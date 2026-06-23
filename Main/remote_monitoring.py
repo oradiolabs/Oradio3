@@ -304,7 +304,7 @@ class RMService:
                 oradio_log.debug("WiFi connected. Heartbeat started and system info sent.")
 
             else:
-                oradio_log.error("Unexpected message: %s", message)
+                oradio_log.error("Unexpected message: %s", command)
 
     def stop(self) -> None:
         """
