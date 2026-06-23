@@ -70,6 +70,8 @@ from messaging import (
 
 ##### GLOBAL constants ####################
 from oradio_const import (
+    STOP_SENTINEL,
+    JOIN_TIMEOUT,
     MESSAGE_NO_ERROR,
     MESSAGE_VOLUME_SOURCE,
     MESSAGE_VOLUME_CHANGED,
@@ -770,19 +772,8 @@ from oradio_utils import safe_put           # pylint: disable=ungrouped-imports,
 
 class ProxyCommandHandler:
     """
-    Wraps a subscriber queue in a daemon thread that prints received messages.
-
-    Used only in the interactive test menu. Production code reads from the
-    queue directly via safe_get() rather than using this wrapper.
+    Wraps a subscriber queue in a daemon thread that forwards command messages to legacy queue.
     """
-    # Sentinel value placed in a subscriber queue to signal the listener thread
-    # to exit cleanly.
-    _STOP_SENTINEL = "__STOP__"
-
-    # How long (seconds) DebugMessageHandler.stop() waits for its listener thread to
-    # finish after the sentinel has been delivered, before logging a warning.
-    _JOIN_TIMEOUT = 2.0
-
     def __init__(self, shared_q):
         self._legacy_q = shared_q
         self._queue = Commands.subscribe()
@@ -798,8 +789,8 @@ class ProxyCommandHandler:
         while True:
             command = safe_get(self._queue)
 
-            # self._STOP_SENTINEL means exit cleanly.
-            if command == self._STOP_SENTINEL:
+            # STOP_SENTINEL means exit cleanly.
+            if command == STOP_SENTINEL:
                 return
 
             oradio_log.debug("[COMMAND PROXY SERVICE] received: %r", command)
@@ -824,10 +815,10 @@ class ProxyCommandHandler:
         Commands.unsubscribe(self._queue)
 
         # Wake the listener thread and request a clean shutdown.
-        self._queue.put_nowait(self._STOP_SENTINEL)
+        self._queue.put_nowait(STOP_SENTINEL)
 
         # Wait for the thread to exit.
-        self._thread.join(timeout=self._JOIN_TIMEOUT)
+        self._thread.join(timeout=JOIN_TIMEOUT)
         if self._thread.is_alive():
             oradio_log.warning("Listener thread did not stop within timeout")
 

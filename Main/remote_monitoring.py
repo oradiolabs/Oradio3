@@ -56,6 +56,8 @@ from messaging import (
 ##### GLOBAL constants ##############
 from oradio_const import (
     YELLOW, NC,
+    STOP_SENTINEL,
+    JOIN_TIMEOUT,
 )
 
 ##### LOCAL constants ###############
@@ -313,14 +315,6 @@ class RMService:
     - Send HEARTBEAT and SYS_INFO POST requests to the RMS
       server, with exponential-backoff retries on failure.
     """
-    # Sentinel value placed in a subscriber queue to signal the listener thread
-    # to exit cleanly.
-    _STOP_SENTINEL = "__STOP__"
-
-    # How long (seconds) DebugMessageHandler.stop() waits for its listener thread to
-    # finish after the sentinel has been delivered, before logging a warning.
-    _JOIN_TIMEOUT = 2.0
-
     def __init__(self) -> None:
         """
         Initialise the service and register for WiFi state change events.
@@ -351,8 +345,8 @@ class RMService:
             message = safe_get(self._queue)
             oradio_log.debug("message: %s", message)
 
-            # self._STOP_SENTINEL means exit cleanly.
-            if message == self._STOP_SENTINEL:
+            # STOP_SENTINEL means exit cleanly.
+            if message == STOP_SENTINEL:
                 return
 
             if message == WIFI_DISCONNECTED:
@@ -378,10 +372,10 @@ class RMService:
         Commands.unsubscribe(self._queue)
 
         # Wake the listener thread and request a clean shutdown.
-        self._queue.put_nowait(self._STOP_SENTINEL)
+        self._queue.put_nowait(STOP_SENTINEL)
 
         # Wait for the thread to exit.
-        self._thread.join(timeout=self._JOIN_TIMEOUT)
+        self._thread.join(timeout=JOIN_TIMEOUT)
         if self._thread.is_alive():
             oradio_log.warning("Listener thread did not stop within timeout")
 

@@ -42,6 +42,13 @@ from multiprocessing import Lock, Queue
 from singleton import singleton
 from oradio_logging import oradio_log
 
+##### GLOBAL constants ##############
+from oradio_const import (
+    RED, YELLOW, GREEN, NC,
+    STOP_SENTINEL,
+    JOIN_TIMEOUT,
+)
+
 ##### Messaging constants ####################
 # Throttling
 THROTTLING_SOURCE          = "Throttling message"
@@ -541,14 +548,6 @@ class DebugMessageHandler:
     Used only in the interactive test menu. Production code reads from the
     queue directly via safe_get() rather than using this wrapper.
     """
-    # Sentinel value placed in a subscriber queue to signal the listener thread
-    # to exit cleanly.
-    _STOP_SENTINEL = "__STOP__"
-
-    # How long (seconds) DebugMessageHandler.stop() waits for its listener thread to
-    # finish after the sentinel has been delivered, before logging a warning.
-    _JOIN_TIMEOUT = 2.0
-
     def __init__(self, topic, index = 0):
         self._index = index
         self._topic = topic
@@ -570,8 +569,8 @@ class DebugMessageHandler:
         while True:
             message = safe_get(self._queue)
 
-            # self._STOP_SENTINEL means exit cleanly.
-            if message == self._STOP_SENTINEL:
+            # STOP_SENTINEL means exit cleanly.
+            if message == STOP_SENTINEL:
                 return
 
             print(f"[{self._topic}] - Handler {self._index} - Message received: {message!r}")
@@ -593,10 +592,10 @@ class DebugMessageHandler:
             print(f"{RED}Invalid topic: {self._topic}{NC}")
 
         # Wake the listener thread and request a clean shutdown.
-        self._queue.put_nowait(self._STOP_SENTINEL)
+        self._queue.put_nowait(STOP_SENTINEL)
 
         # Wait for the thread to exit.
-        self._thread.join(timeout=self._JOIN_TIMEOUT)
+        self._thread.join(timeout=JOIN_TIMEOUT)
         if self._thread.is_alive():
             oradio_log.warning("Listener thread did not stop within timeout")
 
@@ -607,9 +606,6 @@ if __name__ == '__main__':
     # Imports only relevant when stand-alone
     from time import sleep
     from multiprocessing import Process     # pylint: disable=ungrouped-imports
-
-    # GLOBAL constants
-    from oradio_const import RED, YELLOW, GREEN, NC
 
     # Most modules use similar code in stand-alone
     # pylint: disable=duplicate-code

@@ -100,6 +100,14 @@ USB_SYSTEM      = USB_MOUNT_POINT + "/Systeem"
 ################## AUDIO #############################
 PRESETS_FILE = USB_SYSTEM + "/presets.json"
 
+################## THREADS #############################
+# Sentinel value placed in a subscriber queue to signal the listener thread to exit cleanly.
+STOP_SENTINEL = "__STOP__"
+
+# How long (seconds) DebugMessageHandler.stop() waits for its listener thread to finish
+# after the sentinel has been delivered, before logging a warning.
+JOIN_TIMEOUT = 2.0
+
 ################## VOLUME #############################
 MESSAGE_VOLUME_SOURCE  = "Vol Control message"
 MESSAGE_VOLUME_CHANGED = "Volume changed"
