@@ -17,18 +17,13 @@ Created on May 28, 2026
 @version:       1
 @email:         oradioinfo@stichtingoradio.nl
 @status:        Development
-@summary:       Provides a publish-subscribe messaging pattern for inter-module
-                and Linux inter-process communication.
-    IMPORTANT:
-        Messages are validated on publish; invalid messages or unknown topics
-        terminate the application immediately to prevent silent data corruption.
+@summary:
+    Provides publish-subscribe messaging for inter-module communication.
 
-        Cross-process pub-sub works on Linux, where multiprocessing defaults to
-        the fork start method. A forked child inherits the parent's open pipe
-        file descriptors, so put_nowait() in the child is visible to the parent's
-        queue.get(). On Windows and macOS the default start method is spawn, which
-        starts a fresh interpreter with no inherited state, and cross-process
-        publish will silently deliver nothing to the parent's subscribers.
+    Messages are validated before publication and invalid messages are
+    treated as fatal errors. The implementation supports communication
+    between threads and, on Linux systems using the fork start method,
+    between processes.
 """
 import os
 import sys
@@ -105,10 +100,9 @@ MESSAGE_LONG_PRESS_BUTTON_PLAY     = MESSAGE_BUTTON_LONG_PRESS + BUTTON_PLAY
 
 class Topic(str, Enum):
     """
-    Enumeration of valid pub-sub topics.
+    Enumeration of supported pub-sub topics.
 
-    Inheriting from str allows members to be used directly in JSON,
-    logging, and dictionary keys without requiring .value.
+    Inheriting from str allows members to be used directly in logging, JSON, and dictionary keys.
     """
     COMMAND = "COMMAND"
     ERROR = "ERROR"
@@ -117,6 +111,7 @@ class Topic(str, Enum):
 class CommandMessage:
     """
     Message sent through the command queue.
+
     Attributes:
         source:  Name of the process, service, or component sending the message.
         message: Command payload or instruction string.
@@ -128,11 +123,9 @@ class CommandMessage:
 
     def is_valid(self) -> bool:
         """
-        Return True if the message is structurally valid.
+        Return True when the message contains valid source and message strings.
 
-        A valid message has non-empty, non-whitespace-only string values for
-        both source and message. data is intentionally excluded from
-        validation because it is optional and may be any type.
+        Optional payload data is not validated.
         """
         return (
             isinstance(self.source, str)
@@ -145,6 +138,7 @@ class CommandMessage:
 class ErrorMessage:
     """
     Message sent through the error queue.
+
     Attributes:
         source:  Name of the process, service, or component sending the message.
         message: Error description or diagnostic information.
@@ -154,10 +148,7 @@ class ErrorMessage:
 
     def is_valid(self) -> bool:
         """
-        Return True if the message is structurally valid.
-
-        A valid message has non-empty, non-whitespace-only string values for
-        both source and message.
+        Return True when the message contains valid source and message strings.
         """
         return (
             isinstance(self.source, str)
@@ -206,18 +197,15 @@ class PubSubManager:
     """
     Singleton manager for command and error pub-sub topics.
 
-    Maintains a registry of per-topic subscriber queues and provides
-    thread-safe subscribe, unsubscribe, and publish operations.
-
-    multiprocessing.Lock and multiprocessing.Queue are used intentionally
-    over their threading equivalents so the infrastructure works correctly
-    across both threads and forked child processes. On Linux (fork start
-    method) a child process inherits the parent's open pipe file descriptors,
-    so messages published in a child are received by the parent's subscribers.
-    This does not work on Windows or macOS where the default start method is
-    spawn and no file descriptors are inherited.
+    Maintains subscriber queues and provides thread-safe subscribe,
+    unsubscribe, and publish operations. The implementation uses
+    multiprocessing primitives to support communication between
+    threads and Linux forked child processes.
     """
     def __init__(self):
+        """
+        Initialise subscriber registries and message caches.
+        """
         # Each subscriber entry is a (queue, source_filter) pair.
         # source_filter is a frozenset of allowed source names, or None to
         # receive messages from all sources.
@@ -237,26 +225,17 @@ class PubSubManager:
 
     def subscribe(self, topic: Topic, sources: tuple[str, ...] | None = None) -> Queue:
         """
-        Register a new subscriber for a given topic.
+        Register a subscriber queue for a topic.
 
-        Creates a new Queue, appends it to the topic's subscriber list, and
-        replays all cached messages (the last message per source) into the
-        queue so the new subscriber starts with a consistent state.
-        When sources is provided, only cached messages whose source is in
-        the filter are replayed.
-
-        Queue registration and cache replay occur under the same lock so a
-        concurrent publish cannot occur between them.
+        New subscribers receive the most recent cached message from each
+        source so they immediately observe the current state.
 
         Args:
-            topic:    The topic to subscribe to.
-            sources:  Optional tuple of source names to filter on. When provided,
-                      only messages whose source is in the tuple are delivered
-                      to the subscriber queue; all others are silently discarded.
-                      When None (default), messages from all sources are delivered.
+            topic: Topic to subscribe to.
+            sources: Optional source filter.
 
         Returns:
-            The subscriber Queue to pass to safe_get() and unsubscribe().
+            Subscriber queue.
         """
         if topic not in self._subscribers:
             _fatal_exit(f"Unknown topic: {topic!r}")
@@ -303,7 +282,6 @@ class PubSubManager:
             last_error, last_exc = fatal_errors[-1]
             _fatal_exit(last_error, exc=last_exc)
 
-        # Return the queue for safe_get() and unsubscribe().
         return queue
 
     def unsubscribe(self, topic: Topic, queue: Queue) -> None:
@@ -321,7 +299,6 @@ class PubSubManager:
             _fatal_exit(f"Unknown topic: {topic!r}")
 
         with self._lock:
-            # Find the entry by queue identity; the source filter is irrelevant here.
             entry = next((e for e in self._subscribers[topic] if e[0] is queue), None)
             if entry is None:
                 oradio_log.warning("unsubscribe called for a queue not registered on topic %r — ignored", topic)
@@ -333,19 +310,14 @@ class PubSubManager:
 
     def publish(self, topic: Topic, message: CommandMessage | ErrorMessage) -> None:
         """
-        Publish a validated message to all current subscribers of a topic.
+        Publish a validated message to all subscribers.
 
-        Caches the message as the latest for its source (replacing any
-        previous entry) so new subscribers receive it during cache replay.
-        Terminates the application if any subscriber queue is broken.
-
-        This method assumes the message has already been type-checked and
-        validated. Use the public Commands or Errors class methods, which
-        enforce those checks before calling here.
+        The latest message per source is cached so new subscribers
+        receive current state immediately after subscribing.
 
         Args:
-            topic:   The topic to publish to.
-            message: The validated message to deliver to all subscribers.
+            topic: Destination topic.
+            message: Message to publish.
         """
         if topic not in self._subscribers:
             _fatal_exit(f"Unknown topic: {topic!r}")
@@ -398,20 +370,11 @@ class Commands:
         """
         Subscribe to command messages.
 
-        The returned queue is pre-populated with the last command message for
-        every source that has published since the application started, giving
-        the subscriber an immediately consistent view of the current state.
-        When sources is provided, only messages from those sources are
-        replayed and subsequently delivered to the queue.
-
         Args:
-            sources: Optional tuple of source names to filter on, e.g.
-                     (USB_SOURCE, WIFI_SOURCE). When None (default), messages
-                     from all sources are delivered.
+            sources: Optional source filter.
 
         Returns:
-            The subscriber queue to poll with safe_get() and to pass to
-            Commands.unsubscribe() when the subscription is no longer needed.
+            Subscriber queue.
         """
         return _pubsub.subscribe(Topic.COMMAND, sources)
 
@@ -431,16 +394,12 @@ class Commands:
     @staticmethod
     def publish(message: CommandMessage) -> None:
         """
-        Validate and publish a command message to all subscribers.
+        Validate and publish a command message.
 
-        The most recent message per source is cached; new subscribers receive
-        it automatically during cache replay on subscribe.
-
-        Terminates the application if message is not a CommandMessage or
-        fails structural validation, reporting the correct call site.
+        Invalid messages are treated as fatal errors.
 
         Args:
-            message: The CommandMessage to publish.
+            message: Message to publish.
         """
         if not isinstance(message, CommandMessage):
             _fatal_exit(f"Wrong message type for Commands.publish: {message!r}", stacklevel=5)
@@ -460,20 +419,11 @@ class Errors:
         """
         Subscribe to error messages.
 
-        The returned queue is pre-populated with the last error message for
-        every source that has published since the application started, giving
-        the subscriber an immediately consistent view of the current state.
-        When sources is provided, only messages from those sources are
-        replayed and subsequently delivered to the queue.
-
         Args:
-            sources: Optional tuple of source names to filter on, e.g.
-                     (USB_SOURCE, WIFI_SOURCE). When None (default), messages
-                     from all sources are delivered.
+            sources: Optional source filter.
 
         Returns:
-            The subscriber queue to poll with safe_get() and to pass to
-            Errors.unsubscribe() when the subscription is no longer needed.
+            Subscriber queue.
         """
         return _pubsub.subscribe(Topic.ERROR, sources)
 
@@ -493,16 +443,12 @@ class Errors:
     @staticmethod
     def publish(message: ErrorMessage) -> None:
         """
-        Validate and publish an error message to all subscribers.
+        Validate and publish a command message.
 
-        The most recent message per source is cached; new subscribers receive
-        it automatically during cache replay on subscribe.
-
-        Terminates the application if message is not an ErrorMessage or
-        fails structural validation, reporting the correct call site.
+        Invalid messages are treated as fatal errors.
 
         Args:
-            message: The ErrorMessage to publish.
+            message: Message to publish.
         """
         if not isinstance(message, ErrorMessage):
             _fatal_exit(f"Wrong message type for Errors.publish: {message!r}", stacklevel=5)
@@ -514,16 +460,15 @@ class Errors:
 
 def safe_get(queue: Queue) -> CommandMessage | ErrorMessage | object:
     """
-    Retrieve the next item from a multiprocessing queue, blocking until available.
+    Return the next message from a queue.
 
-    Terminates the application if the queue becomes broken or corrupted,
-    as there is no safe way to continue without a working message bus.
+    Fatal errors are raised if the queue becomes unusable.
 
     Args:
-        queue: The multiprocessing queue to read from.
+        queue: Queue to read from.
 
     Returns:
-        The object retrieved from the queue.
+        Retrieved object.
     """
     if not hasattr(queue, "get"):
         _fatal_exit(f"Object has no get() method: {type(queue).__name__!r}")
@@ -543,12 +488,14 @@ def safe_get(queue: Queue) -> CommandMessage | ErrorMessage | object:
 
 class DebugMessageHandler:
     """
-    Wraps a subscriber queue in a daemon thread that prints received messages.
+    Debug helper that prints received messages.
 
-    Used only in the interactive test menu. Production code reads from the
-    queue directly via safe_get() rather than using this wrapper.
+    Used only by the stand-alone test menu.
     """
     def __init__(self, topic, index = 0):
+        """
+        Subscribe to the selected topic and start the listener thread.
+        """
         self._index = index
         self._topic = topic
         if self._topic == Topic.COMMAND:
@@ -558,7 +505,6 @@ class DebugMessageHandler:
         else:
             print(f"{RED}Invalid topic: {self._topic}{NC}")
 
-        # Start queue listener thread
         self._thread = Thread(target=self._subscription_listener, daemon=True,)
         self._thread.start()
 
@@ -576,11 +522,7 @@ class DebugMessageHandler:
 
     def stop(self) -> None:
         """
-        Stop the listener thread cleanly.
-
-        The queue is first removed from the pub-sub registry so no further
-        messages can arrive. A sentinel value is then enqueued to wake the
-        listener thread, after which join() waits for it to terminate.
+        Stop the listener thread and unsubscribe from the topic.
         """
         # Remove from registry first — no new messages after this point.
         if self._topic == Topic.COMMAND:

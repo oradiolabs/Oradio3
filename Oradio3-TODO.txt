@@ -27,8 +27,8 @@ oradio_control.py: Patch with messaging proxy for commands and errors
 	volume_control.py
 
 DONE:
-*messaging.py
-*singleton.py
+messaging.py
+singleton.py
 *throttling_monitor.py
 *usb_service.py
 *wifi_service.py
