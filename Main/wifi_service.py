@@ -41,10 +41,10 @@ from dbus.mainloop.glib import DBusGMainLoop
 from dbus.exceptions import DBusException
 from gi.repository import GLib
 
-##### oradio modules ####################
+##### oradio modules ################
 from singleton import singleton
 from oradio_logging import oradio_log
-from oradio_utils import run_shell_script  # has_internet removed: NM Connectivity property is used instead
+from oradio_utils import run_shell_script
 from messaging import (
     Errors,
     Commands,
@@ -60,13 +60,13 @@ from messaging import (
     WIFI_ERROR_DISCONNECT,
 )
 
-##### GLOBAL constants ####################
+##### GLOBAL constants ##############
 from oradio_const import (
     ACCESS_POINT_HOST,
     ACCESS_POINT_SSID,
 )
 
-##### LOCAL constants ####################
+##### LOCAL constants ###############
 # NetworkManager device state codes
 NM_DISCONNECTED = 30
 NM_CONNECTED    = 100
@@ -93,7 +93,7 @@ nmcli_exceptions = tuple(
 _saved_network = {"network": ""}    # Last successfully connected WiFi SSID
 _saved_lock = Lock()                # Guards all access to _saved_network
 
-##### Helpers #####
+##### Helpers #######################
 
 def _set_saved_network(network) -> None:
     """
@@ -108,7 +108,6 @@ def _set_saved_network(network) -> None:
     """
     with _saved_lock:
         _saved_network["network"] = str(network) if network else ""
-
 
 def _nmcli_try(func, *args, **kwargs) -> tuple[bool, object | None]:
     """
@@ -135,7 +134,6 @@ def _nmcli_try(func, *args, **kwargs) -> tuple[bool, object | None]:
         Errors.publish(ErrorMessage(WIFI_SOURCE, WIFI_ERROR_NMCLI))
         return False, None
 
-
 def _wifi_up(network) -> bool:
     """
     Activate a NetworkManager connection by SSID.
@@ -149,7 +147,6 @@ def _wifi_up(network) -> bool:
     oradio_log.debug("Activate '%s'", network)
     is_ok, _ = _nmcli_try(nmcli.connection.up, network)
     return is_ok
-
 
 def _wifi_down(network) -> bool:
     """
@@ -187,7 +184,6 @@ class WifiEventListener():
     subscription is made.  All other modules can still operate normally; WiFi
     state changes will simply not be reported.
     """
-
     def __init__(self) -> None:
         """
         Set up D-Bus integration and subscribe to WiFi state-change signals.
@@ -371,7 +367,6 @@ class WifiService():
     are reported on the command message bus by the WifiEventListener
     singleton; this class handles the active operations that trigger them.
     """
-
     def __init__(self):
         """
         Initialise the WiFi service and publish the current connection state.
@@ -577,7 +572,7 @@ class WifiScanner:
 # Module-level scanner instance; shared by all callers of get_wifi_networks()
 _wifi_scanner = WifiScanner()
 
-#### Public API #####
+##### Public API ####################
 
 def get_saved_network() -> str:
     """
@@ -590,7 +585,6 @@ def get_saved_network() -> str:
     with _saved_lock:
         return _saved_network["network"]
 
-
 def get_wifi_networks() -> list:
     """
     Return visible WiFi networks from the NetworkManager scan cache.
@@ -600,7 +594,6 @@ def get_wifi_networks() -> list:
         by descending signal strength, excluding the Oradio access point SSID.
     """
     return _wifi_scanner.get_active_ssids()
-
 
 def get_wifi_connection() -> str | None:
     """
@@ -616,7 +609,6 @@ def get_wifi_connection() -> str | None:
     cmd = "iw dev wlan0 info | awk '/ssid/ {print $2}' || iwgetid -r wlan0"
     result, response = run_shell_script(cmd)
     return str(response) if result else None
-
 
 def get_wifi_password(network) -> str | None:
     """
@@ -637,7 +629,6 @@ def get_wifi_password(network) -> str | None:
         return None
     return response
 
-
 def networkmanager_list() -> list:
     """
     Return the SSIDs of all WiFi connection profiles stored in NetworkManager.
@@ -655,7 +646,6 @@ def networkmanager_list() -> list:
 
     # Filter to WiFi-type connections only; other types (ethernet, VPN) are not relevant
     return [connection.name for connection in result if connection.conn_type == "wifi"]
-
 
 def networkmanager_add(network, password=None) -> bool:
     """
@@ -713,7 +703,6 @@ def networkmanager_add(network, password=None) -> bool:
     is_ok, _ = _nmcli_try(nmcli.connection.add, "wifi", options, "*", network, True)
     return is_ok
 
-
 def _networkmanager_del(network) -> bool:
     """
     Remove a WiFi connection profile from NetworkManager.
@@ -731,29 +720,16 @@ def _networkmanager_del(network) -> bool:
     is_ok, _ = _nmcli_try(nmcli.connection.delete, network)
     return is_ok
 
-# Stand-alone entry point
+##### Stand-alone entry point #######
+
 if __name__ == '__main__':
 
-    # Imports only needed for the interactive self-test
-    from messaging import Topic                         # pylint: disable=ungrouped-imports,wrong-import-position
+    # Imports only relevant when stand-alone
     from oradio_const import RED, GREEN, YELLOW, NC     # pylint: disable=ungrouped-imports,wrong-import-position
+    from messaging import Topic, DebugMessageHandler    # pylint: disable=ungrouped-imports,wrong-import-position
 
     # Most stand-alone entry points share this pattern across modules
     # pylint: disable=duplicate-code
-
-    def topic_handler(message, topic) -> None:
-        """
-        Print any message received on a subscribed message bus topic.
-
-        Passed as a callback to Commands.subscribe and Errors.subscribe
-        so that all bus traffic is visible during interactive testing.
-
-        Args:
-            message: The CommandMessage or ErrorMessage received.
-            topic:   The bus topic on which the message arrived, used as a
-                     label in the printed output.
-        """
-        print(f"[{topic}] - Message received: {message!r}")
 
     # Pylint allows more than 12 branches here because this is a test menu
     def interactive_menu() -> None:    # pylint: disable=too-many-branches,too-many-statements
@@ -839,13 +815,16 @@ if __name__ == '__main__':
                 case _:
                     print(f"\n{YELLOW}Please input a valid number{NC}\n")
 
-    # Subscribe to command and error topics before starting the service so no
-    # messages published during initialisation are missed
-    Commands.subscribe(topic_handler, (Topic.COMMAND,))
-    Errors.subscribe(topic_handler, (Topic.ERROR,))
+    # Subscribe to command and error topics so messages published are printed to console
+    cmd_handler = DebugMessageHandler(Topic.COMMAND)
+    err_handler = DebugMessageHandler(Topic.ERROR)
 
     # Launch the interactive test menu; blocks until the user quits
     interactive_menu()
+
+    # Stop printing published messages
+    cmd_handler.stop()
+    err_handler.stop()
 
     # Re-enable the duplicate-code check for any code that follows
     # pylint: enable=duplicate-code
