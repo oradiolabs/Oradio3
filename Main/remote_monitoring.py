@@ -457,9 +457,6 @@ class RMService:
 
 if __name__ == "__main__":
 
-    # Imports only relevant when running stand-alone
-    from messaging import Topic, DebugMessageHandler    # pylint: disable=ungrouped-imports,wrong-import-position
-
     # Most modules use similar code in stand-alone
     # pylint: disable=duplicate-code
 

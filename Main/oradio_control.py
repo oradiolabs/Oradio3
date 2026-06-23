@@ -46,8 +46,8 @@ import throttling_monitor     # pylint: disable=unused-import
 
 # Moved from oradio_const
 from messaging import (
-    Errors,
     Commands,
+    safe_get,
     USB_SOURCE,
     USB_ABSENT,
     USB_PRESENT,
@@ -768,7 +768,8 @@ shared_queue = Queue()  # Create a shared queue
 
 ##### Messaging PROXY-begin #####
 
-from oradio_utils import safe_put           # pylint: disable=ungrouped-imports,wrong-import-position
+from threading import Thread        # pylint: disable=wrong-import-position
+from oradio_utils import safe_put   # pylint: disable=ungrouped-imports,wrong-import-position
 
 class ProxyCommandHandler:
     """

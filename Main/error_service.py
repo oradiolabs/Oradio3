@@ -145,8 +145,8 @@ class ErrorHandler:
 if __name__ == '__main__':
 
     # Imports only relevant when stand-alone
-    from oradio_const import RED, YELLOW, GREEN, NC                 # pylint: disable=ungrouped-imports,wrong-import-position
-    from messaging import Topic, ErrorMessage, DebugMessageHandler  # pylint: disable=ungrouped-imports,wrong-import-position
+    from messaging import ErrorMessage      # pylint: disable=ungrouped-imports,wrong-import-position
+    from oradio_const import YELLOW, NC     # pylint: disable=ungrouped-imports,wrong-import-position
 
     # Most modules use similar code in stand-alone
     # pylint: disable=duplicate-code
