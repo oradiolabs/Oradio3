@@ -62,11 +62,11 @@ class ErrorHandler:
         self._queue = Errors.subscribe()
 
         # Start queue listener thread
-        self._thread = Thread(target=self._subscription_listener, daemon=True,)
+        self._thread = Thread(target=self._errors_listener, daemon=True,)
         self._thread.start()
 
     # Allow more than 12 branches here because there are many different error messages
-    def _subscription_listener(self) -> None:   # pylint: disable=too-many-branches
+    def _errors_listener(self) -> None:   # pylint: disable=too-many-branches
         """
         Handle an incoming error messages and attempt mitigation.
         """

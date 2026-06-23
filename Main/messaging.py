@@ -591,6 +591,9 @@ class DebugMessageHandler:
         else:
             print(f"{RED}Invalid topic: {self._topic}{NC}")
 
+        # Other modules use similar code to stop the thread
+        # pylint: disable=duplicate-code
+
         # Wake the listener thread and request a clean shutdown.
         self._queue.put_nowait(STOP_SENTINEL)
 
@@ -598,6 +601,9 @@ class DebugMessageHandler:
         self._thread.join(timeout=JOIN_TIMEOUT)
         if self._thread.is_alive():
             oradio_log.warning("Listener thread did not stop within timeout")
+
+        # Restore temporarily disabled pylint duplicate code check
+        # pylint: enable=duplicate-code
 
 ##### Stand-alone entry point #######
 

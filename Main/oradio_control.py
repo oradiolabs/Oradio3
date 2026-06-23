@@ -780,10 +780,10 @@ class ProxyCommandHandler:
         self._queue = Commands.subscribe()
 
         # Start queue listener thread
-        self._thread = Thread(target=self._subscription_listener, daemon=True,)
+        self._thread = Thread(target=self._commands_listener, daemon=True,)
         self._thread.start()
 
-    def _subscription_listener(self) -> None:
+    def _commands_listener(self) -> None:
         """
         When a command is received, the service forwards it.
         """
@@ -812,6 +812,9 @@ class ProxyCommandHandler:
         messages can arrive. A sentinel value is then enqueued to wake the
         listener thread, after which join() waits for it to terminate.
         """
+        # Other modules use similar code to stop the thread
+        # pylint: disable=duplicate-code
+
         # Remove from registry first — no new messages after this point.
         Commands.unsubscribe(self._queue)
 
@@ -822,6 +825,9 @@ class ProxyCommandHandler:
         self._thread.join(timeout=JOIN_TIMEOUT)
         if self._thread.is_alive():
             oradio_log.warning("Listener thread did not stop within timeout")
+
+        # Restore temporarily disabled pylint duplicate code check
+        # pylint: enable=duplicate-code
 
 
 # Register _command_handler with the messaging layer. ProxyCommandHandler starts
