@@ -33,6 +33,7 @@ Created on May 28, 2026
 import os
 import sys
 from enum import Enum
+from threading import Thread
 from typing import Any, NoReturn
 from dataclasses import dataclass
 from multiprocessing import Lock, Queue
@@ -531,88 +532,85 @@ def safe_get(queue: Queue) -> CommandMessage | ErrorMessage | object:
         # Rare internal multiprocessing queue failure.
         _fatal_exit("Queue internal error on get", exc=ex_err)
 
+##### Debug #########################
+
+class DebugMessageHandler:
+    """
+    Wraps a subscriber queue in a daemon thread that prints received messages.
+
+    Used only in the interactive test menu. Production code reads from the
+    queue directly via safe_get() rather than using this wrapper.
+    """
+    # Sentinel value placed in a subscriber queue to signal the listener thread
+    # to exit cleanly.
+    _STOP_SENTINEL = "__STOP__"
+
+    # How long (seconds) DebugMessageHandler.stop() waits for its listener thread to
+    # finish after the sentinel has been delivered, before logging a warning.
+    _JOIN_TIMEOUT = 2.0
+
+    def __init__(self, topic, index = 0):
+        self._index = index
+        self._topic = topic
+        if self._topic == Topic.COMMAND:
+            self._queue = Commands.subscribe()
+        elif self._topic == Topic.ERROR:
+            self._queue = Errors.subscribe()
+        else:
+            print(f"{RED}Invalid topic: {self._topic}{NC}")
+
+        # Start queue listener thread
+        self._thread = Thread(target=self._subscription_listener, daemon=True,)
+        self._thread.start()
+
+    def _subscription_listener(self) -> None:
+        """Drain the queue and print each message until the sentinel arrives."""
+        while True:
+            message = safe_get(self._queue)
+
+            # self._STOP_SENTINEL means exit cleanly.
+            if message == self._STOP_SENTINEL:
+                return
+
+            print(f"[{self._topic}] - Handler {self._index} - Message received: {message!r}")
+
+    def stop(self) -> None:
+        """
+        Stop the listener thread cleanly.
+
+        The queue is first removed from the pub-sub registry so no further
+        messages can arrive. A sentinel value is then enqueued to wake the
+        listener thread, after which join() waits for it to terminate.
+        """
+        # Remove from registry first — no new messages after this point.
+        if self._topic == Topic.COMMAND:
+            Commands.unsubscribe(self._queue)
+        elif self._topic == Topic.ERROR:
+            Errors.unsubscribe(self._queue)
+        else:
+            print(f"{RED}Invalid topic: {self._topic}{NC}")
+
+        # Wake the listener thread and request a clean shutdown.
+        self._queue.put_nowait(self._STOP_SENTINEL)
+
+        # Wait for the thread to exit.
+        self._thread.join(timeout=self._JOIN_TIMEOUT)
+        if self._thread.is_alive():
+            oradio_log.warning("Listener thread did not stop within timeout")
+
 ##### Stand-alone entry point #######
 
 if __name__ == '__main__':
 
     # Imports only relevant when stand-alone
     from time import sleep
-    from threading import Thread
     from multiprocessing import Process     # pylint: disable=ungrouped-imports
 
     # GLOBAL constants
     from oradio_const import RED, YELLOW, GREEN, NC
 
-    # LOCAL constants
-    # How long (seconds) MessageHandler.stop() waits for its listener thread to
-    # finish after the sentinel has been delivered, before logging a warning.
-    _JOIN_TIMEOUT = 2.0
-
-    # Sentinel value placed in a subscriber queue to signal the listener thread
-    # to exit cleanly.
-    _STOP_SENTINEL = "__STOP__"
-
     # Most modules use similar code in stand-alone
     # pylint: disable=duplicate-code
-
-    class MessageHandler:
-        """
-        Wraps a subscriber queue in a daemon thread that prints received messages.
-
-        Used only in the interactive test menu. Production code reads from the
-        queue directly via safe_get() rather than using this wrapper.
-        """
-        def __init__(self, topic, index):
-            self._topic = topic
-            if self._topic == Topic.COMMAND:
-                self._queue = Commands.subscribe()
-            elif self._topic == Topic.ERROR:
-                self._queue = Errors.subscribe()
-            else:
-                print(f"{RED}Invalid topic: {topic}{NC}")
-
-            # Start queue listener thread
-            self._thread = Thread(
-                target=self._subscription_listener,
-                args=(self._queue, topic, index),
-                daemon=True,
-            )
-            self._thread.start()
-
-        def _subscription_listener(self, queue, topic, index) -> None:
-            """Drain the queue and print each message until the sentinel arrives."""
-            while True:
-                message = safe_get(queue)
-
-                # _STOP_SENTINEL means exit cleanly.
-                if message == _STOP_SENTINEL:
-                    return
-
-                print(f"[{topic}] - Handler {index} - Message received: {message!r}")
-
-        def stop(self) -> None:
-            """
-            Stop the listener thread cleanly.
-
-            The queue is first removed from the pub-sub registry so no further
-            messages can arrive. A sentinel value is then enqueued to wake the
-            listener thread, after which join() waits for it to terminate.
-            """
-            # Remove from registry first — no new messages after this point.
-            if self._topic == Topic.COMMAND:
-                Commands.unsubscribe(self._queue)
-            elif self._topic == Topic.ERROR:
-                Errors.unsubscribe(self._queue)
-            else:
-                print(f"{RED}Invalid topic: {topic}{NC}")
-
-            # Wake the listener thread and request a clean shutdown.
-            self._queue.put_nowait(_STOP_SENTINEL)
-
-            # Wait for the thread to exit.
-            self._thread.join(timeout=_JOIN_TIMEOUT)
-            if self._thread.is_alive():
-                oradio_log.warning("Listener thread did not stop within timeout")
 
     # Pylint PEP8 ignoring limit of max 12 branches is ok for test menu
     def interactive_menu() -> None:     # pylint: disable=too-many-branches,too-many-statements
@@ -623,7 +621,7 @@ if __name__ == '__main__':
         command and error messages from both threads and the main process, and
         deliberately triggering the invalid-message fatal-exit path.
 
-        MessageHandler objects are stored in cmd_handlers / err_handlers,
+        DebugMessageHandler objects are stored in cmd_handlers / err_handlers,
         keyed by handler index, so individual handlers can be targeted by the stop
         options (12 and 13).
 
@@ -657,11 +655,12 @@ if __name__ == '__main__':
 
         # Handlers indexed by index so specific subscriptions
         # can be targeted by unsubscribe options (12 and 13).
-        cmd_handlers: dict[int, MessageHandler] = {}
-        err_handlers: dict[int, MessageHandler] = {}
+        cmd_handlers: dict[int, DebugMessageHandler] = {}
+        err_handlers: dict[int, DebugMessageHandler] = {}
 
         while True:
-            # Get user input
+
+            # Safely parse integer input; treat non-numeric input as invalid.
             try:
                 function_nr = int(input(input_selection))
             except ValueError:
@@ -676,13 +675,13 @@ if __name__ == '__main__':
                     n = int(input("Enter number of COMMAND handlers to subscribe [1]: ").strip() or "1")
                     for _ in range(n):
                         print(f"Subscribe COMMAND handler {cmd_index}...")
-                        cmd_handlers[cmd_index] = MessageHandler(Topic.COMMAND, cmd_index)
+                        cmd_handlers[cmd_index] = DebugMessageHandler(Topic.COMMAND, cmd_index)
                         cmd_index += 1
                 case 2:
                     n = int(input("Enter number of ERROR handlers to subscribe [1]: ").strip() or "1")
                     for _ in range(n):
                         print(f"Subscribe ERROR handler {err_index}...")
-                        err_handlers[err_index] = MessageHandler(Topic.ERROR, err_index)
+                        err_handlers[err_index] = DebugMessageHandler(Topic.ERROR, err_index)
                         err_index += 1
                 case 3:
                     if not cmd_handlers:
