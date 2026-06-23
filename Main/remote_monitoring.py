@@ -287,16 +287,17 @@ class RMService:
         """
         while True:
 
-            message = safe_get(self._queue)
-            oradio_log.debug("message: %s", message)
+            command = safe_get(self._queue)
+            oradio_log.debug("command: %s", command)
 
-            if message == STOP_SENTINEL:
+            if command == STOP_SENTINEL:
                 return
 
-            if message == WIFI_DISCONNECTED:
+            if command.message == WIFI_DISCONNECTED:
                 Heartbeat.stop_heartbeat()
+                oradio_log.debug("WiFi disconnected. Heartbeat stopped.")
 
-            elif message == WIFI_CONNECTED:
+            elif command.message == WIFI_CONNECTED:
                 Heartbeat.start_heartbeat(HEARTBEAT_REPEAT, self.send_message, args = (HEARTBEAT,))
                 # Immediately report hardware/software identity on every new connection
                 self.send_message(SYS_INFO)
