@@ -27,7 +27,7 @@ from threading import Thread, Event
 from collections import defaultdict
 
 ##### oradio modules ####################
-from oradio_logging import oradio_log
+from log_service import oradio_log
 from singleton import singleton
 from mpd_service import MPDService
 

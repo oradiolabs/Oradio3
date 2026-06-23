@@ -27,7 +27,7 @@ Created on May 15, 2026
 from threading import Thread
 
 ##### Oradio modules ################
-from oradio_logging import oradio_log
+from log_service import oradio_log
 from messaging import (
     Errors,
     safe_get,

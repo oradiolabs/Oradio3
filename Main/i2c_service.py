@@ -26,7 +26,7 @@ from threading import Lock
 from smbus2 import SMBus
 
 ##### oradio modules ####################
-from oradio_logging import oradio_log
+from log_service import oradio_log
 from singleton import singleton
 
 ##### GLOBAL constants ####################

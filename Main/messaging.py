@@ -35,7 +35,7 @@ from multiprocessing import Lock, Queue
 
 ##### Oradio modules ####################
 from singleton import singleton
-from oradio_logging import oradio_log
+from log_service import oradio_log
 
 ##### GLOBAL constants ##############
 from constants import (

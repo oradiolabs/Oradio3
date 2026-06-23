@@ -33,7 +33,7 @@ from threading import Lock
 from RPi import GPIO
 
 ##### oradio modules ####################
-from oradio_logging import oradio_log
+from log_service import oradio_log
 from singleton import singleton
 
 ##### GLOBAL constants ####################

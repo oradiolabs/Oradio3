@@ -26,7 +26,7 @@ import threading
 from time import sleep
 from multiprocessing import Queue
 
-from oradio_logging import oradio_log
+from log_service import oradio_log
 from backlighting import Backlighting
 from volume_control import VolumeControl
 from mpd_control import MPDControl

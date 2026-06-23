@@ -26,7 +26,7 @@ Created on January 29, 2025
 from threading import Thread, Timer, Event
 
 ##### oradio modules ####################
-from oradio_logging import oradio_log
+from log_service import oradio_log
 from gpio_service import GPIOService
 from singleton import singleton
 

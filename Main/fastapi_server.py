@@ -38,7 +38,7 @@ from fastapi.responses import FileResponse, JSONResponse
 from starlette.responses import RedirectResponse
 
 #### oradio modules #################
-from oradio_logging import oradio_log
+from log_service import oradio_log
 from utilities import get_serial, safe_put, run_shell_script, load_presets, store_presets
 from wifi_service import get_wifi_networks, get_saved_network
 from mpd_control import MPDControl

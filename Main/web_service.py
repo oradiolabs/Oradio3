@@ -44,7 +44,7 @@ from threading import Thread, Lock
 import uvicorn
 
 ##### oradio modules ################
-from oradio_logging import oradio_log, ORADIO_LOG_LEVEL
+from log_service import oradio_log, ORADIO_LOG_LEVEL
 from utilities import run_shell_script
 from fastapi_server import api_app
 from wifi_service import WifiService, get_wifi_connection

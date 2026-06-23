@@ -35,7 +35,7 @@ from threading import Thread
 from unicodedata import normalize, category
 
 ##### oradio modules ####################
-from oradio_logging import oradio_log
+from log_service import oradio_log
 from utilities import load_presets
 from mpd_service import MPDService
 

@@ -34,7 +34,7 @@ from constants import (
 )
 
 ##### oradio modules ####################
-from oradio_logging import oradio_log, DEBUG, CRITICAL
+from log_service import oradio_log, DEBUG, CRITICAL
 from oradio_control import state_machine, leds, web_service_active, shared_queue, mpd_control
 from utilities import input_prompt_int, input_prompt_float, safe_put, OradioMessage
 from remote_debugger import setup_remote_debugging

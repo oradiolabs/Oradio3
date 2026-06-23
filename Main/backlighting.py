@@ -27,7 +27,7 @@ from time import sleep
 from threading import Thread, Event
 
 ##### oradio modules ####################
-from oradio_logging import oradio_log
+from log_service import oradio_log
 from i2c_service import I2CService
 
 ##### GLOBAL constants ####################

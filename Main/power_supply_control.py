@@ -25,7 +25,7 @@ Created on December 18, 2025
 from time import sleep
 
 ##### oradio modules ####################
-from oradio_logging import oradio_log
+from log_service import oradio_log
 from i2c_service import I2CService
 
 ##### Local constants ####################

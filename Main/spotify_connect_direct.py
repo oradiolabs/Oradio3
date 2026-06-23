@@ -25,7 +25,7 @@ from multiprocessing import Queue
 from queue import Full  # for queue-full errors in send_event
 
 # Oradio modules
-from oradio_logging import oradio_log
+from log_service import oradio_log
 
 # Constants from constants
 from constants import (

@@ -35,7 +35,7 @@ from typing import List
 
 ##### oradio modules ################
 from singleton import singleton
-from oradio_logging import oradio_log
+from log_service import oradio_log
 from messaging import (
     Errors,
     ErrorMessage,

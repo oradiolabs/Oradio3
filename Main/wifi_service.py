@@ -43,7 +43,7 @@ from gi.repository import GLib
 
 ##### oradio modules ################
 from singleton import singleton
-from oradio_logging import oradio_log
+from log_service import oradio_log
 from utilities import run_shell_script
 from messaging import (
     Errors,

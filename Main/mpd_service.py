@@ -36,7 +36,7 @@ from threading import Lock
 from mpd import MPDClient, CommandError, ProtocolError, ConnectionError as MPDConnectionError
 
 ##### oradio modules ####################
-from oradio_logging import oradio_log
+from log_service import oradio_log
 
 ##### GLOBAL constants ####################
 

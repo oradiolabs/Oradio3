@@ -33,7 +33,7 @@ from pathlib import Path
 from pydantic import BaseModel, ValidationError
 
 ##### oradio modules ####################
-from oradio_logging import oradio_log
+from log_service import oradio_log
 
 ##### GLOBAL constants ####################
 from constants import (
