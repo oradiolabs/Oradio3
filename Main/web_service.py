@@ -11,10 +11,10 @@
 
 Created on December 23, 2024
 @author:        Henk Stevens & Olaf Mastenbroek & Onno Janssen
-@copyright:     Copyright 2024, Oradio Stichting
+@copyright:     Copyright, Oradio Stichting
 @license:       GNU General Public License (GPL)
 @organization:  Oradio Stichting
-@version:       4
+@version:       5
 @email:         oradioinfo@stichtingoradio.nl
 @status:        Development
 @summary:
@@ -22,7 +22,10 @@ Created on December 23, 2024
 
     UvicornServerThread — wraps a FastAPI/ASGI application in a background
     daemon thread and exposes start/stop control.  Readiness is determined by
-    polling uvicorn.Server.started, which Uvicorn sets once sockets are bound.
+    polling uvicorn.Server.started, which Uvicorn sets once the server is
+    accepting connections.  A fresh Server instance is created on each call to
+    start() so that internal Uvicorn state (started, should_exit) is always
+    clean.
 
     WebService — orchestrates the full Captive Portal lifecycle: brings up a
     WiFi access point, configures iptables HTTP port-forwarding and dnsmasq DNS
@@ -74,11 +77,18 @@ from constants import (
 )
 
 ##### LOCAL constants ###############
-READY_TIMEOUT  = 15  # Seconds to wait for server readiness or WiFi state transitions
+# Seconds to wait for the Uvicorn server to become ready.
+SERVER_READY_TIMEOUT = 15
+
+# Seconds to wait for WiFi state transitions (access point up, disconnect, reconnect).
+WIFI_STATE_TIMEOUT = 15
+
 SOCKET_TIMEOUT = 3   # WebSocket ping interval/timeout in seconds; safe for small devices and networks
 
 # iptables NAT rule that redirects inbound HTTP (port 80) to the portal port.
-# Defined once so start() and stop() always reference the identical string.
+# The string uses the iptables-save -A (append) format, which is what
+# _get_nat_rules() returns, so start() and stop() can check presence with a
+# simple substring test.  The actual deletion command uses -D instead of -A.
 _IPTABLES_REDIRECT_RULE = (
     f"-A PREROUTING -p tcp -m tcp --dport 80 -j REDIRECT --to-ports {WEB_SERVER_PORT}"
 )
@@ -91,22 +101,27 @@ class UvicornServerThread:
     Manage a Uvicorn ASGI server running in a background daemon thread.
 
     Uses uvicorn.Server.run() as the thread target directly, and polls
-    server.started (set by Uvicorn once sockets are bound) to determine readiness.
+    server.started (set by Uvicorn once the server is accepting connections)
+    to determine readiness.
 
     A fresh Server instance is created on each call to start() so that
-    internal Uvicorn state (started, should_exit) is always clean.
+    internal Uvicorn state (started, should_exit) is always clean.  The
+    Config object is built once in __init__ and reused across restarts because
+    it is immutable after construction.
+
+    Accepted log_level values (passed through to Uvicorn):
+        "trace", "debug", "info", "warning", "error", "critical"
     """
     def __init__(self, app, host=WEB_SERVER_HOST, port=WEB_SERVER_PORT, level=ORADIO_LOG_LEVEL):
         """
         Initialise the manager without starting the server.
 
         Args:
-            app:        ASGI application instance to serve.
-            host (str): Network interface to bind.
-            port (int): TCP port to listen on.
-            level (str): Uvicorn log level string.
+            app:         ASGI application instance to serve.
+            host (str):  Network interface to bind.
+            port (int):  TCP port to listen on.
+            level (str): Uvicorn log level string (e.g. "debug", "info").
         """
-        # Config is immutable between restarts, so build it once here
         self._config = uvicorn.Config(
             app,
             host=host,
@@ -127,7 +142,7 @@ class UvicornServerThread:
 
         Creates a fresh Server instance, launches it on a daemon thread, then
         polls server.started until Uvicorn signals it is accepting connections
-        or READY_TIMEOUT seconds elapse.
+        or SERVER_READY_TIMEOUT seconds elapse.
 
         Returns:
             bool: True if the server is ready, False on timeout.
@@ -143,8 +158,8 @@ class UvicornServerThread:
             self._thread = Thread(target=self._server.run, daemon=True)
             self._thread.start()
 
-            # Poll server.started — set by Uvicorn once sockets are bound
-            deadline = time.time() + READY_TIMEOUT
+            # Poll server.started — set by Uvicorn once the server is accepting connections.
+            deadline = time.time() + SERVER_READY_TIMEOUT
             while not self._server.started:
                 if time.time() > deadline:
                     oradio_log.warning("Uvicorn server did not become ready in time")
@@ -160,7 +175,7 @@ class UvicornServerThread:
 
         Returns:
             bool: True if stopped cleanly, False if the thread did not exit
-                within READY_TIMEOUT seconds.
+                within SERVER_READY_TIMEOUT seconds.
         """
         with self._lock:
             if not self.is_running:
@@ -170,7 +185,7 @@ class UvicornServerThread:
             oradio_log.debug("Stopping Uvicorn server...")
             self._server.should_exit = True
             self._server.force_exit  = True
-            self._thread.join(timeout=READY_TIMEOUT)
+            self._thread.join(timeout=SERVER_READY_TIMEOUT)
 
             if self._thread.is_alive():
                 oradio_log.warning("Uvicorn server thread did not exit cleanly")
@@ -182,10 +197,12 @@ class UvicornServerThread:
     @property
     def is_running(self):
         """
-        True if the thread is alive and the server has not been asked to exit.
+        True if the server thread is alive, the server has started, and
+        shutdown has not been requested.
 
         Returns:
-            bool
+            bool: True if the server is actively accepting connections,
+                False in all other states (not started, stopping, stopped).
         """
         return (
             self._thread is not None and
@@ -220,26 +237,27 @@ class WebService:
         Initialise the WebService and start the background message listener.
 
         Sets up the shared queue, wires it into the FastAPI application state,
-        creates the Uvicorn wrapper, starts the message-listener thread, and
-        publishes the initial WEB_IDLE state to the message bus.
+        creates the Uvicorn wrapper, and starts the message-listener thread.
+        Publishes WEB_IDLE to the message bus so the controller starts from a
+        known baseline.
         """
         # Shared queue: FastAPI route handlers post requests here;
-        # _check_server_messages() reads and acts on them
+        # _check_server_messages() reads and acts on them.
         self.fa_queue = Queue()
 
         self.wifi_service = WifiService()
 
         # Give the FastAPI app a reference to the queue so route handlers can
-        # enqueue requests without importing this module
+        # enqueue requests without importing this module.
         api_app.state.queue = self.fa_queue
 
         self.uvicorn_server = UvicornServerThread(api_app)
 
-        # Daemon thread: drains fa_queue and dispatches to service methods
+        # Daemon thread: drains fa_queue and dispatches to service methods.
         self.server_listener = Thread(target=self._check_server_messages, daemon=True)
         self.server_listener.start()
 
-        # Announce initial state so the controller starts from a known baseline
+        # Announce initial state so the controller starts from a known baseline.
         Commands.publish(CommandMessage(WEB_SOURCE, self.state))
 
 ##### Private helpers ###############
@@ -269,7 +287,7 @@ class WebService:
             Errors.publish(ErrorMessage(WEB_SOURCE, WEB_ERROR_START))
             return False
         if _IPTABLES_REDIRECT_RULE in rules:
-            return True  # Already present; nothing to do
+            return True  # Already present; nothing to do.
         cmd = (
             f"sudo iptables -t nat -A PREROUTING "
             f"-p tcp --dport 80 -j REDIRECT --to-ports {WEB_SERVER_PORT}"
@@ -293,7 +311,7 @@ class WebService:
             Errors.publish(ErrorMessage(WEB_SOURCE, WEB_ERROR_STOP))
             return False
         if _IPTABLES_REDIRECT_RULE not in rules:
-            return True  # Already absent; nothing to do
+            return True  # Already absent; nothing to do.
         cmd = (
             f"sudo iptables -t nat -D PREROUTING "
             f"-p tcp --dport 80 -j REDIRECT --to-ports {WEB_SERVER_PORT}"
@@ -313,7 +331,7 @@ class WebService:
             bool: True if the file is (or was already) in place, False on error.
         """
         if _DNS_REDIRECT_CONF.exists():
-            return True  # Already present; nothing to do
+            return True  # Already present; nothing to do.
         cmd = f'sudo bash -c \'echo "address=/#/{ACCESS_POINT_HOST}" > {_DNS_REDIRECT_CONF}\''
         result, error = run_shell_script(cmd)
         if not result:
@@ -330,7 +348,7 @@ class WebService:
             bool: True if the file is (or was already) absent, False on error.
         """
         if not _DNS_REDIRECT_CONF.exists():
-            return True  # Already absent; nothing to do
+            return True  # Already absent; nothing to do.
         result, error = run_shell_script(f"sudo rm -f {_DNS_REDIRECT_CONF}")
         if not result:
             oradio_log.error("Failed to remove DNS redirect config: %s", error)
@@ -342,8 +360,11 @@ class WebService:
         """
         Poll until the WiFi interface reaches one of the expected states.
 
-        Polling is simpler than subscribing to WiFi messages here because the
-        caller needs to block until the transition completes before proceeding.
+        Note:
+            Polling is used instead of subscribing to WiFi messages because
+            the caller must block until the transition completes before
+            proceeding.  The 1-second sleep interval reduces CPU usage while
+            waiting; it does not eliminate polling entirely.
 
         Args:
             target_states (set): Acceptable WifiService state values to wait for.
@@ -353,13 +374,13 @@ class WebService:
         Returns:
             bool: True if a target state was reached, False on timeout.
         """
-        deadline = time.time() + READY_TIMEOUT
+        deadline = time.time() + WIFI_STATE_TIMEOUT
         while self.wifi_service.get_state() not in target_states:
             if time.time() > deadline:
                 oradio_log.error("Timeout waiting for WiFi state in %s", target_states)
                 Errors.publish(ErrorMessage(WEB_SOURCE, error_type))
                 return False
-            time.sleep(1)  # 1-second polling interval avoids busy-waiting
+            time.sleep(1)
         return True
 
     def _check_server_messages(self):
@@ -367,28 +388,29 @@ class WebService:
         Drain the incoming queue and act on API requests indefinitely.
 
         Runs on a daemon thread started in __init__.  Blocks on Queue.get()
-        with no timeout so it consumes no CPU when idle.
+        until a message arrives, consuming no CPU while idle.  There is no
+        stopping condition: the thread is intentionally kept alive for the
+        full lifetime of the process so that API requests are never dropped.
 
         Recognised request types:
 
         - MESSAGE_REQUEST_CONNECT: extract SSID and optional password, call
           WifiService.wifi_connect(), then stop the Captive Portal.
         - MESSAGE_REQUEST_STOP: stop the Captive Portal directly.
-
-        The thread exits only when the process terminates (daemon lifecycle).
         """
         while True:
-            # Block indefinitely; daemon thread exits automatically with the process
-            message = self.fa_queue.get(block=True, timeout=None)
+            message = self.fa_queue.get(block=True)
             oradio_log.debug("WebService: message received: '%s'", message)
 
             request = message.get("request")
 
             if request == MESSAGE_REQUEST_CONNECT:
                 if ssid := message.get("ssid"):
-                    pswd = message.get("pswd", "")  # Password is optional for open networks
+                    # Password is optional; None is passed for open networks.
+                    pswd = message.get("pswd")
                     self.wifi_service.wifi_connect(ssid, pswd)
-                    self.stop()  # Tear down the Captive Portal after handing off to the new network
+                    # Tear down the Captive Portal after handing off to the new network.
+                    self.stop()
 
             elif request == MESSAGE_REQUEST_STOP:
                 self.stop()
@@ -414,11 +436,12 @@ class WebService:
         Performs the following steps in order, aborting and publishing a
         WEB_ERROR_START error if any step fails:
 
-        1. Switch WiFi into access point mode.
+        1. Switch WiFi into access point mode (transition is asynchronous).
         2. Ensure the iptables port-redirect rule is in place.
         3. Ensure the dnsmasq DNS redirect config is in place.
         4. Start the Uvicorn web server.
-        5. Wait for the WiFi interface to reach WIFI_ACCESS_POINT state.
+        5. Wait for the WiFi transition (started in step 1) to reach
+           WIFI_ACCESS_POINT state.
 
         Does nothing if the service is already running.
         On success, publishes WEB_ACTIVE to the message bus.
@@ -434,8 +457,13 @@ class WebService:
         if not self._ensure_dns_redirect():
             return
 
-        # Reset the inactivity timer flag before the server accepts connections
+        # Reset the inactivity timer before the server accepts connections.
+        # Also cancel any lingering timer task from a previous session.
         api_app.state.timer_started = False
+        if getattr(api_app.state, "timer_task", None):
+            api_app.state.timer_task.cancel()
+            api_app.state.timer_task = None
+
         if not self.uvicorn_server.start():
             oradio_log.error("Uvicorn server failed to start")
             Errors.publish(ErrorMessage(WEB_SOURCE, WEB_ERROR_START))
@@ -458,8 +486,8 @@ class WebService:
         4. Remove the dnsmasq DNS redirect config file.
         5. Wait for the WiFi interface to reach WIFI_DISCONNECTED or WIFI_CONNECTED.
 
-        Each step that fails publishes a WEB_ERROR_STOP error and continues so
-        that remaining teardown steps are still attempted.
+        Steps 3 and 4 publish WEB_ERROR_STOP on failure but always continue
+        so that remaining teardown steps are still attempted.
         On completion, publishes WEB_IDLE to the message bus.
         """
         if self.wifi_service.get_state() == WIFI_ACCESS_POINT:
@@ -468,8 +496,11 @@ class WebService:
         if not self.uvicorn_server.stop():
             Errors.publish(ErrorMessage(WEB_SOURCE, WEB_ERROR_STOP))
 
-        self._remove_port_redirect()
-        self._remove_dns_redirect()
+        if not self._remove_port_redirect():
+            Errors.publish(ErrorMessage(WEB_SOURCE, WEB_ERROR_STOP))
+
+        if not self._remove_dns_redirect():
+            Errors.publish(ErrorMessage(WEB_SOURCE, WEB_ERROR_STOP))
 
         self._wait_for_wifi_state({WIFI_DISCONNECTED, WIFI_CONNECTED}, WEB_ERROR_STOP)
 
@@ -479,7 +510,6 @@ class WebService:
 
 if __name__ == '__main__':
 
-    # Imports only relevant when running stand-alone
     import requests
     import subprocess
     from constants import RED, YELLOW, NC               # pylint: disable=ungrouped-imports,wrong-import-position
@@ -497,7 +527,7 @@ if __name__ == '__main__':
         without running the full Oradio application stack.
 
         The too-many-branches pylint warning is suppressed because the match
-        statement necessarily has one branch per menu option.
+        statement has one branch per menu option, which is unavoidable here.
         """
         web_service = WebService()
 
@@ -515,23 +545,23 @@ if __name__ == '__main__':
 
         while True:
 
-            # Safely parse integer input; treat non-numeric input as invalid.
+            # Safely parse integer input; treat non-numeric input as an unrecognised selection.
             try:
                 function_nr = int(input(input_selection))
             except ValueError:
-                function_nr = -1  # Sentinel that falls through to the default case
+                function_nr = -1
 
             match function_nr:
                 case 0:
                     print("\nExiting test program...\n")
                     break
                 case 1:
-                    # Use ss to check whether a process is listening on the configured host:port
+                    # Use ss to check whether a process is listening on the configured host:port.
                     proc = subprocess.run(
                         f"ss -tuln | grep {WEB_SERVER_HOST}:{WEB_SERVER_PORT}",
                         shell=True, check=False, stdout=subprocess.DEVNULL
                     )
-                    if not proc.returncode:
+                    if proc.returncode == 0:
                         print("\nActive web service found\n")
                     else:
                         print("\nNo active web service found\n")
@@ -555,13 +585,13 @@ if __name__ == '__main__':
                         print(f"\nConnecting with '{name}'. Check messages for result\n")
                         url = f"http://{WEB_SERVER_HOST}:{WEB_SERVER_PORT}/wifi_connect"
                         try:
-                            requests.post(url, json={"ssid": name, "pswd": pswrd}, timeout=READY_TIMEOUT)
+                            requests.post(url, json={"ssid": name, "pswd": pswrd}, timeout=SERVER_READY_TIMEOUT)
                         except requests.exceptions.RequestException:
                             print(f"{RED}Failed to connect. Make sure you have an active web server{NC}\n")
                     else:
                         print(f"\n{YELLOW}No network given{NC}\n")
                 case 6:
-                    # WiFi state may lag during transitions; the warning prompts the user to re-check
+                    # WiFi state may lag during transitions; warn the user to re-check if needed.
                     print(f"{YELLOW}Careful: state may not be correct if wifi is still processing: check messages and run again when in doubt{NC}")
                     wifi_state = web_service.wifi_service.get_state()
                     if wifi_state == WIFI_DISCONNECTED:
@@ -571,14 +601,14 @@ if __name__ == '__main__':
                 case _:
                     print(f"\n{YELLOW}Please input a valid number{NC}\n")
 
-    # Subscribe to command and error topics so messages published are printed to console
+    # Subscribe to command and error topics so messages published are printed to console.
     cmd_handler = DebugMessageHandler(Topic.COMMAND)
     err_handler = DebugMessageHandler(Topic.ERROR)
 
-    # Launch the interactive test menu; blocks until the user quits
+    # Launch the interactive test menu; blocks until the user quits.
     interactive_menu()
 
-    # Stop printing published messages
+    # Stop printing published messages.
     cmd_handler.stop()
     err_handler.stop()
 
