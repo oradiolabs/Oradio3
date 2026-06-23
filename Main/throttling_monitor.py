@@ -305,6 +305,9 @@ throttling_monitor = RPiThrottlingMonitor()
 # ----- Standalone test menu -----
 if __name__ == "__main__":
 
+    from time import sleep
+    from oradio_const import YELLOW, NC     # pylint: disable=wrong-import-position
+
     # Most modules use similar code in stand-alone
     # pylint: disable=duplicate-code
 
@@ -320,6 +323,7 @@ if __name__ == "__main__":
         """
         # Enter test mode so hardware state is bypassed.
         throttling_monitor.enable_test_mode()
+        sleep(0.5)  # Allow for print output to propagate
 
         input_selection = (
             "Select a function, input the number.\n"
@@ -333,7 +337,6 @@ if __name__ == "__main__":
             "Select: "
         )
 
-        # User command loop
         while True:
 
             # Safely parse integer input; treat non-numeric input as invalid.
@@ -342,7 +345,6 @@ if __name__ == "__main__":
             except ValueError:
                 function_nr = -1  # Sentinel that falls through to the default case
 
-            # Execute selected function
             match function_nr:
                 case 0:
                     print("\nExiting test program...\n")
@@ -368,7 +370,7 @@ if __name__ == "__main__":
                     print("\nClear RPI throttled (TEST MODE)...\n")
                     throttling_monitor.clear_throttled_test()  # Simulate recovery
                 case _:
-                    print("\nPlease input a valid number\n")
+                    print(f"\n{YELLOW}Please input a valid number{NC}\n")
 
     # Present menu with tests
     interactive_menu()
