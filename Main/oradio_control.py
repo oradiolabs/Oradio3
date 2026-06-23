@@ -790,7 +790,6 @@ class ProxyCommandHandler:
         while True:
             command = safe_get(self._queue)
 
-            # STOP_SENTINEL means exit.
             if command == STOP_SENTINEL:
                 return
 
@@ -821,7 +820,6 @@ class ProxyCommandHandler:
         # Wake the listener thread and request a clean shutdown.
         self._queue.put_nowait(STOP_SENTINEL)
 
-        # Wait for the thread to exit.
         self._thread.join(timeout=JOIN_TIMEOUT)
         if self._thread.is_alive():
             oradio_log.warning("Listener thread did not stop within timeout")

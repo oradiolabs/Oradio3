@@ -569,7 +569,6 @@ class DebugMessageHandler:
         while True:
             message = safe_get(self._queue)
 
-            # STOP_SENTINEL means exit.
             if message == STOP_SENTINEL:
                 return
 
@@ -597,7 +596,6 @@ class DebugMessageHandler:
         # Wake the listener thread and request a clean shutdown.
         self._queue.put_nowait(STOP_SENTINEL)
 
-        # Wait for the thread to exit.
         self._thread.join(timeout=JOIN_TIMEOUT)
         if self._thread.is_alive():
             oradio_log.warning("Listener thread did not stop within timeout")
@@ -634,7 +632,6 @@ if __name__ == '__main__':
         subscribers. On Windows and macOS (spawn start method) they are not.
         """
 
-        # Show menu with test options
         input_selection = (
             "Select a function, input the number:\n"
             " 0-Quit\n"
@@ -664,7 +661,6 @@ if __name__ == '__main__':
 
         while True:
 
-            # Safely parse integer input; treat non-numeric input as invalid.
             try:
                 function_nr = int(input(input_selection))
             except ValueError:

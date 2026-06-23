@@ -2,11 +2,9 @@ Actions:
 - Is the module name logical? consistent?
 - Replace legacy queue with new messaging + relocate messaging constants
 - Use Claude to review, cleanup doc strings and inline comments and check result
-- Use ChatGPT to create MS Word technical documentation and check result
 
 Prompts:
 - Claude: Review, update doc strings and inline comments
-- ChatGPT: Create technical documentation
 
 TODO:
 	backlighting.py
@@ -29,12 +27,12 @@ oradio_control.py: Patch with messaging proxy for commands and errors
 	volume_control.py
 
 DONE:
-messaging.py
-singleton.py
-throttling_monitor.py
-usb_service.py
-wifi_service.py
-web_service.py
-fastapi_service.py
+*messaging.py
+*singleton.py
+*throttling_monitor.py
+*usb_service.py
+*wifi_service.py
+*web_service.py
+*fastapi_service.py
 remote_monitoring.py
 
