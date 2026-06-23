@@ -73,7 +73,7 @@ class ErrorHandler:
         while True:
             error = safe_get(self._queue)
 
-            # STOP_SENTINEL means exit cleanly.
+            # STOP_SENTINEL means exit.
             if error == STOP_SENTINEL:
                 return
 

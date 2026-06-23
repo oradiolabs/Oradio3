@@ -345,7 +345,7 @@ class RMService:
             message = safe_get(self._queue)
             oradio_log.debug("message: %s", message)
 
-            # STOP_SENTINEL means exit cleanly.
+            # STOP_SENTINEL means exit.
             if message == STOP_SENTINEL:
                 return
 

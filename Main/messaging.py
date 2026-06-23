@@ -569,7 +569,7 @@ class DebugMessageHandler:
         while True:
             message = safe_get(self._queue)
 
-            # STOP_SENTINEL means exit cleanly.
+            # STOP_SENTINEL means exit.
             if message == STOP_SENTINEL:
                 return
 

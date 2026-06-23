@@ -790,7 +790,7 @@ class ProxyCommandHandler:
         while True:
             command = safe_get(self._queue)
 
-            # STOP_SENTINEL means exit cleanly.
+            # STOP_SENTINEL means exit.
             if command == STOP_SENTINEL:
                 return
 
@@ -828,7 +828,6 @@ class ProxyCommandHandler:
 
         # Restore temporarily disabled pylint duplicate code check
         # pylint: enable=duplicate-code
-
 
 # Register _command_handler with the messaging layer. ProxyCommandHandler starts
 # a daemon thread, so the handler runs in the background without blocking
