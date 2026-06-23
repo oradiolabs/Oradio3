@@ -36,7 +36,7 @@ from unicodedata import normalize, category
 
 ##### oradio modules ####################
 from oradio_logging import oradio_log
-from oradio_utils import load_presets
+from utilities import load_presets
 from mpd_service import MPDService
 
 ##### GLOBAL constants ####################

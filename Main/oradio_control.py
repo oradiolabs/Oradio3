@@ -38,7 +38,7 @@ from spotify_connect_direct import SpotifyConnect
 from usb_service import USBService
 from web_service import WebService
 from wifi_service import WifiService
-from oradio_utils import has_internet, validate_oradio_message
+from utilities import has_internet, validate_oradio_message
 from power_supply_control import PowerSupplyService
 from system_sounds import play_sound    # For better readability. pylint: disable=wrong-import-order
 # Runs a background thread logging throttling events
@@ -769,7 +769,7 @@ shared_queue = Queue()  # Create a shared queue
 ##### Messaging PROXY-begin #####
 
 from threading import Thread        # pylint: disable=wrong-import-position
-from oradio_utils import safe_put   # pylint: disable=ungrouped-imports,wrong-import-position
+from utilities import safe_put      # pylint: disable=ungrouped-imports,wrong-import-position
 
 class ProxyCommandHandler:
     """

@@ -40,7 +40,7 @@ from requests import post, RequestException, Timeout
 
 ##### oradio modules ################
 from singleton import singleton
-from oradio_utils import get_serial
+from utilities import get_serial
 from wifi_service import WifiService
 from oradio_logging import oradio_log
 from messaging import (

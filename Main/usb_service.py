@@ -38,7 +38,7 @@ from watchdog.events import FileSystemEventHandler
 from singleton import singleton
 from oradio_logging import oradio_log
 from wifi_service import networkmanager_add
-from oradio_utils import run_shell_script
+from utilities import run_shell_script
 from messaging import (
     Errors,
     Commands,

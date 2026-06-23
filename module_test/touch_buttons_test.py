@@ -30,7 +30,7 @@ from RPi import GPIO
 ##### oradio modules ####################
 from oradio_logging import oradio_log, DEBUG, CRITICAL
 from touch_buttons import TouchButtons, BUTTON_DEBOUNCE_TIME
-from oradio_utils import input_prompt_int, input_prompt_float, validate_oradio_message
+from utilities import input_prompt_int, input_prompt_float, validate_oradio_message
 from gpio_service import BUTTONS, GPIOService
 from remote_debugger import setup_remote_debugging
 

@@ -44,7 +44,7 @@ from gi.repository import GLib
 ##### oradio modules ################
 from singleton import singleton
 from oradio_logging import oradio_log
-from oradio_utils import run_shell_script
+from utilities import run_shell_script
 from messaging import (
     Errors,
     Commands,

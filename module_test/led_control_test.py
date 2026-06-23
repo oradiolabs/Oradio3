@@ -25,7 +25,7 @@ import math
 
 ##### oradio modules ####################
 from led_control import LEDControl
-from oradio_utils import input_prompt_int, input_prompt_float
+from utilities import input_prompt_int, input_prompt_float
 from remote_debugger import setup_remote_debugging
 
 ##### GLOBAL constants ####################

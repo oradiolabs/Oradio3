@@ -25,7 +25,7 @@ from threading import Thread, Event
 ##### oradio modules ####################
 from oradio_logging import oradio_log
 from i2c_service import I2CService
-from oradio_utils import safe_put, run_shell_script
+from utilities import safe_put, run_shell_script
 
 ##### GLOBAL constants ####################
 from constants import (

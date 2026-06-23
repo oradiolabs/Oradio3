@@ -23,7 +23,7 @@ from time import monotonic
 
 ##### oradio modules ####################
 from oradio_logging import oradio_log
-from oradio_utils import safe_put, OradioMessage
+from utilities import safe_put, OradioMessage
 from gpio_service import GPIOService
 from system_sounds import play_sound
 from singleton import singleton

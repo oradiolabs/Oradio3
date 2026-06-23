@@ -32,7 +32,7 @@ from typing import Tuple
 from RPi import GPIO
 
 ##### local oradio import modules ####################
-from oradio_utils import input_prompt_int
+from utilities import input_prompt_int
 from gpio_service import GPIOService, LED_ON, LED_OFF, LEDS, BUTTONS, BOUNCE_MS
 from remote_debugger import setup_remote_debugging
 
