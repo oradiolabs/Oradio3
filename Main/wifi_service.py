@@ -79,11 +79,10 @@ NM_CONNECTIVITY_PORTAL  = 2   # Behind a captive portal (no open internet)
 NM_CONNECTIVITY_LIMITED = 3   # IP connectivity, but no internet route
 NM_CONNECTIVITY_FULL    = 4   # Full internet access confirmed
 
-# How long (seconds) to wait for a background thread to respond
-THREAD_TIMEOUT = 3
-
 # Build the nmcli exception tuple dynamically so it stays correct if the
 # nmcli package adds or renames exception classes in a future release.
+# The starred expression unpacks nmcli_exceptions into a flat tuple suitable
+# for use in an except clause (requires Python 3.11+).
 nmcli_exceptions = tuple(
     exc for exc in vars(nmcli_exc).values()
     if isinstance(exc, type) and issubclass(exc, Exception)
@@ -99,9 +98,9 @@ def _set_saved_network(network) -> None:
     """
     Store the last active WiFi network in a process-safe manner.
 
-    Converts network to a string before storing so the value is always
-    a plain str regardless of what the caller passes.  Stores an empty
-    string if network is falsy (``None``, empty string, etc.).
+    Stores the SSID string when network is truthy, or an empty string
+    when network is falsy (None, empty string, etc.) to signal that
+    no network is saved.
 
     Args:
         network: The SSID of the network to save, or a falsy value to clear it.
@@ -118,18 +117,18 @@ def _nmcli_try(func, *args, **kwargs) -> tuple[bool, object | None]:
 
     Args:
         func:     The nmcli callable to invoke.
-        *args:    Positional arguments forwarded to func``.
-        **kwargs: Keyword arguments forwarded to func``.
+        *args:    Positional arguments forwarded to func.
+        **kwargs: Keyword arguments forwarded to func.
 
     Returns:
-        A ``(success, result)`` tuple where success is True if the
+        A (success, result) tuple where success is True if the
         call completed without error and result holds the return value,
-        or ``(False, None)`` on any failure.
+        or (False, None) on any failure.
     """
     try:
         result = func(*args, **kwargs)
         return True, result
-    except (*nmcli_exceptions, CalledProcessError, OSError) as ex_err:  # * unpacks nmcli_exceptions into a flat exception tuple
+    except (*nmcli_exceptions, CalledProcessError, OSError) as ex_err:
         oradio_log.error("nmcli call failed for %s: %s", func.__name__, ex_err)
         Errors.publish(ErrorMessage(WIFI_SOURCE, WIFI_ERROR_NMCLI))
         return False, None
@@ -168,7 +167,7 @@ class WifiEventListener():
     Singleton listener for WiFi state changes via NetworkManager D-Bus signals.
 
     Connects to the system D-Bus, locates the WiFi device managed by
-    NetworkManager (``DeviceType == 2``, i.e. NM_DEVICE_TYPE_WIFI``), and
+    NetworkManager (DeviceType == 2, i.e. NM_DEVICE_TYPE_WIFI), and
     subscribes to the StateChanged signal on that device's interface.
 
     Internet reachability is determined by reading NetworkManager's own
@@ -179,10 +178,10 @@ class WifiEventListener():
     A GLib main loop runs in a daemon thread to dispatch D-Bus signals
     asynchronously without blocking the main application thread.
 
-    If no WiFi device is found, or if the D-Bus connection fails, the instance
-    is left in an inert state (``_loop remains None``) and no signal
-    subscription is made.  All other modules can still operate normally; WiFi
-    state changes will simply not be reported.
+    If no WiFi device is found, or if the D-Bus connection fails, all three
+    internal guards (_loop, _wifi_path, _nm_props) are left as
+    None and no signal subscription is made. All other modules can still
+    operate normally; WiFi state changes will simply not be reported.
     """
     def __init__(self) -> None:
         """
@@ -191,16 +190,17 @@ class WifiEventListener():
         Initialises the GLib main loop integration, connects to the system bus,
         iterates over NetworkManager devices to find the WiFi adapter, and
         registers _wifi_state_changed as the StateChanged signal
-        receiver.  Also stores a D-Bus Properties interface on the top-level
+        receiver. Also stores a D-Bus Properties interface on the top-level
         NetworkManager object so _wifi_state_changed can query the
         Connectivity property without re-connecting to the bus.
 
-        Starts a daemon thread to run the GLib event loop, then verifies it is
-        alive.  Publishes WIFI_ERROR_DBUS and returns early on any failure,
-        leaving the instance inert.  The singleton decorator ensures this
-        constructor runs at most once per process.
+        Starts a daemon thread to run the GLib event loop. Publishes
+        WIFI_ERROR_DBUS and returns early on any failure, leaving all
+        three internal guards (_loop, _wifi_path, _nm_props) as
+        None. The singleton decorator ensures this constructor runs at
+        most once per process.
         """
-        # Initialise guards; all three stay None/False if setup fails at any point:
+        # Initialise guards; all three stay None if setup fails at any point:
         #   _wifi_path — set once the WiFi device is located on the bus
         #   _nm_props  — set once the NM Properties interface is obtained
         #   _loop      — set once the GLib main loop is created and running
@@ -266,13 +266,6 @@ class WifiEventListener():
         self.dbus_receiver = Thread(target=self._loop.run, daemon=True)
         self.dbus_receiver.start()
 
-        # Verify the receiver thread actually started; it can fail silently
-        # (e.g. GLib resource limit reached) without raising an exception.
-        if not self.dbus_receiver.is_alive():
-            oradio_log.error("D-Bus receiver thread failed to start: WiFi state changes will not be reported")
-            Errors.publish(ErrorMessage(WIFI_SOURCE, WIFI_ERROR_DBUS))
-            return
-
         oradio_log.info("Wifi event listener started")
 
     def _get_connectivity(self) -> int:
@@ -280,18 +273,18 @@ class WifiEventListener():
         Return NetworkManager's current connectivity assessment.
 
         Reads the Connectivity property from the top-level NetworkManager
-        D-Bus object.  NM updates this value by probing a known URL after each
+        D-Bus object. NM updates this value by probing a known URL after each
         connection attempt, so no additional network round-trip is made here.
 
         Returns:
             An integer connectivity code:
 
-            * NM_CONNECTIVITY_NONE (1)``    — no network at all
-            * NM_CONNECTIVITY_PORTAL (2)``  — behind a captive portal
-            * NM_CONNECTIVITY_LIMITED (3)`` — IP connectivity, no internet route
-            * NM_CONNECTIVITY_FULL (4)``    — full internet access confirmed
+            * NM_CONNECTIVITY_NONE (1)    — no network at all
+            * NM_CONNECTIVITY_PORTAL (2)  — behind a captive portal
+            * NM_CONNECTIVITY_LIMITED (3) — IP connectivity, no internet route
+            * NM_CONNECTIVITY_FULL (4)    — full internet access confirmed
 
-            Returns NM_CONNECTIVITY_NONE (1)`` on any D-Bus error so the
+            Returns NM_CONNECTIVITY_NONE on any D-Bus error so the
             caller can safely treat an unreadable state as no connectivity.
         """
         try:
@@ -308,22 +301,22 @@ class WifiEventListener():
         Handle a StateChanged D-Bus signal from the WiFi device.
 
         Called by the GLib main loop thread whenever the NetworkManager WiFi
-        device transitions between states.  Only the three terminal states that
+        device transitions between states. Only the three terminal states that
         require an application response are acted upon; intermediate states
-        (e.g. NM_DEVICE_STATE_PREPARE``, NM_DEVICE_STATE_CONFIG``) are
+        (e.g. NM_DEVICE_STATE_PREPARE, NM_DEVICE_STATE_CONFIG) are
         silently ignored to avoid spurious messages during connection setup.
 
-        On NM_CONNECTED``, the active SSID is checked first to detect AP
-        mode.  For all other connections, NetworkManager's Connectivity
+        On NM_CONNECTED, the active SSID is checked first to detect AP
+        mode. For all other connections, NetworkManager's Connectivity
         property is read to distinguish full internet access from limited or
         no connectivity — without making a separate network probe.
 
         Args:
-            new_state:  New NM device state code (``int``).
+            new_state:  New NM device state code (int).
             _old_state: Previous NM device state code (unused; leading
                         underscore suppresses the pylint unused-argument warning).
             _reason:    NM reason code for the transition (unused; same
-                        convention as _old_state``).
+                        convention as _old_state).
         """
         # Ignore transient intermediate states; only react to settled outcomes
         if new_state not in (NM_CONNECTED, NM_DISCONNECTED, NM_FAILED):
@@ -363,9 +356,15 @@ class WifiService():
     Manage WiFi connection state and expose connect/disconnect operations.
 
     Tracks four possible states: connected with internet, connected to the
-    Oradio access point, disconnected, and connection failed.  State changes
+    Oradio access point, disconnected, and connection failed. State changes
     are reported on the command message bus by the WifiEventListener
     singleton; this class handles the active operations that trigger them.
+
+    Note:
+        The initial Commands.publish in __init__ reflects the current
+        connection state at startup. Error states (WIFI_ERROR_CONNECT,
+        WIFI_ERROR_DISCONNECT) are never published at init time; they are
+        only emitted in response to failed connection attempts.
     """
     def __init__(self):
         """
@@ -391,8 +390,8 @@ class WifiService():
         on any cached state.
 
         Returns:
-            One of the WIFI_*`` command constants:
-            WIFI_DISCONNECTED``, WIFI_ACCESS_POINT``, or WIFI_CONNECTED``.
+            One of the WIFI_* command constants:
+            WIFI_DISCONNECTED, WIFI_ACCESS_POINT, or WIFI_CONNECTED.
         """
         active = get_wifi_connection()
 
@@ -407,10 +406,11 @@ class WifiService():
         """
         Add or update a network profile and start connecting in a background process.
 
-        Saves the current connection (unless in AP mode) so it can be restored
-        later.  Adds or modifies the NetworkManager profile for ssid``, then
-        spawns a Process to call _wifi_connect_process so the blocking
-        nmcli connection up call does not stall the main thread.
+        Saves the current connection if one is active and it is not the Oradio
+        access point, so it can be restored later. Adds or modifies the
+        NetworkManager profile for ssid, then spawns a Process to call
+        _wifi_connect_process so the blocking nmcli connection up call
+        does not stall the main thread.
 
         State change notifications are published by WifiEventListener once
         the connection attempt settles.
@@ -421,8 +421,8 @@ class WifiService():
         """
         active = get_wifi_connection()
 
-        # Remember the last non-AP connection so it can be restored later
-        if active != ACCESS_POINT_SSID:
+        # Remember the last non-AP, non-empty connection so it can be restored later
+        if active and active != ACCESS_POINT_SSID:
             oradio_log.info("Remember connection '%s'", active)
             _set_saved_network(active)
 
@@ -440,9 +440,9 @@ class WifiService():
         Activate the given network profile (runs in a child process).
 
         Called by wifi_connect in a separate Process so the blocking
-        nmcli connection up call does not stall the main thread.  If
+        nmcli connection up call does not stall the main thread. If
         activation fails, the profile is removed from NetworkManager to avoid
-        leaving a broken entry.  On success, WifiEventListener publishes
+        leaving a broken entry. On success, WifiEventListener publishes
         the resulting WiFi state.
 
         Args:
@@ -450,7 +450,7 @@ class WifiService():
         """
         if not _wifi_up(network):
             # Activation failed; clean up the broken profile
-            _networkmanager_del(network)    # includes its own error logging
+            networkmanager_del(network)     # includes its own error logging
         else:
             # Connection is up; WifiEventListener will publish the new state
             oradio_log.info("Connected with '%s'", network)
@@ -461,7 +461,7 @@ class WifiService():
 
         If a connection is active, brings it down via NetworkManager.
         WifiEventListener will publish WIFI_DISCONNECTED once the
-        state-change signal arrives.  Does nothing if already disconnected.
+        state-change signal arrives. Does nothing if already disconnected.
         """
         active = get_wifi_connection()
 
@@ -481,8 +481,8 @@ class WifiScanner:
 
     Always reads from the NetworkManager cache (fast, no radio delay), and
     triggers a background rescan after each read to keep the cache fresh for
-    the next call.  The Oradio access point SSID is always excluded from
-    results.
+    the next call. The Oradio access point SSID, empty SSIDs, and duplicate
+    SSIDs are always excluded from results.
     """
     def __init__(self):
         """
@@ -501,7 +501,7 @@ class WifiScanner:
 
         Runs nmcli.device.wifi with rescan=True in a daemon thread so
         the NM cache is refreshed asynchronously for the next call to
-        get_active_ssids``.
+        get_active_ssids.
         """
         Thread(target=_nmcli_try, args=(nmcli.device.wifi, None, True), daemon=True).start()
 
@@ -510,16 +510,17 @@ class WifiScanner:
         Parse raw nmcli scan results into a deduplicated, sorted network list.
 
         Deduplicates by SSID, sorts by descending signal strength, labels each
-        network as ``"open"`` or ``"closed"`` based on its security setting,
-        and excludes the Oradio access point SSID.
+        network as "open" or "closed" based on its security setting,
+        and excludes empty SSIDs, duplicate SSIDs, and the Oradio access point
+        SSID.
 
         Args:
-            nmcli_output: List of nmcli network objects exposing ssid``,
-                          signal``, and security attributes (all optional
+            nmcli_output: List of nmcli network objects exposing ssid,
+                          signal, and security attributes (all optional
                           via getattr with defaults).
 
         Returns:
-            A list of ``{"ssid": str, "type": "open" | "closed"}`` dicts,
+            A list of {"ssid": str, "type": "open" | "closed"} dicts,
             ordered by descending signal strength.
         """
         seen_ssids = set()
@@ -551,8 +552,9 @@ class WifiScanner:
         off an asynchronous background rescan to keep the cache fresh.
 
         Returns:
-            A list of ``{"ssid": str, "type": "open" | "closed"}`` dicts
-            ordered by descending signal strength, excluding the Oradio AP.
+            A list of {"ssid": str, "type": "open" | "closed"} dicts
+            ordered by descending signal strength, excluding the Oradio AP,
+            empty SSIDs, and duplicates.
         """
         oradio_log.debug("Scanning for wifi networks...")
 
@@ -590,8 +592,9 @@ def get_wifi_networks() -> list:
     Return visible WiFi networks from the NetworkManager scan cache.
 
     Returns:
-        A list of ``{"ssid": str, "type": "open" | "closed"}`` dicts ordered
-        by descending signal strength, excluding the Oradio access point SSID.
+        A list of {"ssid": str, "type": "open" | "closed"} dicts ordered
+        by descending signal strength, excluding the Oradio access point SSID,
+        empty SSIDs, and duplicates.
     """
     return _wifi_scanner.get_active_ssids()
 
@@ -601,6 +604,10 @@ def get_wifi_connection() -> str | None:
 
     Queries the kernel directly via iw (with iwgetid as fallback)
     so the result reflects the live radio state independent of NM's view.
+
+    Note:
+        The interface name wlan0 is hardcoded. If the system uses a
+        different interface name this function will silently return None.
 
     Returns:
         The active SSID as a string, or None if the command fails or no
@@ -652,7 +659,7 @@ def networkmanager_add(network, password=None) -> bool:
     Add or update a WiFi connection profile in NetworkManager.
 
     For the Oradio access point SSID, creates an AP-mode profile with a
-    shared IPv4 configuration if one does not already exist.  For all other
+    shared IPv4 configuration if one does not already exist. For all other
     SSIDs, adds a new profile or modifies the existing one with the supplied
     credentials.
 
@@ -703,12 +710,12 @@ def networkmanager_add(network, password=None) -> bool:
     is_ok, _ = _nmcli_try(nmcli.connection.add, "wifi", options, "*", network, True)
     return is_ok
 
-def _networkmanager_del(network) -> bool:
+def networkmanager_del(network) -> bool:
     """
     Remove a WiFi connection profile from NetworkManager.
 
-    Private helper; called internally when a failed connection should be
-    cleaned up to avoid leaving a broken profile in NetworkManager.
+    Called internally when a failed connection should be cleaned up to avoid
+    leaving a broken profile in NetworkManager.
 
     Args:
         network: SSID of the connection profile to delete.
@@ -726,7 +733,7 @@ if __name__ == '__main__':
 
     # Imports only relevant when stand-alone
     from constants import RED, GREEN, YELLOW, NC        # pylint: disable=ungrouped-imports,wrong-import-position
-    from messaging import Topic, DebugMessageHandler    # pylint: disable=ungrouped-imports,wrong-import-position
+    from messaging import DebugMessageHandler           # pylint: disable=ungrouped-imports,wrong-import-position
 
     # Most stand-alone entry points share this pattern across modules
     # pylint: disable=duplicate-code
@@ -784,7 +791,7 @@ if __name__ == '__main__':
                 case 3:
                     name = input("Enter network to remove from NetworkManager: ")
                     if name:
-                        if _networkmanager_del(name):
+                        if networkmanager_del(name):
                             print(f"\n{GREEN}'{name}' deleted from NetworkManager{NC}\n")
                         else:
                             print(f"\n{RED}Failed to delete '{name}' from NetworkManager{NC}\n")
@@ -816,14 +823,17 @@ if __name__ == '__main__':
                 case _:
                     print(f"\n{YELLOW}Please input a valid number{NC}\n")
 
-    # Subscribe to command and error topics so messages published are printed to console
-    cmd_handler = DebugMessageHandler(Topic.COMMAND)
-    err_handler = DebugMessageHandler(Topic.ERROR)
+    # Subscribe to command and error topics so published messages are printed to console
+    cmd_handler = DebugMessageHandler(Commands.subscribe())
+    err_handler = DebugMessageHandler(Errors.subscribe())
 
     # Launch the interactive test menu; blocks until the user quits
     interactive_menu()
 
-    # Stop printing published messages
+    # Stop receiving messages
+    Commands.unsubscribe(cmd_handler.get_queue())
+    Errors.unsubscribe(err_handler.get_queue())
+    # Signal the thread to exit and confirm it has exited
     cmd_handler.stop()
     err_handler.stop()
 
