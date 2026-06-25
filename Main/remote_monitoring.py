@@ -293,7 +293,7 @@ class WifiMessageHandler(MessageHandlerBase):
         Initialise the WiFi message handler.
 
         Args:
-            queue: Subscription queue filtered to WiFi command messages.
+            queue: Subscription queue filtered to WiFi messages.
         """
         # Cache serial number once; used in every outgoing RMS message
         self._serial = get_serial()
@@ -301,25 +301,25 @@ class WifiMessageHandler(MessageHandlerBase):
         # Initialise base class and start the worker thread
         super().__init__(queue)
 
-    def _handle_message(self, command) -> None:
+    def _handle_message(self, message) -> None:
         """
         Handle an incoming WiFi state change message.
 
         Args:
-            command: The received command message from the queue.
+            message: The received message from the queue.
         """
-        if command.message == WIFI_DISCONNECTED:
+        if message.message == WIFI_DISCONNECTED:
             Heartbeat.stop_heartbeat()
             oradio_log.debug("WiFi disconnected. Heartbeat stopped.")
 
-        elif command.message == WIFI_CONNECTED:
+        elif message.message == WIFI_CONNECTED:
             Heartbeat.start_heartbeat(HEARTBEAT_REPEAT, self.send_message, args=(HEARTBEAT,))
             # Immediately report hardware/software identity on every new connection
             self.send_message(SYS_INFO)
             oradio_log.debug("WiFi connected. Heartbeat started and system info sent.")
 
         else:
-            oradio_log.error("Unexpected message: %s", command)
+            oradio_log.error("Unexpected message: %s", message)
 
     def send_message(self, msg_type) -> None:
         """
