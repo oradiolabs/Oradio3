@@ -28,18 +28,17 @@ Created on February 8, 2025
     information. Outgoing POST requests are protected by a simple
     exponential backoff retry mechanism.
 """
-import json
 import re
+import json
 import subprocess
+from time import sleep
+from threading import Timer
 from datetime import datetime
 from platform import python_version
-from threading import Thread, Timer
 from multiprocessing import Queue, Lock
-from time import sleep
 from requests import post, RequestException, Timeout
 
 ##### oradio modules ################
-from singleton import singleton
 from utilities import get_serial
 from wifi_service import WifiService
 from log_service import oradio_log
