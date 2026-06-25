@@ -440,7 +440,8 @@ class MessageHandlerBase:
             # Dispatch message to subclass implementation
             try:
                 self._handle_message(message)
-            except Exception as ex_err:
+            # We don't know what code is executed, thus not what exceptions are possible
+            except Exception as ex_err:     # pylint: disable=broad-exception-caught
                 oradio_log.error("Error handling message: %s", ex_err)
 
     def _handle_message(self, message):
