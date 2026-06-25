@@ -28,14 +28,14 @@ Created on February 8, 2025
     information. Outgoing POST requests are protected by a simple
     exponential backoff retry mechanism.
 """
-import os
-import re
 import json
+import re
 import subprocess
-from time import sleep
 from datetime import datetime
 from platform import python_version
-from threading import Thread, Timer, Lock
+from threading import Thread, Timer
+from multiprocessing import Queue, Lock
+from time import sleep
 from requests import post, RequestException, Timeout
 
 ##### oradio modules ################
@@ -45,7 +45,7 @@ from wifi_service import WifiService
 from log_service import oradio_log
 from messaging import (
     Commands,
-    safe_get,
+    MessageHandlerBase,
     WIFI_SOURCE,
     WIFI_DISCONNECTED,
     WIFI_CONNECTED,
@@ -54,8 +54,6 @@ from messaging import (
 ##### GLOBAL constants ##############
 from constants import (
     YELLOW, NC,
-    STOP_SENTINEL,
-    JOIN_TIMEOUT,
 )
 
 ##### LOCAL constants ###############
@@ -72,7 +70,7 @@ HEARTBEAT_REPEAT = 60 * 60
 # Remote Monitoring Service endpoint and HTTP POST tuning parameters
 RMS_SERVER_URL = 'https://oradiolabs.nl/rms/receive.php'
 MAX_RETRIES    = 3    # Maximum number of POST attempts before giving up
-BACKOFF_FACTOR = 2    # Base for exponential backoff: delay = BACKOFF_FACTOR ** (attempt - 1)
+BACKOFF_FACTOR = 2    # Base for exponential backoff: delay = BACKOFF_FACTOR ** attempt (1s, 2s, 4s)
 POST_TIMEOUT   = 5    # Per-attempt HTTP timeout in seconds
 
 ##### Helpers #######################
@@ -84,7 +82,12 @@ def _get_temperature() -> str:
     Returns:
         str: Temperature in °C, or "Unsupported platform" if unavailable.
     """
-    temperature = os.popen('vcgencmd measure_temp | cut -c 6-9').read().strip()
+    result = subprocess.run(
+        ["vcgencmd", "measure_temp"],
+        capture_output=True, text=True, check=False,
+    )
+    # Output format: "temp=42.8'C" — slice characters 5–9 to extract the value
+    temperature = result.stdout.strip()[5:9] if result.returncode == 0 else ""
     return temperature or "Unsupported platform"
 
 def _get_rpi_version() -> str:
@@ -94,8 +97,16 @@ def _get_rpi_version() -> str:
     Returns:
         str: Human-readable model description, or "Unsupported platform" if unavailable.
     """
-    version = os.popen("cat /proc/cpuinfo | grep Model | cut -d':' -f2").read().strip()
-    return version or "Unsupported platform"
+    result = subprocess.run(
+        ["cat", "/proc/cpuinfo"],
+        capture_output=True, text=True, check=False,
+    )
+    if result.returncode != 0:
+        return "Unsupported platform"
+    for line in result.stdout.splitlines():
+        if line.startswith("Model"):
+            return line.split(":", 1)[1].strip()
+    return "Unsupported platform"
 
 def _get_os_version() -> str:
     """
@@ -104,8 +115,16 @@ def _get_os_version() -> str:
     Returns:
         str: OS name and version, or "Unsupported platform" if unavailable.
     """
-    version = os.popen("lsb_release -a | grep 'Description:' | cut -d':' -f2").read().strip()
-    return version or "Unsupported platform"
+    result = subprocess.run(
+        ["lsb_release", "-a"],
+        capture_output=True, text=True, check=False,
+    )
+    if result.returncode != 0:
+        return "Unsupported platform"
+    for line in result.stdout.splitlines():
+        if line.startswith("Description:"):
+            return line.split(":", 1)[1].strip()
+    return "Unsupported platform"
 
 def _get_sw_version() -> str:
     """
@@ -150,7 +169,7 @@ def _handle_response_command(response_text) -> None:
                 capture_output=True,
                 check=True,
                 executable="/usr/bin/bash",
-                text=True
+                text=True,
             )
             oradio_log.debug("shell script result:\n%s", result.stdout)
         except subprocess.CalledProcessError as ex_err:
@@ -159,23 +178,35 @@ def _handle_response_command(response_text) -> None:
                 command, ex_err.returncode, ex_err.stdout, ex_err.stderr
             )
 
-@singleton
 class Heartbeat(Timer):
     """
-    Singleton timer that repeatedly invokes a callback.
+    Timer that repeatedly invokes a callback.
 
     The callback is executed immediately when the timer starts and then
     repeated every interval seconds until cancelled.
 
-    Inherits from threading.Timer and overrides run so that
+    Inherits from ``threading.Timer`` and overrides ``run`` so that
     the callback executes immediately on start, then repeats every
-    interval seconds until cancel is called.
+    ``interval`` seconds until ``cancel`` is called.
 
-    Decorated with singleton so that only one Heartbeat instance
-    exists at any time. Use the class-level helpers start_heartbeat
-    and stop_heartbeat instead of instantiating directly.
+    Note:
+        ``@singleton`` is intentionally NOT applied here. The singleton
+        decorator enforces a single shared instance for the lifetime of the
+        process, but ``Timer`` is a consumable thread — it cannot be restarted
+        once it has finished or been cancelled. ``start_heartbeat`` must be
+        able to create a fresh instance on every call. The "one active timer
+        at a time" guarantee is provided instead by ``cls.instance`` and
+        ``cls.start_lock``, which cancel any running timer before creating
+        a new one.
+
+    Use the class-level helpers ``start_heartbeat`` and ``stop_heartbeat``
+    instead of instantiating directly.
     """
-    # Prevents concurrent start/stop calls from racing on cls.instance
+    # Tracks the active timer so start/stop helpers can cancel it.
+    # This is Heartbeat's own concern, separate from the singleton machinery.
+    instance = None
+
+    # Prevents concurrent start/stop calls from racing on cls.instance.
     start_lock = Lock()
 
     def __init__(self, interval, function, args=None, kwargs=None) -> None:
@@ -185,7 +216,7 @@ class Heartbeat(Timer):
         Args:
             interval (int): Time in seconds between successive callback calls.
             function (callable): Callback to invoke on each tick.
-            args (list, optional): Positional arguments forwarded to *function*.
+            args (tuple, optional): Positional arguments forwarded to *function*.
             kwargs (dict, optional): Keyword arguments forwarded to *function*.
         """
         super().__init__(interval, function, args=args, kwargs=kwargs)
@@ -217,7 +248,7 @@ class Heartbeat(Timer):
         Args:
             interval (int): Time in seconds between successive callback calls.
             function (callable): Callback to invoke on each tick.
-            args (list, optional): Positional arguments forwarded to *function*.
+            args (tuple, optional): Positional arguments forwarded to *function*.
             kwargs (dict, optional): Keyword arguments forwarded to *function*.
         """
         with cls.start_lock:
@@ -238,11 +269,10 @@ class Heartbeat(Timer):
         """
         Cancel the running heartbeat timer, if any.
 
-        Thread-safe: uses start_lock to serialise concurrent calls.
+        Thread-safe: uses ``start_lock`` to serialise concurrent calls.
         Does nothing if no heartbeat is currently running.
         """
         with cls.start_lock:
-            # Stop existing timer if running
             if cls.instance is not None:
                 cls.instance.cancel()
                 cls.instance = None
@@ -250,86 +280,47 @@ class Heartbeat(Timer):
             else:
                 oradio_log.debug("No heartbeat to stop")
 
-class RMService:
+class WifiMessageHandler(MessageHandlerBase):
     """
-    Manage communication with the Remote Monitoring Service (RMS).
+    Handle WiFi state change messages and drive heartbeat and RMS reporting.
 
-    Responsibilities:
-    - Monitor WiFi connectivity.
-    - Start and stop the heartbeat timer.
-    - Send heartbeat and system information messages.
-    - Retry failed HTTP requests.
+    Subscribes to the COMMAND topic filtered to WiFi messages. On a
+    WIFI_CONNECTED event the heartbeat timer is started and a one-time
+    SYS_INFO message is sent to the RMS server. On a WIFI_DISCONNECTED
+    event the heartbeat timer is stopped.
     """
-    def __init__(self) -> None:
+    def __init__(self, queue: Queue) -> None:
         """
-        Initialise the service and register for WiFi state change events.
+        Initialise the WiFi message handler.
 
-        Caches the device serial number and subscribes _wifi_listener to
-        the messaging layer. The subscription starts an internal daemon
-        thread, so no additional setup is required by the caller.
+        Args:
+            queue: Subscription queue filtered to WiFi command messages.
         """
         # Cache serial number once; used in every outgoing RMS message
         self._serial = get_serial()
 
-        # Subscribe to wifi messages
-        self._queue = Commands.subscribe(sources=(WIFI_SOURCE,))
+        # Initialise base class and start the worker thread
+        super().__init__(queue)
 
-        # Start queue listener thread
-        self._thread = Thread(target=self._wifi_listener, daemon=True,)
-        self._thread.start()
-
-    def _wifi_listener(self) -> None:
+    def _handle_message(self, command) -> None:
         """
-        Handle WiFi connection events.
+        Handle an incoming WiFi state change message.
 
-        Starts the heartbeat and sends system information when WiFi becomes
-        available, and stops the heartbeat when connectivity is lost.
+        Args:
+            command: The received command message from the queue.
         """
-        while True:
+        if command.message == WIFI_DISCONNECTED:
+            Heartbeat.stop_heartbeat()
+            oradio_log.debug("WiFi disconnected. Heartbeat stopped.")
 
-            command = safe_get(self._queue)
-            oradio_log.debug("command: %s", command)
+        elif command.message == WIFI_CONNECTED:
+            Heartbeat.start_heartbeat(HEARTBEAT_REPEAT, self.send_message, args=(HEARTBEAT,))
+            # Immediately report hardware/software identity on every new connection
+            self.send_message(SYS_INFO)
+            oradio_log.debug("WiFi connected. Heartbeat started and system info sent.")
 
-            if command == STOP_SENTINEL:
-                return
-
-            if command.message == WIFI_DISCONNECTED:
-                Heartbeat.stop_heartbeat()
-                oradio_log.debug("WiFi disconnected. Heartbeat stopped.")
-
-            elif command.message == WIFI_CONNECTED:
-                Heartbeat.start_heartbeat(HEARTBEAT_REPEAT, self.send_message, args = (HEARTBEAT,))
-                # Immediately report hardware/software identity on every new connection
-                self.send_message(SYS_INFO)
-                oradio_log.debug("WiFi connected. Heartbeat started and system info sent.")
-
-            else:
-                oradio_log.error("Unexpected message: %s", command)
-
-    def stop(self) -> None:
-        """
-        Stop the listener thread and heartbeat timer.
-
-        Requests a clean shutdown and waits for the listener thread to exit.
-        """
-        # Other modules use similar code to stop the thread
-        # pylint: disable=duplicate-code
-
-        # Remove from registry first — no new messages after this point.
-        Commands.unsubscribe(self._queue)
-
-        # Wake the listener thread and request a clean shutdown.
-        self._queue.put_nowait(STOP_SENTINEL)
-
-        self._thread.join(timeout=JOIN_TIMEOUT)
-        if self._thread.is_alive():
-            oradio_log.warning("Listener thread did not stop within timeout")
-
-        # Restore temporarily disabled pylint duplicate code check
-        # pylint: enable=duplicate-code
-
-        # Stop the heartbeat timer
-        Heartbeat.stop_heartbeat()
+        else:
+            oradio_log.error("Unexpected message: %s", command)
 
     def send_message(self, msg_type) -> None:
         """
@@ -381,12 +372,16 @@ class RMService:
                     oradio_log.error("Failed to POST log: %s", ex_err)
                     return
                 # Wait before retrying; delay grows exponentially with each attempt
-                sleep(BACKOFF_FACTOR ** (attempt - 1))
+                sleep(BACKOFF_FACTOR ** attempt)
+
+        if response is None:
+            # All retries failed without breaking out of the loop — nothing to process
+            return
 
         # A non-2xx status after a successful raise_for_status() shouldn't
         # occur, but log it defensively in case the server returns an
         # unexpected code without raising an HTTPError.
-        if response is not None and not response.ok:
+        if not response.ok:
             oradio_log.error(
                 "Unexpected status code=%s, response.headers=%s",
                 response.status_code, response.headers
@@ -394,6 +389,52 @@ class RMService:
 
         # Act on any command the RMS server included in its response body
         _handle_response_command(response.text)
+
+class RMService:
+    """
+    Manage communication with the Remote Monitoring Service (RMS).
+
+    Subscribes to WiFi connectivity events and delegates all message
+    handling — heartbeat scheduling, SYS_INFO reporting, and HTTP
+    POST retries — to an internal ``WifiMessageHandler``.
+    """
+    def __init__(self) -> None:
+        """
+        Initialise the service and register for WiFi state change events.
+
+        Subscribes to the messaging layer filtered to WiFi events. The
+        subscription starts an internal daemon thread, so no additional
+        setup is required by the caller.
+        """
+        # Subscribe to WiFi messages only
+        self._queue = Commands.subscribe(sources=(WIFI_SOURCE,))
+
+        # Start queue listener thread
+        self._handler = WifiMessageHandler(self._queue)
+
+    def send_message(self, msg_type: str) -> None:
+        """
+        Send a message to the RMS server.
+
+        Delegates to the internal handler. Provided so callers and the
+        interactive test menu can trigger sends directly on the RMService
+        instance without accessing internal state.
+
+        Args:
+            msg_type (str): HEARTBEAT or SYS_INFO.
+        """
+        self._handler.send_message(msg_type)
+
+    def stop(self) -> None:
+        """
+        Shut down the RMS service cleanly.
+
+        Stops the heartbeat timer, unsubscribes from the command queue,
+        and signals the worker thread to exit.
+        """
+        Heartbeat.stop_heartbeat()
+        Commands.unsubscribe(self._queue)
+        self._handler.stop()
 
 ##### Stand-alone entry point #######
 
@@ -451,7 +492,7 @@ if __name__ == "__main__":
                     rms.send_message(SYS_INFO)
                 case 3:
                     print("\nStarting heartbeat timer...\n")
-                    Heartbeat.start_heartbeat(HEARTBEAT_REPEAT, rms.send_message, args = (HEARTBEAT,))
+                    Heartbeat.start_heartbeat(HEARTBEAT_REPEAT, rms.send_message, args=(HEARTBEAT,))
                 case 4:
                     print("\nStop heartbeat timer...\n")
                     Heartbeat.stop_heartbeat()
