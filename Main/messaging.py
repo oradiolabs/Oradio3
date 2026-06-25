@@ -27,6 +27,7 @@ Created on May 28, 2026
 """
 import os
 import sys
+import uuid
 from enum import Enum
 from threading import Thread
 from typing import Any, NoReturn
@@ -40,7 +41,6 @@ from log_service import oradio_log
 ##### GLOBAL constants ##############
 from constants import (
     RED, YELLOW, GREEN, NC,
-    STOP_SENTINEL,
     JOIN_TIMEOUT,
 )
 
@@ -364,10 +364,14 @@ class MessageHandlerBase:
     """
     Base class for background message handlers.
 
-    This class:
-    - Starts a background thread to consume messages
-    - Dispatches messages to _handle_message method
-    - Supports graceful shutdown using STOP_SENTINEL
+    This class provides a thread-safe framework for processing messages from a queue
+    in a background thread. Subclasses must implement the `_handle_message` method to
+    define how individual messages are processed.
+
+    Key Features:
+        - Starts a daemon thread to consume messages from a queue.
+        - Supports graceful shutdown via a unique stop sentinel per instance.
+        - Thread-safe operations using a Lock for the `_stopped` flag.
     """
     def __init__(self, queue: Queue):
         """
@@ -376,7 +380,10 @@ class MessageHandlerBase:
         Args:
             queue: The queue to handle messages from.
         """
+        self._lock = Lock()
         self._queue = queue
+        self._stopped = False
+        self._stop_sentinel = f"STOP_{uuid.uuid4().hex}"  # Unique per instance
 
         # Start background thread that processes incoming messages
         self._thread = Thread(target=self._message_loop, daemon=True,)
@@ -386,42 +393,61 @@ class MessageHandlerBase:
         """
         Stop the message handler gracefully.
 
-        Steps:
-        1. Send STOP_SENTINEL to unblock the queue
-        2. Wait for worker thread to terminate
+        Sends the instance's unique stop sentinel to the queue to unblock the worker thread,
+        then waits for the thread to terminate. If the thread does not stop within
+        `JOIN_TIMEOUT` seconds, a warning is logged.
+
+        Note:
+            This method is idempotent. Calling it multiple times has no additional effect.
+            The stop sentinel is unique per instance, so multiple handlers on the same
+            queue will not interfere with each other.
         """
+        with self._lock:
+            if self._stopped:
+                return
+            self._stopped = True
+
         # Signal the worker thread to exit its loop
-        self._queue.put_nowait(STOP_SENTINEL)
+        self._queue.put_nowait(self._stop_sentinel)
 
         # Wait for thread termination with timeout
         self._thread.join(timeout=JOIN_TIMEOUT)
 
         # Log warning if thread did not stop cleanly
         if self._thread.is_alive():
-            oradio_log.warning("Messaging processing thread did not stop within timeout")
+            oradio_log.warning("Message processing thread did not stop within %s seconds", JOIN_TIMEOUT)
 
     def _message_loop(self):
         """
         Internal worker loop running in a background thread.
 
-        Continuously consumes messages from the queue until STOP_SENTINEL is received.
+        Continuously retrieves messages from the queue using `safe_get` (a blocking call
+        without a timeout) and dispatches them to `_handle_message`. The loop exits when
+        the instance's unique stop sentinel is received.
+
+        Note:
+            Exceptions raised by `_handle_message` are caught and logged, but do not
+            terminate the loop. The loop only exits when the stop sentinel is received.
         """
         while True:
             # Blocking-safe retrieval of next message
             message = safe_get(self._queue)
 
-            # Stop condition: terminate thread cleanly
-            if message == STOP_SENTINEL:
+            # Place stop_sentinel in the queue to unblock the worker thread.
+            if message == self._stop_sentinel:
                 return
 
             # Dispatch message to subclass implementation
-            self._handle_message(message)
+            try:
+                self._handle_message(message)
+            except Exception as ex_err:
+                oradio_log.error("Error handling message: %s", ex_err)
 
     def _handle_message(self, message):
         """
         Handle a single message from the queue.
 
-        Must be implemented by subclasses.
+        Must be implemented by subclasses to define custom message processing logic.
 
         Args:
             message: The message received from the queue.
@@ -528,7 +554,7 @@ class Errors:
 
         _pubsub.publish(Topic.ERROR, message)
 
-def safe_get(queue: Queue) -> CommandMessage | ErrorMessage | object:
+def safe_get(queue: Queue) -> CommandMessage | ErrorMessage | str:
     """
     Return the next message from a queue.
 
@@ -573,13 +599,11 @@ class DebugMessageHandler(MessageHandlerBase):
             index: Optional identifier to distinguish multiple
                    handlers subscribed to the same topic.
         """
-        self._queue = queue
-
         # Optional identifier for distinguishing multiple handlers
         self._index = index
 
         # Initialize base class (subscribes + starts worker thread)
-        super().__init__(self._queue)
+        super().__init__(queue)
 
     def _handle_message(self, message) -> None:
         """
@@ -592,6 +616,9 @@ class DebugMessageHandler(MessageHandlerBase):
         oradio_log.debug("DebugMessageHandler%s received: %s", tag, message)
 
     def get_queue(self) -> Queue:
+        """
+        Return stored queue
+        """
         return self._queue
 
 ##### Stand-alone entry point #######
