@@ -22,16 +22,21 @@ Created on December 31, 2025
     Supports a test mode for forced throttling to validate logging.
 
 Typical usage:
-    The module is self-starting: importing it instantiates and starts the
-    singleton RPiThrottlingMonitor automatically.  No explicit
-    initialisation is required by the caller.
+    This module is self-starting: the module-level ``throttling_monitor``
+    instance is created automatically when the module is imported, so no
+    explicit initialisation is required by the caller.
+
+    Callers should use the module-level singleton rather than constructing
+    their own instance::
+
+        from throttling_monitor import throttling_monitor
 
     For interactive testing run this file directly::
-         python throttling_monitor.py
+
+        python throttling_monitor.py
 """
 from subprocess import check_output
 from threading import Thread, Event
-from typing import List
 
 ##### oradio modules ################
 from singleton import singleton
@@ -51,10 +56,10 @@ from messaging import (
 # and never cleared until the next reboot.
 THROTTLE_FLAGS = {
     # Current state (cleared as soon as condition disappears)
-    0x1: "Under-voltage detected",         # Supply voltage below ~4.63 V
-    0x2: "ARM frequency capped",           # Clock reduced due to thermal/power
-    0x4: "Currently throttled",            # CPU actively running below rated speed
-    0x8: "Soft temperature limit active",  # Core approaching thermal threshold
+    0x00001: "Under-voltage detected",        # Supply voltage below ~4.63 V
+    0x00002: "ARM frequency capped",          # Clock reduced due to thermal/power
+    0x00004: "Currently throttled",           # CPU actively running below rated speed
+    0x00008: "Soft temperature limit active", # Core approaching thermal threshold
 
     # Historical events (sticky since last boot)
     0x10000: "Under-voltage has occurred",
@@ -63,23 +68,30 @@ THROTTLE_FLAGS = {
     0x80000: "Soft temperature limit has occurred",
 }
 
-# Bit mask covering only the "current state" flags (bits 0-3).
+# Bit mask covering only the "current state" flags (bits 0–3).
 # Used to detect real-time transitions without being confused by the sticky
 # historical flags in the upper word.
 ACTIVE_MASK = 0x1 | 0x2 | 0x4 | 0x8
+
+# Bit mask covering only the sticky "historical event" flags (bits 16–19).
+# Used at startup to surface throttling events that occurred before the
+# monitor started, e.g. a brief brownout at boot time.
+HISTORICAL_MASK = 0xFFFF0000
 
 @singleton
 class RPiThrottlingMonitor:
     """
     Singleton background monitor for Raspberry Pi throttling state.
 
-    Polls vcgencmd get_throttled at a configurable interval and logs a
+    Polls ``vcgencmd get_throttled`` at a configurable interval and logs a
     warning (plus publishes an error message) whenever the active throttling
     state changes.  A one-time boot-time check is also performed to surface
     any historical throttling events that occurred before the monitor started.
 
-    The class is decorated with @singleton so only one instance ever
-    exists, regardless of how many times the constructor is called.
+    The class is decorated with ``@singleton`` so only one instance ever
+    exists, regardless of how many times the constructor is called.  Callers
+    should use the module-level ``throttling_monitor`` instance rather than
+    constructing their own.
 
     Attributes:
         interval (float): Polling interval in seconds between state reads.
@@ -89,8 +101,8 @@ class RPiThrottlingMonitor:
         Initialise the monitor, run a startup diagnostic, and start polling.
 
         The constructor intentionally performs side-effects (starting a
-        background thread) so that callers simply instantiate the class and
-        monitoring begins immediately.
+        background thread) so that callers simply use the module-level
+        ``throttling_monitor`` instance and monitoring begins immediately.
 
         Args:
             interval: Seconds between consecutive vcgencmd polls.
@@ -110,17 +122,17 @@ class RPiThrottlingMonitor:
         self._last_active_flags = 0
 
         # When _test_mode is True, _get_throttle_value() returns _forced_value
-        # instead of querying vcgencmd, allowing unit tests to drive any state.
+        # instead of querying vcgencmd, allowing tests to drive any state.
         self._test_mode = False
         self._forced_value = 0
 
         # Read the full throttle word (including sticky historical bits) and
-        # warn if *any* throttling event has occurred since the last reboot.
+        # warn if any throttling event has occurred since the last reboot.
         # This catches problems that resolved themselves before the monitor
         # started (e.g. a brief brownout at boot time).
         value = self._get_throttle_value()
-        if value & 0xFFFF0000:
-            reasons = self._decode_flags(value, 0xFFFF0000)
+        if value & HISTORICAL_MASK:
+            reasons = self._decode_flags(value, HISTORICAL_MASK)
             oradio_log.warning("RPi HEALTH WARNING (since boot): %s", ", ".join(reasons))
             Errors.publish(ErrorMessage(THROTTLING_SOURCE, THROTTLING_ERROR_THROTTLED))
 
@@ -132,13 +144,15 @@ class RPiThrottlingMonitor:
         Return the current throttle bitmask from the hardware or test stub.
 
         In normal operation the value is obtained by running::
+
             vcgencmd get_throttled
-        which returns a string of the form throttled=0x50000.  In test
-        mode the pre-configured _forced_value is returned instead.
+
+        which returns a string of the form ``throttled=0x50000``.  In test
+        mode the pre-configured ``_forced_value`` is returned instead.
 
         Returns:
             Integer bitmask where each set bit indicates a throttling
-            condition as described in THROTTLE_FLAGS.
+            condition as described in ``THROTTLE_FLAGS``.
         """
         if self._test_mode:
             # Return the injected test value directly; skip hardware query.
@@ -149,7 +163,7 @@ class RPiThrottlingMonitor:
         return int(out.split("=")[1], 16)
 
     @classmethod
-    def _decode_flags(cls, value: int, mask: int) -> List[str]:
+    def _decode_flags(cls, value: int, mask: int) -> list[str]:
         """
         Translate a throttle bitmask into a list of human-readable strings.
 
@@ -158,10 +172,10 @@ class RPiThrottlingMonitor:
         flags independently.
 
         Args:
-            value: Raw bitmask returned by _get_throttle_value.
+            value: Raw bitmask returned by ``_get_throttle_value``.
             mask:  Bit mask specifying which flags are of interest.
-                   Use ACTIVE_MASK for current-state flags or
-                   0xFFFF0000 for historical flags.
+                   Use ``ACTIVE_MASK`` for current-state flags or
+                   ``HISTORICAL_MASK`` for historical flags.
 
         Returns:
             A list of descriptive strings, one per active flag.  Returns an
@@ -177,13 +191,16 @@ class RPiThrottlingMonitor:
         """
         Background thread body: poll throttling state and log changes.
 
-        Runs until _stop_event is set (via :meth:`stop`).  Only the
-        *current-state* flags (ACTIVE_MASK) are compared across polls,
+        Runs until ``_stop_event`` is set (via :meth:`stop`).  Only the
+        *current-state* flags (``ACTIVE_MASK``) are compared across polls,
         so sticky historical bits do not trigger repeated log entries.
 
         Each state transition is logged once:
-         * **Enter throttling** – logs a warning with the active flag names and publishes an error message.
-         * **Clear throttling** – logs a warning indicating the condition resolved.
+
+        * **Enter throttling** – logs a warning with the active flag names
+          and publishes an error message.
+        * **Clear throttling** – logs an info message indicating the
+          condition resolved.
         """
         while not self._stop_event.is_set():
             value = self._get_throttle_value()
@@ -214,9 +231,8 @@ class RPiThrottlingMonitor:
         """
         Start the background polling thread.
 
-        Idempotent: calling start() when the thread is already alive is a
-        no-op.  After spawning the thread a liveness check is performed to
-        catch silent startup failures (e.g. inotify descriptor exhaustion).
+        Idempotent: calling ``start()`` when the thread is already alive is a
+        no-op.
         """
         if self._thread and self._thread.is_alive():
             return  # Thread is already running; nothing to do.
@@ -231,23 +247,16 @@ class RPiThrottlingMonitor:
         )
         self._thread.start()
 
-        # Verify the thread actually came up.  Threads can fail silently
-        # (e.g. when the OS inotify limit is reached) without raising an
-        # exception, so we check is_alive() explicitly.
-        if not self._thread.is_alive():
-            oradio_log.error("Throttled monitor failed to start: no throttled info available")
-            Errors.publish(ErrorMessage(THROTTLING_SOURCE, THROTTLING_ERROR_THROTTLED))
-
     def stop(self) -> None:
         """
-        Signal the background polling thread to stop.
+        Signal the background polling thread to stop and wait for it to exit.
 
-        Sets the stop event, which causes the thread's wait() call to
-        return early.  The thread will exit on its next iteration.  This
-        method returns immediately; use _thread.join() if you need to
-        block until the thread has fully exited.
+        Sets the stop event, which causes the thread's ``wait()`` call to
+        return early, and then blocks until the thread has fully exited.
         """
         self._stop_event.set()
+        if self._thread:
+            self._thread.join()
 
 ##### Test mode API #################
 
@@ -255,12 +264,15 @@ class RPiThrottlingMonitor:
         """
         Switch the monitor into test mode.
 
-        In test mode _get_throttle_value returns _forced_value
-        instead of calling vcgencmd, making it possible to exercise the
+        In test mode ``_get_throttle_value`` returns ``_forced_value``
+        instead of calling ``vcgencmd``, making it possible to exercise the
         monitor's state-change logic without actual hardware throttling.
+
+        Calling this method when test mode is already active is a no-op.
         """
-        oradio_log.info("RPi throttling monitor TEST MODE enabled")
-        self._test_mode = True
+        if not self._test_mode:
+            oradio_log.info("RPi throttling monitor TEST MODE enabled")
+            self._test_mode = True
 
     def disable_test_mode(self) -> None:
         """
@@ -282,9 +294,9 @@ class RPiThrottlingMonitor:
         next poll cycle and log accordingly.
 
         Args:
-            flags: Bitmask to simulate.  Defaults to 0x4 ("Currently
+            flags: Bitmask to simulate.  Defaults to ``0x4`` ("Currently
                    throttled").  Multiple conditions can be combined with
-                   bitwise OR, e.g. 0x1 | 0x4.
+                   bitwise OR, e.g. ``0x1 | 0x4``.
         """
         self.enable_test_mode()
         self._forced_value = flags
@@ -308,7 +320,7 @@ if __name__ == "__main__":
 
     from time import sleep
     from constants import YELLOW, NC                    # pylint: disable=wrong-import-position
-    from messaging import Topic, DebugMessageHandler    # pylint: disable=ungrouped-imports,wrong-import-position
+    from messaging import DebugMessageHandler           # pylint: disable=ungrouped-imports,wrong-import-position
 
     # Most modules use similar code in stand-alone
     # pylint: disable=duplicate-code
@@ -376,13 +388,15 @@ if __name__ == "__main__":
                 case _:
                     print(f"\n{YELLOW}Please input a valid number{NC}\n")
 
-    # Subscribe to error topics so messages published are printed to console
-    err_handler = DebugMessageHandler(Topic.ERROR)
+    # Subscribe to error topics and start message handler
+    err_handler = DebugMessageHandler(Errors.subscribe())
 
     # Present menu with tests
     interactive_menu()
 
-    # Stop printing published error messages
+    # Stop receiving messages
+    Errors.unsubscribe(err_handler.get_queue())
+    # Signal the thread to exit and confirm it has exited
     err_handler.stop()
 
     # Restore temporarily disabled pylint duplicate code check
