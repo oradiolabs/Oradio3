@@ -3,44 +3,41 @@ Actions:
 2. Replace legacy queue with new messaging + relocate messaging constants
 3. Use Claude to review, cleanup doc strings and inline comments and check result
 4. Verify changes do not break functionality
-5. Create base class or (mixin?) for starting/running/stopping messaging threads
-
-TODO:
-	backlighting.py
-	gpio_service.py
-	i2c_service.py
-	led_control.py
-	mpd_control.py
-	mpd_monitor.py
-	mpd_service.py
-	oradio_control.py
-	power_supply_control.py
-	schemas.json
-	spotify_connect_direct.py
-	system_sounds.py
-	touch_buttons.py
-	volume_control.py
-
 
 DONE 1:
+backlighting.py
+fastapi_service.py
+gpio_service.py
+i2c_service.py
+led_control.py
+mpd_control.py
+mpd_monitor.py
+mpd_service.py
 oradio_const.py: Renamed to constants.py
+oradio_control.py
 oradio_logging.py: Renamed to log_service.py
 oradio_utils.py: Renamed to utilities.py
+power_supply_control.py
+schemas.json
+spotify_connect_direct.py
+system_sounds.py
+touch_buttons.py
+volume_control.py
+web_service.py
 
 DONE 2:
 error_service.py: TODO - extend with error messages from other modules
-messaging.py: TODO - migrate messaging defines from constants.py
-throttling_monitor.py
 usb_service.py
-wifi_service.py
-remote_monitoring.py
 
 DONE 3:
-fastapi_service.py
-web_service.py
 
 DONE 4:
-
-DONE 5:
+messaging.py: Still TODO - migrate messaging defines from constants.py
+remote_monitoring.py
 singleton.py
+throttling_monitor.py
+wifi_service.py
 
+Improvement options:
+- Do not let log_service send messages to RMS, in stead let error_service do this using remote_monitoring
+- Add 'StoppableWorker' base class to utilities and us it whereve threads and processes are used
