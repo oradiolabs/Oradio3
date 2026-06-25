@@ -358,6 +358,96 @@ class PubSubManager:
 # Global PubSub manager (singleton — only one instance per process).
 _pubsub = PubSubManager()
 
+##### Template ######################
+
+class MessageHandlerBase:
+    """
+    Base class for background message handlers.
+
+    This class:
+    - Subscribes to a topic queue (COMMAND or ERROR)
+    - Starts a background thread to consume messages
+    - Dispatches messages to _handle_message method
+    - Supports graceful shutdown using STOP_SENTINEL
+    """
+    def __init__(self, topic):
+        """
+        Initialize the message handler and start the worker thread.
+
+        Args:
+            topic: The topic to subscribe to.
+        """
+        self._topic = topic
+
+        # Subscribe to the appropriate message queue based on topic
+        if self._topic == Topic.COMMAND:
+            self._queue = Commands.subscribe()
+        elif self._topic == Topic.ERROR:
+            self._queue = Errors.subscribe()
+        else:
+            # Invalid topic configuration (no queue will be assigned)
+            oradio_log.error("Invalid topic: %s", self._topic)
+            self._queue = None
+
+        # Start background thread that processes incoming messages
+        self._thread = Thread(target=self._message_loop, daemon=True,)
+        self._thread.start()
+
+    def stop(self) -> None:
+        """
+        Stop the message handler gracefully.
+
+        Steps:
+        1. Unsubscribe from topic (prevents new messages being queued)
+        2. Send STOP_SENTINEL to unblock the queue
+        3. Wait for worker thread to terminate
+        """
+        # Unsubscribe first to ensure no new messages are added
+        if self._topic == Topic.COMMAND:
+            Commands.unsubscribe(self._queue)
+        elif self._topic == Topic.ERROR:
+            Errors.unsubscribe(self._queue)
+        else:
+            oradio_log.error("Invalid topic: %s", self._topic)
+
+        # Signal the worker thread to exit its loop
+        self._queue.put_nowait(STOP_SENTINEL)
+
+        # Wait for thread termination with timeout
+        self._thread.join(timeout=JOIN_TIMEOUT)
+
+        # Log warning if thread did not stop cleanly
+        if self._thread.is_alive():
+            oradio_log.warning("Messaging processing thread did not stop within timeout")
+
+    def _message_loop(self):
+        """
+        Internal worker loop running in a background thread.
+
+        Continuously consumes messages from the queue until STOP_SENTINEL is received.
+        """
+        while True:
+            # Blocking-safe retrieval of next message
+            message = safe_get(self._queue)
+
+            # Stop condition: terminate thread cleanly
+            if message == STOP_SENTINEL:
+                return
+
+            # Dispatch message to subclass implementation
+            self._handle_message(message)
+
+    def _handle_message(self, message):
+        """
+        Handle a single message from the queue.
+
+        Must be implemented by subclasses.
+
+        Args:
+            message: The message received from the queue.
+        """
+        raise NotImplementedError(f"{self.__class__.__name__} must implement _handle_message()")
+
 ##### Public API ####################
 
 class Commands:
@@ -486,64 +576,38 @@ def safe_get(queue: Queue) -> CommandMessage | ErrorMessage | object:
 
 ##### Debug #########################
 
-class DebugMessageHandler:
+class DebugMessageHandler(MessageHandlerBase):
     """
-    Debug helper that prints received messages.
+    Message handler that logs all received messages at DEBUG level.
 
-    Used only by the stand-alone test menu.
+    This implementation is intended for debugging purposes and optionally
+    includes an index to distinguish multiple handlers subscribed to the
+    same topic.
     """
-    def __init__(self, topic, index = 0):
+    def __init__(self, topic: Topic, index: int | None = None):
         """
-        Subscribe to the selected topic and start the listener thread.
+        Initialize the debug message handler.
+
+        Args:
+            topic: The subscription topic.
+            index: Optional identifier to distinguish multiple
+                   handlers subscribed to the same topic.
         """
+        # Optional identifier for distinguishing multiple handlers
         self._index = index
-        self._topic = topic
-        if self._topic == Topic.COMMAND:
-            self._queue = Commands.subscribe()
-        elif self._topic == Topic.ERROR:
-            self._queue = Errors.subscribe()
-        else:
-            print(f"{RED}Invalid topic: {self._topic}{NC}")
 
-        self._thread = Thread(target=self._subscription_listener, daemon=True,)
-        self._thread.start()
+        # Initialize base class (subscribes + starts worker thread)
+        super().__init__(topic)
 
-    def _subscription_listener(self) -> None:
+    def _handle_message(self, message) -> None:
         """
-        Drain the queue and print each message until the sentinel arrives.
+        Handle an incoming message from the queue by logging it.
+
+        Args:
+            message: The received message from the queue.
         """
-        while True:
-            message = safe_get(self._queue)
-
-            if message == STOP_SENTINEL:
-                return
-
-            print(f"[{self._topic}] - Handler {self._index} - Message received: {message!r}")
-
-    def stop(self) -> None:
-        """
-        Stop the listener thread and unsubscribe from the topic.
-        """
-        # Remove from registry first — no new messages after this point.
-        if self._topic == Topic.COMMAND:
-            Commands.unsubscribe(self._queue)
-        elif self._topic == Topic.ERROR:
-            Errors.unsubscribe(self._queue)
-        else:
-            print(f"{RED}Invalid topic: {self._topic}{NC}")
-
-        # Other modules use similar code to stop the thread
-        # pylint: disable=duplicate-code
-
-        # Wake the listener thread and request a clean shutdown.
-        self._queue.put_nowait(STOP_SENTINEL)
-
-        self._thread.join(timeout=JOIN_TIMEOUT)
-        if self._thread.is_alive():
-            oradio_log.warning("Listener thread did not stop within timeout")
-
-        # Restore temporarily disabled pylint duplicate code check
-        # pylint: enable=duplicate-code
+        tag = f"{self._topic}" if self._index is None else f"{self._topic}[{self._index}]"
+        oradio_log.debug("DebugMessageHandler[%s] received: %s", tag, message)
 
 ##### Stand-alone entry point #######
 
@@ -555,6 +619,7 @@ if __name__ == '__main__':
 
     # Most modules use similar code in stand-alone
     # pylint: disable=duplicate-code
+
 
     # Pylint PEP8 ignoring limit of max 12 branches is ok for test menu
     def interactive_menu() -> None:     # pylint: disable=too-many-branches,too-many-statements
@@ -593,8 +658,8 @@ if __name__ == '__main__':
             "select: "
         )
 
-        cmd_index = 0   # Next index to assign to a new COMMAND handler
-        err_index = 0   # Next index to assign to a new ERROR handler
+        cmd_index = 1   # Next index to assign to a new COMMAND handler
+        err_index = 1   # Next index to assign to a new ERROR handler
 
         # Handlers indexed by index so specific subscriptions
         # can be targeted by unsubscribe options (12 and 13).
