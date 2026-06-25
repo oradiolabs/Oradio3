@@ -365,29 +365,18 @@ class MessageHandlerBase:
     Base class for background message handlers.
 
     This class:
-    - Subscribes to a topic queue (COMMAND or ERROR)
     - Starts a background thread to consume messages
     - Dispatches messages to _handle_message method
     - Supports graceful shutdown using STOP_SENTINEL
     """
-    def __init__(self, topic):
+    def __init__(self, queue: Queue):
         """
         Initialize the message handler and start the worker thread.
 
         Args:
-            topic: The topic to subscribe to.
+            queue: The queue to handle messages from.
         """
-        self._topic = topic
-
-        # Subscribe to the appropriate message queue based on topic
-        if self._topic == Topic.COMMAND:
-            self._queue = Commands.subscribe()
-        elif self._topic == Topic.ERROR:
-            self._queue = Errors.subscribe()
-        else:
-            # Invalid topic configuration (no queue will be assigned)
-            oradio_log.error("Invalid topic: %s", self._topic)
-            self._queue = None
+        self._queue = queue
 
         # Start background thread that processes incoming messages
         self._thread = Thread(target=self._message_loop, daemon=True,)
@@ -398,18 +387,9 @@ class MessageHandlerBase:
         Stop the message handler gracefully.
 
         Steps:
-        1. Unsubscribe from topic (prevents new messages being queued)
-        2. Send STOP_SENTINEL to unblock the queue
-        3. Wait for worker thread to terminate
+        1. Send STOP_SENTINEL to unblock the queue
+        2. Wait for worker thread to terminate
         """
-        # Unsubscribe first to ensure no new messages are added
-        if self._topic == Topic.COMMAND:
-            Commands.unsubscribe(self._queue)
-        elif self._topic == Topic.ERROR:
-            Errors.unsubscribe(self._queue)
-        else:
-            oradio_log.error("Invalid topic: %s", self._topic)
-
         # Signal the worker thread to exit its loop
         self._queue.put_nowait(STOP_SENTINEL)
 
@@ -584,20 +564,22 @@ class DebugMessageHandler(MessageHandlerBase):
     includes an index to distinguish multiple handlers subscribed to the
     same topic.
     """
-    def __init__(self, topic: Topic, index: int | None = None):
+    def __init__(self, queue: Queue, index: int | None = None):
         """
         Initialize the debug message handler.
 
         Args:
-            topic: The subscription topic.
+            queue: The subscription queue.
             index: Optional identifier to distinguish multiple
                    handlers subscribed to the same topic.
         """
+        self._queue = queue
+
         # Optional identifier for distinguishing multiple handlers
         self._index = index
 
         # Initialize base class (subscribes + starts worker thread)
-        super().__init__(topic)
+        super().__init__(self._queue)
 
     def _handle_message(self, message) -> None:
         """
@@ -606,8 +588,11 @@ class DebugMessageHandler(MessageHandlerBase):
         Args:
             message: The received message from the queue.
         """
-        tag = f"{self._topic}" if self._index is None else f"{self._topic}[{self._index}]"
-        oradio_log.debug("DebugMessageHandler[%s] received: %s", tag, message)
+        tag = "" if self._index is None else f"[{self._index}]"
+        oradio_log.debug("DebugMessageHandler%s received: %s", tag, message)
+
+    def get_queue(self) -> Queue:
+        return self._queue
 
 ##### Stand-alone entry point #######
 
@@ -682,13 +667,13 @@ if __name__ == '__main__':
                     n = int(input("Enter number of COMMAND handlers to subscribe [1]: ").strip() or "1")
                     for _ in range(n):
                         print(f"Subscribe COMMAND handler {cmd_index}...")
-                        cmd_handlers[cmd_index] = DebugMessageHandler(Topic.COMMAND, cmd_index)
+                        cmd_handlers[cmd_index] = DebugMessageHandler(Commands.subscribe(), cmd_index)
                         cmd_index += 1
                 case 2:
                     n = int(input("Enter number of ERROR handlers to subscribe [1]: ").strip() or "1")
                     for _ in range(n):
                         print(f"Subscribe ERROR handler {err_index}...")
-                        err_handlers[err_index] = DebugMessageHandler(Topic.ERROR, err_index)
+                        err_handlers[err_index] = DebugMessageHandler(Errors.subscribe(), err_index)
                         err_index += 1
                 case 3:
                     if not cmd_handlers:
@@ -792,8 +777,11 @@ if __name__ == '__main__':
                             print(f"{YELLOW}Handler {idx} is not subscribed{NC}\n")
                         else:
                             print(f"Unsubscribing COMMAND handler {idx}...")
-                            # stop() signals the thread to exit and confirms it has exited.
-                            cmd_handlers.pop(idx).stop()
+                            handler = cmd_handlers.pop(idx)
+                            # Stop receiving messages
+                            Commands.unsubscribe(handler.get_queue())
+                            # Signal the thread to exit and confirms it has exited.
+                            handler.stop()
                             sleep(0.5)  # Allow for print output to propagate
                             print(f"{GREEN}COMMAND handler {idx} unsubscribed{NC}\n")
                 case 13:
@@ -811,8 +799,11 @@ if __name__ == '__main__':
                             print(f"{YELLOW}Handler {idx} is not subscribed{NC}\n")
                         else:
                             print(f"Unsubscribing ERROR handler {idx}...")
-                            # stop() signals the thread to exit and confirms it has exited.
-                            err_handlers.pop(idx).stop()
+                            handler = err_handlers.pop(idx)
+                            # Stop receiving messages
+                            Errors.unsubscribe(handler.get_queue())
+                            # Signal the thread to exit and confirms it has exited.
+                            handler.stop()
                             sleep(0.5)  # Allow for print output to propagate
                             print(f"{GREEN}ERROR handler {idx} unsubscribed{NC}\n")
                 case _:
