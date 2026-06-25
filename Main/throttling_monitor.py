@@ -200,7 +200,7 @@ class RPiThrottlingMonitor:
                     Errors.publish(ErrorMessage(THROTTLING_SOURCE, THROTTLING_ERROR_THROTTLED))
                 else:
                     # All throttling conditions have cleared.
-                    oradio_log.warning("RPi throttling CLEARED")
+                    oradio_log.info("RPi throttling CLEARED")
 
                 # Update the cache so the next iteration has a baseline.
                 self._last_active_flags = active_flags
