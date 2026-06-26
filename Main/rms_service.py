@@ -8,7 +8,6 @@
  #    #  #   #   #    #  #    #     #    #    #
   ####   #    #  #    #  #####      #     ####
 
-
 Created on February 8, 2025
 @author:        Henk Stevens & Olaf Mastenbroek & Onno Janssen
 @copyright:     Copyright 2025, Oradio Stichting
@@ -48,6 +47,8 @@ from messaging import (
     WIFI_SOURCE,
     WIFI_DISCONNECTED,
     WIFI_CONNECTED,
+    RMS_SOURCE,
+    RMS_ERROR_SERVICE,
 )
 
 ##### GLOBAL constants ##############
@@ -401,15 +402,20 @@ class RMService:
         """
         Initialise the service and register for WiFi state change events.
 
-        Subscribes to the messaging layer filtered to WiFi events. The
-        subscription starts an internal daemon thread, so no additional
-        setup is required by the caller.
+        Subscribes to the messaging layer filtered to WiFi events and starts
+        an internal daemon thread to process incoming messages. Logs an error
+        if the handler thread fails to start.
         """
         # Subscribe to WiFi messages only
         self._queue = Commands.subscribe(sources=(WIFI_SOURCE,))
 
         # Start queue listener thread
-        self._handler = WifiMessageHandler(self._queue)
+        try:
+            self._handler = WifiMessageHandler(self._queue)
+            oradio_log.info("RMS service started")
+        except Exception as ex_err:  # pylint: disable=broad-exception-caught
+            oradio_log.error("RMS service failed to start: %s", ex_err)
+            Errors.publish(ErrorMessage(RMS_SOURCE, RMS_ERROR_SERVICE))
 
     def send_message(self, msg_type: str) -> None:
         """
