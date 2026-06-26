@@ -134,7 +134,7 @@ class UvicornServerThread:
         )
         self._server = None
         self._thread = None
-        self._lock   = Lock()
+        self._lock = Lock()
 
     def start(self) -> bool:
         """
@@ -242,10 +242,6 @@ class WebService:
     An internal daemon thread (_check_server_messages) drains a Queue that the
     FastAPI routes write to, and translates queue messages into service actions
     (WiFi connect, portal stop) without blocking the ASGI event loop.
-
-    Note:
-        This class is thread-safe. All public methods use a lock to ensure
-        consistent access to shared resources.
     """
     def __init__(self):
         """
@@ -253,14 +249,16 @@ class WebService:
 
         Sets up the shared queue, wires it into the FastAPI application state,
         creates the Uvicorn wrapper, and starts the message-listener thread.
-        Logs an error and publishes WEB_ERROR_SERVICE if the listener thread
-        fails to start. Publishes WEB_IDLE to the message bus so the
-        controller starts from a known baseline.
-        """
-        self._lock = Lock()
+        Logs an error and publishes WEB_ERROR_SERVICE if either the Uvicorn
+        wrapper or the listener thread fails to initialise. Publishes WEB_IDLE
+        to the message bus so the controller starts from a known baseline.
 
-        # Shared queue: FastAPI route handlers post requests here;
-        # _check_server_messages() reads and acts on them.
+        uvicorn_server is pre-assigned to None before initialisation so that
+        the state property and start/stop methods can safely check for
+        initialisation failure with a simple None guard.
+        """
+        # Shared queue: FastAPI route handlers post plain dicts here;
+        # _check_server_messages() reads and dispatches them.
         self.request_queue = Queue()
 
         self.wifi_service = WifiService()
@@ -269,7 +267,8 @@ class WebService:
         # enqueue requests without importing this module.
         api_app.state.queue = self.request_queue
 
-        # Initialize to None to handle potential UvicornServerThread initialization failures.
+        # Pre-assign to None so state, start(), and stop() can check for
+        # initialisation failure with a simple None guard rather than hasattr.
         self.uvicorn_server = None
         try:
             self.uvicorn_server = UvicornServerThread(api_app)
@@ -277,7 +276,7 @@ class WebService:
             oradio_log.error("Failed to initialize UvicornServerThread: %s", ex_err)
             Errors.publish(ErrorMessage(WEB_SOURCE, WEB_ERROR_SERVICE))
 
-        # Daemon thread drains request_queue and dispatches to service methods.
+        # Daemon thread: drains request_queue and dispatches to service methods.
         # Exits automatically when the main process exits.
         self.server_listener = Thread(target=self._check_server_messages, daemon=True)
 
@@ -419,11 +418,17 @@ class WebService:
         """
         Drain the incoming queue and act on API requests indefinitely.
 
-        Runs on a daemon thread started in __init__. Blocks on Queue.get()
-        until a message arrives, consuming no CPU while idle. There is no
-        stopping condition: the thread is intentionally kept alive for the
-        full lifetime of the process so that API requests are never dropped.
-        Unrecognised request types are logged as warnings.
+        Runs on a daemon thread started in __init__. Blocks on safe_get()
+        until a message arrives, consuming no CPU while idle, with fatal-exit
+        handling for broken queues. There is no stopping condition: the thread
+        is intentionally kept alive for the full lifetime of the process so
+        that API requests are never dropped. Unrecognised request types are
+        logged as warnings.
+
+        Note:
+            request_queue carries plain dicts posted by FastAPI route handlers,
+            not CommandMessage objects. message.get("request") is used rather
+            than message.message for this reason.
 
         Recognised request types:
 
@@ -461,7 +466,7 @@ class WebService:
         Returns:
             str: WEB_ACTIVE if the Uvicorn server is running, WEB_IDLE otherwise.
         """
-        if not hasattr(self, 'uvicorn_server') or self.uvicorn_server is None:
+        if self.uvicorn_server is None:
             return WEB_IDLE
         return WEB_ACTIVE if self.uvicorn_server.is_running else WEB_IDLE
 
@@ -484,46 +489,44 @@ class WebService:
         Error messages are published by the helper methods; start() does not
         re-publish them. Does nothing if the service is already running.
         On success, publishes WEB_ACTIVE to the message bus.
-
-       Note:
-            If the service is already running, this method does nothing.
         """
-        # Use a lock to ensure thread-safe access to self.uvicorn_server.
-        with self._lock:
-            if not hasattr(self, 'uvicorn_server') or self.uvicorn_server is None:
-                oradio_log.error("Uvicorn server not initialized")
-                Errors.publish(ErrorMessage(WEB_SOURCE, WEB_ERROR_START))
-                return
+        if self.uvicorn_server is None:
+            oradio_log.error("Uvicorn server not initialized")
+            Errors.publish(ErrorMessage(WEB_SOURCE, WEB_ERROR_START))
+            return
 
-            if self.uvicorn_server.is_running:
-                oradio_log.debug("Web service already running")
-                return
+        # Check running state before committing to any side-effecting steps.
+        if self.uvicorn_server.is_running:
+            oradio_log.debug("Web service already running")
+            return
 
-            # Connection setup is handled in a separate process with its own error logging.
-            self.wifi_service.wifi_connect(ACCESS_POINT_SSID, None)
+        # wifi_connect is non-blocking; the AP transition is confirmed in step 5.
+        self.wifi_service.wifi_connect(ACCESS_POINT_SSID, None)
 
-            if not self._ensure_port_redirect():
-                return
-            if not self._ensure_dns_redirect():
-                return
+        if not self._ensure_port_redirect():
+            return
+        if not self._ensure_dns_redirect():
+            return
 
-            # Reset the inactivity timer (auto-stops the portal after no client activity)
-            # before the server accepts connections and cancel any lingering timer task
-            # from a previous session.
-            if hasattr(api_app.state, "timer_task") and api_app.state.timer_task is not None:
-                api_app.state.timer_task.cancel()
-                api_app.state.timer_task = None
-            api_app.state.timer_started = False
+        # Reset the inactivity timer (auto-stops the portal after no client
+        # activity) before the server accepts connections and cancel any
+        # lingering timer task from a previous session.
+        # timer_task is set by the FastAPI app and may not exist on first run,
+        # so getattr is used rather than a direct attribute access.
+        if getattr(api_app.state, "timer_task", None) is not None:
+            api_app.state.timer_task.cancel()
+            api_app.state.timer_task = None
+        api_app.state.timer_started = False
 
-            if not self.uvicorn_server.start():
-                oradio_log.error("Uvicorn server failed to start")
-                Errors.publish(ErrorMessage(WEB_SOURCE, WEB_ERROR_START))
-                return
+        if not self.uvicorn_server.start():
+            oradio_log.error("Uvicorn server failed to start")
+            Errors.publish(ErrorMessage(WEB_SOURCE, WEB_ERROR_START))
+            return
 
-            if not self._wait_for_wifi_state({WIFI_ACCESS_POINT}, WEB_ERROR_START):
-                return
+        if not self._wait_for_wifi_state({WIFI_ACCESS_POINT}, WEB_ERROR_START):
+            return
 
-            Commands.publish(CommandMessage(WEB_SOURCE, self.state))
+        Commands.publish(CommandMessage(WEB_SOURCE, self.state))
 
     def stop(self) -> None:
         """
@@ -531,7 +534,8 @@ class WebService:
 
         Reverses the steps performed by start() in order:
 
-        1. Disconnect the access point (if currently active).
+        1. Disconnect the access point (if currently active) so connected
+           clients are dropped before the server stops.
         2. Stop the Uvicorn web server.
         3. Remove the iptables port-redirect rule.
         4. Remove the dnsmasq DNS redirect config file.
@@ -541,27 +545,26 @@ class WebService:
         continue so that remaining teardown steps are still attempted.
         On completion, publishes WEB_IDLE to the message bus.
         """
-        # Use a lock to ensure thread-safe access to self.uvicorn_server.
-        with self._lock:
-            # Stop Uvicorn server if it was initialized; otherwise, log and publish an error.
-            if not hasattr(self, 'uvicorn_server') or self.uvicorn_server is None:
-                oradio_log.error("Uvicorn server not initialized")
+        # Disconnect WiFi first so clients are dropped gracefully before the
+        # server stops accepting connections.
+        if self.wifi_service.get_state() == WIFI_ACCESS_POINT:
+            self.wifi_service.wifi_disconnect()
+
+        if self.uvicorn_server is None:
+            oradio_log.error("Uvicorn server not initialized")
+            Errors.publish(ErrorMessage(WEB_SOURCE, WEB_ERROR_STOP))
+        else:
+            if not self.uvicorn_server.stop():
                 Errors.publish(ErrorMessage(WEB_SOURCE, WEB_ERROR_STOP))
-            else:
-                if not self.uvicorn_server.stop():
-                    Errors.publish(ErrorMessage(WEB_SOURCE, WEB_ERROR_STOP))
 
-            if self.wifi_service.get_state() == WIFI_ACCESS_POINT:
-                self.wifi_service.wifi_disconnect()
+        # Helper methods publish WEB_ERROR_STOP internally on failure;
+        # stop() does not re-publish so each error is reported exactly once.
+        self._remove_port_redirect()
+        self._remove_dns_redirect()
 
-            # Helper methods publish WEB_ERROR_STOP internally on failure;
-            # stop() does not re-publish so each error is reported exactly once.
-            self._remove_port_redirect()
-            self._remove_dns_redirect()
+        self._wait_for_wifi_state({WIFI_DISCONNECTED, WIFI_CONNECTED}, WEB_ERROR_STOP)
 
-            self._wait_for_wifi_state({WIFI_DISCONNECTED, WIFI_CONNECTED}, WEB_ERROR_STOP)
-
-            Commands.publish(CommandMessage(WEB_SOURCE, self.state))
+        Commands.publish(CommandMessage(WEB_SOURCE, self.state))
 
 ##### Stand-alone entry point #######
 
