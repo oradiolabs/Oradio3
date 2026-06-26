@@ -10,8 +10,7 @@
  #    #  #   #   #    #  #    #     #    #    #
   ####   #    #  #    #  #####      #     ####
 
-
-Created on Januari 31`, 2025
+Created on Januari 31, 2025
 @author:        Henk Stevens & Olaf Mastenbroek & Onno Janssen
 @copyright:     Copyright 2024, Oradio Stichting
 @license:       GNU General Public License (GPL)
@@ -20,7 +19,7 @@ Created on Januari 31`, 2025
 @email:         oradioinfo@stichtingoradio.nl
 @status:        Development
 @summary: Oradio control and statemachine
- 
+
 """
 import threading
 from time import sleep
@@ -332,7 +331,6 @@ class StateMachine:
         # outside lock (more responsive, and power policy can be changed even when it is playing)
         self._apply_power_policy_for_state(state_to_handle)
 
-
     # --- State handlers ---
 
     def _state_play(self):
@@ -530,13 +528,11 @@ def on_webservice_playing_song():
         )  #  and if player is switched of, switch it on, otherwise keep state
     oradio_log.debug("WebService playing song acknowledged")
 
-
 def on_webservice_pl1_changed():
     state_machine.transition("StateIdle")
     state_machine.transition("StatePreset1")
     threading.Timer(2, play_sound, args=(SOUND_NEW_PRESET,)).start()
     oradio_log.debug("WebService on_webservice_pl1_changed acknowledged")
-
 
 def on_webservice_pl2_changed():
     state_machine.transition("StateIdle")
@@ -544,34 +540,28 @@ def on_webservice_pl2_changed():
     threading.Timer(2, play_sound, args=(SOUND_NEW_PRESET,)).start()
     oradio_log.debug("WebService on_webservice_pl2_changed acknowledged")
 
-
 def on_webservice_pl3_changed():
     state_machine.transition("StateIdle")
     state_machine.transition("StatePreset3")
     threading.Timer(2, play_sound, args=(SOUND_NEW_PRESET,)).start()
     oradio_log.debug("WebService on_webservice_pl3_changed acknowledged")
 
-
 def on_web_pl1_webradio_changed():
 #REVIEW Onno: Er is geen indicatie voor welke preset de webradio is ingesteld
     threading.Timer(2, play_sound, args=(SOUND_NEW_WEBRADIO,)).start()
     oradio_log.debug("WebService on_web_pl_webradio_changed acknowledged")
-
 
 def on_web_pl2_webradio_changed():
 #REVIEW Onno: Er is geen indicatie voor welke preset de webradio is ingesteld
     threading.Timer(2, play_sound, args=(SOUND_NEW_WEBRADIO,)).start()
     oradio_log.debug("WebService on_web_pl_webradio_changed acknowledged")
 
-
 def on_web_pl3_webradio_changed():
 #REVIEW Onno: Er is geen indicatie voor welke preset de webradio is ingesteld
     threading.Timer(2, play_sound, args=(SOUND_NEW_WEBRADIO,)).start()
     oradio_log.debug("WebService on_web_pl_webradio_changed acknowledged")
 
-
 # -------------------SPOTIFY-----------------------
-
 
 def on_spotify_connect_connected():
     spotify_connect_connected.set()
@@ -599,7 +589,6 @@ def on_spotify_connect_stopped():
     spotify_connect_playing.clear()
     update_spotify_available()
     oradio_log.debug("Spotify stopped is acknowledged")
-
 
 def on_spotify_connect_changed():
     # TBD action
@@ -653,7 +642,6 @@ def update_spotify_available():
         spotify_connect_available.is_set(),
     )
 
-
 # 2)-----The Handler map, defining message content and the handler funtion---
 
 HANDLERS = {
@@ -700,12 +688,11 @@ HANDLERS = {
 
 }
 
-
 def handle_message(message: dict):
     '''
     handle the received message
     :arguments
-        message (dict) : the (Oradio) message to be processed 
+        message (dict) : the (Oradio) message to be processed
     '''
     validated_message = validate_oradio_message(message)
     if validated_message:
@@ -760,7 +747,6 @@ def sync_usb_presence_from_service():
         oradio_log.info("USB presence synced: absent")
     else:
         oradio_log.warning("Unexpected USB service state: %r", state)
-
 
 # ------------------Start-up - instantiate and define other modules ---------------
 

@@ -187,21 +187,21 @@ class Heartbeat(Timer):
     The callback is executed immediately when the timer starts and then
     repeated every interval seconds until cancelled.
 
-    Inherits from ``threading.Timer`` and overrides ``run`` so that
+    Inherits from threading.Timer and overrides run so that
     the callback executes immediately on start, then repeats every
-    ``interval`` seconds until ``cancel`` is called.
+    interval seconds until cancel is called.
 
     Note:
-        ``@singleton`` is intentionally NOT applied here. The singleton
+        @singleton is intentionally NOT applied here. The singleton
         decorator enforces a single shared instance for the lifetime of the
-        process, but ``Timer`` is a consumable thread — it cannot be restarted
-        once it has finished or been cancelled. ``start_heartbeat`` must be
+        process, but Timer is a consumable thread — it cannot be restarted
+        once it has finished or been cancelled. start_heartbeat must be
         able to create a fresh instance on every call. The "one active timer
-        at a time" guarantee is provided instead by ``cls.instance`` and
-        ``cls.start_lock``, which cancel any running timer before creating
+        at a time" guarantee is provided instead by cls.instance and
+        cls.start_lock, which cancel any running timer before creating
         a new one.
 
-    Use the class-level helpers ``start_heartbeat`` and ``stop_heartbeat``
+    Use the class-level helpers start_heartbeat and stop_heartbeat
     instead of instantiating directly.
     """
     # Tracks the active timer so start/stop helpers can cancel it.
@@ -271,7 +271,7 @@ class Heartbeat(Timer):
         """
         Cancel the running heartbeat timer, if any.
 
-        Thread-safe: uses ``start_lock`` to serialise concurrent calls.
+        Thread-safe: uses start_lock to serialise concurrent calls.
         Does nothing if no heartbeat is currently running.
         """
         with cls.start_lock:
@@ -398,7 +398,7 @@ class RMService:
 
     Subscribes to WiFi connectivity events and delegates all message
     handling — heartbeat scheduling, SYS_INFO reporting, and HTTP
-    POST retries — to an internal ``WifiMessageHandler``.
+    POST retries — to an internal WifiMessageHandler.
     """
     def __init__(self) -> None:
         """

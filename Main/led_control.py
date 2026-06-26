@@ -57,7 +57,7 @@ class LEDControl:
         Turns off a specified LED and waits for its blink‐thread to exit.
         Args:
             led_name (str): [precondition] shall be [ LED_PLAY | LED_STOP |
-                                                    LED_PRESET1 | LED_PRESET2 | LED_PRESET3] 
+                                                    LED_PRESET1 | LED_PRESET2 | LED_PRESET3]
         """
         if led_name in LED_NAMES:
             self._stop_blink(led_name)
@@ -71,7 +71,7 @@ class LEDControl:
         Turns ON a specified LED and stops blink‐thread if active.
         Args:
             led_name (str): [precondition] shall be [ LED_PLAY | LED_STOP |
-                                                    LED_PRESET1 | LED_PRESET2 | LED_PRESET3] 
+                                                    LED_PRESET1 | LED_PRESET2 | LED_PRESET3]
         """
         if led_name in LED_NAMES:
             # leds off with an implicit stop blinking silently then light it
@@ -102,7 +102,7 @@ class LEDControl:
         Turns on a specific LED and then turns it off after a delay.
         Args:
             led_name : [precondition] shall be [ LED_PLAY | LED_STOP |
-                                                    LED_PRESET1 | LED_PRESET2 | LED_PRESET3] 
+                                                    LED_PRESET1 | LED_PRESET2 | LED_PRESET3]
             period : Time in seconds before turning off the LED. Default = 3
         """
         def oneshot_off_led(led_name, period):
@@ -137,18 +137,18 @@ class LEDControl:
     def control_blinking_led(self, led_name: str, cycle_time: float=2) -> None:
         """
         Blink the specified led,
-        An Event is used for blink timing and instant stop, 
+        An Event is used for blink timing and instant stop,
         Args:
             led_name (str): [precondition] shall be [ LED_PLAY | LED_STOP |
                                                     LED_PRESET1 | LED_PRESET2 | LED_PRESET3]
-            cycle_time (float) = duration of one complete cycle for blinking  
+            cycle_time (float) = duration of one complete cycle for blinking
         """
 
         def _blink(stop_evt: Event):
             """
-            cycle_time (float) = 
+            cycle_time (float) =
             _________|^^^^^^^^^^^|____________|^^^^^^^^^^^^|____________|^^
-                     |<====== cycle_time ====>| 
+                     |<====== cycle_time ====>|
                      |<== half =>|
             """
             half = cycle_time / 2
@@ -185,7 +185,7 @@ class LEDControl:
         Stop blink of selected led and stop related active threads
         Args:
             led_name (str): [precondition] shall be [ LED_PLAY | LED_STOP |
-                                                    LED_PRESET1 | LED_PRESET2 | LED_PRESET3] 
+                                                    LED_PRESET1 | LED_PRESET2 | LED_PRESET3]
         """
         # signal any blink thread to stop
         running_stop_event = self.blink_stop_events.pop(led_name, None)

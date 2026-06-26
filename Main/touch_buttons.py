@@ -53,8 +53,8 @@ VALID_LONG_PRESS_BUTTONS = [BUTTON_PLAY]
 class TouchButtons:
     """
     Handle GPIO-based touch buttons applying software debouncing.
-    Evaluates the touch_buttons timing to determine whether button press is 
-    short-press callbacks or along-press callbacks. 
+    Evaluates the touch_buttons timing to determine whether button press is
+    short-press callbacks or along-press callbacks.
     Attributes:
         buttons_module_test:
             TEST_DISABLED = The module test is disabled (default)
@@ -69,7 +69,7 @@ class TouchButtons:
             queue: the shared message queue
         Attributes:
             buttons_module_test:
-                if TEST_ENABLED then instance of class TimingData added 
+                if TEST_ENABLED then instance of class TimingData added
         """
         self.message_queue = queue
         self.button_gpio = GPIOService()

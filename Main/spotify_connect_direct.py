@@ -42,7 +42,6 @@ ALSA_MIXER_SPOTCON = "VolumeSpotCon1"
 ACTIVE_FLAG_FILE = "/home/pi/Oradio3/Spotify/spotactive.flag"
 PLAYING_FLAG_FILE = "/home/pi/Oradio3/Spotify/spotplaying.flag"
 
-
 class SpotifyConnect:
     """Basic Spotify functionality based on Librespot service."""
 
@@ -65,7 +64,6 @@ class SpotifyConnect:
         self.monitor_thread = threading.Thread(target=self.monitor_flags, daemon=True)
         self.monitor_thread.start()
         oradio_log.info("SpotifyConnect: monitor thread started.")
-
 
     def _read_flag(self, filepath: str) -> bool:
         """
@@ -92,8 +90,6 @@ class SpotifyConnect:
                 )
                 self._warned_missing[filepath] = True
             return False
-
-
 
     def update_flags(self) -> None:
         """Update 'active' and 'playing' by reading their flag files."""
@@ -194,7 +190,6 @@ class SpotifyConnect:
                 time.sleep(interval)
         except KeyboardInterrupt:
             oradio_log.info("SpotifyConnect: monitoring stopped.")
-
 
 if __name__ == "__main__":
     # Stand-alone test harness

@@ -7,7 +7,6 @@
  #    #  #   #   #    #  #    #     #    #    #
   ####   #    #  #    #  #####      #     ####
 
-
 Created on Januari 17, 2025
 @author:        Henk Stevens & Olaf Mastenbroek & Onno Janssen
 @copyright:     Copyright 2024, Oradio Stichting
@@ -16,12 +15,12 @@ Created on Januari 17, 2025
 @version:       2
 @email:         oradioinfo@stichtingoradio.nl
 @status:        Development
-@summary: 
+@summary:
     Class to run the backlighting service.
     - Measure the light level and adapt the backlighting MCP4725
     - Update, such that it starts always with low backlighting level
 @references:
-    
+
 """
 from time import sleep
 from threading import Thread, Event
@@ -101,7 +100,7 @@ class Backlighting:
     def _write_dac(self, value: int, eeprom: bool = False) -> None:
         """
         Write a 12-bit value to the MCP4725 DAC.
-        
+
         Args:
             value (int): DAC output value (0–4095)
             eeprom (bool): If True, store value in EEPROM (persistent after reboot)

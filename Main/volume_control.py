@@ -92,7 +92,7 @@ class VolumeControl:
         # Start ready to send notification
         self._armed = True
 
-        # Thread is created dynamically on `start()` to allow restartability
+        # Thread is created dynamically on start() to allow restartability
         self._running = Event()
         self._thread = None
 
@@ -104,7 +104,7 @@ class VolumeControl:
     def _read_adc(self) -> int | None:
         """
         Read a 10-bit value from the MCP3021 ADC.
-        
+
         Returns:
             ADC value 0..1023, or None if reading fails.
         """

@@ -61,7 +61,6 @@ _CURRENT_SEL = {
 # Reverse lookup table for decoding negotiated voltage
 _SEL_TO_VOLTAGE_V = {selector: volts for volts, selector in _VOLTAGE_SEL.items()}
 
-
 # Reverse lookup table for decoding negotiated current (status read-back uses a wider encoding range)
 _SEL_TO_CURRENT_A = {
     0b0000: 0.5,

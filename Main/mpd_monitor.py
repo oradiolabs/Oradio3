@@ -31,7 +31,6 @@ from log_service import oradio_log
 from singleton import singleton
 from mpd_service import MPDService
 
-
 ##### GLOBAL constants ####################
 from constants import YELLOW, NC
 
@@ -70,7 +69,7 @@ class MPDMonitor(MPDService):
         self._snapshot = defaultdict(set)
         self._build_initial_snapshot()
 
-        # Thread is created dynamically on `start()` to allow restartability
+        # Thread is created dynamically on start() to allow restartability
         self._running = Event()
 
         # Create and start thread

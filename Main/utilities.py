@@ -8,7 +8,6 @@
  #    #  #   #   #    #  #    #     #    #    #
   ####   #    #  #    #  #####      #     ####
 
-
 Created on January 17, 2025
 @author:        Henk Stevens & Olaf Mastenbroek & Onno Janssen
 @copyright:     Copyright 2024, Oradio Stichting
@@ -154,7 +153,7 @@ def validate_oradio_message(message: Union[OradioMessage, Dict[str, Any]]) -> Op
 def has_internet():
     """
     Try whether the wifi-connection has internet by using a DNS service to resolve a domain name.
-    As domain name is used google.com, which is one of the most reliable and globally available domains. 
+    As domain name is used google.com, which is one of the most reliable and globally available domains.
     This will resolve into a IPv4 address,to test DNS and networking connectivity on using UDP Port 53.
     DNS lookups are high-priority traffic and typically wake the Wi-Fi radio from power-saving mode.
     Returns:
@@ -267,7 +266,7 @@ def store_presets(presets: dict[str, str]) -> None:
 def input_prompt_int(prompt: str, default=-1 ) -> int:
     """
     Prompt for an user input and return int value of number typed
-    Args: 
+    Args:
         prompt : prompt text for user
         default: default value to return in case of an error
     Returns:

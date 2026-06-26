@@ -550,7 +550,7 @@ class Errors:
     @staticmethod
     def publish(message: ErrorMessage) -> None:
         """
-        Validate and publish a command message.
+        Validate and publish an error message.
 
         Invalid messages are treated as fatal errors.
 

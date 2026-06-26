@@ -72,7 +72,7 @@ LED_OFF = False
 class GPIOService:
     """
     Thread-safe class for GPIO control and status.
-    - Set the output pins for the configured LED pins 
+    - Set the output pins for the configured LED pins
     - Reading the inputs for the configured BUTTON pins
     - Callback for button change event
     - Log info/warnings/errors for debugging.
@@ -123,7 +123,7 @@ class GPIOService:
         Reset the GPIO pins to their default state.
         It resets any ports which have been used and puts the port in default state
         The default state is input-mode.
-        Mainly used in test environments, to get pins in the default state 
+        Mainly used in test environments, to get pins in the default state
         """
         with self._lock:
             GPIO.cleanup()
@@ -144,7 +144,7 @@ class GPIOService:
     def set_led_on(self, led_name: str) -> None:
         """
         Turns ON the specified LED.
-        Args: 
+        Args:
             led_name (str) precondition: must be [ LED_PLAY | LED_STOP] |
                                                    LED_PRESET1 | LED_PRESET2 | LED_PRESET3 ]
         """
@@ -157,7 +157,7 @@ class GPIOService:
     def set_led_off(self, led_name: str) -> None:
         """
         Turns OFF the specified LED.
-        Args: 
+        Args:
             led_name (str) precondition: must be [ LED_PLAY | LED_STOP] |
                                                    LED_PRESET1 | LED_PRESET2 | LED_PRESET3 ]
         """
@@ -170,9 +170,9 @@ class GPIOService:
     def get_led_state(self, led_name: str) -> Tuple[bool, Optional[str]]:
         """
         Get the state off the specified LED.
-        Args: 
+        Args:
             led_name (str) precondition: must be [ LED_PLAY | LED_STOP] |
-                                                   LED_PRESET1 | LED_PRESET2 | 
+                                                   LED_PRESET1 | LED_PRESET2 |
                                                    LED_PRESET3 ]
         Returns:
             True = LED is ON
@@ -204,9 +204,9 @@ class GPIOService:
     def get_button_state(self, button_name: str) -> Tuple[bool, Optional[str]]:
         """
         Get the state off the specified button.
-        Args: 
+        Args:
             button_name (str) precondition: must be [ BUTTON_PLAY | BUTTON_STOP] |
-                                                   BUTTON_PRESET1 | BUTTON_PRESET2 | 
+                                                   BUTTON_PRESET1 | BUTTON_PRESET2 |
                                                    BUTTON_PRESET3 ]
         Returns:
             button_state = True/False | None
@@ -249,7 +249,7 @@ class GPIOService:
         Only difference is the state of the button. To prevent duplicated-code
         Called by gpio event detection.
         When channel has a known button_name, the configured callback is called
-        Args: 
+        Args:
             channel (int) is the I/O-pin which detected an edge event
         Attributes:
             gpio_module_test
@@ -288,7 +288,6 @@ class GPIOService:
             button_data["state"] = BUTTON_PRESSED
             button_data["data"] = button_event_ts
         self.edge_event_callback(button_data)
-
 
 # Entry point for stand-alone operation
 if __name__ == '__main__':

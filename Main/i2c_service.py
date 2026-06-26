@@ -115,12 +115,12 @@ class I2CService:
         Read a block of bytes from a device register.
         - Thread-safe with a lock.
         - Logs the operation and any errors.
-        
+
         Args:
             device (int): I2C device address.
             register (int): Register address on the device.
             length (int): Number of bytes to read, max 32.
-        
+
         Returns:
             list: List of byte values read from the device.
         """
@@ -141,12 +141,12 @@ class I2CService:
         - Thread-safe with a lock.
         - Write with retries and backoff.
         - Logs the operation and any errors.
-        
+
         Args:
             device (int): I2C device address.
             register (int): Register address on the device.
             data (list): List of byte values to write, max 32.
-        
+
         Returns:
             None
         """
