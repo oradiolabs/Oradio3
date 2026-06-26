@@ -248,7 +248,8 @@ class WebService:
         Initialise the WebService and start the background message listener.
 
         Sets up the shared queue, wires it into the FastAPI application state,
-        creates the Uvicorn wrapper, and starts the message-listener thread.
+        creates the Uvicorn wrapper, and starts the message-listener thread,
+        which runs for the full lifetime of the process and has no stop mechanism.
         Logs an error and publishes WEB_ERROR_SERVICE if either the Uvicorn
         wrapper or the listener thread fails to initialise. Publishes WEB_IDLE
         to the message bus so the controller starts from a known baseline.
@@ -431,7 +432,6 @@ class WebService:
             than message.message for this reason.
 
         Recognised request types:
-
         - MESSAGE_REQUEST_CONNECT: extract SSID and optional password, call
           WifiService.wifi_connect(), then stop the Captive Portal.
         - MESSAGE_REQUEST_STOP: stop the Captive Portal directly.
@@ -439,6 +439,11 @@ class WebService:
         while True:
             message = safe_get(self.request_queue)
             oradio_log.debug("WebService: message received: '%s'", message)
+
+            # Guard against wrong message type
+            if not isinstance(message, dict):
+                oradio_log.warning("Unexpected message type %s: %s", type(message).__name__, message)
+                continue
 
             request = message.get("request")
 
