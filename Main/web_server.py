@@ -659,7 +659,7 @@ if __name__ == '__main__':
     import uvicorn
     from queue import Empty
     from constants import GREEN, NC                     # pylint: disable=ungrouped-imports,wrong-import-position
-    from messaging import Topic, MessageHandlerTemplate # pylint: disable=ungrouped-imports,wrong-import-position
+    from messaging import Topic, DebugMessageHandler    # pylint: disable=ungrouped-imports,wrong-import-position
     from multiprocessing import Event, Queue, Process
 
     # Most stand-alone entry points share this pattern across modules
@@ -687,13 +687,6 @@ if __name__ == '__main__':
                     continue
         except KeyboardInterrupt:
             print("Listener process interrupted by KeyboardInterrupt")
-
-    class DebugMessageHandler(MessageHandlerTemplate):
-        def __init__(self, topic: Topic):
-            super().__init__(topic)
-
-        def _handle_message(self, message):
-            print(f"DebugMessageHandler[{self._topic}] received: {message}")
 
     # Override to relative URLs so the redirect works outside the access point network.
     oradioap_url = ""
