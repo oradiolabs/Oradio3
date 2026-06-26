@@ -325,26 +325,12 @@ class USBService:
 if __name__ == '__main__':
 
     # Imports only relevant when stand-alone
-    from utilities import run_shell_script                          # pylint: disable=ungrouped-imports,wrong-import-position
-    from constants import RED, YELLOW, NC                           # pylint: disable=ungrouped-imports,wrong-import-position
-    from messaging import Topic, DebugMessageHandler                # pylint: disable=ungrouped-imports,wrong-import-position
+    from constants import RED, YELLOW, NC           # pylint: disable=ungrouped-imports,wrong-import-position
+    from utilities import run_shell_script          # pylint: disable=wrong-import-position
+    from messaging import DebugMessageHandler       # pylint: disable=ungrouped-imports,wrong-import-position
 
     # Most stand-alone entry points share this pattern; pylint would flag it as duplicate code across modules.
     # pylint: disable=duplicate-code
-
-    def topic_handler(message, topic) -> None:
-        """
-        Print any message received on a subscribed message bus topic.
-
-        Passed as a callback to Commands.subscribe and Errors.subscribe
-        so that all bus traffic is visible during interactive testing.
-
-        Args:
-            message: The CommandMessage or ErrorMessage received.
-            topic:   The bus topic on which the message arrived, used as a
-                     label in the printed output.
-        """
-        print(f"[{topic}] - Message received: {message!r}")
 
     def interactive_menu() -> None:
         """
