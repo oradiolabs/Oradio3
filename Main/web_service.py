@@ -53,6 +53,7 @@ from wifi_service import WifiService, get_wifi_connection
 from messaging import (
     Errors,
     Commands,
+    safe_get,
     ErrorMessage,
     CommandMessage,
     WIFI_DISCONNECTED,
@@ -419,7 +420,7 @@ class WebService:
         - MESSAGE_REQUEST_STOP: stop the Captive Portal directly.
         """
         while True:
-            message = self.fa_queue.get(block=True)
+            message = safe_get(self.fa_queue)
             oradio_log.debug("WebService: message received: '%s'", message)
 
             request = message.get("request")
