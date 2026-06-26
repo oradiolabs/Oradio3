@@ -6,7 +6,7 @@ Actions:
 
 DONE 1:
 backlighting.py
-*fastapi_service.py: Renamed to web_server.py
+fastapi_server.py: Renamed to web_server.py
 gpio_service.py
 i2c_service.py
 led_control.py
@@ -26,7 +26,7 @@ volume_control.py
 web_service.py
 
 DONE 2:
-error_service.py: TODO - extend with error messages from other modules
+error_service.py: still TODO - extend with error messages from other modules
 
 DONE 3:
 messaging.py: Still TODO - migrate messaging defines from constants.py
