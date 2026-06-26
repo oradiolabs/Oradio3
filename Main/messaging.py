@@ -28,6 +28,7 @@ import os
 import sys
 import uuid
 from enum import Enum
+from queue import Full
 from threading import Thread
 from typing import Any, NoReturn
 from dataclasses import dataclass
@@ -42,6 +43,9 @@ from constants import (
     RED, YELLOW, GREEN, NC,
     JOIN_TIMEOUT,
 )
+
+##### LOCAL constants ###############
+_MAX_QUEUE_SIZE = 1000      # Guard against memory leaks
 
 ##### Messaging constants ####################
 # Throttling
@@ -105,7 +109,8 @@ class Topic(str, Enum):
     """
     Enumeration of supported pub-sub topics.
 
-    Inheriting from str allows members to be used directly in logging, JSON, and dictionary keys.
+    Inheriting from str allows enum members to behave like ordinary strings,
+    making them convenient for logging, JSON serialization, and dictionary keys.
     """
     COMMAND = "COMMAND"
     ERROR = "ERROR"
@@ -126,7 +131,7 @@ class CommandMessage:
 
     def is_valid(self) -> bool:
         """
-        Return True when the message contains valid source and message strings.
+        Return whether the message contains valid source and message strings.
 
         Optional payload data is not validated.
         """
@@ -151,7 +156,7 @@ class ErrorMessage:
 
     def is_valid(self) -> bool:
         """
-        Return True when the message contains valid source and message strings.
+        Return whether the message contains valid source and message strings.
         """
         return (
             isinstance(self.source, str)
@@ -167,10 +172,10 @@ def _fatal_exit(message: str, stacklevel: int = 6, *, exc: BaseException | None 
     Log a fatal error, flush all buffers, and terminate the process.
 
     Intended for unrecoverable infrastructure failures such as queue
-    corruption, invalid internal state, or IPC failure. Uses os._exit
-    rather than sys.exit to ensure immediate termination from any thread,
-    including daemon threads where sys.exit would only exit the calling
-    thread.
+    corruption, invalid internal state, or IPC failure.
+
+    Uses os._exit instead of sys.exit to terminate immediately from any thread.
+    This includes daemon threads, where sys.exit() would only terminate the calling thread.
 
     Args:
         message:    Human-readable description of the fatal error.
@@ -180,8 +185,7 @@ def _fatal_exit(message: str, stacklevel: int = 6, *, exc: BaseException | None 
                     the full traceback is included in the log entry.
         code:       Process exit status code (default: 1).
     """
-    oradio_log.critical(message, stacklevel=stacklevel, exc_info=exc is not None)
-
+    oradio_log.critical(message, stacklevel=stacklevel, exc_info=exc)
     # Flush the logging framework before exiting so no records are lost.
     oradio_log.shutdown()
 
@@ -198,7 +202,8 @@ def _fatal_exit(message: str, stacklevel: int = 6, *, exc: BaseException | None 
 @singleton
 class PubSubManager:
     """
-    Singleton manager for command and error pub-sub topics.
+    Singleton responsible for managing subscriptions and message
+    delivery for all pub-sub topics.
 
     Maintains subscriber queues and provides thread-safe subscribe,
     unsubscribe, and publish operations. The implementation uses
@@ -228,7 +233,7 @@ class PubSubManager:
 
     def subscribe(self, topic: Topic, sources: tuple[str, ...] | None = None) -> Queue:
         """
-        Register a subscriber queue for a topic.
+        Register a new subscriber for a topic, optionally filtering messages by source.
 
         New subscribers receive the most recent cached message from each
         source so they immediately observe the current state.
@@ -252,38 +257,18 @@ class PubSubManager:
         # Convert to frozenset once for O(1) membership tests at publish time.
         source_filter: frozenset[str] | None = frozenset(sources) if sources is not None else None
 
-        # Collect errors that occur during cache replay so the lock can be
-        # released before calling _fatal_exit. This prevents other threads
-        # from hanging on lock.acquire() while shutdown is in progress.
-        fatal_errors: list[tuple[str, BaseException | None]] = []
-
         with self._lock:
-            queue = Queue()
+            queue = Queue(_MAX_QUEUE_SIZE)
             self._subscribers[topic].append((queue, source_filter))
 
-            # Replay happens inside the lock so a concurrent publish cannot
-            # slip between the cache replay and the queue registration,
-            # which would cause the new subscriber to miss a message.
+            # Replay occurs inside the lock so a concurrent publish cannot
+            # slip between cache replay and queue registration.
             # Apply the source filter here too so the queue is not pre-filled
             # with messages that would be filtered out at publish time anyway.
             for cached_message in self._last_messages[topic].values():
                 if source_filter is not None and cached_message.source not in source_filter:
                     continue
-                try:
-                    queue.put_nowait(cached_message)
-                except (OSError, EOFError, ValueError) as ex_err:
-                    fatal_errors.append((
-                        f"New subscriber queue for topic {topic!r} is closed/broken "
-                        f"while replaying cached message: {cached_message}",
-                        ex_err,
-                    ))
-
-        # Exit after releasing the lock (see comment above).
-        if fatal_errors:
-            for error, exc in fatal_errors[:-1]:
-                oradio_log.critical(error, exc_info=exc is not None)
-            last_error, last_exc = fatal_errors[-1]
-            _fatal_exit(last_error, exc=last_exc)
+                safe_put(queue, cached_message)
 
         return queue
 
@@ -325,11 +310,6 @@ class PubSubManager:
         if topic not in self._subscribers:
             _fatal_exit(f"Unknown topic: {topic!r}")
 
-        # Collect failures so the lock can be released before calling
-        # _fatal_exit, preventing other threads from hanging on lock.acquire()
-        # while shutdown is in progress.
-        fatal_errors: list[tuple[str, BaseException | None]] = []
-
         with self._lock:
             # Update the cache inside the lock so it stays consistent with
             # what has been delivered to subscribers.
@@ -340,23 +320,7 @@ class PubSubManager:
                 # filtered-out messages never consume queue space.
                 if source_filter is not None and message.source not in source_filter:
                     continue
-                try:
-                    queue.put_nowait(message)
-                except (OSError, EOFError, ValueError) as ex_err:
-                    fatal_errors.append((
-                        f"Queue for topic {topic!r} is closed/broken: {message}", ex_err
-                    ))
-                except AssertionError as ex_err:
-                    fatal_errors.append((
-                        f"Queue for topic {topic!r} internal error: {message}", ex_err
-                    ))
-
-        # Fatal exit is called outside the lock (see comment above).
-        if fatal_errors:
-            for error, exc in fatal_errors[:-1]:
-                oradio_log.critical(error, exc_info=exc is not None)
-            last_error, last_exc = fatal_errors[-1]
-            _fatal_exit(last_error, exc=last_exc)
+                safe_put(queue, message)
 
 # Global PubSub manager (singleton — only one instance per process).
 _pubsub = PubSubManager()
@@ -367,9 +331,9 @@ class MessageHandlerBase:
     """
     Base class for background message handlers.
 
-    This class provides a thread-safe framework for processing messages from a queue
-    in a background thread. Subclasses must implement the _handle_message method to
-    define how individual messages are processed.
+    Provides a framework for processing queue messages in a background thread.
+    Subclasses must implement the _handle_message method to define how individual
+    messages are processed.
 
     Key Features:
         - Starts a daemon thread to consume messages from a queue.
@@ -395,9 +359,9 @@ class MessageHandlerBase:
         self._thread = Thread(target=self._message_loop, daemon=True,)
         try:
             self._thread.start()
-            oradio_log.debug("Message handler thread started")
         except Exception as ex_err:  # pylint: disable=broad-exception-caught
-            oradio_log.error("Message handler thread failed to start: %s", ex_err)
+            _fatal_exit("Failed to start message handler thread", exc=ex_err)
+        oradio_log.debug("Message handler thread started")
 
     def stop(self) -> None:
         """
@@ -418,7 +382,7 @@ class MessageHandlerBase:
             self._stopped = True
 
         # Signal the worker thread to exit its loop
-        self._queue.put_nowait(self._stop_sentinel)
+        safe_put(self._queue, self._stop_sentinel)
 
         # Wait for thread termination with timeout
         self._thread.join(timeout=JOIN_TIMEOUT)
@@ -427,7 +391,7 @@ class MessageHandlerBase:
         if self._thread.is_alive():
             oradio_log.warning("Message processing thread did not stop within %s seconds", JOIN_TIMEOUT)
 
-    def _message_loop(self):
+    def _message_loop(self) -> None:
         """
         Internal worker loop running in a background thread.
 
@@ -443,7 +407,7 @@ class MessageHandlerBase:
             # Blocking-safe retrieval of next message
             message = safe_get(self._queue)
 
-            # Place stop_sentinel in the queue to unblock the worker thread.
+            # Exit when the instance's stop sentinel is received.
             if message == self._stop_sentinel:
                 return
 
@@ -454,7 +418,7 @@ class MessageHandlerBase:
             except Exception as ex_err:     # pylint: disable=broad-exception-caught
                 oradio_log.error("Error handling message: %s", ex_err)
 
-    def _handle_message(self, message):
+    def _handle_message(self, message) -> None:
         """
         Handle a single message from the queue.
 
@@ -567,9 +531,9 @@ class Errors:
 
 def safe_get(queue: Queue) -> CommandMessage | ErrorMessage | str:
     """
-    Return the next message from a queue.
+    Return the next message from a multiprocessing queue.
 
-    Fatal errors are raised if the queue becomes unusable.
+    Terminates the process if the queue becomes unusable.
 
     Args:
         queue: Queue to read from.
@@ -591,11 +555,36 @@ def safe_get(queue: Queue) -> CommandMessage | ErrorMessage | str:
         # Rare internal multiprocessing queue failure.
         _fatal_exit("Queue internal error on get", exc=ex_err)
 
+def safe_put(queue: Queue, message: CommandMessage | ErrorMessage | str) -> None:
+    """
+    Safely put a message into a multiprocessing.Queue.
+
+    Terminates the process if the queue cannot be written.
+
+    Args:
+        queue: The queue to put message in.
+        message: The object to put.
+    """
+    try:
+        queue.put_nowait(message)
+
+    except Full:
+        # A full queue is a critical infrastructure failure.
+        _fatal_exit(f"Queue overflow while publishing message: {message}")
+
+    except (OSError, EOFError, ValueError) as ex_err:
+        # Queue is closed, corrupted, or the underlying pipe is gone.
+        _fatal_exit(f"Queue is closed/broken - failed to put message: {message}", exc=ex_err)
+
+    except AssertionError as ex_err:
+        # Rare internal multiprocessing queue failure.
+        _fatal_exit(f"Queue internal error on put message: {message}", exc=ex_err)
+
 ##### Debug #########################
 
 class DebugMessageHandler(MessageHandlerBase):
     """
-    Message handler that logs all received messages at DEBUG level.
+    Message handler used for debugging and testing that logs every received message.
 
     This implementation is intended for debugging purposes and optionally
     includes an index to distinguish multiple handlers subscribed to the
@@ -628,7 +617,10 @@ class DebugMessageHandler(MessageHandlerBase):
 
     def get_queue(self) -> Queue:
         """
-        Return stored queue
+        Return the underlying subscription queue.
+
+        Returns:
+            The Queue associated with this handler.
         """
         return self._queue
 
