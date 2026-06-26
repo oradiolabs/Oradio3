@@ -42,7 +42,9 @@ from utilities import get_serial
 from wifi_service import WifiService
 from log_service import oradio_log
 from messaging import (
+    Errors,
     Commands,
+    ErrorMessage,
     MessageHandlerBase,
     WIFI_SOURCE,
     WIFI_DISCONNECTED,

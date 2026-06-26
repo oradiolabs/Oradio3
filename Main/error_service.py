@@ -41,6 +41,8 @@ from messaging import (
     WIFI_ERROR_NMCLI,
     WIFI_ERROR_CONNECT,
     WIFI_ERROR_DISCONNECT,
+    RMS_SOURCE,
+    RMS_ERROR_SERVICE,
 )
 
 ##### GLOBAL constants ##############
