@@ -89,7 +89,7 @@ nmcli_exceptions = tuple(
 
 # Module-level state shared across threads and processes
 _saved_network = {"network": ""}    # Last successfully connected WiFi SSID
-_saved_lock = Lock()                # Guards all access to _saved_network
+_saved_lock = Lock()                # Guards concurrent reads and writes across threads and processes
 
 ##### Helpers #######################
 
@@ -197,7 +197,8 @@ class WifiEventListener():
         WIFI_ERROR_DBUS and returns early on any failure, leaving all
         three internal guards (_loop, _wifi_path, _nm_props) as
         None. The singleton decorator ensures this constructor runs at
-        most once per process.
+        most once per process. Logs an error and publishes WIFI_ERROR_DBUS
+        if the thread fails to start.
         """
         # Initialise guards; all three stay None if setup fails at any point:
         #   _wifi_path — set once the WiFi device is located on the bus
@@ -263,9 +264,13 @@ class WifiEventListener():
         # automatically when the main process exits.
         self._loop = GLib.MainLoop()
         self.dbus_receiver = Thread(target=self._loop.run, daemon=True)
-        self.dbus_receiver.start()
-
-        oradio_log.info("Wifi event listener started")
+        try:
+            self.dbus_receiver.start()
+            oradio_log.info("Wifi event listener started")
+        except Exception as ex_err:  # pylint: disable=broad-exception-caught
+            oradio_log.error("Wifi event listener failed to start: %s", ex_err)
+            Errors.publish(ErrorMessage(WIFI_SOURCE, WIFI_ERROR_DBUS))
+            return
 
     def _get_connectivity(self) -> int:
         """
@@ -317,7 +322,7 @@ class WifiEventListener():
             _reason:    NM reason code for the transition (unused; same
                         convention as _old_state).
         """
-        # Ignore transient intermediate states; only react to settled outcomes
+        # Transient states such as NM_DEVICE_STATE_PREPARE and NM_DEVICE_STATE_CONFIG are excluded.
         if new_state not in (NM_CONNECTED, NM_DISCONNECTED, NM_FAILED):
             return
 
@@ -372,10 +377,16 @@ class WifiService():
         Starts the WifiEventListener singleton (which begins monitoring
         D-Bus state changes in a background thread) and immediately publishes
         the current WiFi state so subscribers have an up-to-date view before
-        any state-change signals arrive.
+        any state-change signals arrive. Returns early without publishing if
+        the listener fails to initialise.
         """
         # Start the D-Bus listener; it runs its own daemon thread internally
-        self.nm_listener = WifiEventListener()
+        try:
+            self.nm_listener = WifiEventListener()
+        except Exception as ex_err:  # pylint: disable=broad-exception-caught
+            oradio_log.error("WifiService failed to start listener: %s", ex_err)
+            Errors.publish(ErrorMessage(WIFI_SOURCE, WIFI_ERROR_DBUS))
+            return
 
         # Publish the current state immediately so subscribers don't have to
         # wait for the first state-change signal from NetworkManager
@@ -407,7 +418,7 @@ class WifiService():
 
         Saves the current connection if one is active and it is not the Oradio
         access point, so it can be restored later. Adds or modifies the
-        NetworkManager profile for ssid, then spawns a Process to call
+        NetworkManager profile for ssid, then spawns a daemon Process to call
         _wifi_connect_process so the blocking nmcli connection up call
         does not stall the main thread.
 
@@ -431,7 +442,7 @@ class WifiService():
             return  # networkmanager_add already published the error; no point continuing
 
         # Offload the blocking connection attempt to a separate process
-        Process(target=self._wifi_connect_process, args=(ssid,)).start()
+        Process(target=self._wifi_connect_process, args=(ssid,), daemon=True).start()
         oradio_log.info("Connecting to '%s' started", ssid)
 
     def _wifi_connect_process(self, network) -> None:
@@ -488,11 +499,14 @@ class WifiScanner:
         Initialise the scanner by seeding the NetworkManager scan cache.
 
         Triggers an immediate scan so subsequent calls to get_active_ssids
-        return real results rather than an empty cache.
+        return real results rather than an empty cache. Logs a warning if
+        the initial scan fails.
         """
         # Prime the NM scan cache; result is discarded — we only care that
         # NM now has recent data available for the first get_active_ssids() call.
-        _, _ = _nmcli_try(nmcli.device.wifi, None, True)
+        is_ok, _ = _nmcli_try(nmcli.device.wifi, None, True)
+        if not is_ok:
+            oradio_log.warning("Initial WiFi scan failed; NM cache may be empty")
 
     def _async_rescan(self) -> None:
         """
@@ -502,6 +516,7 @@ class WifiScanner:
         the NM cache is refreshed asynchronously for the next call to
         get_active_ssids.
         """
+        # Daemon thread: exits automatically when the main process exits.
         Thread(target=_nmcli_try, args=(nmcli.device.wifi, None, True), daemon=True).start()
 
     def _parse_nmcli_output(self, nmcli_output) -> list:
@@ -607,6 +622,7 @@ def get_wifi_connection() -> str | None:
     Note:
         The interface name wlan0 is hardcoded. If the system uses a
         different interface name this function will silently return None.
+        Logs a warning if the command fails.
 
     Returns:
         The active SSID as a string, or None if the command fails or no
@@ -614,7 +630,10 @@ def get_wifi_connection() -> str | None:
     """
     cmd = "iw dev wlan0 info | awk '/ssid/ {print $2}' || iwgetid -r wlan0"
     result, response = run_shell_script(cmd)
-    return str(response) if result else None
+    if not result:
+        oradio_log.warning("Could not determine active WiFi connection: %s", response)
+        return None
+    return str(response)
 
 def get_wifi_password(network) -> str | None:
     """
@@ -760,7 +779,7 @@ if __name__ == '__main__':
             "Select: "
         )
 
-        # Instantiate the service; WifiEventListener starts its daemon thread here
+        # Instantiate the service; WifiEventListener starts its D-Bus listener thread here.
         wifi_service = WifiService()
 
         while True:
