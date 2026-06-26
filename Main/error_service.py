@@ -42,6 +42,8 @@ from messaging import (
     WIFI_ERROR_DISCONNECT,
     RMS_SOURCE,
     RMS_ERROR_SERVICE,
+    WEB_SOURCE,
+    WEB_ERROR_SERVICE,
 )
 
 ##### GLOBAL constants ##############
@@ -149,6 +151,22 @@ class ErrorHandler:
         else:
             oradio_log.error("Unhandled Remote monitoring error: '%s'", error.message)
 
+    def _handle_web_error(self, error):
+        """
+        Handle web-related errors.
+
+        Attempts recovery from known web service/server conditions and logs
+        unrecognised errors for further investigation.
+
+        Args:
+            error: Error message received from the error bus.
+        """
+        if error.message == WEB_ERROR_SERVICE:
+# NIET VERGETEN: implement web-recovery logic (e.g. back-off, retry)
+            oradio_log.debug("Web mitigation to be implemented")
+        else:
+            oradio_log.error("Unhandled web error: '%s'", error.message)
+
     def _errors_listener(self) -> None:
         """
         Process error messages and attempt source-specific mitigation.
@@ -174,6 +192,9 @@ class ErrorHandler:
 
             elif error.source == RMS_SOURCE:
                 self._handle_rms_error(error)
+
+            elif error.source == WEB_SOURCE:
+                self._handle_web_error(error)
 
             elif error.source == TEST_SOURCE:
                 oradio_log.debug("Mitigating test error: '%s'", error.message)
