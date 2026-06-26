@@ -8,7 +8,6 @@
  #    #  #   #   #    #  #    #     #    #    #
   ####   #    #  #    #  #####      #     ####
 
-
 Created on January 17, 2025
 @author:        Henk Stevens & Olaf Mastenbroek & Onno Janssen
 @copyright:     Copyright 2024, Oradio Stichting
@@ -301,7 +300,7 @@ class USBService:
         try:
             self.observer.start()
             oradio_log.info("USB observer started")
-        except Exception as ex_err:
+        except Exception as ex_err:  # pylint: disable=broad-exception-caught
             oradio_log.error("USB observer failed to start: %s", ex_err)
             Errors.publish(ErrorMessage(USB_SOURCE, USB_ERROR_SERVICE))
 
