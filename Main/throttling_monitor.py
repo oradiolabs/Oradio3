@@ -8,7 +8,6 @@
  #    #  #   #   #    #  #    #     #    #    #
   ####   #    #  #    #  #####      #     ####
 
-
 Created on December 31, 2025
 @author:        Henk Stevens & Olaf Mastenbroek & Onno Janssen
 @copyright:     Copyright 2025, Oradio Stichting
@@ -22,7 +21,7 @@ Created on December 31, 2025
     Supports a test mode for forced throttling to validate logging.
 
 Typical usage:
-    This module is self-starting: the module-level ``throttling_monitor``
+    This module is self-starting: the module-level throttling_monitor
     instance is created automatically when the module is imported, so no
     explicit initialisation is required by the caller.
 
@@ -51,7 +50,7 @@ from messaging import (
 ##### LOCAL constants ###############
 
 # Throttle flag definitions: Bit meanings from vcgencmd documentation.
-# The lower nibble (bits 0-3) reflects the *current* hardware state; the
+# The lower nibble (bits 0-3) reflects the current hardware state; the
 # upper nibble (bits 16-19) is a sticky historical record that is set once
 # and never cleared until the next reboot.
 THROTTLE_FLAGS = {
@@ -83,14 +82,14 @@ class RPiThrottlingMonitor:
     """
     Singleton background monitor for Raspberry Pi throttling state.
 
-    Polls ``vcgencmd get_throttled`` at a configurable interval and logs a
+    Polls vcgencmd get_throttled at a configurable interval and logs a
     warning (plus publishes an error message) whenever the active throttling
-    state changes.  A one-time boot-time check is also performed to surface
+    state changes. A one-time boot-time check is also performed to surface
     any historical throttling events that occurred before the monitor started.
 
-    The class is decorated with ``@singleton`` so only one instance ever
-    exists, regardless of how many times the constructor is called.  Callers
-    should use the module-level ``throttling_monitor`` instance rather than
+    The class is decorated with @singleton so only one instance ever
+    exists, regardless of how many times the constructor is called. Callers
+    should use the module-level throttling_monitor instance rather than
     constructing their own.
 
     Attributes:
@@ -102,7 +101,7 @@ class RPiThrottlingMonitor:
 
         The constructor intentionally performs side-effects (starting a
         background thread) so that callers simply use the module-level
-        ``throttling_monitor`` instance and monitoring begins immediately.
+        throttling_monitor instance and monitoring begins immediately.
 
         Args:
             interval: Seconds between consecutive vcgencmd polls.
@@ -116,7 +115,7 @@ class RPiThrottlingMonitor:
         # Event used to signal the polling loop to stop cleanly.
         self._stop_event = Event()
 
-        # Cache of the last observed active-flag combination.  Initialised to
+        # Cache of the last observed active-flag combination. Initialised to
         # "no flags set" so the very first poll always produces a log entry if
         # the system is already throttled at startup.
         self._last_active_flags = 0
@@ -147,12 +146,12 @@ class RPiThrottlingMonitor:
 
             vcgencmd get_throttled
 
-        which returns a string of the form ``throttled=0x50000``.  In test
-        mode the pre-configured ``_forced_value`` is returned instead.
+        which returns a string of the form throttled=0x50000. In test
+        mode the pre-configured _forced_value is returned instead.
 
         Returns:
             Integer bitmask where each set bit indicates a throttling
-            condition as described in ``THROTTLE_FLAGS``.
+            condition as described in THROTTLE_FLAGS.
         """
         if self._test_mode:
             # Return the injected test value directly; skip hardware query.
@@ -167,18 +166,18 @@ class RPiThrottlingMonitor:
         """
         Translate a throttle bitmask into a list of human-readable strings.
 
-        Only bits that are both set in *value* and covered by *mask* are
+        Only bits that are both set in value and covered by mask are
         included, which lets callers filter for current-state or historical
         flags independently.
 
         Args:
-            value: Raw bitmask returned by ``_get_throttle_value``.
+            value: Raw bitmask returned by _get_throttle_value.
             mask:  Bit mask specifying which flags are of interest.
-                   Use ``ACTIVE_MASK`` for current-state flags or
-                   ``HISTORICAL_MASK`` for historical flags.
+                   Use ACTIVE_MASK for current-state flags or
+                   HISTORICAL_MASK for historical flags.
 
         Returns:
-            A list of descriptive strings, one per active flag.  Returns an
+            A list of descriptive strings, one per active flag. Returns an
             empty list if no flags match.
         """
         return [
@@ -191,15 +190,14 @@ class RPiThrottlingMonitor:
         """
         Background thread body: poll throttling state and log changes.
 
-        Runs until ``_stop_event`` is set (via :meth:`stop`).  Only the
-        *current-state* flags (``ACTIVE_MASK``) are compared across polls,
+        Runs until _stop_event is set (via stop). Only the
+        current-state flags (ACTIVE_MASK) are compared across polls,
         so sticky historical bits do not trigger repeated log entries.
 
         Each state transition is logged once:
-
-        * **Enter throttling** – logs a warning with the active flag names
+        * Enter throttling – logs a warning with the active flag names
           and publishes an error message.
-        * **Clear throttling** – logs an info message indicating the
+        * Clear throttling – logs an info message indicating the
           condition resolved.
         """
         while not self._stop_event.is_set():
@@ -231,8 +229,8 @@ class RPiThrottlingMonitor:
         """
         Start the background polling thread.
 
-        Idempotent: calling ``start()`` when the thread is already alive is a
-        no-op.
+        Idempotent: calling start() when the thread is already alive is a
+        no-op. Logs an error if the thread fails to start.
         """
         if self._thread and self._thread.is_alive():
             return  # Thread is already running; nothing to do.
@@ -245,13 +243,17 @@ class RPiThrottlingMonitor:
             name="rpi-throttling-monitor",
             daemon=True,  # Thread is killed automatically when the main process exits.
         )
-        self._thread.start()
+        try:
+            self._thread.start()
+            oradio_log.info("RPi throttling monitor started")
+        except Exception as ex_err:  # pylint: disable=broad-exception-caught
+            oradio_log.error("RPi throttling monitor failed to start: %s", ex_err)
 
     def stop(self) -> None:
         """
         Signal the background polling thread to stop and wait for it to exit.
 
-        Sets the stop event, which causes the thread's ``wait()`` call to
+        Sets the stop event, which causes the thread's wait() call to
         return early, and then blocks until the thread has fully exited.
         """
         self._stop_event.set()
@@ -264,8 +266,8 @@ class RPiThrottlingMonitor:
         """
         Switch the monitor into test mode.
 
-        In test mode ``_get_throttle_value`` returns ``_forced_value``
-        instead of calling ``vcgencmd``, making it possible to exercise the
+        In test mode _get_throttle_value returns _forced_value
+        instead of calling vcgencmd, making it possible to exercise the
         monitor's state-change logic without actual hardware throttling.
 
         Calling this method when test mode is already active is a no-op.
@@ -290,13 +292,13 @@ class RPiThrottlingMonitor:
         Simulate a throttled state for testing purposes.
 
         Enables test mode (if not already active) and sets the forced value
-        to *flags*.  The background thread will pick up the change on its
+        to flags. The background thread will pick up the change on its
         next poll cycle and log accordingly.
 
         Args:
-            flags: Bitmask to simulate.  Defaults to ``0x4`` ("Currently
-                   throttled").  Multiple conditions can be combined with
-                   bitwise OR, e.g. ``0x1 | 0x4``.
+            flags: Bitmask to simulate. Defaults to 0x4 ("Currently
+                   throttled"). Multiple conditions can be combined with
+                   bitwise OR, e.g. 0x1 | 0x4.
         """
         self.enable_test_mode()
         self._forced_value = flags
@@ -305,8 +307,8 @@ class RPiThrottlingMonitor:
         """
         Simulate a return to the non-throttled state in test mode.
 
-        Sets the forced value to 0 (no flags active).  Test mode remains
-        enabled; call :meth:`disable_test_mode` to exit test mode entirely.
+        Sets the forced value to 0 (no flags active). Test mode remains
+        enabled; call disable_test_mode to exit test mode entirely.
         """
         self._forced_value = 0
 
