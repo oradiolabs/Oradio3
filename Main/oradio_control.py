@@ -33,7 +33,7 @@ from mpd_control import MPDControl
 from mpd_monitor import MPDMonitor     # Optional: MPD events monitoring in the background
 from led_control import LEDControl
 from touch_buttons import TouchButtons
-from remote_monitoring import RMService
+from rms_service import RMService
 from spotify_connect_direct import SpotifyConnect
 from usb_service import USBService
 from web_service import WebService
