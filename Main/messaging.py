@@ -368,17 +368,20 @@ class MessageHandlerBase:
     Base class for background message handlers.
 
     This class provides a thread-safe framework for processing messages from a queue
-    in a background thread. Subclasses must implement the `_handle_message` method to
+    in a background thread. Subclasses must implement the _handle_message method to
     define how individual messages are processed.
 
     Key Features:
         - Starts a daemon thread to consume messages from a queue.
         - Supports graceful shutdown via a unique stop sentinel per instance.
-        - Thread-safe operations using a Lock for the `_stopped` flag.
+        - Thread-safe operations using a Lock for the _stopped flag.
     """
     def __init__(self, queue: Queue):
         """
         Initialize the message handler and start the worker thread.
+
+        Starts a daemon thread to consume messages from the queue.
+        Logs an error if the thread fails to start.
 
         Args:
             queue: The queue to handle messages from.
@@ -390,7 +393,11 @@ class MessageHandlerBase:
 
         # Start background thread that processes incoming messages
         self._thread = Thread(target=self._message_loop, daemon=True,)
-        self._thread.start()
+        try:
+            self._thread.start()
+            oradio_log.debug("Message handler thread started")
+        except Exception as ex_err:  # pylint: disable=broad-exception-caught
+            oradio_log.error("Message handler thread failed to start: %s", ex_err)
 
     def stop(self) -> None:
         """
@@ -398,7 +405,7 @@ class MessageHandlerBase:
 
         Sends the instance's unique stop sentinel to the queue to unblock the worker thread,
         then waits for the thread to terminate. If the thread does not stop within
-        `JOIN_TIMEOUT` seconds, a warning is logged.
+        JOIN_TIMEOUT seconds, a warning is logged.
 
         Note:
             This method is idempotent. Calling it multiple times has no additional effect.
@@ -424,12 +431,12 @@ class MessageHandlerBase:
         """
         Internal worker loop running in a background thread.
 
-        Continuously retrieves messages from the queue using `safe_get` (a blocking call
-        without a timeout) and dispatches them to `_handle_message`. The loop exits when
+        Continuously retrieves messages from the queue using safe_get (a blocking call
+        without a timeout) and dispatches them to _handle_message. The loop exits when
         the instance's unique stop sentinel is received.
 
         Note:
-            Exceptions raised by `_handle_message` are caught and logged, but do not
+            Exceptions raised by _handle_message are caught and logged, but do not
             terminate the loop. The loop only exits when the stop sentinel is received.
         """
         while True:
