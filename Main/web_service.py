@@ -63,6 +63,7 @@ from messaging import (
     WEB_ACTIVE,
     WEB_ERROR_START,
     WEB_ERROR_STOP,
+    WEB_ERROR_SERVICE,
 )
 
 ##### GLOBAL constants ##############
@@ -107,9 +108,6 @@ class UvicornServerThread:
     internal Uvicorn state (started, should_exit) is always clean.  The
     Config object is built once in __init__ and reused across restarts because
     it is immutable after construction.
-
-    Accepted log_level values (passed through to Uvicorn):
-        "trace", "debug", "info", "warning", "error", "critical"
     """
     def __init__(self, app, host=WEB_SERVER_HOST, port=WEB_SERVER_PORT, level=ORADIO_LOG_LEVEL):
         """
@@ -119,7 +117,9 @@ class UvicornServerThread:
             app:         ASGI application instance to serve.
             host (str):  Network interface to bind.
             port (int):  TCP port to listen on.
-            level (str): Uvicorn log level string (e.g. "debug", "info").
+            level (str): Uvicorn log level string. Accepted values (passed
+                         through to Uvicorn): "trace", "debug", "info",
+                         "warning", "error", "critical".
         """
         self._config = uvicorn.Config(
             app,
@@ -144,7 +144,8 @@ class UvicornServerThread:
         or SERVER_READY_TIMEOUT seconds elapse.
 
         Returns:
-            bool: True if the server is ready, False on timeout.
+            bool: True if the server is ready, False on thread start failure
+                or timeout.
         """
         with self._lock:
             if self.is_running:
@@ -155,13 +156,20 @@ class UvicornServerThread:
             self._server = uvicorn.Server(self._config)
 
             self._thread = Thread(target=self._server.run, daemon=True)
-            self._thread.start()
+            try:
+                self._thread.start()
+                oradio_log.info("Uvicorn server started")
+            except Exception as ex_err:  # pylint: disable=broad-exception-caught
+                oradio_log.error("Uvicorn server failed to start: %s", ex_err)
+                Errors.publish(ErrorMessage(WEB_SOURCE, WEB_ERROR_SERVICE))
+                return False
 
             # Poll server.started — set by Uvicorn once the server is accepting connections.
             deadline = time.time() + SERVER_READY_TIMEOUT
             while not self._server.started:
                 if time.time() > deadline:
                     oradio_log.warning("Uvicorn server did not become ready in time")
+                    Errors.publish(ErrorMessage(WEB_SOURCE, WEB_ERROR_SERVICE))
                     return False
                 time.sleep(0.1)
 
@@ -188,6 +196,7 @@ class UvicornServerThread:
 
             if self._thread.is_alive():
                 oradio_log.warning("Uvicorn server thread did not exit cleanly")
+                Errors.publish(ErrorMessage(WEB_SOURCE, WEB_ERROR_SERVICE))
                 return False
 
             oradio_log.info("Uvicorn server stopped")
@@ -226,6 +235,8 @@ class WebService:
     Private helper methods handle each system operation (iptables, DNS, WiFi
     polling) in isolation so that start() and stop() read as straightforward
     sequences of steps rather than inline shell-script management code.
+    Each helper publishes its own error message on failure; callers do not
+    re-publish.
 
     An internal daemon thread (_check_server_messages) drains a Queue that the
     FastAPI routes write to, and translates queue messages into service actions
@@ -237,8 +248,9 @@ class WebService:
 
         Sets up the shared queue, wires it into the FastAPI application state,
         creates the Uvicorn wrapper, and starts the message-listener thread.
-        Publishes WEB_IDLE to the message bus so the controller starts from a
-        known baseline.
+        Logs an error and publishes WEB_ERROR_SERVICE if the listener thread
+        fails to start. Publishes WEB_IDLE to the message bus so the
+        controller starts from a known baseline.
         """
         # Shared queue: FastAPI route handlers post requests here;
         # _check_server_messages() reads and acts on them.
@@ -253,8 +265,15 @@ class WebService:
         self.uvicorn_server = UvicornServerThread(api_app)
 
         # Daemon thread: drains fa_queue and dispatches to service methods.
+        # Daemon thread: exits automatically when the main process exits.
         self.server_listener = Thread(target=self._check_server_messages, daemon=True)
-        self.server_listener.start()
+
+        try:
+            self.server_listener.start()
+            oradio_log.info("Web server started")
+        except Exception as ex_err:  # pylint: disable=broad-exception-caught
+            oradio_log.error("Web server failed to start: %s", ex_err)
+            Errors.publish(ErrorMessage(WEB_SOURCE, WEB_ERROR_SERVICE))
 
         # Announce initial state so the controller starts from a known baseline.
         Commands.publish(CommandMessage(WEB_SOURCE, self.state))
@@ -283,6 +302,7 @@ class WebService:
         """
         rules = self._get_nat_rules()
         if rules is None:
+            oradio_log.error("Failed to get NAT rules")
             Errors.publish(ErrorMessage(WEB_SOURCE, WEB_ERROR_START))
             return False
         if _IPTABLES_REDIRECT_RULE in rules:
@@ -307,6 +327,7 @@ class WebService:
         """
         rules = self._get_nat_rules()
         if rules is None:
+            oradio_log.error("Failed to get NAT rules")
             Errors.publish(ErrorMessage(WEB_SOURCE, WEB_ERROR_STOP))
             return False
         if _IPTABLES_REDIRECT_RULE not in rules:
@@ -362,8 +383,7 @@ class WebService:
         Note:
             Polling is used instead of subscribing to WiFi messages because
             the caller must block until the transition completes before
-            proceeding.  The 1-second sleep interval reduces CPU usage while
-            waiting; it does not eliminate polling entirely.
+            proceeding. A 1-second sleep between polls reduces CPU usage.
 
         Args:
             target_states (set): Acceptable WifiService state values to wait for.
@@ -386,10 +406,11 @@ class WebService:
         """
         Drain the incoming queue and act on API requests indefinitely.
 
-        Runs on a daemon thread started in __init__.  Blocks on Queue.get()
-        until a message arrives, consuming no CPU while idle.  There is no
+        Runs on a daemon thread started in __init__. Blocks on Queue.get()
+        until a message arrives, consuming no CPU while idle. There is no
         stopping condition: the thread is intentionally kept alive for the
         full lifetime of the process so that API requests are never dropped.
+        Unrecognised request types are logged as warnings.
 
         Recognised request types:
 
@@ -414,6 +435,9 @@ class WebService:
             elif request == MESSAGE_REQUEST_STOP:
                 self.stop()
 
+            else:
+                oradio_log.warning("WebService: unrecognised request: %s", request)
+
 ##### Public interface ##############
 
     @property
@@ -435,14 +459,17 @@ class WebService:
         Performs the following steps in order, aborting and publishing a
         WEB_ERROR_START error if any step fails:
 
-        1. Switch WiFi into access point mode (transition is asynchronous).
+        1. Switch WiFi into access point mode (transition is asynchronous;
+           confirmation is deferred to step 5 so the server can start in
+           parallel).
         2. Ensure the iptables port-redirect rule is in place.
         3. Ensure the dnsmasq DNS redirect config is in place.
         4. Start the Uvicorn web server.
         5. Wait for the WiFi transition (started in step 1) to reach
            WIFI_ACCESS_POINT state.
 
-        Does nothing if the service is already running.
+        Error messages are published by the helper methods; start() does not
+        re-publish them. Does nothing if the service is already running.
         On success, publishes WEB_ACTIVE to the message bus.
         """
         if self.uvicorn_server.is_running:
@@ -456,8 +483,9 @@ class WebService:
         if not self._ensure_dns_redirect():
             return
 
-        # Reset the inactivity timer before the server accepts connections.
-        # Also cancel any lingering timer task from a previous session.
+        # Reset the inactivity timer (auto-stops the portal after no client
+        # activity) before the server accepts connections, and cancel any
+        # lingering timer task from a previous session.
         api_app.state.timer_started = False
         if getattr(api_app.state, "timer_task", None):
             api_app.state.timer_task.cancel()
@@ -485,8 +513,8 @@ class WebService:
         4. Remove the dnsmasq DNS redirect config file.
         5. Wait for the WiFi interface to reach WIFI_DISCONNECTED or WIFI_CONNECTED.
 
-        Steps 3 and 4 publish WEB_ERROR_STOP on failure but always continue
-        so that remaining teardown steps are still attempted.
+        Steps 3 and 4 publish WEB_ERROR_STOP internally on failure but always
+        continue so that remaining teardown steps are still attempted.
         On completion, publishes WEB_IDLE to the message bus.
         """
         if self.wifi_service.get_state() == WIFI_ACCESS_POINT:
@@ -495,11 +523,10 @@ class WebService:
         if not self.uvicorn_server.stop():
             Errors.publish(ErrorMessage(WEB_SOURCE, WEB_ERROR_STOP))
 
-        if not self._remove_port_redirect():
-            Errors.publish(ErrorMessage(WEB_SOURCE, WEB_ERROR_STOP))
-
-        if not self._remove_dns_redirect():
-            Errors.publish(ErrorMessage(WEB_SOURCE, WEB_ERROR_STOP))
+        # Helper methods publish WEB_ERROR_STOP internally on failure;
+        # stop() does not re-publish so each error is reported exactly once.
+        self._remove_port_redirect()
+        self._remove_dns_redirect()
 
         self._wait_for_wifi_state({WIFI_DISCONNECTED, WIFI_CONNECTED}, WEB_ERROR_STOP)
 
@@ -511,8 +538,8 @@ if __name__ == '__main__':
 
     import requests
     import subprocess
-    from constants import RED, YELLOW, NC               # pylint: disable=ungrouped-imports,wrong-import-position
-    from messaging import Topic, DebugMessageHandler    # pylint: disable=ungrouped-imports,wrong-import-position
+    from constants import RED, YELLOW, NC       # pylint: disable=ungrouped-imports,wrong-import-position
+    from messaging import DebugMessageHandler   # pylint: disable=ungrouped-imports,wrong-import-position
 
     # Most stand-alone entry points share this pattern; pylint flags it as duplicate code across modules.
     # pylint: disable=duplicate-code
@@ -590,7 +617,7 @@ if __name__ == '__main__':
                     else:
                         print(f"\n{YELLOW}No network given{NC}\n")
                 case 6:
-                    # WiFi state may lag during transitions; warn the user to re-check if needed.
+                    # WiFi state may lag during transitions; re-run this option once settled if needed.
                     print(f"{YELLOW}Careful: state may not be correct if wifi is still processing: check messages and run again when in doubt{NC}")
                     wifi_state = web_service.wifi_service.get_state()
                     if wifi_state == WIFI_DISCONNECTED:
@@ -600,14 +627,17 @@ if __name__ == '__main__':
                 case _:
                     print(f"\n{YELLOW}Please input a valid number{NC}\n")
 
-    # Subscribe to command and error topics so messages published are printed to console.
-    cmd_handler = DebugMessageHandler(Topic.COMMAND)
-    err_handler = DebugMessageHandler(Topic.ERROR)
+    # Subscribe to command and error topics so published messages are printed to console
+    cmd_handler = DebugMessageHandler(Commands.subscribe())
+    err_handler = DebugMessageHandler(Errors.subscribe())
 
-    # Launch the interactive test menu; blocks until the user quits.
+    # Launch the interactive test menu; blocks until the user quits
     interactive_menu()
 
-    # Stop printing published messages.
+    # Stop receiving messages
+    Commands.unsubscribe(cmd_handler.get_queue())
+    Errors.unsubscribe(err_handler.get_queue())
+    # Signal the thread to exit and confirm it has exited
     cmd_handler.stop()
     err_handler.stop()
 
