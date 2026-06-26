@@ -8,7 +8,6 @@
  #    #  #   #   #    #  #    #     #    #    #
   ####   #    #  #    #  #####      #     ####
 
-
 Created on May 28, 2026
 @author:        Henk Stevens & Olaf Mastenbroek & Onno Janssen
 @copyright:     Copyright, Oradio Stichting
@@ -64,18 +63,22 @@ WIFI_ERROR_NMCLI      = "NetworkManager wrapper failed"
 WIFI_ERROR_CONNECT    = "Wifi failed to connect"
 WIFI_ERROR_DISCONNECT = "Wifi failed to disconnect"
 # Web interface
-WEB_SOURCE       = "web service message"
-WEB_IDLE         = "web service is idle"
-WEB_ACTIVE       = "web service is running"
-WEB_PL1_PLAYLIST = "PL1 changed to playlist"
-WEB_PL2_PLAYLIST = "PL2 changed to playlist"
-WEB_PL3_PLAYLIST = "PL3 changed to playlist"
-WEB_PL1_WEBRADIO = "PL1 changed to webradio"
-WEB_PL2_WEBRADIO = "PL2 changed to webradio"
-WEB_PL3_WEBRADIO = "PL3 changed to webradio"
-WEB_PLAYING_SONG = "web service plays a song"
-WEB_ERROR_START  = "web service failed to start"
-WEB_ERROR_STOP   = "web service failed to stop"
+WEB_SOURCE        = "Web service message"
+WEB_IDLE          = "Web service is idle"
+WEB_ACTIVE        = "Web service is running"
+WEB_PL1_PLAYLIST  = "PL1 changed to playlist"
+WEB_PL2_PLAYLIST  = "PL2 changed to playlist"
+WEB_PL3_PLAYLIST  = "PL3 changed to playlist"
+WEB_PL1_WEBRADIO  = "PL1 changed to webradio"
+WEB_PL2_WEBRADIO  = "PL2 changed to webradio"
+WEB_PL3_WEBRADIO  = "PL3 changed to webradio"
+WEB_PLAYING_SONG  = "Web service plays a song"
+WEB_ERROR_START   = "Web service failed to start"
+WEB_ERROR_STOP    = "Web service failed to stop"
+WEB_ERROR_SERVICE = "Web service error"
+# Remote Monitoring
+RMS_SOURCE        = "RMS service message"
+RMS_ERROR_SERVICE = "RMS service error"
 
 '''
 # Messages from fastapi to web service
@@ -632,7 +635,6 @@ if __name__ == '__main__':
 
     # Most modules use similar code in stand-alone
     # pylint: disable=duplicate-code
-
 
     # Pylint PEP8 ignoring limit of max 12 branches is ok for test menu
     def interactive_menu() -> None:     # pylint: disable=too-many-branches,too-many-statements
