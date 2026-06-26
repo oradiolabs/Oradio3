@@ -750,8 +750,8 @@ def networkmanager_del(network) -> bool:
 if __name__ == '__main__':
 
     # Imports only relevant when stand-alone
-    from constants import RED, GREEN, YELLOW, NC        # pylint: disable=ungrouped-imports,wrong-import-position
-    from messaging import DebugMessageHandler           # pylint: disable=ungrouped-imports,wrong-import-position
+    from constants import RED, GREEN, YELLOW, NC    # pylint: disable=ungrouped-imports,wrong-import-position
+    from messaging import DebugMessageHandler       # pylint: disable=ungrouped-imports,wrong-import-position
 
     # Most stand-alone entry points share this pattern across modules
     # pylint: disable=duplicate-code

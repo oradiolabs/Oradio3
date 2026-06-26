@@ -29,6 +29,8 @@ DONE 2:
 error_service.py: still TODO - extend with error messages from other modules
 
 DONE 3:
+
+DONE 4:
 messaging.py: Still TODO - migrate messaging defines from constants.py
 singleton.py
 throttling_monitor.py
@@ -36,9 +38,7 @@ remote_monitoring.py: Renamed to rms_service.py
 usb_service.py
 wifi_service.py
 
-DONE 4:
-
 Improvement options:
 - Do not let log_service send messages to RMS, in stead let error_service do this using remote_monitoring
-- Add 'StoppableWorker' base class to utilities and us it everywhere threads and processes are used
-- Move safe_put from utilities to messaging, as matching pair to safe_get and keep all messaging code in 1 module
+- Add StoppableWorker base class to utilities and use it everywhere threads and processes are used
+- Is safe_put still used anywhere? then use from messaging!
