@@ -45,7 +45,8 @@ from constants import (
 )
 
 ##### LOCAL constants ###############
-_MAX_QUEUE_SIZE = 1000      # Guard against memory leaks
+# Bound queue size to detect runaway producers early.
+_MAX_QUEUE_SIZE = 1000
 
 ##### Messaging constants ####################
 # Throttling
@@ -185,7 +186,11 @@ def _fatal_exit(message: str, stacklevel: int = 6, *, exc: BaseException | None 
                     the full traceback is included in the log entry.
         code:       Process exit status code (default: 1).
     """
-    oradio_log.critical(message, stacklevel=stacklevel, exc_info=exc)
+    # exc_info=True causes the logging framework to capture the current
+    # exception context; passing the exception object directly also works
+    # in Python 3.5+ but the bool form is more conventional.
+    oradio_log.critical(message, stacklevel=stacklevel, exc_info=exc is not None)
+
     # Flush the logging framework before exiting so no records are lost.
     oradio_log.shutdown()
 
@@ -261,13 +266,16 @@ class PubSubManager:
             queue = Queue(_MAX_QUEUE_SIZE)
             self._subscribers[topic].append((queue, source_filter))
 
-            # Replay occurs inside the lock so a concurrent publish cannot
-            # slip between cache replay and queue registration.
+            # Replay happens inside the lock so a concurrent publish cannot
+            # slip between the cache replay and the queue registration,
+            # which would cause the new subscriber to miss a message.
             # Apply the source filter here too so the queue is not pre-filled
             # with messages that would be filtered out at publish time anyway.
             for cached_message in self._last_messages[topic].values():
                 if source_filter is not None and cached_message.source not in source_filter:
                     continue
+                # safe_put calls _fatal_exit on queue failure; the lock is
+                # still held but os._exit is immediate so no deadlock can occur.
                 safe_put(queue, cached_message)
 
         return queue
@@ -320,6 +328,8 @@ class PubSubManager:
                 # filtered-out messages never consume queue space.
                 if source_filter is not None and message.source not in source_filter:
                     continue
+                # safe_put calls _fatal_exit on queue failure; the lock is
+                # still held but os._exit is immediate so no deadlock can occur.
                 safe_put(queue, message)
 
 # Global PubSub manager (singleton — only one instance per process).
@@ -344,8 +354,7 @@ class MessageHandlerBase:
         """
         Initialize the message handler and start the worker thread.
 
-        Starts a daemon thread to consume messages from the queue.
-        Logs an error if the thread fails to start.
+        Terminates the process if the thread fails to start.
 
         Args:
             queue: The queue to handle messages from.
@@ -356,20 +365,20 @@ class MessageHandlerBase:
         self._stop_sentinel = f"STOP_{uuid.uuid4().hex}"  # Unique per instance
 
         # Start background thread that processes incoming messages
-        self._thread = Thread(target=self._message_loop, daemon=True,)
+        self._thread = Thread(target=self._message_loop, daemon=True)
         try:
             self._thread.start()
+            oradio_log.debug("Message handler thread started")
         except Exception as ex_err:  # pylint: disable=broad-exception-caught
             _fatal_exit("Failed to start message handler thread", exc=ex_err)
-        oradio_log.debug("Message handler thread started")
 
     def stop(self) -> None:
         """
         Stop the message handler gracefully.
 
-        Sends the instance's unique stop sentinel to the queue to unblock the worker thread,
-        then waits for the thread to terminate. If the thread does not stop within
-        JOIN_TIMEOUT seconds, a warning is logged.
+        Sends the instance's unique stop sentinel via safe_put to unblock the
+        worker thread, then waits for the thread to terminate. If the thread
+        does not stop within JOIN_TIMEOUT seconds, a warning is logged.
 
         Note:
             This method is idempotent. Calling it multiple times has no additional effect.
@@ -381,7 +390,8 @@ class MessageHandlerBase:
                 return
             self._stopped = True
 
-        # Signal the worker thread to exit its loop
+        # Signal the worker thread to exit its loop via safe_put for
+        # consistent queue-error handling across the codebase.
         safe_put(self._queue, self._stop_sentinel)
 
         # Wait for thread termination with timeout
@@ -529,9 +539,14 @@ class Errors:
 
         _pubsub.publish(Topic.ERROR, message)
 
-def safe_get(queue: Queue) -> CommandMessage | ErrorMessage | str:
+def safe_get(queue: Queue) -> object:
     """
-    Return the next message from a multiprocessing queue.
+    Return the next message from a queue.
+
+    The concrete type of the returned object depends on the queue's producer:
+    messaging bus queues deliver CommandMessage or ErrorMessage instances;
+    other queues (e.g. the WebService request queue) may deliver plain dicts
+    or stop-sentinel strings.
 
     Terminates the process if the queue becomes unusable.
 
@@ -539,7 +554,7 @@ def safe_get(queue: Queue) -> CommandMessage | ErrorMessage | str:
         queue: Queue to read from.
 
     Returns:
-        Retrieved object.
+        The next object retrieved from the queue.
     """
     if not hasattr(queue, "get"):
         _fatal_exit(f"Object has no get() method: {type(queue).__name__!r}")
@@ -555,21 +570,22 @@ def safe_get(queue: Queue) -> CommandMessage | ErrorMessage | str:
         # Rare internal multiprocessing queue failure.
         _fatal_exit("Queue internal error on get", exc=ex_err)
 
-def safe_put(queue: Queue, message: CommandMessage | ErrorMessage | str) -> None:
+def safe_put(queue: Queue, message: object) -> None:
     """
-    Safely put a message into a multiprocessing.Queue.
+    Safely put a message into a queue.
 
-    Terminates the process if the queue cannot be written.
+    Terminates the process if the queue cannot be written to.
 
     Args:
-        queue: The queue to put message in.
+        queue:   The queue to put the message into.
         message: The object to put.
     """
     try:
         queue.put_nowait(message)
 
     except Full:
-        # A full queue is a critical infrastructure failure.
+        # A full queue indicates a runaway producer or stalled consumer —
+        # treat it as a critical infrastructure failure.
         _fatal_exit(f"Queue overflow while publishing message: {message}")
 
     except (OSError, EOFError, ValueError) as ex_err:
