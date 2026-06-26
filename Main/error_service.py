@@ -132,6 +132,22 @@ class ErrorHandler:
         else:
             oradio_log.error("Unhandled wifi error: '%s'", error.message)
 
+    def _handle_rms_error(self, error):
+        """
+        Handle rms-related errors.
+
+        Attempts recovery from known remote monitoring conditions and logs
+        unrecognised errors for further investigation.
+
+        Args:
+            error: Error message received from the error bus.
+        """
+        if error.message == RMS_ERROR_SERVICE:
+# NIET VERGETEN: implement rms-recovery logic (e.g. back-off, retry)
+            oradio_log.debug("Remote monitoring mitigation to be implemented")
+        else:
+            oradio_log.error("Unhandled Remote monitoring error: '%s'", error.message)
+
     def _errors_listener(self) -> None:
         """
         Process error messages and attempt source-specific mitigation.
