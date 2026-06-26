@@ -273,7 +273,7 @@ class WebService:
         self.uvicorn_server = None
         try:
             self.uvicorn_server = UvicornServerThread(api_app)
-        except Exception as ex_err:
+        except Exception as ex_err:     # pylint: disable=broad-exception-caught
             oradio_log.error("Failed to initialize UvicornServerThread: %s", ex_err)
             Errors.publish(ErrorMessage(WEB_SOURCE, WEB_ERROR_SERVICE))
 
