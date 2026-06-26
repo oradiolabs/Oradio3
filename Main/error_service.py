@@ -173,6 +173,9 @@ class ErrorHandler:
             elif error.source == WIFI_SOURCE:
                 self._handle_wifi_error(error)
 
+            elif error.source == RMS_SOURCE:
+                self._handle_rms_error(error)
+
             elif error.source == TEST_SOURCE:
                 oradio_log.debug("Mitigating test error: '%s'", error.message)
 
