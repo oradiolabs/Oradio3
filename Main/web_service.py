@@ -543,8 +543,8 @@ class WebService:
         """
         # Use a lock to ensure thread-safe access to self.uvicorn_server.
         with self._lock:
-           # Stop Uvicorn server if it was initialized; otherwise, log and publish an error.
-           if not hasattr(self, 'uvicorn_server') or self.uvicorn_server is None:
+            # Stop Uvicorn server if it was initialized; otherwise, log and publish an error.
+            if not hasattr(self, 'uvicorn_server') or self.uvicorn_server is None:
                 oradio_log.error("Uvicorn server not initialized")
                 Errors.publish(ErrorMessage(WEB_SOURCE, WEB_ERROR_STOP))
             else:
