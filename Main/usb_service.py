@@ -38,7 +38,6 @@ from watchdog.events import FileSystemEventHandler
 from singleton import singleton
 from log_service import oradio_log
 from wifi_service import networkmanager_add
-from utilities import run_shell_script
 from messaging import (
     Errors,
     Commands,
@@ -59,7 +58,7 @@ from constants import USB_MOUNT_POINT
 # Directory watched by the observer for filesystem events
 USB_STATEPATH = "/run"
 
-# Marker file managed by the OS to signal USB drive presence:
+# Marker file managed by udev to signal USB drive presence:
 #   created  → ORADIO USB drive has been mounted
 #   deleted  → ORADIO USB drive has been unmounted
 USB_STATEFILE = "/run/usb_present"
@@ -79,15 +78,20 @@ class USBObserver(FileSystemEventHandler):
 
     The @singleton decorator ensures only one instance exists per process,
     preventing duplicate observer registrations and duplicate WiFi imports.
-     """
+    """
     def __init__(self) -> None:
-        """Initialise USB state based on whether the drive is currently mounted.
+        """Initialise the parent handler and set USB state based on whether
+        the drive is currently mounted.
 
         Checks the mount point at startup to handle the case where the USB
         drive was already inserted before this service started. Publishes the
         correct initial USB_PRESENT or USB_ABSENT state, and triggers a
         WiFi credential import if the drive is already mounted.
+
+        Subsequent insertions are handled by on_created, which also triggers
+        a WiFi credential import each time the marker file is recreated.
         """
+        super().__init__()
         if path.ismount(USB_MOUNT_POINT):
             Commands.publish(CommandMessage(USB_SOURCE, USB_PRESENT))
             # Drive is already mounted: attempt to import any WiFi credentials
@@ -100,7 +104,8 @@ class USBObserver(FileSystemEventHandler):
         Handle watchdog callback when USB_STATEFILE is created.
 
         The OS creates this marker file when the ORADIO USB drive is mounted.
-        Publishes USB_PRESENT to signal that the USB drive is available.
+        Publishes USB_PRESENT to signal that the USB drive is available, then
+        attempts to import any WiFi credentials found on the drive.
 
         Args:
             event: Watchdog FileCreatedEvent describing the created file.
@@ -109,6 +114,7 @@ class USBObserver(FileSystemEventHandler):
         if not event.is_directory and event.src_path == USB_STATEFILE:
             oradio_log.debug("USB inserted")
             Commands.publish(CommandMessage(USB_SOURCE, USB_PRESENT))
+            self._import_usb_wifi_networks()
 
     def on_deleted(self, event) -> None:
         """
@@ -183,7 +189,8 @@ class USBObserver(FileSystemEventHandler):
         # Return all errors joined as one string, or None to signal success
         return "; ".join(errors) if errors else None
 
-    def _import_usb_wifi_networks(self) -> None:
+    @staticmethod
+    def _import_usb_wifi_networks() -> None:
         """
         Import WiFi credentials from Wifi_invoer.json on the USB drive.
 
@@ -234,17 +241,17 @@ class USBObserver(FileSystemEventHandler):
         all_valid = True
 
         for i, network in enumerate(data["networks"], start=1):
-            if err_msg := self._validate_network(network, i):
+            if err_msg := USBObserver._validate_network(network, i):
                 # Entry failed structural validation; continue to surface all
                 # errors in this pass rather than stopping at the first failure
                 all_valid = False
                 oradio_log.error(err_msg)
                 Errors.publish(ErrorMessage(USB_SOURCE, USB_ERROR_FILE))
             else:
-                # Strip surrounding whitespace from SSID; passwords allow
-                # internal spaces so those are left untouched
+                # Strip surrounding whitespace from SSID; passwords are left
+                # untouched because internal spaces are valid in WPA keys
                 ssid = network["SSID"].strip()
-                pswd = network["PASSWORD"]      # Spaces are allowed in passwords
+                pswd = network["PASSWORD"]
 
                 # Attempt to register the credentials with NetworkManager
                 if networkmanager_add(ssid, pswd):
@@ -255,7 +262,7 @@ class USBObserver(FileSystemEventHandler):
                     Errors.publish(ErrorMessage(USB_SOURCE, USB_ERROR_FILE))
 
         if all_valid:
-           # Remove the credentials file to prevent re-import and to avoid
+            # Remove the credentials file to prevent re-import and to avoid
             # leaving sensitive data on the removable drive
             try:
                 remove(USB_WIFI_FILE)
@@ -290,15 +297,13 @@ class USBService:
         # USB marker file. recursive=False limits events to the top-level
         # directory, avoiding unnecessary inotify overhead from subdirectories.
         self.observer.schedule(USBObserver(), path=USB_STATEPATH, recursive=False)
-        self.observer.start()
 
-        # Confirm the observer thread actually came up; it can fail silently
-        # (e.g. inotify limit reached) without raising an exception
-        if not self.observer.is_alive():
-            oradio_log.error("USB observer failed to start: no USB present/absent info available")
+        try:
+            self.observer.start()
+            oradio_log.info("USB observer started")
+        except Exception as ex_err:
+            oradio_log.error("USB observer failed to start: %s", ex_err)
             Errors.publish(ErrorMessage(USB_SOURCE, USB_ERROR_SERVICE))
-
-        oradio_log.info("USB observer started")
 
     def get_state(self) -> str:
         """
@@ -320,8 +325,9 @@ class USBService:
 if __name__ == '__main__':
 
     # Imports only relevant when stand-alone
-    from constants import RED, YELLOW, NC               # pylint: disable=ungrouped-imports,wrong-import-position
-    from messaging import Topic, DebugMessageHandler    # pylint: disable=ungrouped-imports,wrong-import-position
+    from utilities import run_shell_script                          # pylint: disable=ungrouped-imports,wrong-import-position
+    from constants import RED, YELLOW, NC                           # pylint: disable=ungrouped-imports,wrong-import-position
+    from messaging import Topic, DebugMessageHandler                # pylint: disable=ungrouped-imports,wrong-import-position
 
     # Most stand-alone entry points share this pattern; pylint would flag it as duplicate code across modules.
     # pylint: disable=duplicate-code
@@ -346,7 +352,8 @@ if __name__ == '__main__':
 
         Starts the USB monitor, then loops until the user selects quit (0).
         Options allow querying the current mount state and simulating insert
-        or remove events by creating or deleting the marker file via sudo.
+        or remove events by creating or deleting the marker file via sudo,
+        which is required because the marker file is owned by root.
         """
         # Show menu with test options
         input_selection = (
@@ -381,25 +388,28 @@ if __name__ == '__main__':
                     cmd = f"sudo touch {USB_STATEFILE}"
                     result, response = run_shell_script(cmd)
                     if not result:
-                        print(f"{RED}Error during <%s> to create monitor, error: %s", cmd, response)
+                        print(f"{RED}Error during <{cmd}> to create monitor, error: {response}")
                 case 3:
                     # The marker file is owned by root, so sudo is required
                     print("\nSimulate 'USB removed' event...\n")
                     cmd = f"sudo rm -f {USB_STATEFILE}"
                     result, response = run_shell_script(cmd)
                     if not result:
-                        print(f"{RED}Error during <%s> to remove monitor, error: %s", cmd, response)
+                        print(f"{RED}Error during <{cmd}> to remove monitor, error: {response}")
                 case _:
                     print(f"\n{YELLOW}Please input a valid number{NC}\n")
 
-    # Subscribe to command and error topics so messages published are printed to console
-    cmd_handler = DebugMessageHandler(Topic.COMMAND)
-    err_handler = DebugMessageHandler(Topic.ERROR)
+    # Subscribe to command and error topics so published messages are printed to console
+    cmd_handler = DebugMessageHandler(Commands.subscribe())
+    err_handler = DebugMessageHandler(Errors.subscribe())
 
-    # Launch the interactive test menu (blocks until the user quits)
+    # Launch the interactive test menu; blocks until the user quits
     interactive_menu()
 
-    # Stop printing published messages
+    # Stop receiving messages
+    Commands.unsubscribe(cmd_handler.get_queue())
+    Errors.unsubscribe(err_handler.get_queue())
+    # Signal the thread to exit and confirm it has exited
     cmd_handler.stop()
     err_handler.stop()
 
