@@ -40,7 +40,7 @@ from dbus.mainloop.glib import DBusGMainLoop
 from dbus.exceptions import DBusException
 from gi.repository import GLib
 
-##### oradio modules ################
+##### Oradio modules ################
 from singleton import singleton
 from log_service import oradio_log
 from utilities import run_shell_script

@@ -26,7 +26,7 @@ from time import sleep
 from threading import Thread, Event
 from collections import defaultdict
 
-##### oradio modules ####################
+##### Oradio modules ####################
 from log_service import oradio_log
 from singleton import singleton
 from mpd_service import MPDService
@@ -34,7 +34,7 @@ from mpd_service import MPDService
 ##### GLOBAL constants ####################
 from constants import YELLOW, NC
 
-##### Local constants ####################
+##### LOCAL constants ####################
 # Mapping of MPD idle events to typical client actions
 MPD_EVENT_ACTIONS = {
     "database": "Database changed",                      # Consider updating your local song cache, e.g., client.listall() or client.list()

@@ -37,7 +37,7 @@ Typical usage:
 from subprocess import check_output
 from threading import Thread, Event
 
-##### oradio modules ################
+##### Oradio modules ################
 from singleton import singleton
 from log_service import oradio_log
 from messaging import (

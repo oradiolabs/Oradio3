@@ -31,7 +31,7 @@ from typing import Any, Optional, List, Union, Dict
 from pathlib import Path
 from pydantic import BaseModel, ValidationError
 
-##### oradio modules ####################
+##### Oradio modules ####################
 from log_service import oradio_log
 
 ##### GLOBAL constants ####################

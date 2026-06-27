@@ -5,8 +5,6 @@ Actions:
 4. Verify changes do not break functionality
 
 DONE 1:
-backlighting.py
-i2c_service.py
 led_control.py
 mpd_control.py
 mpd_monitor.py
@@ -28,13 +26,15 @@ error_service.py: still TODO - extend with error messages from other modules
 DONE 3:
 
 DONE 4:
+backlighting.py
 gpio_service.py
+i2c_service.py
 messaging.py: Still TODO - migrate messaging defines from constants.py
 singleton.py
+rms_service (renamed from remote_monitoring.py)
 throttling_monitor.py
-remote_monitoring.py: Renamed to rms_service.py
 usb_service.py
-fastapi_server.py: Renamed to web_server.py
+web_server.py (renamed from fastapi_server.py)
 web_service.py
 wifi_service.py
 

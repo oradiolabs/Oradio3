@@ -24,11 +24,11 @@ Created on December 18, 2025
 """
 from time import sleep
 
-##### oradio modules ####################
+##### Oradio modules ####################
 from log_service import oradio_log
 from i2c_service import I2CService
 
-##### Local constants ####################
+##### LOCAL constants ####################
 
 # HUSB238 I2C Address
 HUSB238_ADDRESS = 0x08

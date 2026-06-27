@@ -37,7 +37,7 @@ from platform import python_version
 from multiprocessing import Queue, Lock
 from requests import post, RequestException, Timeout
 
-##### oradio modules ################
+##### Oradio modules ################
 from utilities import get_serial
 from wifi_service import WifiService
 from log_service import oradio_log

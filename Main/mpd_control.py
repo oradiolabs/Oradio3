@@ -34,7 +34,7 @@ from time import sleep
 from threading import Thread
 from unicodedata import normalize, category
 
-##### oradio modules ####################
+##### Oradio modules ####################
 from log_service import oradio_log
 from utilities import load_presets
 from mpd_service import MPDService
@@ -45,7 +45,7 @@ from constants import (
     USB_MUSIC,
 )
 
-##### Local constants ####################
+##### LOCAL constants ####################
 MPD_CROSSFADE  = 5          # seconds
 DEFAULT_PRESET = "Preset1"  # For when the Play button is used and no playlist in the queue
 

@@ -33,7 +33,7 @@ from json import load, JSONDecodeError
 from watchdog.observers import Observer
 from watchdog.events import FileSystemEventHandler
 
-##### oradio modules ####################
+##### Oradio modules ####################
 from singleton import singleton
 from log_service import oradio_log
 from wifi_service import networkmanager_add

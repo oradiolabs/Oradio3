@@ -21,7 +21,7 @@ from threading import Timer
 from multiprocessing import Queue
 from time import monotonic
 
-##### oradio modules ####################
+##### Oradio modules ####################
 from log_service import oradio_log
 from utilities import safe_put, OradioMessage
 from gpio_service import GPIOService

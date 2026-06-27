@@ -22,7 +22,7 @@ Created on January 27, 2025
 from time import sleep
 from threading import Thread, Event
 
-##### oradio modules ####################
+##### Oradio modules ####################
 from log_service import oradio_log
 from i2c_service import I2CService
 from utilities import safe_put, run_shell_script
@@ -35,7 +35,7 @@ from constants import (
     MESSAGE_NO_ERROR,
 )
 
-##### Local constants ####################
+##### LOCAL constants ####################
 # Volume scaling and clamping units
 ADC_MIN   = 0
 ADC_MAX   = 1023

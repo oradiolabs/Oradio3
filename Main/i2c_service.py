@@ -26,7 +26,7 @@ from time import sleep
 from threading import Lock
 from smbus2 import SMBus
 
-##### oradio modules ####################
+##### Oradio modules ####################
 from log_service import oradio_log
 from singleton import singleton
 from messaging import (

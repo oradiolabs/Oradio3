@@ -23,7 +23,7 @@ Created on Januari 17, 2025
 from time import sleep
 from threading import Thread, Event
 
-##### oradio modules ####################
+##### Oradio modules ####################
 from log_service import oradio_log
 from i2c_service import I2CService
 from messaging import (
@@ -34,7 +34,7 @@ from messaging import (
     BACKLIGHT_ERROR_STOP,
 )
 
-##### Local constants ####################
+##### LOCAL constants ####################
 # TSL2591 - Ambient Light Sensor
 TSL2591_ADDRESS    = 0x29
 ENABLE_REGISTER    = 0x00

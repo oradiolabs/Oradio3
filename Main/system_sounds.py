@@ -20,7 +20,7 @@ Created on Januari 30, 2025
 import subprocess
 from pathlib import Path
 
-##### oradio modules ####################
+##### Oradio modules ####################
 from log_service import oradio_log
 
 ##### GLOBAL constants ####################

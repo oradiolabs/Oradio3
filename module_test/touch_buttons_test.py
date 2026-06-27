@@ -27,7 +27,7 @@ from multiprocessing import Queue
 from time import sleep, perf_counter
 from RPi import GPIO
 
-##### oradio modules ####################
+##### Oradio modules ####################
 from log_service import oradio_log, DEBUG, CRITICAL
 from touch_buttons import TouchButtons, BUTTON_DEBOUNCE_TIME
 from utilities import input_prompt_int, input_prompt_float, validate_oradio_message

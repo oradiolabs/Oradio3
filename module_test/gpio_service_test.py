@@ -43,7 +43,7 @@ from constants import (
     DEBUGGER_ENABLED, DEBUGGER_NOT_CONNECTED,
 )
 
-##### Local constants ####################
+##### LOCAL constants ####################
 button_state = {True: f"{YELLOW}1", False: f"{NC}0"}
 
 def button_event_callback(button_data: dict) -> None:

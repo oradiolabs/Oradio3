@@ -35,12 +35,10 @@ from threading import Lock
 # Use MPDConnectionError because mpd2 raises a different ConnectionError than Python's built-in one
 from mpd import MPDClient, CommandError, ProtocolError, ConnectionError as MPDConnectionError
 
-##### oradio modules ####################
+##### Oradio modules ####################
 from log_service import oradio_log
 
-##### GLOBAL constants ####################
-
-##### Local constants ####################
+##### LOCAL constants ####################
 MPD_HOST     = "localhost"
 MPD_PORT     = 6600
 MPD_RETRIES  = 3

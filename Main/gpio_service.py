@@ -31,7 +31,7 @@ from time import perf_counter
 from threading import Lock
 from RPi import GPIO
 
-##### oradio modules ####################
+##### Oradio modules ####################
 from log_service import oradio_log
 from singleton import singleton
 from messaging import (

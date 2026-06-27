@@ -45,7 +45,7 @@ from multiprocessing import Queue
 from threading import Thread, Lock
 import uvicorn
 
-##### oradio modules ################
+##### Oradio modules ################
 from log_service import oradio_log, ORADIO_LOG_LEVEL
 from utilities import run_shell_script
 from web_server import api_app
