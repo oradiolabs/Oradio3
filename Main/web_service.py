@@ -438,7 +438,7 @@ class WebService:
         """
         while True:
             message = safe_get(self.request_queue)
-            oradio_log.debug("WebService: message received: '%s'", message)
+            oradio_log.debug("Message received: '%s'", message)
 
             # Guard against wrong message type
             if not isinstance(message, dict):
@@ -459,7 +459,7 @@ class WebService:
                 self.stop()
 
             else:
-                oradio_log.warning("WebService: unrecognised request: %s", request)
+                oradio_log.warning("Unrecognised request: %s", request)
 
 ##### Public interface ##############
 
@@ -546,9 +546,10 @@ class WebService:
         4. Remove the dnsmasq DNS redirect config file.
         5. Wait for the WiFi interface to reach WIFI_DISCONNECTED or WIFI_CONNECTED.
 
-        Steps 3 and 4 publish WEB_ERROR_STOP internally on failure but always
-        continue so that remaining teardown steps are still attempted.
-        On completion, publishes WEB_IDLE to the message bus.
+        Step 2 publishes WEB_ERROR_STOP directly in stop() if the Uvicorn server
+        fails to stop. Steps 3 and 4 publish WEB_ERROR_STOP internally in their
+        helper methods. All failures continue so that remaining teardown steps
+        are still attempted.
         """
         # Disconnect WiFi first so clients are dropped gracefully before the
         # server stops accepting connections.
