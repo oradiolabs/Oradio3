@@ -18,7 +18,6 @@ schemas.json
 spotify_connect_direct.py
 system_sounds.py
 touch_buttons.py
-volume_control.py
 
 DONE 2:
 error_service.py: still TODO - extend with error messages from other modules
@@ -34,6 +33,7 @@ singleton.py
 rms_service (renamed from remote_monitoring.py)
 throttling_monitor.py
 usb_service.py
+volume_control.py
 web_server.py (renamed from fastapi_server.py)
 web_service.py
 wifi_service.py
