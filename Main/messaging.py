@@ -88,6 +88,10 @@ RMS_ERROR_SERVICE = "RMS service error"
 GPIO_SOURCE        = "GPIO service message"
 GPIO_ERROR_SERVICE = "GPIO service error"
 GPIO_ERROR_BUTTONS = "GPIO buttons error"
+# Backlighting
+BACKLIGHT_SOURCE      = "Backlight message"
+BACKLIGHT_ERROR_START = "Backlight failed to start"
+BACKLIGHT_ERROR_STOP  = "Backlight failed to stop"
 
 '''
 # Messages from fastapi to web service

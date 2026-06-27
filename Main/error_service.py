@@ -47,6 +47,9 @@ from messaging import (
     GPIO_SOURCE,
     GPIO_ERROR_SERVICE,
     GPIO_ERROR_BUTTONS,
+    BACKLIGHT_SOURCE,
+    BACKLIGHT_ERROR_START,
+    BACKLIGHT_ERROR_STOP,
 )
 
 ##### GLOBAL constants ##############
@@ -189,6 +192,25 @@ class ErrorHandler:
         else:
             oradio_log.error("Unhandled GPIO error: '%s'", error.message)
 
+    def _handle_backlight_error(self, error):
+        """
+        Handle backlight-related errors.
+
+        Attempts recovery from known backlight conditions and logs
+        unrecognised errors for further investigation.
+
+        Args:
+            error: Error message received from the error bus.
+        """
+        if error.message == BACKLIGHT_ERROR_START:
+# NIET VERGETEN: implement backlight-recovery logic (e.g. back-off, retry)
+            oradio_log.debug("Backlight start mitigation to be implemented")
+        elif error.message == BACKLIGHT_ERROR_STOP:
+# NIET VERGETEN: implement backlight-recovery logic (e.g. back-off, retry)
+            oradio_log.debug("Backlight stop mitigation to be implemented")
+        else:
+            oradio_log.error("Unhandled backlight error: '%s'", error.message)
+
     def _errors_listener(self) -> None:
         """
         Process error messages and attempt source-specific mitigation.
@@ -223,6 +245,9 @@ class ErrorHandler:
 
             elif error.source == GPIO_SOURCE:
                 self._handle_gpio_error(error)
+
+            elif error.source == BACKLIGHT_SOURCE:
+                self._handle_backlight_error(error)
 
             else:
                 # Source is not registered with this handler
