@@ -50,6 +50,8 @@ from messaging import (
     BACKLIGHT_SOURCE,
     BACKLIGHT_ERROR_START,
     BACKLIGHT_ERROR_STOP,
+    I2C_SOURCE,
+    I2C_ERROR_BUS,
 )
 
 ##### GLOBAL constants ##############
@@ -192,7 +194,6 @@ class ErrorHandler:
         else:
             oradio_log.error("Unhandled GPIO error: '%s'", error.message)
 
-
     def _handle_backlight_error(self, error):
         """
         Handle backlight-related errors.
@@ -211,6 +212,22 @@ class ErrorHandler:
             oradio_log.debug("Backlight stop mitigation to be implemented")
         else:
             oradio_log.error("Unhandled backlight error: '%s'", error.message)
+
+    def _handle_i2c_error(self, error):
+        """
+        Handle I2C-related errors.
+
+        Attempts recovery from known backlight conditions and logs
+        unrecognised errors for further investigation.
+
+        Args:
+            error: Error message received from the error bus.
+        """
+        if error.message == I2C_ERROR_BUS:
+# NIET VERGETEN: implement I2C-recovery logic (e.g. back-off, retry)
+            oradio_log.debug("I2C bus mitigation to be implemented")
+        else:
+            oradio_log.error("Unhandled I2C error: '%s'", error.message)
 
     # Errors for each module are grouped separatly for maintainability
     def _errors_listener(self) -> None:    # pylint: disable=too-many-branches,too-many-statements
@@ -250,6 +267,9 @@ class ErrorHandler:
 
             elif error.source == BACKLIGHT_SOURCE:
                 self._handle_backlight_error(error)
+
+            elif error.source == I2C_SOURCE:
+                self._handle_i2c_error(error)
 
             else:
                 # Source is not registered with this handler
