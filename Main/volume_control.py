@@ -69,7 +69,7 @@ class VolumeControl:
 
     def __init__(self) -> None:
         """
-        Initialize I²C bus, callback and mixer.
+        Initialize default volume levels, I²C service, and start the volume manager thread.
         """
         # Set default MPD volume
         self._set_volume(VOLUME_CONTROL_MPD, DEFAULT_VOLUME_MPD)
@@ -83,7 +83,7 @@ class VolumeControl:
         # Get I2C r/w methods
         self._i2c_service = I2CService()
 
-        # Start ready to send notification
+        # Arm notification so the first volume change triggers a message
         self._armed = True
 
         # Thread is created dynamically on start() to allow restartability
@@ -93,14 +93,14 @@ class VolumeControl:
         # Start volume manager thread
         self.start()
 
-# -----Helper methods----------------
+# ---------------- Helper methods ----------------
 
     def _read_adc(self) -> int | None:
         """
         Read a 10-bit value from the MCP3021 ADC.
 
         Returns:
-            ADC value 0..1023, or None if reading fails.
+            ADC value in range 0..1023, or None if reading fails.
         """
         # Get ADC value - volume knob position
         data = self._i2c_service.read_block(MCP3021_ADDRESS, READ_DATA_REGISTER, 2)
@@ -110,26 +110,28 @@ class VolumeControl:
         # Combine the 2 bytes into a 10-bit value
         return ((data[0] & 0x3F) << 6) | (data[1] >> 2)
 
-    def _adc2volume(self, adc) -> int:
+    def _adc2volume(self, adc: int) -> int:
         """
-        Map ADC from range [ADC_MIN, ADC_MAX] to [VOL_MIN, VOL_MAX].
-        Round the mapping result to the nearest integer.
+        Map ADC value from range [ADC_MIN, ADC_MAX] to [VOL_MIN, VOL_MAX].
+        Result is clamped to 0..100 and rounded to the nearest integer.
 
         Args:
-            adc: The value of the ADC reading the volumne knob position.
+            adc: ADC reading representing the volume knob position.
 
         Returns:
-            The volume level in range 0..100
+            Volume level in the range [VOL_MIN, VOL_MAX] (currently 50..100).
         """
-        return round(int(VOL_MIN[:-1]) + (adc - ADC_MIN) * (int(VOL_MAX[:-1]) - int(VOL_MIN[:-1])) / (ADC_MAX - ADC_MIN))
+        raw = int(VOL_MIN[:-1]) + (adc - ADC_MIN) * (int(VOL_MAX[:-1]) - int(VOL_MIN[:-1])) / (ADC_MAX - ADC_MIN)
+        return max(0, min(100, round(raw)))
 
-    def _set_volume(self, control, volume) -> None:
+    def _set_volume(self, control: str, volume: str) -> None:
         """
-        Change volume for the given control.
+        Change volume for the given ALSA control.
 
         Args:
-            control (str): The volumne control to change volume on
-            volume (str): The volume to set in % [0..100]
+            control: The ALSA volume control to update.
+            volume: The volume to set as a percentage string (e.g. "75%").
+                    Must be in the range 0..100; negative values are rejected.
         """
         # Check if volume is given as percentage and in 0..100 range
         if not (isinstance(volume, str) and volume.endswith('%') and volume[:-1].isdigit() and 0 <= int(volume[:-1]) <= 100):
@@ -144,17 +146,21 @@ class VolumeControl:
         else:
             oradio_log.debug("Volume of '%s' set to: %s", control, volume)
 
-# -----Core methods----------------
+# ---------------- Core methods ----------------
 
     def _volume_manager(self) -> None:
         """
         Thread function: continuously polls ADC and updates volume.
         - Adaptive polling for faster response when the knob is turned and slower idle polling.
+
+        Note: _running serves two purposes: signals thread readiness on set(),
+        and stops the loop on clear().
         """
         # Initialize volume to knob's current position
         previous_adc = self._read_adc()
         if previous_adc is None:
-            oradio_log.error("ADC read failed")
+            oradio_log.error("ADC read failed on startup, volume manager cannot start")
+            return
 
         # Convert ADC reading to volume level
         volume = self._adc2volume(previous_adc)
@@ -165,7 +171,7 @@ class VolumeControl:
         # Start with 'slow' polling
         polling_interval = POLLING_MAX_INTERVAL
 
-        # signal: start volume manager thread
+        # Signal that the volume manager thread is ready
         self._running.set()
 
         # Volume adjustment loop
@@ -188,7 +194,7 @@ class VolumeControl:
                 # Set master volume in line with position of the volume knob
                 self._set_volume(VOLUME_CONTROL_MASTER, f"{volume}%")
 
-                # Notify only once
+                # Disarm until set_notify() re-arms, preventing repeated notifications
                 if self._armed:
                     self._armed = False
                     oradio_log.debug("Send volume changed message")
@@ -200,7 +206,7 @@ class VolumeControl:
 
             sleep(polling_interval)
 
-# -----Public methods----------------
+# ---------------- Public methods ----------------
 
     def start(self) -> None:
         """Start the volume control thread if not already running."""
@@ -225,12 +231,12 @@ class VolumeControl:
         oradio_log.info("Volume manager thread started")
 
     def stop(self) -> None:
-        """Stop the volumne control thread and wait for it to terminate."""
+        """Stop the volume control thread and wait for it to terminate."""
         if not self._thread or not self._thread.is_alive():
             oradio_log.debug("Volume manager thread not running")
             return
 
-        # signal: stop volume manager thread
+        # Signal the volume manager thread to stop
         self._running.clear()
 
         # Avoid hanging forever if the thread is stuck in I/O
@@ -243,10 +249,11 @@ class VolumeControl:
             oradio_log.info("Volume manager thread stopped")
 
     def set_notify(self) -> None:
-        """Allow notification to happen."""
+        """Re-arm the notification so the next volume change triggers a message."""
         self._armed = True
 
-# Entry point for stand-alone operation
+# ---------------- Entry point for stand-alone operation ----------------
+
 if __name__ == "__main__":
 
     # Imports only relevant when stand-alone
@@ -258,7 +265,7 @@ if __name__ == "__main__":
 
     def interactive_menu():
         """
-        Run an interactive self-test menu for the backlight.
+        Run an interactive self-test menu for the volume control.
         """
 
         # Show menu with test options
@@ -271,7 +278,7 @@ if __name__ == "__main__":
             "Select: "
         )
 
-        # Initialise backlighting
+        # Initialise volume control
         volume_control = VolumeControl()
 
         while True:
