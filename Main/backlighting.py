@@ -18,7 +18,7 @@ Created on Januari 17, 2025
 @summary:
     Class to run the backlighting service.
     - Measure the light level and adapt the backlighting MCP4725
-    - Update, such that it starts always with low backlighting level
+    - Ensures the backlight always starts at a low level on boot
 @references:
 
 """
@@ -28,9 +28,14 @@ from threading import Thread, Event
 ##### oradio modules ####################
 from log_service import oradio_log
 from i2c_service import I2CService
-
-##### GLOBAL constants ####################
-from constants import YELLOW, NC
+from messaging import (
+    Errors,
+    ErrorMessage,
+    CommandMessage,
+    BACKLIGHT_SOURCE,
+    BACKLIGHT_ERROR_START,
+    BACKLIGHT_ERROR_STOP,
+)
 
 ##### Local constants ####################
 # TSL2591 - Ambient Light Sensor
@@ -51,6 +56,9 @@ SAVE_VOLATILE   = 0x40
 ALS_MIN         = 52.5  # LUX_MIN( 0.7) * GAIN_SCALE(25) * TIME_SCALE(300/100)
 ALS_MID         = 375   # LUX_MID( 5.0) * GAIN_SCALE(25) * TIME_SCALE(300/100)
 ALS_MAX         = 1500  # LUX_MAX(20.0) * GAIN_SCALE(25) * TIME_SCALE(300/100)
+# NOTE: DAC output is inverted — higher value = less light (active-low LED driver)
+# BACKLIGHT_OFF (4095) = LEDs off; BACKLIGHT_MAX (3000) = brightest
+DAC_MAX         = 4095  # Maximum 12-bit DAC value
 BACKLIGHT_OFF   = 4095
 BACKLIGHT_MIN   = 3800
 BACKLIGHT_MID   = 3300
@@ -74,10 +82,9 @@ class Backlighting:
     def __init__(self) -> None:
         """
         Initializes backlighting settings:
-        - Default backlight value is set between min and max.
-        - Writes default OFF value to DAC EEPROM (persistent).
-        - Prepares the background thread for auto-adjust.
-        - Initializes the light sensor.
+        - Writes OFF value to DAC EEPROM (persistent), ensuring LEDs are off at boot.
+        - Initializes the light sensor hardware.
+        - Prepares and starts the background thread for auto-adjust.
         """
         # Get I2C r/w methods
         self._i2c_service = I2CService()
@@ -107,7 +114,7 @@ class Backlighting:
                            If False, fast write without EEPROM storage
         """
         # Convert a 12-bit DAC value into high and low bytes for I2C transmission.
-        value = max(0, min(BACKLIGHT_OFF, value))  # Clamp value to valid range
+        value = max(0, min(DAC_MAX, value))        # Clamp value to valid range
         high_byte = (value >> 4) & 0xFF            # 8 most significant bits
         low_byte = (value << 4) & 0xFF             # 4 least significant bits shifted
 
@@ -127,7 +134,7 @@ class Backlighting:
         Read visible light level as a 16-bit word from sensor.
 
         Returns:
-            int: Raw visible light value.
+            int | None: Raw visible light value, or None on I2C read failure.
         """
         low = self._i2c_service.read_byte(TSL2591_ADDRESS, COMMAND_BIT | VISIBLE_LIGHT_LOW)
         high = self._i2c_service.read_byte(TSL2591_ADDRESS, COMMAND_BIT | VISIBLE_LIGHT_HIGH)
@@ -138,6 +145,15 @@ class Backlighting:
     def _interpolate_backlight(self, als_value) -> int:
         """
         Map als_value to appropriate backlight DAC value.
+
+        The mapping uses two linear segments:
+          - Below ALS_MIN  : backlight off
+          - ALS_MIN to MID : interpolate between BACKLIGHT_MIN and BACKLIGHT_MID
+          - ALS_MID to MAX : interpolate between BACKLIGHT_MID and BACKLIGHT_MAX
+          - Above ALS_MAX  : maximum brightness
+
+        Note: ALS_MIN is an inclusive boundary; values exactly equal to ALS_MIN
+        fall into the MIN-to-MID segment and return BACKLIGHT_MIN.
 
         Args:
             als_value (int): Current ambient light sensor level.
@@ -169,7 +185,7 @@ class Backlighting:
         # Apply starting brightness
         self._write_dac(prev_dac_value)
 
-        # signal: start volume manager thread
+        # Signal that the backlight manager thread is ready
         self._running.set()
 
         # Backlight adjustment loop
@@ -201,20 +217,30 @@ class Backlighting:
 # -----Public methods----------------
 
     def start(self) -> None:
-        """Start the backlighting auto-adjust thread if not already running."""
+        """
+        Start the backlight auto-adjust thread if not already running.
+        Blocks until the thread signals readiness or a timeout occurs.
+        """
         if self._thread and self._thread.is_alive():
-            oradio_log.debug("Volume manager thread already running")
+            oradio_log.debug("Backlight manager thread already running")
             return
 
         # Create and start thread
         self._thread = Thread(target=self._backlight_manager, daemon=True)
-        self._thread.start()
 
-        # Check if thread started
-        if self._running.wait(timeout=THREAD_TIMEOUT):
-            oradio_log.info("Backlight manager thread started")
-        else:
-            oradio_log.error("Timed out: Backlight manager thread not started")
+        try:
+            self._thread.start()
+        except RuntimeError as ex:
+            oradio_log.error("Backlight manager thread failed to start: %s", ex)
+            Errors.publish(ErrorMessage(BACKLIGHT_SOURCE, BACKLIGHT_ERROR_START))
+            return
+
+        if not self._running.wait(timeout=THREAD_TIMEOUT):
+            oradio_log.error("Backlight manager thread did not become ready in time")
+            Errors.publish(ErrorMessage(BACKLIGHT_SOURCE, BACKLIGHT_ERROR_START))
+            return
+
+        oradio_log.info("Backlight manager thread started")
 
     def stop(self) -> None:
         """Stop the backlighting auto-adjust thread and wait for it to terminate."""
@@ -222,7 +248,7 @@ class Backlighting:
             oradio_log.debug("Backlight manager thread not running")
             return
 
-        # signal: stop volume manager thread
+        # Signal the backlight manager thread to stop
         self._running.clear()
 
         # Avoid hanging forever if the thread is stuck in I/O
@@ -230,6 +256,7 @@ class Backlighting:
 
         if self._thread.is_alive():
             oradio_log.error("Join timed out: backlight manager thread is still running")
+            Errors.publish(ErrorMessage(BACKLIGHT_SOURCE, BACKLIGHT_ERROR_STOP))
         else:
             oradio_log.info("Backlight manager thread stopped")
 
@@ -245,13 +272,18 @@ class Backlighting:
 
     def read_sensor(self) -> tuple:
         """
-        Return the current sensor readings and corresponding DAC value.
-        - Wrapper accessing internal methods while running stand-alone
+        Return the current sensor readings and the corresponding DAC value.
+
+        Convenience method for stand-alone testing; reads sensor and returns derived values.
 
         Returns:
-            tuple[int, float, int]: (raw_visible_light, lux, interpolated DAC value)
+            tuple[int, float, int] | tuple[None, None, None]:
+                (raw_visible_light, lux, interpolated DAC value),
+                or (None, None, None) on I2C read failure.
         """
         raw = self._read_visible_light()
+        if raw is None:
+            return None, None, None
         lux = raw / 75  # GAIN_SCALE(25) * TIME_SCALE(300/100)
         dac = self._interpolate_backlight(raw)
         return raw, lux, dac
@@ -259,8 +291,12 @@ class Backlighting:
 # Entry point for stand-alone operation
 if __name__ == '__main__':
 
-# Most modules use similar code in stand-alone
-# pylint: disable=duplicate-code
+    # Imports only relevant when stand-alone
+    from constants import YELLOW, NC            # pylint: disable=wrong-import-position
+    from messaging import DebugMessageHandler   # pylint: disable=ungrouped-imports,wrong-import-position
+
+    # Most modules use similar code in stand-alone
+    # pylint: disable=duplicate-code
 
     def interactive_menu():
         """Show menu with test options"""
@@ -309,7 +345,10 @@ if __name__ == '__main__':
                         # Print raw visible light, calculated lux, and DAC value every 2 seconds
                         while True:
                             raw, lux, dac = backlighting.read_sensor()
-                            print(f"Raw Visible Light: {raw}, Lux: {lux:.2f}, DAC Value: {dac}")
+                            if raw is None:
+                                print("Sensor read failed")
+                            else:
+                                print(f"Raw Visible Light: {raw}, Lux: {lux:.2f}, DAC Value: {dac}")
                             sleep(2)
                     except KeyboardInterrupt:
                         print("\nReturning to main menu...\n")
@@ -318,10 +357,18 @@ if __name__ == '__main__':
 
     print("\nStarting Backlighting test program...\n")
 
-    # Present menu with tests
+    # Subscribe to error topics so published messages are printed to console
+    err_handler = DebugMessageHandler(Errors.subscribe())
+
+    # Launch the interactive test menu; blocks until the user quits
     interactive_menu()
+
+    # Stop receiving messages
+    Errors.unsubscribe(err_handler.get_queue())
+    # Signal the thread to exit and confirm it has exited
+    err_handler.stop()
 
     print("\nExiting Backlighting test program...\n")
 
-# Restore temporarily disabled pylint duplicate code check
-# pylint: enable=duplicate-code
+    # Restore temporarily disabled pylint duplicate code check
+    # pylint: enable=duplicate-code
