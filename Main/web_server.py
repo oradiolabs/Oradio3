@@ -32,18 +32,20 @@ from asyncio import sleep, create_task, CancelledError
 from datetime import datetime, timedelta, timezone
 from pydantic import BaseModel
 from fastapi import FastAPI, Request
+from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
-from fastapi.responses import FileResponse, JSONResponse
 from starlette.responses import RedirectResponse
 
 #### oradio modules #################
 from log_service import oradio_log
-from utilities import get_serial, safe_put, run_shell_script, load_presets, store_presets
+from utilities import get_serial, run_shell_script, load_presets, store_presets
 from wifi_service import get_wifi_networks, get_saved_network
 from mpd_control import MPDControl
 from messaging import (
     Commands,
+    Errors,
+    safe_put,
     CommandMessage,
     WEB_SOURCE,
     WEB_PL1_PLAYLIST,
@@ -98,8 +100,8 @@ templates = Jinja2Templates(directory=web_path+"/templates")
 # Per-request-cycle timer state stored on the app so it persists across requests.
 # timer_started acts as a gate: keep_alive_middleware only manages the timer
 # after the first /keep_alive ping has set it to True.
-api_app.state.timer_task     = None   # The active asyncio timer task, or None
-api_app.state.timer_deadline = None   # UTC datetime when the timer should fire
+api_app.state.timer_task     = None   # The active asyncio task, or None if no timer is running
+api_app.state.timer_deadline = None   # UTC datetime of the next expiry, or None if timer has not been armed
 api_app.state.timer_started  = False  # Becomes True after the first /keep_alive ping
 
 @api_app.middleware("http")
@@ -110,9 +112,9 @@ async def keep_alive_middleware(request: Request, call_next):
     The keep-alive timer is armed by the first /keep_alive ping from the
     browser (timer_started = True). For all subsequent non-ping requests,
     this middleware cancels the running timer before passing the request to
-    the handler, then restarts it with a fresh deadline once the response
-    is ready. This prevents the server from timing out while actively
-    serving a request.
+    the handler, then either creates a new timer task or relies on the
+    existing one to pick up the refreshed deadline once the response is ready.
+    This prevents the server from timing out while actively serving a request.
 
     /keep_alive requests are passed through without touching the timer, as
     the /keep_alive endpoint manages the deadline itself.
@@ -141,6 +143,8 @@ async def keep_alive_middleware(request: Request, call_next):
     # requests once the timer has been armed.
     if request.url.path != "/keep_alive" and api_app.state.timer_started:
         api_app.state.timer_deadline = datetime.now(timezone.utc) + timedelta(seconds=KEEP_ALIVE_TIMEOUT)
+        # If a task is already running, it will pick up the new deadline on its
+        # next poll iteration; only create a new task when none is running.
         if not getattr(api_app.state, "timer_task", None) or api_app.state.timer_task.done():
             api_app.state.timer_task = create_task(stop_task())
         oradio_log.debug("Keep-alive timer restarted for request %s", request.url.path)
@@ -292,7 +296,8 @@ def wifi_connect(args: Optional[Dict[str, Any]]):
     Args:
         args: Dict containing:
             "ssid" (str, required) — target network name.
-            "pswd" (str, optional) — network password; omit for open networks.
+            "pswd" (str, optional) — network password; pass an empty
+            string or omit for open networks.
 
     Raises:
         ValueError: If args is None or does not contain "ssid".
@@ -426,8 +431,8 @@ def modify_playlist(args: Optional[Dict[str, Any]]):
 
     # Map action strings to the MPD method and appropriate log message templates.
     action_map = {
-        "Add"   : (mpd_control.add,    "Create playlist: '%s'",      "Add song '%s' to playlist '%s'"),
-        "Remove": (mpd_control.remove, "Delete playlist: '%s'", "Delete song '%s' from playlist '%s'"),
+        "Add"   : (mpd_control.add,    "Add playlist: '%s'",         "Add song '%s' to playlist '%s'"),
+        "Remove": (mpd_control.remove, "Remove playlist: '%s'", "Remove song '%s' from playlist '%s'"),
     }
 
     if action not in action_map:
@@ -572,9 +577,11 @@ async def stop_task():
     """
     Background asyncio task that fires when the keep-alive deadline passes.
 
-    Polls the deadline in 200 ms increments so cancellation is responsive.
-    Once the deadline is reached, places a MESSAGE_REQUEST_STOP message on
-    the service queue to trigger a graceful shutdown.
+    Polls the deadline in up to 200 ms increments so cancellation is
+    responsive; the final sleep before expiry may be shorter than 200 ms
+    if the remaining time is less than that. Once the deadline is reached,
+    places a MESSAGE_REQUEST_STOP message on the service queue to trigger
+    a graceful shutdown.
 
     If the task is cancelled (because a new /keep_alive ping reset the
     deadline) it exits silently without sending the stop message.
@@ -584,7 +591,7 @@ async def stop_task():
             remaining = (api_app.state.timer_deadline - datetime.now(timezone.utc)).total_seconds()
             if remaining <= 0:
                 break
-            # Sleep in 200 ms increments so cancellation is picked up quickly.
+            # Sleep in up to 200 ms increments so cancellation is picked up quickly.
             await sleep(min(remaining, 0.2))
 
         safe_put(api_app.state.queue, {"request": MESSAGE_REQUEST_STOP})
@@ -634,21 +641,17 @@ async def catch_all(request: Request):
     """
     Handle any request that did not match a defined route.
 
-    Passes /static/ requests through to the static file handler.
-    All other unmatched paths are redirected to /oradio3 via the
-    fully-qualified access-point URL.
+    The /static/ mount intercepts static asset requests before they reach
+    this handler, so all paths arriving here are redirected to /oradio3
+    via the fully-qualified access-point URL.
 
     Args:
         request: The incoming HTTP request.
 
     Returns:
-        A FileResponse for /static/ paths, or a 302 RedirectResponse
-        to {oradioap_url}/oradio3 for all other unmatched paths.
+        A 302 RedirectResponse to {oradioap_url}/oradio3.
     """
     oradio_log.debug("Catchall triggered for path: %s", request.url.path)
-
-    if request.url.path.startswith("/static/"):
-        return FileResponse(web_path + request.url.path)
 
     return RedirectResponse(url=oradioap_url + "/oradio3", status_code=302)
 
@@ -657,53 +660,46 @@ async def catch_all(request: Request):
 if __name__ == '__main__':
 
     import uvicorn
-    from queue import Empty
-    from constants import GREEN, NC                     # pylint: disable=ungrouped-imports,wrong-import-position
-    from messaging import Topic, DebugMessageHandler    # pylint: disable=ungrouped-imports,wrong-import-position
-    from multiprocessing import Event, Queue, Process
+    from threading import Thread
+    from multiprocessing import Queue
+    from messaging import safe_get, DebugMessageHandler     # pylint: disable=ungrouped-imports,wrong-import-position
 
     # Most stand-alone entry points share this pattern across modules
     # pylint: disable=duplicate-code
 
-#REVIEW Onno: stop_event/stop_flag is tijdelijk, verdwijnt na refactor met messaging
-    def _check_messages(queue, stop_flag):
+    def _check_requests(queue):
         """
-        Monitor the service message queue and print received messages.
+        Monitor the service request queue and print received messages.
 
-        Runs in a child process. Loops until stop_flag is set, printing
-        each message from queue as it arrives. Exits cleanly on
-        KeyboardInterrupt.
+        Runs in a background process. Loops until the bare
+        MESSAGE_REQUEST_STOP string sentinel is received.
 
         Args:
-            queue:      multiprocessing.Queue to drain.
-            stop_flag: multiprocessing.Event signalling the loop to exit.
+            queue: multiprocessing.Queue to drain.
         """
-        try:
-            while not stop_flag.is_set():
-                try:
-                    message = queue.get(block=True, timeout=0.5)
-                    print(f"\n{GREEN}Message received: '{message}'{NC}\n")
-                except Empty:
-                    continue
-        except KeyboardInterrupt:
-            print("Listener process interrupted by KeyboardInterrupt")
+        while True:
+            request = safe_get(queue)
+            print(f"\nRequest received: '{request}'\n")
 
-    # Override to relative URLs so the redirect works outside the access point network.
+            if request == MESSAGE_REQUEST_STOP:
+                return
+
+    # The module-level value includes the AP host address, which only resolves
+    # on-device; use a relative URL for stand-alone testing.
     oradioap_url = ""
 
     # Subscribe to command and error topics so messages published are printed to console.
-    cmd_handler = DebugMessageHandler(Topic.COMMAND)
-    err_handler = DebugMessageHandler(Topic.ERROR)
+    cmd_handler = DebugMessageHandler(Commands.subscribe())
+    err_handler = DebugMessageHandler(Errors.subscribe())
 
-    stop_event    = Event()
-    message_queue = Queue()
+    request_queue = Queue()
 
     # Spawn the message monitor before starting uvicorn so no messages are missed.
-    message_listener = Process(target=_check_messages, args=(message_queue, stop_event))
+    message_listener = Thread(target=_check_requests, args=(request_queue,))
     message_listener.start()
 
     # timer_started is already False from the module-level initialisation above.
-    api_app.state.queue = message_queue
+    api_app.state.queue = request_queue
 
     try:
         uvicorn.run(
@@ -717,9 +713,16 @@ if __name__ == '__main__':
             lifespan="off",         # Do not wait for startup/shutdown lifecycle events
         )
     except KeyboardInterrupt:
-        stop_event.set()
+        pass
+    finally:
+        # Signal _check_requests to exit by sending the bare string constant as a
+        # sentinel. Normal operation puts dicts; only this path puts the raw string.
+        safe_put(request_queue, MESSAGE_REQUEST_STOP)
         message_listener.join()
+        Commands.unsubscribe(cmd_handler.get_queue())
         cmd_handler.stop()
+        Errors.unsubscribe(err_handler.get_queue())
+        err_handler.stop()
 
     # Restore temporarily disabled pylint duplicate code check
     # pylint: enable=duplicate-code
