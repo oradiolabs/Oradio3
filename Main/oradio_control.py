@@ -843,7 +843,7 @@ sync_usb_presence_from_service()
 touch_buttons = TouchButtons(shared_queue)
 # ----------- Volume Control -----------------
 
-volume_control = VolumeControl(shared_queue)
+volume_control = VolumeControl()
 
 # REVIEW Onno: start de NetworkManager event listener
 oradio_wifi_service = WifiService()

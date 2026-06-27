@@ -257,7 +257,7 @@ class VolumeControl:
 if __name__ == "__main__":
 
     # Imports only relevant when stand-alone
-    from constants import GREEN, YELLOW, NC
+    from constants import YELLOW, NC
     from messaging import DebugMessageHandler   # pylint: disable=ungrouped-imports
 
     # Most modules use similar code in stand-alone
