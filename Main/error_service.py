@@ -192,6 +192,7 @@ class ErrorHandler:
         else:
             oradio_log.error("Unhandled GPIO error: '%s'", error.message)
 
+
     def _handle_backlight_error(self, error):
         """
         Handle backlight-related errors.
@@ -211,7 +212,8 @@ class ErrorHandler:
         else:
             oradio_log.error("Unhandled backlight error: '%s'", error.message)
 
-    def _errors_listener(self) -> None:
+    # Errors for each module are grouped separatly for maintainability
+    def _errors_listener(self) -> None:    # pylint: disable=too-many-branches,too-many-statements
         """
         Process error messages and attempt source-specific mitigation.
 
