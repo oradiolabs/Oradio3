@@ -321,8 +321,8 @@ throttling_monitor = RPiThrottlingMonitor()
 if __name__ == "__main__":
 
     from time import sleep
-    from constants import YELLOW, NC            # pylint: disable=wrong-import-position
-    from messaging import DebugMessageHandler   # pylint: disable=ungrouped-imports,wrong-import-position
+    from constants import YELLOW, NC
+    from messaging import DebugMessageHandler   # pylint: disable=ungrouped-imports
 
     # Most modules use similar code in stand-alone
     # pylint: disable=duplicate-code

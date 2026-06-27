@@ -324,9 +324,9 @@ class USBService:
 if __name__ == '__main__':
 
     # Imports only relevant when stand-alone
-    from constants import RED, YELLOW, NC       # pylint: disable=ungrouped-imports,wrong-import-position
-    from utilities import run_shell_script      # pylint: disable=wrong-import-position
-    from messaging import DebugMessageHandler   # pylint: disable=ungrouped-imports,wrong-import-position
+    from constants import RED, YELLOW, NC       # pylint: disable=ungrouped-imports
+    from utilities import run_shell_script
+    from messaging import DebugMessageHandler   # pylint: disable=ungrouped-imports
 
     # Most stand-alone entry points share this pattern; pylint would flag it as duplicate code across modules.
     # pylint: disable=duplicate-code

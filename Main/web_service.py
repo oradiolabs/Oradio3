@@ -578,8 +578,8 @@ if __name__ == '__main__':
 
     import requests
     import subprocess
-    from constants import RED, YELLOW, NC       # pylint: disable=ungrouped-imports,wrong-import-position
-    from messaging import DebugMessageHandler   # pylint: disable=ungrouped-imports,wrong-import-position
+    from constants import RED, YELLOW, NC       # pylint: disable=ungrouped-imports
+    from messaging import DebugMessageHandler   # pylint: disable=ungrouped-imports
 
     # Most stand-alone entry points share this pattern; pylint flags it as duplicate code across modules.
     # pylint: disable=duplicate-code

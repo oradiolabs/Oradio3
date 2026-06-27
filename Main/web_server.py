@@ -661,7 +661,7 @@ if __name__ == '__main__':
     import uvicorn
     from threading import Thread
     from multiprocessing import Queue
-    from messaging import safe_get, DebugMessageHandler     # pylint: disable=ungrouped-imports,wrong-import-position
+    from messaging import safe_get, DebugMessageHandler     # pylint: disable=ungrouped-imports
 
     # Most stand-alone entry points share this pattern across modules
     # pylint: disable=duplicate-code
