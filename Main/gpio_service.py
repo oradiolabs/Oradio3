@@ -55,19 +55,19 @@ from constants import (
 ##### Local constants ####################
 # LED GPIO PINS
 LEDS: dict[str, int] = {
-    LED_PLAY: 15,
+    LED_PLAY   : 15,
+    LED_STOP   : 23,
     LED_PRESET1: 24,
     LED_PRESET2: 25,
     LED_PRESET3: 7,
-    LED_STOP: 23
 }
 # BUTTONS GPIO PINS
 BUTTONS: dict[str, int] = {
-    BUTTON_PLAY: 9,
+    BUTTON_PLAY   : 9,
+    BUTTON_STOP   : 6,
     BUTTON_PRESET1: 11,
     BUTTON_PRESET2: 5,
     BUTTON_PRESET3: 10,
-    BUTTON_STOP: 6,
 }
 
 # Software debounce window in milliseconds passed to GPIO.add_event_detect.
