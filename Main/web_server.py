@@ -37,7 +37,7 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from starlette.responses import RedirectResponse
 
-#### oradio modules #################
+#### Oradio modules #################
 from log_service import oradio_log
 from utilities import get_serial, run_shell_script, load_presets, store_presets
 from wifi_service import get_wifi_networks, get_saved_network

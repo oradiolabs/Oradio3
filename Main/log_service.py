@@ -49,7 +49,7 @@ from concurrent_log_handler import ConcurrentRotatingFileHandler
 from requests import post, RequestException, Timeout
 
 ##### Oradio modules ####################
-# NOTE: Do not import oradio modules using oradio_log to avoid circular imports
+# NOTE: Do not import Oradio modules using oradio_log to avoid circular imports
 
 ##### GLOBAL constants ##################
 from constants import (

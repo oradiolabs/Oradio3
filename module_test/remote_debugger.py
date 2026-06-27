@@ -17,7 +17,7 @@ Created on Januari 11, 2026
 @version:       1
 @email:         oradioinfo@stichtingoradio.nl
 @status:        Development
-@summary:       Defines for oradio scripts
+@summary:       Defines for Oradio scripts
 
 @install: pip install pydevd
 @info
