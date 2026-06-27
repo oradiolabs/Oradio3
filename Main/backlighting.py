@@ -19,8 +19,6 @@ Created on Januari 17, 2025
     Class to run the backlighting service.
     - Measure the light level and adapt the backlighting MCP4725
     - Ensures the backlight always starts at a low level on boot
-@references:
-
 """
 from time import sleep
 from threading import Thread, Event
@@ -31,7 +29,6 @@ from i2c_service import I2CService
 from messaging import (
     Errors,
     ErrorMessage,
-    CommandMessage,
     BACKLIGHT_SOURCE,
     BACKLIGHT_ERROR_START,
     BACKLIGHT_ERROR_STOP,
@@ -260,12 +257,12 @@ class Backlighting:
         else:
             oradio_log.info("Backlight manager thread stopped")
 
-    def off(self):
+    def off(self) -> None:
         """Stop auto-adjust thread if any, and turn off backlight."""
         self.stop()
         self._write_dac(BACKLIGHT_OFF)
 
-    def maximum(self):
+    def maximum(self) -> None:
         """Stop auto-adjust thread if any, and set backlight to maximum."""
         self.stop()
         self._write_dac(BACKLIGHT_MAX)
@@ -298,8 +295,11 @@ if __name__ == '__main__':
     # Most modules use similar code in stand-alone
     # pylint: disable=duplicate-code
 
-    def interactive_menu():
-        """Show menu with test options"""
+    # Pylint allows more than 12 branches here because this is a test menu
+    def interactive_menu() -> None:    # pylint: disable=too-many-branches,too-many-statements
+        """
+        Run an interactive self-test menu for the backlight.
+        """
 
         # Show menu with test options
         input_selection = (
