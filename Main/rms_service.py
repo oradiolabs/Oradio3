@@ -47,8 +47,9 @@ from messaging import (
     ErrorMessage,
     MessageHandlerBase,
     WIFI_SOURCE,
-    WIFI_DISCONNECTED,
     WIFI_CONNECTED,
+    WIFI_DISCONNECTED,
+    WIFI_ACCESS_POINT,
     RMS_SOURCE,
     RMS_ERROR_SERVICE,
 )
@@ -320,6 +321,10 @@ class WifiMessageHandler(MessageHandlerBase):
             # Immediately report hardware/software identity on every new connection
             self.send_message(SYS_INFO)
             oradio_log.debug("WiFi connected. Heartbeat started and system info sent.")
+
+        elif message.message == WIFI_ACCESS_POINT:
+            # Heartbeat cannot be active, info message cannot be sent
+            pass
 
         else:
             oradio_log.error("Unexpected message: %s", message)
