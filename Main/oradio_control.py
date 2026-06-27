@@ -65,6 +65,8 @@ from messaging import (
     WEB_PL2_WEBRADIO,
     WEB_PL3_WEBRADIO,
     WEB_PLAYING_SONG,
+    VOLUME_SOURCE,
+    VOLUME_CHANGED,
 )
 
 ##### GLOBAL constants ####################
