@@ -67,7 +67,7 @@ def test_i2c_bus(bus_number: int) -> dict:
     Test a specific I2C bus for connected devices.
 
     Args:
-        bus_number: The I2C bus number to test.
+        bus_number (int): The I2C bus number to test.
 
     Returns:
         dict: Dictionary with bus test results:
@@ -132,15 +132,22 @@ class I2CService:
     def __init__(self) -> None:
         """
         Initialize the I2C bus and the thread lock.
+        Logs and publishes an error if no buses are found or the bus is not accessible.
         """
         self._lock = Lock()
+        self._bus = None
 
         buses = find_i2c_buses()
-        if buses:
-            info = test_i2c_bus(buses[0])
-            if not info["ok"]:
-                oradio_log.error("I2C bus %d not accessible: %s", info['error'])
-                Errors.publish(ErrorMessage(I2C_SOURCE, I2C_ERROR_SERVICE))
+        if not buses:
+            oradio_log.error("No I2C buses found under /dev/")
+            Errors.publish(ErrorMessage(I2C_SOURCE, I2C_ERROR_BUS))
+            return
+
+        info = test_i2c_bus(buses[0])
+        if not info["ok"]:
+            oradio_log.error("I2C bus %d not accessible: %s", buses[0], info['error'])
+            Errors.publish(ErrorMessage(I2C_SOURCE, I2C_ERROR_BUS))
+            return
 
         self._bus = SMBus(buses[0])
 
@@ -157,7 +164,7 @@ class I2CService:
             register (int): Register address on the device.
 
         Returns:
-            int: Byte value read from the device.
+            int | None: Byte value read from the device, or None on error.
         """
         with self._lock:
             try:
@@ -178,9 +185,6 @@ class I2CService:
             device (int): I2C device address.
             register (int): Register address on the device.
             value (int): Byte value to write.
-
-        Returns:
-            None
         """
         for attempt in range(1, I2C_RETRIES + 1):
             with self._lock:
@@ -188,13 +192,13 @@ class I2CService:
                     self._bus.write_byte_data(device, register, value)
                     return
                 except (OSError, ValueError, TypeError) as ex_err:
-                    oradio_log.warning("Unexpected error '%s' during I2C writing byte to device=0x%02X, register=0x%02X, value=0x%02X (attempt %d/%d)", ex_err, device, register, value, attempt, I2C_RETRIES)
+                    oradio_log.warning("I2C write byte failed (attempt %d/%d): device=0x%02X, register=0x%02X, value=0x%02X -> %s", attempt, I2C_RETRIES, device, register, value, ex_err)
             # Avoid hammering the I2C bus
             sleep(I2C_BACKOFF)
         # All retries exhausted
         oradio_log.error("Failed writing byte to device=0x%02X, register=0x%02X, value=0x%02X after %d attempts", device, register, value, I2C_RETRIES)
 
-##### Block operations #####
+# ---------------- Block operations ----------------
 
     def read_block(self, device: int, register: int, length: int) -> list | None:
         """
@@ -208,10 +212,11 @@ class I2CService:
             length (int): Number of bytes to read, max 32.
 
         Returns:
-            list: List of byte values read from the device.
+            list | None: List of byte values read from the device, or None on error.
         """
         if length > 32:
             oradio_log.error("SMBus block read supports a maximum of 32 bytes")
+            return None
 
         with self._lock:
             try:
@@ -232,12 +237,10 @@ class I2CService:
             device (int): I2C device address.
             register (int): Register address on the device.
             data (list): List of byte values to write, max 32.
-
-        Returns:
-            None
         """
         if len(data) > 32:
             oradio_log.error("SMBus block write supports a maximum of 32 bytes")
+            return
 
         for attempt in range(1, I2C_RETRIES + 1):
             with self._lock:
@@ -245,13 +248,13 @@ class I2CService:
                     self._bus.write_i2c_block_data(device, register, data)
                     return
                 except (OSError, ValueError, TypeError) as ex_err:
-                    oradio_log.warning("Unexpected error '%s' during I2C writing block to device=0x%02X, register=0x%02X, data=%s (attempt %d/%d)", ex_err, device, register, data, attempt, I2C_RETRIES)
+                    oradio_log.warning("I2C write block failed (attempt %d/%d): device=0x%02X, register=0x%02X, data=%s -> %s", attempt, I2C_RETRIES, device, register, data, ex_err)
             # Avoid hammering the I2C bus
             sleep(I2C_BACKOFF)
         # All retries exhausted
         oradio_log.error("Failed writing block to device=0x%02X, register=0x%02X, data=%s after %d attempts", device, register, data, I2C_RETRIES)
 
-##### Entry point for stand-alone operation #####
+# ---------------- Entry point for stand-alone operation ----------------
 
 if __name__ == '__main__':
 
@@ -296,8 +299,4 @@ if __name__ == '__main__':
                 for addr, _ in info["unexpected"]:
                     print(f"   - device at 0x{addr:02X} -> Unknown")
 
-    print("\nStarting I2C service test program...\n")
-
     i2c_bus_probe()
-
-    print("\nExiting I2C service test program...\n")
