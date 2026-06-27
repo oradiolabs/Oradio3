@@ -95,15 +95,17 @@ BACKLIGHT_ERROR_STOP  = "Backlight failed to stop"
 # I2C
 I2C_SOURCE    = "I2C service message"
 I2C_ERROR_BUS = "I2C bus error"
+# Volume
+VOLUME_SOURCE      = "Volume message"
+VOLUME_CHANGED     = "Volume changed"
+VOLUME_ERROR_START = "Volume failed to start"
+VOLUME_ERROR_STOP  = "Volume failed to stop"
 
 '''
 # Messages from fastapi to web service
 MESSAGE_REQUEST_CONNECT = "connect to wifi network"
 MESSAGE_REQUEST_STOP    = "stop web service"
 
-# Volume
-MESSAGE_VOLUME_SOURCE  = "Vol Control message"
-MESSAGE_VOLUME_CHANGED = "Volume changed"
 # Spotify
 MESSAGE_SPOTIFY_SOURCE    = "Spotify message"
 # Touch buttons

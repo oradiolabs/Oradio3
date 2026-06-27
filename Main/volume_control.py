@@ -25,14 +25,16 @@ from threading import Thread, Event
 ##### Oradio modules ####################
 from log_service import oradio_log
 from i2c_service import I2CService
-from utilities import safe_put, run_shell_script
-
-##### GLOBAL constants ####################
-from constants import (
-    GREEN, YELLOW, NC,
-    MESSAGE_VOLUME_SOURCE,
-    MESSAGE_VOLUME_CHANGED,
-    MESSAGE_NO_ERROR,
+from utilities import run_shell_script
+from messaging import (
+    Errors,
+    Commands,
+    ErrorMessage,
+    CommandMessage,
+    VOLUME_SOURCE,
+    VOLUME_CHANGED,
+    VOLUME_ERROR_START,
+    VOLUME_ERROR_STOP,
 )
 
 ##### LOCAL constants ####################
@@ -65,18 +67,10 @@ class VolumeControl:
     Tracks an ADC volume knob, updates volume, and triggers a callback on significant changes.
     """
 
-    def __init__(self, queue) -> None:
+    def __init__(self) -> None:
         """
         Initialize I²C bus, callback and mixer.
-
-        Args:
-            on_change: optional zero-argument callback that will be invoked
-                       when a significant volume change is detected. Keep
-                       the callback tiny and non-blocking.
         """
-        # Store queue for sending volume change messages asynchronously
-        self._queue = queue
-
         # Set default MPD volume
         self._set_volume(VOLUME_CONTROL_MPD, DEFAULT_VOLUME_MPD)
 
@@ -118,14 +112,14 @@ class VolumeControl:
 
     def _adc2volume(self, adc) -> int:
         """
-        Map adc from range [ADC_MIN, ADC_MAX] to [VOL_MIN, VOL_MAX].
+        Map ADC from range [ADC_MIN, ADC_MAX] to [VOL_MIN, VOL_MAX].
         Round the mapping result to the nearest integer.
 
         Args:
-            adc (int): The value of the ADC reading the volumne knob position.
+            adc: The value of the ADC reading the volumne knob position.
 
         Returns:
-            int: The volume level in range 0..100
+            The volume level in range 0..100
         """
         return round(int(VOL_MIN[:-1]) + (adc - ADC_MIN) * (int(VOL_MAX[:-1]) - int(VOL_MIN[:-1])) / (ADC_MAX - ADC_MIN))
 
@@ -197,17 +191,8 @@ class VolumeControl:
                 # Notify only once
                 if self._armed:
                     self._armed = False
-
-                    # Create message
-                    message = {
-                        "source": MESSAGE_VOLUME_SOURCE,
-                        "state" : MESSAGE_VOLUME_CHANGED,
-                        "error" : MESSAGE_NO_ERROR
-                    }
-
-                    # Put message in queue
-                    oradio_log.debug("Send volume changed message: %s", message)
-                    safe_put(self._queue, message)
+                    oradio_log.debug("Send volume changed message")
+                    Commands.publish(CommandMessage(VOLUME_SOURCE, VOLUME_CHANGED))
 
                 polling_interval = POLLING_MIN_INTERVAL     # Fast polling while turning
             else:
@@ -225,13 +210,19 @@ class VolumeControl:
 
         # Create and start thread
         self._thread = Thread(target=self._volume_manager, daemon=True)
-        self._thread.start()
+        try:
+            self._thread.start()
+        except RuntimeError as ex_err:
+            oradio_log.error("Volume manager thread failed to start: %s", ex_err)
+            Errors.publish(ErrorMessage(VOLUME_SOURCE, VOLUME_ERROR_START))
+            return
 
-        # Check if thread started
-        if self._running.wait(timeout=THREAD_TIMEOUT):
-            oradio_log.info("Volume manager thread started")
-        else:
-            oradio_log.error("Timed out: Volume manager thread not started")
+        if not self._running.wait(timeout=THREAD_TIMEOUT):
+            oradio_log.error("Volume manager thread did not become ready in time")
+            Errors.publish(ErrorMessage(VOLUME_SOURCE, VOLUME_ERROR_START))
+            return
+
+        oradio_log.info("Volume manager thread started")
 
     def stop(self) -> None:
         """Stop the volumne control thread and wait for it to terminate."""
@@ -247,6 +238,7 @@ class VolumeControl:
 
         if self._thread.is_alive():
             oradio_log.error("Join timed out: volume manager thread is still running")
+            Errors.publish(ErrorMessage(VOLUME_SOURCE, VOLUME_ERROR_STOP))
         else:
             oradio_log.info("Volume manager thread stopped")
 
@@ -258,26 +250,16 @@ class VolumeControl:
 if __name__ == "__main__":
 
     # Imports only relevant when stand-alone
-    from multiprocessing import Process, Queue
+    from constants import GREEN, YELLOW, NC
+    from messaging import DebugMessageHandler   # pylint: disable=ungrouped-imports
 
-# Most modules use similar code in stand-alone
-# pylint: disable=duplicate-code
+    # Most modules use similar code in stand-alone
+    # pylint: disable=duplicate-code
 
-    def _check_messages(queue):
+    def interactive_menu():
         """
-        Check if a new message is put into the queue
-        If so, read the message from queue and display it
-        Args:
-            queue = the queue to check for
+        Run an interactive self-test menu for the backlight.
         """
-        while True:
-            # Wait indefinitely until a message arrives from the server/wifi service
-            message = queue.get(block=True, timeout=None)
-            # Show message received
-            print(f"\n{GREEN}Message received: '{message}'{NC}\n")
-
-    def interactive_menu(queue):
-        """Show menu with test options"""
 
         # Show menu with test options
         input_selection = (
@@ -290,16 +272,16 @@ if __name__ == "__main__":
         )
 
         # Initialise backlighting
-        volume_control = VolumeControl(queue)
+        volume_control = VolumeControl()
 
-        # User command loop
         while True:
+
+            # Safely parse integer input; treat non-numeric input as invalid.
             try:
                 function_nr = int(input(input_selection))
             except ValueError:
-                function_nr = -1
+                function_nr = -1  # Sentinel that falls through to the default case
 
-            # Execute selected function
             match function_nr:
                 case 0:
                     break
@@ -316,22 +298,19 @@ if __name__ == "__main__":
                 case _:
                     print(f"\n{YELLOW}Please input a valid number{NC}\n")
 
-    print("\nStarting VolumeControl test program...\n")
+    # Subscribe to command and error topics so published messages are printed to console
+    cmd_handler = DebugMessageHandler(Commands.subscribe())
+    err_handler = DebugMessageHandler(Errors.subscribe())
 
-    # Initialize
-    message_queue = Queue()
+    # Launch the interactive test menu; blocks until the user quits
+    interactive_menu()
 
-    # Start  process to monitor the message queue
-    message_listener = Process(target=_check_messages, args=(message_queue,))
-    message_listener.start()
+    # Stop receiving messages
+    Commands.unsubscribe(cmd_handler.get_queue())
+    Errors.unsubscribe(err_handler.get_queue())
+    # Signal the thread to exit and confirm it has exited
+    cmd_handler.stop()
+    err_handler.stop()
 
-    # Present menu with tests
-    interactive_menu(message_queue)
-
-    # Stop listening to messages
-    message_listener.terminate()
-
-    print("\nExiting VolumeControl test program...\n")
-
-# Restore temporarily disabled pylint duplicate code check
-# pylint: enable=duplicate-code
+    # Restore temporarily disabled pylint duplicate code check
+    # pylint: enable=duplicate-code

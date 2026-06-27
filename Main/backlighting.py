@@ -227,8 +227,8 @@ class Backlighting:
 
         try:
             self._thread.start()
-        except RuntimeError as ex:
-            oradio_log.error("Backlight manager thread failed to start: %s", ex)
+        except RuntimeError as ex_err:
+            oradio_log.error("Backlight manager thread failed to start: %s", ex_err)
             Errors.publish(ErrorMessage(BACKLIGHT_SOURCE, BACKLIGHT_ERROR_START))
             return
 
@@ -289,8 +289,8 @@ class Backlighting:
 if __name__ == '__main__':
 
     # Imports only relevant when stand-alone
-    from constants import YELLOW, NC            # pylint: disable=wrong-import-position
-    from messaging import DebugMessageHandler   # pylint: disable=ungrouped-imports,wrong-import-position
+    from constants import YELLOW, NC
+    from messaging import DebugMessageHandler   # pylint: disable=ungrouped-imports
 
     # Most modules use similar code in stand-alone
     # pylint: disable=duplicate-code
@@ -318,12 +318,13 @@ if __name__ == '__main__':
 
         # User command loop
         while True:
+
+            # Safely parse integer input; treat non-numeric input as invalid.
             try:
                 function_nr = int(input(input_selection))
             except ValueError:
-                function_nr = -1
+                function_nr = -1  # Sentinel that falls through to the default case
 
-            # Execute selected function
             match function_nr:
                 case 0:
                     break

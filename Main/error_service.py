@@ -52,6 +52,9 @@ from messaging import (
     BACKLIGHT_ERROR_STOP,
     I2C_SOURCE,
     I2C_ERROR_BUS,
+    VOLUME_SOURCE,
+    VOLUME_ERROR_START,
+    VOLUME_ERROR_STOP,
 )
 
 ##### GLOBAL constants ##############
@@ -229,6 +232,25 @@ class ErrorHandler:
         else:
             oradio_log.error("Unhandled I2C error: '%s'", error.message)
 
+    def _handle_volume_error(self, error):
+        """
+        Handle volume-related errors.
+
+        Attempts recovery from known volume conditions and logs
+        unrecognised errors for further investigation.
+
+        Args:
+            error: Error message received from the error bus.
+        """
+        if error.message == VOLUME_ERROR_START:
+# NIET VERGETEN: implement volume-recovery logic (e.g. back-off, retry)
+            oradio_log.debug("Volume start mitigation to be implemented")
+        elif error.message == VOLUME_ERROR_STOP:
+# NIET VERGETEN: implement volume-recovery logic (e.g. back-off, retry)
+            oradio_log.debug("Volume stop mitigation to be implemented")
+        else:
+            oradio_log.error("Unhandled volume error: '%s'", error.message)
+
     # Errors for each module are grouped separatly for maintainability
     def _errors_listener(self) -> None:    # pylint: disable=too-many-branches,too-many-statements
         """
@@ -271,6 +293,9 @@ class ErrorHandler:
             elif error.source == I2C_SOURCE:
                 self._handle_i2c_error(error)
 
+            elif error.source == VOLUME_SOURCE:
+                self._handle_volume_error(error)
+
             else:
                 # Source is not registered with this handler
                 oradio_log.error("Unhandled error from source: '%s': %s", error.source, error.message)
@@ -294,8 +319,8 @@ class ErrorHandler:
 if __name__ == '__main__':
 
     # Imports only relevant when stand-alone
-    from messaging import ErrorMessage      # pylint: disable=ungrouped-imports,wrong-import-position
-    from constants import YELLOW, NC        # pylint: disable=ungrouped-imports,wrong-import-position
+    from messaging import ErrorMessage      # pylint: disable=ungrouped-imports
+    from constants import YELLOW, NC        # pylint: disable=ungrouped-imports
 
     # Most modules use similar code in stand-alone
     # pylint: disable=duplicate-code
