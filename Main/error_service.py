@@ -44,6 +44,9 @@ from messaging import (
     RMS_ERROR_SERVICE,
     WEB_SOURCE,
     WEB_ERROR_SERVICE,
+    GPIO_SOURCE,
+    GPIO_ERROR_SERVICE,
+    GPIO_ERROR_BUTTONS,
 )
 
 ##### GLOBAL constants ##############
@@ -167,6 +170,25 @@ class ErrorHandler:
         else:
             oradio_log.error("Unhandled web error: '%s'", error.message)
 
+    def _handle_gpio_error(self, error):
+        """
+        Handle gpio-related errors.
+
+        Attempts recovery from known web service/server conditions and logs
+        unrecognised errors for further investigation.
+
+        Args:
+            error: Error message received from the error bus.
+        """
+        if error.message == GPIO_ERROR_SERVICE:
+# NIET VERGETEN: implement gpio-recovery logic (e.g. back-off, retry)
+            oradio_log.debug("GPIO service mitigation to be implemented")
+        elif error.message == GPIO_ERROR_BUTTONS:
+# NIET VERGETEN: implement gpio-recovery logic (e.g. back-off, retry)
+            oradio_log.debug("GPIO buttons mitigation to be implemented")
+        else:
+            oradio_log.error("Unhandled GPIO error: '%s'", error.message)
+
     def _errors_listener(self) -> None:
         """
         Process error messages and attempt source-specific mitigation.
@@ -198,6 +220,9 @@ class ErrorHandler:
 
             elif error.source == TEST_SOURCE:
                 oradio_log.debug("Mitigating test error: '%s'", error.message)
+
+            elif error.source == GPIO_SOURCE:
+                self._handle_gpio_error(error)
 
             else:
                 # Source is not registered with this handler

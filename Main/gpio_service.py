@@ -28,13 +28,19 @@ Created on November 29, 2025
     https://www.raspberrypi.com/documentation/computers/raspberry-pi.html#gpio
 """
 from time import perf_counter
-from typing import Tuple, Optional
 from threading import Lock
 from RPi import GPIO
 
 ##### oradio modules ####################
 from log_service import oradio_log
 from singleton import singleton
+from messaging import (
+    Errors,
+    ErrorMessage,
+    GPIO_SOURCE,
+    GPIO_ERROR_SERVICE,
+    GPIO_ERROR_BUTTONS,
+)
 
 ##### GLOBAL constants ####################
 from constants import (
@@ -64,89 +70,107 @@ BUTTONS: dict[str, int] = {
     BUTTON_PRESET3: 10,
     BUTTON_STOP: 6,
 }
-BOUNCE_MS = 10  # hardware debounce in GPIO.add_event_detect
+
+# Software debounce window in milliseconds passed to GPIO.add_event_detect.
+BOUNCE_MS = 10
+
 LED_ON = True
 LED_OFF = False
 
 @singleton
 class GPIOService:
     """
-    Thread-safe class for GPIO control and status.
-    - Set the output pins for the configured LED pins
-    - Reading the inputs for the configured BUTTON pins
-    - Callback for button change event
-    - Log info/warnings/errors for debugging.
-    Raises:
+    Thread-safe singleton for GPIO control and status.
+
+    Manages output pins for configured LEDs and input pins for configured
+    buttons. Supports registering a callback for button edge events and
+    provides logging for debugging.
+
     Attributes:
-        gpio_module_test:
-            TEST_DISABLED = The module test is disabled (default)
-            TEST_ENABLED  = The module test is enabled, additional code is provided
+        gpio_module_test (int): Controls test mode behaviour.
+            TEST_DISABLED (default): normal operation.
+            TEST_ENABLED: adds timing data to button callbacks for
+                performance measurement.
     """
     gpio_module_test = TEST_DISABLED
+
     def __init__(self) -> None:
         """
-        Initialize and setup the GPIO
+        Initialise and configure all GPIO pins.
+
+        Sets BCM pin numbering, configures LED pins as outputs (initially
+        HIGH, i.e. off), configures button pins as inputs with pull-up
+        resistors, builds the channel-to-button-name reverse lookup, and
+        clears any previously registered edge-detection handlers.
         """
         self._lock = Lock()
         self.edge_event_callback = None
-        # Fast channel -> name lookup
+
+        # Fast channel -> name reverse lookup used in _edge_callback.
         self.gpio_to_button = {}
 
-        # The GPIO.BCM refers to a numbering system used in the RPi.GPIO library for Raspberry Pi,
-        # The GPIO pins are based on the Broadcom chip's pin numbers, so set to GPIO.BCM
+        # GPIO.BCM uses Broadcom chip pin numbers rather than physical board positions.
         GPIO.setmode(GPIO.BCM)
 
-        # Initialize the configured LED pins
+        # Initialise configured LED pins as outputs, starting HIGH (off).
         for _, pin in LEDS.items():
             try:
                 GPIO.setup(pin, GPIO.OUT, initial=GPIO.HIGH)
             except RuntimeError as err:
                 oradio_log.error("Error setting LED output for pin %s: %s", pin, err)
+                Errors.publish(ErrorMessage(GPIO_SOURCE, GPIO_ERROR_SERVICE))
 
-        # Initialize the BUTTON pins
+        # Initialise button pins as inputs with internal pull-up resistors.
         for button_name, pin in BUTTONS.items():
             try:
                 GPIO.setup(pin, GPIO.IN, pull_up_down=GPIO.PUD_UP)
             except RuntimeError as err:
                 oradio_log.error("Error setting BUTTON input for pin %s: %s", pin, err)
+                Errors.publish(ErrorMessage(GPIO_SOURCE, GPIO_ERROR_SERVICE))
 
-            # dictionary for a fast channel -> name lookup
             self.gpio_to_button[pin] = button_name
 
-            # Ensure clean slate: disable if set, do nothing if not previously set
+            # Ensure clean slate: disable if set, do nothing if not previously set.
             GPIO.remove_event_detect(pin)
 
         oradio_log.debug("GPIO initialized")
 
     def gpio_cleanup(self) -> None:
         """
-        Reset the GPIO pins to their default state.
-        It resets any ports which have been used and puts the port in default state
-        The default state is input-mode.
-        Mainly used in test environments, to get pins in the default state
+        Reset all GPIO pins to their default input state.
+
+        Calls GPIO.cleanup() to release all configured pins and return them
+        to input mode with no pull-up or pull-down resistors.
+
+        Note:
+            Intended primarily for test environments where pins must be
+            returned to a known state between test runs.
         """
         with self._lock:
             GPIO.cleanup()
 
     def _read_pin_state(self, io_pin: int) -> bool:
         """
-        read the state of the specified io-pin
+        Read the current logic level of the specified GPIO pin.
+
         Args:
-            io_pin: int = which pin to read
+            io_pin (int): BCM pin number to read.
+
         Returns:
-            True = pin is HIGH
-            False = pin is LOW
+            bool: True if the pin is HIGH, False if LOW.
         """
         with self._lock:
             return bool(GPIO.input(io_pin))
 
 ################## methods for the LED pins ######################
+
     def set_led_on(self, led_name: str) -> None:
         """
-        Turns ON the specified LED.
+        Turn on the specified LED.
+
         Args:
-            led_name (str) precondition: must be [ LED_PLAY | LED_STOP] |
-                                                   LED_PRESET1 | LED_PRESET2 | LED_PRESET3 ]
+            led_name (str): One of LED_PLAY, LED_STOP, LED_PRESET1,
+                LED_PRESET2, LED_PRESET3.
         """
         if led_name not in LED_NAMES:
             oradio_log.error("Unknown led name: %s", led_name)
@@ -156,10 +180,11 @@ class GPIOService:
 
     def set_led_off(self, led_name: str) -> None:
         """
-        Turns OFF the specified LED.
+        Turn off the specified LED.
+
         Args:
-            led_name (str) precondition: must be [ LED_PLAY | LED_STOP] |
-                                                   LED_PRESET1 | LED_PRESET2 | LED_PRESET3 ]
+            led_name (str): One of LED_PLAY, LED_STOP, LED_PRESET1,
+                LED_PRESET2, LED_PRESET3.
         """
         if led_name not in LED_NAMES:
             oradio_log.error("Unknown led name: %s", led_name)
@@ -167,75 +192,77 @@ class GPIOService:
             with self._lock:
                 GPIO.output(LEDS[led_name], GPIO.HIGH)
 
-    def get_led_state(self, led_name: str) -> Tuple[bool, Optional[str]]:
+    def get_led_state(self, led_name: str) -> bool | None:
         """
-        Get the state off the specified LED.
+        Return the current state of the specified LED.
+
         Args:
-            led_name (str) precondition: must be [ LED_PLAY | LED_STOP] |
-                                                   LED_PRESET1 | LED_PRESET2 |
-                                                   LED_PRESET3 ]
+            led_name (str): One of LED_PLAY, LED_STOP, LED_PRESET1,
+                LED_PRESET2, LED_PRESET3.
+
         Returns:
-            True = LED is ON
-            False = LED is OFF
-            None = Unknown led_name
+            bool: True if the LED is on, False if off.
+            None: If led_name is not recognised.
         """
         if led_name not in LED_NAMES:
             oradio_log.error("Unknown led name: %s", led_name)
-            led_state = None
-        else:
-            led_state = not self._read_pin_state(LEDS[led_name])
-            # Note led on ==> GPIO.LOW,
-        return led_state
+            return None
+
+        # LEDs are active-low: GPIO.LOW means ON, GPIO.HIGH means OFF.
+        return not self._read_pin_state(LEDS[led_name])
 
 ######### methods for BUTTON pins ########################
 
     def set_button_edge_event_callback(self, callback) -> None:
         """
-        Set the callback for a change (edge_event) on a button state
-        The callback will process the change event
+        Register the callback invoked on every button edge event.
+
         Args:
-            callback (Callable): the reference to the callback function, upon an button event
+            callback (Callable): Function to call when a button state
+                changes. Receives a dict with "state" and "name" keys.
         """
         if callable(callback):
             self.edge_event_callback = callback
         else:
-            oradio_log.error("Callback function does not exists")
+            oradio_log.error("Callback is not callable")
 
-    def get_button_state(self, button_name: str) -> Tuple[bool, Optional[str]]:
+    def get_button_state(self, button_name: str) -> bool | None:
         """
-        Get the state off the specified button.
+        Return the current state of the specified button.
+
         Args:
-            button_name (str) precondition: must be [ BUTTON_PLAY | BUTTON_STOP] |
-                                                   BUTTON_PRESET1 | BUTTON_PRESET2 |
-                                                   BUTTON_PRESET3 ]
+            button_name (str): One of BUTTON_PLAY, BUTTON_STOP,
+                BUTTON_PRESET1, BUTTON_PRESET2, BUTTON_PRESET3.
+
         Returns:
-            button_state = True/False | None
-                True = BUTTON is ON (so pressed/touched)
-                False = BUTTON is OFF (so not pressed/touched)
-                None = Unknown button name
+            bool: True if the button is pressed, False if released.
+            None: If button_name is not recognised.
         """
         if button_name not in BUTTON_NAMES:
             oradio_log.error("Unknown button name: %s", button_name)
-            button_state = None
-        else:
-            button_state = not self._read_pin_state(BUTTONS[button_name])
-            # Note: a pressed button has value GPIO.LOW
-        return button_state
+            return None
+
+        # A pressed button reads GPIO.LOW; invert so True means pressed.
+        return not self._read_pin_state(BUTTONS[button_name])
 
     def enable_button_events(self) -> None:
         """
-        Enable GPIO edge detection AFTER callback is set.
-        This prevents race conditions during startup.
+        Enable GPIO edge detection on all button pins.
+
+        Must be called after set_button_edge_event_callback() to avoid a
+        race condition where a button event fires before the callback is set.
+        Publishes GPIO_ERROR_BUTTONS and returns early if no callback has
+        been registered.
         """
         if not callable(self.edge_event_callback):
             oradio_log.error("Cannot enable button events: callback not set")
+            Errors.publish(ErrorMessage(GPIO_SOURCE, GPIO_ERROR_BUTTONS))
             return
 
         for pin in BUTTONS.values():
             try:
-                # Ensure clean slate: disable if set, do nothing if not previously set
+                # Ensure clean slate: disable if set, do nothing if not previously set.
                 GPIO.remove_event_detect(pin)
-                # Set event handler for GPIO pin
                 GPIO.add_event_detect(pin, GPIO.BOTH, callback=self._edge_callback, bouncetime=BOUNCE_MS)
             except RuntimeError as err:
                 oradio_log.error("Error enabling event detection for pin %s: %s", pin, err)
@@ -245,48 +272,47 @@ class GPIOService:
     def _edge_callback(self, channel: int) -> None:
         """
         Unified handler for both press (falling) and release (rising) edges.
-        One callback as button handling is the same for rising as for falling edge.
-        Only difference is the state of the button. To prevent duplicated-code
-        Called by gpio event detection.
-        When channel has a known button_name, the configured callback is called
+
+        Called by the RPi.GPIO event detection system when any button pin
+        changes state. Looks up the button name from the channel number,
+        reads the current pin level to determine press or release, and
+        forwards the event to the registered callback.
+
         Args:
-            channel (int) is the I/O-pin which detected an edge event
-        Attributes:
-            gpio_module_test
-                TEST_ENABLED :
-                    * extra timestamp data added to callback
-                                for performance measurements
-                    * state = BUTTON_PRESSED
-                TEST_DISABLED = Default mode, no extra data for testing
+            channel (int): BCM pin number on which the edge was detected.
+
+        Note:
+            When gpio_module_test is TEST_ENABLED, the state is overridden
+            to BUTTON_PRESSED and a perf_counter timestamp is attached to
+            button_data for performance measurement.
         """
         if not callable(self.edge_event_callback):
-            oradio_log.error("no callback function found")
+            oradio_log.error("No callback function found")
             return
 
-        if self.gpio_module_test == TEST_ENABLED:
-            button_event_ts = perf_counter()  # timestamp the start of this function
+        # Capture timestamp immediately if test mode is active so the
+        # measurement reflects the true start of this handler.
+        button_event_ts = perf_counter() if self.gpio_module_test == TEST_ENABLED else None
 
-        button_name = self.gpio_to_button[channel]
+        button_name = self.gpio_to_button.get(channel)
         if not button_name:
+            oradio_log.warning("Edge event on unknown channel %s — ignored", channel)
             return
 
         button_value = GPIO.input(channel)
-        if button_value == GPIO.LOW:
-            state = BUTTON_PRESSED
-        else:
-            state = BUTTON_RELEASED
+        state = BUTTON_PRESSED if button_value == GPIO.LOW else BUTTON_RELEASED
 
         button_data = {
             "state": state,
-            "name": button_name
+            "name": button_name,
         }
 
         if self.gpio_module_test == TEST_ENABLED:
-            # When TEST_ENABLED, the module test requires the button_data, being:
-            # button state = BUTTON_PRESSED
-            # timing data = current time-stamp
+            # Override state to BUTTON_PRESSED and attach the timing
+            # timestamp for performance measurement.
             button_data["state"] = BUTTON_PRESSED
             button_data["data"] = button_event_ts
+
         self.edge_event_callback(button_data)
 
 # Entry point for stand-alone operation

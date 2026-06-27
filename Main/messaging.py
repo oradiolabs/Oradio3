@@ -84,11 +84,16 @@ WEB_ERROR_SERVICE = "Web service error"
 # Remote Monitoring
 RMS_SOURCE        = "RMS service message"
 RMS_ERROR_SERVICE = "RMS service error"
+# GPIO
+GPIO_SOURCE        = "GPIO service message"
+GPIO_ERROR_SERVICE = "GPIO service error"
+GPIO_ERROR_BUTTONS = "GPIO buttons error"
 
 '''
 # Messages from fastapi to web service
 MESSAGE_REQUEST_CONNECT = "connect to wifi network"
 MESSAGE_REQUEST_STOP    = "stop web service"
+
 # Volume
 MESSAGE_VOLUME_SOURCE  = "Vol Control message"
 MESSAGE_VOLUME_CHANGED = "Volume changed"
