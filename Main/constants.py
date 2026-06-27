@@ -107,10 +107,6 @@ STOP_SENTINEL = "__STOP__"
 # after the sentinel has been delivered, before logging a warning.
 JOIN_TIMEOUT = 2.0
 
-################## VOLUME #############################
-MESSAGE_VOLUME_SOURCE  = "Volume message"
-MESSAGE_VOLUME_CHANGED = "Volume changed"
-
 ############# SPOTIFY CONFIG #####################################
 MESSAGE_SPOTIFY_SOURCE    = "Spotify message"
 SPOTIFY_EVENT_SOCKET_PORT = 8010
