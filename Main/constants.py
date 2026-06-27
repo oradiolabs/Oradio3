@@ -108,7 +108,7 @@ STOP_SENTINEL = "__STOP__"
 JOIN_TIMEOUT = 2.0
 
 ################## VOLUME #############################
-MESSAGE_VOLUME_SOURCE  = "Vol Control message"
+MESSAGE_VOLUME_SOURCE  = "Volume message"
 MESSAGE_VOLUME_CHANGED = "Volume changed"
 
 ############# SPOTIFY CONFIG #####################################
