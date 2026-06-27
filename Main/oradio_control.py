@@ -74,8 +74,6 @@ from constants import (
     STOP_SENTINEL,
     JOIN_TIMEOUT,
     MESSAGE_NO_ERROR,
-    MESSAGE_VOLUME_SOURCE,
-    MESSAGE_VOLUME_CHANGED,
     MESSAGE_SPOTIFY_SOURCE,
     SPOTIFY_CONNECT_CONNECTED_EVENT,
     SPOTIFY_CONNECT_DISCONNECTED_EVENT,
@@ -647,8 +645,8 @@ def update_spotify_available():
 # 2)-----The Handler map, defining message content and the handler funtion---
 
 HANDLERS = {
-    MESSAGE_VOLUME_SOURCE: {
-        MESSAGE_VOLUME_CHANGED: on_volume_changed,
+    VOLUME_SOURCE: {
+        VOLUME_CHANGED: on_volume_changed,
     },
     USB_SOURCE: {
         USB_ABSENT: on_usb_absent,
