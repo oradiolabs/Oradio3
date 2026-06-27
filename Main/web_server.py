@@ -688,9 +688,8 @@ if __name__ == '__main__':
     # on-device; use a relative URL for stand-alone testing.
     oradioap_url = ""
 
-    # Subscribe to command and error topics so messages published are printed to console.
+    # Subscribe to command topics so messages published are printed to console.
     cmd_handler = DebugMessageHandler(Commands.subscribe())
-    err_handler = DebugMessageHandler(Errors.subscribe())
 
     request_queue = Queue()
 
@@ -721,8 +720,6 @@ if __name__ == '__main__':
         message_listener.join()
         Commands.unsubscribe(cmd_handler.get_queue())
         cmd_handler.stop()
-        Errors.unsubscribe(err_handler.get_queue())
-        err_handler.stop()
 
     # Restore temporarily disabled pylint duplicate code check
     # pylint: enable=duplicate-code
