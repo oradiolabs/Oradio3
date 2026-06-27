@@ -44,7 +44,6 @@ from wifi_service import get_wifi_networks, get_saved_network
 from mpd_control import MPDControl
 from messaging import (
     Commands,
-    Errors,
     safe_put,
     CommandMessage,
     WEB_SOURCE,
