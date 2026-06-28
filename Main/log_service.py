@@ -48,17 +48,17 @@ from logging import DEBUG, INFO, WARNING, ERROR, CRITICAL
 from concurrent_log_handler import ConcurrentRotatingFileHandler
 from requests import post, RequestException, Timeout
 
-##### Oradio modules ####################
+##### Oradio modules ######################################
 # NOTE: Do not import Oradio modules using oradio_log to avoid circular imports
 
-##### GLOBAL constants ##################
+##### GLOBAL constants ####################################
 from constants import (
     BLUE, GREY, WHITE, YELLOW, RED, MAGENTA, NC,
     REMOTE_SERVER,
     POST_TIMEOUT,
 )
 
-##### LOCAL constants ###################
+##### LOCAL constants #####################################
 # Logger identifier and default level
 ORADIO_LOGGER    = "oradio"
 ORADIO_LOG_LEVEL = DEBUG
@@ -87,7 +87,7 @@ logging.Logger.trace = trace
 # Enable Python faulthandler for crashes
 faulthandler.enable(file=stderr)
 
-# ----- Helpers -----
+##### Helpers #############################################
 
 def _get_rpi_serial() -> str:
     """Extract serial from Raspberry Pi."""
@@ -136,7 +136,7 @@ class ColorFormatter(logging.Formatter):
         """Return the formatted log message in color based on level."""
         return self._formatters.get(record.levelno, self._formatters[INFO]).format(record)
 
-# ----- Safe logger Handlers -----
+##### Safe logger Handlers ################################
 
 class SafeRemotePostHandler(logging.Handler):
     """Send WARNING+ log messages to a remote HTTP server safely."""
@@ -189,7 +189,7 @@ class SafeRemotePostHandler(logging.Handler):
             # Log failures using root logger to avoid recursion
             logging.getLogger(__name__).error("[SafeRemotePostHandler fallback] Failed to POST log: %s", ex_err, exc_info=True)
 
-# ----- Safe logger wrapper -----
+##### Safe logger wrapper #################################
 
 class SafeLogger:
     """
@@ -255,7 +255,7 @@ class SafeLogger:
                 uv_logger.addHandler(self._queue_handler)
             uv_logger.propagate = False
 
-# ----- Convenience logging methods -----
+##### Convenience logging methods #########################
 
     def _safe_log(self, level, msg, *args, **kwargs) -> None:
         """Internal helper to log messages safely."""
@@ -301,11 +301,11 @@ class SafeLogger:
         """Shutdown logging queue listener."""
         self._listener.stop()
 
-# ----- Instantiate system logger -----
-
+# Instantiate system logger
 oradio_log = SafeLogger(ORADIO_LOGGER, ORADIO_LOG_LEVEL)
 
-# Entry point for stand-alone operation
+##### Stand-alone entry point #############################
+
 if __name__ == '__main__':
 
     # Imports only relevant when stand-alone

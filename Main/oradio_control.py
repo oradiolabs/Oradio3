@@ -69,7 +69,7 @@ from messaging import (
     VOLUME_CHANGED,
 )
 
-##### GLOBAL constants ####################
+##### GLOBAL constants ####################################
 from constants import (
     STOP_SENTINEL,
     JOIN_TIMEOUT,
@@ -110,14 +110,14 @@ from constants import (
     LED_PRESET3,
 )
 
-##########Local constants##################
+########## LOCAL constants ################################
 
 WEB_PRESET_STATES = {"StatePreset1", "StatePreset2", "StatePreset3"}
 PLAY_STATES = {"StatePlay", "StatePreset1", "StatePreset2", "StatePreset3"}
 PLAY_WEBSERVICE_STATES = {"StatePlay", "StatePreset1", "StatePreset2", "StatePreset3", "StateIdle"}
 LOW_POWER_STATES = {"StateIdle"}  # only Idle uses nominal voltage (9V)to reduce power consumption
 
-##################Signal Primitives#########
+################## Signal Primitives ######################
 
 spotify_connect_connected = threading.Event()  # track status Spotify connected
 spotify_connect_playing = threading.Event()  # track Spotify playing
@@ -761,7 +761,7 @@ def sync_usb_presence_from_service():
 
 shared_queue = Queue()  # Create a shared queue
 
-##### Messaging PROXY-begin #####
+##### Messaging PROXY-begin ###############################
 
 from threading import Thread        # pylint: disable=wrong-import-position
 from utilities import safe_put      # pylint: disable=ungrouped-imports,wrong-import-position
@@ -832,7 +832,7 @@ from error_service import ErrorHandler     # pylint: disable=wrong-import-positi
 # Subscribe to error topics so messages published are printed to console
 err_handler = ErrorHandler()
 
-##### Messaging PROXY-end #####
+##### Messaging PROXY-end #################################
 
 # Instantiate the state machine
 state_machine = StateMachine()

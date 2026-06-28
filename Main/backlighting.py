@@ -23,7 +23,7 @@ Created on Januari 17, 2025
 from time import sleep
 from threading import Thread, Event
 
-##### Oradio modules ####################
+##### Oradio modules ######################################
 from log_service import oradio_log
 from i2c_service import I2CService
 from messaging import (
@@ -34,7 +34,7 @@ from messaging import (
     BACKLIGHT_ERROR_STOP,
 )
 
-##### LOCAL constants ####################
+##### LOCAL constants #####################################
 # TSL2591 - Ambient Light Sensor
 TSL2591_ADDRESS    = 0x29
 ENABLE_REGISTER    = 0x00
@@ -99,7 +99,7 @@ class Backlighting:
         # Start backlight manager thread
         self.start()
 
-# -----Helper methods----------------
+##### Helpers #############################################
 
     def _write_dac(self, value: int, eeprom: bool = False) -> None:
         """
@@ -168,7 +168,7 @@ class Backlighting:
         # Linear interpolation between MID and MAX
         return int(BACKLIGHT_MID + (als_value - ALS_MID) * (BACKLIGHT_MAX - BACKLIGHT_MID) / (ALS_MAX - ALS_MID))
 
-# -----Core methods----------------
+##### Core ################################################
 
     def _backlight_manager(self) -> None:
         """
@@ -211,7 +211,7 @@ class Backlighting:
 
             sleep(ADJUST_INTERVAL)
 
-# -----Public methods----------------
+##### Public API ##########################################
 
     def start(self) -> None:
         """
@@ -285,7 +285,8 @@ class Backlighting:
         dac = self._interpolate_backlight(raw)
         return raw, lux, dac
 
-# Entry point for stand-alone operation
+##### Stand-alone entry point #############################
+
 if __name__ == '__main__':
 
     # Imports only relevant when stand-alone

@@ -35,10 +35,10 @@ from threading import Lock
 # Use MPDConnectionError because mpd2 raises a different ConnectionError than Python's built-in one
 from mpd import MPDClient, CommandError, ProtocolError, ConnectionError as MPDConnectionError
 
-##### Oradio modules ####################
+##### Oradio modules ######################################
 from log_service import oradio_log
 
-##### LOCAL constants ####################
+##### LOCAL constants #####################################
 MPD_HOST     = "localhost"
 MPD_PORT     = 6600
 MPD_RETRIES  = 3
@@ -67,7 +67,7 @@ class MPDService:
         self._client = MPDClient()
         self._connect_client()
 
-# -----Helper methods----------------
+##### Helpers #############################################
 
     def _is_connected(self):
         """Return True if client is connected to MPD, False otherwise."""
@@ -189,7 +189,7 @@ class MPDService:
         oradio_log.error("Failed to execute MPD command '%s' after %d retries", command, MPD_RETRIES)
         return None
 
-# -----Public methods----------------
+##### Public API ##########################################
 
     def get_stats(self) -> dict:
         """
@@ -203,7 +203,8 @@ class MPDService:
         # Return combined dicts
         return stats | status
 
-# Entry point for stand-alone operation
+##### Stand-alone entry point #############################
+
 if __name__ == '__main__':
 
     # Initialise MPD service

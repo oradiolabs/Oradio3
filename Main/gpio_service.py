@@ -31,7 +31,7 @@ from time import perf_counter
 from threading import Lock
 from RPi import GPIO
 
-##### Oradio modules ####################
+##### Oradio modules ######################################
 from log_service import oradio_log
 from singleton import singleton
 from messaging import (
@@ -42,7 +42,7 @@ from messaging import (
     GPIO_ERROR_BUTTONS,
 )
 
-##### GLOBAL constants ####################
+##### GLOBAL constants ####################################
 from constants import (
     LED_NAMES, LED_PLAY, LED_STOP,
     LED_PRESET1, LED_PRESET2, LED_PRESET3,
@@ -52,7 +52,7 @@ from constants import (
     TEST_ENABLED, TEST_DISABLED
 )
 
-##### LOCAL constants ####################
+##### LOCAL constants #i###################################
 # LED GPIO PINS
 LEDS: dict[str, int] = {
     LED_PLAY   : 15,
@@ -161,7 +161,7 @@ class GPIOService:
         with self._lock:
             return bool(GPIO.input(io_pin))
 
-################## methods for the LED pins ######################
+##### methods for the LED pins ############################
 
     def set_led_on(self, led_name: str) -> None:
         """
@@ -210,7 +210,7 @@ class GPIOService:
         # LEDs are active-low: GPIO.LOW means ON, GPIO.HIGH means OFF.
         return not self._read_pin_state(LEDS[led_name])
 
-######### methods for BUTTON pins ########################
+##### methods for BUTTON pins #############################
 
     def set_button_edge_event_callback(self, callback) -> None:
         """
@@ -314,7 +314,8 @@ class GPIOService:
 
         self.edge_event_callback(button_data)
 
-# Entry point for stand-alone operation
+##### Stand-alone entry point #############################
+
 if __name__ == '__main__':
     print("Stand-alone not implemented")
     print("The module test for gpio_service.py is at module_test/gpio_service_test.py")

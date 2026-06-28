@@ -24,11 +24,11 @@ Created on December 18, 2025
 """
 from time import sleep
 
-##### Oradio modules ####################
+##### Oradio modules ######################################
 from log_service import oradio_log
 from i2c_service import I2CService
 
-##### LOCAL constants ####################
+##### LOCAL constants #####################################
 
 # HUSB238 I2C Address
 HUSB238_ADDRESS = 0x08
@@ -105,39 +105,7 @@ class PowerSupplyService:
         """
         self._i2c_service = I2CService()
 
-# ---------------- Public API ----------------
-
-    def set_standby_voltage(self) -> bool:
-        """
-        Request standby power: 5 V with a minimum of 3.0 A.
-
-        This mode should only be used when minimal standby power is required.
-        The system may enter a throttled state (e.g. Raspberry Pi supply voltage around 4.5 V).
-
-        Returns:
-            True if the negotiated PD contract meets the requirements, False otherwise.
-        """
-        return self._safe_set_voltage(voltage_v=5, current_a=3.0, min_current_a=3.0)
-
-    def set_nom_voltage(self) -> bool:
-        """
-        Request nominal operating power: 9 V with a minimum of 2.0 A.
-
-        Returns:
-            True if the negotiated voltage/current meets the requirements.
-        """
-        return self._safe_set_voltage(voltage_v=9, current_a=2.0, min_current_a=2.0)
-
-    def set_max_voltage(self) -> bool:
-        """
-        Request maximum operating power: 12 V with a minimum of 1.5 A.
-
-        Returns:
-            True if the negotiated voltage/current meets the requirements.
-        """
-        return self._safe_set_voltage(voltage_v=12, current_a=1.5, min_current_a=1.5)
-
-# ---------------- Internal helpers ----------------
+##### Helpers #############################################
 
     def _safe_set_voltage(self, voltage_v: int, current_a: float, min_current_a: float) -> bool:
         """
@@ -253,6 +221,38 @@ class PowerSupplyService:
         # Write PDO selection and trigger the GO command
         self._i2c_service.write_byte(HUSB238_ADDRESS, REG_GO_COMMAND, 0x01)
 
+##### Public API ##########################################
+
+    def set_standby_voltage(self) -> bool:
+        """
+        Request standby power: 5 V with a minimum of 3.0 A.
+
+        This mode should only be used when minimal standby power is required.
+        The system may enter a throttled state (e.g. Raspberry Pi supply voltage around 4.5 V).
+
+        Returns:
+            True if the negotiated PD contract meets the requirements, False otherwise.
+        """
+        return self._safe_set_voltage(voltage_v=5, current_a=3.0, min_current_a=3.0)
+
+    def set_nom_voltage(self) -> bool:
+        """
+        Request nominal operating power: 9 V with a minimum of 2.0 A.
+
+        Returns:
+            True if the negotiated voltage/current meets the requirements.
+        """
+        return self._safe_set_voltage(voltage_v=9, current_a=2.0, min_current_a=2.0)
+
+    def set_max_voltage(self) -> bool:
+        """
+        Request maximum operating power: 12 V with a minimum of 1.5 A.
+
+        Returns:
+            True if the negotiated voltage/current meets the requirements.
+        """
+        return self._safe_set_voltage(voltage_v=12, current_a=1.5, min_current_a=1.5)
+
     def read_status(self) -> dict:
         """
         Read and decode the current PD status from the HUSB238.
@@ -299,7 +299,8 @@ class PowerSupplyService:
             "pd_response": pd_response,
         }
 
-# Entry point for stand-alone operation
+##### Stand-alone entry point #############################
+
 if __name__ == "__main__":
 
 # Most modules use similar code in stand-alone

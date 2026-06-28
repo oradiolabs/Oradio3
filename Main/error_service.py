@@ -25,7 +25,7 @@ Created on May 15, 2026
 """
 from threading import Thread
 
-##### Oradio modules ################
+##### Oradio modules ######################################
 from log_service import oradio_log
 from messaging import (
     Errors,
@@ -57,13 +57,13 @@ from messaging import (
     VOLUME_ERROR_STOP,
 )
 
-##### GLOBAL constants ##############
+##### GLOBAL constants ####################################
 from constants import (
     STOP_SENTINEL,
     JOIN_TIMEOUT,
 )
 
-##### LOCAL constants ###############
+##### LOCAL constants #####################################
 # Source identifier used when publishing errors from this module's self-tests
 TEST_SOURCE = "Test error message"
 
@@ -84,6 +84,8 @@ class ErrorHandler:
 
         self._thread = Thread(target=self._errors_listener, daemon=True,)
         self._thread.start()
+
+##### Helpers #############################################
 
     def _handle_throttling_error(self, error):
         """
@@ -251,6 +253,8 @@ class ErrorHandler:
         else:
             oradio_log.error("Unhandled volume error: '%s'", error.message)
 
+##### Core ################################################
+
     # Errors for each module are grouped separatly for maintainability
     def _errors_listener(self) -> None:    # pylint: disable=too-many-branches,too-many-statements
         """
@@ -314,7 +318,7 @@ class ErrorHandler:
         if self._thread.is_alive():
             oradio_log.warning("Listener thread did not stop within timeout")
 
-##### Stand-alone entry point #######
+##### Stand-alone entry point #############################
 
 if __name__ == '__main__':
 

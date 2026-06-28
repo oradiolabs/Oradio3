@@ -22,7 +22,7 @@ Created on January 27, 2025
 from time import sleep
 from threading import Thread, Event
 
-##### Oradio modules ####################
+##### Oradio modules ######################################
 from log_service import oradio_log
 from i2c_service import I2CService
 from utilities import run_shell_script
@@ -37,7 +37,7 @@ from messaging import (
     VOLUME_ERROR_STOP,
 )
 
-##### LOCAL constants ####################
+##### LOCAL constants #####################################
 # Volume scaling and clamping units
 ADC_MIN   = 0
 ADC_MAX   = 1023
@@ -93,7 +93,7 @@ class VolumeControl:
         # Start volume manager thread
         self.start()
 
-# ---------------- Helper methods ----------------
+##### Helpers #############################################
 
     def _read_adc(self) -> int | None:
         """
@@ -146,7 +146,7 @@ class VolumeControl:
         else:
             oradio_log.debug("Volume of '%s' set to: %s", control, volume)
 
-# ---------------- Core methods ----------------
+##### Core ################################################
 
     def _volume_manager(self) -> None:
         """
@@ -206,7 +206,7 @@ class VolumeControl:
 
             sleep(polling_interval)
 
-# ---------------- Public methods ----------------
+##### Public API ##########################################
 
     def start(self) -> None:
         """Start the volume control thread if not already running."""
@@ -252,7 +252,7 @@ class VolumeControl:
         """Re-arm the notification so the next volume change triggers a message."""
         self._armed = True
 
-# ---------------- Entry point for stand-alone operation ----------------
+##### Stand-alone entry point #############################
 
 if __name__ == "__main__":
 

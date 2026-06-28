@@ -33,7 +33,7 @@ from json import load, JSONDecodeError
 from watchdog.observers import Observer
 from watchdog.events import FileSystemEventHandler
 
-##### Oradio modules ####################
+##### Oradio modules ######################################
 from singleton import singleton
 from log_service import oradio_log
 from wifi_service import networkmanager_add
@@ -49,11 +49,11 @@ from messaging import (
     USB_ERROR_SERVICE,
 )
 
-##### GLOBAL constants ##############
+##### GLOBAL constants ####################################
 # Filesystem path where the ORADIO USB drive is auto-mounted by the OS
 from constants import USB_MOUNT_POINT
 
-##### LOCAL constants ###############
+##### LOCAL constants #####################################
 # Directory watched by the observer for filesystem events
 USB_STATEPATH = "/run"
 
@@ -98,38 +98,7 @@ class USBObserver(FileSystemEventHandler):
         else:
             Commands.publish(CommandMessage(USB_SOURCE, USB_ABSENT))
 
-    def on_created(self, event) -> None:
-        """
-        Handle watchdog callback when USB_STATEFILE is created.
-
-        The OS creates this marker file when the ORADIO USB drive is mounted.
-        Publishes USB_PRESENT to signal that the USB drive is available, then
-        attempts to import any WiFi credentials found on the drive.
-
-        Args:
-            event: Watchdog FileCreatedEvent describing the created file.
-        """
-        # Ignore directory events and any files other than the specific marker file
-        if not event.is_directory and event.src_path == USB_STATEFILE:
-            oradio_log.debug("USB inserted")
-            Commands.publish(CommandMessage(USB_SOURCE, USB_PRESENT))
-            self._import_usb_wifi_networks()
-
-    def on_deleted(self, event) -> None:
-        """
-        Handle watchdog callback when USB_STATEFILE is deleted.
-
-        The OS deletes this marker file when the ORADIO USB drive is unmounted.
-        Publishes USB_ABSENT to signal that the USB drive is no longer
-        available.
-
-        Args:
-            event: Watchdog FileDeletedEvent describing the deleted file.
-        """
-        # Ignore directory events and any files other than the specific marker file
-        if not event.is_directory and event.src_path == USB_STATEFILE:
-            oradio_log.debug("USB removed")
-            Commands.publish(CommandMessage(USB_SOURCE, USB_ABSENT))
+##### Helpers #############################################
 
     @staticmethod
     def _validate_network(network: dict[str, object], index: int) -> str | None:
@@ -274,6 +243,41 @@ class USBObserver(FileSystemEventHandler):
             oradio_log.error("'%s' has errors, is not removed", USB_WIFI_FILE)
             Errors.publish(ErrorMessage(USB_SOURCE, USB_ERROR_FILE))
 
+##### Public API ##########################################
+
+    def on_created(self, event) -> None:
+        """
+        Handle watchdog callback when USB_STATEFILE is created.
+
+        The OS creates this marker file when the ORADIO USB drive is mounted.
+        Publishes USB_PRESENT to signal that the USB drive is available, then
+        attempts to import any WiFi credentials found on the drive.
+
+        Args:
+            event: Watchdog FileCreatedEvent describing the created file.
+        """
+        # Ignore directory events and any files other than the specific marker file
+        if not event.is_directory and event.src_path == USB_STATEFILE:
+            oradio_log.debug("USB inserted")
+            Commands.publish(CommandMessage(USB_SOURCE, USB_PRESENT))
+            self._import_usb_wifi_networks()
+
+    def on_deleted(self, event) -> None:
+        """
+        Handle watchdog callback when USB_STATEFILE is deleted.
+
+        The OS deletes this marker file when the ORADIO USB drive is unmounted.
+        Publishes USB_ABSENT to signal that the USB drive is no longer
+        available.
+
+        Args:
+            event: Watchdog FileDeletedEvent describing the deleted file.
+        """
+        # Ignore directory events and any files other than the specific marker file
+        if not event.is_directory and event.src_path == USB_STATEFILE:
+            oradio_log.debug("USB removed")
+            Commands.publish(CommandMessage(USB_SOURCE, USB_ABSENT))
+
 class USBService:
     """
     High-level USB monitoring service.
@@ -319,7 +323,7 @@ class USBService:
             return USB_PRESENT
         return USB_ABSENT
 
-##### Stand-alone entry point #######
+##### Stand-alone entry point #############################
 
 if __name__ == '__main__':
 

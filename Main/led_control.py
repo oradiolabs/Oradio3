@@ -25,12 +25,12 @@ Created on January 29, 2025
 """
 from threading import Thread, Timer, Event
 
-##### Oradio modules ####################
+##### Oradio modules ######################################
 from log_service import oradio_log
 from gpio_service import GPIOService
 from singleton import singleton
 
-##### GLOBAL constants ####################
+##### GLOBAL constants ####################################
 from constants import LED_NAMES
 
 @singleton
@@ -200,7 +200,8 @@ class LEDControl:
         if active_thread:
             active_thread.join()
 
-# Entry point for stand-alone operation
+##### Stand-alone entry point #############################
+
 if __name__ == '__main__':
     print("Stand-alone not implemented")
     print("The module test for led_control.py is at module_test/led_control_test.py")

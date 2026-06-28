@@ -40,7 +40,7 @@ from dbus.mainloop.glib import DBusGMainLoop
 from dbus.exceptions import DBusException
 from gi.repository import GLib
 
-##### Oradio modules ################
+##### Oradio modules ######################################
 from singleton import singleton
 from log_service import oradio_log
 from utilities import run_shell_script
@@ -59,13 +59,13 @@ from messaging import (
     WIFI_ERROR_DISCONNECT,
 )
 
-##### GLOBAL constants ##############
+##### GLOBAL constants ####################################
 from constants import (
     ACCESS_POINT_HOST,
     ACCESS_POINT_SSID,
 )
 
-##### LOCAL constants ###############
+##### LOCAL constants #####################################
 # NetworkManager device state codes
 NM_DISCONNECTED = 30
 NM_CONNECTED    = 100
@@ -91,7 +91,7 @@ nmcli_exceptions = tuple(
 _saved_network = {"network": ""}    # Last successfully connected WiFi SSID
 _saved_lock = Lock()                # Guards concurrent reads and writes across threads and processes
 
-##### Helpers #######################
+##### Helpers #############################################
 
 def _set_saved_network(network) -> None:
     """
@@ -588,7 +588,7 @@ class WifiScanner:
 # Module-level scanner instance; shared by all callers of get_wifi_networks()
 _wifi_scanner = WifiScanner()
 
-##### Public API ####################
+##### Public API ##########################################
 
 def get_saved_network() -> str:
     """
@@ -745,7 +745,7 @@ def networkmanager_del(network) -> bool:
     is_ok, _ = _nmcli_try(nmcli.connection.delete, network)
     return is_ok
 
-##### Stand-alone entry point #######
+##### Stand-alone entry point #############################
 
 if __name__ == '__main__':
 

@@ -31,17 +31,17 @@ from typing import Any, Optional, List, Union, Dict
 from pathlib import Path
 from pydantic import BaseModel, ValidationError
 
-##### Oradio modules ####################
+##### Oradio modules ######################################
 from log_service import oradio_log
 
-##### GLOBAL constants ####################
+##### GLOBAL constants ####################################
 from constants import (
     YELLOW, NC,
     PRESETS_FILE,
     USB_SYSTEM,
 )
 
-##### LOCAL constants ####################
+##### LOCAL constants #####################################
 INTERFACE   = "wlan0"           # Raspberry Pi wireless interface
 DNS_HOST    = "google.com"
 DNS_TIMEOUT = 0.5               # seconds
@@ -291,7 +291,8 @@ def input_prompt_float(prompt: str, default: float | None = None) -> float | Non
     except ValueError:
         return default
 
-# Entry point for stand-alone operation
+##### Stand-alone entry point #############################
+
 if __name__ == '__main__':
 
 # Most modules use similar code in stand-alone

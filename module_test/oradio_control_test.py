@@ -22,7 +22,7 @@ from time import sleep
 import sys
 from threading import Event, Thread
 
-##### GLOBAL constants ####################
+##### GLOBAL constants ####################################
 from constants import (
     GREEN, RED, YELLOW, NC,
     DEBUGGER_NOT_CONNECTED, DEBUGGER_ENABLED,
@@ -33,13 +33,13 @@ from constants import (
     LED_PLAY, LED_STOP, LED_PRESET1, LED_PRESET2, LED_PRESET3
 )
 
-##### Oradio modules ####################
+##### Oradio modules ######################################
 from log_service import oradio_log, DEBUG, CRITICAL
 from oradio_control import state_machine, leds, web_service_active, shared_queue, mpd_control
 from utilities import input_prompt_int, input_prompt_float, safe_put, OradioMessage
 from remote_debugger import setup_remote_debugging
 
-##### LOCAL constants ####################
+##### LOCAL constants #####################################
 BUTTON_SHORT_PRESS_NAMES = [
     MESSAGE_SHORT_PRESS_BUTTON_PLAY,
     MESSAGE_SHORT_PRESS_BUTTON_STOP,

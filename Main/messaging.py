@@ -34,21 +34,21 @@ from typing import Any, NoReturn
 from dataclasses import dataclass
 from multiprocessing import Lock, Queue
 
-##### Oradio modules ####################
+##### Oradio modules ######################################
 from singleton import singleton
 from log_service import oradio_log
 
-##### GLOBAL constants ##############
+##### GLOBAL constants ####################################
 from constants import (
     RED, YELLOW, GREEN, NC,
     JOIN_TIMEOUT,
 )
 
-##### LOCAL constants ###############
+##### LOCAL constants #####################################
 # Bound queue size to detect runaway producers early.
 _MAX_QUEUE_SIZE = 1000
 
-##### Messaging constants ####################
+##### Messaging constants #################################
 # Throttling
 THROTTLING_SOURCE          = "Throttling message"
 THROTTLING_ERROR_THROTTLED = "RPi throttled"
@@ -180,7 +180,7 @@ class ErrorMessage:
             and bool(self.message.strip())
         )
 
-##### Helpers ##################################
+##### Helpers #############################################
 
 def _fatal_exit(message: str, stacklevel: int = 6, *, exc: BaseException | None = None, code: int = 1) -> NoReturn:
     """
@@ -216,7 +216,7 @@ def _fatal_exit(message: str, stacklevel: int = 6, *, exc: BaseException | None 
     # from any thread, including daemon threads.
     os._exit(code)
 
-##### Pub-Sub Infrastructure ####################
+##### Pub-Sub Infrastructure ##############################
 
 @singleton
 class PubSubManager:
@@ -349,7 +349,7 @@ class PubSubManager:
 # Global PubSub manager (singleton — only one instance per process).
 _pubsub = PubSubManager()
 
-##### Template ######################
+##### Template ############################################
 
 class MessageHandlerBase:
     """
@@ -453,7 +453,7 @@ class MessageHandlerBase:
         """
         raise NotImplementedError(f"{self.__class__.__name__} must implement _handle_message()")
 
-##### Public API ####################
+##### Public API ##########################################
 
 class Commands:
     """
@@ -610,7 +610,7 @@ def safe_put(queue: Queue, message: object) -> None:
         # Rare internal multiprocessing queue failure.
         _fatal_exit(f"Queue internal error on put message: {message}", exc=ex_err)
 
-##### Debug #########################
+##### Debug ###############################################
 
 class DebugMessageHandler(MessageHandlerBase):
     """
@@ -654,7 +654,7 @@ class DebugMessageHandler(MessageHandlerBase):
         """
         return self._queue
 
-##### Stand-alone entry point #######
+##### Stand-alone entry point #############################
 
 if __name__ == '__main__':
 

@@ -26,7 +26,7 @@ from time import sleep
 from threading import Lock
 from smbus2 import SMBus
 
-##### Oradio modules ####################
+##### Oradio modules ######################################
 from log_service import oradio_log
 from singleton import singleton
 from messaging import (
@@ -36,7 +36,7 @@ from messaging import (
     I2C_ERROR_BUS,
 )
 
-##### LOCAL constants ####################
+##### LOCAL constants #####################################
 I2C_RETRIES = 3
 I2C_BACKOFF = 1     # seconds
 
@@ -47,7 +47,7 @@ ORADIO_DEVICES = {
     0x08: {"name": "HUSB238 - USB-C Power Controller"},
 }
 
-##### Helpers #####
+##### Helpers #############################################
 
 def find_i2c_buses() -> list:
     """
@@ -151,7 +151,7 @@ class I2CService:
 
         self._bus = SMBus(buses[0])
 
-# ---------------- Byte operations ----------------
+##### Byte operations #####################################
 
     def read_byte(self, device: int, register: int) -> int | None:
         """
@@ -198,7 +198,7 @@ class I2CService:
         # All retries exhausted
         oradio_log.error("Failed writing byte to device=0x%02X, register=0x%02X, value=0x%02X after %d attempts", device, register, value, I2C_RETRIES)
 
-# ---------------- Block operations ----------------
+##### Block operations ####################################
 
     def read_block(self, device: int, register: int, length: int) -> list | None:
         """
@@ -254,7 +254,7 @@ class I2CService:
         # All retries exhausted
         oradio_log.error("Failed writing block to device=0x%02X, register=0x%02X, data=%s after %d attempts", device, register, data, I2C_RETRIES)
 
-# ---------------- Entry point for stand-alone operation ----------------
+##### Stand-alone entry point #############################
 
 if __name__ == '__main__':
 

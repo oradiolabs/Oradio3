@@ -20,10 +20,10 @@ Created on January 30, 2025
 import subprocess
 from pathlib import Path
 
-##### Oradio modules ####################
+##### Oradio modules ######################################
 from log_service import oradio_log
 
-##### GLOBAL constants ####################
+##### GLOBAL constants ####################################
 from constants import (
     SOUND_START,
     SOUND_STOP,
@@ -45,9 +45,11 @@ from constants import (
     SOUND_NEW_WEBRADIO,
 )
 
-##### LOCAL constants ###################
+##### LOCAL constants #####################################
+
 # ALSA device for playing system sounds
 SYSTEM_SOUND_SINK = "SysSound_in"
+
 # Directory containing system sound files
 SOUND_FILES_PATH = (Path(__file__).parent.parent / "system_sounds").resolve()
 SOUND_FILES = {
@@ -119,7 +121,7 @@ def play_sound(sound_key: str) -> None:
 
     oradio_log.debug("System sound process launched: %s", sound_file)
 
-##### Stand-alone entry point #######
+##### Stand-alone entry point #############################
 
 if __name__ == '__main__':
 

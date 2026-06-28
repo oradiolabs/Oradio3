@@ -27,12 +27,11 @@ Created on Januari 11, 2026
         if yes add in -ip your host ip address and -p the portnr
         >python your_program.py -rd yes -ip 102.168.xxx.xxx -p 5678
 """
-##### python modules ##################
-import argparse
 import os
 import socket
+import argparse
 
-##### Oradio modules ####################
+##### Oradio modules ######################################
 from constants import (
     YELLOW, GREEN, NC,
     DEBUGGER_CONNECTED,
@@ -41,7 +40,7 @@ from constants import (
     DEBUGGER_ENABLED
 )
 
-############## REMOTE_DEBUGGER options ################################
+##### REMOTE_DEBUGGER options #############################
 # DEBUGGER_ENABLED = When remote debugger is required
 # DEBUGGER_DISABLED = When no remote debugger is required (default)
 #REMOTE_DEBUGGER = DEBUGGER_DISABLED # default

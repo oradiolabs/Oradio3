@@ -31,19 +31,19 @@ import sys
 from typing import Tuple
 from RPi import GPIO
 
-##### Oradio modules ####################
+##### Oradio modules ######################################
 from utilities import input_prompt_int
 from gpio_service import GPIOService, LED_ON, LED_OFF, LEDS, BUTTONS, BOUNCE_MS
 from remote_debugger import setup_remote_debugging
 
-##### GLOBAL constants ####################
+##### GLOBAL constants ####################################
 from constants import (
     GREEN, YELLOW, RED, NC,
     LED_NAMES, BUTTON_NAMES,
     DEBUGGER_ENABLED, DEBUGGER_NOT_CONNECTED,
 )
 
-##### LOCAL constants ####################
+##### LOCAL constants #####################################
 button_state = {True: f"{YELLOW}1", False: f"{NC}0"}
 
 def button_event_callback(button_data: dict) -> None:

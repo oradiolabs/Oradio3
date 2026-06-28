@@ -45,7 +45,7 @@ from multiprocessing import Queue
 from threading import Thread, Lock
 import uvicorn
 
-##### Oradio modules ################
+##### Oradio modules ######################################
 from log_service import oradio_log, ORADIO_LOG_LEVEL
 from utilities import run_shell_script
 from web_server import api_app
@@ -67,7 +67,7 @@ from messaging import (
     WEB_ERROR_SERVICE,
 )
 
-##### GLOBAL constants ##############
+##### GLOBAL constants ####################################
 from constants import (
     ACCESS_POINT_HOST,
     ACCESS_POINT_SSID,
@@ -77,7 +77,7 @@ from constants import (
     MESSAGE_REQUEST_STOP,
 )
 
-##### LOCAL constants ###############
+##### LOCAL constants #####################################
 # Seconds to wait for the Uvicorn server to become ready.
 SERVER_READY_TIMEOUT = 15
 
@@ -291,7 +291,7 @@ class WebService:
         # Announce initial state so the controller starts from a known baseline.
         Commands.publish(CommandMessage(WEB_SOURCE, self.state))
 
-##### Private helpers ###############
+##### Helpers #############################################
 
     def _get_nat_rules(self) -> str | None:
         """
@@ -461,7 +461,7 @@ class WebService:
             else:
                 oradio_log.warning("Unrecognised request: %s", request)
 
-##### Public interface ##############
+##### Public API ##########################################
 
     @property
     def state(self) -> str:
@@ -572,7 +572,7 @@ class WebService:
 
         Commands.publish(CommandMessage(WEB_SOURCE, self.state))
 
-##### Stand-alone entry point #######
+##### Stand-alone entry point #############################
 
 if __name__ == '__main__':
 

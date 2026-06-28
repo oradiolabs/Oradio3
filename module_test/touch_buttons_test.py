@@ -27,14 +27,14 @@ from multiprocessing import Queue
 from time import sleep, perf_counter
 from RPi import GPIO
 
-##### Oradio modules ####################
+import socket
 from log_service import oradio_log, DEBUG, CRITICAL
 from touch_buttons import TouchButtons, BUTTON_DEBOUNCE_TIME
 from utilities import input_prompt_int, input_prompt_float, validate_oradio_message
 from gpio_service import BUTTONS, GPIOService
 from remote_debugger import setup_remote_debugging
 
-##### GLOBAL constants ####################
+##### GLOBAL constants ####################################
 from constants import (
     YELLOW, RED, NC,
     BUTTON_NAMES,
@@ -164,7 +164,8 @@ def _keyboard_input(event: Event):
     _=input("Press Return on keyboard to stop this test")
     event.set()
 
-#### globals statistics for button callbacks ############
+##### globals statistics for button callbacks #############
+
 def _handle_message(message: dict, test_buttons: TestTouchButtons) -> bool:
     """
     the message dict will be validated against the OradioMessage class

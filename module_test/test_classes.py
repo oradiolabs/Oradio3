@@ -18,7 +18,7 @@ Created on Jan 22, 2026
 @summary:
     * Classes for testing and simulations
 """
-##### GLOBAL constants ##############
+##### GLOBAL constants ####################################
 from constants import BUTTON_NAMES
 
 class TimingData():

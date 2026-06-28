@@ -37,7 +37,7 @@ from platform import python_version
 from multiprocessing import Queue, Lock
 from requests import post, RequestException, Timeout
 
-##### Oradio modules ################
+##### Oradio modules ######################################
 from utilities import get_serial
 from wifi_service import WifiService
 from log_service import oradio_log
@@ -54,12 +54,12 @@ from messaging import (
     RMS_ERROR_SERVICE,
 )
 
-##### GLOBAL constants ##############
+##### GLOBAL constants ####################################
 from constants import (
     YELLOW, NC,
 )
 
-##### LOCAL constants ###############
+##### LOCAL constants #####################################
 # RMS message type identifiers
 HEARTBEAT = 'HEARTBEAT'
 SYS_INFO  = 'SYS_INFO'
@@ -76,7 +76,7 @@ MAX_RETRIES    = 3    # Maximum number of POST attempts before giving up
 BACKOFF_FACTOR = 2    # Base for exponential backoff: delay = BACKOFF_FACTOR ** attempt (1s, 2s, 4s)
 POST_TIMEOUT   = 5    # Per-attempt HTTP timeout in seconds
 
-##### Helpers #######################
+##### Helpers #############################################
 
 def _get_temperature() -> str:
     """
@@ -448,7 +448,7 @@ class RMService:
         Commands.unsubscribe(self._queue)
         self._handler.stop()
 
-##### Stand-alone entry point #######
+##### Stand-alone entry point #############################
 
 if __name__ == "__main__":
 

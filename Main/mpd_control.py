@@ -34,18 +34,18 @@ from time import sleep
 from threading import Thread
 from unicodedata import normalize, category
 
-##### Oradio modules ####################
+##### Oradio modules ######################################
 from log_service import oradio_log
 from utilities import load_presets
 from mpd_service import MPDService
 
-##### GLOBAL constants ####################
+##### GLOBAL constants ####################################
 from constants import (
     GREEN, YELLOW, NC,
     USB_MUSIC,
 )
 
-##### LOCAL constants ####################
+##### LOCAL constants #####################################
 MPD_CROSSFADE  = 5          # seconds
 DEFAULT_PRESET = "Preset1"  # For when the Play button is used and no playlist in the queue
 
@@ -84,7 +84,7 @@ class MPDControl(MPDService):
         _ = self._execute("update")
         oradio_log.debug("Updating MPD database for all remaining music files")
 
-# -----Playback functions------------
+##### Playback functions ##################################
 
     def play(self, preset: str | None = None) -> None:
         """
@@ -511,7 +511,7 @@ class MPDControl(MPDService):
 
         oradio_log.debug("Song '%s' removed from playlist '%s'", song, playlist)
 
-# -----Informative functions---------
+##### Informative functions ###############################
 
     def is_webradio(self, preset: str = None, mpdlist: str = None) -> bool:
         """
@@ -765,7 +765,8 @@ class MPDControl(MPDService):
         # Sort by normalized artist and title for case- and accent-insensitive order
         return sorted(unique_songs, key=lambda x: (x['normalized_artist'], x['normalized_title']))
 
-# Entry point for stand-alone operation
+##### Stand-alone entry point #############################
+
 if __name__ == '__main__':
 
 # Most modules use similar code in stand-alone

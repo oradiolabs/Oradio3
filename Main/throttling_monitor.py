@@ -37,7 +37,7 @@ Typical usage:
 from subprocess import check_output
 from threading import Thread, Event
 
-##### Oradio modules ################
+##### Oradio modules ######################################
 from singleton import singleton
 from log_service import oradio_log
 from messaging import (
@@ -47,7 +47,7 @@ from messaging import (
     THROTTLING_ERROR_THROTTLED,
 )
 
-##### LOCAL constants ###############
+##### LOCAL constants #####################################
 
 # Throttle flag definitions: Bit meanings from vcgencmd documentation.
 # The lower nibble (bits 0-3) reflects the current hardware state; the
@@ -138,6 +138,8 @@ class RPiThrottlingMonitor:
         # Start the background polling thread.
         self.start()
 
+##### Helpers #############################################
+
     def _get_throttle_value(self) -> int:
         """
         Return the current throttle bitmask from the hardware or test stub.
@@ -186,6 +188,8 @@ class RPiThrottlingMonitor:
             if (value & bit) and (mask & bit)  # Flag is set AND within the requested mask
         ]
 
+##### Core ################################################
+
     def _run(self) -> None:
         """
         Background thread body: poll throttling state and log changes.
@@ -225,6 +229,8 @@ class RPiThrottlingMonitor:
             # immediately rather than waiting for the next poll cycle.
             self._stop_event.wait(self.interval)
 
+##### Public API ##########################################
+
     def start(self) -> None:
         """
         Start the background polling thread.
@@ -260,7 +266,7 @@ class RPiThrottlingMonitor:
         if self._thread:
             self._thread.join()
 
-##### Test mode API #################
+##### Test mode API #######################################
 
     def enable_test_mode(self) -> None:
         """
@@ -316,7 +322,7 @@ class RPiThrottlingMonitor:
 # module is imported, without requiring any explicit setup by the caller.
 throttling_monitor = RPiThrottlingMonitor()
 
-##### Stand-alone entry point #######
+##### Stand-alone entry point #############################
 
 if __name__ == "__main__":
 

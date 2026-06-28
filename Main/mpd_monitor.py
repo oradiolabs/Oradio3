@@ -26,15 +26,15 @@ from time import sleep
 from threading import Thread, Event
 from collections import defaultdict
 
-##### Oradio modules ####################
+##### Oradio modules ######################################
 from log_service import oradio_log
 from singleton import singleton
 from mpd_service import MPDService
 
-##### GLOBAL constants ####################
+##### GLOBAL constants ####################################
 from constants import YELLOW, NC
 
-##### LOCAL constants ####################
+##### LOCAL constants #####################################
 # Mapping of MPD idle events to typical client actions
 MPD_EVENT_ACTIONS = {
     "database": "Database changed",                      # Consider updating your local song cache, e.g., client.listall() or client.list()
@@ -82,7 +82,7 @@ class MPDMonitor(MPDService):
         else:
             oradio_log.error("Timed out: MPD monitor thread not started")
 
-# -----Helper methods----------------
+##### Helpers #############################################
 
     def _build_initial_snapshot(self) -> None:
         """Build the initial snapshot of the MPD database (directory -> files)."""
@@ -128,7 +128,7 @@ class MPDMonitor(MPDService):
         self._snapshot = current_snapshot
         return added_per_dir, removed_per_dir
 
-# -----Listener----------------------
+##### Core ################################################
 
     def _listen(self) -> None:
         """
@@ -185,7 +185,8 @@ class MPDMonitor(MPDService):
 
             sleep(1)
 
-# Entry point for stand-alone operation
+##### Stand-alone entry point #############################
+
 if __name__ == "__main__":
 
 # Most modules use similar code in stand-alone

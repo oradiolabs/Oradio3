@@ -21,14 +21,28 @@ from threading import Timer
 from multiprocessing import Queue
 from time import monotonic
 
-##### Oradio modules ####################
+##### Oradio modules ######################################
 from log_service import oradio_log
 from utilities import safe_put, OradioMessage
 from gpio_service import GPIOService
 from system_sounds import play_sound
 from singleton import singleton
+from messaging import (
+    Errors,
+    Commands,
+    ErrorMessage,
+    CommandMessage,
+    BUTTONS_SOURCE,
+    WIFI_CONNECTED,
+    WIFI_DISCONNECTED,
+    WIFI_ACCESS_POINT,
+    WIFI_ERROR_DBUS,
+    WIFI_ERROR_NMCLI,
+    WIFI_ERROR_CONNECT,
+    WIFI_ERROR_DISCONNECT,
+)
 
-##### GLOBAL constants ####################
+##### GLOBAL constants ####################################
 from constants import (
     YELLOW, NC,
     BUTTON_PLAY,
@@ -41,7 +55,7 @@ from constants import (
     SOUND_CLICK
 )
 
-# -------- LOCAL constants --------
+##### LOCAL constants #####################################
 BUTTON_DEBOUNCE_TIME = 500 # ms, ignore rapid repeats
 DEBOUNCE_SECONDS     = BUTTON_DEBOUNCE_TIME / 1000.0
 BOUNCE_MS            = 10 # hardware debounce in GPIO.add_event_detect
@@ -196,7 +210,8 @@ class TouchButtons:
             button_data["state"] = BUTTON_LONG_PRESSED
             self._send_message(button_data)
 
-# Entry point for stand-alone operation
+##### Stand-alone entry point #############################
+
 if __name__ == '__main__':
     print("Stand-alone not implemented")
     print("The module test for touch_buttons.py is at module_test/touch_buttons_test.py")

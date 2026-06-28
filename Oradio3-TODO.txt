@@ -4,8 +4,16 @@ Actions:
 3. Use Claude to review, cleanup doc strings and inline comments and check result
 4. Verify changes do not break functionality
 
+deprecation_check.py
+deprecation_guard.py
+gpio_service_test.py
+led_control_test.py
+oradio_control_test.py
+remote_debugger.py
+test_classes.py
+touch_buttons_test.py
+
 DONE 1:
-led_control.py
 mpd_control.py
 mpd_monitor.py
 mpd_service.py
@@ -16,7 +24,6 @@ oradio_utils.py: Renamed to utilities.py
 power_supply_control.py
 schemas.json
 spotify_connect_direct.py
-system_sounds.py
 touch_buttons.py
 
 DONE 2:
@@ -28,9 +35,11 @@ DONE 4:
 backlighting.py
 gpio_service.py
 i2c_service.py
+led_control.py
 messaging.py: Still TODO - migrate messaging defines from constants.py
 singleton.py
 rms_service (renamed from remote_monitoring.py)
+system_sounds.py
 throttling_monitor.py
 usb_service.py
 volume_control.py

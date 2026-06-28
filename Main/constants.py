@@ -20,7 +20,7 @@ Created on December 23, 2024
 
 25 jul update volume settings to prepare for speaker in production
 """
-################## SYSTEM #############################
+##### SYSTEM ##############################################
 # Colors
 BLUE    = '\x1b[38;5;039m'
 GREY    = '\x1b[38;5;248m'
@@ -34,15 +34,15 @@ NC      = '\x1b[0m'
 # Messages consist of 3 elements: source, state and error
 MESSAGE_NO_ERROR = "None"
 
-########################### LED definitions see UML «led_name» ###################
+##### LED definitions see UML «led_name» ##################
 LED_PLAY    = "LedPlay"
 LED_STOP    = "LedStop"
 LED_PRESET1 = "LedPreset1"
 LED_PRESET2 = "LedPreset2"
 LED_PRESET3 = "LedPreset3"
-LED_NAMES   =[LED_PLAY, LED_STOP, LED_PRESET1, LED_PRESET2, LED_PRESET3]
+LED_NAMES   = [LED_PLAY, LED_STOP, LED_PRESET1, LED_PRESET2, LED_PRESET3]
 
-############################# #BUTTON definitions see UML «button_name» ###########
+##### #BUTTON definitions see UML «button_name» ###########
 BUTTON_PLAY     = "ButtonPlay"
 BUTTON_STOP     = "ButtonStop"
 BUTTON_PRESET1  = "ButtonPreset1"
@@ -52,7 +52,7 @@ BUTTON_NAMES    = [BUTTON_PLAY, BUTTON_STOP, BUTTON_PRESET1, BUTTON_PRESET2, BUT
 BUTTON_PRESSED  = "button pressed"
 BUTTON_RELEASED = "button released"
 
-##### SYSTEM SOUND NAMES #######
+##### SYSTEM SOUND NAMES ##################################
 SOUND_START        = "Start"
 SOUND_STOP         = "Stop"
 SOUND_PLAY         = "PLAY"
@@ -72,16 +72,16 @@ SOUND_NO_INTERNET  = "NoInternet"
 SOUND_NEW_PRESET   = "NewPlaylistPreset"
 SOUND_NEW_WEBRADIO = "NewPlaylistWebradio"
 
-################## REMOTE SERVER ##########################
+##### REMOTE SERVER #######################################
 REMOTE_SERVER = 'https://oradiolabs.nl/rms/receive.php'
 POST_TIMEOUT  = (5, 30)  # (connect timeout, read timeout)
 
-################## WIFI UTILS #############################
+##### WIFI UTILS ##########################################
 # Access point
 ACCESS_POINT_HOST = "108.156.60.1"  # wsj.com
 ACCESS_POINT_SSID = "OradioAP"
 
-################## WEB SERVICE #############################
+##### WEB SERVICE #########################################
 # Web server address
 WEB_SERVER_HOST = "0.0.0.0"
 WEB_SERVER_PORT = 8000
@@ -89,17 +89,17 @@ WEB_SERVER_PORT = 8000
 MESSAGE_REQUEST_CONNECT = "connect to wifi network"
 MESSAGE_REQUEST_STOP    = "stop web service"
 
-################## USB #############################
+##### USB #################################################
 # Paths
 USB_MOUNT_PATH  = "/media"
 USB_MOUNT_POINT = USB_MOUNT_PATH + "/oradio"
 USB_MUSIC       = USB_MOUNT_POINT + "/Muziek"
 USB_SYSTEM      = USB_MOUNT_POINT + "/Systeem"
 
-################## AUDIO #############################
+##### AUDIO ###############################################
 PRESETS_FILE = USB_SYSTEM + "/presets.json"
 
-################## THREADS #############################
+##### THREADS #############################################
 # Sentinel value placed in a subscriber queue to signal the listener thread to exit cleanly.
 STOP_SENTINEL = "__STOP__"
 
@@ -107,12 +107,12 @@ STOP_SENTINEL = "__STOP__"
 # after the sentinel has been delivered, before logging a warning.
 JOIN_TIMEOUT = 2.0
 
-############# SPOTIFY CONFIG #####################################
+##### SPOTIFY CONFIG ######################################
 MESSAGE_SPOTIFY_SOURCE    = "Spotify message"
 SPOTIFY_EVENT_SOCKET_PORT = 8010
-MPV_SOCKET = "/home/pi/spotify/mpv-socket"
+MPV_SOCKET                = "/home/pi/spotify/mpv-socket"
 
-############## TOUCH BUTTONS MESSAGES #################
+##### TOUCH BUTTONS MESSAGES ##############################
 MESSAGE_BUTTON_SOURCE      = "Button message"
 MESSAGE_BUTTON_SHORT_PRESS = "Short press:"
 MESSAGE_SHORT_PRESS_BUTTON_PLAY     = MESSAGE_BUTTON_SHORT_PRESS + BUTTON_PLAY
@@ -123,7 +123,7 @@ MESSAGE_SHORT_PRESS_BUTTON_PRESET3  = MESSAGE_BUTTON_SHORT_PRESS + BUTTON_PRESET
 MESSAGE_BUTTON_LONG_PRESS   = "Long press:"
 MESSAGE_LONG_PRESS_BUTTON_PLAY     = MESSAGE_BUTTON_LONG_PRESS + BUTTON_PLAY
 
-# MPV_PLAYER COMMANDS ####
+##### MPV_PLAYER COMMANDS #################################
 MPV_PLAYERCTL_PLAY  = "play"
 MPV_PLAYERCTL_PAUSE = "pause"
 MPV_PLAYERCTL_STOP  = "stop"
@@ -138,42 +138,42 @@ MPV_PLAYERCTL_COMMAND_ERROR     = "playerctl command failed"
 # MPRIS Medaio Player identifier (D-Bus service names, according the  naming convention for the MPRIS2 specification.
 # It is not a physical file or program, but a logical D-Bus service name
 # that media players register under when they support MPRIS.
-MPRIS_MPV_PLAYER            = "org.mpris.MediaPlayer2.mpv"
-MPRIS_MEDIA_PLAYER          = "/org/mpris/MediaPlayer2"
-MPRIS_MP2_PLAYER            = "org.mpris.MediaPlayer2.Player"
-MPRIS_DBUS_PROPERTIES       = "org.freedesktop.DBus.Properties"
-MPRIS_MEDIA_PLAYER_SEARCH   = "org/mpris/MediaPlayer2."
+MPRIS_MPV_PLAYER          = "org.mpris.MediaPlayer2.mpv"
+MPRIS_MEDIA_PLAYER        = "/org/mpris/MediaPlayer2"
+MPRIS_MP2_PLAYER          = "org.mpris.MediaPlayer2.Player"
+MPRIS_DBUS_PROPERTIES     = "org.freedesktop.DBus.Properties"
+MPRIS_MEDIA_PLAYER_SEARCH = "org/mpris/MediaPlayer2."
 
-# SPOTIFY events and states
-SPOTIFY_APP_STATUS_PLAYING      = "Playing"
-SPOTIFY_APP_STATUS_STOPPED      = "Stopped"
-SPOTIFY_APP_STATUS_PAUSED       = "Paused"
-SPOTIFY_APP_STATUS_DISCONNECTED = "Disconnected"
-SPOTIFY_APP_STATUS_CONNECTED    = "Connected"
+##### SPOTIFY events and states ###########################
+SPOTIFY_APP_STATUS_PLAYING        = "Playing"
+SPOTIFY_APP_STATUS_STOPPED        = "Stopped"
+SPOTIFY_APP_STATUS_PAUSED         = "Paused"
+SPOTIFY_APP_STATUS_DISCONNECTED   = "Disconnected"
+SPOTIFY_APP_STATUS_CONNECTED      = "Connected"
 SPOTIFY_APP_STATUS_CLIENT_CHANGED = "Client changed"
 
-SPOTIFY_CONNECT_PLAYING_EVENT           = "Spotify Connect playing event"
-SPOTIFY_CONNECT_PAUSED_EVENT            = "Spotify Connect paused event"
-SPOTIFY_CONNECT_STOPPED_EVENT           = "Spotify Connect stopped event"
-SPOTIFY_CONNECT_CONNECTED_EVENT         = "Spotify Connect connected event"
-SPOTIFY_CONNECT_DISCONNECTED_EVENT      = "Spotify Connect disconnected event"
-SPOTIFY_CONNECT_CLIENT_CHANGED_EVENT    = "Spotify Connect client changed event"
-SPOTIFY_CONNECT_SERVERS_RUNNING         = "Spotify Connect local servers running"
-SPOTIFY_CONNECT_SERVERS_NOT_RUNNING     = "Spotify Connect local servers NOT running"
-SPOTIFY_CONNECT_MPV_SERVICE_NOT_ACTIVE  = "Spotify Connect MPV service not active"
-SPOTIFY_CONNECT_MPV_SERVICE_IS_ACTIVE   = "Spotify Connect MPV service is active"
+SPOTIFY_CONNECT_PLAYING_EVENT              = "Spotify Connect playing event"
+SPOTIFY_CONNECT_PAUSED_EVENT               = "Spotify Connect paused event"
+SPOTIFY_CONNECT_STOPPED_EVENT              = "Spotify Connect stopped event"
+SPOTIFY_CONNECT_CONNECTED_EVENT            = "Spotify Connect connected event"
+SPOTIFY_CONNECT_DISCONNECTED_EVENT         = "Spotify Connect disconnected event"
+SPOTIFY_CONNECT_CLIENT_CHANGED_EVENT       = "Spotify Connect client changed event"
+SPOTIFY_CONNECT_SERVERS_RUNNING            = "Spotify Connect local servers running"
+SPOTIFY_CONNECT_SERVERS_NOT_RUNNING        = "Spotify Connect local servers NOT running"
+SPOTIFY_CONNECT_MPV_SERVICE_NOT_ACTIVE     = "Spotify Connect MPV service not active"
+SPOTIFY_CONNECT_MPV_SERVICE_IS_ACTIVE      = "Spotify Connect MPV service is active"
 SPOTIFY_CONNECT_MPV_MPRIS_PLAYER_NOT_FOUND = "Spotify Connect MPV MPRIS player not found"
 SPOTIFY_CONNECT_MPV_STATE_OK               = "Spotify Connect MPV State OK"
 
 SPOTIFY_CONNECT_CONNECTED = "Spotify Connect is connected"
 SPOTIFY_CONNECT_NOT_CONNECTED = "Spotify Connect is NOT connected"
 
-############### Remote Debugger defines ##########################
+##### Remote Debugger defines #############################
 DEBUGGER_CONNECTED      = "Debugger connected"
 DEBUGGER_NOT_CONNECTED  = "Debugger not connected"
 DEBUGGER_DISABLED       = "debugger disabled"
 DEBUGGER_ENABLED        = "debugger enabled"
 
-######## MODULE TEST defines ##########################
+##### MODULE TEST defines #################################
 TEST_ENABLED  = "test enabled"
 TEST_DISABLED = "test disabled"

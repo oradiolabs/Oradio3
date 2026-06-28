@@ -37,7 +37,7 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from starlette.responses import RedirectResponse
 
-#### Oradio modules #################
+#### Oradio modules #######################################
 from log_service import oradio_log
 from utilities import get_serial, run_shell_script, load_presets, store_presets
 from wifi_service import get_wifi_networks, get_saved_network
@@ -56,7 +56,7 @@ from messaging import (
     WEB_PLAYING_SONG,
 )
 
-#### GLOBAL constants ###############
+#### GLOBAL constants #####################################
 from constants import (
     WEB_SERVER_HOST,
     WEB_SERVER_PORT,
@@ -65,7 +65,7 @@ from constants import (
     MESSAGE_REQUEST_CONNECT,
 )
 
-#### LOCAL constants ################
+#### LOCAL constants ######################################
 # Fallback values returned by _get_sw_info() when the version file is absent or unreadable
 INFO_MISSING = {"serial": "not found", "version": "not found"}
 INFO_ERROR   = {"serial": "undefined", "version": "undefined"}
@@ -150,7 +150,7 @@ async def keep_alive_middleware(request: Request, call_next):
 
     return response
 
-##### Helpers #######################
+##### Helpers #############################################
 
 def _get_sw_info() -> dict:
     """
@@ -466,7 +466,7 @@ def log_message(args: Optional[Dict[str, Any]]):
 
     oradio_log.debug("Web interface: %s", message)
 
-##### Execute #######################
+##### Execute #############################################
 
 class ExecuteRequest(BaseModel):
     """
@@ -521,7 +521,7 @@ async def execute(request: ExecuteRequest):
     except ValueError as ex_err:
         return JSONResponse(status_code=400, content={"message": str(ex_err)})
 
-##### Oradio3 #######################
+##### Oradio3 #############################################
 
 @api_app.get("/oradio3")
 async def oradio3_page(request: Request):
@@ -570,7 +570,7 @@ async def oradio3_page(request: Request):
 
     return templates.TemplateResponse(request=request, name="oradio3.html", context=context)
 
-##### Keep Alive ####################
+##### Keep Alive ##########################################
 
 async def stop_task():
     """
@@ -633,7 +633,7 @@ async def keep_alive():
 
     return JSONResponse({"status": "ok"})
 
-##### Catch all #####################
+##### Catch all ###########################################
 
 @api_app.api_route("/{full_path:path}", methods=["GET", "POST"])
 async def catch_all(request: Request):
@@ -654,7 +654,7 @@ async def catch_all(request: Request):
 
     return RedirectResponse(url=oradioap_url + "/oradio3", status_code=302)
 
-##### Stand-alone entry point #######
+##### Stand-alone entry point #############################
 
 if __name__ == '__main__':
 

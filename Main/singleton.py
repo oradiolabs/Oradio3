@@ -74,6 +74,7 @@ def singleton(cls) -> object:
     cls.__init__ = init_once
     return cls
 
-# Entry point for stand-alone operation
+##### Stand-alone entry point #############################
+
 if __name__ == '__main__':
     print("Running Singleton metaclass stand-alone is meaningless: do nothing")
