@@ -41,6 +41,13 @@ from log_service import oradio_log
 ##### GLOBAL constants ####################################
 from constants import (
     RED, YELLOW, GREEN, NC,
+    BUTTON_SHORT_PRESS,
+    BUTTON_LONG_PRESS,
+    BUTTON_PLAY,
+    BUTTON_STOP,
+    BUTTON_PRESET1,
+    BUTTON_PRESET2,
+    BUTTON_PRESET3,
     JOIN_TIMEOUT,
 )
 
@@ -100,6 +107,15 @@ VOLUME_SOURCE      = "Volume message"
 VOLUME_CHANGED     = "Volume changed"
 VOLUME_ERROR_START = "Volume failed to start"
 VOLUME_ERROR_STOP  = "Volume failed to stop"
+# Buttons
+BUTTON_SOURCE              = "Button message"
+BUTTON_SHORT_PRESS_PLAY    = BUTTON_SHORT_PRESS + BUTTON_PLAY
+BUTTON_SHORT_PRESS_STOP    = BUTTON_SHORT_PRESS + BUTTON_STOP
+BUTTON_SHORT_PRESS_PRESET1 = BUTTON_SHORT_PRESS + BUTTON_PRESET1
+BUTTON_SHORT_PRESS_PRESET2 = BUTTON_SHORT_PRESS + BUTTON_PRESET2
+BUTTON_SHORT_PRESS_PRESET3 = BUTTON_SHORT_PRESS + BUTTON_PRESET3
+BUTTON_LONG_PRESS_PLAY     = BUTTON_LONG_PRESS + BUTTON_PLAY
+
 
 '''
 # Messages from fastapi to web service
@@ -108,16 +124,6 @@ MESSAGE_REQUEST_STOP    = "stop web service"
 
 # Spotify
 MESSAGE_SPOTIFY_SOURCE    = "Spotify message"
-# Touch buttons
-MESSAGE_BUTTON_SOURCE      = "Button message"
-MESSAGE_BUTTON_SHORT_PRESS = "Short press:"
-MESSAGE_SHORT_PRESS_BUTTON_PLAY     = MESSAGE_BUTTON_SHORT_PRESS + BUTTON_PLAY
-MESSAGE_SHORT_PRESS_BUTTON_STOP     = MESSAGE_BUTTON_SHORT_PRESS + BUTTON_STOP
-MESSAGE_SHORT_PRESS_BUTTON_PRESET1  = MESSAGE_BUTTON_SHORT_PRESS + BUTTON_PRESET1
-MESSAGE_SHORT_PRESS_BUTTON_PRESET2  = MESSAGE_BUTTON_SHORT_PRESS + BUTTON_PRESET2
-MESSAGE_SHORT_PRESS_BUTTON_PRESET3  = MESSAGE_BUTTON_SHORT_PRESS + BUTTON_PRESET3
-MESSAGE_BUTTON_LONG_PRESS   = "Long press:"
-MESSAGE_LONG_PRESS_BUTTON_PLAY     = MESSAGE_BUTTON_LONG_PRESS + BUTTON_PLAY
 '''
 
 class Topic(str, Enum):
@@ -349,6 +355,163 @@ class PubSubManager:
 # Global PubSub manager (singleton — only one instance per process).
 _pubsub = PubSubManager()
 
+##### Public API ##########################################
+
+class Commands:
+    """
+    Static namespace for COMMAND topic operations.
+    """
+
+    @staticmethod
+    def subscribe(sources: tuple[str, ...] | None = None) -> Queue:
+        """
+        Subscribe to command messages.
+
+        Args:
+            sources: Optional source filter.
+
+        Returns:
+            Subscriber queue.
+        """
+        return _pubsub.subscribe(Topic.COMMAND, sources)
+
+    @staticmethod
+    def unsubscribe(queue: Queue) -> None:
+        """
+        Remove a queue from the COMMAND topic.
+
+        Safe to call more than once for the same queue; repeated calls are
+        logged as warnings and ignored.
+
+        Args:
+            queue: The Queue returned by the matching Commands.subscribe() call.
+        """
+        _pubsub.unsubscribe(Topic.COMMAND, queue)
+
+    @staticmethod
+    def publish(message: CommandMessage) -> None:
+        """
+        Validate and publish a command message.
+
+        Invalid messages are treated as fatal errors.
+
+        Args:
+            message: Message to publish.
+        """
+        if not isinstance(message, CommandMessage):
+            _fatal_exit(f"Wrong message type for Commands.publish: {message!r}", stacklevel=5)
+
+        if not message.is_valid():
+            _fatal_exit(f"Invalid CommandMessage rejected: {message!r}", stacklevel=5)
+
+        _pubsub.publish(Topic.COMMAND, message)
+
+class Errors:
+    """
+    Static namespace for ERROR topic operations.
+    """
+
+    @staticmethod
+    def subscribe(sources: tuple[str, ...] | None = None) -> Queue:
+        """
+        Subscribe to error messages.
+
+        Args:
+            sources: Optional source filter.
+
+        Returns:
+            Subscriber queue.
+        """
+        return _pubsub.subscribe(Topic.ERROR, sources)
+
+    @staticmethod
+    def unsubscribe(queue: Queue) -> None:
+        """
+        Remove a queue from the ERROR topic.
+
+        Safe to call more than once for the same queue; repeated calls are
+        logged as warnings and ignored.
+
+        Args:
+            queue: The Queue returned by the matching Errors.subscribe() call.
+        """
+        _pubsub.unsubscribe(Topic.ERROR, queue)
+
+    @staticmethod
+    def publish(message: ErrorMessage) -> None:
+        """
+        Validate and publish an error message.
+
+        Invalid messages are treated as fatal errors.
+
+        Args:
+            message: Message to publish.
+        """
+        if not isinstance(message, ErrorMessage):
+            _fatal_exit(f"Wrong message type for Errors.publish: {message!r}", stacklevel=5)
+
+        if not message.is_valid():
+            _fatal_exit(f"Invalid ErrorMessage rejected: {message!r}", stacklevel=5)
+
+        _pubsub.publish(Topic.ERROR, message)
+
+def safe_get(queue: Queue) -> Any:
+    """
+    Return the next message from a queue.
+
+    The concrete type of the returned object depends on the queue's producer:
+    messaging bus queues deliver CommandMessage or ErrorMessage instances;
+    other queues (e.g. the WebService request queue) may deliver plain dicts
+    or stop-sentinel strings.
+
+    Terminates the process if the queue becomes unusable.
+
+    Args:
+        queue: Queue to read from.
+
+    Returns:
+        The next object retrieved from the queue.
+    """
+    if not hasattr(queue, "get"):
+        _fatal_exit(f"Object has no get() method: {type(queue).__name__!r}")
+
+    try:
+        return queue.get()
+
+    except (OSError, EOFError, BrokenPipeError) as ex_err:
+        # Queue is closed, corrupted, or the underlying pipe is gone.
+        _fatal_exit("Queue is closed/broken — failed to get message", exc=ex_err)
+
+    except AssertionError as ex_err:
+        # Rare internal multiprocessing queue failure.
+        _fatal_exit("Queue internal error on get", exc=ex_err)
+
+def safe_put(queue: Queue, message: object) -> None:
+    """
+    Safely put a message into a queue.
+
+    Terminates the process if the queue cannot be written to.
+
+    Args:
+        queue:   The queue to put the message into.
+        message: The object to put.
+    """
+    try:
+        queue.put_nowait(message)
+
+    except Full:
+        # A full queue indicates a runaway producer or stalled consumer —
+        # treat it as a critical infrastructure failure.
+        _fatal_exit(f"Queue overflow while publishing message: {message}")
+
+    except (OSError, EOFError, ValueError) as ex_err:
+        # Queue is closed, corrupted, or the underlying pipe is gone.
+        _fatal_exit(f"Queue is closed/broken - failed to put message: {message}", exc=ex_err)
+
+    except AssertionError as ex_err:
+        # Rare internal multiprocessing queue failure.
+        _fatal_exit(f"Queue internal error on put message: {message}", exc=ex_err)
+
 ##### Template ############################################
 
 class MessageHandlerBase:
@@ -453,163 +616,6 @@ class MessageHandlerBase:
         """
         raise NotImplementedError(f"{self.__class__.__name__} must implement _handle_message()")
 
-##### Public API ##########################################
-
-class Commands:
-    """
-    Static namespace for COMMAND topic operations.
-    """
-
-    @staticmethod
-    def subscribe(sources: tuple[str, ...] | None = None) -> Queue:
-        """
-        Subscribe to command messages.
-
-        Args:
-            sources: Optional source filter.
-
-        Returns:
-            Subscriber queue.
-        """
-        return _pubsub.subscribe(Topic.COMMAND, sources)
-
-    @staticmethod
-    def unsubscribe(queue: Queue) -> None:
-        """
-        Remove a queue from the COMMAND topic.
-
-        Safe to call more than once for the same queue; repeated calls are
-        logged as warnings and ignored.
-
-        Args:
-            queue: The Queue returned by the matching Commands.subscribe() call.
-        """
-        _pubsub.unsubscribe(Topic.COMMAND, queue)
-
-    @staticmethod
-    def publish(message: CommandMessage) -> None:
-        """
-        Validate and publish a command message.
-
-        Invalid messages are treated as fatal errors.
-
-        Args:
-            message: Message to publish.
-        """
-        if not isinstance(message, CommandMessage):
-            _fatal_exit(f"Wrong message type for Commands.publish: {message!r}", stacklevel=5)
-
-        if not message.is_valid():
-            _fatal_exit(f"Invalid CommandMessage rejected: {message!r}", stacklevel=5)
-
-        _pubsub.publish(Topic.COMMAND, message)
-
-class Errors:
-    """
-    Static namespace for ERROR topic operations.
-    """
-
-    @staticmethod
-    def subscribe(sources: tuple[str, ...] | None = None) -> Queue:
-        """
-        Subscribe to error messages.
-
-        Args:
-            sources: Optional source filter.
-
-        Returns:
-            Subscriber queue.
-        """
-        return _pubsub.subscribe(Topic.ERROR, sources)
-
-    @staticmethod
-    def unsubscribe(queue: Queue) -> None:
-        """
-        Remove a queue from the ERROR topic.
-
-        Safe to call more than once for the same queue; repeated calls are
-        logged as warnings and ignored.
-
-        Args:
-            queue: The Queue returned by the matching Errors.subscribe() call.
-        """
-        _pubsub.unsubscribe(Topic.ERROR, queue)
-
-    @staticmethod
-    def publish(message: ErrorMessage) -> None:
-        """
-        Validate and publish an error message.
-
-        Invalid messages are treated as fatal errors.
-
-        Args:
-            message: Message to publish.
-        """
-        if not isinstance(message, ErrorMessage):
-            _fatal_exit(f"Wrong message type for Errors.publish: {message!r}", stacklevel=5)
-
-        if not message.is_valid():
-            _fatal_exit(f"Invalid ErrorMessage rejected: {message!r}", stacklevel=5)
-
-        _pubsub.publish(Topic.ERROR, message)
-
-def safe_get(queue: Queue) -> object:
-    """
-    Return the next message from a queue.
-
-    The concrete type of the returned object depends on the queue's producer:
-    messaging bus queues deliver CommandMessage or ErrorMessage instances;
-    other queues (e.g. the WebService request queue) may deliver plain dicts
-    or stop-sentinel strings.
-
-    Terminates the process if the queue becomes unusable.
-
-    Args:
-        queue: Queue to read from.
-
-    Returns:
-        The next object retrieved from the queue.
-    """
-    if not hasattr(queue, "get"):
-        _fatal_exit(f"Object has no get() method: {type(queue).__name__!r}")
-
-    try:
-        return queue.get()
-
-    except (OSError, EOFError, BrokenPipeError) as ex_err:
-        # Queue is closed, corrupted, or the underlying pipe is gone.
-        _fatal_exit("Queue is closed/broken — failed to get message", exc=ex_err)
-
-    except AssertionError as ex_err:
-        # Rare internal multiprocessing queue failure.
-        _fatal_exit("Queue internal error on get", exc=ex_err)
-
-def safe_put(queue: Queue, message: object) -> None:
-    """
-    Safely put a message into a queue.
-
-    Terminates the process if the queue cannot be written to.
-
-    Args:
-        queue:   The queue to put the message into.
-        message: The object to put.
-    """
-    try:
-        queue.put_nowait(message)
-
-    except Full:
-        # A full queue indicates a runaway producer or stalled consumer —
-        # treat it as a critical infrastructure failure.
-        _fatal_exit(f"Queue overflow while publishing message: {message}")
-
-    except (OSError, EOFError, ValueError) as ex_err:
-        # Queue is closed, corrupted, or the underlying pipe is gone.
-        _fatal_exit(f"Queue is closed/broken - failed to put message: {message}", exc=ex_err)
-
-    except AssertionError as ex_err:
-        # Rare internal multiprocessing queue failure.
-        _fatal_exit(f"Queue internal error on put message: {message}", exc=ex_err)
-
 ##### Debug ###############################################
 
 class DebugMessageHandler(MessageHandlerBase):
@@ -659,7 +665,6 @@ class DebugMessageHandler(MessageHandlerBase):
 if __name__ == '__main__':
 
     # Imports only relevant when stand-alone
-    from time import sleep
     from multiprocessing import Process     # pylint: disable=ungrouped-imports
 
     # Most modules use similar code in stand-alone
@@ -739,21 +744,18 @@ if __name__ == '__main__':
                         print(f"{YELLOW}No subscribed COMMAND handlers{NC}")
                     print("Publishing COMMAND message...")
                     Commands.publish(CommandMessage("worker", "command message"))
-                    sleep(0.5)  # Allow for print output to propagate
                     print(f"{GREEN}Success publishing COMMAND message{NC}\n")
                 case 4:
                     if not err_handlers:
                         print(f"{YELLOW}No subscribed ERROR handlers{NC}")
                     print("Publishing ERROR message...")
                     Errors.publish(ErrorMessage("worker", "error message"))
-                    sleep(0.5)  # Allow for print output to propagate
                     print(f"{GREEN}Success publishing ERROR message{NC}\n")
                 case 5:
                     if not cmd_handlers:
                         print(f"{YELLOW}No subscribed COMMAND handlers{NC}")
                     print("Publishing COMMAND message with extra data...")
                     Commands.publish(CommandMessage("worker", "command message", "extra data"))
-                    sleep(0.5)  # Allow for print output to propagate
                     print(f"{GREEN}Success publishing COMMAND message with extra data{NC}\n")
                 case 6:
                     if not cmd_handlers:
@@ -764,7 +766,6 @@ if __name__ == '__main__':
                         args=(CommandMessage("worker", "command message from thread"),),
                         daemon=True,
                     ).start()
-                    sleep(0.5)  # Allow for print output to propagate
                     print(f"{GREEN}Success publishing COMMAND message from THREAD{NC}\n")
                 case 7:
                     if not err_handlers:
@@ -775,7 +776,6 @@ if __name__ == '__main__':
                         args=(ErrorMessage("worker", "error message from thread"),),
                         daemon=True,
                     ).start()
-                    sleep(0.5)  # Allow for print output to propagate
                     print(f"{GREEN}Success publishing ERROR message from THREAD{NC}\n")
                 case 8:
                     # On Linux (fork start method) the child inherits the parent's
@@ -790,7 +790,6 @@ if __name__ == '__main__':
                         args=(CommandMessage("worker", "command message from process"),),
                         daemon=True,
                     ).start()
-                    sleep(0.5)  # Allow for print output to propagate
                     print(f"{GREEN}Success publishing COMMAND message from PROCESS{NC}\n")
                 case 9:
                     # On Linux (fork start method) the child inherits the parent's
@@ -805,21 +804,18 @@ if __name__ == '__main__':
                         args=(ErrorMessage("worker", "error message from process"),),
                         daemon=True,
                     ).start()
-                    sleep(0.5)  # Allow for print output to propagate
                     print(f"{GREEN}Success publishing ERROR message from PROCESS{NC}\n")
                 case 10:
                     # Deliberately pass an ErrorMessage to Commands.publish
                     # to exercise the type-check fatal-exit path.
                     print("Publishing invalid COMMAND message...")
                     Commands.publish(ErrorMessage("worker", "error message"))
-                    sleep(0.5)  # Allow for print output to propagate
                     print(f"{RED}Failed catching error sending error message to command queue{NC}\n")
                 case 11:
                     # Deliberately pass a CommandMessage to Errors.publish
                     # to exercise the type-check fatal-exit path.
                     print("Publishing invalid ERROR message...")
                     Errors.publish(CommandMessage("worker", "command message"))
-                    sleep(0.5)  # Allow for print output to propagate
                     print(f"{RED}Failed catching error sending command message to error queue{NC}\n")
                 case 12:
                     if not cmd_handlers:
@@ -841,7 +837,6 @@ if __name__ == '__main__':
                             Commands.unsubscribe(handler.get_queue())
                             # Signal the thread to exit and confirms it has exited.
                             handler.stop()
-                            sleep(0.5)  # Allow for print output to propagate
                             print(f"{GREEN}COMMAND handler {idx} unsubscribed{NC}\n")
                 case 13:
                     if not err_handlers:
@@ -863,7 +858,6 @@ if __name__ == '__main__':
                             Errors.unsubscribe(handler.get_queue())
                             # Signal the thread to exit and confirms it has exited.
                             handler.stop()
-                            sleep(0.5)  # Allow for print output to propagate
                             print(f"{GREEN}ERROR handler {idx} unsubscribed{NC}\n")
                 case _:
                     print(f"\n{YELLOW}Please input a valid number{NC}\n")

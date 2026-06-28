@@ -67,6 +67,13 @@ from messaging import (
     WEB_PLAYING_SONG,
     VOLUME_SOURCE,
     VOLUME_CHANGED,
+    BUTTON_SOURCE,
+    BUTTON_SHORT_PRESS_PLAY,
+    BUTTON_SHORT_PRESS_STOP,
+    BUTTON_SHORT_PRESS_PRESET1,
+    BUTTON_SHORT_PRESS_PRESET2,
+    BUTTON_SHORT_PRESS_PRESET3,
+    BUTTON_LONG_PRESS_PLAY,
 )
 
 ##### GLOBAL constants ####################################
@@ -96,13 +103,6 @@ from constants import (
     SOUND_NO_INTERNET,
     SOUND_NEW_PRESET,
     SOUND_NEW_WEBRADIO,
-    MESSAGE_BUTTON_SOURCE,
-    MESSAGE_SHORT_PRESS_BUTTON_PLAY,
-    MESSAGE_SHORT_PRESS_BUTTON_STOP,
-    MESSAGE_SHORT_PRESS_BUTTON_PRESET1,
-    MESSAGE_SHORT_PRESS_BUTTON_PRESET2,
-    MESSAGE_SHORT_PRESS_BUTTON_PRESET3,
-    MESSAGE_LONG_PRESS_BUTTON_PLAY,
     LED_PLAY,
     LED_STOP,
     LED_PRESET1,
@@ -686,13 +686,13 @@ HANDLERS = {
         SPOTIFY_CONNECT_PAUSED_EVENT: on_spotify_connect_paused,
         # "Spotify error": on_spotify_error,
     },
-    MESSAGE_BUTTON_SOURCE: {
-        MESSAGE_SHORT_PRESS_BUTTON_PLAY: _on_play_pressed,
-        MESSAGE_SHORT_PRESS_BUTTON_STOP: _on_stop_pressed,
-        MESSAGE_SHORT_PRESS_BUTTON_PRESET1: _on_preset1_pressed,
-        MESSAGE_SHORT_PRESS_BUTTON_PRESET2: _on_preset2_pressed,
-        MESSAGE_SHORT_PRESS_BUTTON_PRESET3: _on_preset3_pressed,
-        MESSAGE_LONG_PRESS_BUTTON_PLAY: _on_play_long_pressed
+    BUTTON_SOURCE: {
+        BUTTON_SHORT_PRESS_PLAY: _on_play_pressed,
+        BUTTON_SHORT_PRESS_STOP: _on_stop_pressed,
+        BUTTON_SHORT_PRESS_PRESET1: _on_preset1_pressed,
+        BUTTON_SHORT_PRESS_PRESET2: _on_preset2_pressed,
+        BUTTON_SHORT_PRESS_PRESET3: _on_preset3_pressed,
+        BUTTON_LONG_PRESS_PLAY: _on_play_long_pressed
     },
 
 }
@@ -849,7 +849,7 @@ oradio_usb_service = USBService()
 # REVIEW Onno: sync_usb_presence_from_service is overbodig, want USB status komt via de command queue
 sync_usb_presence_from_service()
 
-touch_buttons = TouchButtons(shared_queue)
+touch_buttons = TouchButtons()
 # ----------- Volume Control -----------------
 
 volume_control = VolumeControl()
