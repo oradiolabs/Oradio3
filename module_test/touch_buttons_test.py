@@ -53,8 +53,7 @@ class TestTouchButtons():
     Subclass of TouchButtons for testing purposes.
     Injects TestGPIOService and TimingData.
     """
-    def __init__(self, queue: Queue):
-        self.message_queue = queue
+    def __init__(self):
         TouchButtons.buttons_module_test = TEST_ENABLED
         # Create an instance of actual TouchButtons
         # and add an instance of TestGPIOService,
