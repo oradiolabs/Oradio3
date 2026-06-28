@@ -30,12 +30,6 @@ from messaging import (
     Commands,
     CommandMessage,
     BUTTON_SOURCE,
-    BUTTON_SHORT_PRESS_PLAY,
-    BUTTON_SHORT_PRESS_STOP,
-    BUTTON_SHORT_PRESS_PRESET1,
-    BUTTON_SHORT_PRESS_PRESET2,
-    BUTTON_SHORT_PRESS_PRESET3,
-    BUTTON_LONG_PRESS_PLAY,
 )
 
 ##### GLOBAL constants ####################################

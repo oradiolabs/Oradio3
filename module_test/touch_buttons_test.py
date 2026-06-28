@@ -27,12 +27,13 @@ from multiprocessing import Queue
 from time import sleep, perf_counter
 from RPi import GPIO
 
-import socket
+##### oradio modules ######################################
 from log_service import oradio_log, DEBUG, CRITICAL
 from touch_buttons import TouchButtons, BUTTON_DEBOUNCE_TIME
 from utilities import input_prompt_int, input_prompt_float, validate_oradio_message
 from gpio_service import BUTTONS, GPIOService
 from remote_debugger import setup_remote_debugging
+from messaging 
 
 ##### GLOBAL constants ####################################
 from constants import (
@@ -43,7 +44,7 @@ from constants import (
     TEST_DISABLED,
     DEBUGGER_ENABLED,
     DEBUGGER_NOT_CONNECTED,
-    MESSAGE_BUTTON_SHORT_PRESS
+    BUTTON_SHORT_PRESS
 )
 # pylint: disable=protected-access
 # motivation: for test purposes need to test the local methods
@@ -183,7 +184,7 @@ def _handle_message(message: dict, test_buttons: TestTouchButtons) -> bool:
             timdat=test_buttons.touch_buttons.timing_data
             time_stamp = float(validated_message.data[0])
             # statistics
-            button_name = validated_message.state.removeprefix(MESSAGE_BUTTON_SHORT_PRESS)
+            button_name = validated_message.state.removeprefix(BUTTON_SHORT_PRESS)
             if button_name not in BUTTON_NAMES:
                 print("invalid button:", button_name, validated_message)
             else:
@@ -257,7 +258,7 @@ def _callback_test(buttons: TestTouchButtons):
     """
     button_data = {}
     for button_name in BUTTON_NAMES:
-        button_data["state"] = MESSAGE_BUTTON_SHORT_PRESS + button_name
+        button_data["state"] = BUTTON_SHORT_PRESS + button_name
         button_data['name']  = button_name
         # Register callback FIRST
         buttons.touch_buttons._button_event_callback(button_data)
@@ -386,14 +387,13 @@ def _start_module_test():
     Show menu with test options
     """
     # pylint: disable=duplicate-code
-    shared_queue = Queue()
     TouchButtons.buttons_module_test = TEST_ENABLED
     GPIOService.gpio_module_test = TEST_ENABLED
-    test_buttons = TestTouchButtons( shared_queue)
+    test_buttons = TestTouchButtons()
 
     # Create a thread to listen and process new messages in shared queue
     Thread(target=_check_for_new_message_in_queue,
-                    args=(shared_queue, test_buttons),
+                    args=(test_buttons),
                     daemon=True).start()
     test_options = ["Quit"] + \
                     ["Pressing a button and check message queue "] + \

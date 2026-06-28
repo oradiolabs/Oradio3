@@ -26,11 +26,9 @@ from threading import Event, Thread
 from constants import (
     GREEN, RED, YELLOW, NC,
     DEBUGGER_NOT_CONNECTED, DEBUGGER_ENABLED,
-    MESSAGE_SHORT_PRESS_BUTTON_PLAY, MESSAGE_SHORT_PRESS_BUTTON_STOP,
-    MESSAGE_SHORT_PRESS_BUTTON_PRESET1, MESSAGE_SHORT_PRESS_BUTTON_PRESET2,
-    MESSAGE_SHORT_PRESS_BUTTON_PRESET3, MESSAGE_LONG_PRESS_BUTTON_PLAY,
-    MESSAGE_BUTTON_SOURCE, MESSAGE_NO_ERROR,
-    LED_PLAY, LED_STOP, LED_PRESET1, LED_PRESET2, LED_PRESET3
+    MESSAGE_NO_ERROR,
+    LED_PLAY, LED_STOP,
+    LED_PRESET1, LED_PRESET2, LED_PRESET3,
 )
 
 ##### Oradio modules ######################################
@@ -38,16 +36,25 @@ from log_service import oradio_log, DEBUG, CRITICAL
 from oradio_control import state_machine, leds, web_service_active, shared_queue, mpd_control
 from utilities import input_prompt_int, input_prompt_float, safe_put, OradioMessage
 from remote_debugger import setup_remote_debugging
+from messaging import (
+    BUTTON_SOURCE,
+    BUTTON_SHORT_PRESS_PLAY,
+    BUTTON_SHORT_PRESS_STOP,
+    BUTTON_SHORT_PRESS_PRESET1,
+    BUTTON_SHORT_PRESS_PRESET2,
+    BUTTON_SHORT_PRESS_PRESET3,
+    BUTTON_LONG_PRESS_PLAY,
+)
 
 ##### LOCAL constants #####################################
 BUTTON_SHORT_PRESS_NAMES = [
-    MESSAGE_SHORT_PRESS_BUTTON_PLAY,
-    MESSAGE_SHORT_PRESS_BUTTON_STOP,
-    MESSAGE_SHORT_PRESS_BUTTON_PRESET1,
-    MESSAGE_SHORT_PRESS_BUTTON_PRESET2,
-    MESSAGE_SHORT_PRESS_BUTTON_PRESET3
+    BUTTON_SHORT_PRESS_PLAY,
+    BUTTON_SHORT_PRESS_STOP,
+    BUTTON_SHORT_PRESS_PRESET1,
+    BUTTON_SHORT_PRESS_PRESET2,
+    BUTTON_SHORT_PRESS_PRESET3
 ]
-BUTTON_LONG_PRESS_NAMES = [MESSAGE_LONG_PRESS_BUTTON_PLAY]
+BUTTON_LONG_PRESS_NAMES = [BUTTON_LONG_PRESS_PLAY]
 
 def keyboard_input(event: Event):
     """
@@ -67,7 +74,7 @@ def _send_message(message_state: str) -> None:
         message_state = the state to be used for the key "state"
     """
     message = {}
-    message["source"] = MESSAGE_BUTTON_SOURCE
+    message["source"] = BUTTON_SOURCE
     message["error"]  = MESSAGE_NO_ERROR
     message["state"]  = message_state
     oradio_msg = OradioMessage(**message)
@@ -101,15 +108,15 @@ def _check_led_status(btn_msg: str) -> None:
         btn_msg : the button message used during test
     """
     led_name = None
-    if btn_msg == MESSAGE_SHORT_PRESS_BUTTON_PLAY:
+    if btn_msg == BUTTON_SHORT_PRESS_PLAY:
         led_name = LED_PLAY
-    elif btn_msg == MESSAGE_SHORT_PRESS_BUTTON_STOP:
+    elif btn_msg == BUTTON_SHORT_PRESS_STOP:
         led_name = LED_STOP
-    elif btn_msg ==  MESSAGE_SHORT_PRESS_BUTTON_PRESET1:
+    elif btn_msg ==  BUTTON_SHORT_PRESS_PRESET1:
         led_name = LED_PRESET1
-    elif btn_msg == MESSAGE_SHORT_PRESS_BUTTON_PRESET2:
+    elif btn_msg == BUTTON_SHORT_PRESS_PRESET2:
         led_name = LED_PRESET2
-    elif btn_msg ==  MESSAGE_SHORT_PRESS_BUTTON_PRESET3:
+    elif btn_msg ==  BUTTON_SHORT_PRESS_PRESET3:
         led_name = LED_PRESET3
     sleep(0.1) # give led some time to be processed.
     if leds.get_led_state(led_name):
@@ -124,15 +131,15 @@ def _check_stm_state(btn_msg: str) -> None:
         btn_msg : the button message used during test
     """
     stm_state = None
-    if btn_msg == MESSAGE_SHORT_PRESS_BUTTON_PLAY:
+    if btn_msg == BUTTON_SHORT_PRESS_PLAY:
         stm_state = "StatePlay"
-    elif btn_msg == MESSAGE_SHORT_PRESS_BUTTON_STOP:
+    elif btn_msg == BUTTON_SHORT_PRESS_STOP:
         stm_state = "StateStop"
-    elif btn_msg ==  MESSAGE_SHORT_PRESS_BUTTON_PRESET1:
+    elif btn_msg ==  BUTTON_SHORT_PRESS_PRESET1:
         stm_state = "StatePreset1"
-    elif btn_msg == MESSAGE_SHORT_PRESS_BUTTON_PRESET2:
+    elif btn_msg == BUTTON_SHORT_PRESS_PRESET2:
         stm_state = "StatePreset2"
-    elif btn_msg ==  MESSAGE_SHORT_PRESS_BUTTON_PRESET3:
+    elif btn_msg ==  BUTTON_SHORT_PRESS_PRESET3:
         stm_state = "StatePreset3"
     if state_machine.state == stm_state:
         print (f"{GREEN}State-machine is at state {stm_state} {NC}")
@@ -146,7 +153,7 @@ def _long_press_button_messages() -> None:
     # prepare a option list`
     buttons_option = ["Quit"]\
                      + BUTTON_LONG_PRESS_NAMES\
-                     + [MESSAGE_SHORT_PRESS_BUTTON_STOP]\
+                     + [BUTTON_SHORT_PRESS_STOP]\
                      + ["Button stress test"]\
                      + ["ButtonMsgUnknown"]
     selection_done = False
@@ -175,7 +182,7 @@ def _long_press_button_messages() -> None:
                     print(f"{RED} Web server is not active {NC}")
             case 2: # Stop button
                 print(f"\nThe selected BUTTON press is {buttons_option[menu_choice]}\n")
-                _send_message(MESSAGE_SHORT_PRESS_BUTTON_STOP)
+                _send_message(BUTTON_SHORT_PRESS_STOP)
             case 3: # Stress test
                 print(f"\nThe selected BUTTON press is {buttons_option[menu_choice]}\n")
                 _long_button_msg_stress_test()
@@ -230,26 +237,26 @@ def _short_button_msg_stress_test() -> None:
     """
     Stress test for button message
     """
-    msg_test_sequence_1 = [ MESSAGE_SHORT_PRESS_BUTTON_PLAY,
-                          MESSAGE_SHORT_PRESS_BUTTON_STOP,
-                          MESSAGE_SHORT_PRESS_BUTTON_PRESET1,
-                          MESSAGE_SHORT_PRESS_BUTTON_PRESET2,
-                          MESSAGE_SHORT_PRESS_BUTTON_PRESET3,
-                          MESSAGE_SHORT_PRESS_BUTTON_STOP ]
-    msg_test_sequence_2 = [ MESSAGE_SHORT_PRESS_BUTTON_PLAY,
-                          MESSAGE_SHORT_PRESS_BUTTON_STOP,
-                          MESSAGE_SHORT_PRESS_BUTTON_PRESET1,
-                          MESSAGE_SHORT_PRESS_BUTTON_PRESET1,
-                          MESSAGE_SHORT_PRESS_BUTTON_PRESET1,
-                          MESSAGE_SHORT_PRESS_BUTTON_STOP,
-                          MESSAGE_SHORT_PRESS_BUTTON_PRESET2,
-                          MESSAGE_SHORT_PRESS_BUTTON_PRESET2,
-                          MESSAGE_SHORT_PRESS_BUTTON_PRESET2,
-                          MESSAGE_SHORT_PRESS_BUTTON_STOP,
-                          MESSAGE_SHORT_PRESS_BUTTON_PRESET3,
-                          MESSAGE_SHORT_PRESS_BUTTON_PRESET3,
-                          MESSAGE_SHORT_PRESS_BUTTON_PRESET3,
-                          MESSAGE_SHORT_PRESS_BUTTON_STOP ]
+    msg_test_sequence_1 = [ BUTTON_SHORT_PRESS_PLAY,
+                          BUTTON_SHORT_PRESS_STOP,
+                          BUTTON_SHORT_PRESS_PRESET1,
+                          BUTTON_SHORT_PRESS_PRESET2,
+                          BUTTON_SHORT_PRESS_PRESET3,
+                          BUTTON_SHORT_PRESS_STOP ]
+    msg_test_sequence_2 = [ BUTTON_SHORT_PRESS_PLAY,
+                          BUTTON_SHORT_PRESS_STOP,
+                          BUTTON_SHORT_PRESS_PRESET1,
+                          BUTTON_SHORT_PRESS_PRESET1,
+                          BUTTON_SHORT_PRESS_PRESET1,
+                          BUTTON_SHORT_PRESS_STOP,
+                          BUTTON_SHORT_PRESS_PRESET2,
+                          BUTTON_SHORT_PRESS_PRESET2,
+                          BUTTON_SHORT_PRESS_PRESET2,
+                          BUTTON_SHORT_PRESS_STOP,
+                          BUTTON_SHORT_PRESS_PRESET3,
+                          BUTTON_SHORT_PRESS_PRESET3,
+                          BUTTON_SHORT_PRESS_PRESET3,
+                          BUTTON_SHORT_PRESS_STOP ]
     msg_test_sequences = [msg_test_sequence_1, msg_test_sequence_2]
     test_sequence = input_prompt_int("Select a test sequence (1 or 2) : ")
     if not test_sequence in (1, 2):
@@ -277,13 +284,13 @@ def _long_button_msg_stress_test() -> None:
     """
     Stress test for button message
     """
-    msg_test_sequence_1 = [ MESSAGE_SHORT_PRESS_BUTTON_PLAY,
-                          MESSAGE_SHORT_PRESS_BUTTON_STOP,
-                          MESSAGE_LONG_PRESS_BUTTON_PLAY,
-                          MESSAGE_SHORT_PRESS_BUTTON_PRESET1,
-                          MESSAGE_LONG_PRESS_BUTTON_PLAY,
-                          MESSAGE_LONG_PRESS_BUTTON_PLAY,
-                          MESSAGE_SHORT_PRESS_BUTTON_STOP ]
+    msg_test_sequence_1 = [ BUTTON_SHORT_PRESS_PLAY,
+                          BUTTON_SHORT_PRESS_STOP,
+                          BUTTON_LONG_PRESS_PLAY,
+                          BUTTON_SHORT_PRESS_PRESET1,
+                          BUTTON_LONG_PRESS_PLAY,
+                          BUTTON_LONG_PRESS_PLAY,
+                          BUTTON_SHORT_PRESS_STOP ]
     msg_test_sequences = [msg_test_sequence_1]
     msg_rate = input_prompt_float("Give repetition rate/sec for sending messages as float nr: ")
     if msg_rate in (None, 0):
