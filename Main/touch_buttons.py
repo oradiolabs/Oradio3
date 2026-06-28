@@ -18,7 +18,6 @@ Created on April 28, 2025
 @summary:       Oradio touch buttons module with debounce, per-button callbacks, and selftest
 """
 from threading import Timer
-from multiprocessing import Queue
 from time import monotonic
 
 ##### Oradio modules ######################################

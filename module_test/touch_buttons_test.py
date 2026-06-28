@@ -33,7 +33,6 @@ from touch_buttons import TouchButtons, BUTTON_DEBOUNCE_TIME
 from utilities import input_prompt_int, input_prompt_float, validate_oradio_message
 from gpio_service import BUTTONS, GPIOService
 from remote_debugger import setup_remote_debugging
-from messaging 
 
 ##### GLOBAL constants ####################################
 from constants import (
