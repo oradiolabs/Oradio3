@@ -59,7 +59,7 @@ class TestTouchButtons():
         # Create an instance of actual TouchButtons
         # and add an instance of TestGPIOService,
         # which creates a composition of TouchButtons, TestGPIOService and TimingData
-        self.touch_buttons = TouchButtons(queue)
+        self.touch_buttons = TouchButtons()
         self.button_gpio = TestGPIOService()
         # Add performance measurement methods
         # Register callback FIRST
