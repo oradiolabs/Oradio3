@@ -414,6 +414,15 @@ class StateMachine:
         oradio_log.debug("Starting-up")
         mpd_control.pause()
         spotify_connect.pause()
+
+        # FOR ANALYSIS: Get time since power-on
+        try:
+            with open("/proc/uptime", "r", encoding="utf-8") as file:
+                uptime = float(file.readline().split()[0])
+            oradio_log.debug("Playing SOUND_START %.2f seconds after power-on", uptime)
+        except (FileNotFoundError, ValueError, IndexError) as ex_err:
+            oradio_log.warning("Could not read uptime: %s", ex_err)
+
         play_sound(SOUND_START)
         oradio_log.debug("Startup: scheduling transition to Idle in 5 s")
         self._arm_delayed_transition("StartupToIdle", 5.0, "StateIdle")
