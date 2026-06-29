@@ -23,8 +23,6 @@ Created on May 15, 2026
     recognised error conditions from registered sources. Unknown
     errors are logged for further handling.
 """
-from threading import Thread
-
 ##### Oradio modules ######################################
 from log_service import oradio_log
 from messaging import (
@@ -87,7 +85,7 @@ class ErrorHandler(MessageHandlerBase):
         Subscribe to the error bus and start the listener thread.
         """
         # Initialise base class and start the worker thread
-        super().__init__(queue)
+        super().__init__(Errors.subscribe())
 
 ##### Helpers #############################################
 
