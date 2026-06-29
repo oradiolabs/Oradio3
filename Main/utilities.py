@@ -27,9 +27,9 @@ import json
 import socket
 import subprocess
 from subprocess import run
-from typing import Any, Optional, List, Union, Dict
 from pathlib import Path
 from pydantic import BaseModel, ValidationError
+from typing import Any, Optional, List, Union, Dict, TypeVar, Callable
 
 ##### Oradio modules ######################################
 from log_service import oradio_log
@@ -48,6 +48,8 @@ DNS_TIMEOUT = 0.5               # seconds
 
 JSON_SCHEMAS_PATH = Path(__file__).parent.resolve()
 JSON_SCHEMAS_FILE = JSON_SCHEMAS_PATH / "schemas.json"
+
+T = TypeVar("T")
 
 class OradioMessage(BaseModel):
     """
@@ -263,32 +265,21 @@ def store_presets(presets: dict[str, str]) -> None:
     except IOError as ex_err:
         oradio_log.error("Failed to write presets to '%s'. Error: %s", PRESETS_FILE, ex_err)
 
-def input_prompt_int(prompt: str, default=-1 ) -> int:
+def input_prompt(prompt: str, converter: Callable[[str], T], default: T) -> T:
     """
-    Prompt for an user input and return int value of number typed
-    Args:
-        prompt : prompt text for user
-        default: default value to return in case of an error
-    Returns:
-        the integer value type in by user | default value in case of an error
-    """
-    try:
-        return int(input(prompt))
-    except ValueError:
-        return default
+    Prompt the user for input and convert it to the requested type.
 
-def input_prompt_float(prompt: str, default: float | None = None) -> float | None:
-    """
-    Prompt for an user input and return float value of number typed
     Args:
-        prompt : prompt text for user
-        default: default value to return in case of an error
+        prompt: Prompt shown to the user.
+        converter: Conversion function (e.g. int, float).
+        default: Value returned if conversion fails.
+
     Returns:
-        the ifloat value type in by user | default value in case of an error
+        Converted value or the default.
     """
     try:
-        return float(input(prompt))
-    except ValueError:
+        return converter(input(prompt))
+    except (ValueError, EOFError):
         return default
 
 ##### Stand-alone entry point #############################
@@ -311,16 +302,9 @@ if __name__ == '__main__':
             "Select: "
         )
 
-        # User command loop
         while True:
-            # Get user input
-            try:
-                function_nr = int(input(input_selection))
-            except ValueError:
-                function_nr = -1
-
-            # Execute selected function
-            match function_nr:
+            test_choice = input_prompt(input_selection, int, -1)
+            match test_choice:
                 case 0:
                     break
                 case 1:
@@ -338,7 +322,7 @@ if __name__ == '__main__':
                     else:
                         print(f"\n{YELLOW}Unexpected result: result={result}, response={response}{NC}")
                 case _:
-                    print("\nPlease input a valid number\n")
+                    print(f"\n{YELLOW}Please input a valid number{NC}\n")
 
     print("\nStarting test program...\n")
 

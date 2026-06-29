@@ -578,6 +578,7 @@ if __name__ == '__main__':
 
     import requests
     import subprocess
+    from utilities import input_prompt          # pylint: disable=ungrouped-imports
     from constants import RED, YELLOW, NC       # pylint: disable=ungrouped-imports
     from messaging import DebugMessageHandler   # pylint: disable=ungrouped-imports
 
@@ -610,14 +611,8 @@ if __name__ == '__main__':
         )
 
         while True:
-
-            # Safely parse integer input; treat non-numeric input as an unrecognised selection.
-            try:
-                function_nr = int(input(input_selection))
-            except ValueError:
-                function_nr = -1
-
-            match function_nr:
+            test_choice = input_prompt(input_selection, int, -1)
+            match test_choice:
                 case 0:
                     break
                 case 1:

@@ -249,14 +249,14 @@ class PubSubManager:
         self._subscribers: dict[Topic, list[tuple[Queue, frozenset[str] | None]]] = {
             topic: [] for topic in Topic
         }
- 
+
         # Cache of the most recent message per source, per topic.
         # New subscribers receive all cached messages on subscribe so they
         # immediately have a consistent view of the last known state.
         self._last_messages: dict[Topic, dict[str, CommandMessage | ErrorMessage]] = {
             topic: {} for topic in Topic
         }
- 
+
         # multiprocessing.Lock (not threading.Lock) is required here: this
         # lock must also be held safely across forked child processes, not
         # just across threads within one process.
@@ -683,6 +683,7 @@ class DebugMessageHandler(MessageHandlerBase):
 if __name__ == '__main__':
 
     # Imports only relevant when stand-alone
+    from utlilities import input_prompt
     from multiprocessing import Process     # pylint: disable=ungrouped-imports
 
     # Most modules use similar code in stand-alone
@@ -734,14 +735,8 @@ if __name__ == '__main__':
         err_handlers: dict[int, DebugMessageHandler] = {}
 
         while True:
-
-            try:
-                function_nr = int(input(input_selection))
-            except ValueError:
-                # Non-integer input; fall through to the default case.
-                function_nr = -1
-
-            match function_nr:
+            test_choice = input_prompt(input_selection, int, -1)
+            match test_choice:
                 case 0:
                     break
                 case 1:
