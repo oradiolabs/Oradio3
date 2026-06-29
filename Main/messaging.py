@@ -75,7 +75,7 @@ WIFI_ERROR_NMCLI      = "NetworkManager wrapper failed"
 WIFI_ERROR_CONNECT    = "Wifi failed to connect"
 WIFI_ERROR_DISCONNECT = "Wifi failed to disconnect"
 # Web interface
-WEB_SOURCE        = "Web service message"
+WEB_SOURCE        = "Web message"
 WEB_IDLE          = "Web service is idle"
 WEB_ACTIVE        = "Web service is running"
 WEB_PL1_PLAYLIST  = "PL1 changed to playlist"
@@ -89,10 +89,10 @@ WEB_ERROR_START   = "Web service failed to start"
 WEB_ERROR_STOP    = "Web service failed to stop"
 WEB_ERROR_SERVICE = "Web service error"
 # Remote Monitoring
-RMS_SOURCE        = "RMS service message"
+RMS_SOURCE        = "RMS message"
 RMS_ERROR_SERVICE = "RMS service error"
 # GPIO
-GPIO_SOURCE        = "GPIO service message"
+GPIO_SOURCE        = "GPIO message"
 GPIO_ERROR_SERVICE = "GPIO service error"
 GPIO_ERROR_BUTTONS = "GPIO buttons error"
 # Backlight
@@ -115,13 +115,14 @@ BUTTON_SHORT_PRESS_PRESET1 = BUTTON_SHORT_PRESS + BUTTON_PRESET1
 BUTTON_SHORT_PRESS_PRESET2 = BUTTON_SHORT_PRESS + BUTTON_PRESET2
 BUTTON_SHORT_PRESS_PRESET3 = BUTTON_SHORT_PRESS + BUTTON_PRESET3
 BUTTON_LONG_PRESS_PLAY     = BUTTON_LONG_PRESS + BUTTON_PLAY
+# MPD
+MPD_SOURCE        = "MPD message"
+MPD_ERROR_CONNECT = "MPD connect error"
+MPD_ERROR_EXECUTE = "MPD execute error"
+MPD_ERROR_MONITOR = "MPD monitor error"
 
 
 '''
-# Messages from fastapi to web service
-MESSAGE_REQUEST_CONNECT = "connect to wifi network"
-MESSAGE_REQUEST_STOP    = "stop web service"
-
 # Spotify
 MESSAGE_SPOTIFY_SOURCE    = "Spotify message"
 '''
@@ -725,7 +726,6 @@ if __name__ == '__main__':
 
             match function_nr:
                 case 0:
-                    print("\nExiting test program...\n")
                     break
                 case 1:
                     n = int(input("Enter number of COMMAND handlers to subscribe [1]: ").strip() or "1")
@@ -862,8 +862,12 @@ if __name__ == '__main__':
                 case _:
                     print(f"\n{YELLOW}Please input a valid number{NC}\n")
 
+    print("\nStarting test program...\n")
+
     # Present menu with tests
     interactive_menu()
+
+    print("\nExiting test program...\n")
 
     # Restore temporarily disabled pylint duplicate code check
     # pylint: enable=duplicate-code

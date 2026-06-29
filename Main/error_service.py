@@ -55,6 +55,10 @@ from messaging import (
     VOLUME_SOURCE,
     VOLUME_ERROR_START,
     VOLUME_ERROR_STOP,
+    MPD_SOURCE,
+    MPD_ERROR_CONNECT,
+    MPD_ERROR_EXECUTE,
+    MPD_ERROR_MONITOR,
 )
 
 ##### GLOBAL constants ####################################
@@ -253,6 +257,28 @@ class ErrorHandler:
         else:
             oradio_log.error("Unhandled volume error: '%s'", error.message)
 
+    def _handle_mpd_error(self, error):
+        """
+        Handle mpd-related errors.
+
+        Attempts recovery from known volume conditions and logs
+        unrecognised errors for further investigation.
+
+        Args:
+            error: Error message received from the error bus.
+        """
+        if error.message == MPD_ERROR_CONNECT:
+# NIET VERGETEN: implement MPDService-recovery logic (e.g. back-off, retry)
+            oradio_log.debug("MPD connect mitigation to be implemented")
+        elif error.message == MPD_ERROR_EXECUTE:
+# NIET VERGETEN: implement MPDMonitor-recovery logic (e.g. back-off, retry)
+            oradio_log.debug("MPD execute mitigation to be implemented")
+        elif error.message == MPD_ERROR_MONITOR:
+# NIET VERGETEN: implement MPDMonitor-recovery logic (e.g. back-off, retry)
+            oradio_log.debug("MPD monitor mitigation to be implemented")
+        else:
+            oradio_log.error("Unhandled MPD error: '%s'", error.message)
+
 ##### Core ################################################
 
     # Errors for each module are grouped separatly for maintainability
@@ -299,6 +325,9 @@ class ErrorHandler:
 
             elif error.source == VOLUME_SOURCE:
                 self._handle_volume_error(error)
+
+            elif error.source == MPD_SOURCE:
+                self._handle_mpd_error(error)
 
             else:
                 # Source is not registered with this handler
@@ -354,7 +383,6 @@ if __name__ == '__main__':
 
             match function_nr:
                 case 0:
-                    print("\nExiting test program...\n")
                     break
                 case 1:
                     # Publish a known test error; handler should accept it
@@ -367,6 +395,8 @@ if __name__ == '__main__':
                 case _:
                     print(f"\n{YELLOW}Please input a valid number{NC}\n")
 
+    print("\nStarting test program...\n")
+
     # Subscribe to error topics so messages published are printed to console
     err_handler = ErrorHandler()
 
@@ -374,6 +404,8 @@ if __name__ == '__main__':
     interactive_menu()
 
     err_handler.stop()
+
+    print("\nExiting test program...\n")
 
     # Restore temporarily disabled pylint duplicate code check
     # pylint: enable=duplicate-code
