@@ -87,9 +87,9 @@ ACCESS_POINT_SSID = "OradioAP"
 # Web server address
 WEB_SERVER_HOST = "0.0.0.0"
 WEB_SERVER_PORT = 8000
-# Messages from fastapi to web service
-MESSAGE_REQUEST_CONNECT = "connect to wifi network"
-MESSAGE_REQUEST_STOP    = "stop web service"
+# Requests from fastapi to web service
+REQUEST_CONNECT = "connect to wifi network"
+REQUEST_STOP    = "stop web service"
 
 ##### USB #################################################
 # Paths

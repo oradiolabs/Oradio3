@@ -73,8 +73,8 @@ from constants import (
     ACCESS_POINT_SSID,
     WEB_SERVER_HOST,
     WEB_SERVER_PORT,
-    MESSAGE_REQUEST_CONNECT,
-    MESSAGE_REQUEST_STOP,
+    REQUEST_CONNECT,
+    REQUEST_STOP,
 )
 
 ##### LOCAL constants #####################################
@@ -432,9 +432,9 @@ class WebService:
             than message.message for this reason.
 
         Recognised request types:
-        - MESSAGE_REQUEST_CONNECT: extract SSID and optional password, call
+        - REQUEST_CONNECT: extract SSID and optional password, call
           WifiService.wifi_connect(), then stop the Captive Portal.
-        - MESSAGE_REQUEST_STOP: stop the Captive Portal directly.
+        - REQUEST_STOP: stop the Captive Portal directly.
         """
         while True:
             message = safe_get(self.request_queue)
@@ -447,7 +447,7 @@ class WebService:
 
             request = message.get("request")
 
-            if request == MESSAGE_REQUEST_CONNECT:
+            if request == REQUEST_CONNECT:
                 if ssid := message.get("ssid"):
                     # Password is optional; None is passed for open networks.
                     pswd = message.get("pswd")
@@ -455,7 +455,7 @@ class WebService:
                     # Tear down the Captive Portal after handing off to the new network.
                     self.stop()
 
-            elif request == MESSAGE_REQUEST_STOP:
+            elif request == REQUEST_STOP:
                 self.stop()
 
             else:

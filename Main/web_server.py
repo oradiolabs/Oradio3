@@ -61,8 +61,8 @@ from constants import (
     WEB_SERVER_HOST,
     WEB_SERVER_PORT,
     ACCESS_POINT_HOST,
-    MESSAGE_REQUEST_STOP,
-    MESSAGE_REQUEST_CONNECT,
+    REQUEST_CONNECT,
+    REQUEST_STOP,
 )
 
 #### LOCAL constants ######################################
@@ -224,13 +224,13 @@ def shutdown_webapp(_args: Optional[Dict[str, Any]]):
     """
     Request a graceful web server shutdown via the service queue.
 
-    Places a MESSAGE_REQUEST_STOP message on api_app.state.queue so
+    Places a REQUEST_STOP message on api_app.state.queue so
     the owning process can stop uvicorn cleanly.
 
     Args:
         _args: Unused; accepted to match the command handler signature.
     """
-    safe_put(api_app.state.queue, {"request": MESSAGE_REQUEST_STOP})
+    safe_put(api_app.state.queue, {"request": REQUEST_STOP})
 
 def rename_spotify(args: Optional[Dict[str, Any]]):
     """
@@ -289,7 +289,7 @@ def wifi_connect(args: Optional[Dict[str, Any]]):
     """
     Send a WiFi connection request to the service queue.
 
-    Places a MESSAGE_REQUEST_CONNECT message containing the SSID and
+    Places a REQUEST_CONNECT message containing the SSID and
     optional password on api_app.state.queue for the owning process to act on.
 
     Args:
@@ -308,7 +308,7 @@ def wifi_connect(args: Optional[Dict[str, Any]]):
     pswd = args.get("pswd") if args else None
 
     safe_put(api_app.state.queue, {
-        "request": MESSAGE_REQUEST_CONNECT,
+        "request": REQUEST_CONNECT,
         "ssid"   : ssid,
         "pswd"   : pswd,
     })
@@ -579,7 +579,7 @@ async def stop_task():
     Polls the deadline in up to 200 ms increments so cancellation is
     responsive; the final sleep before expiry may be shorter than 200 ms
     if the remaining time is less than that. Once the deadline is reached,
-    places a MESSAGE_REQUEST_STOP message on the service queue to trigger
+    places a REQUEST_STOP message on the service queue to trigger
     a graceful shutdown.
 
     If the task is cancelled (because a new /keep_alive ping reset the
@@ -593,7 +593,7 @@ async def stop_task():
             # Sleep in up to 200 ms increments so cancellation is picked up quickly.
             await sleep(min(remaining, 0.2))
 
-        safe_put(api_app.state.queue, {"request": MESSAGE_REQUEST_STOP})
+        safe_put(api_app.state.queue, {"request": REQUEST_STOP})
         oradio_log.debug("Keep alive timer expired: closing the web server")
 
     except CancelledError:
@@ -671,7 +671,7 @@ if __name__ == '__main__':
         Monitor the service request queue and print received messages.
 
         Runs in a background process. Loops until the bare
-        MESSAGE_REQUEST_STOP string sentinel is received.
+        REQUEST_STOP string sentinel is received.
 
         Args:
             queue: multiprocessing.Queue to drain.
@@ -680,7 +680,7 @@ if __name__ == '__main__':
             request = safe_get(queue)
             print(f"\nRequest received: '{request}'\n")
 
-            if request == MESSAGE_REQUEST_STOP:
+            if request == REQUEST_STOP:
                 return
 
     print("\nStarting test program...\n")
@@ -717,7 +717,7 @@ if __name__ == '__main__':
     finally:
         # Signal _check_requests to exit by sending the bare string constant as a
         # sentinel. Normal operation puts dicts; only this path puts the raw string.
-        safe_put(request_queue, MESSAGE_REQUEST_STOP)
+        safe_put(request_queue, REQUEST_STOP)
         message_listener.join()
         Commands.unsubscribe(cmd_handler.get_queue())
         cmd_handler.stop()
