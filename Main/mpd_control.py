@@ -104,7 +104,7 @@ class MPDControl(MPDService):
         as warnings to guard against a failed delete step.
 
         Args:
-            playlist (str): Name of the playlist to create.
+            playlist: Name of the playlist to create.
         """
         self._execute("playlistadd", playlist, _PLAYLIST_DUMMY_URI)
         self._execute("playlistdelete", playlist, 0)
@@ -140,6 +140,59 @@ class MPDControl(MPDService):
                         "Startup cleanup: removed stale dummy entry from playlist '%s'", name,
                     )
 
+    def _current_uri(self) -> str | None:
+        """Return the URI of the currently playing song."""
+        current_song = self._execute("currentsong") or {}
+        file_uri = current_song.get("file")
+
+        if isinstance(file_uri, str):
+            return file_uri
+
+        oradio_log.debug("Current song missing or invalid file: %r", file_uri)
+        return None
+
+    def _playlist_first_uri(self, mpdlist: str) -> str | None:
+        """
+        Return the URI of the first entry in an MPD playlist.
+
+        Args:
+            mpdlist: Name of the playlist to check.
+        """
+        playlists = self._execute("listplaylists") or []
+        print(playlists)
+        valid_names = {
+            p["playlist"]
+            for p in playlists
+            if isinstance(p, dict) and p.get("playlist")
+        }
+        print(valid_names)
+
+        if mpdlist not in valid_names:
+            oradio_log.debug("mpdlist '%s' not found in playlists", mpdlist)
+            return None
+
+        songs = self._execute("listplaylist", mpdlist) or []
+        if not songs:
+            oradio_log.debug("Playlist '%s' is empty", mpdlist)
+            return None
+
+        first_song = songs[0]
+        file_uri = (
+            first_song.get("file")
+            if isinstance(first_song, dict)
+            else first_song
+        )
+
+        if isinstance(file_uri, str):
+            return file_uri
+
+        oradio_log.debug(
+            "Unexpected song entry type in '%s': %r",
+            mpdlist,
+            file_uri,
+        )
+        return None
+
 ##### Playback functions ##################################
 
     def play(self, preset: str | None = None) -> None:
@@ -159,7 +212,7 @@ class MPDControl(MPDService):
             - Preset resolves to a directory → add all songs, shuffle, and play.
 
         Args:
-            preset (str | None): Optional preset name to load and play.
+            preset: Optional preset name to load and play.
         """
         songs_in_queue = self._execute("playlistinfo") or []
 
@@ -245,7 +298,7 @@ class MPDControl(MPDService):
         Inserts the song after the currently playing song and removes it after playback.
 
         Args:
-            song (str): The URI or file path of the song to play.
+            song: The URI or file path of the song to play.
         """
         if not song or not isinstance(song, str):
             oradio_log.error("Invalid song: %s", song)
@@ -296,7 +349,7 @@ class MPDControl(MPDService):
         Monitor a song and remove it from the queue after it finishes.
 
         Args:
-            inserted_song_id (int | str): MPD song ID to monitor and remove.
+            inserted_song_id: MPD song ID to monitor and remove.
         """
         try:
             inserted_song_id = int(inserted_song_id)
@@ -411,8 +464,8 @@ class MPDControl(MPDService):
         Adds the specified song if provided and the file exists in USB_MUSIC.
 
         Args:
-            playlist (str): Name of the playlist to create or modify.
-            song (str | None): Song filename to add. If None, only the playlist is created.
+            playlist: Name of the playlist to create or modify.
+            song: Song filename to add. If None, only the playlist is created.
         """
         if not isinstance(playlist, str) or not playlist.strip():
             oradio_log.error("Playlist name cannot be empty or invalid: %s", playlist)
@@ -462,8 +515,8 @@ class MPDControl(MPDService):
         Logs appropriate messages if the playlist or song does not exist.
 
         Args:
-            playlist (str): Name of the playlist to modify.
-            song (str | None): Song to remove. If None, deletes the entire playlist.
+            playlist: Name of the playlist to modify.
+            song: Song to remove. If None, deletes the entire playlist.
         """
         if not isinstance(playlist, str) or not playlist.strip():
             oradio_log.error("Playlist name cannot be empty or invalid: %s", playlist)
@@ -523,56 +576,40 @@ class MPDControl(MPDService):
         Determine if the current song, a preset, or a playlist is a web radio stream.
 
         Exactly one of the following cases applies:
-            - Both provided → invalid input, returns False.
-            - Neither provided → checks the currently playing song.
-            - Only preset provided → resolves it to a playlist, then checks.
-            - Only mpdlist provided → checks that playlist directly.
+          - Neither preset nor mpdlist: check the currently playing song.
+          - preset: resolve it to a playlist and check that playlist.
+          - mpdlist: check that playlist directly.
 
         Args:
-            preset (str): Name of the preset to check.
-            mpdlist (str): Name of the playlist to check.
+            preset: Name of the preset to check.
+            mpdlist: Name of the playlist to check.
 
         Returns:
-            bool: True if the song or playlist URI starts with "http://" or "https://".
+            True if the URI starts with "http://" or "https://".
         """
         if preset and mpdlist:
-            oradio_log.error("Invalid parameters: both 'preset' and 'mpdlist' provided")
-            return False
-
-        if not preset and not mpdlist:
-            current_song = self._execute("currentsong") or {}
-            file_uri     = current_song.get("file")
-            if isinstance(file_uri, str):
-                return file_uri.lower().startswith(("http://", "https://"))
-            oradio_log.debug("Current song missing or invalid file: %r", file_uri)
+            oradio_log.error(
+                "Invalid parameters: both 'preset' and 'mpdlist' provided"
+            )
             return False
 
         if preset:
             presets_map = load_presets()
-            mpdlist     = presets_map.get(preset.lower())
+            mpdlist = presets_map.get(preset.lower())
             if not mpdlist:
                 oradio_log.warning("No playlist found for preset: %s", preset)
                 return False
 
-        playlists   = self._execute("listplaylists") or []
-        valid_names = {p.get("playlist") for p in playlists if isinstance(p, dict) and p.get("playlist")}
-        if mpdlist not in valid_names:
-            oradio_log.debug("mpdlist '%s' not found in playlists", mpdlist)
-            return False
+        file_uri = (
+            self._current_uri()
+            if mpdlist is None
+            else self._playlist_first_uri(mpdlist)
+        )
 
-        songs = self._execute("listplaylist", mpdlist) or []
-        if not songs:
-            oradio_log.debug("Playlist '%s' is empty", mpdlist)
-            return False
-
-        first_song = songs[0]
-        file_uri   = first_song.get("file") if isinstance(first_song, dict) else first_song
-
-        if isinstance(file_uri, str):
-            return file_uri.lower().startswith(("http://", "https://"))
-
-        oradio_log.debug("Unexpected song entry type in '%s': %r", mpdlist, file_uri)
-        return False
+        return (
+            isinstance(file_uri, str)
+            and file_uri.lower().startswith(("http://", "https://"))
+        )
 
     def get_directories(self) -> list[str]:
         """

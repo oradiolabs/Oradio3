@@ -23,7 +23,7 @@ Created on January 10, 2025
 """
 from os import path
 from time import sleep
-from threading import Thread, Event
+from threading import Thread
 from collections import defaultdict
 
 ##### Oradio modules ######################################
@@ -218,14 +218,14 @@ if __name__ == "__main__":
     from constants import YELLOW, NC
     from messaging import DebugMessageHandler   # pylint: disable=ungrouped-imports
 
-    def interactive_menu(mpd_monitor: MPDMonitor) -> None:   # pylint: disable=too-many-branches,duplicate-code
+    def interactive_menu(monitor: MPDMonitor) -> None:   # pylint: disable=too-many-branches,duplicate-code
         """
         Run an interactive self-test menu for MPDMonitor.
 
         Blocks until the user enters 0 to quit.
 
         Args:
-            mpd_monitor (MPDMonitor): The active monitor instance used to
+            monitor: The active monitor instance used to
                                       trigger test actions.
         """
         input_selection = (
@@ -246,7 +246,7 @@ if __name__ == "__main__":
                     break
                 case 1:
                     print("\nTriggering MPD database update event...")
-                    mpd_monitor._execute("update")  # pylint: disable=protected-access
+                    monitor._execute("update")  # pylint: disable=protected-access
                 case _:
                     print(f"\n{YELLOW}Please input a valid number{NC}\n")
 
