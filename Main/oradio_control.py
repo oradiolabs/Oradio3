@@ -338,7 +338,7 @@ class StateMachine:
         else:
             leds.turn_on_led(LED_PLAY)
         mpd_control.play()
-        spotify_connect.pause()
+        spotify_connect.mute()
         play_sound(SOUND_PLAY)
 
     def _state_preset1(self):
@@ -347,7 +347,7 @@ class StateMachine:
         play_sound(SOUND_PRESET1)
         if web_service_active.is_set():
             leds.control_blinking_led(LED_PLAY)
-        spotify_connect.pause()
+        spotify_connect.mute()
 
     def _state_preset2(self):
         leds.turn_on_led(LED_PRESET2)
@@ -355,7 +355,7 @@ class StateMachine:
         play_sound(SOUND_PRESET2)
         if web_service_active.is_set():
             leds.control_blinking_led(LED_PLAY)
-        spotify_connect.pause()
+        spotify_connect.mute()
 
     def _state_preset3(self):
         leds.turn_on_led(LED_PRESET3)
@@ -363,7 +363,7 @@ class StateMachine:
         play_sound(SOUND_PRESET3)
         if web_service_active.is_set():
             leds.control_blinking_led(LED_PLAY)
-        spotify_connect.pause()
+        spotify_connect.mute()
 
     def _state_stop(self):
         leds.oneshot_on_led(LED_STOP, 4)
@@ -371,7 +371,7 @@ class StateMachine:
             mpd_control.stop()
         else:
             mpd_control.pause()
-        spotify_connect.pause()
+        spotify_connect.mute()
         play_sound(SOUND_STOP)
         # Schedule interruptible transition to Idle after 4 seconds (non-blocking)
         oradio_log.debug("Stop: scheduling transition to Idle in 4 s (interruptible)")
@@ -387,7 +387,7 @@ class StateMachine:
             mpd_control.stop()
         else:
             mpd_control.pause()
-        spotify_connect.play()
+        spotify_connect.unmute()
         play_sound(SOUND_SPOTIFY)
 
     def _state_play_song_webif(self):
@@ -395,14 +395,14 @@ class StateMachine:
             leds.control_blinking_led(LED_PLAY)
         else:
             leds.turn_on_led(LED_PLAY)
-        spotify_connect.pause()
+        spotify_connect.mute()
         mpd_control.play()
         play_sound(SOUND_PLAY)
 
     def _state_usb_absent(self):
         leds.control_blinking_led(LED_STOP, 0.7)
         mpd_control.stop()
-        spotify_connect.pause()
+        spotify_connect.mute()
         play_sound(SOUND_STOP)
         play_sound(SOUND_NO_USB)
         if web_service_active.is_set():
@@ -412,7 +412,7 @@ class StateMachine:
         leds.control_blinking_led(LED_STOP, 1)
         oradio_log.debug("Starting-up")
         mpd_control.pause()
-        spotify_connect.pause()
+        spotify_connect.mute()
 
         # FOR ANALYSIS: Get time since power-on
         try:
@@ -435,7 +435,7 @@ class StateMachine:
             mpd_control.stop()
         else:
             mpd_control.pause()
-        spotify_connect.pause()
+        spotify_connect.mute()
         oradio_log.debug("In Idle state, wait for next step")
 
     def _state_error(self):
@@ -527,7 +527,7 @@ def on_webservice_idle():
     play_sound(SOUND_AP_STOP)
 
 def on_webservice_playing_song():
-    spotify_connect.pause()  # spotify is on pause and will not work
+    spotify_connect.mute()  # spotify is on pause and will not work
     if (
         state_machine.state == "StateStop"
     ):  # if webservice put songs in queue and plays it
