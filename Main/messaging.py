@@ -244,18 +244,22 @@ class PubSubManager:
         # Each subscriber entry is a (queue, source_filter) pair.
         # source_filter is a frozenset of allowed source names, or None to
         # receive messages from all sources.
+        # Built from the Topic enum so adding a new topic member
+        # automatically gets registries here too.
         self._subscribers: dict[Topic, list[tuple[Queue, frozenset[str] | None]]] = {
-            Topic.COMMAND: [],
-            Topic.ERROR: [],
+            topic: [] for topic in Topic
         }
-
+ 
         # Cache of the most recent message per source, per topic.
         # New subscribers receive all cached messages on subscribe so they
         # immediately have a consistent view of the last known state.
         self._last_messages: dict[Topic, dict[str, CommandMessage | ErrorMessage]] = {
-            Topic.COMMAND: {},
-            Topic.ERROR: {},
+            topic: {} for topic in Topic
         }
+ 
+        # multiprocessing.Lock (not threading.Lock) is required here: this
+        # lock must also be held safely across forked child processes, not
+        # just across threads within one process.
         self._lock = Lock()
 
     def subscribe(self, topic: Topic, sources: tuple[str, ...] | None = None) -> Queue:
@@ -317,6 +321,9 @@ class PubSubManager:
             _fatal_exit(f"Unknown topic: {topic!r}")
 
         with self._lock:
+            # Identity comparison (is), not equality: we want the exact Queue
+            # object returned by subscribe(), not one that merely compares
+            # equal to it. Do not change this to '=='.
             entry = next((e for e in self._subscribers[topic] if e[0] is queue), None)
             if entry is None:
                 oradio_log.warning("unsubscribe called for a queue not registered on topic %r — ignored", topic)
@@ -548,6 +555,10 @@ class MessageHandlerBase:
         try:
             self._thread.start()
             oradio_log.debug("Message handler thread started")
+        # Broad catch is safe only because _fatal_exit always terminates the process;
+        # if _fatal_exit's behavior ever changes (e.g. to support testing without
+        # exiting), this must be narrowed to known thread-start failure types instead
+        # of relying on that side effect.
         except Exception as ex_err:  # pylint: disable=broad-exception-caught
             _fatal_exit("Failed to start message handler thread", exc=ex_err)
 
@@ -591,6 +602,11 @@ class MessageHandlerBase:
         Note:
             Exceptions raised by _handle_message are caught and logged, but do not
             terminate the loop. The loop only exits when the stop sentinel is received.
+            The equality check below (rather than identity) is intentional: messages
+            arriving from other processes are reconstructed objects, not the original
+            instances, so only value equality can match the sentinel string across
+            process boundaries. Dataclass and other non-string messages safely compare
+            unequal to the sentinel string rather than raising.
         """
         while True:
             # Blocking-safe retrieval of next message
