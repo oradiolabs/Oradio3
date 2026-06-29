@@ -21,12 +21,15 @@ Created on May 15, 2026
 
     Subscribes to the system error bus and applies mitigation for
     recognised error conditions from registered sources. Unknown
-    errors are logged for further handling.
+    errors are logged for further investigation.
 """
+from typing import Callable
+
 ##### Oradio modules ######################################
 from log_service import oradio_log
 from messaging import (
     Errors,
+    ErrorMessage,
     MessageHandlerBase,
     THROTTLING_SOURCE,
     THROTTLING_ERROR_THROTTLED,
@@ -61,12 +64,6 @@ from messaging import (
     SPOTIFY_ERROR_MONITOR,
 )
 
-##### GLOBAL constants ####################################
-from constants import (
-    STOP_SENTINEL,
-    JOIN_TIMEOUT,
-)
-
 ##### LOCAL constants #####################################
 # Source identifier used when publishing errors from this module's self-tests
 TEST_SOURCE = "Test error message"
@@ -78,18 +75,39 @@ class ErrorHandler(MessageHandlerBase):
     """
     Handle error messages and perform error-specific mitigation.
 
-    Subscribes to the ERROR topic.
+    Dispatches each message to a source-specific handler method;
+    unrecognised sources are logged as errors.
     """
     def __init__(self):
         """
-        Subscribe to the error bus and start the listener thread.
+        Subscribe to error messages and call the base class constructor,
+        which subscribes to the error bus and starts the worker thread.
         """
-        # Initialise base class and start the worker thread
-        super().__init__(Errors.subscribe())
+        # Subscribe to error messages and initialise base class and start the worker thread
+        self._queue = Errors.subscribe()
+
+        # Map each source constant to its handler method.
+        # Adding a new source only requires one new line here.
+        self._dispatch: dict[str, Callable[[ErrorMessage], None]] = {
+            THROTTLING_SOURCE: self._handle_throttling_error,
+            USB_SOURCE:        self._handle_usb_error,
+            WIFI_SOURCE:       self._handle_wifi_error,
+            RMS_SOURCE:        self._handle_rms_error,
+            WEB_SOURCE:        self._handle_web_error,
+            GPIO_SOURCE:       self._handle_gpio_error,
+            BACKLIGHT_SOURCE:  self._handle_backlight_error,
+            I2C_SOURCE:        self._handle_i2c_error,
+            VOLUME_SOURCE:     self._handle_volume_error,
+            MPD_SOURCE:        self._handle_mpd_error,
+            SPOTIFY_SOURCE:    self._handle_spotify_error,
+            TEST_SOURCE:       self._handle_test_error,
+        }
+
+        super().__init__(self._queue)
 
 ##### Helpers #############################################
 
-    def _handle_throttling_error(self, error):
+    def _handle_throttling_error(self, error: ErrorMessage) -> None:
         """
         Handle throttling-related errors.
 
@@ -105,7 +123,7 @@ class ErrorHandler(MessageHandlerBase):
         else:
             oradio_log.error("Unhandled throttling error: '%s'", error.message)
 
-    def _handle_usb_error(self, error):
+    def _handle_usb_error(self, error: ErrorMessage) -> None:
         """
         Handle USB-related errors.
 
@@ -124,7 +142,7 @@ class ErrorHandler(MessageHandlerBase):
         else:
             oradio_log.error("Unhandled USB error: '%s'", error.message)
 
-    def _handle_wifi_error(self, error):
+    def _handle_wifi_error(self, error: ErrorMessage) -> None:
         """
         Handle WiFi-related error messages.
 
@@ -142,7 +160,7 @@ class ErrorHandler(MessageHandlerBase):
             oradio_log.debug("Failed to interact with NetworkManager error mitigation to be implemented")
         elif error.message == WIFI_ERROR_CONNECT:
 # NIET VERGETEN: implement wifi connect failed recovery
-# LET OP: wordt in legacy wifi_service als command verstuurd en in oradio_control in state machine afgehandeld
+# LET OP: wordt in wifi_service als command verstuurd en in oradio_control in state machine afgehandeld
             oradio_log.debug("Wifi connect failed error mitigation to be implemented")
         elif error.message == WIFI_ERROR_DISCONNECT:
 # NIET VERGETEN: implement wifi disconnect failed recovery
@@ -150,7 +168,7 @@ class ErrorHandler(MessageHandlerBase):
         else:
             oradio_log.error("Unhandled wifi error: '%s'", error.message)
 
-    def _handle_rms_error(self, error):
+    def _handle_rms_error(self, error: ErrorMessage) -> None:
         """
         Handle rms-related errors.
 
@@ -166,7 +184,7 @@ class ErrorHandler(MessageHandlerBase):
         else:
             oradio_log.error("Unhandled Remote monitoring error: '%s'", error.message)
 
-    def _handle_web_error(self, error):
+    def _handle_web_error(self, error: ErrorMessage) -> None:
         """
         Handle web-related errors.
 
@@ -182,11 +200,11 @@ class ErrorHandler(MessageHandlerBase):
         else:
             oradio_log.error("Unhandled web error: '%s'", error.message)
 
-    def _handle_gpio_error(self, error):
+    def _handle_gpio_error(self, error: ErrorMessage) -> None:
         """
         Handle gpio-related errors.
 
-        Attempts recovery from known web service/server conditions and logs
+        Attempts recovery from known GPIO conditions and logs
         unrecognised errors for further investigation.
 
         Args:
@@ -201,7 +219,7 @@ class ErrorHandler(MessageHandlerBase):
         else:
             oradio_log.error("Unhandled GPIO error: '%s'", error.message)
 
-    def _handle_backlight_error(self, error):
+    def _handle_backlight_error(self, error: ErrorMessage) -> None:
         """
         Handle backlight-related errors.
 
@@ -220,11 +238,11 @@ class ErrorHandler(MessageHandlerBase):
         else:
             oradio_log.error("Unhandled backlight error: '%s'", error.message)
 
-    def _handle_i2c_error(self, error):
+    def _handle_i2c_error(self, error: ErrorMessage) -> None:
         """
         Handle I2C-related errors.
 
-        Attempts recovery from known backlight conditions and logs
+        Attempts recovery from known I2C conditions and logs
         unrecognised errors for further investigation.
 
         Args:
@@ -236,7 +254,7 @@ class ErrorHandler(MessageHandlerBase):
         else:
             oradio_log.error("Unhandled I2C error: '%s'", error.message)
 
-    def _handle_volume_error(self, error):
+    def _handle_volume_error(self, error: ErrorMessage) -> None:
         """
         Handle volume-related errors.
 
@@ -255,11 +273,11 @@ class ErrorHandler(MessageHandlerBase):
         else:
             oradio_log.error("Unhandled volume error: '%s'", error.message)
 
-    def _handle_mpd_error(self, error):
+    def _handle_mpd_error(self, error: ErrorMessage) -> None:
         """
         Handle mpd-related errors.
 
-        Attempts recovery from known volume conditions and logs
+        Attempts recovery from known MPD conditions and logs
         unrecognised errors for further investigation.
 
         Args:
@@ -277,11 +295,11 @@ class ErrorHandler(MessageHandlerBase):
         else:
             oradio_log.error("Unhandled MPD error: '%s'", error.message)
 
-    def _handle_spotify_error(self, error):
+    def _handle_spotify_error(self, error: ErrorMessage) -> None:
         """
         Handle Spotify-related errors.
 
-        Attempts recovery from known volume conditions and logs
+        Attempts recovery from known Spotify conditions and logs
         unrecognised errors for further investigation.
 
         Args:
@@ -291,75 +309,44 @@ class ErrorHandler(MessageHandlerBase):
 # NIET VERGETEN: implement Spotify-recovery logic (e.g. back-off, retry)
             oradio_log.debug("Spotify monitor mitigation to be implemented")
         else:
-            oradio_log.error("Unhandled MPD error: '%s'", error.message)
+            oradio_log.error("Unhandled Spotify error: '%s'", error.message)
+
+    def _handle_test_error(self, error: ErrorMessage) -> None:
+        """
+        Handle test errors published by the stand-alone self-test.
+
+        Args:
+            error: Error message received from the error bus.
+        """
+        oradio_log.debug("Mitigating test error: '%s'", error.message)
 
 ##### Core ################################################
 
-    # Errors for each module are grouped separatly for maintainability
-    def _handle_message(self, message) -> None:    # pylint: disable=too-many-branches,too-many-statements
+    def _handle_message(self, message: ErrorMessage) -> None:
         """
-        Handle incoming error message and attempt source-specific mitigation.
-
-        Unknown errors are logged for further investigation.
+        Dispatch incoming error to its source-specific handler.
 
         Args:
             message: The received message from the queue.
         """
         oradio_log.debug("Error message received: %r", message)
-
-        if message.source == THROTTLING_SOURCE:
-            self._handle_throttling_error(message)
-
-        elif message.source == USB_SOURCE:
-            self._handle_usb_error(message)
-
-        elif message.source == WIFI_SOURCE:
-            self._handle_wifi_error(message)
-
-        elif message.source == RMS_SOURCE:
-            self._handle_rms_error(message)
-
-        elif message.source == WEB_SOURCE:
-            self._handle_web_error(message)
-
-        elif message.source == TEST_SOURCE:
-            oradio_log.debug("Mitigating test error: '%s'", message.message)
-
-        elif message.source == GPIO_SOURCE:
-            self._handle_gpio_error(message)
-
-        elif message.source == BACKLIGHT_SOURCE:
-            self._handle_backlight_error(message)
-
-        elif message.source == I2C_SOURCE:
-            self._handle_i2c_error(message)
-
-        elif message.source == VOLUME_SOURCE:
-            self._handle_volume_error(message)
-
-        elif message.source == MPD_SOURCE:
-            self._handle_mpd_error(message)
-
-        elif message.source == SPOTIFY_SOURCE:
-            self._handle_spotify_error(message)
-
+        handler = self._dispatch.get(message.source)
+        if handler:
+            handler(message)
         else:
-            # Source is not registered with this handler
-            oradio_log.error("Unhandled error from source: '%s': %s", message.source, message.message)
+            oradio_log.error(
+                "Unhandled error from source: '%s': %s",
+                message.source,
+                message.message,
+            )
 
     def stop(self) -> None:
         """
-        Stop the listener thread and wait for it to terminate.
+        Unsubscribe from error messages and call the base class to stop the worker thread.
         """
         # Remove from registry first — no new messages after this point.
         Errors.unsubscribe(self._queue)
-
-        # Wake the listener thread and request a clean shutdown.
-        self._queue.put_nowait(STOP_SENTINEL)
-
-        self._thread.join(timeout=JOIN_TIMEOUT)
-        if self._thread.is_alive():
-            oradio_log.warning("Listener thread did not stop within timeout")
+        super().stop()
 
 ##### Stand-alone entry point #############################
 
