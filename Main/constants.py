@@ -17,8 +17,6 @@ Created on December 23, 2024
 @email:         oradioinfo@stichtingoradio.nl
 @status:        Development
 @summary:       Defines for Oradio scripts
-
-25 jul update volume settings to prepare for speaker in production
 """
 ##### SYSTEM ##############################################
 # Colors
