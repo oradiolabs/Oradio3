@@ -371,7 +371,6 @@ if __name__ == "__main__":
 
             match function_nr:
                 case 0:
-                    print("\nExiting test program...\n")
                     throttling_monitor.disable_test_mode()  # Restore hardware polling
                     break
                 case 1:
@@ -396,6 +395,8 @@ if __name__ == "__main__":
                 case _:
                     print(f"\n{YELLOW}Please input a valid number{NC}\n")
 
+    print("\nStarting test program...\n")
+
     # Subscribe to error topics and start message handler
     err_handler = DebugMessageHandler(Errors.subscribe())
 
@@ -406,6 +407,8 @@ if __name__ == "__main__":
     Errors.unsubscribe(err_handler.get_queue())
     # Signal the thread to exit and confirm it has exited
     err_handler.stop()
+
+    print("\nExiting test program...\n")
 
     # Restore temporarily disabled pylint duplicate code check
     # pylint: enable=duplicate-code

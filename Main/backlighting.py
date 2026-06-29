@@ -357,7 +357,7 @@ if __name__ == '__main__':
                 case _:
                     print(f"\n{YELLOW}Please input a valid number{NC}\n")
 
-    print("\nStarting Backlighting test program...\n")
+    print("\nStarting test program...\n")
 
     # Subscribe to error topics so published messages are printed to console
     err_handler = DebugMessageHandler(Errors.subscribe())
@@ -370,7 +370,7 @@ if __name__ == '__main__':
     # Signal the thread to exit and confirm it has exited
     err_handler.stop()
 
-    print("\nExiting Backlighting test program...\n")
+    print("\nExiting test program...\n")
 
     # Restore temporarily disabled pylint duplicate code check
     # pylint: enable=duplicate-code

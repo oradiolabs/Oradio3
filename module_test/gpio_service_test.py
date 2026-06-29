@@ -327,6 +327,9 @@ def _start_module_test() -> None:
                 print(f"{YELLOW}Please input a valid number.{NC}")
 
 if __name__ == '__main__':
+
+    print("\nStarting test program...\n")
+
     # try to setup a remote debugger connection, if enabled in remote_debugger.py
     debugger_status, connection_status = setup_remote_debugging()
     if debugger_status == DEBUGGER_ENABLED:
@@ -335,4 +338,7 @@ if __name__ == '__main__':
             sys.exit()
 
     _start_module_test()
+
+    print("\nExiting test program...\n")
+
     sys.exit()

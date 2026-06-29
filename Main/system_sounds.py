@@ -158,7 +158,6 @@ if __name__ == '__main__':
                 choice = -1
 
             if choice == 0:
-                print("\nExiting test program...\n")
                 break
 
             if 1 <= choice <= len(sound_keys):
@@ -203,5 +202,9 @@ if __name__ == '__main__':
                 print(f"{YELLOW}\nInvalid selection. Please enter a valid number.{NC}")
         # pylint: enable=duplicate-code
 
+    print("\nStarting test program...\n")
+
     # Launch the interactive test menu; blocks until the user quits
     interactive_menu()
+
+    print("\nExiting test program...\n")

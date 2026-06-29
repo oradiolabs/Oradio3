@@ -346,8 +346,12 @@ if __name__ == "__main__":
             else:
                 print("Unknown choice.")
 
+    print("\nStarting test program...\n")
+
     # Present menu with tests
     interactive_menu()
+
+    print("\nExiting test program...\n")
 
 # Restore temporarily disabled pylint duplicate code check
 # pylint: enable=duplicate-code

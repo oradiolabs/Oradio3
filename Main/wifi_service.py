@@ -792,7 +792,6 @@ if __name__ == '__main__':
 
             match function_nr:
                 case 0:
-                    print("\nExiting test program...\n")
                     break
                 case 1:
                     print(f"\nNetworkManager wifi connections: {networkmanager_list()}\n")
@@ -841,6 +840,8 @@ if __name__ == '__main__':
                 case _:
                     print(f"\n{YELLOW}Please input a valid number{NC}\n")
 
+    print("\nStarting test program...\n")
+
     # Subscribe to command and error topics so published messages are printed to console
     cmd_handler = DebugMessageHandler(Commands.subscribe())
     err_handler = DebugMessageHandler(Errors.subscribe())
@@ -854,6 +855,8 @@ if __name__ == '__main__':
     # Signal the thread to exit and confirm it has exited
     cmd_handler.stop()
     err_handler.stop()
+
+    print("\nExiting test program...\n")
 
     # Re-enable the duplicate-code check for any code that follows
     # pylint: enable=duplicate-code

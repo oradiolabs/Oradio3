@@ -301,6 +301,9 @@ def _start_module_test():
 if __name__ == '__main__':
     # try to setup a remote debugger connection, if enabled in remote_debugger.py
     # pylint: disable=duplicate-code
+
+    print("\nStarting test program...\n")
+
     debugger_status, connection_status = setup_remote_debugging()
     if debugger_status == DEBUGGER_ENABLED:
         if connection_status == DEBUGGER_NOT_CONNECTED:
@@ -308,4 +311,7 @@ if __name__ == '__main__':
             sys.exit()
 
     _start_module_test()
+
+    print("\nExiting test program...\n")
+
     sys.exit()

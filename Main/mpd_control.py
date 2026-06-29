@@ -811,7 +811,6 @@ if __name__ == '__main__':
             # Execute selected function
             match function_nr:
                 case 0:
-                    print("\nExiting test program...\n")
                     break
                 case 1:
                     print("\nExecuting: Play.\n")
@@ -902,8 +901,12 @@ if __name__ == '__main__':
                 case _:
                     print(f"\n{YELLOW}Please input a valid number{NC}\n")
 
+    print("\nStarting test program...\n")
+
     # Present menu with tests
     interactive_menu()
+
+    print("\nExiting test program...\n")
 
 # Restore temporarily disabled pylint duplicate code check
 # pylint: enable=duplicate-code

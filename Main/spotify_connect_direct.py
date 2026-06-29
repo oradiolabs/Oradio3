@@ -192,6 +192,9 @@ class SpotifyConnect:
             oradio_log.info("SpotifyConnect: monitoring stopped.")
 
 if __name__ == "__main__":
+
+    print("\nStarting test program...\n")
+
     # Stand-alone test harness
     msg_queue = Queue()
     spotify = SpotifyConnect(message_queue=msg_queue)
@@ -208,7 +211,8 @@ if __name__ == "__main__":
         elif choice == "2":
             spotify.pause()
         elif choice.lower() == "q":
-            print("Exiting test mode.")
             break
         else:
             print("Invalid option. Please try again.")
+
+    print("\nExiting test program...\n")

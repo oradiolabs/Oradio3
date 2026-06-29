@@ -619,7 +619,6 @@ if __name__ == '__main__':
 
             match function_nr:
                 case 0:
-                    print("\nExiting test program...\n")
                     break
                 case 1:
                     # Use ss to check whether a process is listening on the configured host:port.
@@ -667,6 +666,8 @@ if __name__ == '__main__':
                 case _:
                     print(f"\n{YELLOW}Please input a valid number{NC}\n")
 
+    print("\nStarting test program...\n")
+
     # Subscribe to command and error topics so published messages are printed to console
     cmd_handler = DebugMessageHandler(Commands.subscribe())
     err_handler = DebugMessageHandler(Errors.subscribe())
@@ -680,6 +681,8 @@ if __name__ == '__main__':
     # Signal the thread to exit and confirm it has exited
     cmd_handler.stop()
     err_handler.stop()
+
+    print("\nExiting test program...\n")
 
     # Restore temporarily disabled pylint duplicate code check
     # pylint: enable=duplicate-code

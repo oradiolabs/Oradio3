@@ -295,8 +295,8 @@ def input_prompt_float(prompt: str, default: float | None = None) -> float | Non
 
 if __name__ == '__main__':
 
-# Most modules use similar code in stand-alone
-# pylint: disable=duplicate-code
+    # Most modules use similar code in stand-alone
+    # pylint: disable=duplicate-code
 
     def interactive_menu():
         """Show menu with test options"""
@@ -322,7 +322,6 @@ if __name__ == '__main__':
             # Execute selected function
             match function_nr:
                 case 0:
-                    print("\nExiting test program...\n")
                     break
                 case 1:
                     print(f"\nConnected to internet: {has_internet()}\n")
@@ -341,8 +340,12 @@ if __name__ == '__main__':
                 case _:
                     print("\nPlease input a valid number\n")
 
+    print("\nStarting test program...\n")
+
     # Present menu with tests
     interactive_menu()
 
-# Restore temporarily disabled pylint duplicate code check
-# pylint: enable=duplicate-code
+    print("\nExiting test program...\n")
+
+    # Restore temporarily disabled pylint duplicate code check
+    # pylint: enable=duplicate-code

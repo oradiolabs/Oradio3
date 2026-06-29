@@ -683,6 +683,8 @@ if __name__ == '__main__':
             if request == MESSAGE_REQUEST_STOP:
                 return
 
+    print("\nStarting test program...\n")
+
     # The module-level value includes the AP host address, which only resolves
     # on-device; use a relative URL for stand-alone testing.
     oradioap_url = ""
@@ -719,6 +721,8 @@ if __name__ == '__main__':
         message_listener.join()
         Commands.unsubscribe(cmd_handler.get_queue())
         cmd_handler.stop()
+
+    print("\nExiting test program...\n")
 
     # Restore temporarily disabled pylint duplicate code check
     # pylint: enable=duplicate-code

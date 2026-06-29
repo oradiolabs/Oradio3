@@ -299,4 +299,8 @@ if __name__ == '__main__':
                 for addr, _ in info["unexpected"]:
                     print(f"   - device at 0x{addr:02X} -> Unknown")
 
+    print("\nStarting test program...\n")
+
     i2c_bus_probe()
+
+    print("\nExiting test program...\n")
