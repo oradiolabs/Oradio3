@@ -44,6 +44,8 @@ from messaging import (
     RMS_SOURCE,
     RMS_ERROR_SERVICE,
     WEB_SOURCE,
+    WEB_ERROR_START,
+    WEB_ERROR_STOP,
     WEB_ERROR_SERVICE,
     GPIO_SOURCE,
     GPIO_ERROR_SERVICE,
@@ -195,6 +197,12 @@ class ErrorHandler(MessageHandlerBase):
             error: Error message received from the error bus.
         """
         if error.message == WEB_ERROR_SERVICE:
+# NIET VERGETEN: implement web-recovery logic (e.g. back-off, retry)
+            oradio_log.debug("Web mitigation to be implemented")
+        elif error.message == WEB_ERROR_START:
+# NIET VERGETEN: implement web-recovery logic (e.g. back-off, retry)
+            oradio_log.debug("Web mitigation to be implemented")
+        elif error.message == WEB_ERROR_STOP:
 # NIET VERGETEN: implement web-recovery logic (e.g. back-off, retry)
             oradio_log.debug("Web mitigation to be implemented")
         else:
@@ -353,7 +361,6 @@ class ErrorHandler(MessageHandlerBase):
 if __name__ == '__main__':
 
     # Imports only relevant when stand-alone
-    from messaging import ErrorMessage      # pylint: disable=ungrouped-imports
     from constants import YELLOW, NC        # pylint: disable=ungrouped-imports
 
     # Most modules use similar code in stand-alone
