@@ -84,8 +84,6 @@ from messaging import (
 
 ##### GLOBAL constants ####################################
 from constants import (
-    STOP_SENTINEL,
-    JOIN_TIMEOUT,
     MESSAGE_NO_ERROR,
     SOUND_START,
     SOUND_STOP,
