@@ -29,7 +29,7 @@ from threading import Thread
 from log_service import oradio_log
 from messaging import (
     Errors,
-    safe_get,
+    MessageHandlerBase,
     THROTTLING_SOURCE,
     THROTTLING_ERROR_THROTTLED,
     USB_SOURCE,
@@ -76,20 +76,18 @@ TEST_SOURCE = "Test error message"
 # Placeholder source name used to exercise the unrecognised-error code path
 UNEXPECTED = "Unexpected source"
 
-class ErrorHandler:
+class ErrorHandler(MessageHandlerBase):
     """
-    Handle system error messages and perform error-specific mitigation.
+    Handle error messages and perform error-specific mitigation.
 
-    Runs a background listener that processes messages received from the error queue.
+    Subscribes to the ERROR topic.
     """
     def __init__(self):
         """
         Subscribe to the error bus and start the listener thread.
         """
-        self._queue = Errors.subscribe()
-
-        self._thread = Thread(target=self._errors_listener, daemon=True,)
-        self._thread.start()
+        # Initialise base class and start the worker thread
+        super().__init__(queue)
 
 ##### Helpers #############################################
 
@@ -300,59 +298,56 @@ class ErrorHandler:
 ##### Core ################################################
 
     # Errors for each module are grouped separatly for maintainability
-    def _errors_listener(self) -> None:    # pylint: disable=too-many-branches,too-many-statements
+    def _handle_message(self, message) -> None:    # pylint: disable=too-many-branches,too-many-statements
         """
-        Process error messages and attempt source-specific mitigation.
+        Handle incoming error message and attempt source-specific mitigation.
 
         Unknown errors are logged for further investigation.
+
+        Args:
+            message: The received message from the queue.
         """
-        while True:
-            error = safe_get(self._queue)
+        oradio_log.debug("Error message received: %r", message)
 
-            if error == STOP_SENTINEL:
-                return
+        if message.source == THROTTLING_SOURCE:
+            self._handle_throttling_error(message)
 
-            oradio_log.debug("Error message received: %r", error)
+        elif message.source == USB_SOURCE:
+            self._handle_usb_error(message)
 
-            if error.source == THROTTLING_SOURCE:
-                self._handle_throttling_error(error)
+        elif message.source == WIFI_SOURCE:
+            self._handle_wifi_error(message)
 
-            elif error.source == USB_SOURCE:
-                self._handle_usb_error(error)
+        elif message.source == RMS_SOURCE:
+            self._handle_rms_error(message)
 
-            elif error.source == WIFI_SOURCE:
-                self._handle_wifi_error(error)
+        elif message.source == WEB_SOURCE:
+            self._handle_web_error(message)
 
-            elif error.source == RMS_SOURCE:
-                self._handle_rms_error(error)
+        elif message.source == TEST_SOURCE:
+            oradio_log.debug("Mitigating test error: '%s'", message.message)
 
-            elif error.source == WEB_SOURCE:
-                self._handle_web_error(error)
+        elif message.source == GPIO_SOURCE:
+            self._handle_gpio_error(message)
 
-            elif error.source == TEST_SOURCE:
-                oradio_log.debug("Mitigating test error: '%s'", error.message)
+        elif message.source == BACKLIGHT_SOURCE:
+            self._handle_backlight_error(message)
 
-            elif error.source == GPIO_SOURCE:
-                self._handle_gpio_error(error)
+        elif message.source == I2C_SOURCE:
+            self._handle_i2c_error(message)
 
-            elif error.source == BACKLIGHT_SOURCE:
-                self._handle_backlight_error(error)
+        elif message.source == VOLUME_SOURCE:
+            self._handle_volume_error(message)
 
-            elif error.source == I2C_SOURCE:
-                self._handle_i2c_error(error)
+        elif message.source == MPD_SOURCE:
+            self._handle_mpd_error(message)
 
-            elif error.source == VOLUME_SOURCE:
-                self._handle_volume_error(error)
+        elif message.source == SPOTIFY_SOURCE:
+            self._handle_spotify_error(message)
 
-            elif error.source == MPD_SOURCE:
-                self._handle_mpd_error(error)
-
-            elif error.source == SPOTIFY_SOURCE:
-                self._handle_spotify_error(error)
-
-            else:
-                # Source is not registered with this handler
-                oradio_log.error("Unhandled error from source: '%s': %s", error.source, error.message)
+        else:
+            # Source is not registered with this handler
+            oradio_log.error("Unhandled error from source: '%s': %s", message.source, message.message)
 
     def stop(self) -> None:
         """
