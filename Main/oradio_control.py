@@ -46,7 +46,7 @@ import throttling_monitor     # pylint: disable=unused-import
 # Moved from constants
 from messaging import (
     Commands,
-    safe_get,
+    ErrorHandlerTemplate,
     USB_SOURCE,
     USB_ABSENT,
     USB_PRESENT,
@@ -766,61 +766,35 @@ shared_queue = Queue()  # Create a shared queue
 from threading import Thread        # pylint: disable=wrong-import-position
 from utilities import safe_put      # pylint: disable=ungrouped-imports,wrong-import-position
 
-class ProxyCommandHandler:
+class ProxyCommandHandler(ErrorHandlerTemplate):
     """
     Wraps a subscriber queue in a daemon thread that forwards command messages to legacy queue.
     """
-    def __init__(self, shared_q):
-        self._legacy_q = shared_q
-        self._queue = Commands.subscribe()
-
-        # Start queue listener thread
-        self._thread = Thread(target=self._commands_listener, daemon=True,)
-        self._thread.start()
-
-    def _commands_listener(self) -> None:
+    def __init__(self, queue):
         """
-        When a command is received, the service forwards it.
+        Subscribe to the error bus and start the listener thread.
         """
-        while True:
-            command = safe_get(self._queue)
+        # Initialise base class and start the worker thread
+        super().__init__(Commands.subscribe())
+        self._legacy_queue = queue
 
-            if command == STOP_SENTINEL:
-                return
-
-            oradio_log.debug("[COMMAND PROXY SERVICE] received: %r", command)
-            # Convert new message to legacy message
-            message = {
-                "source": command.source,
-                "state": command.message,
-                "error": MESSAGE_NO_ERROR if command.data is None else command.data,
-            }
-            oradio_log.debug("[COMMAND PROXY SERVICE] forward: %s", message)
-            safe_put(self._legacy_q, message)
-
-    def stop(self) -> None:
+    # Errors for each module are grouped separatly for maintainability
+    def _handle_message(self, message) -> None:    # pylint: disable=too-many-branches,too-many-statements
         """
-        Stop the listener thread cleanly.
+        Handle incoming command message and forwards it to the legacy queue.
 
-        The queue is first removed from the pub-sub registry so no further
-        messages can arrive. A sentinel value is then enqueued to wake the
-        listener thread, after which join() waits for it to terminate.
+        Args:
+            message: The received message from the command queue.
         """
-        # Other modules use similar code to stop the thread
-        # pylint: disable=duplicate-code
-
-        # Remove from registry first — no new messages after this point.
-        Commands.unsubscribe(self._queue)
-
-        # Wake the listener thread and request a clean shutdown.
-        self._queue.put_nowait(STOP_SENTINEL)
-
-        self._thread.join(timeout=JOIN_TIMEOUT)
-        if self._thread.is_alive():
-            oradio_log.warning("Listener thread did not stop within timeout")
-
-        # Restore temporarily disabled pylint duplicate code check
-        # pylint: enable=duplicate-code
+        oradio_log.debug("[COMMAND PROXY SERVICE] received: %r", message)
+        # Convert command message to legacy message
+        legacy_message = {
+            "source": message.source,
+            "state": message.message,
+            "error": MESSAGE_NO_ERROR if message.data is None else message.data,
+        }
+        oradio_log.debug("[COMMAND PROXY SERVICE] forward: %s", message)
+        safe_put(self._legacy_queue, legacy_message)
 
 # Register _command_handler with the messaging layer. ProxyCommandHandler starts
 # a daemon thread, so the handler runs in the background without blocking
