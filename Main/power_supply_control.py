@@ -310,7 +310,7 @@ if __name__ == '__main__':
     # Most stand-alone entry points share this pattern across modules
     # pylint: disable=duplicate-code
 
-    def print_status() -> None:
+    def print_status(power_service) -> None:
         """Read and print the current PD status."""
         status = power_service.read_status()
         print(
@@ -347,20 +347,19 @@ if __name__ == '__main__':
                 case 0:
                     break
                 case 1:
-                    status = power_service.read_status()
-                    print_status()
+                    print_status(power_service)
                 case 2:
                     result = power_service.set_standby_voltage()
                     print(f"SetStandbyVoltage: {'OK' if result else 'FAIL'}")
-                    print_status()
+                    print_status(power_service)
                 case 3:
                     result = power_service.set_nom_voltage()
                     print(f"SetNomVoltage: {'OK' if result else 'FAIL'}")
-                    print_status()
+                    print_status(power_service)
                 case 4:
                     result = power_service.set_max_voltage()
                     print(f"SetMaxVoltage: {'OK' if result else 'FAIL'}")
-                    print_status()
+                    print_status(power_service)
                 case _:
                     print(f"\n{YELLOW}Please input a valid number{NC}\n")
 

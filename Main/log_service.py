@@ -311,10 +311,9 @@ if __name__ == '__main__':
     # Imports only relevant when stand-alone
     from random import choice
     from threading import Thread
-    from utilities import input_prompt
 
-# Most modules use similar code in stand-alone
-# pylint: disable=duplicate-code
+    # Most modules use similar code in stand-alone
+    # pylint: disable=duplicate-code
 
     print(f"\nSystem logging level: {ORADIO_LOG_LEVEL}\n")
 
@@ -375,7 +374,10 @@ if __name__ == '__main__':
         )
 
         while True:
-            test_choice = input_prompt(input_selection, int, -1)
+            try:
+                test_choice = int(input(prompt))
+            except (ValueError, EOFError):
+                test_choice = -1
             match test_choice:
                 case 0:
                     break
@@ -423,5 +425,5 @@ if __name__ == '__main__':
 
     print("\nExiting test program...\n")
 
-# Restore temporarily disabled pylint duplicate code check
-# pylint: enable=duplicate-code
+    # Restore temporarily disabled pylint duplicate code check
+    # pylint: enable=duplicate-code

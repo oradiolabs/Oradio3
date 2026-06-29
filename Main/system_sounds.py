@@ -155,7 +155,7 @@ if __name__ == '__main__':
         Blocks until the user enters 0 to quit.
         """
         while True:
-            choice = input_prompt(input_selection, int, -1)
+            choice = input_prompt(build_menu(), int, -1)
 
             if choice == 0:
                 break
