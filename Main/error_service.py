@@ -59,6 +59,8 @@ from messaging import (
     MPD_ERROR_CONNECT,
     MPD_ERROR_EXECUTE,
     MPD_ERROR_MONITOR,
+    SPOTIFY_SOURCE,
+    SPOTIFY_ERROR_MONITOR,
 )
 
 ##### GLOBAL constants ####################################
@@ -279,6 +281,22 @@ class ErrorHandler:
         else:
             oradio_log.error("Unhandled MPD error: '%s'", error.message)
 
+    def _handle_spotify_error(self, error):
+        """
+        Handle Spotify-related errors.
+
+        Attempts recovery from known volume conditions and logs
+        unrecognised errors for further investigation.
+
+        Args:
+            error: Error message received from the error bus.
+        """
+        if error.message == SPOTIFY_ERROR_MONITOR:
+# NIET VERGETEN: implement Spotify-recovery logic (e.g. back-off, retry)
+            oradio_log.debug("Spotify monitor mitigation to be implemented")
+        else:
+            oradio_log.error("Unhandled MPD error: '%s'", error.message)
+
 ##### Core ################################################
 
     # Errors for each module are grouped separatly for maintainability
@@ -328,6 +346,9 @@ class ErrorHandler:
 
             elif error.source == MPD_SOURCE:
                 self._handle_mpd_error(error)
+
+            elif error.source == SPOTIFY_SOURCE:
+                self._handle_spotify_error(error)
 
             else:
                 # Source is not registered with this handler

@@ -25,6 +25,10 @@ from threading import Thread
 ##### Oradio modules ######################################
 from log_service import oradio_log
 from messaging import (
+    Errors,
+    Commands,
+    ErrorMessage,
+    CommandMessage,
     SPOTIFY_SOURCE,
     SPOTIFY_CONNECTED_EVENT,
     SPOTIFY_DISCONNECTED_EVENT,
@@ -56,8 +60,14 @@ class SpotifyConnect:
 
         # Start monitor_flags in a separate daemon thread.
         self.monitor_thread = Thread(target=self.monitor_flags, daemon=True)
-        self.monitor_thread.start()
-        oradio_log.info("SpotifyConnect: monitor thread started.")
+
+        try:
+            self.monitor_thread.start()
+            oradio_log.info("SpotifyConnect: monitor thread started.")
+        except Exception as ex_err:  # pylint: disable=broad-exception-caught
+            oradio_log.error("SpotifyConnect: monitor thread failed to start: %s", ex_err)
+            Errors.publish(ErrorMessage(SPOTIFY_SOURCE, SPOTIFY_ERROR_MONITOR))
+            return
 
     def _read_flag(self, filepath: str) -> bool:
         """
