@@ -20,7 +20,7 @@ spotactive.flag and spotplaying.flag.
 
 import time
 import subprocess
-import threading import Thread
+from threading import Thread
 
 ##### Oradio modules ######################################
 from log_service import oradio_log

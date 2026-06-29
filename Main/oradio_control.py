@@ -680,7 +680,7 @@ HANDLERS = {
         WEB_PL3_WEBRADIO: on_web_pl3_webradio_changed,
     },
     SPOTIFY_SOURCE: {
-        SPOTIFY_CONNECTED: on_spotify_connect_connected,
+        SPOTIFY_CONNECTED_EVENT: on_spotify_connect_connected,
         SPOTIFY_DISCONNECTED_EVENT: on_spotify_connect_disconnected,
         SPOTIFY_PLAYING_EVENT: on_spotify_connect_playing,
         SPOTIFY_PAUSED_EVENT: on_spotify_connect_paused,
