@@ -46,7 +46,8 @@ import throttling_monitor     # pylint: disable=unused-import
 # Moved from constants
 from messaging import (
     Commands,
-    ErrorHandlerTemplate,
+    safe_put,
+    MessageHandlerBase,
     USB_SOURCE,
     USB_ABSENT,
     USB_PRESENT,
@@ -763,10 +764,7 @@ shared_queue = Queue()  # Create a shared queue
 
 ##### Messaging PROXY-begin ###############################
 
-from threading import Thread        # pylint: disable=wrong-import-position
-from utilities import safe_put      # pylint: disable=ungrouped-imports,wrong-import-position
-
-class ProxyCommandHandler(ErrorHandlerTemplate):
+class ProxyCommandHandler(MessageHandlerBase):
     """
     Wraps a subscriber queue in a daemon thread that forwards command messages to legacy queue.
     """
