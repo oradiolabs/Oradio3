@@ -74,6 +74,11 @@ from messaging import (
     BUTTON_SHORT_PRESS_PRESET2,
     BUTTON_SHORT_PRESS_PRESET3,
     BUTTON_LONG_PRESS_PLAY,
+    SPOTIFY_SOURCE,
+    SPOTIFY_CONNECTED_EVENT,
+    SPOTIFY_DISCONNECTED_EVENT,
+    SPOTIFY_PLAYING_EVENT,
+    SPOTIFY_PAUSED_EVENT,
 )
 
 ##### GLOBAL constants ####################################
@@ -81,11 +86,6 @@ from constants import (
     STOP_SENTINEL,
     JOIN_TIMEOUT,
     MESSAGE_NO_ERROR,
-    MESSAGE_SPOTIFY_SOURCE,
-    SPOTIFY_CONNECT_CONNECTED_EVENT,
-    SPOTIFY_CONNECT_DISCONNECTED_EVENT,
-    SPOTIFY_CONNECT_PAUSED_EVENT,
-    SPOTIFY_CONNECT_PLAYING_EVENT,
     SOUND_START,
     SOUND_STOP,
     SOUND_PLAY,
@@ -679,11 +679,11 @@ HANDLERS = {
         WEB_PL2_WEBRADIO: on_web_pl2_webradio_changed,
         WEB_PL3_WEBRADIO: on_web_pl3_webradio_changed,
     },
-    MESSAGE_SPOTIFY_SOURCE: {
-        SPOTIFY_CONNECT_CONNECTED_EVENT: on_spotify_connect_connected,
-        SPOTIFY_CONNECT_DISCONNECTED_EVENT: on_spotify_connect_disconnected,
-        SPOTIFY_CONNECT_PLAYING_EVENT: on_spotify_connect_playing,
-        SPOTIFY_CONNECT_PAUSED_EVENT: on_spotify_connect_paused,
+    SPOTIFY_SOURCE: {
+        SPOTIFY_CONNECTED: on_spotify_connect_connected,
+        SPOTIFY_DISCONNECTED_EVENT: on_spotify_connect_disconnected,
+        SPOTIFY_PLAYING_EVENT: on_spotify_connect_playing,
+        SPOTIFY_PAUSED_EVENT: on_spotify_connect_paused,
         # "Spotify error": on_spotify_error,
     },
     BUTTON_SOURCE: {
@@ -841,7 +841,7 @@ state_machine = StateMachine()
 remote_monitor = RMService()
 
 # Instantiate spotify
-spotify_connect = SpotifyConnect(shared_queue)
+spotify_connect = SpotifyConnect()
 
 # Initialize the oradio_usb class
 # REVIEW Onno: start de USB monitor

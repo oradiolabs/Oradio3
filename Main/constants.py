@@ -110,7 +110,6 @@ STOP_SENTINEL = "__STOP__"
 JOIN_TIMEOUT = 2.0
 
 ##### SPOTIFY CONFIG ######################################
-MESSAGE_SPOTIFY_SOURCE    = "Spotify message"
 SPOTIFY_EVENT_SOCKET_PORT = 8010
 MPV_SOCKET                = "/home/pi/spotify/mpv-socket"
 
@@ -143,11 +142,13 @@ SPOTIFY_APP_STATUS_DISCONNECTED   = "Disconnected"
 SPOTIFY_APP_STATUS_CONNECTED      = "Connected"
 SPOTIFY_APP_STATUS_CLIENT_CHANGED = "Client changed"
 
-SPOTIFY_CONNECT_PLAYING_EVENT              = "Spotify Connect playing event"
-SPOTIFY_CONNECT_PAUSED_EVENT               = "Spotify Connect paused event"
+# Moved to messaging:
+#SPOTIFY_CONNECT_CONNECTED_EVENT            = "Spotify Connect connected event"
+#SPOTIFY_CONNECT_DISCONNECTED_EVENT         = "Spotify Connect disconnected event"
+#SPOTIFY_CONNECT_PLAYING_EVENT              = "Spotify Connect playing event"
+#SPOTIFY_CONNECT_PAUSED_EVENT               = "Spotify Connect paused event"
+
 SPOTIFY_CONNECT_STOPPED_EVENT              = "Spotify Connect stopped event"
-SPOTIFY_CONNECT_CONNECTED_EVENT            = "Spotify Connect connected event"
-SPOTIFY_CONNECT_DISCONNECTED_EVENT         = "Spotify Connect disconnected event"
 SPOTIFY_CONNECT_CLIENT_CHANGED_EVENT       = "Spotify Connect client changed event"
 SPOTIFY_CONNECT_SERVERS_RUNNING            = "Spotify Connect local servers running"
 SPOTIFY_CONNECT_SERVERS_NOT_RUNNING        = "Spotify Connect local servers NOT running"

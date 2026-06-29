@@ -20,24 +20,19 @@ spotactive.flag and spotplaying.flag.
 
 import time
 import subprocess
-import threading
-from multiprocessing import Queue
-from queue import Full  # for queue-full errors in send_event
+import threading import Thread
 
-# Oradio modules
+##### Oradio modules ######################################
 from log_service import oradio_log
-
-# Constants from constants
-from constants import (
-    MESSAGE_NO_ERROR,
-    MESSAGE_SPOTIFY_SOURCE,
-    SPOTIFY_CONNECT_CONNECTED_EVENT,
-    SPOTIFY_CONNECT_DISCONNECTED_EVENT,
-    SPOTIFY_CONNECT_PLAYING_EVENT,
-    SPOTIFY_CONNECT_PAUSED_EVENT,
+from messaging import (
+    SPOTIFY_SOURCE,
+    SPOTIFY_CONNECTED_EVENT,
+    SPOTIFY_DISCONNECTED_EVENT,
+    SPOTIFY_PLAYING_EVENT,
+    SPOTIFY_PAUSED_EVENT,
 )
 
-# Local constants
+##### LOCAL constants #####################################
 ALSA_MIXER_SPOTCON = "VolumeSpotCon1"
 ACTIVE_FLAG_FILE = "/home/pi/Oradio3/Spotify/spotactive.flag"
 PLAYING_FLAG_FILE = "/home/pi/Oradio3/Spotify/spotplaying.flag"
@@ -45,14 +40,13 @@ PLAYING_FLAG_FILE = "/home/pi/Oradio3/Spotify/spotplaying.flag"
 class SpotifyConnect:
     """Basic Spotify functionality based on Librespot service."""
 
-    def __init__(self, message_queue=None):
+    def __init__(self):
         """
         Initialize with a message queue used to send events to oradio_control.py.
         Starts monitoring flags in a separate thread.
         """
         self.active = False
         self.playing = False
-        self.message_queue = message_queue
 
         # Track whether we've already warned about a missing/unreadable file
         self._warned_missing = {
@@ -61,7 +55,7 @@ class SpotifyConnect:
         }
 
         # Start monitor_flags in a separate daemon thread.
-        self.monitor_thread = threading.Thread(target=self.monitor_flags, daemon=True)
+        self.monitor_thread = Thread(target=self.monitor_flags, daemon=True)
         self.monitor_thread.start()
         oradio_log.info("SpotifyConnect: monitor thread started.")
 
@@ -95,32 +89,6 @@ class SpotifyConnect:
         """Update 'active' and 'playing' by reading their flag files."""
         self.active = self._read_flag(ACTIVE_FLAG_FILE)
         self.playing = self._read_flag(PLAYING_FLAG_FILE)
-
-    # ---------- Events to oradio_control ----------
-
-    def send_event(self, event: str) -> None:
-        """
-        Send an event via the message queue. The message dict contains:
-          - 'source': MESSAGE_SPOTIFY_SOURCE
-          - 'state' : the event (string)
-          - 'error' : MESSAGE_NO_ERROR
-        """
-        if not self.message_queue:
-            oradio_log.error("SpotifyConnect: message queue not set; cannot send event.")
-            return
-
-        try:
-            message = {
-                "source": MESSAGE_SPOTIFY_SOURCE,
-                "state": event,
-                "error": MESSAGE_NO_ERROR,
-            }
-            self.message_queue.put(message)
-            oradio_log.info("SpotifyConnect: message sent to queue: %s", message)
-        except Full:
-            oradio_log.error("SpotifyConnect: message queue is full; event dropped.")
-        except (OSError, ValueError) as ex_err:
-            oradio_log.error("SpotifyConnect: error sending event to queue: %s", ex_err)
 
     # ---------- Control (mute/unmute) ----------
 
@@ -158,12 +126,12 @@ class SpotifyConnect:
 
     def monitor_flags(self, interval: float = 0.5) -> None:
         """
-        Continuously monitor the flag files and send events when values change.
+        Continuously monitor the flag files and publish events when values change.
 
-        - active  0→1: SPOTIFY_CONNECT_CONNECTED_EVENT
-        - active  1→0: SPOTIFY_CONNECT_DISCONNECTED_EVENT
-        - playing 0→1: SPOTIFY_CONNECT_PLAYING_EVENT
-        - playing 1→0: SPOTIFY_CONNECT_PAUSED_EVENT
+        - active  0→1: SPOTIFY_CONNECTED
+        - active  1→0: SPOTIFY_DISCONNECTED_EVENT
+        - playing 0→1: SPOTIFY_PLAYING_EVENT
+        - playing 1→0: SPOTIFY_PAUSED_EVENT
         """
         self.update_flags()
         prev_active = self.active
@@ -177,15 +145,15 @@ class SpotifyConnect:
 
                 if prev_active != self.active:
                     if self.active:
-                        self.send_event(SPOTIFY_CONNECT_CONNECTED_EVENT)
+                        Commands.publish(CommandMessage(SPOTIFY_SOURCE, SPOTIFY_CONNECTED_EVENT))
                     else:
-                        self.send_event(SPOTIFY_CONNECT_DISCONNECTED_EVENT)
+                        Commands.publish(CommandMessage(SPOTIFY_SOURCE, SPOTIFY_DISCONNECTED_EVENT))
 
                 if prev_playing != self.playing:
                     if self.playing:
-                        self.send_event(SPOTIFY_CONNECT_PLAYING_EVENT)
+                        Commands.publish(CommandMessage(SPOTIFY_SOURCE, SPOTIFY_PLAYING_EVENT))
                     else:
-                        self.send_event(SPOTIFY_CONNECT_PAUSED_EVENT)
+                        Commands.publish(CommandMessage(SPOTIFY_SOURCE, SPOTIFY_PAUSED_EVENT))
 
                 time.sleep(interval)
         except KeyboardInterrupt:
@@ -196,8 +164,7 @@ if __name__ == "__main__":
     print("\nStarting test program...\n")
 
     # Stand-alone test harness
-    msg_queue = Queue()
-    spotify = SpotifyConnect(message_queue=msg_queue)
+    spotify = SpotifyConnect()
 
     # Simple interactive test for amixer control
     while True:

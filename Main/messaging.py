@@ -120,12 +120,12 @@ MPD_SOURCE        = "MPD message"
 MPD_ERROR_CONNECT = "MPD connect error"
 MPD_ERROR_EXECUTE = "MPD execute error"
 MPD_ERROR_MONITOR = "MPD monitor error"
-
-
-'''
 # Spotify
-MESSAGE_SPOTIFY_SOURCE    = "Spotify message"
-'''
+SPOTIFY_SOURCE             = "Spotify message"
+SPOTIFY_CONNECTED_EVENT    = "Spotify connected event"
+SPOTIFY_DISCONNECTED_EVENT = "Spotify disconnected event"
+SPOTIFY_PLAYING_EVENT      = "Spotify playing event"
+SPOTIFY_PAUSED_EVENT       = "Spotify paused event"
 
 class Topic(str, Enum):
     """
