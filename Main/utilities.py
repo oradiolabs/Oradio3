@@ -78,35 +78,6 @@ def get_serial() -> str:
 
     return "Unknown"
 
-def safe_put(queue, msg, block=True, timeout=None) -> bool:
-    """
-    Safely put a message into a multiprocessing.Queue.
-    Args:
-        queue (multiprocessing.Queue): The queue.
-        msg (list): The object to put.
-        block (bool): Whether to block if the queue is full.
-        timeout (float|None): Timeout for blocking put.
-    Returns:
-        bool: True if the message was put successfully, False otherwise.
-    """
-    try:
-        queue.put(msg, block=block, timeout=timeout)
-        return True
-
-    except queue.Full:
-        oradio_log.warning("Queue is full — dropping message: %r", msg)
-        return False
-
-    except (OSError, EOFError, ValueError) as ex_err:
-        # Queue closed or broken
-        oradio_log.error("Queue is closed/broken — failed to put message: %r (%s)", msg, ex_err)
-        return False
-
-    except AssertionError as ex_err:
-        # Rare internal queue corruption
-        oradio_log.critical("Queue internal error: %s", ex_err, exc_info=True)
-        return False
-
 def is_service_active(service_name) -> bool:
     """
     Check if systemd service is running

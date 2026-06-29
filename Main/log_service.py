@@ -375,7 +375,7 @@ if __name__ == '__main__':
 
         while True:
             try:
-                test_choice = int(input(prompt))
+                test_choice = int(input(input_selection))
             except (ValueError, EOFError):
                 test_choice = -1
             match test_choice:
