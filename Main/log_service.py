@@ -309,8 +309,9 @@ oradio_log = SafeLogger(ORADIO_LOGGER, ORADIO_LOG_LEVEL)
 if __name__ == '__main__':
 
     # Imports only relevant when stand-alone
-    from threading import Thread
     from random import choice
+    from threading import Thread
+    from utilities import input_prompt
 
 # Most modules use similar code in stand-alone
 # pylint: disable=duplicate-code
@@ -373,16 +374,9 @@ if __name__ == '__main__':
             "Select: "
         )
 
-        # User command loop
         while True:
-            # Get user input
-            try:
-                function_nr = int(input(input_selection))
-            except ValueError:
-                function_nr = -1
-
-            # Execute selected function
-            match function_nr:
+            test_choice = input_prompt(input_selection, int, -1)
+            match test_choice:
                 case 0:
                     break
                 case 1:

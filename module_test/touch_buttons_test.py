@@ -30,7 +30,7 @@ from RPi import GPIO
 ##### oradio modules ######################################
 from log_service import oradio_log, DEBUG, CRITICAL
 from touch_buttons import TouchButtons, BUTTON_DEBOUNCE_TIME
-from utilities import input_prompt_int, input_prompt_float, validate_oradio_message
+from utilities import input_prompt, validate_oradio_message
 from gpio_service import BUTTONS, GPIOService
 from remote_debugger import setup_remote_debugging
 
@@ -332,7 +332,7 @@ def _btn_press_release_cb_test(test_buttons: TestTouchButtons) -> None:
     while not selection_done:
         for idx, button_name in enumerate(button_name_options, start=0):
             print(f" {idx} - {button_name}")
-        button_choice = input_prompt_int("Select a Button: ", default=-1)
+        button_choice = input_prompt("Select a Button: ", int, -1)
         match button_choice:
             case 0:
                 print("\nReturning to previous selection...\n")
@@ -345,8 +345,8 @@ def _btn_press_release_cb_test(test_buttons: TestTouchButtons) -> None:
                 print("Please input a valid test option.")
     print("Specify the button-pressed timing in seconds (float), 0 = stop test")
     while not stop_test:
-        button_pressed_time = input_prompt_float(
-            "Button-press timing (BUTTON_STOP) in seconds (float):", default=0)
+        button_pressed_time = input_prompt(
+            "Button-press timing (BUTTON_STOP) in seconds (float):", float, 0)
         if button_pressed_time == 0:
             stop_test = True
         else:
@@ -371,7 +371,7 @@ def _burst_test_button(test_buttons: TestTouchButtons, test_choice: int):
         condition = '<'
     input_text = (f"Specify the event frequency, must be {condition}"
                   f"{int(1000/BUTTON_DEBOUNCE_TIME)} :")
-    burst_freq = input_prompt_float(input_text, default=2.0)
+    burst_freq = input_prompt(input_text, float, 2.0)
     if burst_freq == 0:
         print(f"{YELLOW}invalid frequency{NC}")
     else:
@@ -406,7 +406,7 @@ def _start_module_test():
         print("\nTEST options:")
         for idx, name in enumerate(test_options, start=0):
             print(f" {idx} - {name}")
-        test_choice = input_prompt_int("Select test number: ", default=-1)
+        test_choice = input_prompt("Select test number: ", int, -1)
 
         oradio_log.set_level(CRITICAL)
         match test_choice:

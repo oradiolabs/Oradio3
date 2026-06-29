@@ -129,7 +129,11 @@ if __name__ == '__main__':
     import time
     import random
     import threading
-    from constants import RED, YELLOW, NC    # pylint: disable=ungrouped-imports
+    from utilities import input_prompt
+    from constants import RED, YELLOW, NC           # pylint: disable=ungrouped-imports
+
+    # Most modules use similar code in stand-alone
+    # pylint: disable=duplicate-code
 
     sound_keys = list(SOUND_FILES.keys())
 
@@ -150,12 +154,8 @@ if __name__ == '__main__':
         Run an interactive self-test menu for system sound playback.
         Blocks until the user enters 0 to quit.
         """
-        # pylint: disable=duplicate-code
         while True:
-            try:
-                choice = int(input(build_menu()))
-            except ValueError:
-                choice = -1
+            choice = input_prompt(input_selection, int, -1)
 
             if choice == 0:
                 break
@@ -208,3 +208,6 @@ if __name__ == '__main__':
     interactive_menu()
 
     print("\nExiting test program...\n")
+
+    # Restore temporarily disabled pylint duplicate code check
+    # pylint: enable=duplicate-code

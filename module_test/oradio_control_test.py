@@ -34,9 +34,10 @@ from constants import (
 ##### Oradio modules ######################################
 from log_service import oradio_log, DEBUG, CRITICAL
 from oradio_control import state_machine, leds, web_service_active, shared_queue, mpd_control
-from utilities import input_prompt_int, input_prompt_float, safe_put, OradioMessage
+from utilities import input_prompt, OradioMessage
 from remote_debugger import setup_remote_debugging
 from messaging import (
+    safe_put,
     BUTTON_SOURCE,
     BUTTON_SHORT_PRESS_PLAY,
     BUTTON_SHORT_PRESS_STOP,
@@ -162,7 +163,7 @@ def _long_press_button_messages() -> None:
         #Show test menu with the selection options
         for idx, button_name in enumerate(buttons_option, start=0):
             print(f" {idx} - {button_name}")
-        menu_choice = input_prompt_int("Select a LONG BUTTON PRESS message: ", default=-1)
+        menu_choice = input_prompt("Select a LONG BUTTON PRESS message: ", int, -1)
         oradio_log.set_level(CRITICAL)
         match menu_choice:
             case 0:
@@ -209,7 +210,7 @@ def _short_press_button_messages() -> None:
         #Show test menu with the selection options
         for idx, button_name in enumerate(buttons_option, start=0):
             print(f" {idx} - {button_name}")
-        menu_choice = input_prompt_int("Select a SHORT PRESS BUTTON message: ", default=-1)
+        menu_choice = input_prompt("Select a SHORT PRESS BUTTON message: ", int, default = -1)
         match menu_choice:
             case 0:
                 print("\nReturning to previous selection...\n")
@@ -258,11 +259,11 @@ def _short_button_msg_stress_test() -> None:
                           BUTTON_SHORT_PRESS_PRESET3,
                           BUTTON_SHORT_PRESS_STOP ]
     msg_test_sequences = [msg_test_sequence_1, msg_test_sequence_2]
-    test_sequence = input_prompt_int("Select a test sequence (1 or 2) : ")
+    test_sequence = input_prompt("Select a test sequence (1 or 2) : ", int, -1)
     if not test_sequence in (1, 2):
         print ("Incorrect number, please select a valid test number (now 1 is used)")
         test_sequence = 1
-    msg_rate = input_prompt_float("Give repetition rate/sec for sending messages as float nr: ")
+    msg_rate = input_prompt("Give repetition rate/sec for sending messages as float nr: ", float, -1)
     if msg_rate in (None, 0):
         return
     msg_delay = float(1/msg_rate)
@@ -292,7 +293,7 @@ def _long_button_msg_stress_test() -> None:
                           BUTTON_LONG_PRESS_PLAY,
                           BUTTON_SHORT_PRESS_STOP ]
     msg_test_sequences = [msg_test_sequence_1]
-    msg_rate = input_prompt_float("Give repetition rate/sec for sending messages as float nr: ")
+    msg_rate = input_prompt("Give repetition rate/sec for sending messages as float nr: ", float, -1)
     if msg_rate in (None, 0):
         return
     msg_delay = float(1/msg_rate)
@@ -335,7 +336,7 @@ def _start_module_test():
         print("\nTEST options:")
         for idx, name in enumerate(test_options, start=0):
             print(f" {idx} - {name}")
-        test_choice = input_prompt_int("Select test number: ", default=-1)
+        test_choice = input_prompt("Select test number: ", int, -1)
         match test_choice:
             case 0:
                 print("\nExiting test program\n")

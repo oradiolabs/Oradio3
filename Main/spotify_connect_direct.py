@@ -169,27 +169,66 @@ class SpotifyConnect:
         except KeyboardInterrupt:
             oradio_log.info("SpotifyConnect: monitoring stopped.")
 
-if __name__ == "__main__":
+##### Stand-alone entry point #############################
+
+if __name__ == '__main__':
+
+    # Imports only relevant when stand-alone
+    from constants import YELLOW, NC
+    from utilities import input_prompt
+    from messaging import DebugMessageHandler       # pylint: disable=ungrouped-imports
+
+    # Most stand-alone entry points share this pattern across modules
+    # pylint: disable=duplicate-code
+
+    # Pylint allows more than 12 branches here because this is a test menu
+    def interactive_menu() -> None:    # pylint: disable=too-many-branches,too-many-statements
+        """
+        Run an interactive self-test menu for the WiFi service.
+
+        Instantiates WifiService and loops until the user selects quit (0).
+        Options cover the full public API: scanning, connecting, disconnecting,
+        access-point mode, and direct NetworkManager profile management.
+        """
+        input_selection = (
+            "Select a function, input the number:\n"
+            " 0-Quit\n"
+            " 1-Play (100% volume)\n"
+            " 2-Pause (0% volume)\n"
+            "Select: "
+        )
+
+        spotify = SpotifyConnect()
+
+        while True:
+            test_choice = input_prompt(input_selection, int, -1)
+            match test_choice:
+                case 0:
+                    break
+                case 1:
+                    spotify.play()
+                case 2:
+                    spotify.pause()
+                case _:
+                    print(f"\n{YELLOW}Please input a valid number{NC}\n")
 
     print("\nStarting test program...\n")
 
-    # Stand-alone test harness
-    spotify = SpotifyConnect()
+    # Subscribe to command and error topics so published messages are printed to console
+    cmd_handler = DebugMessageHandler(Commands.subscribe())
+    err_handler = DebugMessageHandler(Errors.subscribe())
 
-    # Simple interactive test for amixer control
-    while True:
-        print("\nSelect an option:")
-        print("1. Play (100% volume)")
-        print("2. Pause (0% volume)")
-        print("q. Quit")
-        choice = input("Enter your choice: ").strip()
-        if choice == "1":
-            spotify.play()
-        elif choice == "2":
-            spotify.pause()
-        elif choice.lower() == "q":
-            break
-        else:
-            print("Invalid option. Please try again.")
+    # Launch the interactive test menu; blocks until the user quits
+    interactive_menu()
+
+    # Stop receiving messages
+    Commands.unsubscribe(cmd_handler.get_queue())
+    Errors.unsubscribe(err_handler.get_queue())
+    # Signal the thread to exit and confirm it has exited
+    cmd_handler.stop()
+    err_handler.stop()
 
     print("\nExiting test program...\n")
+
+    # Re-enable the duplicate-code check for any code that follows
+    # pylint: enable=duplicate-code

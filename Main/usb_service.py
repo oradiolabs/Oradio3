@@ -328,9 +328,9 @@ class USBService:
 if __name__ == '__main__':
 
     # Imports only relevant when stand-alone
-    from constants import RED, YELLOW, NC       # pylint: disable=ungrouped-imports
-    from utilities import run_shell_script
-    from messaging import DebugMessageHandler   # pylint: disable=ungrouped-imports
+    from constants import RED, YELLOW, NC           # pylint: disable=ungrouped-imports
+    from messaging import DebugMessageHandler       # pylint: disable=ungrouped-imports
+    from utilities import run_shell_script, input_prompt
 
     # Most stand-alone entry points share this pattern; pylint would flag it as duplicate code across modules.
     # pylint: disable=duplicate-code
@@ -358,14 +358,8 @@ if __name__ == '__main__':
         monitor = USBService()
 
         while True:
-
-            # Safely parse integer input; treat non-numeric input as invalid.
-            try:
-                function_nr = int(input(input_selection))
-            except ValueError:
-                function_nr = -1  # Sentinel that falls through to the default case
-
-            match function_nr:
+            test_choice = input_prompt(input_selection, int, -1)
+            match test_choice:
                 case 0:
                     break
                 case 1:

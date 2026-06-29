@@ -301,57 +301,75 @@ class PowerSupplyService:
 
 ##### Stand-alone entry point #############################
 
-if __name__ == "__main__":
+if __name__ == '__main__':
 
-# Most modules use similar code in stand-alone
-# pylint: disable=duplicate-code
+    # Imports only relevant when stand-alone
+    from constants import YELLOW, NC
+    from utilities import input_prompt
 
-    def interactive_menu() -> None:
-        """Show menu with test options"""
+    # Most stand-alone entry points share this pattern across modules
+    # pylint: disable=duplicate-code
+
+    def print_status() -> None:
+        """Read and print the current PD status."""
+        status = power_service.read_status()
+        print(
+            "\n"
+            f"PD status: voltage={status['voltage_v']}V, current={status['current_a']}A, "
+            f"attach={status['attach']}, cc_dir={status['cc_dir']}, pd_response={status['pd_response']}"
+            "\n"
+        )
+
+    # Pylint allows more than 12 branches here because this is a test menu
+    def interactive_menu() -> None:    # pylint: disable=too-many-branches,too-many-statements
+        """
+        Run an interactive self-test menu for the WiFi service.
+
+        Instantiates WifiService and loops until the user selects quit (0).
+        Options cover the full public API: scanning, connecting, disconnecting,
+        access-point mode, and direct NetworkManager profile management.
+        """
+        input_selection = (
+            "Select a function, input the number:\n"
+            " 0-Quit\n"
+            " 1-Read PD status\n"
+            " 2-set_standby_voltage (5V / >=3.0A)\n"
+            " 3-set_nom_voltage (9V / >=2.0A)\n"
+            " 4-set_max_voltage(12V / >=1.5A)\n"
+            "Select: "
+        )
+
         power_service = PowerSupplyService()
 
-        def _print_status() -> None:
-            """Read and print the current PD status."""
-            status = power_service.read_status()
-            print(
-                f"PD status: voltage={status['voltage_v']}V, current={status['current_a']}A, "
-                f"attach={status['attach']}, cc_dir={status['cc_dir']}, pd_response={status['pd_response']}"
-            )
-
         while True:
-            print("\nPowerSupplyService test menu")
-            print("  1) Read PD status")
-            print("  2) set_standby_voltage (5V / >=3.0A)")
-            print("  3) set_nom_voltage (9V / >=2.0A)")
-            print("  4) set_max_voltage(12V / >=1.5A)")
-            print("  q) Quit")
-            choice = input("Select: ").strip().lower()
-
-            if choice == "1":
-                _print_status()
-            elif choice == "2":
-                result = power_service.set_standby_voltage()
-                print(f"SetStandbyVoltage: {'OK' if result else 'FAIL'}")
-                _print_status()
-            elif choice == "3":
-                result = power_service.set_nom_voltage()
-                print(f"SetNomVoltage: {'OK' if result else 'FAIL'}")
-                _print_status()
-            elif choice == "4":
-                result = power_service.set_max_voltage()
-                print(f"SetMaxVoltage: {'OK' if result else 'FAIL'}")
-                _print_status()
-            elif choice in ("q", "quit", "exit"):
-                break
-            else:
-                print("Unknown choice.")
+            test_choice = input_prompt(input_selection, int, -1)
+            match test_choice:
+                case 0:
+                    break
+                case 1:
+                    status = power_service.read_status()
+                    print_status()
+                case 2:
+                    result = power_service.set_standby_voltage()
+                    print(f"SetStandbyVoltage: {'OK' if result else 'FAIL'}")
+                    print_status()
+                case 3:
+                    result = power_service.set_nom_voltage()
+                    print(f"SetNomVoltage: {'OK' if result else 'FAIL'}")
+                    print_status()
+                case 4:
+                    result = power_service.set_max_voltage()
+                    print(f"SetMaxVoltage: {'OK' if result else 'FAIL'}")
+                    print_status()
+                case _:
+                    print(f"\n{YELLOW}Please input a valid number{NC}\n")
 
     print("\nStarting test program...\n")
 
-    # Present menu with tests
+    # Launch the interactive test menu; blocks until the user quits
     interactive_menu()
 
     print("\nExiting test program...\n")
 
-# Restore temporarily disabled pylint duplicate code check
-# pylint: enable=duplicate-code
+    # Re-enable the duplicate-code check for any code that follows
+    # pylint: enable=duplicate-code

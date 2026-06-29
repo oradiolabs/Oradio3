@@ -291,7 +291,8 @@ if __name__ == '__main__':
 
     # Imports only relevant when stand-alone
     from constants import YELLOW, NC
-    from messaging import DebugMessageHandler   # pylint: disable=ungrouped-imports
+    from utilities import input_prompt
+    from messaging import DebugMessageHandler       # pylint: disable=ungrouped-imports
 
     # Most modules use similar code in stand-alone
     # pylint: disable=duplicate-code
@@ -319,14 +320,8 @@ if __name__ == '__main__':
 
         # User command loop
         while True:
-
-            # Safely parse integer input; treat non-numeric input as invalid.
-            try:
-                function_nr = int(input(input_selection))
-            except ValueError:
-                function_nr = -1  # Sentinel that falls through to the default case
-
-            match function_nr:
+            test_choice = input_prompt(input_selection, int, -1)
+            match test_choice:
                 case 0:
                     break
                 case 1:

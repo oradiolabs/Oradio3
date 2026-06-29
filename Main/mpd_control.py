@@ -782,7 +782,8 @@ class MPDControl(MPDService):
 if __name__ == '__main__':
 
     # Imports only relevant when stand-alone
-    from constants import GREEN, YELLOW, NC    # pylint: disable=ungrouped-imports
+    from utilities import input_prompt              # pylint: disable=ungrouped-imports
+    from constants import GREEN, YELLOW, NC         # pylint: disable=ungrouped-imports
 
     # Most stand-alone entry points share this pattern across modules
     # pylint: disable=duplicate-code
@@ -819,12 +820,8 @@ if __name__ == '__main__':
         mpd_client = MPDControl()
 
         while True:
-            try:
-                function_nr = int(input(input_selection))
-            except ValueError:
-                function_nr = -1
-
-            match function_nr:
+            test_choice = input_prompt(input_selection, int, -1)
+            match test_choice:
                 case 0:
                     break
                 case 1:

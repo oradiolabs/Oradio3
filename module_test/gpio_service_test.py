@@ -32,7 +32,7 @@ from typing import Tuple
 from RPi import GPIO
 
 ##### Oradio modules ######################################
-from utilities import input_prompt_int
+from utilities import input_prompt
 from gpio_service import GPIOService, LED_ON, LED_OFF, LEDS, BUTTONS, BOUNCE_MS
 from remote_debugger import setup_remote_debugging
 
@@ -124,7 +124,7 @@ def _buttons_testing(test_gpio: GPIOService) -> None:
         for idx, name in enumerate(button_test_options, start=0):
             print(f"{NC} {idx} - {name}")
 
-        button_choice = input_prompt_int("Select test option: ", default=-1)
+        button_choice = input_prompt("Select test option: ", int, -1)
         match button_choice:
             case 0:
                 print("\nReturning to main menu selection...\n")
@@ -165,7 +165,7 @@ def led_selection() -> Tuple[int, str]:
         #Show test menu with the selection options
         for idx, led_name in enumerate(led_name_option, start=0):
             print(f" {idx} - {led_name}")
-        menu_choice = input_prompt_int("Select a LED: ", default=-1)
+        menu_choice = input_prompt("Select a LED: ", int, -1)
         match menu_choice:
             case 0:
                 print("\nReturning to previous selection...\n")
@@ -205,7 +205,7 @@ def _single_led_test(test_gpio: GPIOService) -> None:
         #Show test menu with the selection options
         for idx, name in enumerate(led_pin_options, start=0):
             print(f"{NC} {idx} - {name}")
-        led_choice = input_prompt_int("Select test option: ", default=-1)
+        led_choice = input_prompt("Select test option: ", int, -1)
         match led_choice:
             case 0:
                 print("\nReturning to main menu selection...\n")
@@ -282,7 +282,7 @@ def _leds_testing(test_gpio: GPIOService) -> None:
         for idx, name in enumerate(led_pin_options, start=0):
             print(f"{NC} {idx} - {name}")
 
-        test_choice = input_prompt_int("Select test number: ", default=-1)
+        test_choice = input_prompt("Select test number: ", int, -1)
         match test_choice:
             case 0:
                 print("\nExiting led testing\n")
@@ -311,7 +311,7 @@ def _start_module_test() -> None:
     while test_active:
         for idx, name in enumerate(test_options, start=0):
             print(f"{NC} {idx} - {name}")
-        test_choice = input_prompt_int("Select one of the test options: ", default=-1)
+        test_choice = input_prompt("Select one of the test options: ", int, -1)
         match test_choice:
             case 0:
                 print("\nExiting test program\n")

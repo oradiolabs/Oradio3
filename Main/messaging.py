@@ -683,8 +683,8 @@ class DebugMessageHandler(MessageHandlerBase):
 if __name__ == '__main__':
 
     # Imports only relevant when stand-alone
-    from utlilities import input_prompt
-    from multiprocessing import Process     # pylint: disable=ungrouped-imports
+    from utilities import input_prompt
+    from multiprocessing import Process             # pylint: disable=ungrouped-imports
 
     # Most modules use similar code in stand-alone
     # pylint: disable=duplicate-code

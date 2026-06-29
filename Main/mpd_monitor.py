@@ -216,7 +216,8 @@ if __name__ == "__main__":
 
     # Imports only relevant when stand-alone
     from constants import YELLOW, NC
-    from messaging import DebugMessageHandler   # pylint: disable=ungrouped-imports
+    from utilities import input_prompt
+    from messaging import DebugMessageHandler       # pylint: disable=ungrouped-imports
 
     def interactive_menu(monitor: MPDMonitor) -> None:   # pylint: disable=too-many-branches,duplicate-code
         """
@@ -236,12 +237,8 @@ if __name__ == "__main__":
         )
 
         while True:
-            try:
-                function_nr = int(input(input_selection))
-            except ValueError:
-                function_nr = -1
-
-            match function_nr:
+            test_choice = input_prompt(input_selection, int, -1)
+            match test_choice:
                 case 0:
                     break
                 case 1:
