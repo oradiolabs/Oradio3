@@ -96,6 +96,7 @@ def _get_rpi_serial() -> str:
             for line in file:
                 if line.startswith("Serial"):
                     serial = line.split(":", 1)[1].strip()
+                    # Leading zeros are stripped, matching Pi's conventional serial display format.
                     return serial.lstrip("0") or "0"
     except (FileNotFoundError, PermissionError, OSError):
         pass
@@ -150,7 +151,7 @@ class SafeRemotePostHandler(logging.Handler):
         if not _has_internet():
             return
 
-        # Compile context for POST request
+        # Compile context for POST request; the remote server expects message as an opaque JSON string field
         payload_info = {
             'generated': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
             'serial'   : self._serial,
@@ -167,7 +168,7 @@ class SafeRemotePostHandler(logging.Handler):
                 try:
                     # Use ExitStack to safely open multiple files
                     with ExitStack() as stack:
-                        # Compile files in logging directory for POST request
+                        # Compile files in logging directory for POST request always sending full context with every alert
                         send_files = ORADIO_LOG_PATH.glob("*.log")
                         payload_files = {f.name: (f.name, stack.enter_context(f.open("rb"))) for f in send_files}
                         # Send POST with files
