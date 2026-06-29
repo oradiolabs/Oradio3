@@ -34,6 +34,7 @@ from messaging import (
     SPOTIFY_DISCONNECTED_EVENT,
     SPOTIFY_PLAYING_EVENT,
     SPOTIFY_PAUSED_EVENT,
+    SPOTIFY_ERROR_MONITOR,
 )
 
 ##### LOCAL constants #####################################
@@ -67,7 +68,6 @@ class SpotifyConnect:
         except Exception as ex_err:  # pylint: disable=broad-exception-caught
             oradio_log.error("SpotifyConnect: monitor thread failed to start: %s", ex_err)
             Errors.publish(ErrorMessage(SPOTIFY_SOURCE, SPOTIFY_ERROR_MONITOR))
-            return
 
     def _read_flag(self, filepath: str) -> bool:
         """
