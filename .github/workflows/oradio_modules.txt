@@ -8,7 +8,6 @@ fastapi
 uvicorn
 requests
 watchdog
-dbus-python
 python-mpd2
 python-multipart
 concurrent-log-handler
