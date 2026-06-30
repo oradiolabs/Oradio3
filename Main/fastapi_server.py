@@ -25,8 +25,8 @@ Created on December 23, 2024
 """
 from os import path
 from re import match
-from typing import Optional, Any
 from json import load, JSONDecodeError
+from typing import Optional, Union, Any
 from asyncio import sleep, create_task, CancelledError
 from datetime import datetime, timedelta, timezone
 from pydantic import BaseModel
