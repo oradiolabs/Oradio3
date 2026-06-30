@@ -43,11 +43,7 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y \
             python3-gi \
-            python3-dev \
-            python3-dbus \
-            python3-jinja2 \
-            python3-requests \
-            python3-watchdog
+            python3-dev
 
       # -----------------------------------------------------------------------
       # 5. Python dependencies inside a venv that can see system site-packages
@@ -101,7 +97,7 @@ jobs:
           echo "### 🧹 Ruff static deprecation analysis results" >> "$RESULT_FILE"
           ruff check Main module_test \
             --select UP,F,YTT \
-            --output-format=text >> "$RESULT_FILE" 2>&1
+            --output-format=github >> "$RESULT_FILE" 2>&1
           count_ruff=$(grep -Ec '^\S+\.py:[0-9]+' "$RESULT_FILE" || echo 0)
           if [ "$count_ruff" -eq 0 ]; then
             echo "Static deprecation check found no warnings." >> "$RESULT_FILE"
