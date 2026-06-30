@@ -26,7 +26,7 @@ Created on December 23, 2024
 """
 from os import path
 from re import match
-from typing import Optional, Dict, Any
+from typing import Any
 from json import load, JSONDecodeError
 from asyncio import sleep, create_task, CancelledError
 from datetime import datetime, timedelta, timezone
@@ -79,7 +79,7 @@ KEEP_ALIVE_TIMEOUT = 5
 
 # Full URL required by some mobile browsers (e.g. iOS Safari) that reject bare
 # hostnames in redirect responses.
-oradioap_url = f"http://{ACCESS_POINT_HOST}"
+ORADIOAP_URL = f"http://{ACCESS_POINT_HOST}"
 
 # Initialise MPD client
 mpd_control = MPDControl()
@@ -182,12 +182,12 @@ def _get_sw_info() -> dict:
 
     return software_info
 
-def play_song(args: Optional[Dict[str, Any]]):
+def play_song(args: dict[str, Any]):
     """
     Play a song via MPD and publish a WEB_PLAYING_SONG command.
 
     Args:
-        args: Dict containing "song" (str) — path or identifier of the
+        args: dict containing "song" (str) — path or identifier of the
               song to play.
 
     Returns:
@@ -207,7 +207,7 @@ def play_song(args: Optional[Dict[str, Any]]):
 
     return {"message": f"'{songfile}' is nu te horen"}
 
-def get_networks(_args: Optional[Dict[str, Any]]):
+def get_networks(_args: dict[str, Any]):
     """
     Return the list of currently visible WiFi networks.
 
@@ -220,7 +220,7 @@ def get_networks(_args: Optional[Dict[str, Any]]):
     """
     return get_wifi_networks()
 
-def shutdown_webapp(_args: Optional[Dict[str, Any]]):
+def shutdown_webapp(_args: dict[str, Any]):
     """
     Request a graceful web server shutdown via the service queue.
 
@@ -232,7 +232,7 @@ def shutdown_webapp(_args: Optional[Dict[str, Any]]):
     """
     safe_put(api_app.state.queue, {"request": REQUEST_STOP})
 
-def rename_spotify(args: Optional[Dict[str, Any]]):
+def rename_spotify(args: dict[str, Any]):
     """
     Rename the Spotify (librespot) device and restart the service.
 
@@ -241,7 +241,7 @@ def rename_spotify(args: Optional[Dict[str, Any]]):
     daemon, and restarts the service.
 
     Args:
-        args: Dict containing "name" (str) — the new Spotify device name.
+        args: dict containing "name" (str) — the new Spotify device name.
               Allowed characters: letters, digits, hyphen (-), underscore (_).
 
     Returns:
@@ -285,7 +285,7 @@ def rename_spotify(args: Optional[Dict[str, Any]]):
 
     return name
 
-def wifi_connect(args: Optional[Dict[str, Any]]):
+def wifi_connect(args: dict[str, Any]):
     """
     Send a WiFi connection request to the service queue.
 
@@ -293,7 +293,7 @@ def wifi_connect(args: Optional[Dict[str, Any]]):
     optional password on api_app.state.queue for the owning process to act on.
 
     Args:
-        args: Dict containing:
+        args: dict containing:
             "ssid" (str, required) — target network name.
             "pswd" (str, optional) — network password; pass an empty
             string or omit for open networks.
@@ -313,7 +313,7 @@ def wifi_connect(args: Optional[Dict[str, Any]]):
         "pswd"   : pswd,
     })
 
-def save_preset(args: Optional[Dict[str, Any]]):
+def save_preset(args: dict[str, Any]):
     """
     Save a playlist or webradio entry as a preset and publish the change.
 
@@ -322,7 +322,7 @@ def save_preset(args: Optional[Dict[str, Any]]):
     are notified of the change.
 
     Args:
-        args: Dict containing:
+        args: dict containing:
             "preset" (str, required) — preset key: "preset1",
             "preset2", or "preset3".
             "playlist" (str, required) — playlist or webradio identifier
@@ -362,12 +362,12 @@ def save_preset(args: Optional[Dict[str, Any]]):
     oradio_log.debug("Send web service message: %s", preset_map[preset][preset_type])
     Commands.publish(CommandMessage(WEB_SOURCE, preset_map[preset][preset_type]))
 
-def get_playlist_songs(args: Optional[Dict[str, Any]]):
+def get_playlist_songs(args: dict[str, Any]):
     """
     Return all songs contained in a given playlist.
 
     Args:
-        args: Dict containing "playlist" (str) — playlist name.
+        args: dict containing "playlist" (str) — playlist name.
 
     Returns:
         The list of songs returned by MPDControl.get_songs().
@@ -381,12 +381,12 @@ def get_playlist_songs(args: Optional[Dict[str, Any]]):
 
     return mpd_control.get_songs(playlist)
 
-def get_search_songs(args: Optional[Dict[str, Any]]):
+def get_search_songs(args: dict[str, Any]):
     """
     Return songs matching a search pattern.
 
     Args:
-        args: Dict containing "pattern" (str) — search string.
+        args: dict containing "pattern" (str) — search string.
 
     Returns:
         The list of matching songs returned by MPDControl.search().
@@ -400,12 +400,12 @@ def get_search_songs(args: Optional[Dict[str, Any]]):
 
     return mpd_control.search(pattern)
 
-def modify_playlist(args: Optional[Dict[str, Any]]):
+def modify_playlist(args: dict[str, Any]):
     """
     Add or remove a song or playlist via MPD and return the updated playlist list.
 
     Args:
-        args: Dict containing:
+        args: dict containing:
             "action" (str, required) — "Add" or "Remove".
             "playlist" (str, required) — target playlist name.
             "song" (str, optional) — song to add or remove; omit to
@@ -447,7 +447,7 @@ def modify_playlist(args: Optional[Dict[str, Any]]):
 
     return mpd_control.get_playlists()
 
-def log_message(args: Optional[Dict[str, Any]]):
+def log_message(args: dict[str, Any]):
     """
     Log a message originating from the web interface.
 
@@ -455,7 +455,7 @@ def log_message(args: Optional[Dict[str, Any]]):
     log for debugging purposes.
 
     Args:
-        args: Dict containing "message" (str) — the text to log.
+        args: dict containing "message" (str) — the text to log.
 
     Raises:
         ValueError: If args is None or does not contain "message".
@@ -477,7 +477,7 @@ class ExecuteRequest(BaseModel):
         args: Optional dict of command-specific arguments.
     """
     cmd:  str
-    args: Optional[Dict[str, Any]] = None
+    args: dict[str, Any] = None
 
 @api_app.post("/execute")
 async def execute(request: ExecuteRequest):
@@ -648,11 +648,11 @@ async def catch_all(request: Request):
         request: The incoming HTTP request.
 
     Returns:
-        A 302 RedirectResponse to {oradioap_url}/oradio3.
+        A 302 RedirectResponse to {ORADIOAP_URL}/oradio3.
     """
     oradio_log.debug("Catchall triggered for path: %s", request.url.path)
 
-    return RedirectResponse(url=oradioap_url + "/oradio3", status_code=302)
+    return RedirectResponse(url=ORADIOAP_URL + "/oradio3", status_code=302)
 
 ##### Stand-alone entry point #############################
 
@@ -687,7 +687,7 @@ if __name__ == '__main__':
 
     # The module-level value includes the AP host address, which only resolves
     # on-device; use a relative URL for stand-alone testing.
-    oradioap_url = ""
+    ORADIOAP_URL = ""
 
     # Subscribe to command topics so messages published are printed to console.
     cmd_handler = DebugMessageHandler(Commands.subscribe())
