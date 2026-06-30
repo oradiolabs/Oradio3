@@ -82,7 +82,7 @@ jobs:
           pylint Main/*.py module_test/*.py \
             --rcfile=.github/workflows/.pylintrc \
             --output-format=text >> "$RESULT_FILE" 2>&1
-          pylint_count=$(grep -Ec '^[^:]+:[0-9]+:[0-9]+: [A-Z][0-9]{4}:' "$RESULT_FILE" || echo 0)
+          pylint_count=$(grep -Ec '^[^:]+:[0-9]+:[0-9]+: [A-Z][0-9]{4}:' "$RESULT_FILE" || true)
           if [ "$pylint_count" -eq 0 ]; then
             echo "Pylint found no issues." >> "$RESULT_FILE"
           fi
@@ -98,7 +98,7 @@ jobs:
           ruff check Main module_test \
             --select UP \
             --output-format=github >> "$RESULT_FILE" 2>&1
-          count_ruff=$(grep -Ec '^\S+\.py:[0-9]+' "$RESULT_FILE" || echo 0)
+          count_ruff=$(grep -Ec '^\S+\.py:[0-9]+' "$RESULT_FILE" || true)
           if [ "$count_ruff" -eq 0 ]; then
             echo "Static deprecation check found no warnings." >> "$RESULT_FILE"
           fi
