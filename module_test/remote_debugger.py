@@ -8,7 +8,6 @@
  #    #  #   #   #    #  #    #     #    #    #
   ####   #    #  #    #  #####      #     ####
 
-
 Created on January 11, 2026
 @author:        Henk Stevens & Olaf Mastenbroek & Onno Janssen
 @copyright:     Copyright 2026, Oradio Stichting
@@ -42,7 +41,8 @@ from constants import (
 ##### Remote debugger toggle ##############################
 # Set to DEBUGGER_ENABLED locally when remote debugging is needed.
 # Must be DEBUGGER_DISABLED in production/committed code.
-REMOTE_DEBUGGER = DEBUGGER_ENABLED
+#REMOTE_DEBUGGER = DEBUGGER_ENABLED
+REMOTE_DEBUGGER = DEBUGGER_DISABLED
 
 
 def _build_arg_parser() -> argparse.ArgumentParser:

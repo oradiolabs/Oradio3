@@ -19,22 +19,24 @@ Created on Januari 22, 2026
     Module test for GPIO low level functions
     For I/O pins related to buttons and leds
     * Testing LEDs ON/OFF
-    * Testing BUTTONS touched 
+    * Testing BUTTONS touched
     * Class extensions for button simulations
+
+    Usage: python gpio_service_test.py
 
 @references:
     https://www.raspberrypi.com/documentation/computers/raspberry-pi.html#gpio
 """
-from threading import Thread, Event
-from time import sleep
 import sys
-from typing import Tuple
 from RPi import GPIO
+from time import sleep
+from threading import Thread, Event
 
 ##### Oradio modules ######################################
 from utilities import input_prompt
-from gpio_service import GPIOService, LED_ON, LED_OFF, LEDS, BUTTONS, BOUNCE_MS
+from messaging import Errors, DebugMessageHandler
 from remote_debugger import setup_remote_debugging
+from gpio_service import GPIOService, LED_ON, LED_OFF, LEDS, BUTTONS, BOUNCE_MS
 
 ##### GLOBAL constants ####################################
 from constants import (
@@ -48,43 +50,50 @@ button_state = {True: f"{YELLOW}1", False: f"{NC}0"}
 
 def button_event_callback(button_data: dict) -> None:
     """
-    Callback for button events testing
+    Callback for button events testing.
+
     Args:
-        button_data = { 'name': str,   # name of button
-                        'state': str,  # state of button Pressed/Released
-                        'error' : str  # error 
-                        }
-    Attributes:
-        GPIO_MODULE_TEST: (TEST_ENABLED  = The module test is enabled)
-        if TEST_ENABLED a data key is added
-        {
-            'data': float
-        }
+        button_data (dict): Event information with keys:
+            'name'  (str): Name of the button that changed state.
+            'state' (str): New state of the button: BUTTON_PRESSED or
+                BUTTON_RELEASED.
+            'data'  (float, optional): perf_counter timestamp, present only
+                when gpio_module_test is TEST_ENABLED.
     """
     print(f"Button change event: {button_data['name']} = {button_data['state']}")
 
-def _keyboard_input(event: Event):
+def _keyboard_input(event: Event) -> None:
     """
-    Wait for keyboard input with return, and set event if input detected
+    Wait for the user to press Return and then set the given event.
+
+    Intended to run in a background thread so that a polling loop can
+    check the event and exit cleanly without blocking on input().
+
     Args:
-        event = The specified event will be set upon a keyboard input
-    post_condition:
-        the event is set
+        event (Event): Event that will be set when Return is pressed.
     """
-    _= input("Press Return on keyboard to stop this test")
+    _ = input("Press Return on keyboard to stop this test")
     event.set()
 
 def _button_polling(test_gpio: GPIOService) -> None:
     """
-    Polling of the buttons pins and report the state of the pins
+    Poll all button pins at 200 ms intervals and print their states.
+
+    Temporarily removes GPIO edge-detection on all button pins for the
+    duration of the poll so that the callback and this loop do not race.
+    Edge detection is restored before returning.
+
+    Args:
+        test_gpio (GPIOService): Live GPIO service instance under test.
     """
-    # stop the event driven callback
-    for button_name, pin in BUTTONS.items():
+    # Suspend event-driven callbacks while polling.
+    for pin in BUTTONS.values():
         GPIO.remove_event_detect(pin)
+
     stop_event = Event()
-    keyboard_thread = Thread(target=_keyboard_input,
-                             args=(stop_event,))
+    keyboard_thread = Thread(target=_keyboard_input, args=(stop_event,))
     keyboard_thread.start()
+
     while not stop_event.is_set():
         full_state_text = ""
         active_buttons = []
@@ -95,11 +104,13 @@ def _button_polling(test_gpio: GPIOService) -> None:
                 active_buttons.append(button_name)
         print(f"{full_state_text} {YELLOW} : {active_buttons}")
         sleep(0.2)
+
     del stop_event
-    # activate the callback events again
-    for button_name, pin in BUTTONS.items():
+
+    # Restore event-driven callbacks.
+    for pin in BUTTONS.values():
         # pylint: disable=protected-access
-        # required for buttons testing purposes
+        # Direct access to _edge_callback is required here for test purposes.
         GPIO.add_event_detect(
             pin, GPIO.BOTH, callback=test_gpio._edge_callback, bouncetime=BOUNCE_MS
         )
@@ -107,20 +118,19 @@ def _button_polling(test_gpio: GPIOService) -> None:
 
 def _buttons_testing(test_gpio: GPIOService) -> None:
     """
-    module tests for the BUTTONS
+    Interactive menu for button module tests.
+
+    Offers polling-based and callback-based button tests.
+
     Args:
-        test_gpio : instance of the GPIO class under test
-    Returns:
-        True : OK
-        False: Error condition
+        test_gpio (GPIOService): Live GPIO service instance under test.
     """
-    button_test_options = ["Quit"]\
-                    + ["polling the button state"]\
-                    + ["button event-callback handling"]
+    button_test_options = ["Quit"] \
+                        + ["polling the button state"] \
+                        + ["button event-callback handling"]
 
     test_active = True
     while test_active:
-        # --- Show test menu with the selection options---
         for idx, name in enumerate(button_test_options, start=0):
             print(f"{NC} {idx} - {name}")
 
@@ -135,74 +145,72 @@ def _buttons_testing(test_gpio: GPIOService) -> None:
             case 2:
                 print(f"\n running {button_test_options[2]}\n")
                 test_gpio.set_button_edge_event_callback(button_event_callback)
+                test_gpio.enable_button_events()
                 print("Touch a button and check results. To stop test press RETURN!")
-                while True:
-                    _ = input("Press RETURN key to stop test and continue to main-menu\n")
-                    break
+                _ = input("Press RETURN key to stop test and continue to main-menu\n")
+                return
             case _:
                 print("Please input a valid number.")
 
-    test_gpio.set_button_edge_event_callback(button_event_callback)
-    print("Touch a button and check results. To stop test press RETURN!")
-    while True:
-        _ = input("Press RETURN key to stop test and continue to main-menu\n")
-        break
-    return
+def led_selection() -> tuple[int, str]:
+    """
+    Interactive LED selection menu.
 
-def led_selection() -> Tuple[int, str]:
-    """
-    Led selection menu
     Returns:
-        selected_led_name [str] : the name of led as in LED_NAMES
-        menu_choice [int]: the number of the selection
+        tuple[int, str]: A (menu_choice, selected_led_name) pair where
+            menu_choice is the raw menu index and selected_led_name is the
+            corresponding entry from LED_NAMES, or 'LED_UNKNOWN' if the
+            unknown option was chosen.
     """
-    # prepare a option list`
     led_name_option = ["Quit"] + LED_NAMES + ["LedUnknown"]
     selection_done = False
     selected_led_name = "LED_UNKNOWN"
     selected_led_nr = -1
+
     while not selection_done:
-        #Show test menu with the selection options
         for idx, led_name in enumerate(led_name_option, start=0):
             print(f" {idx} - {led_name}")
         menu_choice = input_prompt("Select a LED: ", int, -1)
-        match menu_choice:
-            case 0:
-                print("\nReturning to previous selection...\n")
-                selection_done = True
-            case 1 | 2 | 3 | 4 | 5: # 5 leds
-                selection_done = True
-                selected_led_nr = menu_choice-1
-                led_pin = LEDS[LED_NAMES[selected_led_nr]]
-                print(f"\nThe selected LED is {led_name_option[menu_choice]} using pin {led_pin}\n")
-            case 6: # led unknown
-                selected_led_nr = -1
-                selection_done = True
-            case _:
-                print("Please input a valid test option.")
+
+        if menu_choice == 0:
+            print("\nReturning to previous selection...\n")
+            selection_done = True
+        elif 1 <= menu_choice <= len(LED_NAMES):
+            selection_done = True
+            selected_led_nr = menu_choice - 1
+            led_pin = LEDS[LED_NAMES[selected_led_nr]]
+            print(f"\nThe selected LED is {led_name_option[menu_choice]} using pin {led_pin}\n")
+        elif menu_choice == len(LED_NAMES) + 1:  # "LedUnknown"
+            selected_led_nr = -1
+            selection_done = True
+        else:
+            print("Please input a valid test option.")
+
     if selected_led_nr != -1:
         selected_led_name = LED_NAMES[selected_led_nr]
     return menu_choice, selected_led_name
 
 def _single_led_test(test_gpio: GPIOService) -> None:
     """
-    Test the selected LED functions
+    Test set/get functions for an interactively selected LED.
+
+    Turns all LEDs off before presenting the selection menu, then offers
+    on/off control with pass/fail feedback for the chosen LED.
+
     Args:
-        test_gpio : instance of gpio service to be use
+        test_gpio (GPIOService): Live GPIO service instance under test.
     """
     _all_leds_off(test_gpio)
     menu_choice, selected_led_name = led_selection()
     if menu_choice == 0:
-        #quit selected
         return
 
-    # prepare an option list
-    led_pin_options = ["Quit"]\
-                    + ["Turn LED-pin ON"]\
+    led_pin_options = ["Quit"] \
+                    + ["Turn LED-pin ON"] \
                     + ["Turn LED-pin OFF"]
+
     test_active = True
     while test_active:
-        #Show test menu with the selection options
         for idx, name in enumerate(led_pin_options, start=0):
             print(f"{NC} {idx} - {name}")
         led_choice = input_prompt("Select test option: ", int, -1)
@@ -231,54 +239,56 @@ def _single_led_test(test_gpio: GPIOService) -> None:
 
 def _all_leds_off(test_gpio: GPIOService) -> None:
     """
-    Switch off all LEDs
+    Turn off all LEDs without verifying the result.
+
+    Used as a setup step before targeted LED tests.
+
     Args:
-        test_gpio:  should be an instance of GPIOService
+        test_gpio (GPIOService): Live GPIO service instance under test.
     """
     for led_name in LED_NAMES:
         test_gpio.set_led_off(led_name)
 
 def _set_all_leds_test(test_gpio: GPIOService, led_state: bool) -> None:
     """
-    Set all leds ON or OFF using GPIO services
+    Set all LEDs to the given state and report pass/fail.
+
     Args:
-        test_gpio instance
-        led_state : LED_ON | LED_OFF
+        test_gpio (GPIOService): Live GPIO service instance under test.
+        led_state (bool): LED_ON to turn all LEDs on; LED_OFF to turn them off.
     """
     if led_state == LED_ON:
-        all_pins_state = LED_ON # the LED pins ON state
         for led_name in LED_NAMES:
             test_gpio.set_led_on(led_name)
-            all_pins_state = all_pins_state and test_gpio.get_led_state(led_name)
-        if all_pins_state is LED_ON:
+        if all(test_gpio.get_led_state(n) for n in LED_NAMES):
             print(f"{GREEN} Test Result: All the LEDs are ON")
         else:
             print(f"{RED} Test Result: Not all the LEDS are ON !!")
     else:
-        all_pins_state = LED_OFF
         for led_name in LED_NAMES:
             test_gpio.set_led_off(led_name)
-            all_pins_state = all_pins_state or test_gpio.get_led_state(led_name)
-        if all_pins_state is LED_OFF:
+        if not any(test_gpio.get_led_state(n) for n in LED_NAMES):
             print(f"{GREEN} Test Result: All the LEDs are OFF")
         else:
             print(f"{RED} Test Result: Not all the LEDS are OFF !!")
 
 def _leds_testing(test_gpio: GPIOService) -> None:
     """
-    module tests for the LEDS
+    Interactive menu for LED module tests.
+
+    Offers all-on, all-off, and single-LED test options.
+
     Args:
-        test_gpio should be an instance of GPIOService
+        test_gpio (GPIOService): Live GPIO service instance under test.
     """
-    # create a led-pin selection list
-    led_pin_options =   ["Quit"] +\
-                        ["All leds-pins ON"] +\
-                        ["All leds-pins OFF"] +\
-                        ["Single LED test"]
+    led_pin_options = ["Quit"] \
+                    + ["All leds-pins ON"] \
+                    + ["All leds-pins OFF"] \
+                    + ["Single LED test"]
+
     test_active = True
     while test_active:
         print(f"\n{NC}Select a test option:")
-        #Show test menu with the selection options
         for idx, name in enumerate(led_pin_options, start=0):
             print(f"{NC} {idx} - {name}")
 
@@ -301,13 +311,16 @@ def _leds_testing(test_gpio: GPIOService) -> None:
 
 def _start_module_test() -> None:
     """
-    Show menu with test options
+    Top-level test menu.
+
+    Instantiates GPIOService and presents LED and button sub-menus until
+    the user chooses to quit, at which point GPIO pins are cleaned up.
     """
     test_gpio = GPIOService()
 
     print("\nSelect a test or quit:")
     test_active = True
-    test_options = ["QUIT"] + ["LEDS"] + ["BUTTONS"]
+    test_options = ["Quit"] + ["LEDs"] + ["Buttons"]
     while test_active:
         for idx, name in enumerate(test_options, start=0):
             print(f"{NC} {idx} - {name}")
@@ -330,6 +343,9 @@ if __name__ == '__main__':
 
     print("\nStarting test program...\n")
 
+    # Subscribe to command and error topics so published messages are printed to console
+    err_handler = DebugMessageHandler(Errors.subscribe())
+
     # try to setup a remote debugger connection, if enabled in remote_debugger.py
     debugger_status, connection_status = setup_remote_debugging()
     if debugger_status == DEBUGGER_ENABLED:
@@ -338,6 +354,11 @@ if __name__ == '__main__':
             sys.exit()
 
     _start_module_test()
+
+    # Stop receiving messages
+    Errors.unsubscribe(err_handler.get_queue())
+    # Signal the thread to exit and confirm it has exited
+    err_handler.stop()
 
     print("\nExiting test program...\n")
 
