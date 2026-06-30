@@ -28,7 +28,7 @@ import json
 import socket
 import subprocess
 from subprocess import run
-from typing import Any, Optional, List, Union, Dict
+from typing import Any, Optional, Union
 from pathlib import Path
 from pydantic import BaseModel, ValidationError
 
@@ -58,7 +58,7 @@ class OradioMessage(BaseModel):
     source: str
     state: str
     error: str
-    data: Optional[List[Any]] = None
+    data: Optional[list[Any]] = None
 
 def get_serial() -> str:
     """Extract serial from Raspberry Pi."""
@@ -128,7 +128,7 @@ def is_service_active(service_name) -> bool:
         oradio_log.error("Error checking %s service, error-status=: %s", service_name, ex_err)
         return False
 
-def validate_oradio_message(message: Union[OradioMessage, Dict[str, Any]]) -> Optional[OradioMessage]:
+def validate_oradio_message(message: Union[OradioMessage, dict[str, Any]]) -> Optional[OradioMessage]:
     """
     Validates a message to ensure it matches the OradioMessage schema.
     If the message is already an OradioMessage, it is returned as-is.

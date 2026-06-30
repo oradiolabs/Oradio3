@@ -29,6 +29,7 @@ Created on January 10, 2025
     - mpdlist/mpdlists: the combination of directories and playlists
     - current: the directory/playlist in the playback queue
 """
+from typing import Any
 from time import sleep
 # Lock added as a safeguard; unnecessary if MPDControl is used correctly per thread/process
 from threading import Lock
@@ -122,7 +123,7 @@ class MPDService:
         # All retries exhausted
         oradio_log.error("Failed to connect to MPD after %d attempts", MPD_RETRIES)
 
-    def _execute(self, command: str, *args, allow_reconnect: bool = True, **kwargs) -> object | None:
+    def _execute(self, command: str, *args, allow_reconnect: bool = True, **kwargs) -> Any:
         """
         Execute an MPD command safely and efficiently.
         - Retries only on actual lost connections.
@@ -193,7 +194,7 @@ class MPDService:
 
 # -----Public methods----------------
 
-    def get_stats(self) -> dict:
+    def get_stats(self) -> dict[str, Any]:
         """
         Retrieve and combine playback statistics and current status information.
 
