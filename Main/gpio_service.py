@@ -22,7 +22,7 @@ Created on November 29, 2025
         * Set LED pin On/Off based on LED_NAMES
         * Get state of a LED pin based on LED_NAMES
         * Get state of a BUTTON pin based on BUTTON_NAMES
-        * Set the callback for buttons related edge events
+        * Register a callback for button edge events
 
 @references:
     https://www.raspberrypi.com/documentation/computers/raspberry-pi.html#gpio
@@ -52,7 +52,7 @@ from constants import (
     TEST_ENABLED, TEST_DISABLED
 )
 
-##### LOCAL constants #i###################################
+##### LOCAL constants #####################################
 # LED GPIO PINS
 LEDS: dict[str, int] = {
     LED_PLAY   : 15,
@@ -71,6 +71,8 @@ BUTTONS: dict[str, int] = {
 }
 
 # Software debounce window in milliseconds passed to GPIO.add_event_detect.
+# 10 ms is intentionally short: the higher-level state machine handles
+# sustained-press logic, so we only need to suppress contact chatter.
 BOUNCE_MS = 10
 
 LED_ON = True
@@ -85,11 +87,25 @@ class GPIOService:
     buttons. Supports registering a callback for button edge events and
     provides logging for debugging.
 
-    Attributes:
+    Public attributes:
         gpio_module_test (int): Controls test mode behaviour.
             TEST_DISABLED (default): normal operation.
-            TEST_ENABLED: adds timing data to button callbacks for
+            TEST_ENABLED: overrides button state to BUTTON_PRESSED and
+                attaches a perf_counter timestamp to button callbacks for
                 performance measurement.
+            This is intentionally a CLASS attribute (not set in __init__):
+            test code sets it via GPIOService.gpio_module_test = TEST_ENABLED
+            before the singleton is constructed, or toggles it on the class
+            at any time afterwards. Because GPIOService is a singleton, an
+            instance-level assignment here would shadow the class attribute
+            and silently break that external test-mode toggle pattern.
+
+    Internal attributes:
+        edge_event_callback: Callable registered via
+            set_button_edge_event_callback(); invoked on every button edge.
+        gpio_to_button (dict[int, str]): Reverse map from BCM pin number to
+            button name, built at init time to avoid dict iteration inside
+            the interrupt handler.
     """
     gpio_module_test = TEST_DISABLED
 
@@ -99,8 +115,9 @@ class GPIOService:
 
         Sets BCM pin numbering, configures LED pins as outputs (initially
         HIGH, i.e. off), configures button pins as inputs with pull-up
-        resistors, builds the channel-to-button-name reverse lookup, and
-        clears any previously registered edge-detection handlers.
+        resistors, builds the channel-to-button-name reverse lookup used in
+        _edge_callback to avoid dict iteration at interrupt time, and clears
+        any previously registered edge-detection handlers.
         """
         self._lock = Lock()
         self.edge_event_callback = None
@@ -141,9 +158,11 @@ class GPIOService:
         Calls GPIO.cleanup() to release all configured pins and return them
         to input mode with no pull-up or pull-down resistors.
 
-        Note:
-            Intended primarily for test environments where pins must be
-            returned to a known state between test runs.
+        Warning:
+            Calling this in production will disable all GPIO functionality
+            until the service is re-initialised. Intended primarily for test
+            environments where pins must be returned to a known state between
+            test runs.
         """
         with self._lock:
             GPIO.cleanup()
@@ -167,6 +186,8 @@ class GPIOService:
         """
         Turn on the specified LED.
 
+        Has no effect and logs an error if led_name is not recognised.
+
         Args:
             led_name (str): One of LED_PLAY, LED_STOP, LED_PRESET1,
                 LED_PRESET2, LED_PRESET3.
@@ -180,6 +201,8 @@ class GPIOService:
     def set_led_off(self, led_name: str) -> None:
         """
         Turn off the specified LED.
+
+        Has no effect and logs an error if led_name is not recognised.
 
         Args:
             led_name (str): One of LED_PLAY, LED_STOP, LED_PRESET1,
@@ -201,7 +224,7 @@ class GPIOService:
 
         Returns:
             bool: True if the LED is on, False if off.
-            None: If led_name is not recognised.
+            None: If led_name is not recognised; an error is also logged.
         """
         if led_name not in LED_NAMES:
             oradio_log.error("Unknown led name: %s", led_name)
@@ -215,6 +238,10 @@ class GPIOService:
     def set_button_edge_event_callback(self, callback) -> None:
         """
         Register the callback invoked on every button edge event.
+
+        Must be called before enable_button_events() to avoid a race
+        condition where a button press fires before the callback is set,
+        causing the event to be silently dropped.
 
         Args:
             callback (Callable): Function to call when a button state
@@ -235,7 +262,7 @@ class GPIOService:
 
         Returns:
             bool: True if the button is pressed, False if released.
-            None: If button_name is not recognised.
+            None: If button_name is not recognised; an error is also logged.
         """
         if button_name not in BUTTON_NAMES:
             oradio_log.error("Unknown button name: %s", button_name)
@@ -248,10 +275,11 @@ class GPIOService:
         """
         Enable GPIO edge detection on all button pins.
 
-        Must be called after set_button_edge_event_callback() to avoid a
-        race condition where a button event fires before the callback is set.
-        Publishes GPIO_ERROR_BUTTONS and returns early if no callback has
-        been registered.
+        Must be called after set_button_edge_event_callback(). If events
+        were enabled first, a button press occurring between the two calls
+        would invoke a None callback and be silently dropped. Publishes
+        GPIO_ERROR_BUTTONS and returns early if no callback has been
+        registered.
         """
         if not callable(self.edge_event_callback):
             oradio_log.error("Cannot enable button events: callback not set")
@@ -281,9 +309,11 @@ class GPIOService:
             channel (int): BCM pin number on which the edge was detected.
 
         Note:
-            When gpio_module_test is TEST_ENABLED, the state is overridden
-            to BUTTON_PRESSED and a perf_counter timestamp is attached to
-            button_data for performance measurement.
+            When gpio_module_test is TEST_ENABLED, the reported state is
+            unconditionally overridden to BUTTON_PRESSED (regardless of
+            actual pin level) and a perf_counter timestamp is attached under
+            the "data" key. This behaviour exists solely for performance
+            measurement and must not be relied upon in production code.
         """
         if not callable(self.edge_event_callback):
             oradio_log.error("No callback function found")

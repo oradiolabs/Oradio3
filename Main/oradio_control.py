@@ -37,7 +37,7 @@ from spotify_connect_direct import SpotifyConnect
 from usb_service import USBService
 from web_service import WebService
 from wifi_service import WifiService
-from utilities import has_internet, validate_oradio_message
+from utilities import has_internet
 from power_supply_control import PowerSupplyService
 from system_sounds import play_sound    # For better readability. pylint: disable=wrong-import-order
 # Runs a background thread logging throttling events
@@ -702,11 +702,10 @@ def handle_message(message: dict):
     :arguments
         message (dict) : the (Oradio) message to be processed
     '''
-    validated_message = validate_oradio_message(message)
-    if validated_message:
-        command_source  = validated_message.source
-        state           = validated_message.state
-        error           = validated_message.error
+    if message:
+        command_source = message.get("source")
+        state          = message.get("state")
+        error          = message.get("error")
 
         handlers = HANDLERS.get(command_source)
         if handlers is None:
@@ -728,7 +727,7 @@ def handle_message(message: dict):
                     "Unhandled error '%s' for message source '%s'.", error, command_source
                 )
     else:
-        oradio_log.warning("Invalid OradioMessage received")
+        oradio_log.warning("Invalid message received")
 
 # 3)----------- Process the messages---------
 def process_messages(msg_queue):

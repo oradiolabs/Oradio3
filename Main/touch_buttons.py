@@ -44,11 +44,11 @@ from constants import (
 )
 
 ##### LOCAL constants #####################################
-BUTTON_DEBOUNCE_TIME = 500  # ms — ignore rapid repeats within this window
-DEBOUNCE_SECONDS     = BUTTON_DEBOUNCE_TIME / 1000.0  # converted to seconds for monotonic() comparisons
-BOUNCE_MS            = 10   # hardware debounce threshold passed to GPIO.add_event_detect
-LONG_PRESS_DURATION  = 6    # seconds a button must be held to trigger a long-press event
-BUTTON_LONG_PRESSED  = "button long pressed"
+BUTTON_DEBOUNCE_TIME     = 500                              # ms — ignore rapid repeats within this window
+DEBOUNCE_SECONDS         = BUTTON_DEBOUNCE_TIME / 1000.0    # converted to seconds for monotonic() comparisons
+BOUNCE_MS                = 10                               # hardware debounce threshold passed to GPIO.add_event_detect
+LONG_PRESS_DURATION      = 6                                # seconds a button must be held to trigger a long-press event
+BUTTON_LONG_PRESSED      = "button long pressed"
 VALID_LONG_PRESS_BUTTONS = [BUTTON_PLAY]
 
 @singleton
@@ -58,18 +58,26 @@ class TouchButtons:
 
     Evaluates button timing to distinguish short-press events from
     long-press events, publishing the appropriate CommandMessage for each.
+
+    Public attributes:
+        buttons_module_test (int): Controls test mode behaviour.
+            TEST_DISABLED (default): normal operation.
+            TEST_ENABLED: adds a TimingData instance for timing statistics
+                for performance measurement.
+            This is intentionally a CLASS attribute (not set in __init__):
+            test code sets it via TouchButtons.buttons_module_test = TEST_ENABLED
+            before the singleton is constructed, or toggles it on the class
+            at any time afterwards. Because TouchButtons is a singleton, an
+            instance-level assignment here would shadow the class attribute
+            and silently break that external test-mode toggle pattern.
     """
+    buttons_module_test = TEST_DISABLED
+
     def __init__(self):
         """
         Set up class variables and register GPIO button callbacks.
-
-        Attributes:
-            buttons_module_test (str): Controls optional test instrumentation.
-                TEST_DISABLED — normal operation, no extra overhead (default).
-                TEST_ENABLED  — adds a TimingData instance for timing statistics.
         """
         self.button_gpio = GPIOService()
-        self.buttons_module_test = TEST_DISABLED
         self.button_press_times: dict[str, float] = {}   # tracks the monotonic time of each button press
         self.last_trigger_times: dict[str, float] = {}   # tracks the last accepted press time per button
         self.long_press_timers: dict[str, Timer] = {}    # maps button name → active long-press Timer
@@ -153,7 +161,7 @@ class TouchButtons:
                       f", events within the debouncing window of {DEBOUNCE_SECONDS}",
                       f" will be neglected{NC}"
                     )
-                self.timing_data.neglected_callback[button_name] += 1
+                self.timing_data.neglected_callbacks[button_name] += 1
             return
 
         self.last_trigger_times[button_name] = now
