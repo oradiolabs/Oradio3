@@ -25,7 +25,7 @@ Created on December 23, 2024
 """
 from os import path
 from re import match
-from typing import Optional, Dict, Any
+from typing import Optional, Any
 from json import load, JSONDecodeError
 from asyncio import sleep, create_task, CancelledError
 from datetime import datetime, timedelta, timezone
@@ -139,7 +139,7 @@ def _get_sw_info():
     cannot be found or read, default placeholder values are returned.
 
     Returns:
-        Dict[str, str]: Dictionary containing:
+        dict[str, str]: Dictionary containing:
             - "serial": Software serial number.
             - "version": Software version (git info).
 
@@ -166,17 +166,17 @@ def _get_sw_info():
     # Return sanitized data set
     return software_info
 
-def play_song(args: Optional[Dict[str, Any]]):
+def play_song(args: Optional[dict[str, Any]]):
     """
     Play a song via MPD.
 
     Args:
-        args (Optional[Dict[str, Any]]):
+        args (Optional[dict[str, Any]]):
             Dictionary containing:
                 - "song" (str): Path or identifier of the song to play.
 
     Returns:
-        Dict[str, str]: Confirmation message containing the song name.
+        dict[str, str]: Confirmation message containing the song name.
 
     Raises:
         ValueError: If the required 'song' argument is missing.
@@ -202,26 +202,26 @@ def play_song(args: Optional[Dict[str, Any]]):
     # Success
     return {"message": f"'{songfile}' is nu te horen"}
 
-def get_networks(_args: Optional[Dict[str, Any]]):
+def get_networks(_args: Optional[dict[str, Any]]):
     """
     Retrieve available WiFi networks.
 
     Args:
-        _args (Optional[Dict[str, Any]]): Unused.
+        _args (Optional[dict[str, Any]]): Unused.
 
     Returns:
         list: list of detected WiFi networks.
     """
     return get_wifi_networks()
 
-def shutdown_webapp(_args: Optional[Dict[str, Any]]):
+def shutdown_webapp(_args: Optional[dict[str, Any]]):
     """
     Shutdown the web server.
 
     Sends a stop request message to the service queue.
 
     Args:
-        _args (Optional[Dict[str, Any]]): Unused.
+        _args (Optional[dict[str, Any]]): Unused.
 
     Returns:
         None
@@ -230,7 +230,7 @@ def shutdown_webapp(_args: Optional[Dict[str, Any]]):
     message = {"request": MESSAGE_REQUEST_STOP}
     safe_put(api_app.state.queue, message)
 
-def rename_spotify(args: Optional[Dict[str, Any]]):
+def rename_spotify(args: Optional[dict[str, Any]]):
     """
     Modify the Spotify (librespot) device name.
 
@@ -238,7 +238,7 @@ def rename_spotify(args: Optional[Dict[str, Any]]):
     hyphen (-), and underscore (_).
 
     Args:
-        args (Optional[Dict[str, Any]]):
+        args (Optional[dict[str, Any]]):
             Dictionary containing:
                 - "name" (str): New Spotify device name.
 
@@ -292,12 +292,12 @@ def rename_spotify(args: Optional[Dict[str, Any]]):
     # Return the new device name on success
     return name
 
-def wifi_connect(args: Optional[Dict[str, Any]]):
+def wifi_connect(args: Optional[dict[str, Any]]):
     """
     Send a request to connect to a WiFi network.
 
     Args:
-        args (Optional[Dict[str, Any]]):
+        args (Optional[dict[str, Any]]):
             Dictionary containing:
                 - "ssid" (str): WiFi network name (required).
                 - "pswd" (str, optional): WiFi password.
@@ -324,7 +324,7 @@ def wifi_connect(args: Optional[Dict[str, Any]]):
     }
     safe_put(api_app.state.queue, message)
 
-def save_preset(args: Optional[Dict[str, Any]]):
+def save_preset(args: Optional[dict[str, Any]]):
     """
     Save a playlist or webradio entry as a preset.
 
@@ -332,7 +332,7 @@ def save_preset(args: Optional[Dict[str, Any]]):
     is sent to the web service queue.
 
     Args:
-        args (Optional[Dict[str, Any]]):
+        args (Optional[dict[str, Any]]):
             Dictionary containing:
                 - "preset" (str): Preset key (preset1, preset2, preset3).
                 - "playlist" (str): Playlist or webradio identifier.
@@ -393,12 +393,12 @@ def save_preset(args: Optional[Dict[str, Any]]):
     else:
         oradio_log.error("Invalid preset '%s'", preset)
 
-def get_playlist_songs(args: Optional[Dict[str, Any]]):
+def get_playlist_songs(args: Optional[dict[str, Any]]):
     """
     Retrieve all songs in a given playlist.
 
     Args:
-        args (Optional[Dict[str, Any]]):
+        args (Optional[dict[str, Any]]):
             Dictionary containing:
                 - "playlist" (str): Playlist name.
 
@@ -415,12 +415,12 @@ def get_playlist_songs(args: Optional[Dict[str, Any]]):
         raise ValueError("'playlist' vereist argument 'playlist'")
     return mpd_control.get_songs(playlist)
 
-def get_search_songs(args: Optional[Dict[str, Any]]):
+def get_search_songs(args: Optional[dict[str, Any]]):
     """
     Search for songs matching a pattern.
 
     Args:
-        args (Optional[Dict[str, Any]]):
+        args (Optional[dict[str, Any]]):
             Dictionary containing:
                 - "pattern" (str): Search pattern.
 
@@ -437,12 +437,12 @@ def get_search_songs(args: Optional[Dict[str, Any]]):
         raise ValueError("'search' vereist argument 'pattern'")
     return mpd_control.search(pattern)
 
-def modify_playlist(args: Optional[Dict[str, Any]]):
+def modify_playlist(args: Optional[dict[str, Any]]):
     """
     Add or remove playlists and/or songs from a playlist.
 
     Args:
-        args (Optional[Dict[str, Any]]):
+        args (Optional[dict[str, Any]]):
             Dictionary containing:
                 - "action" (str): Either "Add" or "Remove".
                 - "playlist" (str): Playlist name.
@@ -493,11 +493,11 @@ def modify_playlist(args: Optional[Dict[str, Any]]):
     # Return updated custom playlists
     return mpd_control.get_playlists()
 
-def log_message(args: Optional[Dict[str, Any]]):
+def log_message(args: Optional[dict[str, Any]]):
     """
     Log web interface message.
     Args:
-        args (Optional[Dict[str, Any]]):
+        args (Optional[dict[str, Any]]):
             Dictionary containing:
                 - "message" (str): message to log.
     Raises:
@@ -520,11 +520,11 @@ class ExecuteRequest(BaseModel):
 
     Attributes:
         cmd (str): Command name to execute.
-        args (Optional[Dict[str, Any]]): Optional dictionary
+        args (Optional[dict[str, Any]]): Optional dictionary
             containing command-specific arguments.
     """
     cmd:  str
-    args: Optional[Dict[str, Any]] = None
+    args: Optional[dict[str, Any]] = None
 
 # generic POST endpoint
 @api_app.post("/execute")
