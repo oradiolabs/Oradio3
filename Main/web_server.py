@@ -167,7 +167,7 @@ def _get_sw_info() -> dict:
     oradio_log.debug("Get software info")
 
     try:
-        with open(SOFTWARE_VERSION_FILE, "r", encoding="utf-8") as file:
+        with open(SOFTWARE_VERSION_FILE, encoding="utf-8") as file:
             data = load(file)
             software_info = {
                 "serial" : data.get("serial",  "missing serial"),

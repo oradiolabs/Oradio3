@@ -47,7 +47,7 @@ from constants import (
 # pylint: disable=protected-access
 # motivation: for test purposes need to test the local methods
 
-class TestTouchButtons():
+class TestTouchButtons:
     """
     Subclass of TouchButtons for testing purposes.
 
@@ -68,7 +68,7 @@ class TestTouchButtons():
         # THEN enable interrupts
         self.button_gpio.gpio_service.enable_button_events()
 
-class TestGPIOService():
+class TestGPIOService:
     """
     Class with additional methods for testing purposes only
     Based on GPIOService baseclass

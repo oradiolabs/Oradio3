@@ -161,7 +161,7 @@ def _wifi_down(network) -> bool:
     return is_ok
 
 @singleton
-class WifiEventListener():
+class WifiEventListener:
     """
     Singleton listener for WiFi state changes via NetworkManager D-Bus signals.
 
@@ -355,7 +355,7 @@ class WifiEventListener():
             oradio_log.debug("Publish wifi service error: %s", WIFI_ERROR_CONNECT)
             Errors.publish(ErrorMessage(WIFI_SOURCE, WIFI_ERROR_CONNECT))
 
-class WifiService():
+class WifiService:
     """
     Manage WiFi connection state and expose connect/disconnect operations.
 

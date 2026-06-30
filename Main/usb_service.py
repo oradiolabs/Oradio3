@@ -190,7 +190,7 @@ class USBObserver(FileSystemEventHandler):
 
         # Read and parse the JSON credentials file
         try:
-            with open(USB_WIFI_FILE, "r", encoding="utf-8") as file:
+            with open(USB_WIFI_FILE, encoding="utf-8") as file:
                 data = load(file)
         except (JSONDecodeError, IOError) as ex_err:
             # Covers malformed JSON and filesystem errors (permissions, I/O)

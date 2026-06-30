@@ -92,7 +92,7 @@ faulthandler.enable(file=stderr)
 def _get_rpi_serial() -> str:
     """Extract serial from Raspberry Pi."""
     try:
-        with open("/proc/cpuinfo", "r", encoding="utf-8") as file:
+        with open("/proc/cpuinfo", encoding="utf-8") as file:
             for line in file:
                 if line.startswith("Serial"):
                     serial = line.split(":", 1)[1].strip()

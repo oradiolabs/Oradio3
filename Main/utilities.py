@@ -173,7 +173,7 @@ def load_presets() -> dict[str, str]:
                         Keys are normalized to lowercase for case-insensitive lookup.
     """
     try:
-        with open(PRESETS_FILE, 'r', encoding='utf-8') as file:
+        with open(PRESETS_FILE, encoding='utf-8') as file:
             presets = json.load(file)
             if not isinstance(presets, dict):
                 oradio_log.error("Invalid JSON format in %s: expected dict", PRESETS_FILE)

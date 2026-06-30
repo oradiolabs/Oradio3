@@ -80,7 +80,7 @@ class SpotifyConnect:
         if it disappears a second time.
         """
         try:
-            with open(filepath, "r", encoding="utf-8") as flag_file:
+            with open(filepath, encoding="utf-8") as flag_file:
                 value = flag_file.read().strip() == "1"
             if self._warned_missing.get(filepath, False):
                 oradio_log.info("Flag file %s available again.", filepath)

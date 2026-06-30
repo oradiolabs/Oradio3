@@ -416,7 +416,7 @@ class StateMachine:
 
         # FOR ANALYSIS: Get time since power-on
         try:
-            with open("/proc/uptime", "r", encoding="utf-8") as file:
+            with open("/proc/uptime", encoding="utf-8") as file:
                 uptime = float(file.readline().split()[0])
             oradio_log.debug("Playing SOUND_START %.2f seconds after power-on", uptime)
         except (FileNotFoundError, ValueError, IndexError) as ex_err:

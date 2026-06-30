@@ -138,7 +138,7 @@ def _get_sw_version() -> str:
         version file is missing or invalid.
     """
     try:
-        with open(SW_LOG_FILE, "r", encoding="utf-8") as file:
+        with open(SW_LOG_FILE, encoding="utf-8") as file:
             data = json.load(file)
         return data["serial"] + " (" + data["gitinfo"] + ")"
     except (FileNotFoundError, json.JSONDecodeError, KeyError):
