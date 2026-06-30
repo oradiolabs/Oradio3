@@ -76,7 +76,7 @@ SOFTWARE_VERSION_FILE = "/var/log/oradio_sw_version.log"
 KEEP_ALIVE_TIMEOUT = 5     # ping every 2s, so missing 2 pings closes
 
 # Fully qualified required by iOS15
-oradioap_url = f"http://{ACCESS_POINT_HOST}"
+ORADIOAP_URL = f"http://{ACCESS_POINT_HOST}"
 
 # Initialise MPD client
 mpd_control = MPDControl()
@@ -166,7 +166,7 @@ def _get_sw_info():
     # Return sanitized data set
     return software_info
 
-def play_song(args: Optional[dict[str, Any]]):
+def play_song(args: Optional[dict[str, Any]]) -> dict[str, str]:
     """
     Play a song via MPD.
 
@@ -202,7 +202,7 @@ def play_song(args: Optional[dict[str, Any]]):
     # Success
     return {"message": f"'{songfile}' is nu te horen"}
 
-def get_networks(_args: Optional[dict[str, Any]]):
+def get_networks(_args: Optional[dict[str, Any]]) -> list:
     """
     Retrieve available WiFi networks.
 
@@ -214,7 +214,7 @@ def get_networks(_args: Optional[dict[str, Any]]):
     """
     return get_wifi_networks()
 
-def shutdown_webapp(_args: Optional[dict[str, Any]]):
+def shutdown_webapp(_args: Optional[dict[str, Any]]) -> None:
     """
     Shutdown the web server.
 
@@ -230,7 +230,7 @@ def shutdown_webapp(_args: Optional[dict[str, Any]]):
     message = {"request": MESSAGE_REQUEST_STOP}
     safe_put(api_app.state.queue, message)
 
-def rename_spotify(args: Optional[dict[str, Any]]):
+def rename_spotify(args: Optional[dict[str, Any]]) -> Union[str, JSONResponse]:
     """
     Modify the Spotify (librespot) device name.
 
@@ -731,7 +731,7 @@ async def catch_all(request: Request):
         return FileResponse(web_path + request.url.path)
 
     # Redirect all requests to webapp
-    return RedirectResponse(url=oradioap_url + "/oradio3", status_code=302)
+    return RedirectResponse(url=ORADIOAP_URL + "/oradio3", status_code=302)
 
 # Entry point for stand-alone operation
 if __name__ == '__main__':
@@ -742,7 +742,7 @@ if __name__ == '__main__':
     from queue import Empty
 
     # For debugging
-    oradioap_url = ""
+    ORADIOAP_URL = ""
 
 # Most modules use similar code in stand-alone
 # pylint: disable=duplicate-code
