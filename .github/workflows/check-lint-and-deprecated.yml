@@ -126,7 +126,7 @@ jobs:
           echo "### 🧹 Runtime deprecation analysis results" >> "$RESULT_FILE"
           python3 module_test/deprecation_check.py >> "$RESULT_FILE" 2>&1
           runtime_exit=$?
-          count_runtime=$(grep -Ec '^DEPRECATION \(' "$RESULT_FILE" || echo 0)
+          count_runtime=$(grep -Ec '^DEPRECATION \(' "$RESULT_FILE" || true)
           if [ "$count_runtime" -eq 0 ] && [ "$runtime_exit" -eq 0 ]; then
             echo "Runtime check found no deprecation warnings." >> "$RESULT_FILE"
           fi
