@@ -1,0 +1,44 @@
+Actions:
+1. Is the module name logical? consistent?
+2. Replace legacy queue with new messaging + relocate messaging constants
+3. Use Claude to review, cleanup doc strings and inline comments and check result
+4. Verify changes do not break functionality
+
+DONE 1:
+oradio_control.py
+
+DONE 2:
+
+DONE 3:
+
+DONE 4:
+backlighting.py
+constants.py (renamed from oradio_const.py)
+error_service.py
+gpio_service.py
+i2c_service.py
+led_control.py
+log_service.py (renamed from oradio_logging.py)
+messaging.py
+mpd_control.py
+mpd_monitor.py
+mpd_service.py
+power_supply_control.py
+singleton.py
+rms_service (renamed from remote_monitoring.py)
+spotify_connect_direct.py
+system_sounds.py
+throttling_monitor.py
+touch_buttons.py
+usb_service.py
+utilities.py (renamed from oradio_utils.py)
+volume_control.py
+web_server.py (renamed from fastapi_server.py)
+web_service.py
+wifi_service.py
+gpio_service_test.py
+led_control_test.py
+oradio_control_test.py
+remote_debugger.py
+test_classes.py
+touch_buttons_test.py
