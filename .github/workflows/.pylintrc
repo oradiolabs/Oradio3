@@ -41,6 +41,16 @@ const-naming-style=UPPER_CASE
 [TYPECHECK]
 # Suppress warnings for dynamically defined attributes, e.g., mixins or dynamic classes
 ignore-mixin-members=yes
+# Ignore RPi-only modules
+ignored-modules=
+    RPi,
+    RPi.GPIO,
+    dbus,
+    dbus.mainloop,
+    dbus.mainloop.glib,
+    dbus.exceptions,
+    gi,
+    gi.repository
 
 [REPORTS]
 # Cleaner output: no full reports, just messages and scores

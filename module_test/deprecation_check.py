@@ -1,20 +1,17 @@
 #!/usr/bin/env python3
 """
-
   ####   #####     ##    #####      #     ####
  #    #  #    #   #  #   #    #     #    #    #
  #    #  #    #  #    #  #    #     #    #    #
  #    #  #####   ######  #    #     #    #    #
  #    #  #   #   #    #  #    #     #    #    #
   ####   #    #  #    #  #####      #     ####
-
-
 Created on January 15, 2026
 @author:        Henk Stevens & Olaf Mastenbroek & Onno Janssen
 @copyright:     Copyright 2025, Oradio Stichting
 @license:       GNU General Public License (GPL)
 @organization:  Oradio Stichting
-@version:       1
+@version:       2
 @email:         oradioinfo@stichtingoradio.nl
 @status:        Development
 @summary:
@@ -22,66 +19,87 @@ Created on January 15, 2026
     - Mocks all hardware, network, and subprocess dependencies
     - Overrides subprocess.run and check_output to ignore all system calls
     - Activates the deprecation guard
-    - Imports `oradio_control` to trigger Python deprecation warnings
+    - Imports every module under Main/ and module_test/ to trigger Python
+      deprecation warnings
+    - Exits with code 1 when any deprecation warnings are found so CI fails
+      reliably without relying on grep counting
+
+    Changes v2:
+    - module_test/ modules are now also imported and runtime-checked
+    - Script exits with code 1 when flush_warnings() returns a non-zero count
+    - Removed the dead `warnings.simplefilter("error", ...)` block that had
+      no effect after showwarning was already replaced
+    - Import errors are now collected and reported as a block at the end so
+      they don't mix with deprecation output consumed by the CI grep
 """
 import os
 import sys
 import glob
-import warnings
 import importlib
 import traceback
 
-# Activate deprecation guard FIRST
-import deprecation_guard
+# ---------------------------------------------------------------------------
+# Activate the deprecation guard FIRST – before any project code is imported
+# ---------------------------------------------------------------------------
+import deprecation_guard  # noqa: E402
 
-# ----------------------- #
-# Import project code     #
-# ----------------------- #
+# ---------------------------------------------------------------------------
+# Resolve all Oradio Python modules (Main/ and module_test/)
+# ---------------------------------------------------------------------------
+_SOURCE_MARKERS = ("/Main", "/module_test")
 
-# Filter sys.path to include only the Oradio source files
-project_dirs = [d for d in sys.path if "/Main" in d]
+project_dirs = [
+    d for d in sys.path
+    if any(marker in d for marker in _SOURCE_MARKERS)
+]
 
-# Initialize an empty list to store the paths of all found Python files
-python_files = []
-
-# Iterate over each project directory
+python_files: list[str] = []
 for directory in project_dirs:
     if os.path.isdir(directory):
-        # Use glob to find all .py files in the current directory and its subdirectories
-        py_files = glob.glob(os.path.join(directory, '**', '*.py'), recursive=True)
-        # Add the found files to the python_files list
+        py_files = glob.glob(os.path.join(directory, "**", "*.py"), recursive=True)
         python_files.extend(py_files)
 
-# Initialize an empty list to store all found Python modules
-python_modules = []
-
+python_modules: list[str] = []
 for file in python_files:
     filename = os.path.basename(file)
-    # Skip hidden files and __init__.py
-    if filename.startswith('_'):
+    # Skip __init__.py, __main__.py, and private/dunder files
+    if filename.startswith("_"):
         continue
     module = os.path.splitext(filename)[0]
-    # Avoid duplicates
     if module not in python_modules:
         python_modules.append(module)
 
-# Check for deprecations
+# ---------------------------------------------------------------------------
+# Import every discovered module to trigger runtime deprecation warnings
+# ---------------------------------------------------------------------------
+import_errors: list[str] = []
+
 for module in python_modules:
     try:
-        _ = importlib.import_module(module)
+        importlib.import_module(module)
     except ImportError as err_msg:
-        print(f"Import error ({module}): {err_msg}")
+        import_errors.append(f"Import error         ({module}): {err_msg}")
     except RuntimeError as err_msg:
-        print(f"Runtime error ({module}): {err_msg}")
+        import_errors.append(f"Runtime error        ({module}): {err_msg}")
     except OSError as err_msg:
-        print(f"Missing external command/file while importing ({module}): {err_msg}")
-    # We want to catch all exceptions to check for deprecation
+        import_errors.append(f"Missing file/command ({module}): {err_msg}")
     except Exception as err_msg:    # pylint: disable=broad-exception-caught
-        print(f"Unexpected error ({module}): {err_msg}\n{traceback.format_exc()}")
+        import_errors.append(
+            f"Unexpected error ({module}): {err_msg}\n{traceback.format_exc()}"
+        )
 
-# Fail on Python deprecations
-warnings.simplefilter("error", DeprecationWarning)
-warnings.simplefilter("error", PendingDeprecationWarning)
+# ---------------------------------------------------------------------------
+# Flush queued deprecation warnings – printed in the DEPRECATION (...): format
+# that the CI workflow greps for.  Exit 1 when any are found.
+# ---------------------------------------------------------------------------
+count = deprecation_guard.flush_warnings()
 
-# Flush warnings after all C modules loaded
-deprecation_guard.flush_warnings()
+# ---------------------------------------------------------------------------
+# Report any import errors AFTER deprecation output so the CI grep is clean
+# ---------------------------------------------------------------------------
+if import_errors:
+    print("\n--- Import / runtime errors encountered during module scan ---")
+    for err in import_errors:
+        print(err)
+
+sys.exit(1 if count > 0 else 0)

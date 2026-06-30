@@ -3,9 +3,11 @@ nmcli
 pylint
 pydevd
 smbus2
+jinja2
 fastapi
 uvicorn
-rpi-lgpio
+requests
+watchdog
 python-mpd2
 python-multipart
 concurrent-log-handler
