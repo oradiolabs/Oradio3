@@ -31,6 +31,7 @@ Created on December 23, 2024
             Connecting to captive portal.
             Connecting to VPN
 """
+from typing import Any
 from threading import Thread
 from multiprocessing import Process, Queue, Lock
 from subprocess import CalledProcessError
@@ -114,7 +115,7 @@ class WifiEventListener():
         self._wifi_path = None
 
         # List of subscriber queues to send wifi state messages
-        self._subscribers = []
+        self._subscribers: list[Queue] = []
 
         try:
             # Setup GLib main loop for dbus-python signal handling
@@ -344,7 +345,7 @@ class WifiService():
 
         oradio_log.info("wifi service closed")
 
-def _nmcli_try(func, *args, **kwargs) -> tuple[bool, object | None]:
+def _nmcli_try(func, *args, **kwargs) -> tuple[bool, Any]:
     """
     Safely call a nmcli function with logging.
     Args:
@@ -358,7 +359,8 @@ def _nmcli_try(func, *args, **kwargs) -> tuple[bool, object | None]:
     try:
         result = func(*args, **kwargs)
         return True, result
-    except (*nmcli_exceptions, CalledProcessError, OSError) as ex_err:  # * uses Python’s unpacking to merge them into a flat tuple
+    # * uses Python’s unpacking to merge them into a flat tuple
+    except (*nmcli_exceptions, CalledProcessError, OSError) as ex_err:  # type: ignore[misc]
         oradio_log.error("nmcli call failed for %s: %s", func.__name__, ex_err)
         return False, None
 
@@ -619,7 +621,7 @@ if __name__ == '__main__':
             queue (Queue): The queue to receive wifi messages on
         """
         # Initialize: no services registered
-        wifi_services = []
+        wifi_services: list[WifiService] = []
 
         # Show menu with test options
         input_selection = (
@@ -725,7 +727,7 @@ if __name__ == '__main__':
                     print(f"\n{YELLOW}Please input a valid number{NC}\n")
 
     # Initialize
-    message_queue = Queue()
+    message_queue: Queue = Queue()
 
     # Start process to monitor the message queue
     message_listener = Process(target=_check_messages, args=(message_queue,))

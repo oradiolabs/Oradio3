@@ -111,7 +111,7 @@ jobs:
           mypy Main module_test \
             --ignore-missing-imports \
             --no-error-summary >> "$RESULT_FILE" 2>&1
-          count_mypy=$(grep -c ': error:' "$RESULT_FILE" || echo 0)
+          count_mypy=$(grep -c ': error:' "$RESULT_FILE" || true)
           if [ "$count_mypy" -eq 0 ]; then
             echo "Mypy found no type errors." >> "$RESULT_FILE"
           fi

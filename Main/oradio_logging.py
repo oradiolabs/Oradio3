@@ -83,7 +83,7 @@ def trace(self, message, *args, **kwargs) -> None:
         # self.log() is called by logger
         self.log(TRACE, message, *args, **kwargs)
 logging.addLevelName(TRACE, "TRACE")
-logging.Logger.trace = trace
+logging.Logger.trace = trace    # type: ignore[attr-defined]
 
 # Enable Python faulthandler for crashes
 faulthandler.enable(file=stderr)
@@ -204,7 +204,7 @@ class SafeLogger:
         self._logger.setLevel(level)
 
         # Create shared log queue
-        self._log_queue = Queue(maxsize=QUEUE_SIZE)
+        self._log_queue: Queue[logging.LogRecord] = Queue(maxsize=QUEUE_SIZE)
 
         # Get color formatter
         self._formatter = ColorFormatter()
@@ -213,7 +213,7 @@ class SafeLogger:
         ORADIO_LOG_PATH.mkdir(parents=True, exist_ok=True)
 
         # REAL output handlers (consumers)
-        handlers = []
+        handlers: list[logging.Handler] = []
 
         # Console handler
         if stderr.isatty():

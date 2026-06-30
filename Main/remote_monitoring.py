@@ -144,8 +144,8 @@ def _handle_response_command(response_text) -> None:
 class Heartbeat(Timer):
     """Timer singleton to handle heartbeat sending at regular intervals."""
     # Lock for start/stop operations
-
     start_lock = Lock()
+    instance: "Heartbeat | None" = None
 
     def __init__(self, interval, function, args=None, kwargs=None) -> None:
         """
@@ -222,7 +222,7 @@ class RMService:
         self._serial = get_serial()
 
         # Queue for receiving messages from wifi service
-        self._wifi_queue = Queue()
+        self._wifi_queue: Queue = Queue()
 
         # Start wifi listener thread
         self._listener_thread = Thread(target=self._wifi_listener, daemon=True)
