@@ -16,20 +16,21 @@ Created on January 17, 2025
 @version:       1
 @email:         oradioinfo@stichtingoradio.nl
 @status:        Development
-@summary: Class for USB detect, insert, and remove services
-    Note:
-    Install:
-    Documentation:
-        https://docs.python.org/3/howto/logging.html
-        https://pypi.org/project/concurrent-log-handler/
+@summary:
+    Miscellaneous Oradio utility functions
+    Following services provided:
+        * Raspberry Pi serial number lookup
+        * systemd service status check
+        * Internet connectivity check
+        * Generic shell command execution
+        * Loading and storing presets.json
+        * Console input prompting with type conversion and a default fallback
 """
 import json
 import socket
 import subprocess
-from subprocess import run
 from pathlib import Path
-from pydantic import BaseModel, ValidationError
-from typing import Any, Optional, List, Union, Dict, TypeVar, Callable
+from typing import TypeVar, Callable
 
 ##### Oradio modules ######################################
 from log_service import oradio_log
@@ -42,24 +43,15 @@ from constants import (
 )
 
 ##### LOCAL constants #####################################
-INTERFACE   = "wlan0"           # Raspberry Pi wireless interface
 DNS_HOST    = "google.com"
-DNS_TIMEOUT = 0.5               # seconds
+DNS_TIMEOUT = 0.5               # seconds; short on purpose - callers should
+                                 # fail fast rather than block on a flaky or
+                                 # just-woken Wi-Fi radio.
 
-JSON_SCHEMAS_PATH = Path(__file__).parent.resolve()
-JSON_SCHEMAS_FILE = JSON_SCHEMAS_PATH / "schemas.json"
+# Row prefix used by `vcgencmd otp_dump` for the Raspberry Pi serial number.
+SERIAL_OTP_ROW = "28:"
 
 T = TypeVar("T")
-
-class OradioMessage(BaseModel):
-    """
-    The basemodel for the OradioMessage to standardize the message when
-    used in the shared-queue of Oradio.
-    """
-    source: str
-    state: str
-    error: str
-    data: Optional[List[Any]] = None
 
 def get_serial() -> str:
     """Extract serial from Raspberry Pi."""
@@ -72,8 +64,8 @@ def get_serial() -> str:
 
     # Parse the output in Python
     for line in response.splitlines():
-        if line.startswith("28:"):
-            serial = line[3:].strip()
+        if line.startswith(SERIAL_OTP_ROW):
+            serial = line[len(SERIAL_OTP_ROW):].strip()
             return serial or "Unknown"
 
     return "Unknown"
@@ -97,50 +89,39 @@ def is_service_active(service_name) -> bool:
         )
         return result.stdout.strip() == "active"
     except (FileNotFoundError, PermissionError, subprocess.SubprocessError, OSError) as ex_err:
-        oradio_log.error("Error checking %s service, error-status=: %s", service_name, ex_err)
+        oradio_log.error("Error checking %s service, error-status: %s", service_name, ex_err)
         return False
-
-def validate_oradio_message(message: Union[OradioMessage, Dict[str, Any]]) -> Optional[OradioMessage]:
-    """
-    Validates a message to ensure it matches the OradioMessage schema.
-    If the message is already an OradioMessage, it is returned as-is.
-    Args:
-        message : message formatted as a dictionary or as OradioMessage
-    Returns:
-        validated_message = when message is correct
-        validated_messsage = None, when not according OradioMessage structure
-    """
-    if isinstance(message, OradioMessage):
-        # Message is already validated; return it directly
-        return message
-
-    try:
-        # Message is a dictionary; validate it
-        validated_message = OradioMessage(**message)
-        oradio_log.debug("Message is valid: %s", validated_message)
-        return validated_message
-    except ValidationError as err:
-        oradio_log.error("Message does not match OradioMessage schema: %s", err)
-        return None
 
 def has_internet():
     """
     Try whether the wifi-connection has internet by using a DNS service to resolve a domain name.
     As domain name is used google.com, which is one of the most reliable and globally available domains.
-    This will resolve into a IPv4 address,to test DNS and networking connectivity on using UDP Port 53.
+    This will resolve into a IPv4 address,to test DNS and networking connectivity using UDP Port 53.
     DNS lookups are high-priority traffic and typically wake the Wi-Fi radio from power-saving mode.
-    Returns:
-        bool: True if internet is reachable from this interface, False otherwise.
-    """
-    # Timeout to prevent blocking the DNS lookup
-    socket.setdefaulttimeout(DNS_TIMEOUT)
 
+    Note:
+        socket.gethostbyname() always uses the process-wide default socket
+        timeout (set via socket.setdefaulttimeout()); it is not a
+        socket-object method, so a per-call timeout cannot be passed
+        directly. The previous default timeout is saved and restored
+        around the call so this function does not permanently change
+        timeout behaviour for other sockets created elsewhere in the
+        process.
+
+    Returns:
+        bool: True if internet is reachable, False otherwise.
+    """
+    previous_timeout = socket.getdefaulttimeout()
+    socket.setdefaulttimeout(DNS_TIMEOUT)
     try:
         _ = socket.gethostbyname(DNS_HOST)
         oradio_log.info("Internet available")
         return True
-    except (socket.gaierror, socket.timeout):
+    except (socket.gaierror, socket.timeout) as ex_err:
+        oradio_log.debug("Internet not available: %s", ex_err)
         return False
+    finally:
+        socket.setdefaulttimeout(previous_timeout)
 
 def run_shell_script(script):
     """
@@ -153,16 +134,35 @@ def run_shell_script(script):
              success=False -> output = stderr (stripped)
     """
     oradio_log.debug("Running shell script: %s", script)
-    process = run(
-        script,
-        shell = True,           # Avoid exception, inspect returncode and stdout/stderr
-        capture_output = True,
-        text = True,
-        check = False           # Avoid exception, inspect returncode and stdout/stderr
-    )
+    try:
+        process = subprocess.run(
+            script,
+            shell = True,           # Avoid exception, inspect returncode and stdout/stderr
+            capture_output = True,
+            text = True,
+            check = False           # Avoid exception, inspect returncode and stdout/stderr
+        )
+    except (FileNotFoundError, PermissionError, subprocess.SubprocessError, OSError) as ex_err:
+        oradio_log.error("Error running shell script <%s>, error: %s", script, ex_err)
+        return False, str(ex_err)
+
     if process.returncode != 0:
         return False, process.stderr.strip()
     return True, process.stdout.strip()
+
+def _normalize_listname(raw_value) -> str:
+    """
+    Normalize a raw preset value into a clean listname string.
+
+    Args:
+        raw_value: Value to normalize, expected to be a str but tolerates
+            other/missing types.
+
+    Returns:
+        str: The stripped string if raw_value is a non-blank string,
+            otherwise an empty string.
+    """
+    return raw_value.strip() if isinstance(raw_value, str) and raw_value.strip() else ""
 
 def load_presets() -> dict[str, str]:
     """
@@ -190,9 +190,7 @@ def load_presets() -> dict[str, str]:
     for key in ["preset1", "preset2", "preset3"]:
         # Fetch raw value from JSON, default to empty string if missing
         raw_value = presets.get(key, "")
-
-        # Normalize the listname: strip whitespace if string, else empty string
-        listname = raw_value.strip() if isinstance(raw_value, str) and raw_value.strip() else ""
+        listname = _normalize_listname(raw_value)
         if not listname:
             oradio_log.warning("Preset '%s' is missing or has an empty listname in %s", key, PRESETS_FILE)
 
@@ -216,17 +214,15 @@ def store_presets(presets: dict[str, str]) -> None:
         oradio_log.error("Presets cannot be saved. Error: %s", ex_err)
         return
 
-    # Prepare the data to save, ensuring all expected keys exist
+    # Prepare the data to save, ensuring all expected keys exist.
+    # Keys are already lowercase literals here, so no case normalization
+    # of the key itself is needed (unlike load_presets' lookup from
+    # arbitrary JSON input).
     data_to_save = {}
     for key in ["preset1", "preset2", "preset3"]:
         # Fetch raw value from JSON, default to empty string if missing
         raw_value = presets.get(key, "")
-
-        # Normalize the listname: strip whitespace if string, else empty string
-        listname = raw_value.strip() if isinstance(raw_value, str) and raw_value.strip() else ""
-
-        # Store in dictionary using lowercase key for case-insensitive lookups
-        data_to_save[key] = listname
+        data_to_save[key] = _normalize_listname(raw_value)
 
     # Write the JSON file
     try:
@@ -269,7 +265,7 @@ if __name__ == '__main__':
             " 0-Quit\n"
             " 1-Show internet connection status\n"
             " 2-Run shell script('ls')\n"
-            " 3-Run shell script('xxx')\n"
+            " 3-Run shell script('xxx')  [intentionally invalid command, exercises the failure path]\n"
             "Select: "
         )
 
