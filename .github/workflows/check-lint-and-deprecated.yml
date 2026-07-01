@@ -93,12 +93,11 @@ jobs:
           # UP, fix diff flags deprecated builtins, stdlib aliases, and typing constructs.
           # Covers both Main/ and module_test/.
           # -----------------------------------------------------------------
-          #  --ignore UP031,UP032,UP034,UP035 \
           echo "### 🧹 Ruff static deprecation analysis results" >> "$RESULT_FILE"
           ruff check Main module_test \
             --select UP \
-            --output-format=github >> "$RESULT_FILE" 2>&1
-          count_ruff=$(grep -Ec '^\S+\.py:[0-9]+' "$RESULT_FILE" || true)
+            --output-format=concise >> "$RESULT_FILE" 2>&1
+          count_ruff=$(grep -Ec '^[^:]+:[0-9]+:[0-9]+: UP[0-9]{3,4}' "$RESULT_FILE" || true)
           if [ "$count_ruff" -eq 0 ]; then
             echo "Static deprecation check found no warnings." >> "$RESULT_FILE"
           fi
