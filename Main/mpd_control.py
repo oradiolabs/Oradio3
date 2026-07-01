@@ -571,7 +571,7 @@ class MPDControl(MPDService):
 
 ##### Informative functions ###############################
 
-    def is_webradio(self, preset: str = None, mpdlist: str = None) -> bool:
+    def is_webradio(self, preset: str | None = None, mpdlist: str | None = None) -> bool:
         """
         Determine if the current song, a preset, or a playlist is a web radio stream.
 

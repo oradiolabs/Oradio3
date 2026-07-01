@@ -29,6 +29,7 @@ Created on January 10, 2025
     - mpdlist/mpdlists: the combination of directories and playlists
     - current: the directory/playlist in the playback queue
 """
+from typing import Any
 from time import sleep
 from threading import Lock  # Safeguard against concurrent access; callers using one thread or process per instance do not require it.
 # Use MPDConnectionError because mpd2 raises a different ConnectionError than Python's built-in one
@@ -136,7 +137,7 @@ class MPDService:
         oradio_log.error("Failed to connect to MPD after %d attempts", MPD_RETRIES)
         Errors.publish(ErrorMessage(MPD_SOURCE, MPD_ERROR_CONNECT))
 
-    def _execute(self, command: str, *args, allow_reconnect: bool = True, **kwargs) -> object | None:
+    def _execute(self, command: str, *args, allow_reconnect: bool = True, **kwargs) -> Any | None:
         """
         Execute an MPD command safely with retry logic and lock protection.
 

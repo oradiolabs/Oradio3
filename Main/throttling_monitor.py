@@ -110,7 +110,7 @@ class RPiThrottlingMonitor:
         self.interval = interval
 
         # Background worker thread; created in start().
-        self._thread = None
+        self._thread: Thread | None = None
 
         # Event used to signal the polling loop to stop cleanly.
         self._stop_event = Event()

@@ -21,6 +21,7 @@ Created on January 10, 2025
 @references:
     https://github.com/kplindegaard/smbus2
 """
+from typing import Any
 from os import listdir
 from time import sleep
 from threading import Lock
@@ -78,7 +79,7 @@ def test_i2c_bus(bus_number: int) -> dict:
             - "unexpected": List of devices found but not in ORADIO_DEVICES
             - "error": Error message if bus could not be accessed
     """
-    result = {
+    result: dict[str, Any] = {
         "bus": bus_number,
         "ok": False,
         "devices": [],
@@ -166,6 +167,9 @@ class I2CService:
         Returns:
             int | None: Byte value read from the device, or None on error.
         """
+        if self._bus is None:
+            oradio_log.error("I2C bus not available")
+            return None
         with self._lock:
             try:
                 value = self._bus.read_byte_data(device, register)

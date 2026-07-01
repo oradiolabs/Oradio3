@@ -712,14 +712,14 @@ def handle_message(message: dict):
             oradio_log.warning("Unhandled message source: %s", message)
             return
 
-        if handler := handlers.get(state):
+        if isinstance(state, str) and (handler := handlers.get(state)):
             handler()
         else:
             oradio_log.warning(
                 "Unhandled state '%s' for message source '%s'.", state, command_source
             )
 
-        if error and error != MESSAGE_NO_ERROR:
+        if error and error != MESSAGE_NO_ERROR and isinstance(error, str):
             if handler := handlers.get(error):
                 handler()
             else:
@@ -757,7 +757,7 @@ def sync_usb_presence_from_service():
 
 # ------------------Start-up - instantiate and define other modules ---------------
 
-shared_queue = Queue()  # Create a shared queue
+shared_queue: Queue = Queue()  # Create a shared queue
 
 ##### Messaging PROXY-begin ###############################
 

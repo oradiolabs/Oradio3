@@ -289,7 +289,7 @@ class PubSubManager:
         source_filter: frozenset[str] | None = frozenset(sources) if sources is not None else None
 
         with self._lock:
-            queue = Queue(_MAX_QUEUE_SIZE)
+            queue: Queue = Queue(_MAX_QUEUE_SIZE)
             self._subscribers[topic].append((queue, source_filter))
 
             # Replay happens inside the lock so a concurrent publish cannot
@@ -821,13 +821,15 @@ if __name__ == '__main__':
                     # Deliberately pass an ErrorMessage to Commands.publish
                     # to exercise the type-check fatal-exit path.
                     print("Publishing invalid COMMAND message...")
-                    Commands.publish(ErrorMessage("worker", "error message"))
+                    # Deliberately passing the wrong message type, so ignore pypi check
+                    Commands.publish(ErrorMessage("worker", "error message"))       # type: ignore[arg-type]
                     print(f"{RED}Failed catching error sending error message to command queue{NC}\n")
                 case 11:
                     # Deliberately pass a CommandMessage to Errors.publish
                     # to exercise the type-check fatal-exit path.
                     print("Publishing invalid ERROR message...")
-                    Errors.publish(CommandMessage("worker", "command message"))
+                    # Deliberately passing the wrong message type, so ignore pypi check
+                    Errors.publish(CommandMessage("worker", "command message"))     # type: ignore[arg-type]
                     print(f"{RED}Failed catching error sending command message to error queue{NC}\n")
                 case 12:
                     if not cmd_handlers:

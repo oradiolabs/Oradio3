@@ -93,7 +93,7 @@ class Backlighting:
         self._initialize_sensor()
 
         # Thread is created dynamically on start() to allow restartability
-        self._thread = None
+        self._thread: Thread | None = None
         self._running = Event()
 
         # Start backlight manager thread

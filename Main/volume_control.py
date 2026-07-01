@@ -88,7 +88,7 @@ class VolumeControl:
 
         # Thread is created dynamically on start() to allow restartability
         self._running = Event()
-        self._thread = None
+        self._thread: Thread | None = None
 
         # Start volume manager thread
         self.start()

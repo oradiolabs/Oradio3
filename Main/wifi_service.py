@@ -107,7 +107,7 @@ def _set_saved_network(network) -> None:
     with _saved_lock:
         _saved_network["network"] = str(network) if network else ""
 
-def _nmcli_try(func, *args, **kwargs) -> tuple[bool, object | None]:
+def _nmcli_try(func, *args, **kwargs) -> tuple[bool, Any | None]:
     """
     Call an nmcli function, catching all known nmcli and OS errors.
 
@@ -127,7 +127,8 @@ def _nmcli_try(func, *args, **kwargs) -> tuple[bool, object | None]:
     try:
         result = func(*args, **kwargs)
         return True, result
-    except (*nmcli_exceptions, CalledProcessError, OSError) as ex_err:
+    # Exceptions built dynamically, so mypy can't verify it's a valid exception tuple statically
+    except (*nmcli_exceptions, CalledProcessError, OSError) as ex_err:      # type: ignore[misc]
         oradio_log.error("nmcli call failed for %s: %s", func.__name__, ex_err)
         Errors.publish(ErrorMessage(WIFI_SOURCE, WIFI_ERROR_NMCLI))
         return False, None
@@ -291,6 +292,8 @@ class WifiEventListener:
             Returns NM_CONNECTIVITY_NONE on any D-Bus error so the
             caller can safely treat an unreadable state as no connectivity.
         """
+        if self._nm_props is None:
+            return NM_CONNECTIVITY_NONE
         try:
             return int(self._nm_props.Get(
                 "org.freedesktop.NetworkManager",

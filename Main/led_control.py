@@ -156,9 +156,8 @@ class LEDControl:
             cycle_time (float):   Duration in seconds of one complete on/off cycle.
                                   Pass None or a value <= 0 to stop blinking and turn the LED off.
         """
-
-        def _blink(stop_evt: Event) -> None:
-            half = cycle_time / 2
+        def _blink(stop_evt: Event, cycle: float) -> None:
+            half = cycle / 2
             while not stop_evt.is_set():
                 self.leds_driver.set_led_on(led_name)
                 if stop_evt.wait(half):
@@ -173,7 +172,7 @@ class LEDControl:
                 self._stop_blink(led_name)
                 stop_evt = Event()
                 self.blink_stop_events[led_name] = stop_evt
-                thread = Thread(target=_blink, args=(stop_evt,), daemon=True)
+                thread = Thread(target=_blink, args=(stop_evt,cycle_time), daemon=True)
                 thread.start()
                 self.blinking_threads[led_name] = thread
                 oradio_log.debug("%s blinking started: %.3fs cycle", led_name, cycle_time)

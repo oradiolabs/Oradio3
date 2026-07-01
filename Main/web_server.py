@@ -477,7 +477,7 @@ class ExecuteRequest(BaseModel):
         args: Optional dict of command-specific arguments.
     """
     cmd:  str
-    args: dict[str, Any] = None
+    args: dict[str, Any] | None = None
 
 @api_app.post("/execute")
 async def execute(request: ExecuteRequest):
@@ -692,7 +692,7 @@ if __name__ == '__main__':
     # Subscribe to command topics so messages published are printed to console.
     cmd_handler = DebugMessageHandler(Commands.subscribe())
 
-    request_queue = Queue()
+    request_queue: Queue = Queue()
 
     # Spawn the message monitor before starting uvicorn so no messages are missed.
     message_listener = Thread(target=_check_requests, args=(request_queue,))
