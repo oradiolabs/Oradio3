@@ -228,11 +228,11 @@ class I2CService:
         if self._bus is None:
             oradio_log.error("I2C bus not available")
             Errors.publish(ErrorMessage(I2C_SOURCE, I2C_ERROR_BUS))
-            return
+            return None
 
         if length > 32:
             oradio_log.error("SMBus block read supports a maximum of 32 bytes")
-            return
+            return None
 
         with self._lock:
             try:
@@ -240,6 +240,7 @@ class I2CService:
                 return data
             except (OSError, ValueError, TypeError) as ex_err:
                 oradio_log.error("I2C read block ERROR: device=0x%02X, register=0x%02X, length=%d -> %s", device, register, length, ex_err)
+        return None
 
     def write_block(self, device: int, register: int, data: list) -> None:
         """
