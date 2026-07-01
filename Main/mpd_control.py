@@ -676,9 +676,9 @@ class MPDControl(MPDService):
                 Playlist songs preserve their stored order; directory songs
                 are sorted by artist name (case-insensitive).
         """
-    def _safe(value: object, fallback: str) -> str:
-        """Return value if it is a non-empty string, otherwise return fallback."""
-        return value.strip() if isinstance(value, str) and value.strip() else fallback
+        def _safe(value: object, fallback: str) -> str:
+            """Return value if it is a non-empty string, otherwise return fallback."""
+            return value.strip() if isinstance(value, str) and value.strip() else fallback
 
         if not mpdlist or not str(mpdlist).strip():
             oradio_log.warning("Cannot get songs for invalid mpdlist '%s'", mpdlist)
