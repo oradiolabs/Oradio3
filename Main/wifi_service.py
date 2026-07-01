@@ -30,6 +30,7 @@ Created on December 23, 2024
         Connecting through a captive portal (detected but not handled).
         Connecting to VPN.
 """
+from typing import Any
 from threading import Thread
 from multiprocessing import Process, Lock
 from subprocess import CalledProcessError

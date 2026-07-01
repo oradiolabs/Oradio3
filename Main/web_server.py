@@ -182,7 +182,7 @@ def _get_sw_info() -> dict:
 
     return software_info
 
-def play_song(args: dict[str, Any]):
+def play_song(args: dict[str, Any] | None):
     """
     Play a song via MPD and publish a WEB_PLAYING_SONG command.
 
@@ -207,7 +207,7 @@ def play_song(args: dict[str, Any]):
 
     return {"message": f"'{songfile}' is nu te horen"}
 
-def get_networks(_args: dict[str, Any]):
+def get_networks(_args: dict[str, Any] | None):
     """
     Return the list of currently visible WiFi networks.
 
@@ -220,7 +220,7 @@ def get_networks(_args: dict[str, Any]):
     """
     return get_wifi_networks()
 
-def shutdown_webapp(_args: dict[str, Any]):
+def shutdown_webapp(_args: dict[str, Any] | None):
     """
     Request a graceful web server shutdown via the service queue.
 
@@ -232,7 +232,7 @@ def shutdown_webapp(_args: dict[str, Any]):
     """
     safe_put(api_app.state.queue, {"request": REQUEST_STOP})
 
-def rename_spotify(args: dict[str, Any]):
+def rename_spotify(args: dict[str, Any] | None):
     """
     Rename the Spotify (librespot) device and restart the service.
 
@@ -285,7 +285,7 @@ def rename_spotify(args: dict[str, Any]):
 
     return name
 
-def wifi_connect(args: dict[str, Any]):
+def wifi_connect(args: dict[str, Any] | None):
     """
     Send a WiFi connection request to the service queue.
 
@@ -313,7 +313,7 @@ def wifi_connect(args: dict[str, Any]):
         "pswd"   : pswd,
     })
 
-def save_preset(args: dict[str, Any]):
+def save_preset(args: dict[str, Any] | None):
     """
     Save a playlist or webradio entry as a preset and publish the change.
 
@@ -362,7 +362,7 @@ def save_preset(args: dict[str, Any]):
     oradio_log.debug("Send web service message: %s", preset_map[preset][preset_type])
     Commands.publish(CommandMessage(WEB_SOURCE, preset_map[preset][preset_type]))
 
-def get_playlist_songs(args: dict[str, Any]):
+def get_playlist_songs(args: dict[str, Any] | None):
     """
     Return all songs contained in a given playlist.
 
@@ -381,7 +381,7 @@ def get_playlist_songs(args: dict[str, Any]):
 
     return mpd_control.get_songs(playlist)
 
-def get_search_songs(args: dict[str, Any]):
+def get_search_songs(args: dict[str, Any] | None):
     """
     Return songs matching a search pattern.
 
@@ -400,7 +400,7 @@ def get_search_songs(args: dict[str, Any]):
 
     return mpd_control.search(pattern)
 
-def modify_playlist(args: dict[str, Any]):
+def modify_playlist(args: dict[str, Any] | None):
     """
     Add or remove a song or playlist via MPD and return the updated playlist list.
 
@@ -447,7 +447,7 @@ def modify_playlist(args: dict[str, Any]):
 
     return mpd_control.get_playlists()
 
-def log_message(args: dict[str, Any]):
+def log_message(args: dict[str, Any] | None):
     """
     Log a message originating from the web interface.
 

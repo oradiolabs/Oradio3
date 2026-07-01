@@ -169,7 +169,9 @@ class I2CService:
         """
         if self._bus is None:
             oradio_log.error("I2C bus not available")
+            Errors.publish(ErrorMessage(I2C_SOURCE, I2C_ERROR_BUS))
             return None
+
         with self._lock:
             try:
                 value = self._bus.read_byte_data(device, register)
@@ -190,6 +192,11 @@ class I2CService:
             register (int): Register address on the device.
             value (int): Byte value to write.
         """
+        if self._bus is None:
+            oradio_log.error("I2C bus not available")
+            Errors.publish(ErrorMessage(I2C_SOURCE, I2C_ERROR_BUS))
+            return None
+
         for attempt in range(1, I2C_RETRIES + 1):
             with self._lock:
                 try:
@@ -218,6 +225,11 @@ class I2CService:
         Returns:
             list | None: List of byte values read from the device, or None on error.
         """
+        if self._bus is None:
+            oradio_log.error("I2C bus not available")
+            Errors.publish(ErrorMessage(I2C_SOURCE, I2C_ERROR_BUS))
+            return None
+
         if length > 32:
             oradio_log.error("SMBus block read supports a maximum of 32 bytes")
             return None
@@ -242,6 +254,11 @@ class I2CService:
             register (int): Register address on the device.
             data (list): List of byte values to write, max 32.
         """
+        if self._bus is None:
+            oradio_log.error("I2C bus not available")
+            Errors.publish(ErrorMessage(I2C_SOURCE, I2C_ERROR_BUS))
+            return None
+
         if len(data) > 32:
             oradio_log.error("SMBus block write supports a maximum of 32 bytes")
             return

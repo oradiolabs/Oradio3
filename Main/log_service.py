@@ -339,7 +339,7 @@ if __name__ == '__main__':
             oradio_log.critical,
         ]
 
-        def worker(thread_id):
+        def worker(thread_id) -> None:
             for idx in range(iterations):
                 log_func = choice(log_funcs)
                 log_func(f"[Thread {thread_id}] Iteration {idx}")

@@ -707,6 +707,10 @@ def handle_message(message: dict):
         state          = message.get("state")
         error          = message.get("error")
 
+        if not isinstance(command_source, str):
+            oradio_log.warning("Invalid message source: %s", message)
+            return
+
         handlers = HANDLERS.get(command_source)
         if handlers is None:
             oradio_log.warning("Unhandled message source: %s", message)
