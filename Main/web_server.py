@@ -79,7 +79,7 @@ KEEP_ALIVE_TIMEOUT = 5
 
 # Full URL required by some mobile browsers (e.g. iOS Safari) that reject bare
 # hostnames in redirect responses.
-ORADIOAP_URL = f"http://{ACCESS_POINT_HOST}"
+oradioap_url = f"http://{ACCESS_POINT_HOST}"
 
 # Initialise MPD client
 mpd_control = MPDControl()
@@ -648,11 +648,11 @@ async def catch_all(request: Request):
         request: The incoming HTTP request.
 
     Returns:
-        A 302 RedirectResponse to {ORADIOAP_URL}/oradio3.
+        A 302 RedirectResponse to {oradioap_url}/oradio3.
     """
     oradio_log.debug("Catchall triggered for path: %s", request.url.path)
 
-    return RedirectResponse(url=ORADIOAP_URL + "/oradio3", status_code=302)
+    return RedirectResponse(url=oradioap_url + "/oradio3", status_code=302)
 
 ##### Stand-alone entry point #############################
 
@@ -687,7 +687,7 @@ if __name__ == '__main__':
 
     # The module-level value includes the AP host address, which only resolves
     # on-device; use a relative URL for stand-alone testing.
-    ORADIOAP_URL = ""
+    oradioap_url = ""
 
     # Subscribe to command topics so messages published are printed to console.
     cmd_handler = DebugMessageHandler(Commands.subscribe())
