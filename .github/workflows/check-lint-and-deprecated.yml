@@ -55,10 +55,7 @@ jobs:
           pip install --upgrade pip
           pip install -r .github/workflows/oradio_modules.txt
           # Linting / analysis tools (pinned to avoid surprise breakage)
-          pip install \
-            "pylint>=3.0,<4" \
-            "ruff>=0.4,<1" \
-            "mypy>=1.9,<2"
+          pip install pylint ruff mypy
 
       # -----------------------------------------------------------------------
       # 6. Run all checks
@@ -99,7 +96,7 @@ jobs:
             --output-format=concise >> "$RESULT_FILE" 2>&1
           count_ruff=$(grep -Ec '^[^:]+:[0-9]+:[0-9]+: UP[0-9]{3,4}' "$RESULT_FILE" || true)
           if [ "$count_ruff" -eq 0 ]; then
-            echo "Static deprecation check found no warnings." >> "$RESULT_FILE"
+            echo "Ruff found no issues." >> "$RESULT_FILE"
           fi
           echo >> "$RESULT_FILE"
 
@@ -113,7 +110,7 @@ jobs:
             --no-error-summary >> "$RESULT_FILE" 2>&1
           count_mypy=$(grep -c ': error:' "$RESULT_FILE" || true)
           if [ "$count_mypy" -eq 0 ]; then
-            echo "Mypy found no type errors." >> "$RESULT_FILE"
+            echo "Mypy found no errors." >> "$RESULT_FILE"
           fi
           echo >> "$RESULT_FILE"
 
