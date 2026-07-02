@@ -224,7 +224,7 @@ def _single_led_test(led_control: LEDControl, test_led_nr: int) -> None:
                 print(f"\nTurn OFF {selected_led}\n")
                 led_control.turn_off_led(selected_led)
             case 3:
-                one_shot = input_prompt("Input a one-shot ON period as float number : ", float, -1)
+                one_shot = input_prompt("Input a one-shot ON period as float number : ", float, -1.0)
                 print(f"\n{one_shot} sec ONESHOT ON for {selected_led}\n")
                 led_control.turn_off_all_leds()
                 led_control.oneshot_on_led(selected_led, one_shot)
@@ -234,7 +234,7 @@ def _single_led_test(led_control: LEDControl, test_led_nr: int) -> None:
                 else:
                     print(f"{RED}Test:The ONESHOT timing for {selected_led} is NOT OK")
             case 4:
-                cycle_time = input_prompt("Input a cycletime as float number : ", float, -1)
+                cycle_time = input_prompt("Input a cycletime as float number : ", float, -1.0)
                 print(f"\nBlinking LED {selected_led} with cycle-time of {cycle_time} sec\n")
                 stop_event = Event()
                 keyboard_thread = Thread(target=keyboard_input,

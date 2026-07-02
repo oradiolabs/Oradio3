@@ -265,7 +265,7 @@ def _short_button_msg_stress_test() -> None:
     if test_sequence not in (1, 2):
         print ("Incorrect number, please select a valid test number (now 1 is used)")
         test_sequence = 1
-    msg_rate = input_prompt("Give repetition rate/sec for sending messages as float nr: ", float, -1)
+    msg_rate = input_prompt("Give repetition rate/sec for sending messages as float nr: ", float, -1.0)
     if msg_rate is None or msg_rate <= 0:
         print(f"{YELLOW}invalid repetition rate{NC}")
         return
@@ -298,7 +298,7 @@ def _long_button_msg_stress_test() -> None:
                           BUTTON_LONG_PRESS_PLAY,
                           BUTTON_SHORT_PRESS_STOP ]
     msg_test_sequences = [msg_test_sequence_1]
-    msg_rate = input_prompt("Give repetition rate/sec for sending messages as float nr: ", float, -1)
+    msg_rate = input_prompt("Give repetition rate/sec for sending messages as float nr: ", float, -1.0)
     if msg_rate is None or msg_rate <= 0:
         print(f"{YELLOW}invalid repetition rate{NC}")
         return

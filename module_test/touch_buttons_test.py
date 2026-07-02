@@ -356,7 +356,7 @@ def _btn_press_release_cb_test(test_buttons: TestTouchButtons) -> None:
     print("Specify the button-pressed timing in seconds (float), 0 = stop test")
     while not stop_test:
         button_pressed_time = input_prompt(
-            f"Button-press timing ({selected_button_name}) in seconds (float):", float, 0)
+            f"Button-press timing ({selected_button_name}) in seconds (float):", float, 0.0)
         if button_pressed_time == 0:
             stop_test = True
         else:

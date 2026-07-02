@@ -163,7 +163,7 @@ class StateMachine:
         self.prev_state: str | None = None
         self.task_lock = threading.Lock()
         self._websvc = None  # injected WebService
-        self._pd_mode = None  # track power supply PD state "nom" or "max"
+        self._pd_mode: str | None = None  # track power supply PD state "nom" or "max"
 
         # Dispatch table for run_state_method
         self._handlers = {
