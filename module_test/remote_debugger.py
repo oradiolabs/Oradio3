@@ -26,7 +26,6 @@ Created on January 11, 2026
         pip install pydevd
 """
 import os
-import socket
 import argparse
 
 ##### Oradio modules ######################################

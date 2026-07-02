@@ -232,9 +232,9 @@ def store_presets(presets: dict[str, str]) -> None:
     except OSError as ex_err:
         oradio_log.error("Failed to write presets to '%s'. Error: %s", PRESETS_FILE, ex_err)
 
-def input_prompt(prompt: str, cast: Callable[[str], T] = int, default: T | None = None) -> T | None:
+def input_prompt(prompt: str, cast: Callable[[str], T], default: T) -> T:
     """
-    Prompt the user for input and convert it to the requested type.
+    Prompt the user for input and cast it to the requested type.
 
     Args:
         prompt: Prompt shown to the user.
