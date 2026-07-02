@@ -106,7 +106,7 @@ echo >> "$RESULT_FILE"
 
 ##### Pylint #####################################
 
-echo "### 🧹 Pylint analysis" | tee -a "$RESULT_FILE"
+echo "### Pylint analysis" | tee -a "$RESULT_FILE"
 for file in "${FILES[@]}"; do
     echo "Checking $file with pylint..."
     pylint "$file" \
@@ -122,7 +122,7 @@ echo >> "$RESULT_FILE"
 
 ##### Ruff #######################################
 
-echo "### 🧹 Ruff static deprecation analysis" | tee -a "$RESULT_FILE"
+echo "### Ruff static deprecation analysis" | tee -a "$RESULT_FILE"
 for file in "${FILES[@]}"; do
     echo "Checking $file with ruff..."
     ruff check "$file" \
@@ -138,7 +138,7 @@ echo >> "$RESULT_FILE"
 
 ##### Mypy #######################################
 
-echo "### 🧹 Mypy type-check" | tee -a "$RESULT_FILE"
+echo "### Mypy type-check" | tee -a "$RESULT_FILE"
 for file in "${FILES[@]}"; do
     echo "Checking $file with mypy..."
 	mypy "$file" \
@@ -154,7 +154,7 @@ echo >> "$RESULT_FILE"
 
 ##### Runtime ####################################
 
-echo "### 🧹 Runtime deprecation analysis" | tee -a "$RESULT_FILE"
+echo "### Runtime deprecation analysis" | tee -a "$RESULT_FILE"
 for file in "${FILES[@]}"; do
 	echo "Checking $file deprecation runtime..."
 	python3 $BASE/module_test/deprecation_check.py $file >> "$RESULT_FILE" 2>&1
@@ -180,7 +180,7 @@ printf -v count_mypy    " %-6s" "$count_mypy"
 printf -v count_runtime " %-6s" "$count_runtime"
 
 cat <<EOF
-### 🧹 Python Lint & Deprecation Summary
+### Python Lint & Deprecation Summary
 | Check                    | #Issues | Status  |
 |--------------------------|---------|---------|
 | Pylint (lint)            | $count_pylint | $pylint_status |
