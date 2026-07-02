@@ -23,7 +23,7 @@ Created on May 15, 2026
     recognised error conditions from registered sources. Unknown
     errors are logged for further investigation.
 """
-from typing import Callable
+from collections.abc import Callable
 
 ##### Oradio modules ######################################
 from log_service import oradio_log

@@ -30,7 +30,8 @@ import json
 import socket
 import subprocess
 from pathlib import Path
-from typing import TypeVar, Callable
+from typing import TypeVar
+from collections.abc import Callable
 
 ##### Oradio modules ######################################
 from log_service import oradio_log
@@ -82,8 +83,7 @@ def is_service_active(service_name) -> bool:
         # Run systemctl is-active command
         result = subprocess.run(
             ["sudo", "systemctl", "is-active", service_name],
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
+            capture_output=True,
             text=True,
             check=False
         )
@@ -117,7 +117,7 @@ def has_internet():
         _ = socket.gethostbyname(DNS_HOST)
         oradio_log.info("Internet available")
         return True
-    except (socket.gaierror, socket.timeout) as ex_err:
+    except (socket.gaierror, TimeoutError) as ex_err:
         oradio_log.debug("Internet not available: %s", ex_err)
         return False
     finally:
@@ -229,7 +229,7 @@ def store_presets(presets: dict[str, str]) -> None:
         with open(PRESETS_FILE, "w", encoding="utf-8") as file:
             json.dump(data_to_save, file, indent=4)
         oradio_log.debug("Presets '%s' successfully saved to %s", data_to_save, PRESETS_FILE)
-    except IOError as ex_err:
+    except OSError as ex_err:
         oradio_log.error("Failed to write presets to '%s'. Error: %s", PRESETS_FILE, ex_err)
 
 def input_prompt(prompt: str, converter: Callable[[str], T], default: T) -> T:

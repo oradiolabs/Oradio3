@@ -192,7 +192,7 @@ class USBObserver(FileSystemEventHandler):
         try:
             with open(USB_WIFI_FILE, encoding="utf-8") as file:
                 data = load(file)
-        except (JSONDecodeError, IOError) as ex_err:
+        except (JSONDecodeError, OSError) as ex_err:
             # Covers malformed JSON and filesystem errors (permissions, I/O)
             oradio_log.error("Failed to read or parse '%s': error: %s", USB_WIFI_FILE, ex_err)
             Errors.publish(ErrorMessage(USB_SOURCE, USB_ERROR_FILE))
