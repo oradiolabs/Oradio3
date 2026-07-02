@@ -158,7 +158,7 @@ class StateMachine:
     playback, presets, USB presence, web service, and networking states.
     """
 
-    def __init__(self):
+    def __init__(self) -> None:
         self.state = "StateStartUp"
         self.prev_state = None
         self.task_lock = threading.Lock()
@@ -769,7 +769,7 @@ class ProxyCommandHandler(MessageHandlerBase):
     """
     Wraps a subscriber queue in a daemon thread that forwards command messages to legacy queue.
     """
-    def __init__(self, queue):
+    def __init__(self, queue) -> None:
         """
         Subscribe to the error bus and start the listener thread.
         """

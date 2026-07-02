@@ -232,20 +232,20 @@ def store_presets(presets: dict[str, str]) -> None:
     except OSError as ex_err:
         oradio_log.error("Failed to write presets to '%s'. Error: %s", PRESETS_FILE, ex_err)
 
-def input_prompt(prompt: str, converter: Callable[[str], T], default: T) -> T:
+def input_prompt(prompt: str, cast: Callable[[str], T] = int, default: T | None = None) -> T | None:
     """
     Prompt the user for input and convert it to the requested type.
 
     Args:
         prompt: Prompt shown to the user.
-        converter: Conversion function (e.g. int, float).
-        default: Value returned if conversion fails.
+        cast: Cast function (e.g. int, float).
+        default: Value returned if cast fails.
 
     Returns:
-        Converted value or the default.
+        Cast value or the default.
     """
     try:
-        return converter(input(prompt))
+        return cast(input(prompt))
     except (ValueError, EOFError):
         return default
 

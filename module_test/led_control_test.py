@@ -77,7 +77,7 @@ def _progress_bar(led_control: LEDControl, led_name: str, duration: float) -> fl
     start_time          = time.monotonic()
     end_time             = start_time + duration
     progress_bar_state  = "Led ON"
-    led_on_timing       = 0
+    led_on_timing       = 0.0
     progress_bar        = ""
     bar_led_off_start   = 0
     while time.monotonic() < end_time:

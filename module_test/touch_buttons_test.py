@@ -55,7 +55,7 @@ class TestTouchButtons:
     the GPIO edge-event callback to TouchButtons' internal handler so that
     button simulations exercise the same code path as production.
     """
-    def __init__(self):
+    def __init__(self) -> None:
         TouchButtons.buttons_module_test = TEST_ENABLED
         # Create an instance of actual TouchButtons
         # and add an instance of TestGPIOService,
@@ -78,7 +78,7 @@ class TestGPIOService:
         * simulate_all_buttons_events_burst()
         * simulate_button_press_and_release()
     """
-    def __init__(self):
+    def __init__(self) -> None:
         """
         create test class, adding a composition of GPIOService class
         """

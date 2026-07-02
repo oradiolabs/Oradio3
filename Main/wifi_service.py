@@ -374,7 +374,7 @@ class WifiService:
         WIFI_ERROR_DISCONNECT) are never published at init time; they are
         only emitted in response to failed connection attempts.
     """
-    def __init__(self):
+    def __init__(self) -> None:
         """
         Initialise the WiFi service and publish the current connection state.
 
@@ -498,7 +498,7 @@ class WifiScanner:
     the next call. The Oradio access point SSID, empty SSIDs, and duplicate
     SSIDs are always excluded from results.
     """
-    def __init__(self):
+    def __init__(self) -> None:
         """
         Initialise the scanner by seeding the NetworkManager scan cache.
 

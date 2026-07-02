@@ -237,7 +237,7 @@ class PubSubManager:
     multiprocessing primitives to support communication between
     threads and Linux forked child processes.
     """
-    def __init__(self):
+    def __init__(self) -> None:
         """
         Initialise subscriber registries and message caches.
         """
@@ -536,7 +536,7 @@ class MessageHandlerBase:
         - Supports graceful shutdown via a unique stop sentinel per instance.
         - Thread-safe operations using a Lock for the _stopped flag.
     """
-    def __init__(self, queue: Queue):
+    def __init__(self, queue: Queue) -> None:
         """
         Initialize the message handler and start the worker thread.
 
@@ -644,7 +644,7 @@ class DebugMessageHandler(MessageHandlerBase):
     includes an index to distinguish multiple handlers subscribed to the
     same topic.
     """
-    def __init__(self, queue: Queue, index: int | None = None):
+    def __init__(self, queue: Queue, index: int | None = None) -> None:
         """
         Initialize the debug message handler.
 

@@ -286,7 +286,7 @@ class USBService:
     via the singleton USBObserver handler. Provides a convenience method
     to query the current USB state by inspecting the mount point directly.
     """
-    def __init__(self):
+    def __init__(self) -> None:
         """
         Initialise and start the watchdog observer for USB state monitoring.
 

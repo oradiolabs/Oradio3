@@ -80,7 +80,7 @@ class ErrorHandler(MessageHandlerBase):
     Dispatches each message to a source-specific handler method;
     unrecognised sources are logged as errors.
     """
-    def __init__(self):
+    def __init__(self) -> None:
         """
         Subscribe to error messages and call the base class constructor,
         which subscribes to the error bus and starts the worker thread.

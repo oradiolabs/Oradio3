@@ -98,7 +98,7 @@ def _button_polling(test_gpio: GPIOService) -> None:
         full_state_text = ""
         active_buttons = []
         for button_name in BUTTON_NAMES:
-            state = test_gpio.get_button_state(button_name)
+            state = bool(test_gpio.get_button_state(button_name))
             full_state_text = full_state_text + "," + button_state[state]
             if state:
                 active_buttons.append(button_name)

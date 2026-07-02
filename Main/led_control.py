@@ -42,7 +42,7 @@ class LEDControl:
     * Blink a LED continuously
     * Turn a LED on for a fixed duration (one-shot)
     """
-    def __init__(self):
+    def __init__(self) -> None:
         """
         Class constructor: set up class variables.
         Uses an instance of GPIOService for LED I/O.

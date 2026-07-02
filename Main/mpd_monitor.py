@@ -76,7 +76,7 @@ class MPDMonitor(MPDService):
         If concurrent command traffic is required, a dedicated second MPD
         client connection should be used for idle.
     """
-    def __init__(self):
+    def __init__(self) -> None:
         """
         Initialise MPDMonitor, build the database snapshot, and start the
         background monitoring thread.

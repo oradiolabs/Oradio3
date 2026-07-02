@@ -73,7 +73,7 @@ class TouchButtons:
     """
     buttons_module_test = TEST_DISABLED
 
-    def __init__(self):
+    def __init__(self) -> None:
         """
         Set up class variables and register GPIO button callbacks.
         """

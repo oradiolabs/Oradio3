@@ -112,7 +112,7 @@ if REMOTE_DEBUGGER == DEBUGGER_ENABLED:
             except ConnectionRefusedError:
                 print(f"{YELLOW}Failed to connect to debugger at {ip_address}:{port_nr}.")
                 print(f"Is the IDE pydevd server running and listening?{NC}")
-            except (socket.error, OSError) as err:
+            except OSError as err:
                 print(f"{YELLOW}Network error while connecting to debugger: {err}{NC}")
             else:
                 print(f"{GREEN}Oradio connected to debugger.{NC}")
