@@ -93,12 +93,11 @@ jobs:
           # UP, fix diff flags deprecated builtins, stdlib aliases, and typing constructs.
           # Covers both Main/ and module_test/.
           # -----------------------------------------------------------------
-          #  --ignore UP031,UP032,UP034,UP035 \
           echo "### 🧹 Ruff static deprecation analysis results" >> "$RESULT_FILE"
           ruff check Main module_test \
             --select UP \
-            --output-format=github >> "$RESULT_FILE" 2>&1
-          count_ruff=$(grep -Ec '^\S+\.py:[0-9]+' "$RESULT_FILE" || true)
+            --output-format=concise >> "$RESULT_FILE" 2>&1
+          count_ruff=$(grep -Ec '^[^:]+:[0-9]+:[0-9]+: UP[0-9]{3,4}' "$RESULT_FILE" || true)
           if [ "$count_ruff" -eq 0 ]; then
             echo "Static deprecation check found no warnings." >> "$RESULT_FILE"
           fi
@@ -110,6 +109,7 @@ jobs:
           echo "### 🧹 Mypy type-check results" >> "$RESULT_FILE"
           mypy Main module_test \
             --ignore-missing-imports \
+            --enable-error-code=deprecated --report-deprecated-as-note \
             --no-error-summary >> "$RESULT_FILE" 2>&1
           count_mypy=$(grep -c ': error:' "$RESULT_FILE" || true)
           if [ "$count_mypy" -eq 0 ]; then
@@ -134,11 +134,12 @@ jobs:
           # -----------------------------------------------------------------
           # Build the GitHub Step Summary as a Markdown table
           # (inline style= attributes are not rendered by GitHub)
+          # Options: "✅ Pass", "⚠️ Warn", "❌ Fail"
           # -----------------------------------------------------------------
           pylint_status=$( [ "$pylint_count"  -eq 0 ] && echo "✅ Pass" || echo "❌ Fail")
-          ruff_status=$(   [ "$count_ruff"    -eq 0 ] && echo "✅ Pass" || echo "⚠️ Warn")
-          mypy_status=$(   [ "$count_mypy"    -eq 0 ] && echo "✅ Pass" || echo "⚠️ Warn")
-          runtime_status=$([ "$count_runtime" -eq 0 ] && echo "✅ Pass" || echo "⚠️ Warn")
+          ruff_status=$(   [ "$count_ruff"    -eq 0 ] && echo "✅ Pass" || echo "❌ Fail")
+          mypy_status=$(   [ "$count_mypy"    -eq 0 ] && echo "✅ Pass" || echo "❌ Fail")
+          runtime_status=$([ "$count_runtime" -eq 0 ] && echo "✅ Pass" || echo "❌ Fail")
 
           cat >> "$GITHUB_STEP_SUMMARY" << EOF
           ### 🧹 Python Lint & Deprecation Summary
@@ -152,7 +153,7 @@ jobs:
           EOF
 
           # -----------------------------------------------------------------
-          # Fail the job only when there are real issues
+          # Fail the job only when there are real "❌ Fail" issues
           # -----------------------------------------------------------------
           total=$((pylint_count + count_ruff + count_mypy + count_runtime))
           if [ "$total" -eq 0 ] && [ "$runtime_exit" -eq 0 ]; then
