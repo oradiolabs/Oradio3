@@ -160,7 +160,7 @@ class StateMachine:
 
     def __init__(self) -> None:
         self.state = "StateStartUp"
-        self.prev_state = None
+        self.prev_state: str | None = None
         self.task_lock = threading.Lock()
         self._websvc = None  # injected WebService
         self._pd_mode = None  # track power supply PD state "nom" or "max"
@@ -179,7 +179,7 @@ class StateMachine:
             "StateIdle": self._state_idle,
             "StateError": self._state_error,
         }
-        self._delayed_timers = {}  # key -> Timer
+        self._delayed_timers: dict[str, threading.Timer] = {}   # key -> Timer
 
     def set_services(self, web_service):
         """Inject the (already-constructed) WebService instance."""

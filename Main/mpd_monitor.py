@@ -85,7 +85,7 @@ class MPDMonitor(MPDService):
         super().__init__()
 
         # Snapshot of MPD database: directory -> set of file paths.
-        self._snapshot = defaultdict(set)
+        self._snapshot: dict[str, set] = defaultdict(set)
         self._build_initial_snapshot()
 
         # Create and start the background monitoring thread.

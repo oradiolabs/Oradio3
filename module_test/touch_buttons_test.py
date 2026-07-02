@@ -85,7 +85,7 @@ class TestGPIOService:
         GPIOService.gpio_module_test = TEST_ENABLED
         self.gpio_service = GPIOService()
 
-    def simulate_button_play_events_burst(self, burst_freq: int, stop_burst: Event) -> int:
+    def simulate_button_play_events_burst(self, burst_freq: float, stop_burst: Event) -> int:
         """
         Simulate a button press by submitting a callback for BUTTON_PLAY
         Args:
@@ -101,7 +101,7 @@ class TestGPIOService:
             sleep(1/burst_freq)
         return nr_of_events
 
-    def simulate_all_buttons_events_burst(self, burst_freq: int, stop_burst: Event) -> int:
+    def simulate_all_buttons_events_burst(self, burst_freq: float, stop_burst: Event) -> int:
         """
         Simulate all button press by submitting a callback for all buttons in a sequence
         Args:

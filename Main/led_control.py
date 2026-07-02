@@ -48,8 +48,8 @@ class LEDControl:
         Uses an instance of GPIOService for LED I/O.
         """
         self.leds_driver = GPIOService()
-        self.blink_stop_events = {}     # map led_name → threading.Event()
-        self.blinking_threads = {}      # map led_name → Thread
+        self.blink_stop_events: dict[str, Event] = {}       # map led_name → threading.Event()
+        self.blinking_threads: dict[str, Thread] = {}       # map led_name → Thread
         oradio_log.debug("LEDControl initialized: All LEDs OFF")
 
     def turn_off_led(self, led_name: str) -> None:
@@ -135,7 +135,7 @@ class LEDControl:
             False if the LED is OFF.
         """
         if led_name in LED_NAMES:
-            return self.leds_driver.get_led_state(led_name)
+            return bool(self.leds_driver.get_led_state(led_name))
         oradio_log.error("Invalid LED name: %s", led_name)
         return False
 
