@@ -45,6 +45,15 @@ fi
 RESULT_FILE="lint_deprecated_result.txt"
 : > "$RESULT_FILE"	# truncate/create log
 
+if systemctl is-active --quiet "oradio"; then
+	if sudo systemctl stop "oradio" >/dev/null 2>&1; then
+		echo -e "${YELLOW}oradio.service stopped.${NC}"
+	else
+		echo -e "${RED}Failed to stop oradio.service${NC}"
+		exit 1
+	fi
+fi
+
 ##### Dependencies #############################
 
 PYTHON_PACKAGES=(
@@ -93,6 +102,7 @@ except:
 done
 
 echo "$(date +'%Y-%m-%d %H:%M:%S'): Start lint and deprecation check" | tee -a "$RESULT_FILE"
+echo >> "$RESULT_FILE"
 
 ##### Pylint #####################################
 
@@ -104,8 +114,8 @@ for file in "${FILES[@]}"; do
         --output-format=text \
 		--score=n >>"$RESULT_FILE" 2>&1
 done
-pylint_count=$(grep -Ec '^[^:]+:[0-9]+:[0-9]+: [A-Z][0-9]{4}:' "$RESULT_FILE" || true)
-if [ "$pylint_count" -eq 0 ]; then
+count_pylint=$(grep -Ec '^[^:]+:[0-9]+:[0-9]+: [A-Z][0-9]{4}:' "$RESULT_FILE" || true)
+if [ "$count_pylint" -eq 0 ]; then
 	echo "Pylint found no issues." >> "$RESULT_FILE"
 fi
 echo >> "$RESULT_FILE"
@@ -145,33 +155,39 @@ echo >> "$RESULT_FILE"
 ##### Runtime ####################################
 
 echo "### 🧹 Runtime deprecation analysis" | tee -a "$RESULT_FILE"
-#TODO: add for loop and fix deprecation_check to handle arguments
-python3 $BASE/module_test/deprecation_check.py >> "$RESULT_FILE" 2>&1
-runtime_exit=$?
+for file in "${FILES[@]}"; do
+	echo "Checking $file deprecation runtime..."
+	python3 $BASE/module_test/deprecation_check.py $file >> "$RESULT_FILE" 2>&1
+done
 count_runtime=$(grep -Ec '^DEPRECATION \(' "$RESULT_FILE" || true)
-if [ "$count_runtime" -eq 0 ] && [ "$runtime_exit" -eq 0 ]; then
+if [ "$count_runtime" -eq 0 ]; then
 	echo "Runtime check found no deprecation warnings." >> "$RESULT_FILE"
 fi
-echo >> "$RESULT_FILE"
 
 ##### Report #####################################
 
 # Options: "✅ Pass", "⚠️ Warn", "❌ Fail"
 # -----------------------------------------------------------------
-pylint_status=$( [ "$pylint_count"  -eq 0 ] && echo "✅ Pass" || echo "❌ Fail")
+pylint_status=$( [ "$count_pylint"  -eq 0 ] && echo "✅ Pass" || echo "❌ Fail")
 ruff_status=$(   [ "$count_ruff"    -eq 0 ] && echo "✅ Pass" || echo "❌ Fail")
 mypy_status=$(   [ "$count_mypy"    -eq 0 ] && echo "✅ Pass" || echo "❌ Fail")
 runtime_status=$([ "$count_runtime" -eq 0 ] && echo "✅ Pass" || echo "❌ Fail")
 
-echo << EOF
-### 🧹 Python Lint & Deprecation Summary
+# Fix string length for nice table rendering
+printf -v count_pylint  " %-6s" "$count_pylint"
+printf -v count_ruff    " %-6s" "$count_ruff"
+printf -v count_mypy    " %-6s" "$count_mypy"
+printf -v count_runtime " %-6s" "$count_runtime"
 
-| Check | Issues found | Status |
-|---|---|---|
-| Pylint (lint)              | $pylint_count  | $pylint_status  |
-| Ruff UP (static deprec.)   | $count_ruff    | $ruff_status    |
-| Mypy (type errors)         | $count_mypy    | $mypy_status    |
-| Runtime deprecations       | $count_runtime | $runtime_status |
+cat <<EOF
+### 🧹 Python Lint & Deprecation Summary
+| Check                    | #Issues | Status  |
+|--------------------------|---------|---------|
+| Pylint (lint)            | $count_pylint | $pylint_status |
+| Ruff UP (static deprec.) | $count_ruff | $ruff_status |
+| Mypy (type errors)       | $count_mypy | $mypy_status |
+| Runtime deprecations     | $count_runtime | $runtime_status |
 EOF
 
-echo -e "$(date +'%Y-%m-%d %H:%M:%S'): Finished lint and deprecation check"
+echo >> "$RESULT_FILE"
+echo -e "$(date +'%Y-%m-%d %H:%M:%S'): Finished lint and deprecation check" | tee -a "$RESULT_FILE"
