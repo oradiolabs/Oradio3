@@ -1,6 +1,4 @@
-ruff
 nmcli
-pylint
 pydevd
 smbus2
 jinja2

@@ -54,11 +54,8 @@ jobs:
           source ~/.venv/bin/activate
           pip install --upgrade pip
           pip install -r .github/workflows/oradio_modules.txt
-          # Linting / analysis tools (pinned to avoid surprise breakage)
-          pip install \
-            "pylint>=3.0,<4" \
-            "ruff>=0.4,<1" \
-            "mypy>=1.9,<2"
+          # Linting / analysis tools
+          pip install pylint ruff mypy
 
       # -----------------------------------------------------------------------
       # 6. Run all checks
@@ -94,12 +91,12 @@ jobs:
           # Covers both Main/ and module_test/.
           # -----------------------------------------------------------------
           echo "### 🧹 Ruff static deprecation analysis results" >> "$RESULT_FILE"
-          ruff check Main module_test \
+          ruff check Main/*.py module_test/*.py \
             --select UP \
             --output-format=concise >> "$RESULT_FILE" 2>&1
           count_ruff=$(grep -Ec '^[^:]+:[0-9]+:[0-9]+: UP[0-9]{3,4}' "$RESULT_FILE" || true)
           if [ "$count_ruff" -eq 0 ]; then
-            echo "Static deprecation check found no warnings." >> "$RESULT_FILE"
+            echo "Ruff found no issues." >> "$RESULT_FILE"
           fi
           echo >> "$RESULT_FILE"
 
@@ -107,13 +104,13 @@ jobs:
           # Mypy – static type checking (deprecated typed APIs surfaced here)
           # -----------------------------------------------------------------
           echo "### 🧹 Mypy type-check results" >> "$RESULT_FILE"
-          mypy Main module_test \
+          mypy Main/*.py module_test/*.py \
             --ignore-missing-imports \
             --enable-error-code=deprecated --report-deprecated-as-note \
             --no-error-summary >> "$RESULT_FILE" 2>&1
           count_mypy=$(grep -c ': error:' "$RESULT_FILE" || true)
           if [ "$count_mypy" -eq 0 ]; then
-            echo "Mypy found no type errors." >> "$RESULT_FILE"
+            echo "Mypy found no errors." >> "$RESULT_FILE"
           fi
           echo >> "$RESULT_FILE"
 
@@ -123,7 +120,7 @@ jobs:
           # The script exits 1 when any deprecations are found.
           # -----------------------------------------------------------------
           echo "### 🧹 Runtime deprecation analysis results" >> "$RESULT_FILE"
-          python3 module_test/deprecation_check.py >> "$RESULT_FILE" 2>&1
+          python3 module_test/deprecation_check.py Main/*.py module_test/*.py >> "$RESULT_FILE" 2>&1
           runtime_exit=$?
           count_runtime=$(grep -Ec '^DEPRECATION \(' "$RESULT_FILE" || true)
           if [ "$count_runtime" -eq 0 ] && [ "$runtime_exit" -eq 0 ]; then
