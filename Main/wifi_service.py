@@ -31,8 +31,7 @@ Created on December 23, 2024
         Connecting to VPN.
 """
 from typing import Any
-from threading import Thread
-from multiprocessing import Process, Lock
+from threading import Thread, Lock
 from subprocess import CalledProcessError
 import nmcli
 import nmcli._exception as nmcli_exc
@@ -422,7 +421,7 @@ class WifiService:
 
         Saves the current connection if one is active and it is not the Oradio
         access point, so it can be restored later. Adds or modifies the
-        NetworkManager profile for ssid, then spawns a daemon Process to call
+        NetworkManager profile for ssid, then starts a daemon Thread to call
         _wifi_connect_process so the blocking nmcli connection up call
         does not stall the main thread.
 
@@ -446,14 +445,14 @@ class WifiService:
             return  # networkmanager_add already published the error; no point continuing
 
         # Offload the blocking connection attempt to a separate process
-        Process(target=self._wifi_connect_process, args=(ssid,), daemon=True).start()
+        Thread(target=self._wifi_connect_process, args=(ssid,), daemon=True).start()
         oradio_log.info("Connecting to '%s' started", ssid)
 
     def _wifi_connect_process(self, network) -> None:
         """
         Activate the given network profile (runs in a child process).
 
-        Called by wifi_connect in a separate Process so the blocking
+        Called by wifi_connect in a separate Thread so the blocking
         nmcli connection up call does not stall the main thread. If
         activation fails, the profile is removed from NetworkManager to avoid
         leaving a broken entry. On success, WifiEventListener publishes
