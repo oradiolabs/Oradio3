@@ -31,6 +31,7 @@ import socket
 import subprocess
 from pathlib import Path
 from typing import TypeVar
+from threading import Thread, Event
 from collections.abc import Callable
 
 ##### Oradio modules ######################################
@@ -53,6 +54,168 @@ DNS_TIMEOUT = 0.5               # seconds; short on purpose - callers should
 SERIAL_OTP_ROW = "28:"
 
 T = TypeVar("T")
+
+class ThreadTemplate(Thread):
+    """
+    Template for a background thread with start/stop/crash detection.
+
+    Subclass and override:
+        setup(): One-time init, runs at the start of the thread.
+        do_work(): The repeated unit of work.
+        teardown(): One-time cleanup, runs when the thread is stopping.
+    """
+
+    def __init__(self, *, interval: float = 1.0, name: str | None = None) -> None:
+        """
+        Initializes the thread.
+
+        Args:
+            interval: Seconds to wait between do_work() calls. Defaults to 1.0.
+            name: Thread name. Defaults to the subclass's class name if not given.
+        """
+        super().__init__(name=name or self.__class__.__name__, daemon=True)
+        self._interval = interval
+        self._stop_event = Event()                  # set by stop(), checked by run()
+        self._started_event = Event()               # set once setup() finishes (or crashes)
+        self._exception: Exception | None = None    # holds exception raised in run(), if any
+
+    # --- lifecycle -----------------------------------------------------
+
+    def safe_start(self, timeout: float = 5.0) -> bool:
+        """
+        Starts the thread and waits until setup() has completed.
+
+        Args:
+            timeout: Max seconds to wait for setup() to finish. Defaults to 5.0.
+
+        Returns:
+            True if the thread reported ready within timeout,
+            False if it failed to start or setup() did not complete in time.
+            Note this does NOT mean setup() succeeded -- check
+            the crashed property afterward to distinguish "timed out"
+            from "started and immediately crashed".
+        """
+        try:
+            # Spawns the OS thread and schedules run(). Can raise
+            # RuntimeError if called twice or if the OS can't allocate
+            # a new thread.
+            super().start()
+        except RuntimeError:
+            oradio_log.exception("%s failed to start thread", self.name)
+            return False
+
+        # Block here until run() signals that setup() has completed,
+        # rather than assuming the thread is ready as soon as it's spawned.
+        started_ok = self._started_event.wait(timeout)
+        if not started_ok:
+            oradio_log.error("%s failed to start within %ss", self.name, timeout)
+        return started_ok
+
+    def run(self) -> None:
+        """
+        Thread entry point. Do not call directly -- use start().
+
+        Runs setup() once, then repeatedly calls do_work() on the
+        configured interval until stop() is called, then runs
+        teardown(). Any exception raised by setup() or do_work() is
+        caught, logged, and stored rather than propagated, since
+        exceptions raised inside a thread's run() are never seen by
+        the caller of start().
+        """
+        try:
+            self.setup()
+
+            # Signal readiness only after setup() completes successfully.
+            self._started_event.set()
+
+            while not self._stop_event.is_set():
+                self.do_work()
+                # Doubles as the sleep interval AND the interruptible
+                # wait -- stop() setting the event wakes this up
+                # immediately instead of waiting out the full interval.
+                self._stop_event.wait(self._interval)
+
+        # Any exception as setup() and do_work() are overridden
+        except Exception as exception:      # pylint: disable=broad-exception-caught
+            self._exception = exception
+            oradio_log.exception("%s crashed", self.name)
+            # Unblock start() even if setup() itself crashed, so callers
+            # waiting on start() don't hang for the full timeout.
+            self._started_event.set()
+
+        finally:
+            # Always run teardown, even if setup()/do_work() raised,
+            # so resources acquired in setup() still get released.
+            self.teardown()
+
+    def safe_stop(self, timeout:float = 5.0) -> bool:
+        """Signals the thread to stop and waits for it to finish.
+
+        Args:
+            timeout: Max seconds to wait for the thread to exit. Defaults to 5.0.
+
+        Returns:
+            True if the thread finished within timeout, False if it's still
+            alive afterward (e.g. do_work() is blocked on something that
+            ignores _stop_event). Note that a stuck thread cannot be forcibly
+            killed -- False just tells you it happened.
+        """
+        self._stop_event.set()  # tells run()'s loop condition to exit
+        self.join(timeout)      # blocks until the thread actually exits
+        stopped_ok = not self.is_alive()
+        if not stopped_ok:
+            oradio_log.error("%s did not stop within %ss", self.name, timeout)
+        return stopped_ok
+
+    @property
+    def stopping(self) -> bool:
+        """
+        True once stop() has been called, even before the
+        thread has actually exited. Useful inside a long-running
+        do_work() to check whether it should bail out early.
+        """
+        return self._stop_event.is_set()
+
+    @property
+    def crashed(self) -> bool:
+        """True if setup() or do_work() raised an exception."""
+        return self._exception is not None
+
+    @property
+    def exception(self) -> Exception | None:
+        """The exception raised inside run(), if any."""
+        return self._exception
+
+    # --- override these --------------------------------------------------
+
+    def setup(self) -> None:
+        """
+        Called once before the work loop starts. Override for
+        one-time initialization (opening connections, allocating
+        resources, etc.). Default implementation does nothing.
+        """
+        # Pass is intentional, see doc string
+        pass    # pylint: disable=unnecessary-pass
+
+    def do_work(self) -> None:
+        """
+        Called repeatedly until stop() is called. Override this
+        with the actual unit of work the thread should perform.
+
+        Raises:
+            NotImplementedError: Always, unless overridden by a subclass.
+        """
+        raise NotImplementedError
+
+    def teardown(self) -> None:
+        """
+        Called once after the loop exits, whether it exited
+        cleanly or due to an exception. Override for cleanup
+        (closing connections, releasing resources, etc.). Default
+        implementation does nothing.
+        """
+        # Pass is intentional, see doc string
+        pass    # pylint: disable=unnecessary-pass
 
 def get_serial() -> str:
     """Extract serial from Raspberry Pi."""
