@@ -14,16 +14,13 @@ Created on January 15, 2026
 @version:       2
 @email:         oradioinfo@stichtingoradio.nl
 @status:        Development
-@summary:       CI-safe deprecation checker for Oradio3 (single-file version)
+@summary:       CI-safe deprecation checker
     - Imports modules based on file paths (NOT module names)
     - Works without relying on PYTHONPATH or package structure
-    - Supports CLI arguments (specific files OR full scan)
+    - Requires explicit CLI arguments: one or more .py files and/or
+      directories to scan (no hardcoded default project directories)
     - Collects import errors separately
     - Fails CI when deprecations are found
-
-    This file combines the former `deprecation_guard.py` module and the
-    checker script into a single standalone file, so no separate import
-    of `deprecation_guard` is required.
 """
 import os
 import sys
@@ -38,18 +35,16 @@ from types import ModuleType
 from collections import deque
 
 # ===========================================================================
-# DEPRECATION GUARD (formerly deprecation_guard.py)
+# DEPRECATION GUARD
 # ===========================================================================
 #
-# Changes v2:
-# - _deprecation_queue is now a thread-safe collections.deque protected by
-#   threading.Lock
-# - Stack walk now takes the FIRST matching /Main/ or /module_test/ frame
-#   (the actual call site) rather than the last (outermost) frame
-# - flush_warnings() returns the number of queued warnings so callers can
-#   exit non-zero
-# - SWIG/C-extension guard extended to cover _lgpio filename pattern more
-#   broadly
+# _deprecation_queue is a thread-safe collections.deque protected by threading.Lock
+# Stack walk now takes the FIRST frame belonging to the scanned target paths
+# (the actual call site) rather than the last (outermost) frame. The set of
+# scanned paths is supplied at runtime via register_scan_roots() instead of
+# being hardcoded to specific project directory names.
+# flush_warnings() returns the number of queued warnings so callers can exit non-zero
+# SWIG/C-extension guard extended to cover _lgpio filename pattern more broadly
 
 # ---------------------------------------------------------------------------
 # Thread-safe warning queue
@@ -61,18 +56,45 @@ _queue_lock = threading.Lock()
 # still be shown normally instead of being silently absorbed.
 _original_showwarning = warnings.showwarning
 
-# Directories that are considered "Oradio project" source paths
-_PROJECT_MARKERS = ("/Main/", "/module_test/")
+# Resolved directories of the files/dirs being scanned, used to attribute a
+# captured warning to the actual project file that triggered it. Populated
+# at runtime from the CLI targets (see register_scan_roots() / main())
+# instead of being hardcoded to specific project directory names.
+_scan_roots: set = set()
+_scan_roots_lock = threading.Lock()
+
+def register_scan_roots(paths) -> None:
+    """
+    Record the resolved parent directories of the files/directories being
+    scanned, so handle_deprecation() can recognise stack frames that belong
+    to the scanned project without any hardcoded directory names.
+
+    Args:
+        paths (Iterable[str | Path]): CLI targets (files or directories)
+            as passed by the caller.
+    """
+    with _scan_roots_lock:
+        for raw in paths:
+            resolved = Path(raw).resolve()
+            _scan_roots.add(str(resolved if resolved.is_dir() else resolved.parent))
+
+def _is_scanned_path(abs_path: str) -> bool:
+    """Return True if abs_path lives under one of the registered scan roots."""
+    with _scan_roots_lock:
+        roots = tuple(_scan_roots)
+    return any(
+        abs_path == root or abs_path.startswith(root.rstrip(os.sep) + os.sep)
+        for root in roots
+    )
 
 # This checker's own resolved file path. Used to (a) skip its own frame
 # when walking the stack to attribute a warning to the real caller, and
 # (b) exclude itself from the file scan in main() — since this script may
-# itself live inside one of the scanned directories (e.g. Main/).
+# itself live inside one of the scanned directories.
 _SELF_PATH = Path(__file__).resolve()
 
 # Warning categories this guard is responsible for capturing.
 _DEPRECATION_CATEGORIES = (DeprecationWarning, PendingDeprecationWarning)
-
 
 def handle_deprecation(message, category, filename, lineno, *args):
     """
@@ -108,23 +130,20 @@ def handle_deprecation(message, category, filename, lineno, *args):
     if "SwigPy" in msg or "_lgpio" in os.path.basename(filename):
         return
 
-    # Walk the call stack and take the FIRST frame that belongs to an Oradio
-    # source directory – this is the actual site of the deprecated call.
-    # This checker's own frame (e.g. import_from_file, main) is skipped so
-    # it never misattributes a warning to itself when it happens to reside
-    # inside one of the scanned directories.
+    # Walk the call stack and take the FIRST frame that belongs to one of
+    # the scanned target paths – this is the actual site of the deprecated
+    # call.
     module = "Undefined"
     for frame_info in inspect.stack():
         abs_path = os.path.abspath(frame_info.filename)
         if abs_path == str(_SELF_PATH):
             continue
-        if os.path.isfile(abs_path) and any(marker in abs_path for marker in _PROJECT_MARKERS):
+        if os.path.isfile(abs_path) and _is_scanned_path(abs_path):
             module = os.path.basename(abs_path)
-            break   # first match = innermost Oradio frame
+            break   # first match = innermost scanned frame
 
     with _queue_lock:
         _deprecation_queue.append((module, msg, filename, lineno))
-
 
 # Replace the default handler with our custom one
 warnings.showwarning = handle_deprecation
@@ -132,7 +151,6 @@ warnings.showwarning = handle_deprecation
 # Ensure all deprecation variants are always emitted (never silently filtered)
 warnings.simplefilter("always", DeprecationWarning)
 warnings.simplefilter("always", PendingDeprecationWarning)
-
 
 def flush_warnings() -> int:
     """
@@ -152,7 +170,7 @@ def flush_warnings() -> int:
 
 
 # ===========================================================================
-# CHECKER (formerly deprecation_check.py, the CLI script)
+# CHECKER
 # ===========================================================================
 
 # ---------------------------------------------------------------------------
@@ -208,15 +226,18 @@ def import_from_file(file_path: Path) -> ModuleType:
 
     return module
 
-
 def main():
     """
     Entry point for the deprecation checker.
 
-    Scans either the given target files or the default project
-    directories, imports each .py file by path to trigger any
-    DeprecationWarning / PendingDeprecationWarning it emits at import
-    time, then reports the results.
+    Scans the given target files and/or directories (directories are
+    searched recursively for *.py files), imports each .py file by path
+    to trigger any DeprecationWarning / PendingDeprecationWarning it
+    emits at import time, then reports the results.
+
+    No targets are assumed by default — at least one file or directory
+    must be given on the command line, otherwise a usage message is
+    printed and the script exits.
 
     Exit code:
         0 if no deprecation warnings were captured (and prints any
@@ -224,6 +245,7 @@ def main():
           on those alone).
         1 if one or more deprecation warnings were captured — intended
           to fail CI.
+        2 if no targets were given on the command line.
     """
     # -----------------------------------------------------------------
     # CLI ARGUMENTS
@@ -235,26 +257,38 @@ def main():
     parser.add_argument(
         "targets",
         nargs="*",
-        help="Optional list of .py files to scan (default: full project)"
+        help=(
+            "One or more .py files and/or directories to scan. "
+            "Directories are searched recursively for *.py files. "
+            "Required — there is no default project location."
+        )
     )
 
     args = parser.parse_args()
 
+    if not args.targets:
+        parser.print_usage(sys.stderr)
+        print(
+            f"{parser.prog}: error: no targets given — pass one or more "
+            ".py files and/or directories to scan",
+            file=sys.stderr,
+        )
+        sys.exit(2)
+
     # -----------------------------------------------------------------
     # COLLECT FILES
     # -----------------------------------------------------------------
-    base_dirs = [
-        Path.home() / "Oradio3" / "Main",
-        Path.home() / "Oradio3" / "module_test",
-    ]
+    python_files = []
+    for target in args.targets:
+        target_path = Path(target)
+        if target_path.is_dir():
+            python_files.extend(target_path.rglob("*.py"))
+        else:
+            python_files.append(target_path)
 
-    if args.targets:
-        python_files = [Path(t) for t in args.targets]
-    else:
-        python_files = []
-        for base in base_dirs:
-            if base.exists():
-                python_files.extend(base.rglob("*.py"))
+    # Let handle_deprecation() recognise stack frames belonging to the
+    # scanned targets, without any hardcoded directory names.
+    register_scan_roots(args.targets)
 
     # -----------------------------------------------------------------
     # FILTER FILES
@@ -309,7 +343,6 @@ def main():
     # EXIT CODE (CI FAILURE IF DEPRECATIONS FOUND)
     # -----------------------------------------------------------------
     sys.exit(1 if count > 0 else 0)
-
 
 if __name__ == "__main__":
     main()

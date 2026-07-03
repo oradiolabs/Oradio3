@@ -108,7 +108,7 @@ echo >> "$RESULT_FILE"
 
 echo "### Pylint analysis" | tee -a "$RESULT_FILE"
 for file in "${FILES[@]}"; do
-    echo "Checking $file with pylint..."
+    echo "Checking $file for code quality and style issues..."
     pylint "$file" \
         --rcfile=$BASE/.github/workflows/.pylintrc \
         --output-format=text \
@@ -124,7 +124,7 @@ echo >> "$RESULT_FILE"
 
 echo "### Ruff static deprecation analysis" | tee -a "$RESULT_FILE"
 for file in "${FILES[@]}"; do
-    echo "Checking $file with ruff..."
+    echo "Checking $file for static deprecations..."
     ruff check "$file" \
         --select UP \
         --output-format=concise \
@@ -140,7 +140,7 @@ echo >> "$RESULT_FILE"
 
 echo "### Mypy type-check" | tee -a "$RESULT_FILE"
 for file in "${FILES[@]}"; do
-    echo "Checking $file with mypy..."
+    echo "Checking $file for type inconsistencies..."
 	mypy "$file" \
 		--ignore-missing-imports \
 		--enable-error-code=deprecated --report-deprecated-as-note \
@@ -156,7 +156,7 @@ echo >> "$RESULT_FILE"
 
 echo "### Runtime deprecation analysis" | tee -a "$RESULT_FILE"
 for file in "${FILES[@]}"; do
-	echo "Checking $file deprecation runtime..."
+    echo "Checking $file for runtime deprecations..."
 	python3 $BASE/module_test/deprecation_check.py $file >> "$RESULT_FILE" 2>&1
 done
 count_runtime=$(grep -Ec '^DEPRECATION \(' "$RESULT_FILE" || true)
