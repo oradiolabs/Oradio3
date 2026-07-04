@@ -31,8 +31,8 @@ import socket
 import subprocess
 from pathlib import Path
 from typing import TypeVar
-from threading import Thread, Event
 from collections.abc import Callable
+from threading import Thread, Event, Lock
 
 ##### Oradio modules ######################################
 from log_service import oradio_log
@@ -46,12 +46,13 @@ from constants import (
 
 ##### LOCAL constants #####################################
 DNS_HOST    = "google.com"
-DNS_TIMEOUT = 0.5               # seconds; short on purpose - callers should
-                                 # fail fast rather than block on a flaky or
-                                 # just-woken Wi-Fi radio.
+DNS_TIMEOUT = 0.5   # seconds; short on purpose - callers should fail fast
+                    # rather than block on a flaky or just-woken WiFi radio.
 
 # Row prefix used by `vcgencmd otp_dump` for the Raspberry Pi serial number.
 SERIAL_OTP_ROW = "28:"
+
+JOIN_TIMEOUT = 5.0  # seconds; timeout for thread to start/stop
 
 T = TypeVar("T")
 
@@ -75,13 +76,20 @@ class ThreadTemplate(Thread):
         """
         super().__init__(name=name or self.__class__.__name__, daemon=True)
         self._interval = interval
-        self._stop_event = Event()                  # set by stop(), checked by run()
-        self._started_event = Event()               # set once setup() finishes (or crashes)
+
+        self._stop_event = Event()      # set by stop(), checked by run()
+        self._started_event = Event()   # set once setup() finishes (or crashes)
+
+        # _exception is written from run() (the worker thread) and read from
+        # the crashed/exception properties, typically from the main thread.
+        # Guarded by _exception_lock rather than relying on the GIL, so this
+        # stays correct on interpreters without one.
+        self._exception_lock = Lock()
         self._exception: Exception | None = None    # holds exception raised in run(), if any
 
     # --- lifecycle -----------------------------------------------------
 
-    def safe_start(self, timeout: float = 5.0) -> bool:
+    def safe_start(self, timeout: float = JOIN_TIMEOUT) -> bool:
         """
         Starts the thread and waits until setup() has completed.
 
@@ -114,13 +122,16 @@ class ThreadTemplate(Thread):
     def run(self) -> None:
         """
         Thread entry point. Do not call directly -- use start().
-
-        Runs setup() once, then repeatedly calls do_work() on the
-        configured interval until stop() is called, then runs
-        teardown(). Any exception raised by setup() or do_work() is
-        caught, logged, and stored rather than propagated, since
-        exceptions raised inside a thread's run() are never seen by
-        the caller of start().
+ 
+        Runs setup() once, then calls do_work() immediately, then
+        repeatedly again every interval seconds until stop() is
+        called, then runs teardown(). (do_work() fires right after
+        setup() rather than waiting out the first interval, so a
+        poller doesn't sit idle before its first check.) Any
+        exception raised by setup() or do_work() is caught, logged,
+        and stored rather than propagated, since exceptions raised
+        inside a thread's run() are never seen by the caller of
+        start().
         """
         try:
             self.setup()
@@ -135,9 +146,11 @@ class ThreadTemplate(Thread):
                 # immediately instead of waiting out the full interval.
                 self._stop_event.wait(self._interval)
 
-        # Any exception as setup() and do_work() are overridden
-        except Exception as exception:      # pylint: disable=broad-exception-caught
-            self._exception = exception
+        # Broad catch is intentional: setup() and do_work() are overridden by
+        # subclasses, so we can't predict what they might raise.
+        except Exception as exc:      # pylint: disable=broad-exception-caught
+            with self._exception_lock:
+                self._exception = exc
             oradio_log.exception("%s crashed", self.name)
             # Unblock start() even if setup() itself crashed, so callers
             # waiting on start() don't hang for the full timeout.
@@ -148,11 +161,11 @@ class ThreadTemplate(Thread):
             # so resources acquired in setup() still get released.
             self.teardown()
 
-    def safe_stop(self, timeout:float = 5.0) -> bool:
+    def safe_stop(self, timeout: float = JOIN_TIMEOUT) -> bool:
         """Signals the thread to stop and waits for it to finish.
 
         Args:
-            timeout: Max seconds to wait for the thread to exit. Defaults to 5.0.
+            timeout: Max seconds to wait for the thread to exit.
 
         Returns:
             True if the thread finished within timeout, False if it's still
@@ -162,10 +175,15 @@ class ThreadTemplate(Thread):
         """
         self._stop_event.set()  # tells run()'s loop condition to exit
         self.join(timeout)      # blocks until the thread actually exits
-        stopped_ok = not self.is_alive()
-        if not stopped_ok:
+
+        if self.is_alive():
             oradio_log.error("%s did not stop within %ss", self.name, timeout)
-        return stopped_ok
+            return False
+
+        if self.crashed:
+            oradio_log.error("%s crashed with exception: %s", self.name, self.exception)
+            return False
+        return True
 
     @property
     def stopping(self) -> bool:
@@ -184,7 +202,8 @@ class ThreadTemplate(Thread):
     @property
     def exception(self) -> Exception | None:
         """The exception raised inside run(), if any."""
-        return self._exception
+        with self._exception_lock:
+            return self._exception
 
     # --- override these --------------------------------------------------
 

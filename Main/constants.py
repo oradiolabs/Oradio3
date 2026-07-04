@@ -99,11 +99,6 @@ USB_SYSTEM      = USB_MOUNT_POINT + "/Systeem"
 ##### AUDIO ###############################################
 PRESETS_FILE = USB_SYSTEM + "/presets.json"
 
-##### THREADS #############################################
-# How long (seconds) DebugMessageHandler.stop() waits for its listener thread to finish
-# after the sentinel has been delivered, before logging a warning.
-JOIN_TIMEOUT = 2.0
-
 ##### SPOTIFY CONFIG ######################################
 SPOTIFY_EVENT_SOCKET_PORT = 8010
 MPV_SOCKET                = "/home/pi/spotify/mpv-socket"

@@ -48,12 +48,15 @@ from constants import (
     BUTTON_PRESET1,
     BUTTON_PRESET2,
     BUTTON_PRESET3,
-    JOIN_TIMEOUT,
 )
 
 ##### LOCAL constants #####################################
 # Bound queue size to detect runaway producers early.
 _MAX_QUEUE_SIZE = 1000
+
+# How long (seconds) DebugMessageHandler.stop() waits for its listener thread to finish
+# after the sentinel has been delivered, before logging a warning.
+JOIN_TIMEOUT = 2.0
 
 ##### Messaging constants #################################
 # Throttling
