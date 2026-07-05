@@ -402,7 +402,7 @@ if __name__ == '__main__':
     print("\nStarting test program...\n")
 
     # Subscribe to error topics so messages published are printed to console
-    incident_handler = incidentHandler()
+    incident_handler = IncidentHandler()
 
     # Present menu with tests
     interactive_menu()
