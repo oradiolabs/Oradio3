@@ -243,7 +243,7 @@ if __name__ == '__main__':
     print("\nStarting test program...\n")
 
     # Subscribe to error topic so published messages are printed to console
-    err_handler = DebugMessageHandler(Incidents.subscribe())
+    incident_handler = DebugMessageHandler(Incidents.subscribe())
 
     # Instantiate MPD service and print current stats
     mpd_service = MPDService()
@@ -253,9 +253,9 @@ if __name__ == '__main__':
         print(f"{key:>20} : {value}")
 
     # Stop receiving messages
-    Incidents.unsubscribe(err_handler.get_queue())
+    Incidents.unsubscribe(incident_handler.get_queue())
 
     # Signal the thread to exit and confirm it has exited
-    err_handler.stop()
+    incident_handler.stop()
 
     print("\nExiting test program...\n")

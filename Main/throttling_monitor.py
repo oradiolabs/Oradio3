@@ -393,15 +393,15 @@ if __name__ == "__main__":
     print("\nStarting test program...\n")
 
     # Subscribe to error topics and start message handler
-    err_handler = DebugMessageHandler(Incidents.subscribe())
+    incident_handler = DebugMessageHandler(Incidents.subscribe())
 
     # Present menu with tests
     interactive_menu()
 
     # Stop receiving messages
-    Incidents.unsubscribe(err_handler.get_queue())
+    Incidents.unsubscribe(incident_handler.get_queue())
     # Signal the thread to exit and confirm it has exited
-    err_handler.stop()
+    incident_handler.stop()
 
     print("\nExiting test program...\n")
 

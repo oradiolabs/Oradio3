@@ -695,7 +695,7 @@ if __name__ == '__main__':
         command and incident messages from both threads and the main process, and
         deliberately triggering the invalid-message fatal-exit path.
 
-        DebugMessageHandler objects are stored in cmd_handlers / err_handlers,
+        DebugMessageHandler objects are stored in command_handlers / incident_handlers,
         keyed by handler index, so individual handlers can be targeted by the stop
         options (12 and 13).
 
@@ -728,8 +728,8 @@ if __name__ == '__main__':
 
         # Handlers indexed by index so specific subscriptions
         # can be targeted by unsubscribe options (12 and 13).
-        cmd_handlers: dict[int, DebugMessageHandler] = {}
-        err_handlers: dict[int, DebugMessageHandler] = {}
+        command_handlers: dict[int, DebugMessageHandler] = {}
+        incident_handlers: dict[int, DebugMessageHandler] = {}
 
         while True:
             test_choice = input_prompt(input_selection, int, -1)
@@ -740,34 +740,34 @@ if __name__ == '__main__':
                     n = int(input("Enter number of COMMAND handlers to subscribe [1]: ").strip() or "1")
                     for _ in range(n):
                         print(f"Subscribe COMMAND handler {cmd_index}...")
-                        cmd_handlers[cmd_index] = DebugMessageHandler(Commands.subscribe(), cmd_index)
+                        command_handlers[cmd_index] = DebugMessageHandler(Commands.subscribe(), cmd_index)
                         cmd_index += 1
                 case 2:
                     n = int(input("Enter number of INCIDENT handlers to subscribe [1]: ").strip() or "1")
                     for _ in range(n):
                         print(f"Subscribe INCIDENT handler {err_index}...")
-                        err_handlers[err_index] = DebugMessageHandler(Incidents.subscribe(), err_index)
+                        incident_handlers[err_index] = DebugMessageHandler(Incidents.subscribe(), err_index)
                         err_index += 1
                 case 3:
-                    if not cmd_handlers:
+                    if not command_handlers:
                         print(f"{YELLOW}No subscribed COMMAND handlers{NC}")
                     print("Publishing COMMAND message...")
                     Commands.publish(CommandMessage("worker", "command message"))
                     print(f"{GREEN}Success publishing COMMAND message{NC}\n")
                 case 4:
-                    if not err_handlers:
+                    if not incident_handlers:
                         print(f"{YELLOW}No subscribed INCIDENT handlers{NC}")
                     print("Publishing INCIDENT message...")
                     Incidents.publish(IncidentMessage("worker", "incident message"))
                     print(f"{GREEN}Success publishing INCIDENT message{NC}\n")
                 case 5:
-                    if not cmd_handlers:
+                    if not command_handlers:
                         print(f"{YELLOW}No subscribed COMMAND handlers{NC}")
                     print("Publishing COMMAND message with extra data...")
                     Commands.publish(CommandMessage("worker", "command message", "extra data"))
                     print(f"{GREEN}Success publishing COMMAND message with extra data{NC}\n")
                 case 6:
-                    if not cmd_handlers:
+                    if not command_handlers:
                         print(f"{YELLOW}No subscribed COMMAND handlers{NC}")
                     print("\nPublish COMMAND messages from THREAD...")
                     Thread(
@@ -777,7 +777,7 @@ if __name__ == '__main__':
                     ).start()
                     print(f"{GREEN}Success publishing COMMAND message from THREAD{NC}\n")
                 case 7:
-                    if not err_handlers:
+                    if not incident_handlers:
                         print(f"{YELLOW}No subscribed INCIDENT handlers{NC}")
                     print("\nPublish INCIDENT messages from THREAD...")
                     Thread(
@@ -791,7 +791,7 @@ if __name__ == '__main__':
                     # open pipe file descriptors, so this publish is received by
                     # the parent's subscribers. On Windows/macOS (spawn start method)
                     # no file descriptors are inherited and no handler will fire.
-                    if not cmd_handlers:
+                    if not command_handlers:
                         print(f"{YELLOW}No subscribed COMMAND handlers{NC}")
                     print("\nPublish COMMAND messages from PROCESS...")
                     Process(
@@ -805,7 +805,7 @@ if __name__ == '__main__':
                     # open pipe file descriptors, so this publish is received by
                     # the parent's subscribers. On Windows/macOS (spawn start method)
                     # no file descriptors are inherited and no handler will fire.
-                    if not err_handlers:
+                    if not incident_handlers:
                         print(f"{YELLOW}No subscribed INCIDENT handlers{NC}")
                     print("\nPublish INCIDENT messages from PROCESS...")
                     Process(
@@ -829,42 +829,42 @@ if __name__ == '__main__':
                     Incidents.publish(CommandMessage("worker", "command message"))     # type: ignore[arg-type]
                     print(f"{RED}Failed catching error sending command message to incident queue{NC}\n")
                 case 12:
-                    if not cmd_handlers:
+                    if not command_handlers:
                         print(f"{YELLOW}No subscribed COMMAND handlers to unsubscribe{NC}\n")
                     else:
-                        active = ", ".join(str(i) for i in sorted(cmd_handlers))
+                        active = ", ".join(str(i) for i in sorted(command_handlers))
                         raw = input(f"Active COMMAND handler indices [{active}] — enter index to unsubscribe: ")
                         try:
                             idx = int(raw)
                         except ValueError:
                             print(f"{YELLOW}Invalid index{NC}\n")
                             continue
-                        if idx not in cmd_handlers:
+                        if idx not in command_handlers:
                             print(f"{YELLOW}Handler {idx} is not subscribed{NC}\n")
                         else:
                             print(f"Unsubscribing COMMAND handler {idx}...")
-                            handler = cmd_handlers.pop(idx)
+                            handler = command_handlers.pop(idx)
                             # Stop receiving messages
                             Commands.unsubscribe(handler.get_queue())
                             # Signal the thread to exit and confirms it has exited.
                             handler.stop()
                             print(f"{GREEN}COMMAND handler {idx} unsubscribed{NC}\n")
                 case 13:
-                    if not err_handlers:
+                    if not incident_handlers:
                         print(f"{YELLOW}No subscribed INCIDENT handlers to unsubscribe{NC}\n")
                     else:
-                        active = ", ".join(str(i) for i in sorted(err_handlers))
+                        active = ", ".join(str(i) for i in sorted(incident_handlers))
                         raw = input(f"Active INCIDENT handler indices [{active}] — enter index to unsubscribe: ")
                         try:
                             idx = int(raw)
                         except ValueError:
                             print(f"{YELLOW}Invalid index{NC}\n")
                             continue
-                        if idx not in err_handlers:
+                        if idx not in incident_handlers:
                             print(f"{YELLOW}Handler {idx} is not subscribed{NC}\n")
                         else:
                             print(f"Unsubscribing INCIDENT handler {idx}...")
-                            handler = err_handlers.pop(idx)
+                            handler = incident_handlers.pop(idx)
                             # Stop receiving messages
                             Incidents.unsubscribe(handler.get_queue())
                             # Signal the thread to exit and confirms it has exited.

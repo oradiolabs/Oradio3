@@ -73,7 +73,7 @@ TEST_SOURCE = "Test error message"
 # Placeholder source name used to exercise the unrecognised-error code path
 UNEXPECTED = "Unexpected source"
 
-class ErrorHandler(MessageHandlerBase):
+class IncidentHandler(MessageHandlerBase):
     """
     Handle error messages and perform error-specific mitigation.
 
@@ -371,7 +371,7 @@ if __name__ == '__main__':
         """
         Run an interactive self-test menu.
 
-        Publishes test messages onto the error bus so that ErrorHandler
+        Publishes test messages onto the error bus so that IncidentHandler
         behaviour can be verified.
         """
 
@@ -402,12 +402,12 @@ if __name__ == '__main__':
     print("\nStarting test program...\n")
 
     # Subscribe to error topics so messages published are printed to console
-    err_handler = ErrorHandler()
+    incident_handler = incidentHandler()
 
     # Present menu with tests
     interactive_menu()
 
-    err_handler.stop()
+    incident_handler.stop()
 
     print("\nExiting test program...\n")
 

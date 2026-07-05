@@ -250,7 +250,7 @@ if __name__ == "__main__":
     print("\nStarting test program...\n")
 
     # Subscribe to error topic so published messages are printed to console.
-    err_handler = DebugMessageHandler(Incidents.subscribe())
+    incident_handler = DebugMessageHandler(Incidents.subscribe())
 
     # Start the MPD monitor (also starts the background thread).
     mpd_monitor = MPDMonitor()
@@ -259,9 +259,9 @@ if __name__ == "__main__":
     interactive_menu(mpd_monitor)
 
     # Stop receiving error messages.
-    Incidents.unsubscribe(err_handler.get_queue())
+    Incidents.unsubscribe(incident_handler.get_queue())
 
     # Signal the handler thread to exit and confirm it has exited.
-    err_handler.stop()
+    incident_handler.stop()
 
     print("\nExiting test program...\n")

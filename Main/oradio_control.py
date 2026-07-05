@@ -800,10 +800,10 @@ class ProxyCommandHandler(MessageHandlerBase):
 # the main application thread, and is automatically torn down when the process exits.
 ProxyCommandHandler(shared_queue)
 
-from error_service import ErrorHandler     # pylint: disable=wrong-import-position
+from incident_service import IncidentHandler     # pylint: disable=wrong-import-position
 
 # Subscribe to error topics so messages published are printed to console
-err_handler = ErrorHandler()
+incident_handler = IncidentHandler()
 
 ##### Messaging PROXY-end #################################
 

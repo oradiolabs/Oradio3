@@ -457,18 +457,18 @@ if __name__ == '__main__':
             sys.exit()
 
     # Subscribe to command and error topics so published messages are printed to console
-    cmd_handler = DebugMessageHandler(Commands.subscribe())
-    err_handler = DebugMessageHandler(Incidents.subscribe())
+    command_handler = DebugMessageHandler(Commands.subscribe())
+    incident_handler = DebugMessageHandler(Incidents.subscribe())
 
-    _start_module_test(cmd_handler.get_queue())
+    _start_module_test(command_handler.get_queue())
 
     # Stop receiving messages
-    Commands.unsubscribe(cmd_handler.get_queue())
-    Incidents.unsubscribe(err_handler.get_queue())
+    Commands.unsubscribe(command_handler.get_queue())
+    Incidents.unsubscribe(incident_handler.get_queue())
 
     # Signal the threads to exit and confirm it has exited
-    cmd_handler.stop()
-    err_handler.stop()
+    command_handler.stop()
+    incident_handler.stop()
 
     print("\nExiting test program...\n")
 
