@@ -37,6 +37,7 @@ from multiprocessing import Lock, Queue
 ##### Oradio modules ######################################
 from singleton import singleton
 from log_service import oradio_log
+from utilities import ThreadTemplate
 
 ##### GLOBAL constants ####################################
 from constants import (
@@ -53,10 +54,6 @@ from constants import (
 ##### LOCAL constants #####################################
 # Bound queue size to detect runaway producers early.
 _MAX_QUEUE_SIZE = 1000
-
-# How long (seconds) DebugMessageHandler.stop() waits for its listener thread to finish
-# after the sentinel has been delivered, before logging a warning.
-JOIN_TIMEOUT = 2.0
 
 ##### Messaging constants #################################
 # Throttling
@@ -526,7 +523,7 @@ def safe_put(queue: Queue, message: object) -> None:
 
 ##### Template ############################################
 
-class MessageHandlerBase:
+class MessageHandlerBase(ThreadTemplate):
     """
     Base class for background message handlers.
 
@@ -534,44 +531,47 @@ class MessageHandlerBase:
     Subclasses must implement the _handle_message method to define how individual
     messages are processed.
 
-    Key Features:
-        - Starts a daemon thread to consume messages from a queue.
-        - Supports graceful shutdown via a unique stop sentinel per instance.
-        - Thread-safe operations using a Lock for the _stopped flag.
+    Built on ThreadTemplate with interval=0: do_work() performs one blocking
+    get + dispatch per call, and ThreadTemplate's stop_event.wait(0) between
+    calls returns immediately, so there's no added latency between finishing
+    one message and calling safe_get() for the next.
+    Because safe_get() blocks indefinitely, stop() must set the stop event itself
+    (rather than relying on safe_stop() to do it after the fact) so that once the
+    sentinel unblocks the pending get(), the worker's loop condition is already
+    false and it exits on the next check instead of blocking on get() again.
     """
     def __init__(self, queue: Queue) -> None:
         """
         Initialize the message handler and start the worker thread.
 
-        Terminates the process if the thread fails to start.
+        Terminates the process if the thread fails to start (or crashes
+        during setup, though the default setup() here never does).
 
         Args:
             queue: The queue to handle messages from.
         """
-        self._lock = Lock()
         self._queue = queue
-        self._stopped = False
-        self._stop_sentinel = f"STOP_{uuid.uuid4().hex}"  # Unique per instance
+        self._lock = Lock()                                 # guards idempotent stop()
+        self._stop_sentinel = f"STOP_{uuid.uuid4().hex}"    # Unique per instance
 
-        # Start background thread that processes incoming messages
-        self._thread = Thread(target=self._message_loop, daemon=True)
-        try:
-            self._thread.start()
-            oradio_log.debug("Message handler thread started")
-        # Broad catch is safe only because _fatal_exit always terminates the process;
-        # if _fatal_exit's behavior ever changes (e.g. to support testing without
-        # exiting), this must be narrowed to known thread-start failure types instead
-        # of relying on that side effect.
-        except Exception as ex_err:  # pylint: disable=broad-exception-caught
-            _fatal_exit("Failed to start message handler thread", exc=ex_err)
+        # interval=0: do_work() itself blocks on safe_get(), so there's no
+        # extra polling delay to add between iterations.
+        super().__init__(interval=0, name=self.__class__.__name__)
+
+        if not self.safe_start():
+            _fatal_exit("Failed to start message handler thread")
+        if self.crashed:
+            _fatal_exit("Message handler thread crashed during startup", exc=self.exception)
+        oradio_log.debug("Message handler thread started")
 
     def stop(self) -> None:
         """
         Stop the message handler gracefully.
 
         Sends the instance's unique stop sentinel via safe_put to unblock the
-        worker thread, then waits for the thread to terminate. If the thread
-        does not stop within JOIN_TIMEOUT seconds, a warning is logged.
+        worker thread, then waits for the thread to terminate using
+        ThreadTemplate's default safe_stop() timeout. If the thread does not
+        stop within that time, a warning is logged (by safe_stop() itself).
 
         Note:
             This method is idempotent. Calling it multiple times has no additional effect.
@@ -579,52 +579,46 @@ class MessageHandlerBase:
             queue will not interfere with each other.
         """
         with self._lock:
-            if self._stopped:
+            if self.stopping:
                 return
-            self._stopped = True
+            # Set the stop flag before waking the worker, so that once the
+            # sentinel unblocks its pending safe_get(), the loop condition
+            # is already false and it exits immediately rather than calling
+            # do_work() (and blocking on get()) again.
+            self._stop_event.set()
 
-        # Signal the worker thread to exit its loop via safe_put for
-        # consistent queue-error handling across the codebase.
+        # Wake the worker thread out of its blocking safe_get().
         safe_put(self._queue, self._stop_sentinel)
 
-        # Wait for thread termination with timeout
-        self._thread.join(timeout=JOIN_TIMEOUT)
+        # Uses safe_stop()'s own default timeout; it already logs a
+        # warning on timeout, so no extra logging is needed here.
+        self.safe_stop()
 
-        # Log warning if thread did not stop cleanly
-        if self._thread.is_alive():
-            oradio_log.warning("Message processing thread did not stop within %s seconds", JOIN_TIMEOUT)
-
-    def _message_loop(self) -> None:
+    def do_work(self) -> None:
         """
-        Internal worker loop running in a background thread.
+        Retrieve and dispatch a single message.
 
-        Continuously retrieves messages from the queue using safe_get (a blocking call
-        without a timeout) and dispatches them to _handle_message. The loop exits when
-        the instance's unique stop sentinel is received.
+        Exits early without dispatching if the message is this instance's
+        stop sentinel. The equality check below (rather than identity) is
+        intentional: messages arriving from other processes are reconstructed
+        objects, not the original instances, so only value equality can match
+        the sentinel string across process boundaries. Dataclass and other
+        non-string messages safely compare unequal to the sentinel string
+        rather than raising.
 
-        Note:
-            Exceptions raised by _handle_message are caught and logged, but do not
-            terminate the loop. The loop only exits when the stop sentinel is received.
-            The equality check below (rather than identity) is intentional: messages
-            arriving from other processes are reconstructed objects, not the original
-            instances, so only value equality can match the sentinel string across
-            process boundaries. Dataclass and other non-string messages safely compare
-            unequal to the sentinel string rather than raising.
+        Exceptions raised by _handle_message are caught and logged, but do
+        not stop the handler.
         """
-        while True:
-            # Blocking-safe retrieval of next message
-            message = safe_get(self._queue)
+        message = safe_get(self._queue)
 
-            # Exit when the instance's stop sentinel is received.
-            if message == self._stop_sentinel:
-                return
+        if message == self._stop_sentinel:
+            return
 
-            # Dispatch message to subclass implementation
-            try:
-                self._handle_message(message)
-            # We don't know what code is executed, thus not what exceptions are possible
-            except Exception as ex_err:     # pylint: disable=broad-exception-caught
-                oradio_log.error("Error handling message: %s", ex_err)
+        try:
+            self._handle_message(message)
+        # We don't know what code is executed, thus not what exceptions are possible
+        except Exception as ex_err:     # pylint: disable=broad-exception-caught
+            oradio_log.error("Error handling message: %s", ex_err)
 
     def _handle_message(self, message) -> None:
         """
@@ -686,7 +680,7 @@ class DebugMessageHandler(MessageHandlerBase):
 if __name__ == '__main__':
 
     # Imports only relevant when stand-alone
-    from utilities import input_prompt
+    from utilities import input_prompt              # pylint: disable=ungrouped-imports
     from multiprocessing import Process             # pylint: disable=ungrouped-imports
 
     # Most modules use similar code in stand-alone

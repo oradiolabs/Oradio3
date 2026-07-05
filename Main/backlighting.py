@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 """
+
   ####   #####     ##    #####      #     ####
  #    #  #    #   #  #   #    #     #    #    #
  #    #  #    #  #    #  #    #     #    #    #
@@ -21,11 +22,12 @@ Created on Januari 17, 2025
     - Ensures the backlight always starts at a low level on boot
 """
 from time import sleep
-from threading import Thread, Event
 
 ##### Oradio modules ######################################
+from singleton import singleton
 from log_service import oradio_log
 from i2c_service import I2CService
+from utilities import ThreadTemplate
 from messaging import (
     Errors,
     ErrorMessage,
@@ -66,22 +68,72 @@ BACKLIGHT_MAX   = 3000
 TRANSITION_TIME  = 10.0     # seconds for full transition
 ADJUST_INTERVAL  = 0.5      # seconds between updates
 CHANGE_THRESHOLD = 5        # minimum DAC change to write
-# Timeout for thread to respond (seconds)
-THREAD_TIMEOUT = 3
 
+class _BacklightWorker(ThreadTemplate):
+    """
+    Background worker that reads the ambient light sensor and smoothly
+    adjusts the backlight DAC value once per ADJUST_INTERVAL.
+
+    One instance is created per Backlighting object (see Backlighting.__init__)
+    and reused across repeated start()/stop() cycles: ThreadTemplate itself is
+    restartable, so a single _BacklightWorker instance can be safe_start()ed
+    and safe_stop()ped any number of times.
+
+    Transition state (_current_backlight_value, _prev_dac_value) is set once
+    in __init__ and deliberately NOT reset in setup(), so that stopping and
+    later restarting the worker resumes the brightness fade from wherever it
+    left off, rather than snapping back to BACKLIGHT_MIN -- matching the fact
+    that the LEDs' actual brightness does not change while the worker is
+    stopped.
+    """
+    def __init__(self, backlighting: "Backlighting") -> None:
+        super().__init__(interval=ADJUST_INTERVAL, name="BacklightWorker")
+        self._backlighting = backlighting
+        # Transition state; float for smooth updates, persists across restarts.
+        self._current_backlight_value = float(BACKLIGHT_MIN)
+        self._prev_dac_value = int(round(self._current_backlight_value))
+
+    def setup(self) -> None:
+        """Apply current brightness before the adjust loop (re)begins."""
+        self._backlighting._write_dac(self._prev_dac_value)   # pylint: disable=protected-access
+
+    def do_work(self) -> None:
+        """One adjust-loop iteration: read, interpolate, write if change exceeds threshold."""
+        raw_visible_light = self._backlighting._read_visible_light()   # pylint: disable=protected-access
+        if raw_visible_light is None:
+            return
+
+        target_backlight_value = self._backlighting._interpolate_backlight(raw_visible_light)   # pylint: disable=protected-access
+
+        delta = target_backlight_value - self._current_backlight_value
+        self._current_backlight_value += delta * (ADJUST_INTERVAL / TRANSITION_TIME)
+
+        dac_value = int(round(self._current_backlight_value))
+        if abs(dac_value - self._prev_dac_value) >= CHANGE_THRESHOLD:
+            self._prev_dac_value = dac_value
+            self._backlighting._write_dac(dac_value)   # pylint: disable=protected-access
+
+@singleton
 class Backlighting:
     """
     Controls the Oradio backlight using a TSL2591 light sensor and MCP4725 DAC.
     - Automatically adjusts backlighting based on ambient light.
     - Supports turning off, setting maximum, and reading sensor values.
-    - Runs the auto-adjust in a background thread for continuous operation.
+    - Runs the auto-adjust in a background worker; start()/stop() can be
+      called repeatedly on the same worker instance since ThreadTemplate
+      itself is restartable.
+
+    Decorated as a singleton: only one Backlighting instance (and therefore
+    only one worker thread and one set of hardware writes) can ever exist
+    per process, regardless of how many times Backlighting() is called.
     """
     def __init__(self) -> None:
         """
-        Initializes backlighting settings:
+        Initializes backlighting settings. Runs exactly once, on first
+        construction, courtesy of @singleton:
         - Writes OFF value to DAC EEPROM (persistent), ensuring LEDs are off at boot.
         - Initializes the light sensor hardware.
-        - Prepares and starts the background thread for auto-adjust.
+        - Creates and starts the single, reusable background worker.
         """
         # Get I2C r/w methods
         self._i2c_service = I2CService()
@@ -92,9 +144,9 @@ class Backlighting:
         # Initialize light sensor hardware
         self._initialize_sensor()
 
-        # Thread is created dynamically on start() to allow restartability
-        self._thread: Thread | None = None
-        self._running = Event()
+        # Created once; safe_start()/safe_stop() can be called on it
+        # repeatedly since ThreadTemplate itself supports restarting.
+        self._thread = _BacklightWorker(self)
 
         # Start backlight manager thread
         self.start()
@@ -168,91 +220,49 @@ class Backlighting:
         # Linear interpolation between MID and MAX
         return int(BACKLIGHT_MID + (als_value - ALS_MID) * (BACKLIGHT_MAX - BACKLIGHT_MID) / (ALS_MAX - ALS_MID))
 
-##### Core ################################################
-
-    def _backlight_manager(self) -> None:
-        """
-        Background thread that adjusts the backlight smoothly.
-        Adjusts if the change exceeds the threshold.
-        """
-        # Initial state
-        current_backlight_value = float(BACKLIGHT_MIN)  # use float for smooth updates
-        prev_dac_value = int(round(current_backlight_value))
-
-        # Apply starting brightness
-        self._write_dac(prev_dac_value)
-
-        # Signal that the backlight manager thread is ready
-        self._running.set()
-
-        # Backlight adjustment loop
-        while self._running.is_set():
-
-            # Read ambient light
-            raw_visible_light = self._read_visible_light()
-            if raw_visible_light is None:
-                sleep(ADJUST_INTERVAL)
-                continue
-
-            # Convert to desired backlight
-            target_backlight_value = self._interpolate_backlight(raw_visible_light)
-
-            # Smooth transition toward target
-            delta = target_backlight_value - current_backlight_value
-            current_backlight_value += delta * (ADJUST_INTERVAL / TRANSITION_TIME)
-
-            # Convert to DAC int and write only if change exceeds threshold
-            dac_value = int(round(current_backlight_value))
-            if abs(dac_value - prev_dac_value) >= CHANGE_THRESHOLD:
-                prev_dac_value = dac_value
-
-                # Set backlighting level
-                self._write_dac(dac_value)
-
-            sleep(ADJUST_INTERVAL)
-
 ##### Public API ##########################################
 
     def start(self) -> None:
         """
-        Start the backlight auto-adjust thread if not already running.
-        Blocks until the thread signals readiness or a timeout occurs.
+        Start the backlight auto-adjust worker if not already running.
+        Blocks until the worker signals readiness or a timeout occurs.
+
+        Note:
+            Safe to call after a previous stop() -- the underlying worker
+            is restartable and resumes the brightness fade from where it
+            left off (see _BacklightWorker docstring).
         """
-        if self._thread and self._thread.is_alive():
+        if self._thread.is_alive():
             oradio_log.debug("Backlight manager thread already running")
             return
 
-        # Create and start thread
-        self._thread = Thread(target=self._backlight_manager, daemon=True)
-
-        try:
-            self._thread.start()
-        except RuntimeError as ex_err:
-            oradio_log.error("Backlight manager thread failed to start: %s", ex_err)
+        if not self._thread.safe_start():
+            oradio_log.error("Backlight manager thread failed to start")
             Errors.publish(ErrorMessage(BACKLIGHT_SOURCE, BACKLIGHT_ERROR_START))
             return
 
-        if not self._running.wait(timeout=THREAD_TIMEOUT):
-            oradio_log.error("Backlight manager thread did not become ready in time")
+        if self._thread.crashed:
+            oradio_log.error("Backlight manager thread crashed during startup: %s", self._thread.exception)
             Errors.publish(ErrorMessage(BACKLIGHT_SOURCE, BACKLIGHT_ERROR_START))
             return
 
         oradio_log.info("Backlight manager thread started")
 
     def stop(self) -> None:
-        """Stop the backlighting auto-adjust thread and wait for it to terminate."""
-        if not self._thread or not self._thread.is_alive():
+        """
+        Stop the backlighting auto-adjust worker and wait for it to terminate.
+
+        Note:
+            The worker can be resumed later via start(); see its docstring
+            for how transition state is preserved across the stop/start
+            cycle.
+        """
+        if not self._thread.is_alive():
             oradio_log.debug("Backlight manager thread not running")
             return
 
-        # Signal the backlight manager thread to stop
-        self._running.clear()
-
-        # Avoid hanging forever if the thread is stuck in I/O
-        self._thread.join(timeout=THREAD_TIMEOUT)
-
-        if self._thread.is_alive():
-            oradio_log.error("Join timed out: backlight manager thread is still running")
+        if not self._thread.safe_stop():
+            oradio_log.error("Backlight manager thread did not stop cleanly")
             Errors.publish(ErrorMessage(BACKLIGHT_SOURCE, BACKLIGHT_ERROR_STOP))
         else:
             oradio_log.info("Backlight manager thread stopped")
@@ -291,7 +301,7 @@ if __name__ == '__main__':
 
     # Imports only relevant when stand-alone
     from constants import YELLOW, NC
-    from utilities import input_prompt
+    from utilities import input_prompt              # pylint: disable=ungrouped-imports
     from messaging import DebugMessageHandler       # pylint: disable=ungrouped-imports
 
     # Most modules use similar code in stand-alone

@@ -56,28 +56,34 @@ JOIN_TIMEOUT = 5.0  # seconds; timeout for thread to start/stop
 
 T = TypeVar("T")
 
-class ThreadTemplate(Thread):
+class ThreadTemplate:
     """
-    Template for a background thread with start/stop/crash detection.
+    Template for a restartable background worker with start/stop/crash detection.
 
     Subclass and override:
-        setup(): One-time init, runs at the start of the thread.
+        setup(): One-time init, runs at the start of each run.
         do_work(): The repeated unit of work.
-        teardown(): One-time cleanup, runs when the thread is stopping.
+        teardown(): One-time cleanup, runs when the run is stopping.
+
+    Unlike a raw Thread, one ThreadTemplate instance can be safe_start()ed,
+    safe_stop()ped, and safe_start()ed again any number of times: each
+    safe_start() creates a fresh internal Thread (since a Thread object
+    itself can only ever be run once) and resets the events/exception state
+    left over from the previous run.
     """
 
     def __init__(self, *, interval: float = 1.0, name: str | None = None) -> None:
         """
-        Initializes the thread.
+        Initializes the worker.
 
         Args:
             interval: Seconds to wait between do_work() calls. Defaults to 1.0.
             name: Thread name. Defaults to the subclass's class name if not given.
         """
-        super().__init__(name=name or self.__class__.__name__, daemon=True)
         self._interval = interval
+        self._name = name or self.__class__.__name__
 
-        self._stop_event = Event()      # set by stop(), checked by run()
+        self._stop_event = Event()      # set by safe_stop(), checked by run()
         self._started_event = Event()   # set once setup() finishes (or crashes)
 
         # _exception is written from run() (the worker thread) and read from
@@ -87,42 +93,63 @@ class ThreadTemplate(Thread):
         self._exception_lock = Lock()
         self._exception: Exception | None = None    # holds exception raised in run(), if any
 
+        # The actual OS thread, (re)created fresh on each safe_start() since
+        # a Thread object itself can only ever be started once.
+        self._thread: Thread | None = None
+
     # --- lifecycle -----------------------------------------------------
 
     def safe_start(self, timeout: float = JOIN_TIMEOUT) -> bool:
         """
-        Starts the thread and waits until setup() has completed.
+        Starts (or restarts) the worker and waits until setup() has completed.
+
+        Creates a fresh internal Thread each call and resets the state left
+        over from any previous run, so this can be called again after
+        safe_stop() to run the same instance a second (or later) time.
 
         Args:
             timeout: Max seconds to wait for setup() to finish. Defaults to 5.0.
 
         Returns:
             True if the thread reported ready within timeout,
-            False if it failed to start or setup() did not complete in time.
-            Note this does NOT mean setup() succeeded -- check
-            the crashed property afterward to distinguish "timed out"
-            from "started and immediately crashed".
+            False if it's already running, failed to start, or setup() did
+            not complete in time. Note that True does NOT mean setup()
+            succeeded -- check the crashed property afterward to distinguish
+            "timed out" from "started and immediately crashed".
         """
+        if self._thread is not None and self._thread.is_alive():
+            oradio_log.error("%s is already running", self._name)
+            return False
+
+        # Reset state left over from a previous run so this run starts clean.
+        self._stop_event.clear()
+        self._started_event.clear()
+        with self._exception_lock:
+            self._exception = None
+
+        # A fresh Thread object every time -- Thread.start() itself refuses
+        # to run twice, so restartability requires a new one per run.
+        self._thread = Thread(target=self.run, name=self._name, daemon=True)
+
         try:
             # Spawns the OS thread and schedules run(). Can raise
-            # RuntimeError if called twice or if the OS can't allocate
-            # a new thread.
-            super().start()
+            # RuntimeError if the OS can't allocate a new thread.
+            self._thread.start()
         except RuntimeError:
-            oradio_log.exception("%s failed to start thread", self.name)
+            oradio_log.exception("%s failed to start thread", self._name)
             return False
 
         # Block here until run() signals that setup() has completed,
         # rather than assuming the thread is ready as soon as it's spawned.
         started_ok = self._started_event.wait(timeout)
         if not started_ok:
-            oradio_log.error("%s failed to start within %ss", self.name, timeout)
+            oradio_log.error("%s failed to start within %ss", self._name, timeout)
         return started_ok
 
     def run(self) -> None:
         """
-        Thread entry point. Do not call directly -- use start().
- 
+        Internal thread entry point. Do not call directly -- use safe_start().
+
         Runs setup() once, then calls do_work() immediately, then
         repeatedly again every interval seconds until stop() is
         called, then runs teardown(). (do_work() fires right after
@@ -151,9 +178,9 @@ class ThreadTemplate(Thread):
         except Exception as exc:      # pylint: disable=broad-exception-caught
             with self._exception_lock:
                 self._exception = exc
-            oradio_log.exception("%s crashed", self.name)
-            # Unblock start() even if setup() itself crashed, so callers
-            # waiting on start() don't hang for the full timeout.
+            oradio_log.exception("%s crashed", self._name)
+            # Unblock safe_start() even if setup() itself crashed, so callers
+            # waiting on safe_start() don't hang for the full timeout.
             self._started_event.set()
 
         finally:
@@ -162,46 +189,69 @@ class ThreadTemplate(Thread):
             self.teardown()
 
     def safe_stop(self, timeout: float = JOIN_TIMEOUT) -> bool:
-        """Signals the thread to stop and waits for it to finish.
+        """Signals the worker to stop and waits for it to finish.
+
+        After this returns, safe_start() can be called again to run the
+        same instance again from a clean state.
 
         Args:
             timeout: Max seconds to wait for the thread to exit.
 
         Returns:
-            True if the thread finished within timeout, False if it's still
-            alive afterward (e.g. do_work() is blocked on something that
-            ignores _stop_event). Note that a stuck thread cannot be forcibly
-            killed -- False just tells you it happened.
+            True if the thread finished within timeout, or if it was never
+            started. False if it's still alive afterward (e.g. do_work() is
+            blocked on something that ignores _stop_event), or if it crashed.
+            Note that a stuck thread cannot be forcibly killed -- False just
+            tells you it happened.
         """
-        self._stop_event.set()  # tells run()'s loop condition to exit
-        self.join(timeout)      # blocks until the thread actually exits
+        if self._thread is None:
+            oradio_log.debug("%s was not started", self._name)
+            return True
 
-        if self.is_alive():
-            oradio_log.error("%s did not stop within %ss", self.name, timeout)
+        self._stop_event.set()      # tells run()'s loop condition to exit
+        self._thread.join(timeout)  # blocks until the thread actually exits
+
+        if self._thread.is_alive():
+            oradio_log.error("%s did not stop within %ss", self._name, timeout)
             return False
 
         if self.crashed:
-            oradio_log.error("%s crashed with exception: %s", self.name, self.exception)
+            oradio_log.error("%s crashed with exception: %s", self._name, self.exception)
             return False
         return True
+
+    def is_alive(self) -> bool:
+        """
+        Whether the underlying thread currently exists and is running.
+
+        Mirrors threading.Thread.is_alive() since ThreadTemplate no longer
+        inherits from Thread.
+        """
+        return self._thread is not None and self._thread.is_alive()
+
+    @property
+    def name(self) -> str:
+        """The worker's name, as passed to __init__ (or the class name by default)."""
+        return self._name
 
     @property
     def stopping(self) -> bool:
         """
-        True once stop() has been called, even before the
-        thread has actually exited. Useful inside a long-running
-        do_work() to check whether it should bail out early.
+        True once safe_stop() has been called for the current run, even
+        before the thread has actually exited. Reset to False at the start
+        of the next safe_start(). Useful inside a long-running do_work() to
+        check whether it should bail out early.
         """
         return self._stop_event.is_set()
 
     @property
     def crashed(self) -> bool:
-        """True if setup() or do_work() raised an exception."""
+        """True if setup() or do_work() raised an exception during the current/last run."""
         return self._exception is not None
 
     @property
     def exception(self) -> Exception | None:
-        """The exception raised inside run(), if any."""
+        """The exception raised inside run() during the current/last run, if any."""
         with self._exception_lock:
             return self._exception
 
@@ -209,9 +259,10 @@ class ThreadTemplate(Thread):
 
     def setup(self) -> None:
         """
-        Called once before the work loop starts. Override for
-        one-time initialization (opening connections, allocating
-        resources, etc.). Default implementation does nothing.
+        Called once before the work loop starts, on every run (i.e. again
+        on each safe_start() after a safe_stop()). Override for one-time
+        per-run initialization (opening connections, allocating resources,
+        etc.). Default implementation does nothing.
         """
         # Pass is intentional, see doc string
         pass    # pylint: disable=unnecessary-pass
