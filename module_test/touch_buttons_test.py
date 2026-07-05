@@ -31,7 +31,7 @@ from touch_buttons import TouchButtons, BUTTON_DEBOUNCE_TIME
 from remote_debugger import setup_remote_debugging
 from gpio_service import BUTTONS, GPIOService
 from utilities import input_prompt
-from messaging import Commands, CommandMessage, Errors, safe_get, DebugMessageHandler
+from messaging import safe_get, Commands, Incidents, CommandMessage, DebugMessageHandler
 
 ##### GLOBAL constants ####################################
 from constants import (
@@ -458,13 +458,13 @@ if __name__ == '__main__':
 
     # Subscribe to command and error topics so published messages are printed to console
     cmd_handler = DebugMessageHandler(Commands.subscribe())
-    err_handler = DebugMessageHandler(Errors.subscribe())
+    err_handler = DebugMessageHandler(Incidents.subscribe())
 
     _start_module_test(cmd_handler.get_queue())
 
     # Stop receiving messages
     Commands.unsubscribe(cmd_handler.get_queue())
-    Errors.unsubscribe(err_handler.get_queue())
+    Incidents.unsubscribe(err_handler.get_queue())
 
     # Signal the threads to exit and confirm it has exited
     cmd_handler.stop()

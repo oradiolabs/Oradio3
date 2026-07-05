@@ -55,7 +55,7 @@ from messaging import (
     WIFI_CONNECTED,
     WIFI_DISCONNECTED,
     WIFI_ACCESS_POINT,
-    WIFI_ERROR_CONNECT,
+    WIFI_INCIDENT_CONNECT,
     WEB_SOURCE,
     WEB_IDLE,
     WEB_ACTIVE,
@@ -665,7 +665,7 @@ HANDLERS = {
         WIFI_DISCONNECTED: on_wifi_not_connected,
         WIFI_CONNECTED: on_wifi_connected,
         WIFI_ACCESS_POINT: on_wifi_access_point,
-        WIFI_ERROR_CONNECT: on_wifi_fail_connect,
+        WIFI_INCIDENT_CONNECT: on_wifi_fail_connect,
     },
     WEB_SOURCE: {
         WEB_IDLE: on_webservice_idle,

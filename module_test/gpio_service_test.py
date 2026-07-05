@@ -34,7 +34,7 @@ from threading import Thread, Event
 
 ##### Oradio modules ######################################
 from utilities import input_prompt
-from messaging import Errors, DebugMessageHandler
+from messaging import Incidents, DebugMessageHandler
 from remote_debugger import setup_remote_debugging
 from gpio_service import GPIOService, LED_ON, LED_OFF, LEDS, BUTTONS, BOUNCE_MS
 
@@ -344,7 +344,7 @@ if __name__ == '__main__':
     print("\nStarting test program...\n")
 
     # Subscribe to command and error topics so published messages are printed to console
-    err_handler = DebugMessageHandler(Errors.subscribe())
+    err_handler = DebugMessageHandler(Incidents.subscribe())
 
     # try to setup a remote debugger connection, if enabled in remote_debugger.py
     debugger_status, connection_status = setup_remote_debugging()
@@ -356,7 +356,7 @@ if __name__ == '__main__':
     _start_module_test()
 
     # Stop receiving messages
-    Errors.unsubscribe(err_handler.get_queue())
+    Incidents.unsubscribe(err_handler.get_queue())
     # Signal the thread to exit and confirm it has exited
     err_handler.stop()
 
