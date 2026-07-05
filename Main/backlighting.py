@@ -29,11 +29,11 @@ from log_service import oradio_log
 from i2c_service import I2CService
 from utilities import ThreadTemplate
 from messaging import (
-    Errors,
-    ErrorMessage,
+    Incidents,
+    IncidentMessage,
     BACKLIGHT_SOURCE,
-    BACKLIGHT_ERROR_START,
-    BACKLIGHT_ERROR_STOP,
+    BACKLIGHT_INCIDENT_START,
+    BACKLIGHT_INCIDENT_STOP,
 )
 
 ##### LOCAL constants #####################################
@@ -238,12 +238,12 @@ class Backlighting:
 
         if not self._thread.safe_start():
             oradio_log.error("Backlight manager thread failed to start")
-            Errors.publish(ErrorMessage(BACKLIGHT_SOURCE, BACKLIGHT_ERROR_START))
+            Incidents.publish(IncidentMessage(BACKLIGHT_SOURCE, BACKLIGHT_INCIDENT_START))
             return
 
         if self._thread.crashed:
             oradio_log.error("Backlight manager thread crashed during startup: %s", self._thread.exception)
-            Errors.publish(ErrorMessage(BACKLIGHT_SOURCE, BACKLIGHT_ERROR_START))
+            Incidents.publish(IncidentMessage(BACKLIGHT_SOURCE, BACKLIGHT_INCIDENT_START))
             return
 
         oradio_log.info("Backlight manager thread started")
@@ -263,7 +263,7 @@ class Backlighting:
 
         if not self._thread.safe_stop():
             oradio_log.error("Backlight manager thread did not stop cleanly")
-            Errors.publish(ErrorMessage(BACKLIGHT_SOURCE, BACKLIGHT_ERROR_STOP))
+            Incidents.publish(IncidentMessage(BACKLIGHT_SOURCE, BACKLIGHT_INCIDENT_STOP))
         else:
             oradio_log.info("Backlight manager thread stopped")
 
@@ -365,13 +365,13 @@ if __name__ == '__main__':
     print("\nStarting test program...\n")
 
     # Subscribe to error topics so published messages are printed to console
-    err_handler = DebugMessageHandler(Errors.subscribe())
+    err_handler = DebugMessageHandler(Incidents.subscribe())
 
     # Launch the interactive test menu; blocks until the user quits
     interactive_menu()
 
     # Stop receiving messages
-    Errors.unsubscribe(err_handler.get_queue())
+    Incidents.unsubscribe(err_handler.get_queue())
     # Signal the thread to exit and confirm it has exited
     err_handler.stop()
 

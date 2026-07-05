@@ -38,15 +38,15 @@ from singleton import singleton
 from log_service import oradio_log
 from wifi_service import networkmanager_add
 from messaging import (
-    Errors,
     Commands,
-    ErrorMessage,
+    Incidents,
     CommandMessage,
+    IncidentMessage,
     USB_SOURCE,
     USB_PRESENT,
     USB_ABSENT,
-    USB_ERROR_FILE,
-    USB_ERROR_SERVICE,
+    USB_INCIDENT_FILE,
+    USB_INCIDENT_SERVICE,
 )
 
 ##### GLOBAL constants ####################################
@@ -179,7 +179,7 @@ class USBObserver(FileSystemEventHandler):
                 ]
             }
 
-        Publishes USB_ERROR_FILE on any read, parse, or validation error.
+        Publishes USB_INCIDENT_FILE on any read, parse, or validation error.
         """
         oradio_log.info("Checking %s for wifi credentials", USB_WIFI_FILE)
 
@@ -195,13 +195,13 @@ class USBObserver(FileSystemEventHandler):
         except (JSONDecodeError, OSError) as ex_err:
             # Covers malformed JSON and filesystem errors (permissions, I/O)
             oradio_log.error("Failed to read or parse '%s': error: %s", USB_WIFI_FILE, ex_err)
-            Errors.publish(ErrorMessage(USB_SOURCE, USB_ERROR_FILE))
+            Incidents.publish(IncidentMessage(USB_SOURCE, USB_INCIDENT_FILE))
             return
 
         # The root object must contain a "networks" key whose value is a list
         if "networks" not in data or not isinstance(data["networks"], list):
             oradio_log.error("'networks' must be a list")
-            Errors.publish(ErrorMessage(USB_SOURCE, USB_ERROR_FILE))
+            Incidents.publish(IncidentMessage(USB_SOURCE, USB_INCIDENT_FILE))
             return
 
         # Validate every entry first; track whether all pass so we know if it
@@ -214,7 +214,7 @@ class USBObserver(FileSystemEventHandler):
                 # errors in this pass rather than stopping at the first failure
                 all_valid = False
                 oradio_log.error(err_msg)
-                Errors.publish(ErrorMessage(USB_SOURCE, USB_ERROR_FILE))
+                Incidents.publish(IncidentMessage(USB_SOURCE, USB_INCIDENT_FILE))
             else:
                 # Strip surrounding whitespace from SSID; passwords are left
                 # untouched because internal spaces are valid in WPA keys
@@ -227,7 +227,7 @@ class USBObserver(FileSystemEventHandler):
                 else:
                     all_valid = False
                     oradio_log.error("Failed to add '%s' to NetworkManager", ssid)
-                    Errors.publish(ErrorMessage(USB_SOURCE, USB_ERROR_FILE))
+                    Incidents.publish(IncidentMessage(USB_SOURCE, USB_INCIDENT_FILE))
 
         if all_valid:
             # Remove the credentials file to prevent re-import and to avoid
@@ -237,11 +237,11 @@ class USBObserver(FileSystemEventHandler):
                 oradio_log.info("'%s' removed", USB_WIFI_FILE)
             except (FileNotFoundError, PermissionError) as ex_err:
                 oradio_log.error("Failed to remove '%s': %s", USB_WIFI_FILE, ex_err)
-                Errors.publish(ErrorMessage(USB_SOURCE, USB_ERROR_FILE))
+                Incidents.publish(IncidentMessage(USB_SOURCE, USB_INCIDENT_FILE))
         else:
             # Leave the file in place so the user can correct the errors
             oradio_log.error("'%s' has errors, is not removed", USB_WIFI_FILE)
-            Errors.publish(ErrorMessage(USB_SOURCE, USB_ERROR_FILE))
+            Incidents.publish(IncidentMessage(USB_SOURCE, USB_INCIDENT_FILE))
 
 ##### Public API ##########################################
 
@@ -292,7 +292,7 @@ class USBService:
 
         Schedules USBObserver on USB_STATEPATH (non-recursive) and
         starts the observer in a background thread. Logs an error and publishes
-        USB_ERROR_SERVICE if the observer thread fails to start.
+        USB_INCIDENT_SERVICE if the observer thread fails to start.
         """
         self.observer = Observer()
 
@@ -306,7 +306,7 @@ class USBService:
             oradio_log.info("USB observer started")
         except Exception as ex_err:  # pylint: disable=broad-exception-caught
             oradio_log.error("USB observer failed to start: %s", ex_err)
-            Errors.publish(ErrorMessage(USB_SOURCE, USB_ERROR_SERVICE))
+            Incidents.publish(IncidentMessage(USB_SOURCE, USB_INCIDENT_SERVICE))
 
     def get_state(self) -> str:
         """
@@ -385,14 +385,14 @@ if __name__ == '__main__':
 
     # Subscribe to command and error topics so published messages are printed to console
     cmd_handler = DebugMessageHandler(Commands.subscribe())
-    err_handler = DebugMessageHandler(Errors.subscribe())
+    err_handler = DebugMessageHandler(Incidents.subscribe())
 
     # Launch the interactive test menu; blocks until the user quits
     interactive_menu()
 
     # Stop receiving messages
     Commands.unsubscribe(cmd_handler.get_queue())
-    Errors.unsubscribe(err_handler.get_queue())
+    Incidents.unsubscribe(err_handler.get_queue())
     # Signal the thread to exit and confirm it has exited
     cmd_handler.stop()
     err_handler.stop()

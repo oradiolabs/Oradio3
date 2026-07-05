@@ -35,11 +35,11 @@ from RPi import GPIO
 from log_service import oradio_log
 from singleton import singleton
 from messaging import (
-    Errors,
-    ErrorMessage,
+    Incidents,
+    IncidentMessage,
     GPIO_SOURCE,
-    GPIO_ERROR_SERVICE,
-    GPIO_ERROR_BUTTONS,
+    GPIO_INCIDENT_SERVICE,
+    GPIO_INCIDENT_BUTTONS,
 )
 
 ##### GLOBAL constants ####################################
@@ -134,7 +134,7 @@ class GPIOService:
                 GPIO.setup(pin, GPIO.OUT, initial=GPIO.HIGH)
             except RuntimeError as err:
                 oradio_log.error("Error setting LED output for pin %s: %s", pin, err)
-                Errors.publish(ErrorMessage(GPIO_SOURCE, GPIO_ERROR_SERVICE))
+                Incidents.publish(IncidentMessage(GPIO_SOURCE, GPIO_INCIDENT_SERVICE))
 
         # Initialise button pins as inputs with internal pull-up resistors.
         for button_name, pin in BUTTONS.items():
@@ -142,7 +142,7 @@ class GPIOService:
                 GPIO.setup(pin, GPIO.IN, pull_up_down=GPIO.PUD_UP)
             except RuntimeError as err:
                 oradio_log.error("Error setting BUTTON input for pin %s: %s", pin, err)
-                Errors.publish(ErrorMessage(GPIO_SOURCE, GPIO_ERROR_SERVICE))
+                Incidents.publish(IncidentMessage(GPIO_SOURCE, GPIO_INCIDENT_SERVICE))
 
             self.gpio_to_button[pin] = button_name
 
@@ -278,12 +278,12 @@ class GPIOService:
         Must be called after set_button_edge_event_callback(). If events
         were enabled first, a button press occurring between the two calls
         would invoke a None callback and be silently dropped. Publishes
-        GPIO_ERROR_BUTTONS and returns early if no callback has been
+        GPIO_INCIDENT_BUTTONS and returns early if no callback has been
         registered.
         """
         if not callable(self.edge_event_callback):
             oradio_log.error("Cannot enable button events: callback not set")
-            Errors.publish(ErrorMessage(GPIO_SOURCE, GPIO_ERROR_BUTTONS))
+            Incidents.publish(IncidentMessage(GPIO_SOURCE, GPIO_INCIDENT_BUTTONS))
             return
 
         for pin in BUTTONS.values():

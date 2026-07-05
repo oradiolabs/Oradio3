@@ -38,11 +38,11 @@ from mpd import MPDClient, CommandError, ProtocolError, ConnectionError as MPDCo
 ##### Oradio modules ######################################
 from log_service import oradio_log
 from messaging import (
-    Errors,
-    ErrorMessage,
+    Incidents,
+    IncidentMessage,
     MPD_SOURCE,
-    MPD_ERROR_CONNECT,
-    MPD_ERROR_EXECUTE,
+    MPD_INCIDENT_CONNECT,
+    MPD_INCIDENT_EXECUTE,
 )
 
 ##### LOCAL constants #####################################
@@ -96,7 +96,7 @@ class MPDService:
 
         Cleans up any stale connection before each attempt, then connects
         and optionally sets the crossfade value. If all retries are exhausted,
-        an error is logged and published to the Errors topic.
+        an error is logged and published to the Incidents topic.
         """
         for attempt in range(1, MPD_RETRIES + 1):
             try:
@@ -135,7 +135,7 @@ class MPDService:
 
         # All retries exhausted
         oradio_log.error("Failed to connect to MPD after %d attempts", MPD_RETRIES)
-        Errors.publish(ErrorMessage(MPD_SOURCE, MPD_ERROR_CONNECT))
+        Incidents.publish(IncidentMessage(MPD_SOURCE, MPD_INCIDENT_CONNECT))
 
     def _execute(self, command: str, *args, allow_reconnect: bool = True, **kwargs) -> Any | None:
         """
@@ -211,7 +211,7 @@ class MPDService:
 
         # All retries exhausted
         oradio_log.error("Failed to execute MPD command '%s' after %d retries", command, MPD_RETRIES)
-        Errors.publish(ErrorMessage(MPD_SOURCE, MPD_ERROR_EXECUTE))
+        Incidents.publish(IncidentMessage(MPD_SOURCE, MPD_INCIDENT_EXECUTE))
         return None
 
 ##### Public API ##########################################
@@ -223,7 +223,7 @@ class MPDService:
         Merges the results of the MPD 'stats' and 'status' commands into a
         single dictionary. If either command fails after all retries, its
         contribution is an empty dict; the failure is logged and published
-        to the Errors topic by _execute().
+        to the Incidents topic by _execute().
 
         Returns:
             dict: Merged dictionary of statistics and status data, or a
@@ -243,7 +243,7 @@ if __name__ == '__main__':
     print("\nStarting test program...\n")
 
     # Subscribe to error topic so published messages are printed to console
-    err_handler = DebugMessageHandler(Errors.subscribe())
+    err_handler = DebugMessageHandler(Incidents.subscribe())
 
     # Instantiate MPD service and print current stats
     mpd_service = MPDService()
@@ -253,7 +253,7 @@ if __name__ == '__main__':
         print(f"{key:>20} : {value}")
 
     # Stop receiving messages
-    Errors.unsubscribe(err_handler.get_queue())
+    Incidents.unsubscribe(err_handler.get_queue())
 
     # Signal the thread to exit and confirm it has exited
     err_handler.stop()

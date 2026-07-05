@@ -31,10 +31,10 @@ from log_service import oradio_log
 from singleton import singleton
 from mpd_service import MPDService
 from messaging import (
-    Errors,
-    ErrorMessage,
+    Incidents,
+    IncidentMessage,
     MPD_SOURCE,
-    MPD_ERROR_MONITOR,
+    MPD_INCIDENT_MONITOR,
 )
 
 ##### LOCAL constants #####################################
@@ -94,7 +94,7 @@ class MPDMonitor(MPDService):
             self._thread.start()
         except RuntimeError as ex_err:
             oradio_log.error("MPD monitor thread failed to start: %s", ex_err)
-            Errors.publish(ErrorMessage(MPD_SOURCE, MPD_ERROR_MONITOR))
+            Incidents.publish(IncidentMessage(MPD_SOURCE, MPD_INCIDENT_MONITOR))
             return
 
         oradio_log.info("MPD monitor thread started")
@@ -250,7 +250,7 @@ if __name__ == "__main__":
     print("\nStarting test program...\n")
 
     # Subscribe to error topic so published messages are printed to console.
-    err_handler = DebugMessageHandler(Errors.subscribe())
+    err_handler = DebugMessageHandler(Incidents.subscribe())
 
     # Start the MPD monitor (also starts the background thread).
     mpd_monitor = MPDMonitor()
@@ -259,7 +259,7 @@ if __name__ == "__main__":
     interactive_menu(mpd_monitor)
 
     # Stop receiving error messages.
-    Errors.unsubscribe(err_handler.get_queue())
+    Incidents.unsubscribe(err_handler.get_queue())
 
     # Signal the handler thread to exit and confirm it has exited.
     err_handler.stop()

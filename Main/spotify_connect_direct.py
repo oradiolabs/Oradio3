@@ -24,16 +24,16 @@ from threading import Thread
 ##### Oradio modules ######################################
 from log_service import oradio_log
 from messaging import (
-    Errors,
     Commands,
-    ErrorMessage,
+    Incidents,
     CommandMessage,
+    IncidentMessage,
     SPOTIFY_SOURCE,
     SPOTIFY_CONNECTED_EVENT,
     SPOTIFY_DISCONNECTED_EVENT,
     SPOTIFY_PLAYING_EVENT,
     SPOTIFY_PAUSED_EVENT,
-    SPOTIFY_ERROR_MONITOR,
+    SPOTIFY_INCIDENT_MONITOR,
 )
 
 ##### LOCAL constants #####################################
@@ -68,7 +68,7 @@ class SpotifyConnect:
             oradio_log.info("SpotifyConnect: monitor thread started.")
         except Exception as ex_err:  # pylint: disable=broad-exception-caught
             oradio_log.error("SpotifyConnect: monitor thread failed to start: %s", ex_err)
-            Errors.publish(ErrorMessage(SPOTIFY_SOURCE, SPOTIFY_ERROR_MONITOR))
+            Incidents.publish(IncidentMessage(SPOTIFY_SOURCE, SPOTIFY_INCIDENT_MONITOR))
 
     def _read_flag(self, filepath: str) -> bool:
         """
@@ -229,14 +229,14 @@ if __name__ == '__main__':
 
     # Subscribe to command and error topics so published messages are printed to console
     cmd_handler = DebugMessageHandler(Commands.subscribe())
-    err_handler = DebugMessageHandler(Errors.subscribe())
+    err_handler = DebugMessageHandler(Incidents.subscribe())
 
     # Launch the interactive test menu; blocks until the user quits
     interactive_menu()
 
     # Stop receiving messages
     Commands.unsubscribe(cmd_handler.get_queue())
-    Errors.unsubscribe(err_handler.get_queue())
+    Incidents.unsubscribe(err_handler.get_queue())
     # Signal the thread to exit and confirm it has exited
     cmd_handler.stop()
     err_handler.stop()

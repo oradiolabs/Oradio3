@@ -27,14 +27,14 @@ from log_service import oradio_log
 from i2c_service import I2CService
 from utilities import run_shell_script
 from messaging import (
-    Errors,
     Commands,
-    ErrorMessage,
+    Incidents,
     CommandMessage,
+    IncidentMessage,
     VOLUME_SOURCE,
     VOLUME_CHANGED,
-    VOLUME_ERROR_START,
-    VOLUME_ERROR_STOP,
+    VOLUME_INCIDENT_START,
+    VOLUME_INCIDENT_STOP,
 )
 
 ##### LOCAL constants #####################################
@@ -220,12 +220,12 @@ class VolumeControl:
             self._thread.start()
         except RuntimeError as ex_err:
             oradio_log.error("Volume manager thread failed to start: %s", ex_err)
-            Errors.publish(ErrorMessage(VOLUME_SOURCE, VOLUME_ERROR_START))
+            Incidents.publish(IncidentMessage(VOLUME_SOURCE, VOLUME_INCIDENT_START))
             return
 
         if not self._running.wait(timeout=THREAD_TIMEOUT):
             oradio_log.error("Volume manager thread did not become ready in time")
-            Errors.publish(ErrorMessage(VOLUME_SOURCE, VOLUME_ERROR_START))
+            Incidents.publish(IncidentMessage(VOLUME_SOURCE, VOLUME_INCIDENT_START))
             return
 
         oradio_log.info("Volume manager thread started")
@@ -244,7 +244,7 @@ class VolumeControl:
 
         if self._thread.is_alive():
             oradio_log.error("Join timed out: volume manager thread is still running")
-            Errors.publish(ErrorMessage(VOLUME_SOURCE, VOLUME_ERROR_STOP))
+            Incidents.publish(IncidentMessage(VOLUME_SOURCE, VOLUME_INCIDENT_STOP))
         else:
             oradio_log.info("Volume manager thread stopped")
 
@@ -304,14 +304,14 @@ if __name__ == "__main__":
 
     # Subscribe to command and error topics so published messages are printed to console
     cmd_handler = DebugMessageHandler(Commands.subscribe())
-    err_handler = DebugMessageHandler(Errors.subscribe())
+    err_handler = DebugMessageHandler(Incidents.subscribe())
 
     # Launch the interactive test menu; blocks until the user quits
     interactive_menu()
 
     # Stop receiving messages
     Commands.unsubscribe(cmd_handler.get_queue())
-    Errors.unsubscribe(err_handler.get_queue())
+    Incidents.unsubscribe(err_handler.get_queue())
     # Signal the thread to exit and confirm it has exited
     cmd_handler.stop()
     err_handler.stop()

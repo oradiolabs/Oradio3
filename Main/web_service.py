@@ -51,20 +51,20 @@ from utilities import run_shell_script
 from web_server import api_app
 from wifi_service import WifiService, get_wifi_connection
 from messaging import (
-    Errors,
-    Commands,
     safe_get,
-    ErrorMessage,
+    Commands,
+    Incidents,
     CommandMessage,
+    IncidentMessage,
     WIFI_DISCONNECTED,
     WIFI_CONNECTED,
     WIFI_ACCESS_POINT,
     WEB_SOURCE,
     WEB_IDLE,
     WEB_ACTIVE,
-    WEB_ERROR_START,
-    WEB_ERROR_STOP,
-    WEB_ERROR_SERVICE,
+    WEB_INCIDENT_START,
+    WEB_INCIDENT_STOP,
+    WEB_INCIDENT_SERVICE,
 )
 
 ##### GLOBAL constants ####################################
@@ -162,7 +162,7 @@ class UvicornServerThread:
                 oradio_log.info("Uvicorn server started")
             except Exception as ex_err:  # pylint: disable=broad-exception-caught
                 oradio_log.error("Uvicorn server failed to start: %s", ex_err)
-                Errors.publish(ErrorMessage(WEB_SOURCE, WEB_ERROR_SERVICE))
+                Incidents.publish(IncidentMessage(WEB_SOURCE, WEB_INCIDENT_SERVICE))
                 return False
 
             # Poll server.started — set by Uvicorn once the server is accepting connections.
@@ -170,7 +170,7 @@ class UvicornServerThread:
             while not self._server.started:
                 if time.time() > deadline:
                     oradio_log.warning("Uvicorn server did not become ready in time")
-                    Errors.publish(ErrorMessage(WEB_SOURCE, WEB_ERROR_SERVICE))
+                    Incidents.publish(IncidentMessage(WEB_SOURCE, WEB_INCIDENT_SERVICE))
                     return False
                 time.sleep(0.1)
 
@@ -197,7 +197,7 @@ class UvicornServerThread:
 
             if self._thread.is_alive():
                 oradio_log.warning("Uvicorn server thread did not exit cleanly")
-                Errors.publish(ErrorMessage(WEB_SOURCE, WEB_ERROR_SERVICE))
+                Incidents.publish(IncidentMessage(WEB_SOURCE, WEB_INCIDENT_SERVICE))
                 return False
 
             oradio_log.info("Uvicorn server stopped")
@@ -250,7 +250,7 @@ class WebService:
         Sets up the shared queue, wires it into the FastAPI application state,
         creates the Uvicorn wrapper, and starts the message-listener thread,
         which runs for the full lifetime of the process and has no stop mechanism.
-        Logs an error and publishes WEB_ERROR_SERVICE if either the Uvicorn
+        Logs an error and publishes WEB_INCIDENT_SERVICE if either the Uvicorn
         wrapper or the listener thread fails to initialise. Publishes WEB_IDLE
         to the message bus so the controller starts from a known baseline.
 
@@ -275,7 +275,7 @@ class WebService:
             self.uvicorn_server = UvicornServerThread(api_app)
         except Exception as ex_err:     # pylint: disable=broad-exception-caught
             oradio_log.error("Failed to initialize UvicornServerThread: %s", ex_err)
-            Errors.publish(ErrorMessage(WEB_SOURCE, WEB_ERROR_SERVICE))
+            Incidents.publish(IncidentMessage(WEB_SOURCE, WEB_INCIDENT_SERVICE))
 
         # Daemon thread: drains request_queue and dispatches to service methods.
         # Exits automatically when the main process exits.
@@ -286,7 +286,7 @@ class WebService:
             oradio_log.info("Web server started")
         except Exception as ex_err:  # pylint: disable=broad-exception-caught
             oradio_log.error("Web server failed to start: %s", ex_err)
-            Errors.publish(ErrorMessage(WEB_SOURCE, WEB_ERROR_SERVICE))
+            Incidents.publish(IncidentMessage(WEB_SOURCE, WEB_INCIDENT_SERVICE))
 
         # Announce initial state so the controller starts from a known baseline.
         Commands.publish(CommandMessage(WEB_SOURCE, self.state))
@@ -316,7 +316,7 @@ class WebService:
         rules = self._get_nat_rules()
         if rules is None:
             oradio_log.error("Failed to get NAT rules")
-            Errors.publish(ErrorMessage(WEB_SOURCE, WEB_ERROR_START))
+            Incidents.publish(IncidentMessage(WEB_SOURCE, WEB_INCIDENT_START))
             return False
         if _IPTABLES_REDIRECT_RULE in rules:
             return True  # Already present; nothing to do.
@@ -327,7 +327,7 @@ class WebService:
         result, error = run_shell_script(cmd)
         if not result:
             oradio_log.error("Failed to add port redirect rule: %s", error)
-            Errors.publish(ErrorMessage(WEB_SOURCE, WEB_ERROR_START))
+            Incidents.publish(IncidentMessage(WEB_SOURCE, WEB_INCIDENT_START))
             return False
         return True
 
@@ -341,7 +341,7 @@ class WebService:
         rules = self._get_nat_rules()
         if rules is None:
             oradio_log.error("Failed to get NAT rules")
-            Errors.publish(ErrorMessage(WEB_SOURCE, WEB_ERROR_STOP))
+            Incidents.publish(IncidentMessage(WEB_SOURCE, WEB_INCIDENT_STOP))
             return False
         if _IPTABLES_REDIRECT_RULE not in rules:
             return True  # Already absent; nothing to do.
@@ -352,7 +352,7 @@ class WebService:
         result, error = run_shell_script(cmd)
         if not result:
             oradio_log.error("Failed to remove port redirect rule: %s", error)
-            Errors.publish(ErrorMessage(WEB_SOURCE, WEB_ERROR_STOP))
+            Incidents.publish(IncidentMessage(WEB_SOURCE, WEB_INCIDENT_STOP))
             return False
         return True
 
@@ -369,7 +369,7 @@ class WebService:
         result, error = run_shell_script(cmd)
         if not result:
             oradio_log.error("Failed to write DNS redirect config: %s", error)
-            Errors.publish(ErrorMessage(WEB_SOURCE, WEB_ERROR_START))
+            Incidents.publish(IncidentMessage(WEB_SOURCE, WEB_INCIDENT_START))
             return False
         return True
 
@@ -385,7 +385,7 @@ class WebService:
         result, error = run_shell_script(f"sudo rm -f {_DNS_REDIRECT_CONF}")
         if not result:
             oradio_log.error("Failed to remove DNS redirect config: %s", error)
-            Errors.publish(ErrorMessage(WEB_SOURCE, WEB_ERROR_STOP))
+            Incidents.publish(IncidentMessage(WEB_SOURCE, WEB_INCIDENT_STOP))
             return False
         return True
 
@@ -401,7 +401,7 @@ class WebService:
         Args:
             target_states (set): Acceptable WifiService state values to wait for.
             error_type:          Error message constant to publish on timeout
-                                 (e.g. WEB_ERROR_START or WEB_ERROR_STOP).
+                                 (e.g. WEB_INCIDENT_START or WEB_INCIDENT_STOP).
 
         Returns:
             bool: True if a target state was reached, False on timeout.
@@ -410,7 +410,7 @@ class WebService:
         while self.wifi_service.get_state() not in target_states:
             if time.time() > deadline:
                 oradio_log.error("Timeout waiting for WiFi state in %s", target_states)
-                Errors.publish(ErrorMessage(WEB_SOURCE, error_type))
+                Incidents.publish(IncidentMessage(WEB_SOURCE, error_type))
                 return False
             time.sleep(1)
         return True
@@ -480,7 +480,7 @@ class WebService:
         Start the Captive Portal service.
 
         Performs the following steps in order, aborting and publishing a
-        WEB_ERROR_START error if any step fails:
+        WEB_INCIDENT_START error if any step fails:
 
         1. Switch WiFi into access point mode (transition is asynchronous;
            confirmation is deferred to step 5 so the server can start in
@@ -497,7 +497,7 @@ class WebService:
         """
         if self.uvicorn_server is None:
             oradio_log.error("Uvicorn server not initialized")
-            Errors.publish(ErrorMessage(WEB_SOURCE, WEB_ERROR_START))
+            Incidents.publish(IncidentMessage(WEB_SOURCE, WEB_INCIDENT_START))
             return
 
         # Check running state before committing to any side-effecting steps.
@@ -525,10 +525,10 @@ class WebService:
 
         if not self.uvicorn_server.start():
             oradio_log.error("Uvicorn server failed to start")
-            Errors.publish(ErrorMessage(WEB_SOURCE, WEB_ERROR_START))
+            Incidents.publish(IncidentMessage(WEB_SOURCE, WEB_INCIDENT_START))
             return
 
-        if not self._wait_for_wifi_state({WIFI_ACCESS_POINT}, WEB_ERROR_START):
+        if not self._wait_for_wifi_state({WIFI_ACCESS_POINT}, WEB_INCIDENT_START):
             return
 
         Commands.publish(CommandMessage(WEB_SOURCE, self.state))
@@ -546,8 +546,8 @@ class WebService:
         4. Remove the dnsmasq DNS redirect config file.
         5. Wait for the WiFi interface to reach WIFI_DISCONNECTED or WIFI_CONNECTED.
 
-        Step 2 publishes WEB_ERROR_STOP directly in stop() if the Uvicorn server
-        fails to stop. Steps 3 and 4 publish WEB_ERROR_STOP internally in their
+        Step 2 publishes WEB_INCIDENT_STOP directly in stop() if the Uvicorn server
+        fails to stop. Steps 3 and 4 publish WEB_INCIDENT_STOP internally in their
         helper methods. All failures continue so that remaining teardown steps
         are still attempted.
         """
@@ -558,17 +558,17 @@ class WebService:
 
         if self.uvicorn_server is None:
             oradio_log.error("Uvicorn server not initialized")
-            Errors.publish(ErrorMessage(WEB_SOURCE, WEB_ERROR_STOP))
+            Incidents.publish(IncidentMessage(WEB_SOURCE, WEB_INCIDENT_STOP))
         else:
             if not self.uvicorn_server.stop():
-                Errors.publish(ErrorMessage(WEB_SOURCE, WEB_ERROR_STOP))
+                Incidents.publish(IncidentMessage(WEB_SOURCE, WEB_INCIDENT_STOP))
 
-        # Helper methods publish WEB_ERROR_STOP internally on failure;
+        # Helper methods publish WEB_INCIDENT_STOP internally on failure;
         # stop() does not re-publish so each error is reported exactly once.
         self._remove_port_redirect()
         self._remove_dns_redirect()
 
-        self._wait_for_wifi_state({WIFI_DISCONNECTED, WIFI_CONNECTED}, WEB_ERROR_STOP)
+        self._wait_for_wifi_state({WIFI_DISCONNECTED, WIFI_CONNECTED}, WEB_INCIDENT_STOP)
 
         Commands.publish(CommandMessage(WEB_SOURCE, self.state))
 
@@ -665,14 +665,14 @@ if __name__ == '__main__':
 
     # Subscribe to command and error topics so published messages are printed to console
     cmd_handler = DebugMessageHandler(Commands.subscribe())
-    err_handler = DebugMessageHandler(Errors.subscribe())
+    err_handler = DebugMessageHandler(Incidents.subscribe())
 
     # Launch the interactive test menu; blocks until the user quits
     interactive_menu()
 
     # Stop receiving messages
     Commands.unsubscribe(cmd_handler.get_queue())
-    Errors.unsubscribe(err_handler.get_queue())
+    Incidents.unsubscribe(err_handler.get_queue())
     # Signal the thread to exit and confirm it has exited
     cmd_handler.stop()
     err_handler.stop()

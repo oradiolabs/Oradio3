@@ -41,7 +41,6 @@ from utilities import ThreadTemplate
 
 ##### GLOBAL constants ####################################
 from constants import (
-    RED, YELLOW, GREEN, NC,
     BUTTON_SHORT_PRESS,
     BUTTON_LONG_PRESS,
     BUTTON_PLAY,
@@ -57,56 +56,56 @@ _MAX_QUEUE_SIZE = 1000
 
 ##### Messaging constants #################################
 # Throttling
-THROTTLING_SOURCE          = "Throttling message"
-THROTTLING_ERROR_THROTTLED = "RPi throttled"
+THROTTLING_SOURCE             = "Throttling message"
+THROTTLING_INCIDENT_THROTTLED = "RPi throttled"
 # USB
-USB_SOURCE        = "USB message"
-USB_ABSENT        = "USB drive absent"
-USB_PRESENT       = "USB drive present"
-USB_ERROR_FILE    = "USB file error"
-USB_ERROR_SERVICE = "USB service error"
+USB_SOURCE           = "USB message"
+USB_ABSENT           = "USB drive absent"
+USB_PRESENT          = "USB drive present"
+USB_INCIDENT_FILE    = "USB file incident"
+USB_INCIDENT_SERVICE = "USB service incident"
 # wifi
-WIFI_SOURCE           = "Wifi message"
-WIFI_CONNECTED        = "Wifi connected"
-WIFI_DISCONNECTED     = "Wifi disconnected"
-WIFI_ACCESS_POINT     = "Wifi configured as access point"
-WIFI_ERROR_DBUS       = "D-Bus event handler failed"
-WIFI_ERROR_NMCLI      = "NetworkManager wrapper failed"
-WIFI_ERROR_CONNECT    = "Wifi failed to connect"
-WIFI_ERROR_DISCONNECT = "Wifi failed to disconnect"
+WIFI_SOURCE              = "Wifi message"
+WIFI_CONNECTED           = "Wifi connected"
+WIFI_DISCONNECTED        = "Wifi disconnected"
+WIFI_ACCESS_POINT        = "Wifi configured as access point"
+WIFI_INCIDENT_DBUS       = "D-Bus event handler failed"
+WIFI_INCIDENT_NMCLI      = "NetworkManager wrapper failed"
+WIFI_INCIDENT_CONNECT    = "Wifi failed to connect"
+WIFI_INCIDENT_DISCONNECT = "Wifi failed to disconnect"
 # Web interface
-WEB_SOURCE        = "Web message"
-WEB_IDLE          = "Web service is idle"
-WEB_ACTIVE        = "Web service is running"
-WEB_PL1_PLAYLIST  = "PL1 changed to playlist"
-WEB_PL2_PLAYLIST  = "PL2 changed to playlist"
-WEB_PL3_PLAYLIST  = "PL3 changed to playlist"
-WEB_PL1_WEBRADIO  = "PL1 changed to webradio"
-WEB_PL2_WEBRADIO  = "PL2 changed to webradio"
-WEB_PL3_WEBRADIO  = "PL3 changed to webradio"
-WEB_PLAYING_SONG  = "Web service plays a song"
-WEB_ERROR_START   = "Web service failed to start"
-WEB_ERROR_STOP    = "Web service failed to stop"
-WEB_ERROR_SERVICE = "Web service error"
+WEB_SOURCE           = "Web message"
+WEB_IDLE             = "Web service is idle"
+WEB_ACTIVE           = "Web service is running"
+WEB_PL1_PLAYLIST     = "PL1 changed to playlist"
+WEB_PL2_PLAYLIST     = "PL2 changed to playlist"
+WEB_PL3_PLAYLIST     = "PL3 changed to playlist"
+WEB_PL1_WEBRADIO     = "PL1 changed to webradio"
+WEB_PL2_WEBRADIO     = "PL2 changed to webradio"
+WEB_PL3_WEBRADIO     = "PL3 changed to webradio"
+WEB_PLAYING_SONG     = "Web service plays a song"
+WEB_INCIDENT_START   = "Web service failed to start"
+WEB_INCIDENT_STOP    = "Web service failed to stop"
+WEB_INCIDENT_SERVICE = "Web service incident"
 # Remote Monitoring
-RMS_SOURCE        = "RMS message"
-RMS_ERROR_SERVICE = "RMS service error"
+RMS_SOURCE           = "RMS message"
+RMS_INCIDENT_SERVICE = "RMS service incident"
 # GPIO
-GPIO_SOURCE        = "GPIO message"
-GPIO_ERROR_SERVICE = "GPIO service error"
-GPIO_ERROR_BUTTONS = "GPIO buttons error"
+GPIO_SOURCE           = "GPIO message"
+GPIO_INCIDENT_SERVICE = "GPIO service incident"
+GPIO_INCIDENT_BUTTONS = "GPIO buttons incident"
 # Backlight
-BACKLIGHT_SOURCE      = "Backlight message"
-BACKLIGHT_ERROR_START = "Backlight failed to start"
-BACKLIGHT_ERROR_STOP  = "Backlight failed to stop"
+BACKLIGHT_SOURCE         = "Backlight message"
+BACKLIGHT_INCIDENT_START = "Backlight failed to start"
+BACKLIGHT_INCIDENT_STOP  = "Backlight failed to stop"
 # I2C
-I2C_SOURCE    = "I2C service message"
-I2C_ERROR_BUS = "I2C bus error"
+I2C_SOURCE       = "I2C service message"
+I2C_INCIDENT_BUS = "I2C bus incident"
 # Volume
-VOLUME_SOURCE      = "Volume message"
-VOLUME_CHANGED     = "Volume changed"
-VOLUME_ERROR_START = "Volume failed to start"
-VOLUME_ERROR_STOP  = "Volume failed to stop"
+VOLUME_SOURCE         = "Volume message"
+VOLUME_CHANGED        = "Volume changed"
+VOLUME_INCIDENT_START = "Volume failed to start"
+VOLUME_INCIDENT_STOP  = "Volume failed to stop"
 # Buttons
 BUTTON_SOURCE              = "Button message"
 BUTTON_SHORT_PRESS_PLAY    = BUTTON_SHORT_PRESS + BUTTON_PLAY
@@ -116,17 +115,17 @@ BUTTON_SHORT_PRESS_PRESET2 = BUTTON_SHORT_PRESS + BUTTON_PRESET2
 BUTTON_SHORT_PRESS_PRESET3 = BUTTON_SHORT_PRESS + BUTTON_PRESET3
 BUTTON_LONG_PRESS_PLAY     = BUTTON_LONG_PRESS + BUTTON_PLAY
 # MPD
-MPD_SOURCE        = "MPD message"
-MPD_ERROR_CONNECT = "MPD connect error"
-MPD_ERROR_EXECUTE = "MPD execute error"
-MPD_ERROR_MONITOR = "MPD monitor error"
+MPD_SOURCE           = "MPD message"
+MPD_INCIDENT_CONNECT = "MPD connect incident"
+MPD_INCIDENT_EXECUTE = "MPD execute incident"
+MPD_INCIDENT_MONITOR = "MPD monitor incident"
 # Spotify
-SPOTIFY_SOURCE             = "Spotify message"
-SPOTIFY_CONNECTED_EVENT    = "Spotify connected event"
-SPOTIFY_DISCONNECTED_EVENT = "Spotify disconnected event"
-SPOTIFY_PLAYING_EVENT      = "Spotify playing event"
-SPOTIFY_PAUSED_EVENT       = "Spotify paused event"
-SPOTIFY_ERROR_MONITOR      = "Spotify monitor error"
+SPOTIFY_SOURCE                = "Spotify message"
+SPOTIFY_CONNECTED_EVENT       = "Spotify connected event"
+SPOTIFY_DISCONNECTED_EVENT    = "Spotify disconnected event"
+SPOTIFY_PLAYING_EVENT         = "Spotify playing event"
+SPOTIFY_PAUSED_EVENT          = "Spotify paused event"
+SPOTIFY_INCIDENT_MONITOR      = "Spotify monitor incident"
 
 class Topic(str, Enum):
     """
@@ -135,8 +134,8 @@ class Topic(str, Enum):
     Inheriting from str allows enum members to behave like ordinary strings,
     making them convenient for logging, JSON serialization, and dictionary keys.
     """
-    COMMAND = "COMMAND"
-    ERROR = "ERROR"
+    COMMAND  = "COMMAND"
+    INCIDENT = "INCIDENT"
 
 @dataclass(frozen=True) # Immutable after creation
 class CommandMessage:
@@ -166,13 +165,13 @@ class CommandMessage:
         )
 
 @dataclass(frozen=True) # Immutable after creation
-class ErrorMessage:
+class IncidentMessage:
     """
-    Message sent through the error queue.
+    Message sent through the incident queue.
 
     Attributes:
         source:  Name of the process, service, or component sending the message.
-        message: Error description or diagnostic information.
+        message: Incident description or diagnostic information.
     """
     source: str
     message: str
@@ -253,7 +252,7 @@ class PubSubManager:
         # Cache of the most recent message per source, per topic.
         # New subscribers receive all cached messages on subscribe so they
         # immediately have a consistent view of the last known state.
-        self._last_messages: dict[Topic, dict[str, CommandMessage | ErrorMessage]] = {
+        self._last_messages: dict[Topic, dict[str, CommandMessage | IncidentMessage]] = {
             topic: {} for topic in Topic
         }
 
@@ -333,7 +332,7 @@ class PubSubManager:
 
         oradio_log.debug("Unsubscribed from topic %r", topic)
 
-    def publish(self, topic: Topic, message: CommandMessage | ErrorMessage) -> None:
+    def publish(self, topic: Topic, message: CommandMessage | IncidentMessage) -> None:
         """
         Publish a validated message to all subscribers.
 
@@ -415,15 +414,15 @@ class Commands:
 
         _pubsub.publish(Topic.COMMAND, message)
 
-class Errors:
+class Incidents:
     """
-    Static namespace for ERROR topic operations.
+    Static namespace for INCIDENT topic operations.
     """
 
     @staticmethod
     def subscribe(sources: tuple[str, ...] | None = None) -> Queue:
         """
-        Subscribe to error messages.
+        Subscribe to incident messages.
 
         Args:
             sources: Optional source filter.
@@ -431,45 +430,45 @@ class Errors:
         Returns:
             Subscriber queue.
         """
-        return _pubsub.subscribe(Topic.ERROR, sources)
+        return _pubsub.subscribe(Topic.INCIDENT, sources)
 
     @staticmethod
     def unsubscribe(queue: Queue) -> None:
         """
-        Remove a queue from the ERROR topic.
+        Remove a queue from the INCIDENT topic.
 
         Safe to call more than once for the same queue; repeated calls are
         logged as warnings and ignored.
 
         Args:
-            queue: The Queue returned by the matching Errors.subscribe() call.
+            queue: The Queue returned by the matching Incidents.subscribe() call.
         """
-        _pubsub.unsubscribe(Topic.ERROR, queue)
+        _pubsub.unsubscribe(Topic.INCIDENT, queue)
 
     @staticmethod
-    def publish(message: ErrorMessage) -> None:
+    def publish(message: IncidentMessage) -> None:
         """
-        Validate and publish an error message.
+        Validate and publish an incident message.
 
         Invalid messages are treated as fatal errors.
 
         Args:
             message: Message to publish.
         """
-        if not isinstance(message, ErrorMessage):
-            _fatal_exit(f"Wrong message type for Errors.publish: {message!r}", stacklevel=5)
+        if not isinstance(message, IncidentMessage):
+            _fatal_exit(f"Wrong message type for Incidents.publish: {message!r}", stacklevel=5)
 
         if not message.is_valid():
-            _fatal_exit(f"Invalid ErrorMessage rejected: {message!r}", stacklevel=5)
+            _fatal_exit(f"Invalid IncidentMessage rejected: {message!r}", stacklevel=5)
 
-        _pubsub.publish(Topic.ERROR, message)
+        _pubsub.publish(Topic.INCIDENT, message)
 
 def safe_get(queue: Queue) -> Any:
     """
     Return the next message from a queue.
 
     The concrete type of the returned object depends on the queue's producer:
-    messaging bus queues deliver CommandMessage or ErrorMessage instances;
+    messaging bus queues deliver CommandMessage or IncidentMessage instances;
     other queues (e.g. the WebService request queue) may deliver plain dicts
     or stop-sentinel strings.
 
@@ -680,6 +679,7 @@ class DebugMessageHandler(MessageHandlerBase):
 if __name__ == '__main__':
 
     # Imports only relevant when stand-alone
+    from constants import RED, YELLOW, GREEN, NC    # pylint: disable=ungrouped-imports
     from utilities import input_prompt              # pylint: disable=ungrouped-imports
     from multiprocessing import Process             # pylint: disable=ungrouped-imports
 
@@ -692,7 +692,7 @@ if __name__ == '__main__':
         Run an interactive self-test menu for the messaging module.
 
         Allows subscribing and unsubscribing multiple handlers, publishing
-        command and error messages from both threads and the main process, and
+        command and incident messages from both threads and the main process, and
         deliberately triggering the invalid-message fatal-exit path.
 
         DebugMessageHandler objects are stored in cmd_handlers / err_handlers,
@@ -708,23 +708,23 @@ if __name__ == '__main__':
             "Select a function, input the number:\n"
             " 0-Quit\n"
             " 1-Subscribe n COMMAND message handlers\n"
-            " 2-Subscribe n ERROR message handlers\n"
+            " 2-Subscribe n INCIDENT message handlers\n"
             " 3-Publish COMMAND message\n"
-            " 4-Publish ERROR message\n"
+            " 4-Publish INCIDENT message\n"
             " 5-Publish COMMAND message with extra data\n"
             " 6-Publish COMMAND message from THREAD\n"
-            " 7-Publish ERROR message from THREAD\n"
+            " 7-Publish INCIDENT message from THREAD\n"
             " 8-Publish COMMAND message from PROCESS\n"
-            " 9-Publish ERROR message from PROCESS\n"
+            " 9-Publish INCIDENT message from PROCESS\n"
             "10-Publish invalid COMMAND message (exits python application)\n"
-            "11-Publish invalid ERROR message (exits python application)\n"
+            "11-Publish invalid INCIDENT message (exits python application)\n"
             "12-Unsubscribe a COMMAND handler by index\n"
-            "13-Unsubscribe an ERROR handler by index\n"
+            "13-Unsubscribe an INCIDENT handler by index\n"
             "select: "
         )
 
         cmd_index = 1   # Next index to assign to a new COMMAND handler
-        err_index = 1   # Next index to assign to a new ERROR handler
+        err_index = 1   # Next index to assign to a new INCIDENT handler
 
         # Handlers indexed by index so specific subscriptions
         # can be targeted by unsubscribe options (12 and 13).
@@ -743,10 +743,10 @@ if __name__ == '__main__':
                         cmd_handlers[cmd_index] = DebugMessageHandler(Commands.subscribe(), cmd_index)
                         cmd_index += 1
                 case 2:
-                    n = int(input("Enter number of ERROR handlers to subscribe [1]: ").strip() or "1")
+                    n = int(input("Enter number of INCIDENT handlers to subscribe [1]: ").strip() or "1")
                     for _ in range(n):
-                        print(f"Subscribe ERROR handler {err_index}...")
-                        err_handlers[err_index] = DebugMessageHandler(Errors.subscribe(), err_index)
+                        print(f"Subscribe INCIDENT handler {err_index}...")
+                        err_handlers[err_index] = DebugMessageHandler(Incidents.subscribe(), err_index)
                         err_index += 1
                 case 3:
                     if not cmd_handlers:
@@ -756,10 +756,10 @@ if __name__ == '__main__':
                     print(f"{GREEN}Success publishing COMMAND message{NC}\n")
                 case 4:
                     if not err_handlers:
-                        print(f"{YELLOW}No subscribed ERROR handlers{NC}")
-                    print("Publishing ERROR message...")
-                    Errors.publish(ErrorMessage("worker", "error message"))
-                    print(f"{GREEN}Success publishing ERROR message{NC}\n")
+                        print(f"{YELLOW}No subscribed INCIDENT handlers{NC}")
+                    print("Publishing INCIDENT message...")
+                    Incidents.publish(IncidentMessage("worker", "incident message"))
+                    print(f"{GREEN}Success publishing INCIDENT message{NC}\n")
                 case 5:
                     if not cmd_handlers:
                         print(f"{YELLOW}No subscribed COMMAND handlers{NC}")
@@ -778,14 +778,14 @@ if __name__ == '__main__':
                     print(f"{GREEN}Success publishing COMMAND message from THREAD{NC}\n")
                 case 7:
                     if not err_handlers:
-                        print(f"{YELLOW}No subscribed ERROR handlers{NC}")
-                    print("\nPublish ERROR messages from THREAD...")
+                        print(f"{YELLOW}No subscribed INCIDENT handlers{NC}")
+                    print("\nPublish INCIDENT messages from THREAD...")
                     Thread(
-                        target=Errors.publish,
-                        args=(ErrorMessage("worker", "error message from thread"),),
+                        target=Incidents.publish,
+                        args=(IncidentMessage("worker", "incident message from thread"),),
                         daemon=True,
                     ).start()
-                    print(f"{GREEN}Success publishing ERROR message from THREAD{NC}\n")
+                    print(f"{GREEN}Success publishing INCIDENT message from THREAD{NC}\n")
                 case 8:
                     # On Linux (fork start method) the child inherits the parent's
                     # open pipe file descriptors, so this publish is received by
@@ -806,28 +806,28 @@ if __name__ == '__main__':
                     # the parent's subscribers. On Windows/macOS (spawn start method)
                     # no file descriptors are inherited and no handler will fire.
                     if not err_handlers:
-                        print(f"{YELLOW}No subscribed ERROR handlers{NC}")
-                    print("\nPublish ERROR messages from PROCESS...")
+                        print(f"{YELLOW}No subscribed INCIDENT handlers{NC}")
+                    print("\nPublish INCIDENT messages from PROCESS...")
                     Process(
-                        target=Errors.publish,
-                        args=(ErrorMessage("worker", "error message from process"),),
+                        target=Incidents.publish,
+                        args=(IncidentMessage("worker", "incident message from process"),),
                         daemon=True,
                     ).start()
-                    print(f"{GREEN}Success publishing ERROR message from PROCESS{NC}\n")
+                    print(f"{GREEN}Success publishing INCIDENT message from PROCESS{NC}\n")
                 case 10:
-                    # Deliberately pass an ErrorMessage to Commands.publish
+                    # Deliberately pass an IncidentMessage to Commands.publish
                     # to exercise the type-check fatal-exit path.
                     print("Publishing invalid COMMAND message...")
                     # Deliberately passing the wrong message type, so ignore pypi check
-                    Commands.publish(ErrorMessage("worker", "error message"))       # type: ignore[arg-type]
-                    print(f"{RED}Failed catching error sending error message to command queue{NC}\n")
+                    Commands.publish(IncidentMessage("worker", "incident message"))       # type: ignore[arg-type]
+                    print(f"{RED}Failed catching error sending incident message to command queue{NC}\n")
                 case 11:
-                    # Deliberately pass a CommandMessage to Errors.publish
+                    # Deliberately pass a CommandMessage to Incidents.publish
                     # to exercise the type-check fatal-exit path.
-                    print("Publishing invalid ERROR message...")
+                    print("Publishing invalid INCIDENT message...")
                     # Deliberately passing the wrong message type, so ignore pypi check
-                    Errors.publish(CommandMessage("worker", "command message"))     # type: ignore[arg-type]
-                    print(f"{RED}Failed catching error sending command message to error queue{NC}\n")
+                    Incidents.publish(CommandMessage("worker", "command message"))     # type: ignore[arg-type]
+                    print(f"{RED}Failed catching error sending command message to incident queue{NC}\n")
                 case 12:
                     if not cmd_handlers:
                         print(f"{YELLOW}No subscribed COMMAND handlers to unsubscribe{NC}\n")
@@ -851,10 +851,10 @@ if __name__ == '__main__':
                             print(f"{GREEN}COMMAND handler {idx} unsubscribed{NC}\n")
                 case 13:
                     if not err_handlers:
-                        print(f"{YELLOW}No subscribed ERROR handlers to unsubscribe{NC}\n")
+                        print(f"{YELLOW}No subscribed INCIDENT handlers to unsubscribe{NC}\n")
                     else:
                         active = ", ".join(str(i) for i in sorted(err_handlers))
-                        raw = input(f"Active ERROR handler indices [{active}] — enter index to unsubscribe: ")
+                        raw = input(f"Active INCIDENT handler indices [{active}] — enter index to unsubscribe: ")
                         try:
                             idx = int(raw)
                         except ValueError:
@@ -863,13 +863,13 @@ if __name__ == '__main__':
                         if idx not in err_handlers:
                             print(f"{YELLOW}Handler {idx} is not subscribed{NC}\n")
                         else:
-                            print(f"Unsubscribing ERROR handler {idx}...")
+                            print(f"Unsubscribing INCIDENT handler {idx}...")
                             handler = err_handlers.pop(idx)
                             # Stop receiving messages
-                            Errors.unsubscribe(handler.get_queue())
+                            Incidents.unsubscribe(handler.get_queue())
                             # Signal the thread to exit and confirms it has exited.
                             handler.stop()
-                            print(f"{GREEN}ERROR handler {idx} unsubscribed{NC}\n")
+                            print(f"{GREEN}INCIDENT handler {idx} unsubscribed{NC}\n")
                 case _:
                     print(f"\n{YELLOW}Please input a valid number{NC}\n")
 

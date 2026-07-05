@@ -42,16 +42,16 @@ from utilities import get_serial
 from wifi_service import WifiService
 from log_service import oradio_log
 from messaging import (
-    Errors,
     Commands,
-    ErrorMessage,
+    Incidents,
+    IncidentMessage,
     MessageHandlerBase,
     WIFI_SOURCE,
     WIFI_CONNECTED,
     WIFI_DISCONNECTED,
     WIFI_ACCESS_POINT,
     RMS_SOURCE,
-    RMS_ERROR_SERVICE,
+    RMS_INCIDENT_SERVICE,
 )
 
 ##### GLOBAL constants ####################################
@@ -422,7 +422,7 @@ class RMService:
             oradio_log.info("RMS service started")
         except Exception as ex_err:  # pylint: disable=broad-exception-caught
             oradio_log.error("RMS service failed to start: %s", ex_err)
-            Errors.publish(ErrorMessage(RMS_SOURCE, RMS_ERROR_SERVICE))
+            Incidents.publish(IncidentMessage(RMS_SOURCE, RMS_INCIDENT_SERVICE))
 
     def send_message(self, msg_type: str) -> None:
         """

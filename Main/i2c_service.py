@@ -31,10 +31,10 @@ from smbus2 import SMBus
 from log_service import oradio_log
 from singleton import singleton
 from messaging import (
-    Errors,
-    ErrorMessage,
+    Incidents,
+    IncidentMessage,
     I2C_SOURCE,
-    I2C_ERROR_BUS,
+    I2C_INCIDENT_BUS,
 )
 
 ##### LOCAL constants #####################################
@@ -141,13 +141,13 @@ class I2CService:
         buses = find_i2c_buses()
         if not buses:
             oradio_log.error("No I2C buses found under /dev/")
-            Errors.publish(ErrorMessage(I2C_SOURCE, I2C_ERROR_BUS))
+            Incidents.publish(IncidentMessage(I2C_SOURCE, I2C_INCIDENT_BUS))
             return
 
         info = test_i2c_bus(buses[0])
         if not info["ok"]:
             oradio_log.error("I2C bus %d not accessible: %s", buses[0], info['error'])
-            Errors.publish(ErrorMessage(I2C_SOURCE, I2C_ERROR_BUS))
+            Incidents.publish(IncidentMessage(I2C_SOURCE, I2C_INCIDENT_BUS))
             return
 
         self._bus = SMBus(buses[0])
@@ -169,7 +169,7 @@ class I2CService:
         """
         if self._bus is None:
             oradio_log.error("I2C bus not available")
-            Errors.publish(ErrorMessage(I2C_SOURCE, I2C_ERROR_BUS))
+            Incidents.publish(IncidentMessage(I2C_SOURCE, I2C_INCIDENT_BUS))
             return None
 
         with self._lock:
@@ -194,7 +194,7 @@ class I2CService:
         """
         if self._bus is None:
             oradio_log.error("I2C bus not available")
-            Errors.publish(ErrorMessage(I2C_SOURCE, I2C_ERROR_BUS))
+            Incidents.publish(IncidentMessage(I2C_SOURCE, I2C_INCIDENT_BUS))
             return
 
         for attempt in range(1, I2C_RETRIES + 1):
@@ -227,7 +227,7 @@ class I2CService:
         """
         if self._bus is None:
             oradio_log.error("I2C bus not available")
-            Errors.publish(ErrorMessage(I2C_SOURCE, I2C_ERROR_BUS))
+            Incidents.publish(IncidentMessage(I2C_SOURCE, I2C_INCIDENT_BUS))
             return None
 
         if length > 32:
@@ -256,7 +256,7 @@ class I2CService:
         """
         if self._bus is None:
             oradio_log.error("I2C bus not available")
-            Errors.publish(ErrorMessage(I2C_SOURCE, I2C_ERROR_BUS))
+            Incidents.publish(IncidentMessage(I2C_SOURCE, I2C_INCIDENT_BUS))
             return
 
         if len(data) > 32:

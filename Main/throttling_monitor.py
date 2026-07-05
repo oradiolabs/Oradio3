@@ -41,10 +41,10 @@ from threading import Thread, Event
 from singleton import singleton
 from log_service import oradio_log
 from messaging import (
-    Errors,
-    ErrorMessage,
+    Incidents,
+    IncidentMessage,
     THROTTLING_SOURCE,
-    THROTTLING_ERROR_THROTTLED,
+    THROTTLING_INCIDENT_THROTTLED,
 )
 
 ##### LOCAL constants #####################################
@@ -133,7 +133,7 @@ class RPiThrottlingMonitor:
         if value & HISTORICAL_MASK:
             reasons = self._decode_flags(value, HISTORICAL_MASK)
             oradio_log.warning("RPi HEALTH WARNING (since boot): %s", ", ".join(reasons))
-            Errors.publish(ErrorMessage(THROTTLING_SOURCE, THROTTLING_ERROR_THROTTLED))
+            Incidents.publish(IncidentMessage(THROTTLING_SOURCE, THROTTLING_INCIDENT_THROTTLED))
 
         # Start the background polling thread.
         self.start()
@@ -216,7 +216,7 @@ class RPiThrottlingMonitor:
                     # One or more throttling conditions just became active.
                     reasons = self._decode_flags(value, ACTIVE_MASK)
                     oradio_log.warning("RPi throttling ENTERED: %s", ", ".join(reasons))
-                    Errors.publish(ErrorMessage(THROTTLING_SOURCE, THROTTLING_ERROR_THROTTLED))
+                    Incidents.publish(IncidentMessage(THROTTLING_SOURCE, THROTTLING_INCIDENT_THROTTLED))
                 else:
                     # All throttling conditions have cleared.
                     oradio_log.info("RPi throttling CLEARED")
@@ -393,13 +393,13 @@ if __name__ == "__main__":
     print("\nStarting test program...\n")
 
     # Subscribe to error topics and start message handler
-    err_handler = DebugMessageHandler(Errors.subscribe())
+    err_handler = DebugMessageHandler(Incidents.subscribe())
 
     # Present menu with tests
     interactive_menu()
 
     # Stop receiving messages
-    Errors.unsubscribe(err_handler.get_queue())
+    Incidents.unsubscribe(err_handler.get_queue())
     # Signal the thread to exit and confirm it has exited
     err_handler.stop()
 

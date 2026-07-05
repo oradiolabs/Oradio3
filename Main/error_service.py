@@ -28,42 +28,42 @@ from collections.abc import Callable
 ##### Oradio modules ######################################
 from log_service import oradio_log
 from messaging import (
-    Errors,
-    ErrorMessage,
+    Incidents,
+    IncidentMessage,
     MessageHandlerBase,
     THROTTLING_SOURCE,
-    THROTTLING_ERROR_THROTTLED,
+    THROTTLING_INCIDENT_THROTTLED,
     USB_SOURCE,
-    USB_ERROR_FILE,
-    USB_ERROR_SERVICE,
+    USB_INCIDENT_FILE,
+    USB_INCIDENT_SERVICE,
     WIFI_SOURCE,
-    WIFI_ERROR_DBUS,
-    WIFI_ERROR_NMCLI,
-    WIFI_ERROR_CONNECT,
-    WIFI_ERROR_DISCONNECT,
+    WIFI_INCIDENT_DBUS,
+    WIFI_INCIDENT_NMCLI,
+    WIFI_INCIDENT_CONNECT,
+    WIFI_INCIDENT_DISCONNECT,
     RMS_SOURCE,
-    RMS_ERROR_SERVICE,
+    RMS_INCIDENT_SERVICE,
     WEB_SOURCE,
-    WEB_ERROR_START,
-    WEB_ERROR_STOP,
-    WEB_ERROR_SERVICE,
+    WEB_INCIDENT_START,
+    WEB_INCIDENT_STOP,
+    WEB_INCIDENT_SERVICE,
     GPIO_SOURCE,
-    GPIO_ERROR_SERVICE,
-    GPIO_ERROR_BUTTONS,
+    GPIO_INCIDENT_SERVICE,
+    GPIO_INCIDENT_BUTTONS,
     BACKLIGHT_SOURCE,
-    BACKLIGHT_ERROR_START,
-    BACKLIGHT_ERROR_STOP,
+    BACKLIGHT_INCIDENT_START,
+    BACKLIGHT_INCIDENT_STOP,
     I2C_SOURCE,
-    I2C_ERROR_BUS,
+    I2C_INCIDENT_BUS,
     VOLUME_SOURCE,
-    VOLUME_ERROR_START,
-    VOLUME_ERROR_STOP,
+    VOLUME_INCIDENT_START,
+    VOLUME_INCIDENT_STOP,
     MPD_SOURCE,
-    MPD_ERROR_CONNECT,
-    MPD_ERROR_EXECUTE,
-    MPD_ERROR_MONITOR,
+    MPD_INCIDENT_CONNECT,
+    MPD_INCIDENT_EXECUTE,
+    MPD_INCIDENT_MONITOR,
     SPOTIFY_SOURCE,
-    SPOTIFY_ERROR_MONITOR,
+    SPOTIFY_INCIDENT_MONITOR,
 )
 
 ##### LOCAL constants #####################################
@@ -86,11 +86,11 @@ class ErrorHandler(MessageHandlerBase):
         which subscribes to the error bus and starts the worker thread.
         """
         # Subscribe to error messages and initialise base class and start the worker thread
-        self._queue = Errors.subscribe()
+        self._queue = Incidents.subscribe()
 
         # Map each source constant to its handler method.
         # Adding a new source only requires one new line here.
-        self._dispatch: dict[str, Callable[[ErrorMessage], None]] = {
+        self._dispatch: dict[str, Callable[[IncidentMessage], None]] = {
             THROTTLING_SOURCE: self._handle_throttling_error,
             USB_SOURCE:        self._handle_usb_error,
             WIFI_SOURCE:       self._handle_wifi_error,
@@ -109,7 +109,7 @@ class ErrorHandler(MessageHandlerBase):
 
 ##### Helpers #############################################
 
-    def _handle_throttling_error(self, error: ErrorMessage) -> None:
+    def _handle_throttling_error(self, error: IncidentMessage) -> None:
         """
         Handle throttling-related errors.
 
@@ -119,13 +119,13 @@ class ErrorHandler(MessageHandlerBase):
         Args:
             error: Error message received from the error bus.
         """
-        if error.message == THROTTLING_ERROR_THROTTLED:
+        if error.message == THROTTLING_INCIDENT_THROTTLED:
 # NIET VERGETEN: implement throttle-recovery logic (e.g. back-off, retry)
             oradio_log.debug("Throttled mitigation to be implemented")
         else:
             oradio_log.error("Unhandled throttling error: '%s'", error.message)
 
-    def _handle_usb_error(self, error: ErrorMessage) -> None:
+    def _handle_usb_error(self, error: IncidentMessage) -> None:
         """
         Handle USB-related errors.
 
@@ -135,16 +135,16 @@ class ErrorHandler(MessageHandlerBase):
         Args:
             error: Error message received from the error bus.
         """
-        if error.message == USB_ERROR_FILE:
+        if error.message == USB_INCIDENT_FILE:
 # NIET VERGETEN: implement file-level USB error recovery (e.g. re-mount, rescan)
             oradio_log.debug("USB file error mitigation to be implemented")
-        elif error.message == USB_ERROR_SERVICE:
+        elif error.message == USB_INCIDENT_SERVICE:
 # NIET VERGETEN: implement USB service recovery (e.g. restart udev / service)
             oradio_log.debug("USB service error mitigation to be implemented")
         else:
             oradio_log.error("Unhandled USB error: '%s'", error.message)
 
-    def _handle_wifi_error(self, error: ErrorMessage) -> None:
+    def _handle_wifi_error(self, error: IncidentMessage) -> None:
         """
         Handle WiFi-related error messages.
 
@@ -154,23 +154,23 @@ class ErrorHandler(MessageHandlerBase):
         Args:
             error: Error message received from the error bus.
         """
-        if error.message == WIFI_ERROR_DBUS:
+        if error.message == WIFI_INCIDENT_DBUS:
 # NIET VERGETEN: implement D-Bus event handler error recovery
             oradio_log.debug("Failed D-Bus event handler error mitigation to be implemented")
-        elif error.message == WIFI_ERROR_NMCLI:
+        elif error.message == WIFI_INCIDENT_NMCLI:
 # NIET VERGETEN: implement failed to interact with NetworkManager error recovery
             oradio_log.debug("Failed to interact with NetworkManager error mitigation to be implemented")
-        elif error.message == WIFI_ERROR_CONNECT:
+        elif error.message == WIFI_INCIDENT_CONNECT:
 # NIET VERGETEN: implement wifi connect failed recovery
 # LET OP: wordt in wifi_service als command verstuurd en in oradio_control in state machine afgehandeld
             oradio_log.debug("Wifi connect failed error mitigation to be implemented")
-        elif error.message == WIFI_ERROR_DISCONNECT:
+        elif error.message == WIFI_INCIDENT_DISCONNECT:
 # NIET VERGETEN: implement wifi disconnect failed recovery
             oradio_log.debug("Wifi disconnect failed error mitigation to be implemented")
         else:
             oradio_log.error("Unhandled wifi error: '%s'", error.message)
 
-    def _handle_rms_error(self, error: ErrorMessage) -> None:
+    def _handle_rms_error(self, error: IncidentMessage) -> None:
         """
         Handle rms-related errors.
 
@@ -180,13 +180,13 @@ class ErrorHandler(MessageHandlerBase):
         Args:
             error: Error message received from the error bus.
         """
-        if error.message == RMS_ERROR_SERVICE:
+        if error.message == RMS_INCIDENT_SERVICE:
 # NIET VERGETEN: implement rms-recovery logic (e.g. back-off, retry)
             oradio_log.debug("Remote monitoring mitigation to be implemented")
         else:
             oradio_log.error("Unhandled Remote monitoring error: '%s'", error.message)
 
-    def _handle_web_error(self, error: ErrorMessage) -> None:
+    def _handle_web_error(self, error: IncidentMessage) -> None:
         """
         Handle web-related errors.
 
@@ -196,19 +196,19 @@ class ErrorHandler(MessageHandlerBase):
         Args:
             error: Error message received from the error bus.
         """
-        if error.message == WEB_ERROR_SERVICE:
+        if error.message == WEB_INCIDENT_SERVICE:
 # NIET VERGETEN: implement web-recovery logic (e.g. back-off, retry)
             oradio_log.debug("Web mitigation to be implemented")
-        elif error.message == WEB_ERROR_START:
+        elif error.message == WEB_INCIDENT_START:
 # NIET VERGETEN: implement web-recovery logic (e.g. back-off, retry)
             oradio_log.debug("Web mitigation to be implemented")
-        elif error.message == WEB_ERROR_STOP:
+        elif error.message == WEB_INCIDENT_STOP:
 # NIET VERGETEN: implement web-recovery logic (e.g. back-off, retry)
             oradio_log.debug("Web mitigation to be implemented")
         else:
             oradio_log.error("Unhandled web error: '%s'", error.message)
 
-    def _handle_gpio_error(self, error: ErrorMessage) -> None:
+    def _handle_gpio_error(self, error: IncidentMessage) -> None:
         """
         Handle gpio-related errors.
 
@@ -218,16 +218,16 @@ class ErrorHandler(MessageHandlerBase):
         Args:
             error: Error message received from the error bus.
         """
-        if error.message == GPIO_ERROR_SERVICE:
+        if error.message == GPIO_INCIDENT_SERVICE:
 # NIET VERGETEN: implement gpio-recovery logic (e.g. back-off, retry)
             oradio_log.debug("GPIO service mitigation to be implemented")
-        elif error.message == GPIO_ERROR_BUTTONS:
+        elif error.message == GPIO_INCIDENT_BUTTONS:
 # NIET VERGETEN: implement gpio-recovery logic (e.g. back-off, retry)
             oradio_log.debug("GPIO buttons mitigation to be implemented")
         else:
             oradio_log.error("Unhandled GPIO error: '%s'", error.message)
 
-    def _handle_backlight_error(self, error: ErrorMessage) -> None:
+    def _handle_backlight_error(self, error: IncidentMessage) -> None:
         """
         Handle backlight-related errors.
 
@@ -237,16 +237,16 @@ class ErrorHandler(MessageHandlerBase):
         Args:
             error: Error message received from the error bus.
         """
-        if error.message == BACKLIGHT_ERROR_START:
+        if error.message == BACKLIGHT_INCIDENT_START:
 # NIET VERGETEN: implement backlight-recovery logic (e.g. back-off, retry)
             oradio_log.debug("Backlight start mitigation to be implemented")
-        elif error.message == BACKLIGHT_ERROR_STOP:
+        elif error.message == BACKLIGHT_INCIDENT_STOP:
 # NIET VERGETEN: implement backlight-recovery logic (e.g. back-off, retry)
             oradio_log.debug("Backlight stop mitigation to be implemented")
         else:
             oradio_log.error("Unhandled backlight error: '%s'", error.message)
 
-    def _handle_i2c_error(self, error: ErrorMessage) -> None:
+    def _handle_i2c_error(self, error: IncidentMessage) -> None:
         """
         Handle I2C-related errors.
 
@@ -256,13 +256,13 @@ class ErrorHandler(MessageHandlerBase):
         Args:
             error: Error message received from the error bus.
         """
-        if error.message == I2C_ERROR_BUS:
+        if error.message == I2C_INCIDENT_BUS:
 # NIET VERGETEN: implement I2C-recovery logic (e.g. back-off, retry)
             oradio_log.debug("I2C bus mitigation to be implemented")
         else:
             oradio_log.error("Unhandled I2C error: '%s'", error.message)
 
-    def _handle_volume_error(self, error: ErrorMessage) -> None:
+    def _handle_volume_error(self, error: IncidentMessage) -> None:
         """
         Handle volume-related errors.
 
@@ -272,16 +272,16 @@ class ErrorHandler(MessageHandlerBase):
         Args:
             error: Error message received from the error bus.
         """
-        if error.message == VOLUME_ERROR_START:
+        if error.message == VOLUME_INCIDENT_START:
 # NIET VERGETEN: implement volume-recovery logic (e.g. back-off, retry)
             oradio_log.debug("Volume start mitigation to be implemented")
-        elif error.message == VOLUME_ERROR_STOP:
+        elif error.message == VOLUME_INCIDENT_STOP:
 # NIET VERGETEN: implement volume-recovery logic (e.g. back-off, retry)
             oradio_log.debug("Volume stop mitigation to be implemented")
         else:
             oradio_log.error("Unhandled volume error: '%s'", error.message)
 
-    def _handle_mpd_error(self, error: ErrorMessage) -> None:
+    def _handle_mpd_error(self, error: IncidentMessage) -> None:
         """
         Handle mpd-related errors.
 
@@ -291,19 +291,19 @@ class ErrorHandler(MessageHandlerBase):
         Args:
             error: Error message received from the error bus.
         """
-        if error.message == MPD_ERROR_CONNECT:
+        if error.message == MPD_INCIDENT_CONNECT:
 # NIET VERGETEN: implement MPDService-recovery logic (e.g. back-off, retry)
             oradio_log.debug("MPD connect mitigation to be implemented")
-        elif error.message == MPD_ERROR_EXECUTE:
+        elif error.message == MPD_INCIDENT_EXECUTE:
 # NIET VERGETEN: implement MPDMonitor-recovery logic (e.g. back-off, retry)
             oradio_log.debug("MPD execute mitigation to be implemented")
-        elif error.message == MPD_ERROR_MONITOR:
+        elif error.message == MPD_INCIDENT_MONITOR:
 # NIET VERGETEN: implement MPDMonitor-recovery logic (e.g. back-off, retry)
             oradio_log.debug("MPD monitor mitigation to be implemented")
         else:
             oradio_log.error("Unhandled MPD error: '%s'", error.message)
 
-    def _handle_spotify_error(self, error: ErrorMessage) -> None:
+    def _handle_spotify_error(self, error: IncidentMessage) -> None:
         """
         Handle Spotify-related errors.
 
@@ -313,13 +313,13 @@ class ErrorHandler(MessageHandlerBase):
         Args:
             error: Error message received from the error bus.
         """
-        if error.message == SPOTIFY_ERROR_MONITOR:
+        if error.message == SPOTIFY_INCIDENT_MONITOR:
 # NIET VERGETEN: implement Spotify-recovery logic (e.g. back-off, retry)
             oradio_log.debug("Spotify monitor mitigation to be implemented")
         else:
             oradio_log.error("Unhandled Spotify error: '%s'", error.message)
 
-    def _handle_test_error(self, error: ErrorMessage) -> None:
+    def _handle_test_error(self, error: IncidentMessage) -> None:
         """
         Handle test errors published by the stand-alone self-test.
 
@@ -330,7 +330,7 @@ class ErrorHandler(MessageHandlerBase):
 
 ##### Core ################################################
 
-    def _handle_message(self, message: ErrorMessage) -> None:
+    def _handle_message(self, message: IncidentMessage) -> None:
         """
         Dispatch incoming error to its source-specific handler.
 
@@ -353,7 +353,7 @@ class ErrorHandler(MessageHandlerBase):
         Unsubscribe from error messages and call the base class to stop the worker thread.
         """
         # Remove from registry first — no new messages after this point.
-        Errors.unsubscribe(self._queue)
+        Incidents.unsubscribe(self._queue)
         super().stop()
 
 ##### Stand-alone entry point #############################
@@ -391,11 +391,11 @@ if __name__ == '__main__':
                 case 1:
                     # Publish a known test error; handler should accept it
                     print("\nPublish error message...")
-                    Errors.publish(ErrorMessage(TEST_SOURCE, "error test message"))
+                    Incidents.publish(IncidentMessage(TEST_SOURCE, "error test message"))
                 case 2:
                     # Publish an unrecognised error; handler should return False
                     print("\nPublish unexpected message...")
-                    Errors.publish(ErrorMessage(UNEXPECTED, "Unexpected message"))
+                    Incidents.publish(IncidentMessage(UNEXPECTED, "Unexpected message"))
                 case _:
                     print(f"\n{YELLOW}Please input a valid number{NC}\n")
 
