@@ -17,11 +17,11 @@ Created on May 15, 2026
 @email:         oradioinfo@stichtingoradio.nl
 @status:        Development
 @summary:
-    Top-level error handling service.
+    Top-level incident handling service.
 
-    Subscribes to the system error bus and applies mitigation for
-    recognised error conditions from registered sources. Unknown
-    errors are logged for further investigation.
+    Subscribes to the incident bus and applies mitigation
+    for recognised incidents from registered sources.
+    Unknown incidents are logged for further investigation.
 """
 from collections.abc import Callable
 
@@ -31,210 +31,103 @@ from messaging import (
     Incidents,
     IncidentMessage,
     MessageHandlerBase,
-    THROTTLING_SOURCE,
-    THROTTLING_INCIDENT_THROTTLED,
-    USB_SOURCE,
-    USB_INCIDENT_FILE,
-    USB_INCIDENT_SERVICE,
-    WIFI_SOURCE,
-    WIFI_INCIDENT_DBUS,
-    WIFI_INCIDENT_NMCLI,
-    WIFI_INCIDENT_CONNECT,
-    WIFI_INCIDENT_DISCONNECT,
-    RMS_SOURCE,
-    RMS_INCIDENT_SERVICE,
-    WEB_SOURCE,
-    WEB_INCIDENT_START,
-    WEB_INCIDENT_STOP,
-    WEB_INCIDENT_SERVICE,
-    GPIO_SOURCE,
-    GPIO_INCIDENT_SERVICE,
-    GPIO_INCIDENT_BUTTONS,
 
     BACKLIGHTING_SOURCE,
     BACKLIGHTING_FAILED,
     BACKLIGHTING_STOPPED,
 
+    GPIO_SOURCE,
+    GPIO_INCIDENT_SERVICE,
+    GPIO_INCIDENT_BUTTONS,
+
     I2C_SOURCE,
     I2C_INCIDENT_BUS,
-    VOLUME_SOURCE,
-    VOLUME_INCIDENT_START,
-    VOLUME_INCIDENT_STOP,
+
     MPD_SOURCE,
     MPD_INCIDENT_CONNECT,
     MPD_INCIDENT_EXECUTE,
     MPD_INCIDENT_MONITOR,
+
+    RMS_SOURCE,
+    RMS_INCIDENT_SERVICE,
+
     SPOTIFY_SOURCE,
     SPOTIFY_INCIDENT_MONITOR,
+
+    THROTTLING_SOURCE,
+    THROTTLING_FAILED,
+    THROTTLING_THROTTLED,
+    THROTTLING_STOPPED,
+
+    USB_SOURCE,
+    USB_INCIDENT_FILE,
+    USB_INCIDENT_SERVICE,
+
+    VOLUME_SOURCE,
+    VOLUME_INCIDENT_START,
+    VOLUME_INCIDENT_STOP,
+
+    WEB_SOURCE,
+    WEB_INCIDENT_START,
+    WEB_INCIDENT_STOP,
+    WEB_INCIDENT_SERVICE,
+
+    WIFI_SOURCE,
+    WIFI_INCIDENT_DBUS,
+    WIFI_INCIDENT_NMCLI,
+    WIFI_INCIDENT_CONNECT,
+    WIFI_INCIDENT_DISCONNECT,
 )
 
 ##### LOCAL constants #####################################
-# Source identifier used when publishing errors from this module's self-tests
-TEST_SOURCE = "Test error message"
+# Source identifier used when publishing incidents from this module's self-tests
+TEST_SOURCE = "Test message"
 
-# Placeholder source name used to exercise the unrecognised-error code path
+# Placeholder source name used to exercise the unrecognised-incident code path
 UNEXPECTED = "Unexpected source"
 
 class IncidentHandler(MessageHandlerBase):
     """
-    Handle error messages and perform error-specific mitigation.
+    Handle Incident messages and perform incident-specific mitigation.
 
     Dispatches each message to a source-specific handler method;
     unrecognised sources are logged as errors.
     """
     def __init__(self) -> None:
         """
-        Subscribe to error messages and call the base class constructor,
-        which subscribes to the error bus and starts the worker thread.
+        Subscribe to incident messages and call the base class constructor,
+        which subscribes to the incident bus and starts the worker thread.
         """
-        # Subscribe to error messages and initialise base class and start the worker thread
+        # Subscribe to incident messages and initialise base class and start the worker thread
         self._queue = Incidents.subscribe()
 
         # Map each source constant to its handler method.
         # Adding a new source only requires one new line here.
         self._dispatch: dict[str, Callable[[IncidentMessage], None]] = {
-            THROTTLING_SOURCE:   self._handle_throttling_error,
-            USB_SOURCE:          self._handle_usb_error,
-            WIFI_SOURCE:         self._handle_wifi_error,
-            RMS_SOURCE:          self._handle_rms_error,
-            WEB_SOURCE:          self._handle_web_error,
-            GPIO_SOURCE:         self._handle_gpio_error,
-            BACKLIGHTING_SOURCE: self._handle_backlighting_error,
-            I2C_SOURCE:          self._handle_i2c_error,
-            VOLUME_SOURCE:       self._handle_volume_error,
-            MPD_SOURCE:          self._handle_mpd_error,
-            SPOTIFY_SOURCE:      self._handle_spotify_error,
-            TEST_SOURCE:         self._handle_test_error,
+            BACKLIGHTING_SOURCE: self._handle_backlighting_incident,
+            GPIO_SOURCE:         self._handle_gpio_incident,
+            I2C_SOURCE:          self._handle_i2c_incident,
+            MPD_SOURCE:          self._handle_mpd_incident,
+            RMS_SOURCE:          self._handle_rms_incident,
+            SPOTIFY_SOURCE:      self._handle_spotify_incident,
+            THROTTLING_SOURCE:   self._handle_throttling_incident,
+            USB_SOURCE:          self._handle_usb_incident,
+            VOLUME_SOURCE:       self._handle_volume_incident,
+            WEB_SOURCE:          self._handle_web_incident,
+            WIFI_SOURCE:         self._handle_wifi_incident,
+            TEST_SOURCE:         self._handle_test_incident,
         }
 
         super().__init__(self._queue)
 
 ##### Helpers #############################################
 
-    def _handle_throttling_error(self, error: IncidentMessage) -> None:
-        """
-        Handle throttling-related errors.
-
-        Attempts recovery from known throttling conditions and logs
-        unrecognised errors for further investigation.
-
-        Args:
-            error: Error message received from the error bus.
-        """
-        if error.message == THROTTLING_INCIDENT_THROTTLED:
-# NIET VERGETEN: implement throttle-recovery logic (e.g. back-off, retry)
-            oradio_log.debug("Throttled mitigation to be implemented")
-        else:
-            oradio_log.error("Unhandled throttling error: '%s'", error.message)
-
-    def _handle_usb_error(self, error: IncidentMessage) -> None:
-        """
-        Handle USB-related errors.
-
-        Attempts recovery from known USB failures and logs unrecognised
-        errors for further investigation.
-
-        Args:
-            error: Error message received from the error bus.
-        """
-        if error.message == USB_INCIDENT_FILE:
-# NIET VERGETEN: implement file-level USB error recovery (e.g. re-mount, rescan)
-            oradio_log.debug("USB file error mitigation to be implemented")
-        elif error.message == USB_INCIDENT_SERVICE:
-# NIET VERGETEN: implement USB service recovery (e.g. restart udev / service)
-            oradio_log.debug("USB service error mitigation to be implemented")
-        else:
-            oradio_log.error("Unhandled USB error: '%s'", error.message)
-
-    def _handle_wifi_error(self, error: IncidentMessage) -> None:
-        """
-        Handle WiFi-related error messages.
-
-        Attempts recovery from known WiFi failures and logs unrecognised
-        errors for further investigation.
-
-        Args:
-            error: Error message received from the error bus.
-        """
-        if error.message == WIFI_INCIDENT_DBUS:
-# NIET VERGETEN: implement D-Bus event handler error recovery
-            oradio_log.debug("Failed D-Bus event handler error mitigation to be implemented")
-        elif error.message == WIFI_INCIDENT_NMCLI:
-# NIET VERGETEN: implement failed to interact with NetworkManager error recovery
-            oradio_log.debug("Failed to interact with NetworkManager error mitigation to be implemented")
-        elif error.message == WIFI_INCIDENT_CONNECT:
-# NIET VERGETEN: implement wifi connect failed recovery
-# LET OP: wordt in wifi_service als command verstuurd en in oradio_control in state machine afgehandeld
-            oradio_log.debug("Wifi connect failed error mitigation to be implemented")
-        elif error.message == WIFI_INCIDENT_DISCONNECT:
-# NIET VERGETEN: implement wifi disconnect failed recovery
-            oradio_log.debug("Wifi disconnect failed error mitigation to be implemented")
-        else:
-            oradio_log.error("Unhandled wifi error: '%s'", error.message)
-
-    def _handle_rms_error(self, error: IncidentMessage) -> None:
-        """
-        Handle rms-related errors.
-
-        Attempts recovery from known remote monitoring conditions and logs
-        unrecognised errors for further investigation.
-
-        Args:
-            error: Error message received from the error bus.
-        """
-        if error.message == RMS_INCIDENT_SERVICE:
-# NIET VERGETEN: implement rms-recovery logic (e.g. back-off, retry)
-            oradio_log.debug("Remote monitoring mitigation to be implemented")
-        else:
-            oradio_log.error("Unhandled Remote monitoring error: '%s'", error.message)
-
-    def _handle_web_error(self, error: IncidentMessage) -> None:
-        """
-        Handle web-related errors.
-
-        Attempts recovery from known web service/server conditions and logs
-        unrecognised errors for further investigation.
-
-        Args:
-            error: Error message received from the error bus.
-        """
-        if error.message == WEB_INCIDENT_SERVICE:
-# NIET VERGETEN: implement web-recovery logic (e.g. back-off, retry)
-            oradio_log.debug("Web mitigation to be implemented")
-        elif error.message == WEB_INCIDENT_START:
-# NIET VERGETEN: implement web-recovery logic (e.g. back-off, retry)
-            oradio_log.debug("Web mitigation to be implemented")
-        elif error.message == WEB_INCIDENT_STOP:
-# NIET VERGETEN: implement web-recovery logic (e.g. back-off, retry)
-            oradio_log.debug("Web mitigation to be implemented")
-        else:
-            oradio_log.error("Unhandled web error: '%s'", error.message)
-
-    def _handle_gpio_error(self, error: IncidentMessage) -> None:
-        """
-        Handle gpio-related errors.
-
-        Attempts recovery from known GPIO conditions and logs
-        unrecognised errors for further investigation.
-
-        Args:
-            error: Error message received from the error bus.
-        """
-        if error.message == GPIO_INCIDENT_SERVICE:
-# NIET VERGETEN: implement gpio-recovery logic (e.g. back-off, retry)
-            oradio_log.debug("GPIO service mitigation to be implemented")
-        elif error.message == GPIO_INCIDENT_BUTTONS:
-# NIET VERGETEN: implement gpio-recovery logic (e.g. back-off, retry)
-            oradio_log.debug("GPIO buttons mitigation to be implemented")
-        else:
-            oradio_log.error("Unhandled GPIO error: '%s'", error.message)
-
-    def _handle_backlighting_error(self, incident: IncidentMessage) -> None:
+    def _handle_backlighting_incident(self, incident: IncidentMessage) -> None:
         """
         Handle backlight-related incident.
 
-        Attempts recovery from known backlight incidents and logs unrecognised
-        incidents for further investigation.
+        Attempts recovery from known backlight incidents and logs
+        unrecognised incidents for further investigation.
 
         Args:
             incident: Incident message received from the incident bus.
@@ -243,120 +136,249 @@ class IncidentHandler(MessageHandlerBase):
             # MITIGATION TO BE IMPLEMENTED:
             #   Report backlighting start failed + status to RMS
             #   If retry_count < MAX_RETRIES: retry starting Backlighting
-            oradio_log.debug("Backlight start mitigation to be implemented")
+            oradio_log.debug("Mitigation to be implemented")
         elif incident.message == BACKLIGHTING_STOPPED:
             # MITIGATION TO BE IMPLEMENTED:
             #   Report backlighting stopped + status to RMS
-            #   If retry_count < MAX_RETRIES: retry starting Backlighting
-            oradio_log.debug("Backlight stop mitigation to be implemented")
+            #   If retry_count < MAX_RETRIES: retry starting backlighting
+            oradio_log.debug("Mitigation to be implemented")
         else:
-            oradio_log.error("Unhandled backlight incident: '%s'", incident.message)
+            oradio_log.error("Unhandled backlighting incident: '%s'", incident.message)
 
-    def _handle_i2c_error(self, error: IncidentMessage) -> None:
+    def _handle_gpio_incident(self, incident: IncidentMessage) -> None:
         """
-        Handle I2C-related errors.
+        Handle gpio-related incident.
+
+        Attempts recovery from known GPIO conditions and logs
+        unrecognised incidents for further investigation.
+
+        Args:
+            incident: Incident message received from the incident bus.
+        """
+        if incident.message == GPIO_INCIDENT_SERVICE:
+# NIET VERGETEN: implement gpio-recovery logic (e.g. back-off, retry)
+            oradio_log.debug("Mitigation to be implemented")
+        elif incident.message == GPIO_INCIDENT_BUTTONS:
+# NIET VERGETEN: implement gpio-recovery logic (e.g. back-off, retry)
+            oradio_log.debug("Mitigation to be implemented")
+        else:
+            oradio_log.error("Unhandled GPIO incident: '%s'", incident.message)
+
+    def _handle_i2c_incident(self, incident: IncidentMessage) -> None:
+        """
+        Handle I2C-related incident.
 
         Attempts recovery from known I2C conditions and logs
-        unrecognised errors for further investigation.
+        unrecognised incidents for further investigation.
 
         Args:
-            error: Error message received from the error bus.
+            incident: Incident message received from the incident bus.
         """
-        if error.message == I2C_INCIDENT_BUS:
+        if incident.message == I2C_INCIDENT_BUS:
 # NIET VERGETEN: implement I2C-recovery logic (e.g. back-off, retry)
-            oradio_log.debug("I2C bus mitigation to be implemented")
+            oradio_log.debug("Mitigation to be implemented")
         else:
-            oradio_log.error("Unhandled I2C error: '%s'", error.message)
+            oradio_log.error("Unhandled I2C incident: '%s'", incident.message)
 
-    def _handle_volume_error(self, error: IncidentMessage) -> None:
+    def _handle_mpd_incident(self, incident: IncidentMessage) -> None:
         """
-        Handle volume-related errors.
-
-        Attempts recovery from known volume conditions and logs
-        unrecognised errors for further investigation.
-
-        Args:
-            error: Error message received from the error bus.
-        """
-        if error.message == VOLUME_INCIDENT_START:
-# NIET VERGETEN: implement volume-recovery logic (e.g. back-off, retry)
-            oradio_log.debug("Volume start mitigation to be implemented")
-        elif error.message == VOLUME_INCIDENT_STOP:
-# NIET VERGETEN: implement volume-recovery logic (e.g. back-off, retry)
-            oradio_log.debug("Volume stop mitigation to be implemented")
-        else:
-            oradio_log.error("Unhandled volume error: '%s'", error.message)
-
-    def _handle_mpd_error(self, error: IncidentMessage) -> None:
-        """
-        Handle mpd-related errors.
+        Handle mpd-related incident.
 
         Attempts recovery from known MPD conditions and logs
-        unrecognised errors for further investigation.
+        unrecognised incidents for further investigation.
 
         Args:
-            error: Error message received from the error bus.
+            incident: Incident message received from the incident bus.
         """
-        if error.message == MPD_INCIDENT_CONNECT:
+        if incident.message == MPD_INCIDENT_CONNECT:
 # NIET VERGETEN: implement MPDService-recovery logic (e.g. back-off, retry)
-            oradio_log.debug("MPD connect mitigation to be implemented")
-        elif error.message == MPD_INCIDENT_EXECUTE:
+            oradio_log.debug("Mitigation to be implemented")
+        elif incident.message == MPD_INCIDENT_EXECUTE:
 # NIET VERGETEN: implement MPDMonitor-recovery logic (e.g. back-off, retry)
-            oradio_log.debug("MPD execute mitigation to be implemented")
-        elif error.message == MPD_INCIDENT_MONITOR:
+            oradio_log.debug("Mitigation to be implemented")
+        elif incident.message == MPD_INCIDENT_MONITOR:
 # NIET VERGETEN: implement MPDMonitor-recovery logic (e.g. back-off, retry)
-            oradio_log.debug("MPD monitor mitigation to be implemented")
+            oradio_log.debug("Mitigation to be implemented")
         else:
-            oradio_log.error("Unhandled MPD error: '%s'", error.message)
+            oradio_log.error("Unhandled MPD incident: '%s'", incident.message)
 
-    def _handle_spotify_error(self, error: IncidentMessage) -> None:
+    def _handle_rms_incident(self, incident: IncidentMessage) -> None:
         """
-        Handle Spotify-related errors.
+        Handle rms-related incident.
+
+        Attempts recovery from known remote monitoring conditions and logs
+        unrecognised incidents for further investigation.
+
+        Args:
+            incident: Incident message received from the incident bus.
+        """
+        if incident.message == RMS_INCIDENT_SERVICE:
+# NIET VERGETEN: implement rms-recovery logic (e.g. back-off, retry)
+            oradio_log.debug("Mitigation to be implemented")
+        else:
+            oradio_log.error("Unhandled Remote monitoring incident: '%s'", incident.message)
+
+    def _handle_spotify_incident(self, incident: IncidentMessage) -> None:
+        """
+        Handle Spotify-related incident.
 
         Attempts recovery from known Spotify conditions and logs
-        unrecognised errors for further investigation.
+        unrecognised incidents for further investigation.
 
         Args:
-            error: Error message received from the error bus.
+            incident: Incident message received from the incident bus.
         """
-        if error.message == SPOTIFY_INCIDENT_MONITOR:
+        if incident.message == SPOTIFY_INCIDENT_MONITOR:
 # NIET VERGETEN: implement Spotify-recovery logic (e.g. back-off, retry)
-            oradio_log.debug("Spotify monitor mitigation to be implemented")
+            oradio_log.debug("Mitigation to be implemented")
         else:
-            oradio_log.error("Unhandled Spotify error: '%s'", error.message)
+            oradio_log.error("Unhandled Spotify incident: '%s'", incident.message)
 
-    def _handle_test_error(self, error: IncidentMessage) -> None:
+    def _handle_throttling_incident(self, incident: IncidentMessage) -> None:
         """
-        Handle test errors published by the stand-alone self-test.
+        Handle throttling-related incident.
+
+        Attempts recovery from known throttling incidents and logs
+        unrecognised incidents for further investigation.
 
         Args:
-            error: Error message received from the error bus.
+            incident: Incident message received from the incident bus.
         """
-        oradio_log.debug("Mitigating test error: '%s'", error.message)
+        if incident.message == THROTTLING_FAILED:
+            # MITIGATION TO BE IMPLEMENTED:
+            #   Report throttling monitor start failed + status to RMS
+            #   If retry_count < MAX_RETRIES: retry starting throttling monitor
+            oradio_log.debug("Mitigation to be implemented")
+        elif incident.message == THROTTLING_THROTTLED:
+            # MITIGATION TO BE IMPLEMENTED:
+            #   Report RPi throttled to RMS
+            oradio_log.debug("Mitigation to be implemented")
+        elif incident.message == THROTTLING_STOPPED:
+            # MITIGATION TO BE IMPLEMENTED:
+            #   Report throttling monitor stopped + status to RMS
+            #   If retry_count < MAX_RETRIES: retry starting throttling monitor
+            oradio_log.debug("Mitigation to be implemented")
+        else:
+            oradio_log.error("Unhandled throttling incident: '%s'", incident.message)
+
+    def _handle_usb_incident(self, incident: IncidentMessage) -> None:
+        """
+        Handle USB-related incident.
+
+        Attempts recovery from known USB failures and logs
+        unrecognised incidents for further investigation.
+
+        Args:
+            incident: Incident message received from the incident bus.
+        """
+        if incident.message == USB_INCIDENT_FILE:
+# NIET VERGETEN: implement file-level USB error recovery (e.g. re-mount, rescan)
+            oradio_log.debug("Mitigation to be implemented")
+        elif incident.message == USB_INCIDENT_SERVICE:
+# NIET VERGETEN: implement USB service recovery (e.g. restart udev / service)
+            oradio_log.debug("Mitigation to be implemented")
+        else:
+            oradio_log.error("Unhandled USB incident: '%s'", incident.message)
+
+    def _handle_volume_incident(self, incident: IncidentMessage) -> None:
+        """
+        Handle volume-related incident.
+
+        Attempts recovery from known volume conditions and logs
+        unrecognised incidents for further investigation.
+
+        Args:
+            incident: Incident message received from the incident bus.
+        """
+        if incident.message == VOLUME_INCIDENT_START:
+# NIET VERGETEN: implement volume-recovery logic (e.g. back-off, retry)
+            oradio_log.debug("Mitigation to be implemented")
+        elif incident.message == VOLUME_INCIDENT_STOP:
+# NIET VERGETEN: implement volume-recovery logic (e.g. back-off, retry)
+            oradio_log.debug("Mitigation to be implemented")
+        else:
+            oradio_log.error("Unhandled volume incident: '%s'", incident.message)
+
+    def _handle_web_incident(self, incident: IncidentMessage) -> None:
+        """
+        Handle web-related incident.
+
+        Attempts recovery from known web service/server conditions and logs
+        unrecognised incidents for further investigation.
+
+        Args:
+            incident: Incident message received from the incident bus.
+        """
+        if incident.message == WEB_INCIDENT_SERVICE:
+# NIET VERGETEN: implement web-recovery logic (e.g. back-off, retry)
+            oradio_log.debug("Mitigation to be implemented")
+        elif incident.message == WEB_INCIDENT_START:
+# NIET VERGETEN: implement web-recovery logic (e.g. back-off, retry)
+            oradio_log.debug("Mitigation to be implemented")
+        elif incident.message == WEB_INCIDENT_STOP:
+# NIET VERGETEN: implement web-recovery logic (e.g. back-off, retry)
+            oradio_log.debug("Mitigation to be implemented")
+        else:
+            oradio_log.error("Unhandled web incident: '%s'", incident.message)
+
+    def _handle_wifi_incident(self, incident: IncidentMessage) -> None:
+        """
+        Handle WiFi-related incident.
+
+        Attempts recovery from known WiFi failures and logs
+        unrecognised incidents for further investigation.
+
+        Args:
+            incident: Incident message received from the incident bus.
+        """
+        if incident.message == WIFI_INCIDENT_DBUS:
+# NIET VERGETEN: implement D-Bus event handler error recovery
+            oradio_log.debug("Mitigation to be implemented")
+        elif incident.message == WIFI_INCIDENT_NMCLI:
+# NIET VERGETEN: implement failed to interact with NetworkManager error recovery
+            oradio_log.debug("Mitigation to be implemented")
+        elif incident.message == WIFI_INCIDENT_CONNECT:
+# NIET VERGETEN: implement wifi connect failed recovery
+# LET OP: wordt in wifi_service als command verstuurd en in oradio_control in state machine afgehandeld
+            oradio_log.debug("Mitigation to be implemented")
+        elif incident.message == WIFI_INCIDENT_DISCONNECT:
+# NIET VERGETEN: implement wifi disconnect failed recovery
+            oradio_log.debug("Mitigation to be implemented")
+        else:
+            oradio_log.error("Unhandled wifi incident: '%s'", incident.message)
+
+    def _handle_test_incident(self, incident: IncidentMessage) -> None:
+        """
+        Handle test incident published by the stand-alone self-test.
+
+        Args:
+            incident: Incident message received from the incident bus.
+        """
+        oradio_log.debug("Mitigating test incident: '%s'", incident.message)
 
 ##### Core ################################################
 
     def _handle_message(self, message: IncidentMessage) -> None:
         """
-        Dispatch incoming error to its source-specific handler.
+        Dispatch incoming incident to its source-specific handler.
 
         Args:
             message: The received message from the queue.
         """
-        oradio_log.debug("Error message received: %r", message)
+        oradio_log.debug("Incident message received: %r", message)
         handler = self._dispatch.get(message.source)
         if handler:
             handler(message)
         else:
             oradio_log.error(
-                "Unhandled error from source: '%s': %s",
+                "Unhandled incident from source: '%s': %s",
                 message.source,
                 message.message,
             )
 
     def stop(self) -> None:
         """
-        Unsubscribe from error messages and call the base class to stop the worker thread.
+        Unsubscribe from Incident messages and call the base class to stop the worker thread.
         """
         # Remove from registry first — no new messages after this point.
         Incidents.unsubscribe(self._queue)
@@ -377,7 +399,7 @@ if __name__ == '__main__':
         """
         Run an interactive self-test menu.
 
-        Publishes test messages onto the error bus so that IncidentHandler
+        Publishes test messages onto the incident bus so that IncidentHandler
         behaviour can be verified.
         """
 
@@ -395,19 +417,19 @@ if __name__ == '__main__':
                 case 0:
                     break
                 case 1:
-                    # Publish a known test error; handler should accept it
-                    print("\nPublish error message...")
-                    Incidents.publish(IncidentMessage(TEST_SOURCE, "error test message"))
+                    # Publish a known test incident; handler should accept it
+                    print("\nPublish Incident message...")
+                    Incidents.publish(IncidentMessage(TEST_SOURCE, "Test incident"))
                 case 2:
-                    # Publish an unrecognised error; handler should return False
+                    # Publish an unrecognised incident; handler should return False
                     print("\nPublish unexpected message...")
-                    Incidents.publish(IncidentMessage(UNEXPECTED, "Unexpected message"))
+                    Incidents.publish(IncidentMessage(UNEXPECTED, "Unexpected incident"))
                 case _:
                     print(f"\n{YELLOW}Please input a valid number{NC}\n")
 
     print("\nStarting test program...\n")
 
-    # Subscribe to error topics so messages published are printed to console
+    # Subscribe to incident topics so messages published are printed to console
     incident_handler = IncidentHandler()
 
     # Present menu with tests
