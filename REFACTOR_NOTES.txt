@@ -12,7 +12,7 @@ DONE 2:
 DONE 3:
 
 DONE 4:
-backlighting.py
+backlight_service.py (renamed from backlighting.py)
 constants.py (renamed from oradio_const.py)
 error_service.py
 gpio_service.py
