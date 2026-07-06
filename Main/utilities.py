@@ -118,7 +118,7 @@ class ThreadTemplate:
             "timed out" from "started and immediately crashed".
         """
         if self._thread is not None and self._thread.is_alive():
-            oradio_log.warning("%s is already running", self._name)
+            oradio_log.debug("%s is already running", self._name)
             return False
 
         # Reset state left over from a previous run so this run starts clean.
@@ -203,7 +203,7 @@ class ThreadTemplate:
             tells you it happened.
         """
         if self._thread is None:
-            oradio_log.warning("%s was not started", self._name)
+            oradio_log.debug("%s was not started", self._name)
             return True
 
         self._stop_event.set()      # tells run()'s loop condition to exit
@@ -216,6 +216,9 @@ class ThreadTemplate:
         if self.crashed:
             oradio_log.error("%s crashed with exception: %s", self._name, self.exception)
             return False
+
+        # Cleanup and return stopped
+        self._thread = None
         return True
 
     def is_alive(self) -> bool:
