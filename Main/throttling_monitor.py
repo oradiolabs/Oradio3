@@ -21,8 +21,8 @@ Created on December 31, 2025
     Supports a test mode for forced throttling to validate logging.
 
 Typical usage:
-    RPiThrottlingMonitor is decorated with @singleton, so constructing it
-    from anywhere, any number of times always returns the same shared instance.
+    ThrottlingMonitor is decorated with @singleton, so constructing it from
+    anywhere, any number of times always returns the same shared instance.
     Call start() to begin polling; call stop() to halt polling.
 """
 from subprocess import check_output
@@ -71,7 +71,7 @@ ACTIVE_MASK = 0x1 | 0x2 | 0x4 | 0x8
 HISTORICAL_MASK = 0xFFFF0000
 
 @singleton
-class RPiThrottlingMonitor(ThreadTemplate):
+class ThrottlingMonitor(ThreadTemplate):
     """
     Singleton background monitor for Raspberry Pi throttling state.
 
@@ -98,7 +98,7 @@ class RPiThrottlingMonitor(ThreadTemplate):
         begins (and stop()/start() again later) rather than having it
         begin as a side effect of import.
         """
-        super().__init__(name="RPiThrottlingMonitor")
+        super().__init__(name="ThrottlingMonitor")
 
         # Cache of the last observed active-flag combination. Reset in
         # setup() at the start of every run, so a restart always produces
@@ -248,7 +248,7 @@ if __name__ == "__main__":
     # Most modules use similar code in stand-alone
     # pylint: disable=duplicate-code
 
-    monitor = RPiThrottlingMonitor()
+    monitor = ThrottlingMonitor()
 
     # In test mode a single-item dict is used so the poller thread and
     # this main thread share the same mutable object without needing a lock
