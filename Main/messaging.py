@@ -97,10 +97,10 @@ SPOTIFY_PAUSED_EVENT          = "Spotify paused event"
 SPOTIFY_INCIDENT_MONITOR      = "Spotify monitor incident"
 
 # Throttling
-THROTTLING_SOURCE    = "Throttling message"
+THROTTLING_SOURCE    = "RPi throttling message"
 THROTTLING_FAILED    = "RPi throttling monitor failed to start"
-THROTTLING_THROTTLED = "RPi throttled"
 THROTTLING_STOPPED   = "RPi throttling monitor stopped"
+THROTTLING_THROTTLED = "RPi throttled"
 
 # USB
 USB_SOURCE           = "USB message"
@@ -110,10 +110,10 @@ USB_INCIDENT_FILE    = "USB file incident"
 USB_INCIDENT_SERVICE = "USB service incident"
 
 # Volume
-VOLUME_SOURCE         = "Volume message"
-VOLUME_CHANGED        = "Volume changed"
-VOLUME_INCIDENT_START = "Volume failed to start"
-VOLUME_INCIDENT_STOP  = "Volume failed to stop"
+VOLUME_SOURCE  = "Volume message"
+VOLUME_FAILED  = "Volume control failed to start"
+VOLUME_STOPPED = "Volume control stopped"
+VOLUME_CHANGED = "Volume changed"
 
 # Web interface
 WEB_SOURCE           = "Web message"

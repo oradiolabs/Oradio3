@@ -136,6 +136,10 @@ Backlighting().start()
 oradio_log.info("Start throttling monitor")
 ThrottlingMonitor().start()
 
+# Any incident starting volume control is reported to and handled by IncidentHandler
+oradio_log.info("Start volumen control")
+VolumeControl().start()
+
 oradio_log.info("Start MPD event monitoring")
 mpd_monitor = MPDMonitor()
 
@@ -432,7 +436,6 @@ class StateMachine:
 
     def _state_idle(self):
         # Listen for volume changed notifications
-        volume_control.set_notify()
         if web_service_active.is_set():
             leds.control_blinking_led(LED_PLAY)
         if mpd_control.is_webradio():
@@ -827,9 +830,6 @@ oradio_usb_service = USBService()
 sync_usb_presence_from_service()
 
 touch_buttons = TouchButtons()
-# ----------- Volume Control -----------------
-
-volume_control = VolumeControl()
 
 # REVIEW Onno: start de NetworkManager event listener
 oradio_wifi_service = WifiService()

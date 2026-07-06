@@ -64,8 +64,8 @@ from messaging import (
     USB_INCIDENT_SERVICE,
 
     VOLUME_SOURCE,
-    VOLUME_INCIDENT_START,
-    VOLUME_INCIDENT_STOP,
+    VOLUME_FAILED,
+    VOLUME_STOPPED,
 
     WEB_SOURCE,
     WEB_INCIDENT_START,
@@ -244,14 +244,14 @@ class IncidentHandler(MessageHandlerBase):
         Args:
             incident: Incident message received from the incident bus.
         """
-        if incident.message == THROTTLING_FAILED:
+        if incident.message == THROTTLING_THROTTLED:
+            # MITIGATION TO BE IMPLEMENTED:
+            #   Report RPi throttled to RMS
+            oradio_log.debug("Mitigation to be implemented")
+        elif incident.message == THROTTLING_FAILED:
             # MITIGATION TO BE IMPLEMENTED:
             #   Report throttling monitor start failed + status to RMS
             #   If retry_count < MAX_RETRIES: retry starting throttling monitor
-            oradio_log.debug("Mitigation to be implemented")
-        elif incident.message == THROTTLING_THROTTLED:
-            # MITIGATION TO BE IMPLEMENTED:
-            #   Report RPi throttled to RMS
             oradio_log.debug("Mitigation to be implemented")
         elif incident.message == THROTTLING_STOPPED:
             # MITIGATION TO BE IMPLEMENTED:
@@ -290,11 +290,15 @@ class IncidentHandler(MessageHandlerBase):
         Args:
             incident: Incident message received from the incident bus.
         """
-        if incident.message == VOLUME_INCIDENT_START:
-# NIET VERGETEN: implement volume-recovery logic (e.g. back-off, retry)
+        if incident.message == VOLUME_FAILED:
+            # MITIGATION TO BE IMPLEMENTED:
+            #   Report volume control start failed + status to RMS
+            #   If retry_count < MAX_RETRIES: retry starting volume control
             oradio_log.debug("Mitigation to be implemented")
-        elif incident.message == VOLUME_INCIDENT_STOP:
-# NIET VERGETEN: implement volume-recovery logic (e.g. back-off, retry)
+        elif incident.message == VOLUME_STOPPED:
+            # MITIGATION TO BE IMPLEMENTED:
+            #   Report volume control stopped + status to RMS
+            #   If retry_count < MAX_RETRIES: retry starting volume control
             oradio_log.debug("Mitigation to be implemented")
         else:
             oradio_log.error("Unhandled volume incident: '%s'", incident.message)
