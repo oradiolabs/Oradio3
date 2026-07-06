@@ -91,7 +91,7 @@ class ThreadTemplate:
         # Guarded by _exception_lock rather than relying on the GIL, so this
         # stays correct on interpreters without one.
         self._exception_lock = Lock()
-        self._exception: Exception | None = None    # holds exception raised in run(), if any
+        self._exception: Exception | None = None
 
         # The actual OS thread, (re)created fresh on each safe_start() since
         # a Thread object itself can only ever be started once.
@@ -108,7 +108,7 @@ class ThreadTemplate:
         safe_stop() to run the same instance a second (or later) time.
 
         Args:
-            timeout: Max seconds to wait for setup() to finish. Defaults to 5.0.
+            timeout: Max seconds to wait for setup() to finish.
 
         Returns:
             True if the thread reported ready within timeout,
@@ -118,7 +118,7 @@ class ThreadTemplate:
             "timed out" from "started and immediately crashed".
         """
         if self._thread is not None and self._thread.is_alive():
-            oradio_log.error("%s is already running", self._name)
+            oradio_log.warning("%s is already running", self._name)
             return False
 
         # Reset state left over from a previous run so this run starts clean.
@@ -136,7 +136,7 @@ class ThreadTemplate:
             # RuntimeError if the OS can't allocate a new thread.
             self._thread.start()
         except RuntimeError:
-            oradio_log.exception("%s failed to start thread", self._name)
+            oradio_log.error("%s failed to start thread", self._name)
             return False
 
         # Block here until run() signals that setup() has completed,
@@ -150,15 +150,13 @@ class ThreadTemplate:
         """
         Internal thread entry point. Do not call directly -- use safe_start().
 
-        Runs setup() once, then calls do_work() immediately, then
-        repeatedly again every interval seconds until stop() is
-        called, then runs teardown(). (do_work() fires right after
-        setup() rather than waiting out the first interval, so a
-        poller doesn't sit idle before its first check.) Any
-        exception raised by setup() or do_work() is caught, logged,
-        and stored rather than propagated, since exceptions raised
-        inside a thread's run() are never seen by the caller of
-        start().
+        Runs setup() once, then calls do_work() immediately, then repeatedly
+        again every interval seconds until stop() is called, then runs teardown().
+        (do_work() fires right after setup() rather than waiting out the first
+        interval, so a poller doesn't sit idle before its first check.) Any
+        exception raised by setup() or do_work() is caught, logged, and stored
+        rather than propagated, since exceptions raised inside a thread's run()
+        are never seen by the caller of start().
         """
         try:
             self.setup()
@@ -178,7 +176,7 @@ class ThreadTemplate:
         except Exception as exc:      # pylint: disable=broad-exception-caught
             with self._exception_lock:
                 self._exception = exc
-            oradio_log.exception("%s crashed", self._name)
+            oradio_log.error("%s crashed", self._name)
             # Unblock safe_start() even if setup() itself crashed, so callers
             # waiting on safe_start() don't hang for the full timeout.
             self._started_event.set()
@@ -205,7 +203,7 @@ class ThreadTemplate:
             tells you it happened.
         """
         if self._thread is None:
-            oradio_log.debug("%s was not started", self._name)
+            oradio_log.warning("%s was not started", self._name)
             return True
 
         self._stop_event.set()      # tells run()'s loop condition to exit

@@ -50,9 +50,11 @@ from messaging import (
     GPIO_SOURCE,
     GPIO_INCIDENT_SERVICE,
     GPIO_INCIDENT_BUTTONS,
-    BACKLIGHT_SOURCE,
-    BACKLIGHT_INCIDENT_START,
-    BACKLIGHT_INCIDENT_STOP,
+
+    BACKLIGHTING_SOURCE,
+    BACKLIGHTING_FAILED,
+    BACKLIGHTING_STOPPED,
+
     I2C_SOURCE,
     I2C_INCIDENT_BUS,
     VOLUME_SOURCE,
@@ -91,18 +93,18 @@ class IncidentHandler(MessageHandlerBase):
         # Map each source constant to its handler method.
         # Adding a new source only requires one new line here.
         self._dispatch: dict[str, Callable[[IncidentMessage], None]] = {
-            THROTTLING_SOURCE: self._handle_throttling_error,
-            USB_SOURCE:        self._handle_usb_error,
-            WIFI_SOURCE:       self._handle_wifi_error,
-            RMS_SOURCE:        self._handle_rms_error,
-            WEB_SOURCE:        self._handle_web_error,
-            GPIO_SOURCE:       self._handle_gpio_error,
-            BACKLIGHT_SOURCE:  self._handle_backlight_error,
-            I2C_SOURCE:        self._handle_i2c_error,
-            VOLUME_SOURCE:     self._handle_volume_error,
-            MPD_SOURCE:        self._handle_mpd_error,
-            SPOTIFY_SOURCE:    self._handle_spotify_error,
-            TEST_SOURCE:       self._handle_test_error,
+            THROTTLING_SOURCE:   self._handle_throttling_error,
+            USB_SOURCE:          self._handle_usb_error,
+            WIFI_SOURCE:         self._handle_wifi_error,
+            RMS_SOURCE:          self._handle_rms_error,
+            WEB_SOURCE:          self._handle_web_error,
+            GPIO_SOURCE:         self._handle_gpio_error,
+            BACKLIGHTING_SOURCE: self._handle_backlighting_error,
+            I2C_SOURCE:          self._handle_i2c_error,
+            VOLUME_SOURCE:       self._handle_volume_error,
+            MPD_SOURCE:          self._handle_mpd_error,
+            SPOTIFY_SOURCE:      self._handle_spotify_error,
+            TEST_SOURCE:         self._handle_test_error,
         }
 
         super().__init__(self._queue)
@@ -227,24 +229,28 @@ class IncidentHandler(MessageHandlerBase):
         else:
             oradio_log.error("Unhandled GPIO error: '%s'", error.message)
 
-    def _handle_backlight_error(self, error: IncidentMessage) -> None:
+    def _handle_backlighting_error(self, incident: IncidentMessage) -> None:
         """
-        Handle backlight-related errors.
+        Handle backlight-related incident.
 
-        Attempts recovery from known backlight conditions and logs
-        unrecognised errors for further investigation.
+        Attempts recovery from known backlight incidents and logs unrecognised
+        incidents for further investigation.
 
         Args:
-            error: Error message received from the error bus.
+            incident: Incident message received from the incident bus.
         """
-        if error.message == BACKLIGHT_INCIDENT_START:
-# NIET VERGETEN: implement backlight-recovery logic (e.g. back-off, retry)
+        if incident.message == BACKLIGHTING_FAILED:
+            # MITIGATION TO BE IMPLEMENTED:
+            #   Report backlighting start failed + status to RMS
+            #   If retry_count < MAX_RETRIES: retry starting Backlighting
             oradio_log.debug("Backlight start mitigation to be implemented")
-        elif error.message == BACKLIGHT_INCIDENT_STOP:
-# NIET VERGETEN: implement backlight-recovery logic (e.g. back-off, retry)
+        elif incident.message == BACKLIGHTING_STOPPED:
+            # MITIGATION TO BE IMPLEMENTED:
+            #   Report backlighting stopped + status to RMS
+            #   If retry_count < MAX_RETRIES: retry starting Backlighting
             oradio_log.debug("Backlight stop mitigation to be implemented")
         else:
-            oradio_log.error("Unhandled backlight error: '%s'", error.message)
+            oradio_log.error("Unhandled backlight incident: '%s'", incident.message)
 
     def _handle_i2c_error(self, error: IncidentMessage) -> None:
         """

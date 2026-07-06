@@ -26,7 +26,7 @@ from time import sleep
 from multiprocessing import Queue
 
 from log_service import oradio_log
-from backlighting import Backlighting
+from backlight_service import Backlighting
 from volume_control import VolumeControl
 from mpd_control import MPDControl
 from mpd_monitor import MPDMonitor     # Optional: MPD events monitoring in the background
@@ -129,8 +129,9 @@ web_service_active.clear() # Start-up state is no Web service
 usb_present = threading.Event()
 usb_present.set() # USB present to go over start-up sequence (will be updated after first message of USB service
 
-oradio_log.info("Start backlighting")
-backlighting = Backlighting()
+# Any incident starting backlight is reported and handled by IncidentHandler
+oradio_log.info("Start backlight")
+Backlighting().start()
 
 oradio_log.info("Start MPD event monitoring")
 mpd_monitor = MPDMonitor()

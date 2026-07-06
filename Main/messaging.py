@@ -94,10 +94,10 @@ RMS_INCIDENT_SERVICE = "RMS service incident"
 GPIO_SOURCE           = "GPIO message"
 GPIO_INCIDENT_SERVICE = "GPIO service incident"
 GPIO_INCIDENT_BUTTONS = "GPIO buttons incident"
-# Backlight
-BACKLIGHT_SOURCE         = "Backlight message"
-BACKLIGHT_INCIDENT_START = "Backlight failed to start"
-BACKLIGHT_INCIDENT_STOP  = "Backlight failed to stop"
+# Backlighting
+BACKLIGHTING_SOURCE  = "Backlighting message"
+BACKLIGHTING_FAILED  = "Backlighting failed to start"
+BACKLIGHTING_STOPPED = "Backlighting stopped"
 # I2C
 I2C_SOURCE       = "I2C service message"
 I2C_INCIDENT_BUS = "I2C bus incident"

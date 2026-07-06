@@ -17,7 +17,7 @@ Created on Januari 17, 2025
 @email:         oradioinfo@stichtingoradio.nl
 @status:        Development
 @summary:
-    Class to run the backlighting service.
+    Class to run the backlight service.
     - Measure the light level and adapt the backlighting MCP4725
     - Ensures the backlight always starts at a low level on boot
 """
@@ -31,9 +31,9 @@ from utilities import ThreadTemplate
 from messaging import (
     Incidents,
     IncidentMessage,
-    BACKLIGHT_SOURCE,
-    BACKLIGHT_INCIDENT_START,
-    BACKLIGHT_INCIDENT_STOP,
+    BACKLIGHTING_SOURCE,
+    BACKLIGHTING_FAILED,
+    BACKLIGHTING_STOPPED,
 )
 
 ##### LOCAL constants #####################################
@@ -95,15 +95,15 @@ class _BacklightWorker(ThreadTemplate):
 
     def setup(self) -> None:
         """Apply current brightness before the adjust loop (re)begins."""
-        self._backlighting._write_dac(self._prev_dac_value)   # pylint: disable=protected-access
+        self._backlighting.write_dac(self._prev_dac_value)
 
     def do_work(self) -> None:
         """One adjust-loop iteration: read, interpolate, write if change exceeds threshold."""
-        raw_visible_light = self._backlighting._read_visible_light()   # pylint: disable=protected-access
+        raw_visible_light = self._backlighting.read_visible_light()
         if raw_visible_light is None:
             return
 
-        target_backlight_value = self._backlighting._interpolate_backlight(raw_visible_light)   # pylint: disable=protected-access
+        target_backlight_value = self._backlighting.interpolate_backlight(raw_visible_light)
 
         delta = target_backlight_value - self._current_backlight_value
         self._current_backlight_value += delta * (ADJUST_INTERVAL / TRANSITION_TIME)
@@ -111,7 +111,11 @@ class _BacklightWorker(ThreadTemplate):
         dac_value = int(round(self._current_backlight_value))
         if abs(dac_value - self._prev_dac_value) >= CHANGE_THRESHOLD:
             self._prev_dac_value = dac_value
-            self._backlighting._write_dac(dac_value)   # pylint: disable=protected-access
+            self._backlighting.write_dac(dac_value)
+
+    def teardown(self) -> None:
+        """Report incident: Oradio never intentionally stops backlighting."""
+        Incidents.publish(IncidentMessage(BACKLIGHTING_SOURCE, BACKLIGHTING_STOPPED))
 
 @singleton
 class Backlighting:
@@ -139,7 +143,7 @@ class Backlighting:
         self._i2c_service = I2CService()
 
         # Ensure all LEDs are off at boot, stored persistently in DAC EEPROM
-        self._write_dac(BACKLIGHT_OFF, eeprom=True)
+        self.write_dac(BACKLIGHT_OFF, eeprom=True)
 
         # Initialize light sensor hardware
         self._initialize_sensor()
@@ -148,12 +152,9 @@ class Backlighting:
         # repeatedly since ThreadTemplate itself supports restarting.
         self._thread = _BacklightWorker(self)
 
-        # Start backlight manager thread
-        self.start()
-
 ##### Helpers #############################################
 
-    def _write_dac(self, value: int, eeprom: bool = False) -> None:
+    def write_dac(self, value: int, eeprom: bool = False) -> None:
         """
         Write a 12-bit value to the MCP4725 DAC.
 
@@ -178,7 +179,7 @@ class Backlighting:
         # Set gain and integration time
         self._i2c_service.write_byte(TSL2591_ADDRESS, COMMAND_BIT | CONTROL_REGISTER, GAIN_MEDIUM | INTEGRATION_TIME)
 
-    def _read_visible_light(self) -> int | None:
+    def read_visible_light(self) -> int | None:
         """
         Read visible light level as a 16-bit word from sensor.
 
@@ -191,7 +192,7 @@ class Backlighting:
             return None
         return (high << 8) | low
 
-    def _interpolate_backlight(self, als_value) -> int:
+    def interpolate_backlight(self, als_value) -> int:
         """
         Map als_value to appropriate backlight DAC value.
 
@@ -233,20 +234,20 @@ class Backlighting:
             left off (see _BacklightWorker docstring).
         """
         if self._thread.is_alive():
-            oradio_log.debug("Backlight manager thread already running")
+            oradio_log.debug("Backlighting thread already running")
             return
 
         if not self._thread.safe_start():
-            oradio_log.error("Backlight manager thread failed to start")
-            Incidents.publish(IncidentMessage(BACKLIGHT_SOURCE, BACKLIGHT_INCIDENT_START))
+            oradio_log.error("Backlight worker thread failed to start")
+            Incidents.publish(IncidentMessage(BACKLIGHTING_SOURCE, BACKLIGHTING_FAILED))
             return
 
         if self._thread.crashed:
-            oradio_log.error("Backlight manager thread crashed during startup: %s", self._thread.exception)
-            Incidents.publish(IncidentMessage(BACKLIGHT_SOURCE, BACKLIGHT_INCIDENT_START))
+            oradio_log.error("Backlight worker thread crashed during startup: %s", self._thread.exception)
+            Incidents.publish(IncidentMessage(BACKLIGHTING_SOURCE, BACKLIGHTING_FAILED))
             return
 
-        oradio_log.info("Backlight manager thread started")
+        oradio_log.info("Backlight worker thread started")
 
     def stop(self) -> None:
         """
@@ -258,24 +259,23 @@ class Backlighting:
             cycle.
         """
         if not self._thread.is_alive():
-            oradio_log.debug("Backlight manager thread not running")
+            oradio_log.debug("Backlight worker thread not running")
             return
 
         if not self._thread.safe_stop():
-            oradio_log.error("Backlight manager thread did not stop cleanly")
-            Incidents.publish(IncidentMessage(BACKLIGHT_SOURCE, BACKLIGHT_INCIDENT_STOP))
+            oradio_log.error("Backlight worker thread did not stop cleanly")
         else:
-            oradio_log.info("Backlight manager thread stopped")
+            oradio_log.info("Backlight worker thread stopped")
 
     def off(self) -> None:
         """Stop auto-adjust thread if any, and turn off backlight."""
         self.stop()
-        self._write_dac(BACKLIGHT_OFF)
+        self.write_dac(BACKLIGHT_OFF)
 
     def maximum(self) -> None:
         """Stop auto-adjust thread if any, and set backlight to maximum."""
         self.stop()
-        self._write_dac(BACKLIGHT_MAX)
+        self.write_dac(BACKLIGHT_MAX)
 
     def read_sensor(self) -> tuple:
         """
@@ -288,11 +288,11 @@ class Backlighting:
                 (raw_visible_light, lux, interpolated DAC value),
                 or (None, None, None) on I2C read failure.
         """
-        raw = self._read_visible_light()
+        raw = self.read_visible_light()
         if raw is None:
             return None, None, None
         lux = raw / 75  # GAIN_SCALE(25) * TIME_SCALE(300/100)
-        dac = self._interpolate_backlight(raw)
+        dac = self.interpolate_backlight(raw)
         return raw, lux, dac
 
 ##### Stand-alone entry point #############################
