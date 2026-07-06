@@ -16,14 +16,9 @@ Created on December 31, 2025
 @version:       2
 @email:         oradioinfo@stichtingoradio.nl
 @status:        Development
-@summary: RPi Throttling Monitor
+@summary: Throttling Monitor
     Monitors the throttled state of a Raspberry Pi and logs state changes.
     Supports a test mode for forced throttling to validate logging.
-
-Typical usage:
-    ThrottlingMonitor is decorated with @singleton, so constructing it from
-    anywhere, any number of times always returns the same shared instance.
-    Call start() to begin polling; call stop() to halt polling.
 """
 from subprocess import check_output
 
@@ -89,7 +84,7 @@ class ThrottlingMonitor(ThreadTemplate):
     """
     def __init__(self) -> None:
         """
-        Initialise the RPi throttling monitor.
+        Initialise the throttling monitor.
 
         Construction only sets up internal state; the background polling
         thread is not started until start() is called explicitly, mirroring
@@ -222,9 +217,9 @@ class ThrottlingMonitor(ThreadTemplate):
         thread is already alive is a no-op (logged by safe_start()).
         """
         if self.safe_start():
-            oradio_log.info("RPi throttling monitor started")
+            oradio_log.info("Throttling monitor started")
         elif self.crashed:
-            oradio_log.error("RPi throttling monitor failed to start: %s", self.exception)
+            oradio_log.error("Throttling monitor failed to start: %s", self.exception)
             Incidents.publish(IncidentMessage(THROTTLING_SOURCE, THROTTLING_FAILED))
 
     def stop(self) -> None:
@@ -266,13 +261,13 @@ if __name__ == "__main__":
         """
         # Allow overwriting a method by a lambda function
         monitor.get_throttle_value = lambda: _forced_value["bits"]      # type: ignore[method-assign]
-        oradio_log.info("RPi throttling monitor TEST MODE enabled")
+        oradio_log.info("Throttling monitor TEST MODE enabled")
 
     def _disable_test_mode() -> None:
         """Remove the monkeypatch, restoring normal hardware polling."""
         if "get_throttle_value" in vars(monitor):
             del monitor.__dict__["get_throttle_value"]
-        oradio_log.info("RPi throttling monitor TEST MODE disabled")
+        oradio_log.info("Throttling monitor TEST MODE disabled")
 
     def interactive_menu() -> None:
         """
@@ -297,14 +292,14 @@ if __name__ == "__main__":
         input_selection = (
             "Select a function, input the number.\n"
             " 0-Quit\n"
-            " 1-Start RPi throttling monitor\n"
-            " 2-Stop RPi throttling monitor\n"
-            " 3-Force RPi throttled (undervoltage)\n"
-            " 4-Force RPi throttled (frequency capped)\n"
-            " 5-Force RPi throttled (thermal)\n"
-            " 6-Force RPi throttled (temperature)\n"
-            " 7-Force RPi throttled (all)\n"
-            " 8-Clear RPi throttled\n"
+            " 1-Start throttling monitor\n"
+            " 2-Stop throttling monitor\n"
+            " 3-Force throttled (undervoltage)\n"
+            " 4-Force throttled (frequency capped)\n"
+            " 5-Force throttled (thermal)\n"
+            " 6-Force throttled (temperature)\n"
+            " 7-Force throttled (all)\n"
+            " 8-Clear throttled\n"
             "Select: "
         )
 
@@ -322,23 +317,23 @@ if __name__ == "__main__":
                     print("\nStopping monitor...\n")
                     monitor.stop()
                 case 3:
-                    print("\nForce RPi throttled (TEST MODE)...\n")
+                    print("\nForce throttled (TEST MODE)...\n")
                     _forced_value["bits"] = 0x1  # Under-voltage only
                 case 4:
-                    print("\nForce RPi throttled (TEST MODE)...\n")
+                    print("\nForce throttled (TEST MODE)...\n")
                     _forced_value["bits"] = 0x2  # Frequency cap only
                 case 5:
-                    print("\nForce RPi throttled (TEST MODE)...\n")
+                    print("\nForce throttled (TEST MODE)...\n")
                     _forced_value["bits"] = 0x4  # Throttled only
                 case 6:
-                    print("\nForce RPi throttled (TEST MODE)...\n")
+                    print("\nForce throttled (TEST MODE)...\n")
                     _forced_value["bits"] = 0x8  # Soft temp limit only
                 case 7:
-                    print("\nForce RPi throttled (TEST MODE)...\n")
+                    print("\nForce throttled (TEST MODE)...\n")
                     # Simulate all four active conditions simultaneously.
                     _forced_value["bits"] = 0x1 | 0x2 | 0x4 | 0x8
                 case 8:
-                    print("\nClear RPi throttled (TEST MODE)...\n")
+                    print("\nClear throttled (TEST MODE)...\n")
                     _forced_value["bits"] = 0  # Simulate recovery
                 case _:
                     print(f"\n{YELLOW}Please input a valid number{NC}\n")
