@@ -55,24 +55,66 @@ from constants import (
 _MAX_QUEUE_SIZE = 1000
 
 ##### Messaging constants #################################
+# Backlighting
+BACKLIGHTING_SOURCE  = "Backlighting message"
+BACKLIGHTING_FAILED  = "Backlighting failed to start"
+BACKLIGHTING_STOPPED = "Backlighting stopped"
+
+# Buttons
+BUTTON_SOURCE              = "Button message"
+BUTTON_SHORT_PRESS_PLAY    = BUTTON_SHORT_PRESS + BUTTON_PLAY
+BUTTON_SHORT_PRESS_STOP    = BUTTON_SHORT_PRESS + BUTTON_STOP
+BUTTON_SHORT_PRESS_PRESET1 = BUTTON_SHORT_PRESS + BUTTON_PRESET1
+BUTTON_SHORT_PRESS_PRESET2 = BUTTON_SHORT_PRESS + BUTTON_PRESET2
+BUTTON_SHORT_PRESS_PRESET3 = BUTTON_SHORT_PRESS + BUTTON_PRESET3
+BUTTON_LONG_PRESS_PLAY     = BUTTON_LONG_PRESS + BUTTON_PLAY
+
+# GPIO
+GPIO_SOURCE           = "GPIO message"
+GPIO_INCIDENT_SERVICE = "GPIO service incident"
+GPIO_INCIDENT_BUTTONS = "GPIO buttons incident"
+
+# I2C
+I2C_SOURCE       = "I2C service message"
+I2C_INCIDENT_BUS = "I2C bus incident"
+
+# MPD
+MPD_SOURCE           = "MPD message"
+MPD_INCIDENT_CONNECT = "MPD connect incident"
+MPD_INCIDENT_EXECUTE = "MPD execute incident"
+MPD_INCIDENT_MONITOR = "MPD monitor incident"
+
+# Remote Monitoring
+RMS_SOURCE           = "RMS message"
+RMS_INCIDENT_SERVICE = "RMS service incident"
+
+# Spotify
+SPOTIFY_SOURCE                = "Spotify message"
+SPOTIFY_CONNECTED_EVENT       = "Spotify connected event"
+SPOTIFY_DISCONNECTED_EVENT    = "Spotify disconnected event"
+SPOTIFY_PLAYING_EVENT         = "Spotify playing event"
+SPOTIFY_PAUSED_EVENT          = "Spotify paused event"
+SPOTIFY_INCIDENT_MONITOR      = "Spotify monitor incident"
+
 # Throttling
-THROTTLING_SOURCE             = "Throttling message"
-THROTTLING_INCIDENT_THROTTLED = "RPi throttled"
+THROTTLING_SOURCE    = "Throttling message"
+THROTTLING_FAILED    = "RPi throttling monitor failed to start"
+THROTTLING_THROTTLED = "RPi throttled"
+THROTTLING_STOPPED   = "RPi throttling monitor stopped"
+
 # USB
 USB_SOURCE           = "USB message"
 USB_ABSENT           = "USB drive absent"
 USB_PRESENT          = "USB drive present"
 USB_INCIDENT_FILE    = "USB file incident"
 USB_INCIDENT_SERVICE = "USB service incident"
-# wifi
-WIFI_SOURCE              = "Wifi message"
-WIFI_CONNECTED           = "Wifi connected"
-WIFI_DISCONNECTED        = "Wifi disconnected"
-WIFI_ACCESS_POINT        = "Wifi configured as access point"
-WIFI_INCIDENT_DBUS       = "D-Bus event handler failed"
-WIFI_INCIDENT_NMCLI      = "NetworkManager wrapper failed"
-WIFI_INCIDENT_CONNECT    = "Wifi failed to connect"
-WIFI_INCIDENT_DISCONNECT = "Wifi failed to disconnect"
+
+# Volume
+VOLUME_SOURCE         = "Volume message"
+VOLUME_CHANGED        = "Volume changed"
+VOLUME_INCIDENT_START = "Volume failed to start"
+VOLUME_INCIDENT_STOP  = "Volume failed to stop"
+
 # Web interface
 WEB_SOURCE           = "Web message"
 WEB_IDLE             = "Web service is idle"
@@ -87,45 +129,16 @@ WEB_PLAYING_SONG     = "Web service plays a song"
 WEB_INCIDENT_START   = "Web service failed to start"
 WEB_INCIDENT_STOP    = "Web service failed to stop"
 WEB_INCIDENT_SERVICE = "Web service incident"
-# Remote Monitoring
-RMS_SOURCE           = "RMS message"
-RMS_INCIDENT_SERVICE = "RMS service incident"
-# GPIO
-GPIO_SOURCE           = "GPIO message"
-GPIO_INCIDENT_SERVICE = "GPIO service incident"
-GPIO_INCIDENT_BUTTONS = "GPIO buttons incident"
-# Backlighting
-BACKLIGHTING_SOURCE  = "Backlighting message"
-BACKLIGHTING_FAILED  = "Backlighting failed to start"
-BACKLIGHTING_STOPPED = "Backlighting stopped"
-# I2C
-I2C_SOURCE       = "I2C service message"
-I2C_INCIDENT_BUS = "I2C bus incident"
-# Volume
-VOLUME_SOURCE         = "Volume message"
-VOLUME_CHANGED        = "Volume changed"
-VOLUME_INCIDENT_START = "Volume failed to start"
-VOLUME_INCIDENT_STOP  = "Volume failed to stop"
-# Buttons
-BUTTON_SOURCE              = "Button message"
-BUTTON_SHORT_PRESS_PLAY    = BUTTON_SHORT_PRESS + BUTTON_PLAY
-BUTTON_SHORT_PRESS_STOP    = BUTTON_SHORT_PRESS + BUTTON_STOP
-BUTTON_SHORT_PRESS_PRESET1 = BUTTON_SHORT_PRESS + BUTTON_PRESET1
-BUTTON_SHORT_PRESS_PRESET2 = BUTTON_SHORT_PRESS + BUTTON_PRESET2
-BUTTON_SHORT_PRESS_PRESET3 = BUTTON_SHORT_PRESS + BUTTON_PRESET3
-BUTTON_LONG_PRESS_PLAY     = BUTTON_LONG_PRESS + BUTTON_PLAY
-# MPD
-MPD_SOURCE           = "MPD message"
-MPD_INCIDENT_CONNECT = "MPD connect incident"
-MPD_INCIDENT_EXECUTE = "MPD execute incident"
-MPD_INCIDENT_MONITOR = "MPD monitor incident"
-# Spotify
-SPOTIFY_SOURCE                = "Spotify message"
-SPOTIFY_CONNECTED_EVENT       = "Spotify connected event"
-SPOTIFY_DISCONNECTED_EVENT    = "Spotify disconnected event"
-SPOTIFY_PLAYING_EVENT         = "Spotify playing event"
-SPOTIFY_PAUSED_EVENT          = "Spotify paused event"
-SPOTIFY_INCIDENT_MONITOR      = "Spotify monitor incident"
+
+# wifi
+WIFI_SOURCE              = "Wifi message"
+WIFI_CONNECTED           = "Wifi connected"
+WIFI_DISCONNECTED        = "Wifi disconnected"
+WIFI_ACCESS_POINT        = "Wifi configured as access point"
+WIFI_INCIDENT_DBUS       = "D-Bus event handler failed"
+WIFI_INCIDENT_NMCLI      = "NetworkManager wrapper failed"
+WIFI_INCIDENT_CONNECT    = "Wifi failed to connect"
+WIFI_INCIDENT_DISCONNECT = "Wifi failed to disconnect"
 
 class Topic(str, Enum):
     """
