@@ -40,8 +40,7 @@ from wifi_service import WifiService
 from utilities import has_internet
 from power_supply_control import PowerSupplyService
 from system_sounds import play_sound    # For better readability. pylint: disable=wrong-import-order
-# Runs a background thread logging throttling events
-import throttling_monitor     # pylint: disable=unused-import
+from throttling_monitor import ThrottlingMonitor
 
 # Moved from constants
 from messaging import (
@@ -129,9 +128,13 @@ web_service_active.clear() # Start-up state is no Web service
 usb_present = threading.Event()
 usb_present.set() # USB present to go over start-up sequence (will be updated after first message of USB service
 
-# Any incident starting backlight is reported and handled by IncidentHandler
-oradio_log.info("Start backlight")
+# Any incident starting backlight is reported to and handled by IncidentHandler
+oradio_log.info("Start backlighting")
 Backlighting().start()
+
+# Any incident starting throttling monitor is reported to and handled by IncidentHandler
+oradio_log.info("Start throttling monitor")
+ThrottlingMonitor().start()
 
 oradio_log.info("Start MPD event monitoring")
 mpd_monitor = MPDMonitor()
