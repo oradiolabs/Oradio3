@@ -12,36 +12,34 @@ Created on Jan 22, 2026
 @copyright:     Copyright 2026, Oradio Stichting
 @license:       GNU General Public License (GPL)
 @organization:  Oradio Stichting
-@version:       1
+@version:       3
 @email:         oradioinfo@stichtingoradio.nl
 @status:        Development
 @summary:       Module test for touch_buttons functions
     * Testing BUTTONS touched
     * Class extensions for button simulations
+
+@references:
+    https://www.raspberrypi.com/documentation/computers/raspberry-pi.html#gpio
 """
-import sys
-from threading import Event, Thread
-from multiprocessing import Queue
 from time import sleep, perf_counter
 from RPi import GPIO
 
 ##### Oradio modules ######################################
 from log_service import oradio_log, DEBUG, CRITICAL
 from touch_buttons import TouchButtons, BUTTON_DEBOUNCE_TIME
-from remote_debugger import setup_remote_debugging
 from gpio_service import BUTTONS, GPIOService
 from utilities import input_prompt
-from messaging import safe_get, Commands, Incidents, CommandMessage, DebugMessageHandler
+from module_test_harness import KeyPressStopWaiter, module_test_session
+from module_test_metrics import TimingData
+from messaging import Commands, Incidents
 
 ##### GLOBAL constants ####################################
 from constants import (
-    YELLOW, RED, NC,
+    YELLOW, NC,
     BUTTON_NAMES,
     BUTTON_PLAY,
-    TEST_ENABLED,
-    TEST_DISABLED,
-    DEBUGGER_ENABLED,
-    DEBUGGER_NOT_CONNECTED,
+    BUTTON_PRESSED,
     BUTTON_SHORT_PRESS
 )
 # pylint: disable=protected-access
@@ -54,14 +52,18 @@ class TestTouchButtons:
     Composes a real TouchButtons instance with a TestGPIOService, and wires
     the GPIO edge-event callback to TouchButtons' internal handler so that
     button simulations exercise the same code path as production.
+
+    Owns the TimingData instance used for performance/debounce statistics:
+    production TouchButtons holds no timing state of its own, so this test
+    class is where it lives.
     """
     def __init__(self) -> None:
-        TouchButtons.buttons_module_test = TEST_ENABLED
         # Create an instance of actual TouchButtons
         # and add an instance of TestGPIOService,
         # which creates a composition of TouchButtons, TestGPIOService and TimingData
         self.touch_buttons = TouchButtons()
-        self.button_gpio = TestGPIOService()
+        self.timing_data = TimingData()
+        self.button_gpio = TestGPIOService(self.timing_data)
         # Add performance measurement methods
         # Register callback FIRST
         self.touch_buttons.button_gpio.set_button_edge_event_callback(self.touch_buttons._button_event_callback)
@@ -78,42 +80,92 @@ class TestGPIOService:
         * simulate_all_buttons_events_burst()
         * simulate_button_press_and_release()
     """
-    def __init__(self) -> None:
+    def __init__(self, timing_data: TimingData) -> None:
         """
         create test class, adding a composition of GPIOService class
-        """
-        GPIOService.gpio_module_test = TEST_ENABLED
-        self.gpio_service = GPIOService()
 
-    def simulate_button_play_events_burst(self, burst_freq: float, stop_burst: Event) -> int:
+        Args:
+            timing_data (TimingData): Shared stats object (owned by
+                TestTouchButtons) that burst simulations record
+                valid/neglected presses and latency timing into.
+        """
+        self.gpio_service = GPIOService()
+        self.timing_data = timing_data
+
+    def _simulate_edge_event(self, button_name: str) -> None:
+        """
+        Directly invoke the registered edge-event callback for the given
+        button, without touching real GPIO pin state.
+
+        GPIOService itself has no test/simulation mode: it only ever
+        reports the pin state it actually reads. A burst test needs to
+        simulate presses far faster than physically toggling a pin would
+        allow, so this bypasses GPIOService._edge_callback (and therefore
+        the real pin read) entirely and calls the registered callback
+        directly -- always reporting BUTTON_PRESSED with a perf_counter
+        timestamp attached under "data", for latency measurement.
+
+        touch_buttons.TouchButtons._button_event_callback() returns True if
+        the press was accepted, False if it was discarded by the debounce
+        window. On acceptance this records the button as a valid callback
+        and measures acceptance latency against the timestamp submitted
+        above; on rejection it records a neglected press instead.
+
+        Args:
+            button_name (str): One of BUTTON_PLAY, BUTTON_STOP,
+                BUTTON_PRESET1, BUTTON_PRESET2, BUTTON_PRESET3.
+        """
+        if not callable(self.gpio_service.edge_event_callback):
+            oradio_log.error("No callback function found")
+            return
+
+        submit_time = perf_counter()
+        accepted = self.gpio_service.edge_event_callback({
+            "state": BUTTON_PRESSED,
+            "name": button_name,
+            "data": submit_time,
+        })
+
+        if accepted is False:
+            self.timing_data.neglected_callbacks[button_name] += 1
+        else:
+            timdat = self.timing_data
+            timdat.valid_callbacks[button_name] += 1
+            timdat.sum_count += 1
+            duration = perf_counter() - submit_time
+            timdat.sum_time += duration
+            timdat.max_time = max(timdat.max_time, duration)
+            timdat.min_time = min(timdat.min_time, duration)
+
+    def simulate_button_play_events_burst(self, burst_freq: float, waiter: KeyPressStopWaiter) -> int:
         """
         Simulate a button press by submitting a callback for BUTTON_PLAY
         Args:
             burst_freq = number of events per second
-            stop_burst = an event to stop the burst
+            waiter = KeyPressStopWaiter whose `stopping` property ends the burst
         Returns:
             nr_of_events = the number of event callback submitted
         """
         nr_of_events = 0
-        while not stop_burst.is_set():
-            self.gpio_service._edge_callback(BUTTONS[BUTTON_PLAY])
+        while not waiter.stopping:
+            self._simulate_edge_event(BUTTON_PLAY)
             nr_of_events += 1
             sleep(1/burst_freq)
         return nr_of_events
 
-    def simulate_all_buttons_events_burst(self, burst_freq: float, stop_burst: Event) -> int:
+    def simulate_all_buttons_events_burst(self, burst_freq: float, waiter: KeyPressStopWaiter) -> int:
         """
         Simulate all button press by submitting a callback for all buttons in a sequence
         Args:
             burst_freq = nr of events per second
-            stop_burst = an event to stop the burst
+            waiter = KeyPressStopWaiter whose `stopping` property ends the burst
         Returns:
             nr_of_events = the number of event callback submitted
         """
         nr_of_events = 0
-        while not stop_burst.is_set():
+        while not waiter.stopping:
             for button in BUTTON_NAMES:
-                self.gpio_service._edge_callback(BUTTONS[button])
+                self._simulate_edge_event(button)
                 nr_of_events += 1
             sleep(1/burst_freq)
         return nr_of_events
@@ -127,6 +179,10 @@ class TestGPIOService:
         is flipped to OUTPUT, since changing pin direction on a pin that
         still has GPIO.add_event_detect armed can raise or misbehave.
         Edge detection is restored along with the pin's original INPUT mode.
+
+        This test toggles the real GPIO pin (unlike the burst simulations
+        above), so it goes through the real GPIOService._edge_callback path
+        and its real pin read -- no simulated button_data is needed here.
 
         Args:
             button_name = name of button [ BUTTON_PLAY | BUTTON_STOP] |
@@ -172,59 +228,7 @@ def _stop_all_long_press_timer(test_buttons: TestTouchButtons) -> None:
         if timer:
             timer.cancel()
 
-def _keyboard_input(event: Event) -> None:
-    """
-    Wait for keyboard input with return, and sets the specified event if input detected
-    Args:
-        event = The specified event will be set upon a keyboard input
-    """
-    _ = input("Press Return on keyboard to stop this test")
-    event.set()
-
 ##### globals statistics for button callbacks #############
-
-def _handle_message(message: CommandMessage, test_buttons: TestTouchButtons) -> bool:
-    """
-    Process a message received from the command queue.
-
-    Timing statistics in test_buttons.touch_buttons.timing_data are
-    updated for messages that carry timing data.
-
-    Args:
-        message (CommandMessage): The next message from the command queue.
-        test_buttons (TestTouchButtons): Instance holding the timing data
-            to update.
-
-    Returns:
-        bool: True if the message was valid and processed, False otherwise.
-    """
-    if message.data:
-        # do the statistics
-        timdat = test_buttons.touch_buttons.timing_data
-        time_stamp = float(message.data[0])
-        # statistics
-        button_name = message.message.removeprefix(BUTTON_SHORT_PRESS)
-        if button_name not in BUTTON_NAMES:
-            print("invalid button:", button_name, message)
-        else:
-            timdat.valid_callbacks[button_name] += 1
-
-        timdat.sum_count += 1
-        duration = perf_counter() - time_stamp
-        timdat.sum_time += duration
-        # timdat.avg_time is a computed property; no manual update needed.
-        timdat.max_time = max(timdat.max_time, duration)
-        timdat.min_time = min(timdat.min_time, duration)
-        print(f"current_time={round(duration, 4)},"
-              f"min_time={round(timdat.min_time, 4)},"
-              f"max_time={round(timdat.max_time, 4)},"
-              f"sum_count={timdat.sum_count},"
-              f"avg_time={round(timdat.avg_time, 4)}"
-              )
-    else:
-        # message without data
-        print(f"{YELLOW} Valid message in Queue: {message}{NC}")
-    return True
 
 def evaluate_test_results(test_buttons: TestTouchButtons, nr_of_events: int) -> None:
     """
@@ -233,7 +237,7 @@ def evaluate_test_results(test_buttons: TestTouchButtons, nr_of_events: int) -> 
         nr_of_events = the number of events submitted by gpio callback
         test_buttons = instance of TestTouchButtons
     """
-    timdat = test_buttons.touch_buttons.timing_data
+    timdat = test_buttons.timing_data
     print(f"{YELLOW}==============================================================")
     print (f"min_time={round(timdat.min_time, 4)},"
            f"max_time={round(timdat.max_time, 4)},"
@@ -244,19 +248,6 @@ def evaluate_test_results(test_buttons: TestTouchButtons, nr_of_events: int) -> 
     print(f"Valid callbacks = {timdat.valid_callbacks}")
     print(f"Neglected callbacks = {timdat.neglected_callbacks}")
     print(f"======================================================================={NC}")
-
-def _check_for_new_message_in_queue(msg_queue: Queue, test_buttons: TestTouchButtons) -> None:
-    """
-    Continuously wait, read and handle messages from the shared queue.
-    Args:
-        msg_queue = queue to check for new messages
-        test_buttons = instance of TestTouchButtons
-    """
-    while True:
-        msg = None
-        msg = safe_get(msg_queue)  # blocking
-        print(f"\n{NC}Received message in Queue: {msg}")
-        _handle_message(msg, test_buttons)
 
 def _callback_test(buttons: TestTouchButtons) -> None:
     """
@@ -285,16 +276,16 @@ def _single_button_play_burst_test(test_buttons: TestTouchButtons, burst_freq: f
     * resets all timing data
     * stop the logging temporary, but setting log-level to CRITICAL
     """
-    test_buttons.touch_buttons.timing_data._reset_timing_data()
-    stop_event = Event()
-    keyboard_thread = Thread(target=_keyboard_input, args=(stop_event,))
-    keyboard_thread.start()
+    test_buttons.timing_data._reset_timing_data()
+    waiter = KeyPressStopWaiter()
+    waiter.safe_start()
     oradio_log.set_level(CRITICAL)
     nr_of_events = test_buttons.button_gpio.simulate_button_play_events_burst(
                                                             burst_freq,
-                                                            stop_event)
+                                                            waiter)
     # module test is enabled
     oradio_log.set_level(DEBUG)
+    waiter.safe_stop()
     evaluate_test_results(test_buttons, nr_of_events)
     _stop_all_long_press_timer(test_buttons)
 
@@ -309,18 +300,16 @@ def _all_button_burst_test(test_buttons: TestTouchButtons, burst_freq: float) ->
     * resets all timing data
     * stop the logging temporary, but setting log-level to CRITICAL
     """
-    test_buttons.touch_buttons.timing_data._reset_timing_data()
-    nr_of_events = 0
-    stop_event = Event()
-    keyboard_thread = Thread(target=_keyboard_input,
-                             args=(stop_event,))
-    keyboard_thread.start()
+    test_buttons.timing_data._reset_timing_data()
+    waiter = KeyPressStopWaiter()
+    waiter.safe_start()
     oradio_log.set_level(CRITICAL)
     nr_of_events = test_buttons.button_gpio.simulate_all_buttons_events_burst(
                                                                         burst_freq,
-                                                                        stop_event)
+                                                                        waiter)
     # module test is enabled
     oradio_log.set_level(DEBUG)
+    waiter.safe_stop()
     evaluate_test_results(test_buttons, nr_of_events)
     _stop_all_long_press_timer(test_buttons)
 
@@ -335,7 +324,7 @@ def _btn_press_release_cb_test(test_buttons: TestTouchButtons) -> None:
     Args:
         buttons = instance of TestTouchButtons
     """
-    test_buttons.touch_buttons.timing_data._reset_timing_data()
+    test_buttons.timing_data._reset_timing_data()
     stop_test = False
     button_name_options = ["Quit"] + BUTTON_NAMES
     selection_done = False
@@ -390,22 +379,16 @@ def _burst_test_button(test_buttons: TestTouchButtons, test_choice: int):
         else:
             _all_button_burst_test(test_buttons, burst_freq)
 
-def _start_module_test(cmd_queue: Queue):
+def _start_module_test():
     """
     Show menu with test options
     """
     # pylint: disable=duplicate-code
-    TouchButtons.buttons_module_test = TEST_ENABLED
-    GPIOService.gpio_module_test = TEST_ENABLED
     test_buttons = TestTouchButtons()
 
-    # Create a thread to listen and process new messages in shared queue
-    Thread(target=_check_for_new_message_in_queue,
-                    args=(cmd_queue, test_buttons),
-                    daemon=True).start()
     test_options = ["Quit"] + \
-                    ["Pressing a button and check message queue "] + \
-                    ["Send for each button a button callback and check message queue"] +\
+                    ["Pressing a button and check console output "] + \
+                    ["Send for each button a button callback and check console output"] +\
                     ["BUTTON_PLAY gpio-callback (incl-click) latency timing within debouncing window"] +\
                     ["BUTTON_PLAY gpio-callback (incl-click) latency timing outside debouncing window "] +\
                     ["All buttons gpio-callback (incl-click) latency timing within debouncing window "] +\
@@ -418,17 +401,14 @@ def _start_module_test(cmd_queue: Queue):
             print(f" {idx} - {name}")
         test_choice = input_prompt("Select test number: ", int, -1)
 
-        oradio_log.set_level(CRITICAL)
         match test_choice:
             case 0:
                 print("\nExiting test program\n")
                 test_buttons.button_gpio.gpio_service.gpio_cleanup()
-                GPIOService.gpio_module_test = TEST_DISABLED
-                TouchButtons.buttons_module_test = TEST_DISABLED
                 test_active = False
             case 1:
                 print(f"\n running {test_options[1]}\n")
-                # wait for message received in queue
+                # wait for console output printed by DebugMessageHandler
                 _ = input("Press any Return key to stop test")
             case 2:
                 print(f"\n running {test_options[2]}\n")
@@ -445,31 +425,5 @@ def _start_module_test(cmd_queue: Queue):
     oradio_log.set_level(DEBUG)
 
 if __name__ == '__main__':
-    # try to setup a remote debugger connection, if enabled in remote_debugger.py
-    # pylint: disable=duplicate-code
-
-    print("\nStarting test program...\n")
-
-    debugger_status, connection_status = setup_remote_debugging()
-    if debugger_status == DEBUGGER_ENABLED:
-        if connection_status == DEBUGGER_NOT_CONNECTED:
-            print(f"{RED}A remote debugging error, check the remote IP connection {NC}")
-            sys.exit()
-
-    # Subscribe to command and error topics so published messages are printed to console
-    command_handler = DebugMessageHandler(Commands.subscribe())
-    incident_handler = DebugMessageHandler(Incidents.subscribe())
-
-    _start_module_test(command_handler.get_queue())
-
-    # Stop receiving messages
-    Commands.unsubscribe(command_handler.get_queue())
-    Incidents.unsubscribe(incident_handler.get_queue())
-
-    # Signal the threads to exit and confirm it has exited
-    command_handler.stop()
-    incident_handler.stop()
-
-    print("\nExiting test program...\n")
-
-    sys.exit()
+    with module_test_session(Commands, Incidents):
+        _start_module_test()

@@ -37,8 +37,7 @@ from messaging import (
     BACKLIGHTING_STOPPED,
 
     GPIO_SOURCE,
-    GPIO_INCIDENT_SERVICE,
-    GPIO_INCIDENT_BUTTONS,
+    GPIO_FAILED,
 
     I2C_SOURCE,
     I2C_INCIDENT_BUS,
@@ -155,11 +154,11 @@ class IncidentHandler(MessageHandlerBase):
         Args:
             incident: Incident message received from the incident bus.
         """
-        if incident.message == GPIO_INCIDENT_SERVICE:
-# NIET VERGETEN: implement gpio-recovery logic (e.g. back-off, retry)
-            oradio_log.debug("Mitigation to be implemented")
-        elif incident.message == GPIO_INCIDENT_BUTTONS:
-# NIET VERGETEN: implement gpio-recovery logic (e.g. back-off, retry)
+        if incident.message == GPIO_FAILED:
+            # MITIGATION TO BE IMPLEMENTED:
+            #   Report GPIO setup failed + status to RMS
+            #   Can GPIO be reset? IF yes add and try, if not pwoer cycle
+            #   If retry_count < MAX_RETRIES: call gpio_cleanup() and restart Oradio
             oradio_log.debug("Mitigation to be implemented")
         else:
             oradio_log.error("Unhandled GPIO incident: '%s'", incident.message)

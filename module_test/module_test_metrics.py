@@ -7,15 +7,18 @@
  #    #  #   #   #    #  #    #     #    #    #
   ####   #    #  #    #  #####      #     ####
 
-Created on January 22, 2026
+Created on Jan 22, 2026
 @author:        Henk Stevens & Olaf Mastenbroek & Onno Janssen
 @copyright:     Copyright 2026, Oradio Stichting
 @license:       GNU General Public License (GPL)
 @organization:  Oradio Stichting
-@version:       1
+@version:       2
 @email:         oradioinfo@stichtingoradio.nl
 @status:        Development
-@summary:       Classes for testing and simulations
+@summary:       Metrics/stats classes used by Oradio module tests
+    (renamed from test_classes.py -- module_test_harness.py holds the
+    generic test-running scaffolding, this file holds what a specific
+    test measures)
 """
 ##### GLOBAL constants ####################################
 from constants import BUTTON_NAMES
@@ -23,10 +26,8 @@ from constants import BUTTON_NAMES
 class TimingData:
     """
     Accumulates timing measurements for performance statistics.
-
     avg_time is a computed property derived from sum_time and sum_count;
     callers do not need to update it manually.
-
     Attributes:
         min_time (float):             Minimum measured time. Initialised to
                                       infinity so any real measurement becomes
@@ -37,19 +38,15 @@ class TimingData:
         valid_callbacks (dict):       Count of valid callbacks per button name.
         neglected_callbacks (dict):   Count of neglected callbacks per button name.
     """
-
     # Guarantees any real measurement is recorded as the new minimum.
     _MIN_TIME_INIT = float("inf")
-
     def __init__(self):
         """
         Initialise all timing counters to their starting values.
-
         min_time is set to infinity so that any real measurement is
         immediately recorded as the new minimum.
         """
         self._reset_timing_data()
-
     def _reset_timing_data(self) -> None:
         """Reset all timing data and callback counters to their initial values."""
         self.min_time  = self._MIN_TIME_INIT
@@ -58,12 +55,10 @@ class TimingData:
         self.sum_count = 0
         self.valid_callbacks     = {button: 0 for button in BUTTON_NAMES}
         self.neglected_callbacks = {button: 0 for button in BUTTON_NAMES}
-
     @property
     def avg_time(self) -> float:
         """Average measured time, computed from sum_time and sum_count."""
         return self.sum_time / self.sum_count if self.sum_count > 0 else 0.0
-
     def __repr__(self) -> str:
         """Return a compact, unambiguous representation for debugging."""
         return (
@@ -73,7 +68,6 @@ class TimingData:
             f"avg={self.avg_time:.3f}, "
             f"count={self.sum_count})"
         )
-
     def __str__(self) -> str:
         """Return a human-readable multi-line summary of all timing statistics."""
         lines = [

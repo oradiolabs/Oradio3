@@ -25,6 +25,7 @@ Created on January 17, 2025
         * Generic shell command execution
         * Loading and storing presets.json
         * Console input prompting with type conversion and a default fallback
+        * Restartable background worker template (ThreadTemplate)
 """
 import json
 import socket

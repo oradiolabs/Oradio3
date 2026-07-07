@@ -12,7 +12,7 @@ Created on Januari 22, 2026
 @copyright:     Copyright 2026, Oradio Stichting
 @license:       GNU General Public License (GPL)
 @organization:  Oradio Stichting
-@version:       1
+@version:       2
 @email:         oradioinfo@stichtingoradio.nl
 @status:        Development
 @summary:
@@ -27,22 +27,19 @@ Created on Januari 22, 2026
 @references:
     https://www.raspberrypi.com/documentation/computers/raspberry-pi.html#gpio
 """
-import sys
 from RPi import GPIO
 from time import sleep
-from threading import Thread, Event
 
 ##### Oradio modules ######################################
 from utilities import input_prompt
-from messaging import Incidents, DebugMessageHandler
-from remote_debugger import setup_remote_debugging
+from module_test_harness import KeyPressStopWaiter, module_test_session
 from gpio_service import GPIOService, LED_ON, LED_OFF, LEDS, BUTTONS, BOUNCE_MS
+from messaging import Incidents
 
 ##### GLOBAL constants ####################################
 from constants import (
     GREEN, YELLOW, RED, NC,
     LED_NAMES, BUTTON_NAMES,
-    DEBUGGER_ENABLED, DEBUGGER_NOT_CONNECTED,
 )
 
 ##### LOCAL constants #####################################
@@ -57,23 +54,8 @@ def button_event_callback(button_data: dict) -> None:
             'name'  (str): Name of the button that changed state.
             'state' (str): New state of the button: BUTTON_PRESSED or
                 BUTTON_RELEASED.
-            'data'  (float, optional): perf_counter timestamp, present only
-                when gpio_module_test is TEST_ENABLED.
     """
     print(f"Button change event: {button_data['name']} = {button_data['state']}")
-
-def _keyboard_input(event: Event) -> None:
-    """
-    Wait for the user to press Return and then set the given event.
-
-    Intended to run in a background thread so that a polling loop can
-    check the event and exit cleanly without blocking on input().
-
-    Args:
-        event (Event): Event that will be set when Return is pressed.
-    """
-    _ = input("Press Return on keyboard to stop this test")
-    event.set()
 
 def _button_polling(test_gpio: GPIOService) -> None:
     """
@@ -90,11 +72,10 @@ def _button_polling(test_gpio: GPIOService) -> None:
     for pin in BUTTONS.values():
         GPIO.remove_event_detect(pin)
 
-    stop_event = Event()
-    keyboard_thread = Thread(target=_keyboard_input, args=(stop_event,))
-    keyboard_thread.start()
+    waiter = KeyPressStopWaiter()
+    waiter.safe_start()
 
-    while not stop_event.is_set():
+    while not waiter.stopping:
         full_state_text = ""
         active_buttons = []
         for button_name in BUTTON_NAMES:
@@ -105,7 +86,7 @@ def _button_polling(test_gpio: GPIOService) -> None:
         print(f"{full_state_text} {YELLOW} : {active_buttons}")
         sleep(0.2)
 
-    del stop_event
+    waiter.safe_stop()
 
     # Restore event-driven callbacks.
     for pin in BUTTONS.values():
@@ -340,26 +321,5 @@ def _start_module_test() -> None:
                 print(f"{YELLOW}Please input a valid number.{NC}")
 
 if __name__ == '__main__':
-
-    print("\nStarting test program...\n")
-
-    # Subscribe to command and error topics so published messages are printed to console
-    incident_handler = DebugMessageHandler(Incidents.subscribe())
-
-    # try to setup a remote debugger connection, if enabled in remote_debugger.py
-    debugger_status, connection_status = setup_remote_debugging()
-    if debugger_status == DEBUGGER_ENABLED:
-        if connection_status == DEBUGGER_NOT_CONNECTED:
-            print(f"{RED}A remote debugging error, check the remote IP connection {NC}")
-            sys.exit()
-
-    _start_module_test()
-
-    # Stop receiving messages
-    Incidents.unsubscribe(incident_handler.get_queue())
-    # Signal the thread to exit and confirm it has exited
-    incident_handler.stop()
-
-    print("\nExiting test program...\n")
-
-    sys.exit()
+    with module_test_session(Incidents):
+        _start_module_test()

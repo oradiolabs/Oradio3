@@ -27,9 +27,10 @@ Created on November 29, 2025
 @references:
     https://www.raspberrypi.com/documentation/computers/raspberry-pi.html#gpio
 """
-from time import perf_counter
-from threading import Lock
 from RPi import GPIO
+from typing import Any
+from threading import Lock
+from collections.abc import Callable
 
 ##### Oradio modules ######################################
 from log_service import oradio_log
@@ -38,8 +39,7 @@ from messaging import (
     Incidents,
     IncidentMessage,
     GPIO_SOURCE,
-    GPIO_INCIDENT_SERVICE,
-    GPIO_INCIDENT_BUTTONS,
+    GPIO_FAILED,
 )
 
 ##### GLOBAL constants ####################################
@@ -49,7 +49,6 @@ from constants import (
     BUTTON_NAMES, BUTTON_PLAY, BUTTON_STOP,
     BUTTON_PRESET1, BUTTON_PRESET2, BUTTON_PRESET3,
     BUTTON_PRESSED, BUTTON_RELEASED,
-    TEST_ENABLED, TEST_DISABLED
 )
 
 ##### LOCAL constants #####################################
@@ -87,27 +86,19 @@ class GPIOService:
     buttons. Supports registering a callback for button edge events and
     provides logging for debugging.
 
-    Public attributes:
-        gpio_module_test (int): Controls test mode behaviour.
-            TEST_DISABLED (default): normal operation.
-            TEST_ENABLED: overrides button state to BUTTON_PRESSED and
-                attaches a perf_counter timestamp to button callbacks for
-                performance measurement.
-            This is intentionally a CLASS attribute (not set in __init__):
-            test code sets it via GPIOService.gpio_module_test = TEST_ENABLED
-            before the singleton is constructed, or toggles it on the class
-            at any time afterwards. Because GPIOService is a singleton, an
-            instance-level assignment here would shadow the class attribute
-            and silently break that external test-mode toggle pattern.
+    This service only ever reports the real, physically-read pin state.
+    Tests that need to simulate button presses without touching real
+    GPIO pins do so by invoking the registered edge_event_callback directly
+    (see the module test for this module, and for touch_buttons), rather
+    than asking GPIOService to fake a state.
 
     Internal attributes:
-        edge_event_callback: Callable registered via
-            set_button_edge_event_callback(); invoked on every button edge.
-        gpio_to_button (dict[int, str]): Reverse map from BCM pin number to
+        edge_event_callback: registered via set_button_edge_event_callback();
+            invoked on every button edge.
+        gpio_to_button: Reverse map from BCM pin number to
             button name, built at init time to avoid dict iteration inside
             the interrupt handler.
     """
-    gpio_module_test = TEST_DISABLED
 
     def __init__(self) -> None:
         """
@@ -120,7 +111,7 @@ class GPIOService:
         any previously registered edge-detection handlers.
         """
         self._lock = Lock()
-        self.edge_event_callback = None
+        self.edge_event_callback: Callable[[dict[Any, Any]], object] | None = None
 
         # Fast channel -> name reverse lookup used in _edge_callback.
         self.gpio_to_button = {}
@@ -134,7 +125,7 @@ class GPIOService:
                 GPIO.setup(pin, GPIO.OUT, initial=GPIO.HIGH)
             except RuntimeError as err:
                 oradio_log.error("Error setting LED output for pin %s: %s", pin, err)
-                Incidents.publish(IncidentMessage(GPIO_SOURCE, GPIO_INCIDENT_SERVICE))
+                Incidents.publish(IncidentMessage(GPIO_SOURCE, GPIO_FAILED))
 
         # Initialise button pins as inputs with internal pull-up resistors.
         for button_name, pin in BUTTONS.items():
@@ -142,7 +133,7 @@ class GPIOService:
                 GPIO.setup(pin, GPIO.IN, pull_up_down=GPIO.PUD_UP)
             except RuntimeError as err:
                 oradio_log.error("Error setting BUTTON input for pin %s: %s", pin, err)
-                Incidents.publish(IncidentMessage(GPIO_SOURCE, GPIO_INCIDENT_SERVICE))
+                Incidents.publish(IncidentMessage(GPIO_SOURCE, GPIO_FAILED))
 
             self.gpio_to_button[pin] = button_name
 
@@ -153,10 +144,24 @@ class GPIOService:
 
     def gpio_cleanup(self) -> None:
         """
-        Reset all GPIO pins to their default input state.
+        Reset all GPIO pins to their default input state and clear service state.
 
         Calls GPIO.cleanup() to release all configured pins and return them
-        to input mode with no pull-up or pull-down resistors.
+        to input mode with no pull-up or pull-down resistors. Also clears
+        edge_event_callback and gpio_to_button, since this is a singleton
+        and __init__ will not run again to rebuild them: without this, a
+        caller that re-enables button events after cleanup would either
+        reuse a stale callback or find no callback registered at all,
+        rather than getting a clean slate.
+
+        Note:
+            Does not hold self._lock while calling GPIO.cleanup(), since
+            GPIO.cleanup() blocks until any in-flight edge-detection thread
+            exits, and that thread acquires self._lock via _edge_callback's
+            call to get_button_state(). Holding the lock here would deadlock
+            against a button edge in progress. The state reset below is
+            ordered after GPIO.cleanup() for the same reason: it must not
+            run while an edge event for the old state may still be in flight.
 
         Warning:
             Calling this in production will disable all GPIO functionality
@@ -164,8 +169,9 @@ class GPIOService:
             environments where pins must be returned to a known state between
             test runs.
         """
-        with self._lock:
-            GPIO.cleanup()
+        GPIO.cleanup()
+        self.edge_event_callback = None
+        self.gpio_to_button = {}
 
     def _read_pin_state(self, io_pin: int) -> bool:
         """
@@ -235,7 +241,7 @@ class GPIOService:
 
 ##### methods for BUTTON pins #############################
 
-    def set_button_edge_event_callback(self, callback) -> None:
+    def set_button_edge_event_callback(self, callback: Callable[[dict[Any, Any]], object]) -> None:
         """
         Register the callback invoked on every button edge event.
 
@@ -244,8 +250,8 @@ class GPIOService:
         causing the event to be silently dropped.
 
         Args:
-            callback (Callable): Function to call when a button state
-                changes. Receives a dict with "state" and "name" keys.
+            callback: Function to call when a button state changes.
+                Receives a dict with "state" and "name" keys.
         """
         if callable(callback):
             self.edge_event_callback = callback
@@ -277,13 +283,12 @@ class GPIOService:
 
         Must be called after set_button_edge_event_callback(). If events
         were enabled first, a button press occurring between the two calls
-        would invoke a None callback and be silently dropped. Publishes
-        GPIO_INCIDENT_BUTTONS and returns early if no callback has been
-        registered.
+        would invoke a None callback and be silently dropped, so this
+        method returns early if no callback has been registered. Publishes
+        a GPIO_FAILED incident if edge detection cannot be enabled on a pin.
         """
         if not callable(self.edge_event_callback):
             oradio_log.error("Cannot enable button events: callback not set")
-            Incidents.publish(IncidentMessage(GPIO_SOURCE, GPIO_INCIDENT_BUTTONS))
             return
 
         for pin in BUTTONS.values():
@@ -293,6 +298,7 @@ class GPIOService:
                 GPIO.add_event_detect(pin, GPIO.BOTH, callback=self._edge_callback, bouncetime=BOUNCE_MS)
             except RuntimeError as err:
                 oradio_log.error("Error enabling event detection for pin %s: %s", pin, err)
+                Incidents.publish(IncidentMessage(GPIO_SOURCE, GPIO_FAILED))
 
         oradio_log.debug("Button event detection enabled")
 
@@ -307,45 +313,31 @@ class GPIOService:
 
         Args:
             channel (int): BCM pin number on which the edge was detected.
-
-        Note:
-            When gpio_module_test is TEST_ENABLED, the reported state is
-            unconditionally overridden to BUTTON_PRESSED (regardless of
-            actual pin level) and a perf_counter timestamp is attached under
-            the "data" key. This behaviour exists solely for performance
-            measurement and must not be relied upon in production code.
         """
         if not callable(self.edge_event_callback):
             oradio_log.error("No callback function found")
             return
 
-        # Capture timestamp immediately if test mode is active so the
-        # measurement reflects the true start of this handler.
-        button_event_ts = perf_counter() if self.gpio_module_test == TEST_ENABLED else None
-
         button_name = self.gpio_to_button.get(channel)
-        if not button_name:
+        if button_name is None:
             oradio_log.warning("Edge event on unknown channel %s — ignored", channel)
             return
 
-        button_value = GPIO.input(channel)
-        state = BUTTON_PRESSED if button_value == GPIO.LOW else BUTTON_RELEASED
+        # Safe to acquire self._lock here (via get_button_state) because
+        # gpio_cleanup() no longer holds it while calling GPIO.cleanup():
+        # that call blocks until this callback thread exits, so holding
+        # the lock across it would deadlock. See gpio_cleanup()'s docstring.
+        pressed = self.get_button_state(button_name)
+        state = BUTTON_PRESSED if pressed else BUTTON_RELEASED
 
         button_data = {
             "state": state,
             "name": button_name,
         }
 
-        if self.gpio_module_test == TEST_ENABLED:
-            # Override state to BUTTON_PRESSED and attach the timing
-            # timestamp for performance measurement.
-            button_data["state"] = BUTTON_PRESSED
-            button_data["data"] = button_event_ts
-
         self.edge_event_callback(button_data)
 
 ##### Stand-alone entry point #############################
 
 if __name__ == '__main__':
-    print("Stand-alone not implemented")
     print("The module test for gpio_service.py is at module_test/gpio_service_test.py")

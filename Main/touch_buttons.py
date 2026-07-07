@@ -33,13 +33,10 @@ from messaging import (
 
 ##### GLOBAL constants ####################################
 from constants import (
-    YELLOW, NC,
     BUTTON_PLAY,
     BUTTON_RELEASED,
     BUTTON_SHORT_PRESS,
     BUTTON_LONG_PRESS,
-    TEST_DISABLED,
-    TEST_ENABLED,
     SOUND_CLICK,
 )
 
@@ -59,20 +56,16 @@ class TouchButtons:
     Evaluates button timing to distinguish short-press events from
     long-press events, publishing the appropriate CommandMessage for each.
 
-    Public attributes:
-        buttons_module_test (int): Controls test mode behaviour.
-            TEST_DISABLED (default): normal operation.
-            TEST_ENABLED: adds a TimingData instance for timing statistics
-                for performance measurement.
-            This is intentionally a CLASS attribute (not set in __init__):
-            test code sets it via TouchButtons.buttons_module_test = TEST_ENABLED
-            before the singleton is constructed, or toggles it on the class
-            at any time afterwards. Because TouchButtons is a singleton, an
-            instance-level assignment here would shadow the class attribute
-            and silently break that external test-mode toggle pattern.
+    timing/statistics state lives entirely in module-test code
+    (see module_test_metrics.TimingData and touch_buttons_test.py).
+    _button_event_callback() returns whether a press was accepted or
+    discarded by the debounce window precisely so a test harness can keep
+    its own stats without this class needing to track anything for them.
+    It also forwards any "data" payload a caller attaches to a button event
+    (e.g. a timestamp a module test uses for latency measurement) through
+    to the published CommandMessage; outside of tests no caller attaches
+    one, so it is simply None in normal operation.
     """
-    buttons_module_test = TEST_DISABLED
-
     def __init__(self) -> None:
         """
         Set up class variables and register GPIO button callbacks.
@@ -87,11 +80,6 @@ class TouchButtons:
         self.button_gpio.set_button_edge_event_callback(self._button_event_callback)
         self.button_gpio.enable_button_events()
 
-        if self.buttons_module_test == TEST_ENABLED:
-            # Avoid importing test_classes during normal operation; import only in test mode.
-            from test_classes import TimingData     # pylint: disable=import-outside-toplevel
-            self.timing_data = TimingData()
-
     def _send_message(self, button_data: dict) -> None:
         """
         Publish a CommandMessage for the given button event.
@@ -104,15 +92,17 @@ class TouchButtons:
                 'name'  (str): One of BUTTON_PLAY, BUTTON_STOP,
                                BUTTON_PRESET1, BUTTON_PRESET2, BUTTON_PRESET3.
                 'state' (str): BUTTON_RELEASED or BUTTON_LONG_PRESSED.
-                'data'  (Any, optional): Extra payload attached when
-                               buttons_module_test is TEST_ENABLED.
+                'data'  (Any, optional): Extra payload, e.g. a timestamp
+                               attached by a module test for latency
+                               measurement. Forwarded through as-is;
+                               absent in normal operation.
         """
         if button_data["state"] == BUTTON_LONG_PRESSED:
             msg_text = BUTTON_LONG_PRESS + button_data["name"]
         else:
             msg_text = BUTTON_SHORT_PRESS + button_data["name"]
 
-        data = button_data.get("data") if self.buttons_module_test == TEST_ENABLED else None
+        data = button_data.get("data")
 
         command = CommandMessage(
             source=BUTTON_SOURCE,
@@ -122,7 +112,7 @@ class TouchButtons:
         oradio_log.debug("Send TouchButton message: %s", command)
         Commands.publish(command)
 
-    def _button_event_callback(self, button_data: dict) -> None:
+    def _button_event_callback(self, button_data: dict) -> bool | None:
         """
         Handle a raw GPIO button edge event.
 
@@ -135,8 +125,15 @@ class TouchButtons:
                 'name'  (str): One of BUTTON_PLAY, BUTTON_STOP,
                                BUTTON_PRESET1, BUTTON_PRESET2, BUTTON_PRESET3.
                 'state' (str): BUTTON_RELEASED or the GPIO pressed state.
-                'data'  (Any, optional): Extra timing payload attached when
-                               buttons_module_test is TEST_ENABLED.
+                'data'  (Any, optional): Extra timing payload; see _send_message.
+
+        Returns:
+            bool | None: True if a short-press was accepted and a
+                CommandMessage was published; False if it was discarded by
+                the debounce window; None for a release event (neither
+                applies). Callers other than tests can ignore this --
+                it exists so a module test can track accept/neglect
+                counts of its own without this class holding any stats.
         """
         button_name = button_data["name"]
         oradio_log.debug("Button change event: %s = %s", button_name, button_data["state"])
@@ -147,7 +144,7 @@ class TouchButtons:
             timer = self.long_press_timers.pop(button_name, None)
             if timer:
                 timer.cancel()
-            return
+            return None
 
         # Button press detected — apply software debounce.
         now = monotonic()
@@ -156,13 +153,11 @@ class TouchButtons:
         if time_diff < DEBOUNCE_SECONDS:
             # Press arrived too soon after the last accepted press;
             # discard it to avoid spurious repeat events.
-            if self.buttons_module_test == TEST_ENABLED:
-                print(f"{YELLOW}New {button_name} event in {round(time_diff, 3)} sec",
-                      f", events within the debouncing window of {DEBOUNCE_SECONDS}",
-                      f" will be neglected{NC}"
-                    )
-                self.timing_data.neglected_callbacks[button_name] += 1
-            return
+            oradio_log.debug(
+                "New %s event in %s sec, events within the debouncing window of %s will be neglected",
+                button_name, round(time_diff, 3), DEBOUNCE_SECONDS
+            )
+            return False
 
         self.last_trigger_times[button_name] = now
         self.button_press_times[button_name] = now
@@ -178,6 +173,7 @@ class TouchButtons:
 
         play_sound(SOUND_CLICK)
         self._send_message(button_data)
+        return True
 
     def _long_press_timeout(self, button_name: str) -> None:
         """
@@ -205,5 +201,4 @@ class TouchButtons:
 ##### Stand-alone entry point #############################
 
 if __name__ == '__main__':
-    print("Stand-alone not implemented")
     print("The module test for touch_buttons.py is at module_test/touch_buttons_test.py")

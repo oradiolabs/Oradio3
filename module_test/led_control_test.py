@@ -12,7 +12,7 @@ Created on January 29, 2025
 @copyright:     Copyright 2025, Oradio Stichting
 @license:       GNU General Public License (GPL)
 @organization:  Oradio Stichting
-@version:       2
+@version:       3
 @email:         oradioinfo@stichtingoradio.nl
 @status:        Development
 @summary:
@@ -25,18 +25,17 @@ Created on January 29, 2025
 import sys
 import time
 import math
-from threading import Thread, Event
 
 ##### Oradio modules ######################################
 from led_control import LEDControl
 from utilities import input_prompt
-from messaging import Incidents, DebugMessageHandler
-from remote_debugger import setup_remote_debugging
+from module_test_harness import KeyPressStopWaiter, module_test_session
+from messaging import Incidents
 
 ##### GLOBAL constants ####################################
 from constants import (
-    LED_NAMES, GREEN, YELLOW, RED, NC,
-    DEBUGGER_NOT_CONNECTED, DEBUGGER_ENABLED
+    GREEN, YELLOW, RED, NC,
+    LED_NAMES,
 )
 
 ##### LOCAL constants #####################################
@@ -45,19 +44,6 @@ LED_ON        = "▀"  # symbol for led on
 BAR_LENGTH    = 60   # Number of characters for the progress bar
 LINE_LENGTH   = 90   # Number of characters for the blink-timeline display
 INTERVAL_TIME = 0.02 # Display/poll update interval in seconds
-
-def keyboard_input(event: Event) -> None:
-    """
-    Wait for the user to press Return and then set the given event.
-
-    Intended to run in a background thread so that a polling loop can
-    check the event and exit cleanly without blocking on input().
-
-    Args:
-        event (Event): Event that will be set when Return is pressed.
-    """
-    _ = input("Press Return on keyboard to stop this test")
-    event.set()
 
 def _progress_bar(led_control: LEDControl, led_name: str, duration: float) -> float:
     """
@@ -107,7 +93,7 @@ def _progress_bar(led_control: LEDControl, led_name: str, duration: float) -> fl
 def _show_and_measure_blinking(led_control: LEDControl,
                                led_name: str,
                                cycle_time: float,
-                               stop_event: Event ) -> float:
+                               waiter: KeyPressStopWaiter ) -> float:
     # pylint: disable=too-many-locals
     ################################################################
     # motivation: for calculation purposes more vars are required
@@ -122,7 +108,8 @@ def _show_and_measure_blinking(led_control: LEDControl,
         led_name (str): One of LED_PLAY, LED_STOP, LED_PRESET1, LED_PRESET2,
             LED_PRESET3.
         cycle_time (float): The expected full blink cycle time in seconds.
-        stop_event (Event): Event used to stop the test.
+        waiter (KeyPressStopWaiter): Background keypress waiter; its
+            `stopping` property is polled to know when to end the test.
 
     Returns:
         float: The last measured ON or OFF half-cycle duration.
@@ -148,9 +135,9 @@ def _show_and_measure_blinking(led_control: LEDControl,
     half_time     = round_down((cycle_time/2), 2)
     puls_length   = int(half_time/INTERVAL_TIME)
     mid_puls_position = int(puls_length/2)
-    # Initialised in case stop_event is already set before the loop runs.
+    # Initialised in case waiter.stopping is already True before the loop runs.
     state_time = 0.0
-    while not stop_event.is_set():
+    while not waiter.stopping:
         # Get current LED state
         new_led_state = led_control.leds_driver.get_led_state(led_name)
         now = time.monotonic()
@@ -236,25 +223,25 @@ def _single_led_test(led_control: LEDControl, test_led_nr: int) -> None:
             case 4:
                 cycle_time = input_prompt("Input a cycletime as float number : ", float, -1.0)
                 print(f"\nBlinking LED {selected_led} with cycle-time of {cycle_time} sec\n")
-                stop_event = Event()
-                keyboard_thread = Thread(target=keyboard_input,
-                                         args=(stop_event,))
-                keyboard_thread.start()
-                while not stop_event.is_set():
+                waiter = KeyPressStopWaiter()
+                waiter.safe_start()
+                while not waiter.stopping:
                     led_control.turn_off_all_leds()
                     led_control.control_blinking_led(selected_led, cycle_time)
                     if selected_led in LED_NAMES:
                         _show_and_measure_blinking(led_control,
                                                    selected_led,
                                                    cycle_time,
-                                                   stop_event)
+                                                   waiter)
                         led_control.turn_off_led(selected_led) # stop blinking
                     else:
                         # Unrecognised LED name: nothing to blink, so end the
-                        # test immediately. keyboard_thread is intentionally
-                        # left running (still blocked on input()) and will
-                        # exit once the user presses Return.
-                        stop_event.set()
+                        # test immediately. The waiter is intentionally left
+                        # running (still blocked on input()) and will settle
+                        # once the user presses Return; safe_stop() below
+                        # still joins it cleanly at that point.
+                        break
+                waiter.safe_stop()
             case _:
                 print("Please input a valid number.")
     # pylint: enable=too-many-branches
@@ -323,27 +310,5 @@ def _start_module_test():
     # pylint: enable=too-many-branches
 
 if __name__ == '__main__':
-    # try to setup a remote debugger connection, if enabled in remote_debugger.py
-    # pylint: disable=duplicate-code
-
-    print("\nStarting test program...\n")
-
-    # Subscribe to command and error topics so published messages are printed to console
-    incident_handler = DebugMessageHandler(Incidents.subscribe())
-
-    debugger_status, connection_status = setup_remote_debugging()
-    if debugger_status == DEBUGGER_ENABLED:
-        if connection_status == DEBUGGER_NOT_CONNECTED:
-            print(f"{RED}A remote debugging error, check the remote IP connection {NC}")
-            sys.exit()
-
-    _start_module_test()
-
-    # Stop receiving messages
-    Incidents.unsubscribe(incident_handler.get_queue())
-    # Signal the thread to exit and confirm it has exited
-    incident_handler.stop()
-
-    print("\nExiting test program...\n")
-
-    sys.exit()
+    with module_test_session(Incidents):
+        _start_module_test()

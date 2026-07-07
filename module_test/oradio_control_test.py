@@ -12,19 +12,16 @@ Created on January 29, 2026
 @copyright:     Copyright 2026, Oradio Stichting
 @license:       GNU General Public License (GPL)
 @organization:  Oradio Stichting
-@version:       1
+@version:       2
 @email:         oradioinfo@stichtingoradio.nl
 @status:        Development
 @summary:       Oradio Control module test
 """
 from time import sleep
-import sys
-from threading import Event, Thread
 
 ##### GLOBAL constants ####################################
 from constants import (
     GREEN, RED, YELLOW, NC,
-    DEBUGGER_NOT_CONNECTED, DEBUGGER_ENABLED,
     LED_PLAY, LED_STOP,
     LED_PRESET1, LED_PRESET2, LED_PRESET3,
 )
@@ -32,13 +29,12 @@ from constants import (
 ##### Oradio modules ######################################
 from log_service import oradio_log, DEBUG, CRITICAL
 from oradio_control import state_machine, leds, web_service_active, mpd_control
-from remote_debugger import setup_remote_debugging
 from utilities import input_prompt
+from module_test_harness import KeyPressStopWaiter, module_test_session
 from messaging import (
     Commands,
     Incidents,
     CommandMessage,
-    DebugMessageHandler,
     BUTTON_SOURCE,
     BUTTON_SHORT_PRESS_PLAY,
     BUTTON_SHORT_PRESS_STOP,
@@ -59,17 +55,6 @@ BUTTON_SHORT_PRESS_NAMES = [
 BUTTON_LONG_PRESS_NAMES = [BUTTON_LONG_PRESS_PLAY]
 
 BUTTON_UNKNOWN = "ButtonUnknown"
-
-def keyboard_input(event: Event):
-    """
-    Wait for keyboard input with return, and set event if input detected
-    Args:
-        event = The specified event will be set upon a keyboard input
-    post_condition:
-        the event is set
-    """
-    _=input("Press Return on keyboard to stop this test")
-    event.set()
 
 def _check_for_webradio() -> None:
     """
@@ -271,18 +256,17 @@ def _short_button_msg_stress_test() -> None:
         return
     msg_delay = float(1/msg_rate)
 
-    stop_event = Event()
-    keyboard_thread = Thread(target=keyboard_input,
-                             args=(stop_event,))
-    keyboard_thread.start()
+    waiter = KeyPressStopWaiter()
+    waiter.safe_start()
     oradio_log.set_level(CRITICAL)
-    while not stop_event.is_set():
+    while not waiter.stopping:
         for msg in msg_test_sequences[test_sequence-1]:
             Commands.publish(CommandMessage(BUTTON_SOURCE, msg))
             _check_led_status(msg)
             _check_stm_state(msg)
             sleep(msg_delay)
     oradio_log.set_level(DEBUG)
+    waiter.safe_stop()
 
 def _long_button_msg_stress_test() -> None:
     """
@@ -303,16 +287,15 @@ def _long_button_msg_stress_test() -> None:
         print(f"{YELLOW}invalid repetition rate{NC}")
         return
     msg_delay = float(1/msg_rate)
-    stop_event = Event()
-    keyboard_thread = Thread(target=keyboard_input,
-                             args=(stop_event,))
-    keyboard_thread.start()
+    waiter = KeyPressStopWaiter()
+    waiter.safe_start()
     oradio_log.set_level(CRITICAL)
-    while not stop_event.is_set():
+    while not waiter.stopping:
         for msg in msg_test_sequences[0]:
             Commands.publish(CommandMessage(BUTTON_SOURCE, msg))
             sleep(msg_delay)
     oradio_log.set_level(DEBUG)
+    waiter.safe_stop()
 
 def _run_oradio_control() -> None:
     """
@@ -325,10 +308,7 @@ def _run_oradio_control() -> None:
     processing runs, until the user is done observing it.
     """
     print("Oradio control main loop running")
-
-    while True:
-        _ = input("Press Return on keyboard to stop")
-        break
+    _ = input("Press Return on keyboard to stop")
 
 def _start_module_test():
     """Show menu with test options"""
@@ -372,27 +352,5 @@ def _start_module_test():
 
 
 if __name__ == '__main__':
-    # try to setup a remote debugger connection, if enabled in remote_debugger.py
-    # pylint: disable=duplicate-code
-
-    print("\nStarting test program...\n")
-
-    # Subscribe to error topics so published error messages are printed to console
-    incident_handler = DebugMessageHandler(Incidents.subscribe())
-
-    debugger_status, connection_status = setup_remote_debugging()
-    if debugger_status == DEBUGGER_ENABLED:
-        if connection_status == DEBUGGER_NOT_CONNECTED:
-            print(f"{RED}A remote debugging error, check the remote IP connection {NC}")
-            sys.exit()
-
-    _start_module_test()
-
-    # Stop receiving messages
-    Incidents.unsubscribe(incident_handler.get_queue())
-    # Signal the thread to exit and confirm it has exited
-    incident_handler.stop()
-
-    print("\nExiting test program...\n")
-
-    sys.exit()
+    with module_test_session(Incidents):
+        _start_module_test()
