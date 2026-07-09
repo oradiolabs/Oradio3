@@ -501,8 +501,7 @@ class WebService:
         """
         Start the Captive Portal service.
 
-        Performs the following steps in order, aborting and publishing a
-        WEB_INCIDENT_START error if any step fails:
+        Performs the following steps in order:
 
         1. Switch WiFi into access point mode (transition is asynchronous;
            confirmation is deferred to step 5 so the server can start in
@@ -513,12 +512,22 @@ class WebService:
         5. Wait for the WiFi transition (started in step 1) to reach
            WIFI_ACCESS_POINT state.
 
-        Error messages are published by the helper methods; start() does not
-        re-publish them. Does nothing if the service is already running.
-        On success, publishes WEB_ACTIVE to the message bus.
-        """
-        status = True
+        Two hard preconditions (uninitialised uvicorn_server, already running)
+        return immediately since there is nothing meaningful to accumulate
+        status over in either case. Once past those, each remaining step is
+        skipped (via the status guard) if an earlier one already failed, so
+        later steps never run against a known-bad state -- but there is still
+        only one return statement for the whole step sequence, matching stop().
 
+        All helper methods only log and return False on failure; start() is
+        solely responsible for publishing to Incidents, so each failure is
+        reported exactly once. Commands.publish(self.state) is only called on
+        full success -- a Commands-only subscriber therefore never sees a
+        "success" state announced after a failed start().
+
+        Returns:
+            bool: True if the portal started successfully, False otherwise.
+        """
         if self.uvicorn_server is None:
             oradio_log.error("Uvicorn server not initialized")
             Incidents.publish(IncidentMessage(WEB_SOURCE, WEB_INCIDENT_START))
@@ -529,15 +538,17 @@ class WebService:
             oradio_log.debug("Web service already running")
             return True
 
-        # wifi_connect is non-blocking; the AP transition is confirmed before returning.
+        # wifi_connect is non-blocking; the AP transition is confirmed in step 5.
         self.wifi_service.wifi_connect(ACCESS_POINT_SSID, None)
+
+        status = True
 
         if not self._ensure_port_redirect() or not self._ensure_dns_redirect():
             Incidents.publish(IncidentMessage(WEB_SOURCE, WEB_INCIDENT_START))
-            return False
+            status = False
 
         # Reset the inactivity timer (auto-stops the portal after no client
-        # activity) before the server accepts connections and cancel any
+        # activity) before the server accepts connections, and cancel any
         # lingering timer task from a previous session.
         #
         # api_app.state.timer_task is an asyncio.Task that belongs to the
@@ -549,36 +560,37 @@ class WebService:
         # it belongs to an event loop that is no longer running. The guard below
         # makes that invariant explicit and refuses to proceed if it's ever
         # violated, rather than silently racing on live asyncio internals.
-        if self.uvicorn_server.is_running:
+        if status and self.uvicorn_server.is_running:
             oradio_log.error(
                 "Refusing to reset keep-alive timer state: uvicorn server unexpectedly still running"
             )
             Incidents.publish(IncidentMessage(WEB_SOURCE, WEB_INCIDENT_START))
-            return False
+            status = False
 
-        # timer_task is set by the FastAPI app and may not exist on first run,
-        # so getattr is used rather than a direct attribute access.
-        if getattr(api_app.state, "timer_task", None) is not None:
-            api_app.state.timer_task.cancel()
-            api_app.state.timer_task = None
-        api_app.state.timer_started = False
+        if status:
+            # timer_task is set by the FastAPI app and may not exist on first run,
+            # so getattr is used rather than a direct attribute access.
+            if getattr(api_app.state, "timer_task", None) is not None:
+                api_app.state.timer_task.cancel()
+                api_app.state.timer_task = None
+            api_app.state.timer_started = False
 
-        if not self.uvicorn_server.start():
-            oradio_log.error("Uvicorn server failed to start")
+            if not self.uvicorn_server.start():
+                oradio_log.error("Uvicorn server failed to start")
+                Incidents.publish(IncidentMessage(WEB_SOURCE, WEB_INCIDENT_START))
+                status = False
+
+        if status and not self._wait_for_wifi_state({WIFI_ACCESS_POINT}):
             Incidents.publish(IncidentMessage(WEB_SOURCE, WEB_INCIDENT_START))
-            return False
-
-        if not self._wait_for_wifi_state({WIFI_ACCESS_POINT}):
-            Incidents.publish(IncidentMessage(WEB_SOURCE, WEB_INCIDENT_START))
-            return False
+            status = False
 
         # Commands only on full success -- Incidents already reported any
-        # individual failure above, so a Commands-only subscriber never
-        # sees a "success" state announced after a partially failed stop().
+        # individual failure above, so a Commands-only subscriber never sees
+        # a "success" state announced after a failed start().
         if status:
             Commands.publish(CommandMessage(WEB_SOURCE, self.state))
 
-        return True
+        return status
 
     def stop(self) -> bool:
         """
