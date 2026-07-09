@@ -821,7 +821,8 @@ state_machine = StateMachine()
 remote_monitor = RMService()
 
 # Instantiate and start Spotify connect
-spotify_connect = SpotifyConnect().start()
+spotify_connect = SpotifyConnect()
+spotify_connect.start()
 
 # Initialize the oradio_usb class
 # REVIEW Onno: start de USB monitor

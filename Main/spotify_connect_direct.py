@@ -265,7 +265,7 @@ if __name__ == '__main__':
 
     # Imports only relevant when stand-alone
     from constants import YELLOW, NC
-    from utilities import input_prompt
+    from utilities import input_prompt              # pylint: disable=ungrouped-imports
     from messaging import DebugMessageHandler       # pylint: disable=ungrouped-imports
 
     # Most stand-alone entry points share this pattern across modules
