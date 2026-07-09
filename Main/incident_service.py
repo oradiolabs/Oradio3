@@ -51,7 +51,8 @@ from messaging import (
     RMS_INCIDENT_SERVICE,
 
     SPOTIFY_SOURCE,
-    SPOTIFY_INCIDENT_MONITOR,
+    SPOTIFY_FAILED,
+    SPOTIFY_STOPPED,
 
     THROTTLING_SOURCE,
     THROTTLING_FAILED,
@@ -227,8 +228,15 @@ class IncidentHandler(MessageHandlerBase):
         Args:
             incident: Incident message received from the incident bus.
         """
-        if incident.message == SPOTIFY_INCIDENT_MONITOR:
-# NIET VERGETEN: implement Spotify-recovery logic (e.g. back-off, retry)
+        if incident.message == SPOTIFY_FAILED:
+            # MITIGATION TO BE IMPLEMENTED:
+            #   Report Spotify monitor start failed + status to RMS
+            #   If retry_count < MAX_RETRIES: retry starting Spotify monitor
+            oradio_log.debug("Mitigation to be implemented")
+        elif incident.message == SPOTIFY_STOPPED:
+            # MITIGATION TO BE IMPLEMENTED:
+            #   Report Spotify monitor stopped + status to RMS
+            #   If retry_count < MAX_RETRIES: retry starting Spotify monitor
             oradio_log.debug("Mitigation to be implemented")
         else:
             oradio_log.error("Unhandled Spotify incident: '%s'", incident.message)

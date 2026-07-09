@@ -820,8 +820,8 @@ state_machine = StateMachine()
 # Instantiate remote monitor managing the heartbeat and sys_info messages when wifi state changes
 remote_monitor = RMService()
 
-# Instantiate spotify
-spotify_connect = SpotifyConnect()
+# Instantiate and start Spotify connect
+spotify_connect = SpotifyConnect().start()
 
 # Initialize the oradio_usb class
 # REVIEW Onno: start de USB monitor

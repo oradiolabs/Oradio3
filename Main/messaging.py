@@ -88,12 +88,13 @@ RMS_SOURCE           = "RMS message"
 RMS_INCIDENT_SERVICE = "RMS service incident"
 
 # Spotify
-SPOTIFY_SOURCE                = "Spotify message"
-SPOTIFY_CONNECTED_EVENT       = "Spotify connected event"
-SPOTIFY_DISCONNECTED_EVENT    = "Spotify disconnected event"
-SPOTIFY_PLAYING_EVENT         = "Spotify playing event"
-SPOTIFY_PAUSED_EVENT          = "Spotify paused event"
-SPOTIFY_INCIDENT_MONITOR      = "Spotify monitor incident"
+SPOTIFY_SOURCE             = "Spotify message"
+SPOTIFY_CONNECTED_EVENT    = "Spotify connected event"
+SPOTIFY_DISCONNECTED_EVENT = "Spotify disconnected event"
+SPOTIFY_PLAYING_EVENT      = "Spotify playing event"
+SPOTIFY_PAUSED_EVENT       = "Spotify paused event"
+SPOTIFY_FAILED             = "Spotify monitor failed to start"
+SPOTIFY_STOPPED            = "Spotify monitor stopped"
 
 # Throttling
 THROTTLING_SOURCE    = "RPi throttling message"
