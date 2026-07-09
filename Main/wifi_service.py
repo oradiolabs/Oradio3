@@ -89,6 +89,19 @@ nmcli_exceptions = tuple(
     if isinstance(exc, type) and issubclass(exc, Exception)
 )
 
+# nmcli._exception is a private module; if a future nmcli release
+# renames or restructures it, the comprehension above could silently
+# return an empty tuple, and _nmcli_try's except clause would then let
+# every nmcli error propagate uncaught from all its call sites instead
+# of being caught, logged, and reported. Fail fast at import time
+# instead of failing mysteriously later.
+if not nmcli_exceptions:
+    oradio_log.error(
+        "No nmcli exception classes discovered from nmcli._exception; "
+        "nmcli error handling in _nmcli_try will not work as intended"
+    )
+    raise ImportError("Failed to discover nmcli exception classes for error handling")
+
 # Module-level state shared across threads and processes
 _saved_network = {"network": ""}    # Last successfully connected WiFi SSID
 _saved_lock = Lock()                # Guards concurrent reads and writes across threads and processes
@@ -257,32 +270,34 @@ class WifiEventListener(ThreadTemplate):
                     self._wifi_path = device
                     break
 
+            if not self._wifi_path:
+                oradio_log.error("No wifi device found")
+                Incidents.publish(IncidentMessage(WIFI_SOURCE, WIFI_INCIDENT_DBUS))
+                raise RuntimeError("No wifi device found")
+
+            # Register the state-change callback for the specific WiFi device path.
+            # Scoping to self._wifi_path avoids receiving spurious StateChanged
+            # signals from other network devices (ethernet, VPN, etc.).
+            self.bus.add_signal_receiver(
+                self._wifi_state_changed,
+                dbus_interface="org.freedesktop.NetworkManager.Device",
+                signal_name="StateChanged",
+                path=self._wifi_path,
+            )
+
+            # Built here; run (as do_work) on the worker thread started by safe_start().
+            self._loop = GLib.MainLoop()
+
         except DBusException as ex_err:
             oradio_log.error("Failed to connect to NetworkManager D-Bus: %s", ex_err.get_dbus_message())
             Incidents.publish(IncidentMessage(WIFI_SOURCE, WIFI_INCIDENT_DBUS))
-            raise
         except OSError as ex_err:
             oradio_log.error("D-Bus connection error: %s", ex_err)
             Incidents.publish(IncidentMessage(WIFI_SOURCE, WIFI_INCIDENT_DBUS))
-            raise
-
-        if not self._wifi_path:
-            oradio_log.error("No wifi device found")
+        except RuntimeError as ex_err:
+            oradio_log.error(str(ex_err))
             Incidents.publish(IncidentMessage(WIFI_SOURCE, WIFI_INCIDENT_DBUS))
-            raise RuntimeError("No wifi device found")
 
-        # Register the state-change callback for the specific WiFi device path.
-        # Scoping to self._wifi_path avoids receiving spurious StateChanged
-        # signals from other network devices (ethernet, VPN, etc.).
-        self.bus.add_signal_receiver(
-            self._wifi_state_changed,
-            dbus_interface="org.freedesktop.NetworkManager.Device",
-            signal_name="StateChanged",
-            path=self._wifi_path,
-        )
-
-        # Built here; run (as do_work) on the worker thread started by safe_start().
-        self._loop = GLib.MainLoop()
         oradio_log.info("Wifi event listener started")
 
     def do_work(self) -> None:
@@ -377,39 +392,55 @@ class WifiEventListener(ThreadTemplate):
                         underscore suppresses the pylint unused-argument warning).
             _reason:    NM reason code for the transition (unused; same
                         convention as _old_state).
+
+        Wrapped in a broad except: this callback runs inside the GLib main
+        loop (i.e. inside do_work()). An uncaught exception here would either
+        propagate out of loop.run() and be treated by ThreadTemplate.run() as
+        a fatal crash of the whole listener (silently ending all future WiFi
+        state notifications for the life of the process), or -- depending on
+        how dbus-python dispatches signal callbacks -- be swallowed
+        internally, silently dropping just this one state transition. Neither
+        outcome reports anything to Incidents, so both are guarded against here.
         """
-        # Transient states such as NM_DEVICE_STATE_PREPARE and NM_DEVICE_STATE_CONFIG are excluded.
-        if new_state not in (NM_CONNECTED, NM_DISCONNECTED, NM_FAILED):
-            return
+        try:
+            # Transient states such as NM_DEVICE_STATE_PREPARE and NM_DEVICE_STATE_CONFIG are excluded.
+            if new_state not in (NM_CONNECTED, NM_DISCONNECTED, NM_FAILED):
+                return
 
-        if new_state == NM_CONNECTED:
-            active = get_wifi_connection()
-            if active == ACCESS_POINT_SSID:
-                # Connected to the Oradio's own access point (AP mode);
-                # connectivity check is not relevant here
-                oradio_log.debug("Publish wifi service message: %s", WIFI_ACCESS_POINT)
-                Commands.publish(CommandMessage(WIFI_SOURCE, WIFI_ACCESS_POINT))
-            else:
-                # Read NM's connectivity assessment — it has already probed
-                # for internet access so no separate round-trip is needed here
-                connectivity = self._get_connectivity()
-                if connectivity == NM_CONNECTIVITY_FULL:
-                    # External network with confirmed internet access
-                    oradio_log.debug("Publish wifi service message: %s", WIFI_CONNECTED)
-                    Commands.publish(CommandMessage(WIFI_SOURCE, WIFI_CONNECTED))
+            if new_state == NM_CONNECTED:
+                active = get_wifi_connection()
+                if active == ACCESS_POINT_SSID:
+                    # Connected to the Oradio's own access point (AP mode);
+                    # connectivity check is not relevant here
+                    oradio_log.debug("Publish wifi service message: %s", WIFI_ACCESS_POINT)
+                    Commands.publish(CommandMessage(WIFI_SOURCE, WIFI_ACCESS_POINT))
                 else:
-                    # NM_CONNECTIVITY_PORTAL, NM_CONNECTIVITY_LIMITED, or NM_CONNECTIVITY_NONE:
-                    # IP may be assigned but there is no usable internet route
-                    oradio_log.debug("Publish wifi service error: %s", WIFI_INCIDENT_CONNECT)
-                    Incidents.publish(IncidentMessage(WIFI_SOURCE, WIFI_INCIDENT_CONNECT))
+                    # Read NM's connectivity assessment — it has already probed
+                    # for internet access so no separate round-trip is needed here
+                    connectivity = self._get_connectivity()
+                    if connectivity == NM_CONNECTIVITY_FULL:
+                        # External network with confirmed internet access
+                        oradio_log.debug("Publish wifi service message: %s", WIFI_CONNECTED)
+                        Commands.publish(CommandMessage(WIFI_SOURCE, WIFI_CONNECTED))
+                    else:
+                        # NM_CONNECTIVITY_PORTAL, NM_CONNECTIVITY_LIMITED, or NM_CONNECTIVITY_NONE:
+                        # IP may be assigned but there is no usable internet route
+                        oradio_log.debug("Publish wifi service error: %s", WIFI_INCIDENT_CONNECT)
+                        Incidents.publish(IncidentMessage(WIFI_SOURCE, WIFI_INCIDENT_CONNECT))
 
-        elif new_state == NM_DISCONNECTED:
-            oradio_log.debug("Publish wifi service message: %s", WIFI_DISCONNECTED)
-            Commands.publish(CommandMessage(WIFI_SOURCE, WIFI_DISCONNECTED))
+            elif new_state == NM_DISCONNECTED:
+                oradio_log.debug("Publish wifi service message: %s", WIFI_DISCONNECTED)
+                Commands.publish(CommandMessage(WIFI_SOURCE, WIFI_DISCONNECTED))
 
-        else:   # NM_FAILED — NetworkManager could not complete the connection
-            oradio_log.debug("Publish wifi service error: %s", WIFI_INCIDENT_CONNECT)
-            Incidents.publish(IncidentMessage(WIFI_SOURCE, WIFI_INCIDENT_CONNECT))
+            else:   # NM_FAILED — NetworkManager could not complete the connection
+                oradio_log.debug("Publish wifi service error: %s", WIFI_INCIDENT_CONNECT)
+                Incidents.publish(IncidentMessage(WIFI_SOURCE, WIFI_INCIDENT_CONNECT))
+
+        # Broad catch is intentional: this callback must never take down the GLib main
+        # loop or the listener thread over a single bad signal delivery.
+        except Exception as ex_err:  # pylint: disable=broad-exception-caught
+            oradio_log.error("Error handling WiFi StateChanged signal (new_state=%s): %s", new_state, ex_err)
+            Incidents.publish(IncidentMessage(WIFI_SOURCE, WIFI_INCIDENT_DBUS))
 
 class WifiService:
     """
