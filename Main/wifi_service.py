@@ -21,6 +21,9 @@ Created on December 23, 2024
     and real-time state change notifications via the messaging bus.
     Internet reachability is determined by reading NetworkManager's built-in
     Connectivity property (no separate probe is made).
+    WifiService composes a WifiEventListener (built on ThreadTemplate, utilities.py)
+    and exposes explicit start()/stop() methods, so the D-Bus listener thread is only
+    started when the caller asks for it rather than as a side effect of construction.
     Documentation:
         https://networkmanager.dev/
         https://pypi.org/project/nmcli/
@@ -34,7 +37,6 @@ from typing import Any
 from threading import Thread, Lock
 from subprocess import CalledProcessError
 import nmcli
-import nmcli._exception as nmcli_exc
 from dbus import SystemBus, Interface
 from dbus.mainloop.glib import DBusGMainLoop
 from dbus.exceptions import DBusException
@@ -43,7 +45,7 @@ from gi.repository import GLib
 ##### Oradio modules ######################################
 from singleton import singleton
 from log_service import oradio_log
-from utilities import run_shell_script
+from utilities import run_shell_script, ThreadTemplate, JOIN_TIMEOUT
 from messaging import (
     Commands,
     Incidents,
@@ -83,7 +85,7 @@ NM_CONNECTIVITY_FULL    = 4   # Full internet access confirmed
 # The starred expression unpacks nmcli_exceptions into a flat tuple suitable
 # for use in an except clause (requires Python 3.11+).
 nmcli_exceptions = tuple(
-    exc for exc in vars(nmcli_exc).values()
+    exc for exc in vars(nmcli._exception).values()   # pylint: disable=protected-access
     if isinstance(exc, type) and issubclass(exc, Exception)
 )
 
@@ -162,7 +164,7 @@ def _wifi_down(network) -> bool:
     return is_ok
 
 @singleton
-class WifiEventListener:
+class WifiEventListener(ThreadTemplate):
     """
     Singleton listener for WiFi state changes via NetworkManager D-Bus signals.
 
@@ -175,40 +177,58 @@ class WifiEventListener:
     additional network round-trip is needed and the captive-portal case is
     detected correctly.
 
-    A GLib main loop runs in a daemon thread to dispatch D-Bus signals
-    asynchronously without blocking the main application thread.
+    Built on ThreadTemplate rather than a bare daemon Thread, so the
+    listener gets restart support and crash detection for free:
+        * setup()    - one-time D-Bus connection + signal subscription.
+        * do_work()  - runs the GLib main loop. This is a single blocking
+                        call rather than a quick repeated unit of work:
+                        GLib.MainLoop.run() only returns once something
+                        calls its quit(), which safe_stop() does below.
+        * safe_stop()- overridden to call the GLib loop's quit() (so the
+                        blocking do_work() call actually returns) before
+                        delegating to ThreadTemplate's join-based safe_stop().
 
-    If no WiFi device is found, or if the D-Bus connection fails, all three
-    internal guards (_loop, _wifi_path, _nm_props) are left as
-    None and no signal subscription is made. All other modules can still
-    operate normally; WiFi state changes will simply not be reported.
+    If no WiFi device is found, or if the D-Bus connection fails, setup()
+    raises. ThreadTemplate then logs and records the crash, and the three
+    internal guards (_loop, _wifi_path, _nm_props) are left as None. All
+    other modules can still operate normally; WiFi state changes will
+    simply not be reported. Use the inherited crashed / exception
+    properties to detect this from the outside.
     """
+
     def __init__(self) -> None:
         """
-        Set up D-Bus integration and subscribe to WiFi state-change signals.
+        Set up the listener's initial state.
 
-        Initialises the GLib main loop integration, connects to the system bus,
-        iterates over NetworkManager devices to find the WiFi adapter, and
-        registers _wifi_state_changed as the StateChanged signal
-        receiver. Also stores a D-Bus Properties interface on the top-level
-        NetworkManager object so _wifi_state_changed can query the
-        Connectivity property without re-connecting to the bus.
-
-        Starts a daemon thread to run the GLib event loop. Publishes
-        WIFI_INCIDENT_DBUS and returns early on any failure, leaving all
-        three internal guards (_loop, _wifi_path, _nm_props) as
-        None. The singleton decorator ensures this constructor runs at
-        most once per process. Logs an error and publishes WIFI_INCIDENT_DBUS
-        if the thread fails to start.
+        The singleton decorator ensures this constructor runs at most once
+        per process. Does not start the background thread -- call
+        safe_start() (typically via WifiService.start()) explicitly when
+        ready to begin listening. All actual D-Bus/GLib work happens in
+        setup(), which then runs on the worker thread.
         """
-        # Initialise guards; all three stay None if setup fails at any point:
+        super().__init__(name="WifiEventListener")
+
+        # Guards; all three stay None if setup() fails at any point:
         #   _wifi_path — set once the WiFi device is located on the bus
         #   _nm_props  — set once the NM Properties interface is obtained
-        #   _loop      — set once the GLib main loop is created and running
-        self._loop = None
-        self._wifi_path = None
-        self._nm_props = None
+        #   _loop      — set once the GLib main loop object is created
+        self.bus: SystemBus | None = None
+        self._wifi_path: str | None = None
+        self._nm_props: Interface | None = None
+        self._loop: GLib.MainLoop | None = None
 
+    def setup(self) -> None:
+        """
+        One-time D-Bus integration: connect to the bus, find the WiFi
+        device, and subscribe to its StateChanged signal.
+
+        Runs once per safe_start() (i.e. again on every restart), on the
+        worker thread. Publishes WIFI_INCIDENT_DBUS and raises on any
+        failure so ThreadTemplate.run() logs and records the crash; the
+        guards above are left as None so other methods degrade gracefully
+        (e.g. _get_connectivity() treats a None _nm_props as "no
+        connectivity" rather than raising).
+        """
         try:
             # Required before the first SystemBus() call: integrates GLib's
             # event loop with dbus-python so signal callbacks are dispatched
@@ -240,16 +260,16 @@ class WifiEventListener:
         except DBusException as ex_err:
             oradio_log.error("Failed to connect to NetworkManager D-Bus: %s", ex_err.get_dbus_message())
             Incidents.publish(IncidentMessage(WIFI_SOURCE, WIFI_INCIDENT_DBUS))
-            return
+            raise
         except OSError as ex_err:
             oradio_log.error("D-Bus connection error: %s", ex_err)
             Incidents.publish(IncidentMessage(WIFI_SOURCE, WIFI_INCIDENT_DBUS))
-            return
+            raise
 
         if not self._wifi_path:
             oradio_log.error("No wifi device found")
             Incidents.publish(IncidentMessage(WIFI_SOURCE, WIFI_INCIDENT_DBUS))
-            return
+            raise RuntimeError("No wifi device found")
 
         # Register the state-change callback for the specific WiFi device path.
         # Scoping to self._wifi_path avoids receiving spurious StateChanged
@@ -261,17 +281,50 @@ class WifiEventListener:
             path=self._wifi_path,
         )
 
-        # Start the GLib event loop in a daemon thread so it is torn down
-        # automatically when the main process exits.
+        # Built here; run (as do_work) on the worker thread started by safe_start().
         self._loop = GLib.MainLoop()
-        self.dbus_receiver = Thread(target=self._loop.run, daemon=True)
-        try:
-            self.dbus_receiver.start()
-            oradio_log.info("Wifi event listener started")
-        except Exception as ex_err:  # pylint: disable=broad-exception-caught
-            oradio_log.error("Wifi event listener failed to start: %s", ex_err)
-            Incidents.publish(IncidentMessage(WIFI_SOURCE, WIFI_INCIDENT_DBUS))
-            return
+        oradio_log.info("Wifi event listener started")
+
+    def do_work(self) -> None:
+        """
+        Run the GLib main loop.
+
+        Unlike a typical ThreadTemplate subclass, this is a single blocking
+        call rather than a quick unit of work polled every interval:
+        GLib.MainLoop.run() only returns once something calls its quit(),
+        which safe_stop() below does. If run() ever returned on its own
+        (e.g. quit() triggered from elsewhere) while _stop_event is still
+        clear, ThreadTemplate's loop would call do_work() again -- a
+        harmless self-healing restart of the event loop.
+        """
+        # setup() always runs (and sets self._loop) before ThreadTemplate
+        # ever calls do_work(); the assert documents/enforces that
+        # invariant for mypy, which can't see across the two methods.
+        assert self._loop is not None, "do_work() called before setup() completed"
+        self._loop.run()
+
+    def safe_stop(self, timeout: float = JOIN_TIMEOUT) -> bool:
+        """
+        Stop the listener: unblock the GLib loop, then join the thread.
+
+        do_work() is parked inside self._loop.run() until something calls
+        quit() on it, so the base implementation's _stop_event alone
+        can't interrupt it. _stop_event is set here *before* calling
+        quit() so that once run() returns, ThreadTemplate's run() loop
+        sees the stop request immediately instead of calling do_work()
+        (and restarting the GLib loop) again.
+
+        Args:
+            timeout: Max seconds to wait for the thread to exit.
+
+        Returns:
+            True if the thread finished within timeout, or if it was
+            never started. False if it's still alive afterward or crashed.
+        """
+        self._stop_event.set()
+        if self._loop is not None:
+            self._loop.quit()
+        return super().safe_stop(timeout)
 
     def _get_connectivity(self) -> int:
         """
@@ -367,33 +420,72 @@ class WifiService:
     are reported on the command message bus by the WifiEventListener
     singleton; this class handles the active operations that trigger them.
 
+    Construction only sets up state; the background D-Bus listener thread
+    is not started until start() is called.
+
     Note:
-        The initial Commands.publish in __init__ reflects the current
-        connection state at startup. Error states (WIFI_INCIDENT_CONNECT,
-        WIFI_INCIDENT_DISCONNECT) are never published at init time; they are
-        only emitted in response to failed connection attempts.
+        The initial Commands.publish happens in start(), not __init__, and
+        reflects the current connection state at that point. Error states
+        (WIFI_INCIDENT_CONNECT, WIFI_INCIDENT_DISCONNECT) are never
+        published at start time; they are only emitted in response to
+        failed connection attempts.
     """
     def __init__(self) -> None:
         """
-        Initialise the WiFi service and publish the current connection state.
+        Initialise the WiFi service.
 
-        Starts the WifiEventListener singleton (which begins monitoring
-        D-Bus state changes in a background thread) and immediately publishes
-        the current WiFi state so subscribers have an up-to-date view before
-        any state-change signals arrive. Returns early without publishing if
-        the listener fails to initialise.
+        Creates (but does not start) the WifiEventListener singleton.
+        Callers must call start() explicitly to begin monitoring D-Bus
+        state changes, and may stop()/start() again later since the
+        listener is restartable.
         """
-        # Start the D-Bus listener; it runs its own daemon thread internally
-        try:
-            self.nm_listener = WifiEventListener()
-        except Exception as ex_err:  # pylint: disable=broad-exception-caught
-            oradio_log.error("WifiService failed to start listener: %s", ex_err)
+        # Singleton D-Bus listener, shared across all WifiService instances.
+        # Constructing it here does not start its background thread -- see start().
+        self.nm_listener = WifiEventListener()
+
+    def start(self) -> None:
+        """
+        Start the background WiFi event listener thread and publish the
+        current connection state.
+
+        Blocks until the listener signals readiness (the D-Bus connection
+        and signal subscription have completed, see
+        WifiEventListener.setup()), or until it crashes or times out.
+        Idempotent: calling start() when the listener thread is already
+        alive is a no-op.
+        """
+        if self.nm_listener.is_alive():
+            oradio_log.debug("WiFi event listener thread already running")
+            return
+
+        if not self.nm_listener.safe_start():
+            oradio_log.error("WiFi event listener thread failed to start")
             Incidents.publish(IncidentMessage(WIFI_SOURCE, WIFI_INCIDENT_DBUS))
             return
+
+        if self.nm_listener.crashed:
+            oradio_log.error(
+                "WiFi event listener thread crashed during startup: %s", self.nm_listener.exception,
+            )
+            Incidents.publish(IncidentMessage(WIFI_SOURCE, WIFI_INCIDENT_DBUS))
+            return
+
+        oradio_log.info("WiFi event listener thread started")
 
         # Publish the current state immediately so subscribers don't have to
         # wait for the first state-change signal from NetworkManager
         Commands.publish(CommandMessage(WIFI_SOURCE, self.get_state()))
+
+    def stop(self) -> None:
+        """
+        Signal the background WiFi event listener thread to stop and wait
+        for it to exit.
+
+        WifiEventListener.safe_stop() knows how to unblock its own blocking
+        GLib loop.run() call (it sets the stop flag and calls the loop's
+        quit() before joining -- see that method).
+        """
+        self.nm_listener.safe_stop()
 
     def get_state(self) -> str:
         """
@@ -511,7 +603,7 @@ class WifiScanner:
         if not is_ok:
             oradio_log.warning("Initial WiFi scan failed; NM cache may be empty")
 
-    def _async_rescan(self) -> None:
+    def _rescan(self) -> None:
         """
         Trigger a background WiFi rescan without blocking the caller.
 
@@ -584,7 +676,7 @@ class WifiScanner:
             networks = []
 
         # Refresh the cache in the background for the next call
-        self._async_rescan()
+        self._rescan()
 
         return networks
 
@@ -766,34 +858,48 @@ if __name__ == '__main__':
         Run an interactive self-test menu for the WiFi service.
 
         Instantiates WifiService and loops until the user selects quit (0).
-        Options cover the full public API: scanning, connecting, disconnecting,
-        access-point mode, and direct NetworkManager profile management.
+        Since the service no longer self-starts, start/stop are exposed as
+        explicit menu options rather than assumed to already be running.
+        Options otherwise cover the full public API: scanning, connecting,
+        disconnecting, access-point mode, and direct NetworkManager profile
+        management.
         """
         input_selection = (
             "Select a function, input the number:\n"
             " 0-Quit\n"
-            " 1-list wifi networks in NetworkManager\n"
-            " 2-add network to NetworkManager\n"
-            " 3-remove network from NetworkManager\n"
-            " 4-list on air wifi networks\n"
-            " 5-get wifi state and connection\n"
-            " 6-connect to wifi network\n"
-            " 7-start access point\n"
-            " 8-disconnect from network\n"
+            " 1-Start WiFi monitor\n"
+            " 2-Stop WiFi monitor\n"
+            " 3-list wifi networks in NetworkManager\n"
+            " 4-add network to NetworkManager\n"
+            " 5-remove network from NetworkManager\n"
+            " 6-list on air wifi networks\n"
+            " 7-get wifi state and connection\n"
+            " 8-connect to wifi network\n"
+            " 9-start access point\n"
+            " 10-disconnect from network\n"
+            " 11-show WiFi event listener thread status\n"
             "Select: "
         )
 
-        # Instantiate the service; WifiEventListener starts its D-Bus listener thread here.
+        # Construct the service; WifiEventListener's D-Bus listener thread
+        # is not started until wifi_service.start() is called (option 1).
         wifi_service = WifiService()
 
         while True:
             test_choice = input_prompt(input_selection, int, -1)
             match test_choice:
                 case 0:
+                    wifi_service.stop()  # Ensure nothing is left running on exit
                     break
                 case 1:
-                    print(f"\nNetworkManager wifi connections: {networkmanager_list()}\n")
+                    print("\nStarting WiFi monitor...\n")
+                    wifi_service.start()
                 case 2:
+                    print("\nStopping WiFi monitor...\n")
+                    wifi_service.stop()
+                case 3:
+                    print(f"\nNetworkManager wifi connections: {networkmanager_list()}\n")
+                case 4:
                     name = input("Enter SSID of the network to add: ")
                     pswrd = input("Enter password for the network to add (empty for open network): ")
                     if name:
@@ -803,7 +909,7 @@ if __name__ == '__main__':
                             print(f"\n{RED}Failed to add '{name}' to NetworkManager{NC}\n")
                     else:
                         print(f"\n{YELLOW}No network given{NC}\n")
-                case 3:
+                case 5:
                     name = input("Enter network to remove from NetworkManager: ")
                     if name:
                         if networkmanager_del(name):
@@ -812,15 +918,15 @@ if __name__ == '__main__':
                             print(f"\n{RED}Failed to delete '{name}' from NetworkManager{NC}\n")
                     else:
                         print(f"\n{YELLOW}No network given{NC}\n")
-                case 4:
+                case 6:
                     print(f"\nActive wifi networks: {get_wifi_networks()}\n")
-                case 5:
+                case 7:
                     wifi_state = wifi_service.get_state()
                     if wifi_state == WIFI_DISCONNECTED:
                         print(f"\nwifi state: '{wifi_state}'\n")
                     else:
                         print(f"\nwifi state: '{wifi_state}'. Connected with: '{get_wifi_connection()}'\n")
-                case 6:
+                case 8:
                     name = input("Enter SSID of the network to connect to: ")
                     pswrd = input("Enter password (empty for open network): ")
                     if name:
@@ -828,13 +934,20 @@ if __name__ == '__main__':
                         print(f"\nConnecting with '{name}'. Check messages for result\n")
                     else:
                         print(f"\n{YELLOW}No network given{NC}\n")
-                case 7:
+                case 9:
                     print("\nStarting access point. Check messages for result\n")
                     wifi_service.wifi_connect(ACCESS_POINT_SSID, None)
                     print(f"\nConnecting with '{ACCESS_POINT_SSID}'. Check messages for result\n")
-                case 8:
+                case 10:
                     print("\nDisconnecting. Check messages for result\n")
                     wifi_service.wifi_disconnect()
+                case 11:
+                    listener = wifi_service.nm_listener
+                    print(
+                        f"\nis_alive={listener.is_alive()}, "
+                        f"crashed={listener.crashed}, "
+                        f"exception={listener.exception}"
+                    )
                 case _:
                     print(f"\n{YELLOW}Please input a valid number{NC}\n")
 
