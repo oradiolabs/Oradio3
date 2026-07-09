@@ -12,7 +12,7 @@ Created on January 10, 2025
 @copyright:     Copyright 2024, Oradio Stichting
 @license:       GNU General Public License (GPL)
 @organization:  Oradio Stichting
-@version:       3
+@version:       4
 @email:         oradioinfo@stichtingoradio.nl
 @status:        Development
 @references:
@@ -29,14 +29,18 @@ Created on January 10, 2025
     - mpdlist/mpdlists: the combination of directories and playlists
     - current: the directory/playlist in the playback queue
 """
+# File exceeds pylint's default 1000-line module threshold. The bulk of it is
+# one cohesive class (MPDControl) plus its own standalone test menu in
+# __main__, matching every other module in this codebase (see utilities.py,
+# mpd_service.py); splitting MPDControl itself would hurt cohesion more than
+# it would help, so the check is disabled here rather than restructured.
+# pylint: disable=too-many-lines
 from os import path
-from time import sleep
-from threading import Thread
 from unicodedata import normalize, category
 
 ##### Oradio modules ######################################
 from log_service import oradio_log
-from utilities import load_presets
+from utilities import load_presets, ThreadTemplate
 from mpd_service import MPDService
 
 ##### GLOBAL constants ####################################
@@ -51,6 +55,133 @@ DEFAULT_PRESET = "Preset1"  # Used when Play is pressed and the queue is empty
 # the playlist is created. Also used by _sanitize_playlists() to clean up any
 # entries left behind by an interrupted create sequence.
 _PLAYLIST_DUMMY_URI = "https://dummy.mp3"
+
+# Poll interval for _SongFinishMonitor, matches the previous manual sleep(0.5).
+_MONITOR_POLL_INTERVAL = 0.5  # seconds
+
+class _SongFinishMonitor(ThreadTemplate):
+    """
+    Background worker (built on ThreadTemplate) that watches a single
+    play_song() song and removes it from the MPD queue once it is done with
+    it -- either because it finished playing naturally, or because it was
+    explicitly preempted by a new play_song() call.
+
+    do_work() polls MPD status every _MONITOR_POLL_INTERVAL seconds; once the
+    monitored song is within 0.5s of its end, it signals its own stop_event
+    so run() exits the loop -- a *natural* finish. teardown() then removes
+    the song from the queue; this runs exactly once, whether the loop ended
+    naturally or via preempt(), mirroring the cleanup guarantee ThreadTemplate
+    provides for any worker. On a natural finish (not a preemption), teardown()
+    also resumes queue playback if the queue still has other songs in it.
+
+    A single persistent instance is reused across songs via monitor():
+    ThreadTemplate supports repeated safe_start()/safe_stop() cycles on the
+    same instance. See MPDControl.play_song() for how overlapping calls use
+    preempt() to stop-and-remove the previous song before starting the next.
+    """
+
+    def __init__(self, control: "MPDControl", name: str = "SongFinishMonitor") -> None:
+        """
+        Args:
+            control: The MPDControl instance to issue MPD commands through.
+            name: Thread name.
+        """
+        super().__init__(interval=_MONITOR_POLL_INTERVAL, name=name)
+        self._control = control
+        self._song_id: int | None = None
+        # True while teardown() should skip resuming queue playback, because the
+        # stop was forced by preempt() (a new song is about to start right away)
+        # rather than the song finishing naturally.
+        self._suppress_resume = False
+
+    def monitor(self, song_id: int) -> None:
+        """
+        Start (or restart) monitoring the given song id.
+
+        Only safe to call when this instance isn't currently running --
+        callers must check is_alive() first, or call preempt() to stop any
+        previous run cleanly (see play_song()).
+
+        Args:
+            song_id: MPD song ID (queue entry) to monitor and remove.
+        """
+        self._song_id = song_id
+        self._suppress_resume = False
+        self.safe_start()
+
+    def preempt(self) -> bool:
+        """
+        Forcibly stop monitoring the current song and remove it from the
+        queue right now, without resuming queue playback afterward -- used
+        when a new play_song() call is about to start a different song
+        immediately, so there is nothing to resume yet.
+
+        Blocks (like safe_stop()) until the current run has fully exited,
+        including teardown()'s removal, so the caller can safely insert and
+        play the next song right after this returns.
+
+        Returns:
+            True if the run exited (and was cleaned up) within the default
+            safe_stop() timeout.
+        """
+        self._suppress_resume = True
+        stopped = self.safe_stop()
+        if not stopped:
+            oradio_log.warning(
+                "%s did not stop in time while preempting song id %s",
+                self.name, self._song_id,
+            )
+        return stopped
+
+    def do_work(self) -> None:
+        """
+        Check whether the monitored song is still playing. If it has been
+        superseded (skipped, replaced, already removed) or is about to end,
+        signal the run() loop to stop so teardown() can remove it.
+        """
+        status = self._control._execute("status") or {}   # pylint: disable=protected-access
+
+        try:
+            current_song_id = int(status.get("songid", -1))
+        except (TypeError, ValueError):
+            current_song_id = -1
+
+        if current_song_id != self._song_id:
+            self._stop_event.set()
+            return
+
+        time_str = status.get("time")
+        if time_str:
+            try:
+                elapsed_str, duration_str = time_str.strip().split(":")
+                elapsed  = float(elapsed_str)
+                duration = float(duration_str)
+                if elapsed >= duration - 0.5:
+                    self._stop_event.set()
+            except (ValueError, AttributeError) as ex_err:
+                # Transient parse failure; will retry on next poll cycle.
+                oradio_log.debug(
+                    "Transient time parse failure for song id %s: '%s' (%s)",
+                    self._song_id, time_str, ex_err,
+                )
+
+    def teardown(self) -> None:
+        """
+        Remove the monitored song from the queue, if it is still present.
+        On a natural finish (i.e. not stopped via preempt()), also resume
+        queue playback if the queue still has other songs.
+        """
+        playlist = self._control._execute("playlistinfo") or []   # pylint: disable=protected-access
+        for song in playlist:
+            if isinstance(song, dict) and int(song.get("id", -1)) == self._song_id:
+                self._control._execute("deleteid", self._song_id)  # pylint: disable=protected-access
+                oradio_log.debug("Removed song id %s from playlist", self._song_id)
+                break
+        else:
+            oradio_log.debug("Song id %s already removed", self._song_id)
+
+        if not self._suppress_resume:
+            self._control._resume_queue_if_not_empty()   # pylint: disable=protected-access
 
 class MPDControl(MPDService):
     """
@@ -68,6 +199,10 @@ class MPDControl(MPDService):
 
         # Remove any dummy entries left by a prior interrupted playlist creation.
         self._sanitize_playlists()
+
+        # Reused across play_song() calls when idle, to avoid spawning a new
+        # OS thread per call in the common (sequential) case. See play_song().
+        self._song_monitor = _SongFinishMonitor(self)
 
     def update_database(self) -> None:
         """
@@ -151,21 +286,25 @@ class MPDControl(MPDService):
         oradio_log.debug("Current song missing or invalid file: %r", file_uri)
         return None
 
-    def _playlist_first_uri(self, mpdlist: str) -> str | None:
+    def _playlist_first_uri(self, mpdlist: str, valid_names: set[str] | None = None) -> str | None:
         """
         Return the URI of the first entry in an MPD playlist.
 
         Args:
             mpdlist: Name of the playlist to check.
+            valid_names: Optional pre-fetched set of existing playlist names.
+                Pass this when the caller already has a fresh `listplaylists`
+                result (e.g. get_playlists() iterating many playlists) to
+                avoid re-issuing that MPD command for every entry. If None,
+                fetched fresh via `listplaylists`.
         """
-        playlists = self._execute("listplaylists") or []
-        print(playlists)
-        valid_names = {
-            p["playlist"]
-            for p in playlists
-            if isinstance(p, dict) and p.get("playlist")
-        }
-        print(valid_names)
+        if valid_names is None:
+            playlists = self._execute("listplaylists") or []
+            valid_names = {
+                p["playlist"]
+                for p in playlists
+                if isinstance(p, dict) and p.get("playlist")
+            }
 
         if mpdlist not in valid_names:
             oradio_log.debug("mpdlist '%s' not found in playlists", mpdlist)
@@ -294,8 +433,21 @@ class MPDControl(MPDService):
 
     def play_song(self, song: str) -> None:
         """
-        Play a single song immediately without clearing the current queue.
-        Inserts the song after the currently playing song and removes it after playback.
+        Play a single song immediately, interrupting whatever is currently
+        playing (a regular queue song or a previous play_song() song), and
+        without clearing the rest of the queue.
+
+        If a previous play_song() song is still active, it is stopped and
+        removed from the queue immediately (see _SongFinishMonitor.preempt())
+        before this song is inserted and started -- so only one play_song()
+        song is ever in flight at a time. Otherwise, this song is simply
+        inserted right after whatever is currently playing and played
+        immediately, which interrupts it the same way.
+
+        A _SongFinishMonitor is (re)started to remove this song from the
+        queue once it finishes; if it finishes naturally (not because it was
+        itself preempted by a later play_song() call), and the queue still
+        has other songs left, playback resumes automatically.
 
         Args:
             song: The URI or file path of the song to play.
@@ -305,6 +457,14 @@ class MPDControl(MPDService):
             return
 
         oradio_log.debug("Attempting to play song: %s", song)
+
+        # If a previous play_song() song is still playing, stop it and
+        # remove it from the queue before inserting this one. Must happen
+        # before reading "status"/"song" below, so current_index reflects
+        # the queue as it is after that removal.
+        if self._song_monitor.is_alive():
+            oradio_log.debug("Preempting previous play_song song for new song: %s", song)
+            _ = self._song_monitor.preempt()
 
         status = self._execute("status") or {}
         try:
@@ -337,64 +497,20 @@ class MPDControl(MPDService):
         _ = self._execute("play", target_index)
         oradio_log.debug("Started playback at index %d for song id %s", target_index, inserted_song_id)
 
-        Thread(
-            target=self._remove_song_when_finished,
-            args=(inserted_song_id,),
-            daemon=True
-        ).start()
+        self._song_monitor.monitor(int(inserted_song_id))
         oradio_log.debug("Monitor removal for song id: %s", inserted_song_id)
 
-    def _remove_song_when_finished(self, inserted_song_id: int | str) -> None:
+    def _resume_queue_if_not_empty(self) -> None:
         """
-        Monitor a song and remove it from the queue after it finishes.
-
-        Args:
-            inserted_song_id: MPD song ID to monitor and remove.
+        Resume queue playback after a play_song() song has finished
+        naturally and been removed from the queue. Called from
+        _SongFinishMonitor.teardown(); no-op if the queue is now empty.
         """
-        try:
-            inserted_song_id = int(inserted_song_id)
-        except (TypeError, ValueError):
-            oradio_log.error("Invalid song ID provided: %s", inserted_song_id)
-            return
-
-        oradio_log.debug("Monitoring song id %s until finish", inserted_song_id)
-
-        while True:
-            sleep(0.5)  # Poll twice per second
-
-            status = self._execute("status") or {}
-            try:
-                current_song_id = int(status.get("songid", -1))
-            except (TypeError, ValueError):
-                current_song_id = -1
-
-            if current_song_id != inserted_song_id:
-                break
-
-            time_str = status.get("time")
-            if time_str:
-                try:
-                    elapsed_str, duration_str = time_str.strip().split(":")
-                    elapsed  = float(elapsed_str)
-                    duration = float(duration_str)
-                    if elapsed >= duration - 0.5:
-                        break
-                except (ValueError, AttributeError) as ex_err:
-                    # Transient parse failure; will retry on next poll cycle.
-                    oradio_log.debug(
-                        "Transient time parse failure for song id %s: '%s' (%s)",
-                        inserted_song_id, time_str, ex_err,
-                    )
-
-        # Remove the song from the queue if still present.
-        playlist = self._execute("playlistinfo") or []
-        for song in playlist:
-            if isinstance(song, dict) and int(song.get("id", -1)) == inserted_song_id:
-                _ = self._execute("deleteid", inserted_song_id)
-                oradio_log.debug("Removed song id %s from playlist", inserted_song_id)
-                break
+        if self._execute("playlistinfo"):
+            oradio_log.debug("Queue not empty after play_song song finished; resuming queue playback")
+            self.play()
         else:
-            oradio_log.debug("Song id %s already removed", inserted_song_id)
+            oradio_log.debug("Queue empty after play_song song finished; nothing to resume")
 
     def pause(self) -> None:
         """
@@ -502,6 +618,14 @@ class MPDControl(MPDService):
             _ = self._execute("playlistadd", playlist, song)
 
             # Force MPD to sync its in-memory and on-disk playlist state.
+            # NOTE: MPD's own playlist commands read-modify-write the .m3u file
+            # to disk synchronously on each call, so this extra round-trip
+            # shouldn't be necessary per MPD's documented behavior. It's kept
+            # here because removing it was previously observed to cause stale
+            # reads -- possibly USB/filesystem write-cache timing rather than
+            # an MPD-side cache. Left in place until that's confirmed; see if
+            # it can be dropped after testing direct-from-disk reads
+            # immediately after playlistadd/playlistdelete.
             _ = self._execute("listplaylistinfo", playlist)
 
             oradio_log.debug("Song '%s' added to playlist '%s'", song, playlist)
@@ -565,13 +689,20 @@ class MPDControl(MPDService):
         _ = self._execute("playlistdelete", playlist, index)
 
         # Force MPD to sync its in-memory and on-disk playlist state.
+        # NOTE: see the matching comment in add() -- kept defensively pending
+        # confirmation of whether this is still needed.
         _ = self._execute("listplaylistinfo", playlist)
 
         oradio_log.debug("Song '%s' removed from playlist '%s'", song, playlist)
 
 ##### Informative functions ###############################
 
-    def is_webradio(self, preset: str | None = None, mpdlist: str | None = None) -> bool:
+    def is_webradio(
+        self,
+        preset: str | None = None,
+        mpdlist: str | None = None,
+        known_playlist_names: set[str] | None = None,
+    ) -> bool:
         """
         Determine if the current song, a preset, or a playlist is a web radio stream.
 
@@ -583,6 +714,11 @@ class MPDControl(MPDService):
         Args:
             preset: Name of the preset to check.
             mpdlist: Name of the playlist to check.
+            known_playlist_names: Optional pre-fetched set of existing
+                playlist names, forwarded to _playlist_first_uri() to avoid
+                an extra `listplaylists` round-trip when the caller (e.g.
+                get_playlists()) already has a fresh one. Ignored unless
+                mpdlist is given.
 
         Returns:
             True if the URI starts with "http://" or "https://".
@@ -603,7 +739,7 @@ class MPDControl(MPDService):
         file_uri = (
             self._current_uri()
             if mpdlist is None
-            else self._playlist_first_uri(mpdlist)
+            else self._playlist_first_uri(mpdlist, valid_names=known_playlist_names)
         )
 
         return (
@@ -645,6 +781,18 @@ class MPDControl(MPDService):
         """
         playlists = self._execute("listplaylists") or []
 
+        # Built once from the listing we already have, so is_webradio() ->
+        # _playlist_first_uri() doesn't re-issue `listplaylists` per entry.
+        # Explicit isinstance(name, str) check (rather than dict.get(...)
+        # truthiness alone) so mypy narrows the element type to plain str,
+        # not "str | None" from dict.get()'s return type.
+        known_playlist_names: set[str] = set()
+        for entry in playlists:
+            if isinstance(entry, dict):
+                name = entry.get("playlist")
+                if isinstance(name, str) and name:
+                    known_playlist_names.add(name)
+
         result = []
         for playlist in playlists:
             if not isinstance(playlist, dict):
@@ -658,7 +806,7 @@ class MPDControl(MPDService):
 
             result.append({
                 "playlist": name,
-                "webradio": self.is_webradio(mpdlist=name)
+                "webradio": self.is_webradio(mpdlist=name, known_playlist_names=known_playlist_names)
             })
 
         return sorted(result, key=lambda x: x["playlist"].casefold())
@@ -684,23 +832,33 @@ class MPDControl(MPDService):
             oradio_log.warning("Cannot get songs for invalid mpdlist '%s'", mpdlist)
             return []
 
-        playlists        = self._execute("listplaylists") or []
-        playlists_lookup = {p.get("playlist"): p for p in playlists if isinstance(p, dict)}
+        playlists     = self._execute("listplaylists") or []
+        playlist_names = {
+            p.get("playlist") for p in playlists
+            if isinstance(p, dict) and p.get("playlist")
+        }
 
-        directories        = self._execute("listfiles") or []
-        directories_lookup = {d.get("directory"): d for d in directories if isinstance(d, dict)}
-
-        if mpdlist in playlists_lookup:
+        if mpdlist in playlist_names:
             details       = self._execute("listplaylistinfo", mpdlist) or []
             sort_by_artist = False  # playlists have a user-defined order; preserve it
             source_type    = "playlist"
-        elif mpdlist in directories_lookup:
-            details        = self._execute("lsinfo", mpdlist) or []
-            sort_by_artist = True   # directory songs have no inherent order; sort by artist
-            source_type    = "directory"
         else:
-            oradio_log.debug("mpdlist '%s' not found as playlist or directory", mpdlist)
-            return []
+            # Only fetch directories when mpdlist isn't already a known
+            # playlist, so the common case (mpdlist is a playlist) skips
+            # this extra MPD round-trip entirely.
+            directories     = self._execute("listfiles") or []
+            directory_names = {
+                d.get("directory") for d in directories
+                if isinstance(d, dict) and d.get("directory")
+            }
+
+            if mpdlist in directory_names:
+                details        = self._execute("lsinfo", mpdlist) or []
+                sort_by_artist = True   # directory songs have no inherent order; sort by artist
+                source_type    = "directory"
+            else:
+                oradio_log.debug("mpdlist '%s' not found as playlist or directory", mpdlist)
+                return []
 
         if not details:
             oradio_log.debug("No songs found for %s '%s'", source_type, mpdlist)
@@ -919,5 +1077,5 @@ if __name__ == '__main__':
 
     print("\nExiting test program...\n")
 
-    # Re-enable the duplicate-code check for any code that follows
+    # Restore temporarily disabled pylint duplicate code check
     # pylint: enable=duplicate-code
