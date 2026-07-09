@@ -12,7 +12,7 @@ Created on January 27, 2025
 @copyright:     Copyright 2024, Oradio Stichting
 @license:       GNU General Public License (GPL)
 @organization:  Oradio Stichting
-@version:       4
+@version:       2
 @email:         oradioinfo@stichtingoradio.nl
 @status:        Development
 @summary: Oradio Volume Control
@@ -88,7 +88,8 @@ class VolumeControl(ThreadTemplate):
 
     def __init__(self) -> None:
         """
-        Initialise default volume levels and the I²C service.
+        Initialise the ThreadTemplate base, default volume levels and the
+        I²C service.
 
         Construction only sets up internal state; the background polling
         thread is not started until start() is called explicitly, mirroring
@@ -97,6 +98,11 @@ class VolumeControl(ThreadTemplate):
         begins (and stop()/start() again later) rather than having it
         begin as a side effect of construction.
         """
+        # interval is controlled in setup() and do_work(); called first so
+        # ThreadTemplate's own state exists before any subsequent hardware
+        # I/O below could plausibly fail partway through.
+        super().__init__(name="VolumeControl")
+
         # Set default MPD volume
         self._set_volume(VOLUME_CONTROL_MPD, DEFAULT_VOLUME_MPD)
 
@@ -122,9 +128,6 @@ class VolumeControl(ThreadTemplate):
         # used to re-arm notifications independently of the polling backoff.
         # (Re)established in setup() at the start of each run.
         self._idle_seconds: float = 0.0
-
-        # interval is controlled in setup() and do_work()
-        super().__init__(name="VolumeControl")
 
 ##### Helpers #############################################
 
@@ -279,13 +282,23 @@ class VolumeControl(ThreadTemplate):
 
         Thin wrapper around ThreadTemplate.safe_start() that preserves this
         class's original public API. Idempotent: calling start() when the
-        thread is already alive is a no-op (logged by safe_start()).
+        thread is already alive is a no-op.
         """
-        if self.safe_start():
-            oradio_log.info("Volume manager thread started")
-        elif self.crashed:
-            oradio_log.error("Volume manager thread failed to start: %s", self.exception)
+        if self.is_alive():
+            oradio_log.debug("Volume manager thread already running")
+            return
+
+        if not self.safe_start():
+            oradio_log.error("Volume manager thread failed to start")
             Incidents.publish(IncidentMessage(VOLUME_SOURCE, VOLUME_FAILED))
+            return
+
+        if self.crashed:
+            oradio_log.error("Volume manager thread crashed during startup: %s", self.exception)
+            Incidents.publish(IncidentMessage(VOLUME_SOURCE, VOLUME_FAILED))
+            return
+
+        oradio_log.info("Volume manager thread started")
 
     def stop(self) -> None:
         """
