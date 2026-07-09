@@ -150,7 +150,7 @@ class Backlighting:
 
         # Created once; safe_start()/safe_stop() can be called on it
         # repeatedly since ThreadTemplate itself supports restarting.
-        self._thread = _BacklightWorker(self)
+        self._worker = _BacklightWorker(self)
 
 ##### Helpers #############################################
 
@@ -233,17 +233,17 @@ class Backlighting:
             is restartable and resumes the brightness fade from where it
             left off (see _BacklightWorker docstring).
         """
-        if self._thread.is_alive():
+        if self._worker.is_alive():
             oradio_log.debug("Backlighting thread already running")
             return
 
-        if not self._thread.safe_start():
+        if not self._worker.safe_start():
             oradio_log.error("Backlight worker thread failed to start")
             Incidents.publish(IncidentMessage(BACKLIGHTING_SOURCE, BACKLIGHTING_FAILED))
             return
 
-        if self._thread.crashed:
-            oradio_log.error("Backlight worker thread crashed during startup: %s", self._thread.exception)
+        if self._worker.crashed:
+            oradio_log.error("Backlight worker thread crashed during startup: %s", self._worker.exception)
             Incidents.publish(IncidentMessage(BACKLIGHTING_SOURCE, BACKLIGHTING_FAILED))
             return
 
@@ -258,11 +258,11 @@ class Backlighting:
             for how transition state is preserved across the stop/start
             cycle.
         """
-        if not self._thread.is_alive():
+        if not self._worker.is_alive():
             oradio_log.debug("Backlight worker thread not running")
             return
 
-        if not self._thread.safe_stop():
+        if not self._worker.safe_stop():
             oradio_log.error("Backlight worker thread did not stop cleanly")
         else:
             oradio_log.info("Backlight worker thread stopped")
