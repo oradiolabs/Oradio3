@@ -182,7 +182,7 @@ class ThrottlingMonitor(ThreadTemplate):
             self._last_active_flags = active_flags
 
     def teardown(self) -> None:
-        """Report incident: Oradio never intentionally stops backlighting."""
+        """Report incident: Oradio never intentionally stops throttling monitoring."""
         Incidents.publish(IncidentMessage(THROTTLING_SOURCE, THROTTLING_STOPPED))
 
 ##### Public API ##########################################
@@ -214,13 +214,23 @@ class ThrottlingMonitor(ThreadTemplate):
 
         Thin wrapper around ThreadTemplate.safe_start() that preserves this
         class's original public API. Idempotent: calling start() when the
-        thread is already alive is a no-op (logged by safe_start()).
+        thread is already alive is a no-op.
         """
-        if self.safe_start():
-            oradio_log.info("Throttling monitor started")
-        elif self.crashed:
-            oradio_log.error("Throttling monitor failed to start: %s", self.exception)
+        if self.is_alive():
+            oradio_log.debug("Throttling monitor already running")
+            return
+
+        if not self.safe_start():
+            oradio_log.error("Throttling monitor failed to start")
             Incidents.publish(IncidentMessage(THROTTLING_SOURCE, THROTTLING_FAILED))
+            return
+
+        if self.crashed:
+            oradio_log.error("Throttling monitor crashed during startup: %s", self.exception)
+            Incidents.publish(IncidentMessage(THROTTLING_SOURCE, THROTTLING_FAILED))
+            return
+
+        oradio_log.info("Throttling monitor started")
 
     def stop(self) -> None:
         """
