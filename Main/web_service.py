@@ -42,7 +42,7 @@ Created on December 23, 2024
 import time
 from pathlib import Path
 from multiprocessing import Queue
-from threading import Thread, Lock
+from threading import Thread, RLock
 import uvicorn
 
 ##### Oradio modules ######################################
@@ -134,7 +134,9 @@ class UvicornServerThread:
         )
         self._server = None
         self._thread = None
-        self._lock = Lock()
+        # RLock, not Lock: is_running acquires it too, and is_running is called from
+        # inside start()/stop(), which already hold the lock. A plain Lock would deadlock.
+        self._lock = RLock()
 
     def start(self) -> bool:
         """
@@ -209,17 +211,23 @@ class UvicornServerThread:
         True if the server thread is alive, the server has started, and
         shutdown has not been requested.
 
+        Reads self._thread / self._server under self._lock so a caller from
+        an unrelated thread (e.g. WebService.state) always sees a
+        consistent snapshot rather than attributes mid-transition from a
+        concurrent start()/stop().
+
         Returns:
             bool: True if the server is actively accepting connections,
                 False in all other states (not started, stopping, stopped).
         """
-        return (
-            self._thread is not None and
-            self._thread.is_alive() and
-            self._server is not None and
-            self._server.started and
-            not self._server.should_exit
-        )
+        with self._lock:
+            return (
+                self._thread is not None and
+                self._thread.is_alive() and
+                self._server is not None and
+                self._server.started and
+                not self._server.should_exit
+            )
 
 class WebService:
     """
@@ -341,7 +349,6 @@ class WebService:
         rules = self._get_nat_rules()
         if rules is None:
             oradio_log.error("Failed to get NAT rules")
-            Incidents.publish(IncidentMessage(WEB_SOURCE, WEB_INCIDENT_STOP))
             return False
         if _IPTABLES_REDIRECT_RULE not in rules:
             return True  # Already absent; nothing to do.
@@ -352,7 +359,6 @@ class WebService:
         result, error = run_shell_script(cmd)
         if not result:
             oradio_log.error("Failed to remove port redirect rule: %s", error)
-            Incidents.publish(IncidentMessage(WEB_SOURCE, WEB_INCIDENT_STOP))
             return False
         return True
 
@@ -385,7 +391,6 @@ class WebService:
         result, error = run_shell_script(f"sudo rm -f {_DNS_REDIRECT_CONF}")
         if not result:
             oradio_log.error("Failed to remove DNS redirect config: %s", error)
-            Incidents.publish(IncidentMessage(WEB_SOURCE, WEB_INCIDENT_STOP))
             return False
         return True
 
@@ -435,31 +440,57 @@ class WebService:
         - REQUEST_CONNECT: extract SSID and optional password, call
           WifiService.wifi_connect(), then stop the Captive Portal.
         - REQUEST_STOP: stop the Captive Portal directly.
+
+        stop() is dispatched on its own daemon thread rather than called
+        inline: UvicornServerThread.stop() blocks on a join() of up to
+        SERVER_READY_TIMEOUT seconds, and _wait_for_wifi_state() can block
+        for up to WIFI_STATE_TIMEOUT seconds on top of that. Calling it
+        inline here would leave this listener -- the only thing draining
+        request_queue -- unresponsive to new messages for that entire
+        window. stop() is idempotent (guarded by is_running checks), so
+        concurrent or overlapping calls from multiple such threads are safe.
+
+        Dispatch is wrapped in a broad try/except: this thread has no
+        supervisor and is never restarted, so an uncaught exception here
+        would silently end all future message processing for the life of the
+        process (the portal could be left stuck running or stuck stopped,
+        with no incident reported). Catching, logging, publishing
+        WEB_INCIDENT_SERVICE, and continuing keeps the listener alive to
+        handle the next message instead.
         """
         while True:
             message = safe_get(self.request_queue)
             oradio_log.debug("Message received: '%s'", message)
 
-            # Guard against wrong message type
-            if not isinstance(message, dict):
-                oradio_log.warning("Unexpected message type %s: %s", type(message).__name__, message)
-                continue
+            try:
+                # Guard against wrong message type
+                if not isinstance(message, dict):
+                    oradio_log.warning("Unexpected message type %s: %s", type(message).__name__, message)
+                    continue
 
-            request = message.get("request")
+                request = message.get("request")
 
-            if request == REQUEST_CONNECT:
-                if ssid := message.get("ssid"):
-                    # Password is optional; None is passed for open networks.
-                    pswd = message.get("pswd")
-                    self.wifi_service.wifi_connect(ssid, pswd)
-                    # Tear down the Captive Portal after handing off to the new network.
-                    self.stop()
+                if request == REQUEST_CONNECT:
+                    if ssid := message.get("ssid"):
+                        # Password is optional; None is passed for open networks.
+                        pswd = message.get("pswd")
+                        self.wifi_service.wifi_connect(ssid, pswd)
+                        # Tear down the Captive Portal after handing off to the
+                        # new network. Runs on its own thread so a slow stop()
+                        # doesn't block this loop from draining new messages.
+                        Thread(target=self.stop, daemon=True).start()
 
-            elif request == REQUEST_STOP:
-                self.stop()
+                elif request == REQUEST_STOP:
+                    Thread(target=self.stop, daemon=True).start()
 
-            else:
-                oradio_log.warning("Unrecognised request: %s", request)
+                else:
+                    oradio_log.warning("Unrecognised request: %s", request)
+
+            # Broad catch is intentional: this loop must never die, since
+            # nothing else drains request_queue or restarts this thread.
+            except Exception as ex_err:  # pylint: disable=broad-exception-caught
+                oradio_log.error("Error handling message '%s': %s", message, ex_err)
+                Incidents.publish(IncidentMessage(WEB_SOURCE, WEB_INCIDENT_SERVICE))
 
 ##### Public API ##########################################
 
@@ -475,7 +506,7 @@ class WebService:
             return WEB_IDLE
         return WEB_ACTIVE if self.uvicorn_server.is_running else WEB_IDLE
 
-    def start(self) -> None:
+    def start(self) -> bool:
         """
         Start the Captive Portal service.
 
@@ -498,24 +529,41 @@ class WebService:
         if self.uvicorn_server is None:
             oradio_log.error("Uvicorn server not initialized")
             Incidents.publish(IncidentMessage(WEB_SOURCE, WEB_INCIDENT_START))
-            return
+            return False
 
         # Check running state before committing to any side-effecting steps.
         if self.uvicorn_server.is_running:
             oradio_log.debug("Web service already running")
-            return
+            return True
 
-        # wifi_connect is non-blocking; the AP transition is confirmed in step 5.
+        # wifi_connect is non-blocking; the AP transition is confirmed before returning.
         self.wifi_service.wifi_connect(ACCESS_POINT_SSID, None)
 
         if not self._ensure_port_redirect():
-            return
+            return False
         if not self._ensure_dns_redirect():
-            return
+            return False
 
         # Reset the inactivity timer (auto-stops the portal after no client
         # activity) before the server accepts connections and cancel any
         # lingering timer task from a previous session.
+        #
+        # api_app.state.timer_task is an asyncio.Task that belongs to the
+        # uvicorn event loop, which runs on a different OS thread than this
+        # method. Task.cancel() is not documented as thread-safe when called
+        # from outside the loop's own thread. This is only safe here because
+        # is_running (checked above) guarantees the previous UvicornServerThread
+        # has already been stop()'d and joined -- so if timer_task is not None,
+        # it belongs to an event loop that is no longer running. The guard below
+        # makes that invariant explicit and refuses to proceed if it's ever
+        # violated, rather than silently racing on live asyncio internals.
+        if self.uvicorn_server.is_running:
+            oradio_log.error(
+                "Refusing to reset keep-alive timer state: uvicorn server unexpectedly still running"
+            )
+            Incidents.publish(IncidentMessage(WEB_SOURCE, WEB_INCIDENT_START))
+            return False
+
         # timer_task is set by the FastAPI app and may not exist on first run,
         # so getattr is used rather than a direct attribute access.
         if getattr(api_app.state, "timer_task", None) is not None:
@@ -526,14 +574,15 @@ class WebService:
         if not self.uvicorn_server.start():
             oradio_log.error("Uvicorn server failed to start")
             Incidents.publish(IncidentMessage(WEB_SOURCE, WEB_INCIDENT_START))
-            return
+            return False
 
         if not self._wait_for_wifi_state({WIFI_ACCESS_POINT}, WEB_INCIDENT_START):
-            return
+            return False
 
         Commands.publish(CommandMessage(WEB_SOURCE, self.state))
+        return True
 
-    def stop(self) -> None:
+    def stop(self) -> bool:
         """
         Stop the Captive Portal service.
 
@@ -563,14 +612,16 @@ class WebService:
             if not self.uvicorn_server.stop():
                 Incidents.publish(IncidentMessage(WEB_SOURCE, WEB_INCIDENT_STOP))
 
-        # Helper methods publish WEB_INCIDENT_STOP internally on failure;
-        # stop() does not re-publish so each error is reported exactly once.
-        self._remove_port_redirect()
-        self._remove_dns_redirect()
+        if not self._remove_port_redirect():
+            Incidents.publish(IncidentMessage(WEB_SOURCE, WEB_INCIDENT_STOP))
+
+        if not self._remove_dns_redirect():
+            Incidents.publish(IncidentMessage(WEB_SOURCE, WEB_INCIDENT_STOP))
 
         self._wait_for_wifi_state({WIFI_DISCONNECTED, WIFI_CONNECTED}, WEB_INCIDENT_STOP)
 
         Commands.publish(CommandMessage(WEB_SOURCE, self.state))
+        return True
 
 ##### Stand-alone entry point #############################
 
