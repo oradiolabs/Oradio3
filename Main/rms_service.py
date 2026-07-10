@@ -478,13 +478,13 @@ class RMService:
         if self._handler is None:
             oradio_log.debug("RMS service not running")
             return
- 
+
         # Invariant: start() always sets _queue and _handler together, and
         # every reset path (here and the rollback in start()) clears both
         # together, so _handler being set guarantees _queue is too. Asserted
         # so mypy can narrow _queue from Optional[Queue] to Queue below.
         assert self._queue is not None
- 
+
         Heartbeat.stop_heartbeat()
         Commands.unsubscribe(self._queue)
         self._handler.stop()
