@@ -53,7 +53,7 @@ from messaging import (
     WIFI_CONNECTED,
     WIFI_DISCONNECTED,
     WIFI_ACCESS_POINT,
-    WIFI_INCIDENT_CONNECT,
+    WIFI_CONNECT_FAILED,
     WEB_SOURCE,
     WEB_IDLE,
     WEB_ACTIVE,
@@ -141,6 +141,7 @@ VolumeControl().start()
 
 oradio_log.info("Start MPD event monitoring")
 mpd_monitor = MPDMonitor()
+mpd_monitor.start()
 
 # Initialise MPD client
 oradio_log.info("Initialising MPDControl")
@@ -658,6 +659,10 @@ def update_spotify_available():
 
 # 2)-----The Handler map, defining message content and the handler funtion---
 
+# REVIEW Onno:
+#   Let op: WIFI_CONNECT_FAILED wordt ook als incident gerapporteerd.
+#   Te kiezen: is het een command zoals nu, of een incident?
+#   Voorstel: Het is een incident, met als mitigation een announcement en state wordt disconnected
 HANDLERS = {
     VOLUME_SOURCE: {
         VOLUME_CHANGED: on_volume_changed,
@@ -671,7 +676,7 @@ HANDLERS = {
         WIFI_DISCONNECTED: on_wifi_not_connected,
         WIFI_CONNECTED: on_wifi_connected,
         WIFI_ACCESS_POINT: on_wifi_access_point,
-        WIFI_INCIDENT_CONNECT: on_wifi_fail_connect,
+        WIFI_CONNECT_FAILED: on_wifi_fail_connect,
     },
     WEB_SOURCE: {
         WEB_IDLE: on_webservice_idle,
@@ -773,24 +778,28 @@ incident_handler = IncidentHandler()
 # Instantiate the state machine
 state_machine = StateMachine()
 
-# Instantiate remote monitor managing the heartbeat and sys_info messages when wifi state changes
+# Instantiate and start remote monitor managing the heartbeat and sys_info messages when wifi state changes
 remote_monitor = RMService()
+remote_monitor.start()
 
 # Instantiate and start Spotify connect
 spotify_connect = SpotifyConnect()
 spotify_connect.start()
 
-# Initialize the oradio_usb class
-# REVIEW Onno: start de USB monitor
+# Instantiate and start the USB service monitoring USB present/absent
 oradio_usb_service = USBService()
+oradio_usb_service.start()
+
 # REVIEW Onno: sync_usb_presence_from_service is overbodig, want USB status komt via de command queue
 sync_usb_presence_from_service()
 
 touch_buttons = TouchButtons()
 
-# REVIEW Onno: start de NetworkManager event listener
+# Instantiate and start the wifi service for monitoring wifi state
 oradio_wifi_service = WifiService()
+oradio_wifi_service.start()
 
+# Instantiate and start the web service for managing the access point
 oradio_web_service = WebService()
 
 # inject the services into the Statemachine

@@ -39,7 +39,8 @@ from messaging import (
     Incidents,
     IncidentMessage,
     GPIO_SOURCE,
-    GPIO_FAILED,
+    GPIO_PINS_FAILED,
+    GPIO_BUTTONS_FAILED,
 )
 
 ##### GLOBAL constants ####################################
@@ -125,7 +126,7 @@ class GPIOService:
                 GPIO.setup(pin, GPIO.OUT, initial=GPIO.HIGH)
             except RuntimeError as err:
                 oradio_log.error("Error setting LED output for pin %s: %s", pin, err)
-                Incidents.publish(IncidentMessage(GPIO_SOURCE, GPIO_FAILED))
+                Incidents.publish(IncidentMessage(GPIO_SOURCE, GPIO_PINS_FAILED))
 
         # Initialise button pins as inputs with internal pull-up resistors.
         for button_name, pin in BUTTONS.items():
@@ -133,7 +134,7 @@ class GPIOService:
                 GPIO.setup(pin, GPIO.IN, pull_up_down=GPIO.PUD_UP)
             except RuntimeError as err:
                 oradio_log.error("Error setting BUTTON input for pin %s: %s", pin, err)
-                Incidents.publish(IncidentMessage(GPIO_SOURCE, GPIO_FAILED))
+                Incidents.publish(IncidentMessage(GPIO_SOURCE, GPIO_PINS_FAILED))
 
             self.gpio_to_button[pin] = button_name
 
@@ -285,7 +286,7 @@ class GPIOService:
         were enabled first, a button press occurring between the two calls
         would invoke a None callback and be silently dropped, so this
         method returns early if no callback has been registered. Publishes
-        a GPIO_FAILED incident if edge detection cannot be enabled on a pin.
+        a GPIO_PINS_FAILED incident if edge detection cannot be enabled on a pin.
         """
         if not callable(self.edge_event_callback):
             oradio_log.error("Cannot enable button events: callback not set")
@@ -298,7 +299,7 @@ class GPIOService:
                 GPIO.add_event_detect(pin, GPIO.BOTH, callback=self._edge_callback, bouncetime=BOUNCE_MS)
             except RuntimeError as err:
                 oradio_log.error("Error enabling event detection for pin %s: %s", pin, err)
-                Incidents.publish(IncidentMessage(GPIO_SOURCE, GPIO_FAILED))
+                Incidents.publish(IncidentMessage(GPIO_SOURCE, GPIO_BUTTONS_FAILED))
 
         oradio_log.debug("Button event detection enabled")
 

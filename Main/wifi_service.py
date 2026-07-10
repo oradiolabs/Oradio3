@@ -55,10 +55,10 @@ from messaging import (
     WIFI_CONNECTED,
     WIFI_DISCONNECTED,
     WIFI_ACCESS_POINT,
-    WIFI_INCIDENT_DBUS,
-    WIFI_INCIDENT_NMCLI,
-    WIFI_INCIDENT_CONNECT,
-    WIFI_INCIDENT_DISCONNECT,
+    WIFI_DBUS_FAILED,
+    WIFI_NMCLI_FAILED,
+    WIFI_CONNECT_FAILED,
+    WIFI_DISCONNECT_FAILED,
 )
 
 ##### GLOBAL constants ####################################
@@ -126,7 +126,7 @@ def _nmcli_try(func, *args, **kwargs) -> tuple[bool, Any | None]:
     """
     Call an nmcli function, catching all known nmcli and OS errors.
 
-    On failure, logs the error and publishes WIFI_INCIDENT_NMCLI on the error
+    On failure, logs the error and publishes WIFI_NMCLI_FAILED on the error
     bus so subscribers are notified without the caller needing to handle it.
 
     Args:
@@ -145,7 +145,7 @@ def _nmcli_try(func, *args, **kwargs) -> tuple[bool, Any | None]:
     # Exceptions built dynamically, so mypy can't verify it's a valid exception tuple statically
     except (*nmcli_exceptions, CalledProcessError, OSError) as ex_err:      # type: ignore[misc]
         oradio_log.error("nmcli call failed for %s: %s", func.__name__, ex_err)
-        Incidents.publish(IncidentMessage(WIFI_SOURCE, WIFI_INCIDENT_NMCLI))
+        Incidents.publish(IncidentMessage(WIFI_SOURCE, WIFI_NMCLI_FAILED))
         return False, None
 
 def _wifi_up(network) -> bool:
@@ -236,7 +236,7 @@ class WifiEventListener(ThreadTemplate):
         device, and subscribe to its StateChanged signal.
 
         Runs once per safe_start() (i.e. again on every restart), on the
-        worker thread. Publishes WIFI_INCIDENT_DBUS and raises on any
+        worker thread. Publishes WIFI_DBUS_FAILED and raises on any
         failure so ThreadTemplate.run() logs and records the crash; the
         guards above are left as None so other methods degrade gracefully
         (e.g. _get_connectivity() treats a None _nm_props as "no
@@ -271,8 +271,6 @@ class WifiEventListener(ThreadTemplate):
                     break
 
             if not self._wifi_path:
-                oradio_log.error("No wifi device found")
-                Incidents.publish(IncidentMessage(WIFI_SOURCE, WIFI_INCIDENT_DBUS))
                 raise RuntimeError("No wifi device found")
 
             # Register the state-change callback for the specific WiFi device path.
@@ -290,13 +288,16 @@ class WifiEventListener(ThreadTemplate):
 
         except DBusException as ex_err:
             oradio_log.error("Failed to connect to NetworkManager D-Bus: %s", ex_err.get_dbus_message())
-            Incidents.publish(IncidentMessage(WIFI_SOURCE, WIFI_INCIDENT_DBUS))
+            Incidents.publish(IncidentMessage(WIFI_SOURCE, WIFI_DBUS_FAILED))
+            raise
         except OSError as ex_err:
             oradio_log.error("D-Bus connection error: %s", ex_err)
-            Incidents.publish(IncidentMessage(WIFI_SOURCE, WIFI_INCIDENT_DBUS))
+            Incidents.publish(IncidentMessage(WIFI_SOURCE, WIFI_DBUS_FAILED))
+            raise
         except RuntimeError as ex_err:
             oradio_log.error(str(ex_err))
-            Incidents.publish(IncidentMessage(WIFI_SOURCE, WIFI_INCIDENT_DBUS))
+            Incidents.publish(IncidentMessage(WIFI_SOURCE, WIFI_DBUS_FAILED))
+            raise
 
         oradio_log.info("Wifi event listener started")
 
@@ -412,27 +413,27 @@ class WifiEventListener(ThreadTemplate):
                     connectivity = self._get_connectivity()
                     if connectivity == NM_CONNECTIVITY_FULL:
                         # External network with confirmed internet access
-                        oradio_log.debug("Publish wifi service message: %s", WIFI_CONNECTED)
+                        oradio_log.debug("Wifi connected to internet")
                         Commands.publish(CommandMessage(WIFI_SOURCE, WIFI_CONNECTED))
                     else:
                         # PORTAL, LIMITED, or NONE: IP may be assigned but
                         # there is no usable internet route
-                        oradio_log.debug("Publish wifi service error: %s", WIFI_INCIDENT_CONNECT)
-                        Incidents.publish(IncidentMessage(WIFI_SOURCE, WIFI_INCIDENT_CONNECT))
+                        oradio_log.debug("Wifi not connected to internet")
+                        Incidents.publish(IncidentMessage(WIFI_SOURCE, WIFI_CONNECT_FAILED))
 
             elif new_state == NM_DISCONNECTED:
-                oradio_log.debug("Publish wifi service message: %s", WIFI_DISCONNECTED)
+                oradio_log.debug("Wifi disconnected")
                 Commands.publish(CommandMessage(WIFI_SOURCE, WIFI_DISCONNECTED))
 
             else:   # NM_FAILED — NetworkManager could not complete the connection
-                oradio_log.debug("Publish wifi service error: %s", WIFI_INCIDENT_CONNECT)
-                Incidents.publish(IncidentMessage(WIFI_SOURCE, WIFI_INCIDENT_CONNECT))
+                oradio_log.debug("Wifi could not complete connection: %s", new_state)
+                Incidents.publish(IncidentMessage(WIFI_SOURCE, WIFI_CONNECT_FAILED))
 
         # Broad catch is intentional: this callback must never take down the GLib main
         # loop or the listener thread over a single bad signal delivery.
         except Exception as ex_err:  # pylint: disable=broad-exception-caught
             oradio_log.error("Error handling WiFi StateChanged signal (new_state=%s): %s", new_state, ex_err)
-            Incidents.publish(IncidentMessage(WIFI_SOURCE, WIFI_INCIDENT_DBUS))
+            Incidents.publish(IncidentMessage(WIFI_SOURCE, WIFI_DBUS_FAILED))
 
 class WifiService:
     """
@@ -476,14 +477,14 @@ class WifiService:
 
         if not self.nm_listener.safe_start():
             oradio_log.error("WiFi event listener thread failed to start")
-            Incidents.publish(IncidentMessage(WIFI_SOURCE, WIFI_INCIDENT_DBUS))
+            Incidents.publish(IncidentMessage(WIFI_SOURCE, WIFI_DBUS_FAILED))
             return
 
         if self.nm_listener.crashed:
             oradio_log.error(
                 "WiFi event listener thread crashed during startup: %s", self.nm_listener.exception,
             )
-            Incidents.publish(IncidentMessage(WIFI_SOURCE, WIFI_INCIDENT_DBUS))
+            Incidents.publish(IncidentMessage(WIFI_SOURCE, WIFI_DBUS_FAILED))
             return
 
         oradio_log.info("WiFi event listener thread started")
@@ -577,7 +578,7 @@ class WifiService:
         if active:
             if not _wifi_down(active):
                 oradio_log.error("Failed to disconnect from '%s'", active)
-                Incidents.publish(IncidentMessage(WIFI_SOURCE, WIFI_INCIDENT_DISCONNECT))
+                Incidents.publish(IncidentMessage(WIFI_SOURCE, WIFI_DISCONNECT_FAILED))
             else:
                 # WifiEventListener publishes the WIFI_DISCONNECTED state
                 oradio_log.info("Disconnected from: '%s'", active)

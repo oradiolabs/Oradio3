@@ -35,6 +35,13 @@ from log_service import oradio_log
 from gpio_service import GPIOService
 from singleton import singleton
 from utilities import ThreadTemplate
+from messaging import (
+    Incidents,
+    IncidentMessage,
+    LED_SOURCE,
+    LED_BLINK_START_FAILED,
+    LED_BLINK_STOP_FAILED,
+)
 
 ##### GLOBAL constants ####################################
 from constants import LED_NAMES
@@ -248,6 +255,7 @@ class LEDControl:
                     oradio_log.debug("%s blinking started: %.3fs cycle", led_name, cycle_time)
                 else:
                     oradio_log.error("%s blink worker failed to start", led_name)
+                    Incidents.publish(IncidentMessage(LED_SOURCE, LED_BLINK_START_FAILED))
             else:
                 oradio_log.error("Invalid LED name: %s", led_name)
         else:
@@ -287,6 +295,7 @@ class LEDControl:
         worker = self.blink_workers.get(led_name)
         if worker is not None and not worker.safe_stop():
             oradio_log.error("%s blink worker did not stop cleanly", led_name)
+            Incidents.publish(IncidentMessage(LED_SOURCE, LED_BLINK_STOP_FAILED))
 
 ##### Stand-alone entry point #############################
 

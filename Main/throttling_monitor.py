@@ -30,7 +30,7 @@ from messaging import (
     Incidents,
     IncidentMessage,
     THROTTLING_SOURCE,
-    THROTTLING_FAILED,
+    THROTTLING_START_FAILED,
     THROTTLING_THROTTLED,
     THROTTLING_STOPPED,
 )
@@ -222,12 +222,12 @@ class ThrottlingMonitor(ThreadTemplate):
 
         if not self.safe_start():
             oradio_log.error("Throttling monitor failed to start")
-            Incidents.publish(IncidentMessage(THROTTLING_SOURCE, THROTTLING_FAILED))
+            Incidents.publish(IncidentMessage(THROTTLING_SOURCE, THROTTLING_START_FAILED))
             return
 
         if self.crashed:
             oradio_log.error("Throttling monitor crashed during startup: %s", self.exception)
-            Incidents.publish(IncidentMessage(THROTTLING_SOURCE, THROTTLING_FAILED))
+            Incidents.publish(IncidentMessage(THROTTLING_SOURCE, THROTTLING_START_FAILED))
             return
 
         oradio_log.info("Throttling monitor started")

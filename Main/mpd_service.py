@@ -41,8 +41,8 @@ from messaging import (
     Incidents,
     IncidentMessage,
     MPD_SOURCE,
-    MPD_INCIDENT_CONNECT,
-    MPD_INCIDENT_EXECUTE,
+    MPD_CONNECT_FAILED,
+    MPD_EXECUTE_FAILED,
 )
 
 ##### LOCAL constants #####################################
@@ -135,7 +135,7 @@ class MPDService:
 
         # All retries exhausted
         oradio_log.error("Failed to connect to MPD after %d attempts", MPD_RETRIES)
-        Incidents.publish(IncidentMessage(MPD_SOURCE, MPD_INCIDENT_CONNECT))
+        Incidents.publish(IncidentMessage(MPD_SOURCE, MPD_CONNECT_FAILED))
 
     def _execute(self, command: str, *args, allow_reconnect: bool = True, **kwargs) -> Any | None:
         """
@@ -201,6 +201,7 @@ class MPDService:
 
             except Exception as ex_unexpected:  # pylint: disable=broad-exception-caught
                 oradio_log.exception("Unexpected error executing MPD command '%s': %s", command, ex_unexpected)
+                Incidents.publish(IncidentMessage(MPD_SOURCE, MPD_EXECUTE_FAILED))
                 return None
 
             finally:
@@ -211,7 +212,7 @@ class MPDService:
 
         # All retries exhausted
         oradio_log.error("Failed to execute MPD command '%s' after %d retries", command, MPD_RETRIES)
-        Incidents.publish(IncidentMessage(MPD_SOURCE, MPD_INCIDENT_EXECUTE))
+        Incidents.publish(IncidentMessage(MPD_SOURCE, MPD_EXECUTE_FAILED))
         return None
 
 ##### Public API ##########################################

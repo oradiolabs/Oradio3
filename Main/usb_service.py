@@ -30,6 +30,8 @@ Created on January 17, 2025
 """
 from os import path, remove
 from json import load, JSONDecodeError
+from typing import Optional
+from threading import Timer, Lock
 from watchdog.observers import Observer
 from watchdog.events import FileSystemEventHandler
 
@@ -43,10 +45,11 @@ from messaging import (
     CommandMessage,
     IncidentMessage,
     USB_SOURCE,
-    USB_PRESENT,
     USB_ABSENT,
-    USB_INCIDENT_FILE,
-    USB_INCIDENT_SERVICE,
+    USB_PRESENT,
+    USB_FILE_FAILED,
+    USB_START_FAILED,
+    USB_STOPPED,
 )
 
 ##### GLOBAL constants ####################################
@@ -64,6 +67,10 @@ USB_STATEFILE = "/run/usb_present"
 
 # Expected location of the WiFi credentials file on the USB drive root
 USB_WIFI_FILE = path.join(USB_MOUNT_POINT, "Wifi_invoer.json")
+
+# How often the observer/emitter threads are polled for liveness (seconds).
+# Watchdog gives no callback when its threads die, so this must be polled.
+HEALTH_CHECK_INTERVAL = 30
 
 @singleton
 class USBObserver(FileSystemEventHandler):
@@ -179,7 +186,7 @@ class USBObserver(FileSystemEventHandler):
                 ]
             }
 
-        Publishes USB_INCIDENT_FILE on any read, parse, or validation error.
+        Publishes USB_FILE_FAILED on any read, parse, or validation error.
         """
         oradio_log.info("Checking %s for wifi credentials", USB_WIFI_FILE)
 
@@ -195,13 +202,13 @@ class USBObserver(FileSystemEventHandler):
         except (JSONDecodeError, OSError) as ex_err:
             # Covers malformed JSON and filesystem errors (permissions, I/O)
             oradio_log.error("Failed to read or parse '%s': error: %s", USB_WIFI_FILE, ex_err)
-            Incidents.publish(IncidentMessage(USB_SOURCE, USB_INCIDENT_FILE))
+            Incidents.publish(IncidentMessage(USB_SOURCE, USB_FILE_FAILED))
             return
 
         # The root object must contain a "networks" key whose value is a list
         if "networks" not in data or not isinstance(data["networks"], list):
             oradio_log.error("'networks' must be a list")
-            Incidents.publish(IncidentMessage(USB_SOURCE, USB_INCIDENT_FILE))
+            Incidents.publish(IncidentMessage(USB_SOURCE, USB_FILE_FAILED))
             return
 
         # Validate every entry first; track whether all pass so we know if it
@@ -214,7 +221,7 @@ class USBObserver(FileSystemEventHandler):
                 # errors in this pass rather than stopping at the first failure
                 all_valid = False
                 oradio_log.error(err_msg)
-                Incidents.publish(IncidentMessage(USB_SOURCE, USB_INCIDENT_FILE))
+                Incidents.publish(IncidentMessage(USB_SOURCE, USB_FILE_FAILED))
             else:
                 # Strip surrounding whitespace from SSID; passwords are left
                 # untouched because internal spaces are valid in WPA keys
@@ -227,7 +234,7 @@ class USBObserver(FileSystemEventHandler):
                 else:
                     all_valid = False
                     oradio_log.error("Failed to add '%s' to NetworkManager", ssid)
-                    Incidents.publish(IncidentMessage(USB_SOURCE, USB_INCIDENT_FILE))
+                    Incidents.publish(IncidentMessage(USB_SOURCE, USB_FILE_FAILED))
 
         if all_valid:
             # Remove the credentials file to prevent re-import and to avoid
@@ -237,11 +244,11 @@ class USBObserver(FileSystemEventHandler):
                 oradio_log.info("'%s' removed", USB_WIFI_FILE)
             except (FileNotFoundError, PermissionError) as ex_err:
                 oradio_log.error("Failed to remove '%s': %s", USB_WIFI_FILE, ex_err)
-                Incidents.publish(IncidentMessage(USB_SOURCE, USB_INCIDENT_FILE))
+                Incidents.publish(IncidentMessage(USB_SOURCE, USB_FILE_FAILED))
         else:
             # Leave the file in place so the user can correct the errors
             oradio_log.error("'%s' has errors, is not removed", USB_WIFI_FILE)
-            Incidents.publish(IncidentMessage(USB_SOURCE, USB_INCIDENT_FILE))
+            Incidents.publish(IncidentMessage(USB_SOURCE, USB_FILE_FAILED))
 
 ##### Public API ##########################################
 
@@ -258,9 +265,14 @@ class USBObserver(FileSystemEventHandler):
         """
         # Ignore directory events and any files other than the specific marker file
         if not event.is_directory and event.src_path == USB_STATEFILE:
-            oradio_log.debug("USB inserted")
-            Commands.publish(CommandMessage(USB_SOURCE, USB_PRESENT))
-            self._import_usb_wifi_networks()
+            try:
+                oradio_log.debug("USB inserted")
+                Commands.publish(CommandMessage(USB_SOURCE, USB_PRESENT))
+                self._import_usb_wifi_networks()
+            # An unhandled exception here would propagate into watchdog's
+            # dispatch loop and silently kill the observer thread.
+            except Exception as ex_err:  # pylint: disable=broad-exception-caught
+                oradio_log.error("Error handling USB inserted event: %s", ex_err)
 
     def on_deleted(self, event) -> None:
         """
@@ -275,8 +287,13 @@ class USBObserver(FileSystemEventHandler):
         """
         # Ignore directory events and any files other than the specific marker file
         if not event.is_directory and event.src_path == USB_STATEFILE:
-            oradio_log.debug("USB removed")
-            Commands.publish(CommandMessage(USB_SOURCE, USB_ABSENT))
+            try:
+                oradio_log.debug("USB removed")
+                Commands.publish(CommandMessage(USB_SOURCE, USB_ABSENT))
+            # An unhandled exception here would propagate into watchdog's
+            # dispatch loop and silently kill the observer thread.
+            except Exception as ex_err:  # pylint: disable=broad-exception-caught
+                oradio_log.error("Error handling USB removed event: %s", ex_err)
 
 class USBService:
     """
@@ -285,28 +302,149 @@ class USBService:
     Creates and starts a watchdog Observer that tracks the USB marker file
     via the singleton USBObserver handler. Provides a convenience method
     to query the current USB state by inspecting the mount point directly.
+
+    Construction only sets up internal state; the watchdog Observer is not
+    created or started until start() is called explicitly, mirroring the
+    construction/start separation used by RMService and ThrottlingMonitor.
+    This lets callers control exactly when filesystem monitoring begins (and
+    stop()/start() again later) rather than having it begin as a side
+    effect of instantiation.
+
+    Watchdog gives no callback when its threads die (e.g. an unhandled
+    exception in a handler, or an emitter hitting the OS inotify watch
+    limit), so a background Timer polls the dispatch and emitter threads
+    every HEALTH_CHECK_INTERVAL seconds. An unexpected death is treated the
+    same as an explicit stop(): USB_STOPPED is published and self.observer
+    is cleared so a later start() is not blocked by the dead instance.
     """
     def __init__(self) -> None:
         """
-        Initialise and start the watchdog observer for USB state monitoring.
+        Initialise the service.
 
-        Schedules USBObserver on USB_STATEPATH (non-recursive) and
-        starts the observer in a background thread. Logs an error and publishes
-        USB_INCIDENT_SERVICE if the observer thread fails to start.
+        No Observer is created and no thread is started here; call
+        start() to begin monitoring.
         """
-        self.observer = Observer()
+        self.observer: Optional[Observer] = None
+        self._health_timer: Optional[Timer] = None
 
-        # Schedule the singleton handler on the directory that contains the
-        # USB marker file. recursive=False limits events to the top-level
-        # directory, avoiding unnecessary inotify overhead from subdirectories.
-        self.observer.schedule(USBObserver(), path=USB_STATEPATH, recursive=False)
+        # Serialises start()/stop()/_check_health() so a health check firing
+        # concurrently with an explicit stop() cannot race on self.observer.
+        self._lock = Lock()
 
-        try:
-            self.observer.start()
-            oradio_log.info("USB observer started")
-        except Exception as ex_err:  # pylint: disable=broad-exception-caught
-            oradio_log.error("USB observer failed to start: %s", ex_err)
-            Incidents.publish(IncidentMessage(USB_SOURCE, USB_INCIDENT_SERVICE))
+    def start(self) -> None:
+        """
+        Create and start the watchdog observer for USB state monitoring.
+
+        Schedules USBObserver on USB_STATEPATH (non-recursive) and starts
+        the observer in a background thread, then starts the periodic
+        health check. Idempotent: calling start() when the service is
+        already running is a no-op. Logs an error and publishes
+        USB_START_FAILED if the observer thread fails to start.
+        """
+        with self._lock:
+            if self.observer is not None:
+                oradio_log.debug("USB observer already running")
+                return
+
+            observer = Observer()
+
+            # Schedule the singleton handler on the directory that contains the
+            # USB marker file. recursive=False limits events to the top-level
+            # directory, avoiding unnecessary inotify overhead from subdirectories.
+            observer.schedule(USBObserver(), path=USB_STATEPATH, recursive=False)
+
+            try:
+                observer.start()
+                self.observer = observer
+                oradio_log.info("USB observer started")
+                self._schedule_health_check()
+            except Exception as ex_err:  # pylint: disable=broad-exception-caught
+                oradio_log.error("USB observer failed to start: %s", ex_err)
+                Incidents.publish(IncidentMessage(USB_SOURCE, USB_START_FAILED))
+
+    def stop(self) -> None:
+        """
+        Stop the watchdog observer and wait for its thread to exit.
+
+        Does nothing if the service was never started (or has already been
+        stopped, whether explicitly or via a detected crash). Publishes
+        USB_STOPPED once the observer has actually stopped, since Oradio
+        treats loss of USB monitoring as an incident worth reporting
+        (mirroring ThrottlingMonitor.teardown()).
+        """
+        with self._lock:
+            self._cancel_health_check()
+
+            if self.observer is None:
+                oradio_log.debug("USB observer not running")
+                return
+
+            self.observer.stop()
+            self.observer.join()
+            self.observer = None
+            oradio_log.info("USB observer stopped")
+            Incidents.publish(IncidentMessage(USB_SOURCE, USB_STOPPED))
+
+    def _schedule_health_check(self) -> None:
+        """
+        Start (or restart) the one-shot Timer that triggers the next
+        health check. Must be called with self._lock held.
+        """
+        self._health_timer = Timer(HEALTH_CHECK_INTERVAL, self._check_health)
+        self._health_timer.daemon = True
+        self._health_timer.start()
+
+    def _cancel_health_check(self) -> None:
+        """
+        Cancel the pending health-check Timer, if any. Must be called with
+        self._lock held.
+        """
+        if self._health_timer is not None:
+            self._health_timer.cancel()
+            self._health_timer = None
+
+    def _check_health(self) -> None:
+        """
+        Verify the observer's dispatch thread and all its emitter threads
+        are still alive, and reschedule the next check if so.
+
+        Runs on its own Timer thread every HEALTH_CHECK_INTERVAL seconds
+        while the service is running. A dead dispatch thread or a dead
+        emitter thread (e.g. from hitting the inotify watch limit) is not
+        reported by watchdog in any other way, so this is the only place
+        such a failure is noticed. On detecting failure, this method
+        performs the same cleanup and USB_STOPPED notification as an
+        explicit stop().
+        """
+        stopped_unexpectedly = False
+
+        with self._lock:
+            # A concurrent stop() may have already cleared the observer
+            # and cancelled this timer; nothing to do in that case.
+            if self.observer is None:
+                return
+
+            alive = self.observer.is_alive() and all(
+                emitter.is_alive() for emitter in self.observer.emitters
+            )
+
+            if alive:
+                self._schedule_health_check()
+                return
+
+            oradio_log.error("USB observer thread stopped unexpectedly")
+            try:
+                self.observer.stop()
+                self.observer.join(timeout=1)
+            except Exception as ex_err:  # pylint: disable=broad-exception-caught
+                oradio_log.debug("Error cleaning up dead USB observer: %s", ex_err)
+            self.observer = None
+            self._health_timer = None
+            stopped_unexpectedly = True
+
+        # Publish outside the lock so a slow subscriber can't block start()/stop()
+        if stopped_unexpectedly:
+            Incidents.publish(IncidentMessage(USB_SOURCE, USB_STOPPED))
 
     def get_state(self) -> str:
         """
@@ -354,13 +492,15 @@ if __name__ == '__main__':
             "select: "
         )
 
-        # Instantiate the service; the watchdog observer thread starts here
+        # Instantiate and start the service; the watchdog observer thread starts here
         monitor = USBService()
+        monitor.start()
 
         while True:
             test_choice = input_prompt(input_selection, int, -1)
             match test_choice:
                 case 0:
+                    monitor.stop()
                     break
                 case 1:
                     print(f"\nUSB state: {monitor.get_state()}\n")

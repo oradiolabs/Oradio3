@@ -51,7 +51,8 @@ from messaging import (
     WIFI_DISCONNECTED,
     WIFI_ACCESS_POINT,
     RMS_SOURCE,
-    RMS_INCIDENT_SERVICE,
+    RMS_START_FAILED,
+    RMS_POST_FAILED,
 )
 
 ##### GLOBAL constants ####################################
@@ -377,6 +378,7 @@ class WifiMessageHandler(MessageHandlerTemplate):
                 oradio_log.warning("Attempt %d failed: %s", attempt, ex_err)
                 if attempt == MAX_RETRIES:
                     oradio_log.error("Failed to POST log: %s", ex_err)
+                    Incidents.publish(IncidentMessage(RMS_SOURCE, RMS_POST_FAILED))
                     return
                 # Wait before retrying; delay grows exponentially with each attempt
                 sleep(BACKOFF_FACTOR ** attempt)
@@ -404,15 +406,36 @@ class RMService:
     Subscribes to WiFi connectivity events and delegates all message
     handling — heartbeat scheduling, SYS_INFO reporting, and HTTP
     POST retries — to an internal WifiMessageHandler.
+
+    Construction only sets up internal state; the WiFi subscription and the
+    handler's worker thread are not started until start() is called
+    explicitly, mirroring ThrottlingMonitor's separation between
+    construction and start(). This lets callers control exactly when the
+    service begins subscribing/threading (and stop()/start() again later)
+    rather than having it begin as a side effect of instantiation.
     """
     def __init__(self) -> None:
         """
-        Initialise the service and register for WiFi state change events.
+        Initialise the service.
 
-        Subscribes to the messaging layer filtered to WiFi events and starts
-        an internal daemon thread to process incoming messages. Logs an error
-        if the handler thread fails to start.
+        No subscription is made and no thread is started here; call
+        start() to begin operation.
         """
+        self._queue: Queue | None = None
+        self._handler: WifiMessageHandler | None = None
+
+    def start(self) -> None:
+        """
+        Subscribe to WiFi state change events and start the handler thread.
+
+        Idempotent: calling start() when the service is already running is
+        a no-op. If handler creation fails, any partial subscription is
+        rolled back and an incident is published.
+        """
+        if self._handler is not None:
+            oradio_log.debug("RMS service already running")
+            return
+
         # Subscribe to WiFi messages only
         self._queue = Commands.subscribe(sources=(WIFI_SOURCE,))
 
@@ -422,7 +445,10 @@ class RMService:
             oradio_log.info("RMS service started")
         except Exception as ex_err:  # pylint: disable=broad-exception-caught
             oradio_log.error("RMS service failed to start: %s", ex_err)
-            Incidents.publish(IncidentMessage(RMS_SOURCE, RMS_INCIDENT_SERVICE))
+            # Roll back the subscription so a retry via start() starts clean
+            Commands.unsubscribe(self._queue)
+            self._queue = None
+            Incidents.publish(IncidentMessage(RMS_SOURCE, RMS_START_FAILED))
 
     def send_message(self, msg_type: str) -> None:
         """
@@ -435,6 +461,10 @@ class RMService:
         Args:
             msg_type (str): HEARTBEAT or SYS_INFO.
         """
+        if self._handler is None:
+            oradio_log.error("RMS service not started; cannot send %s", msg_type)
+            return
+
         self._handler.send_message(msg_type)
 
     def stop(self) -> None:
@@ -442,11 +472,19 @@ class RMService:
         Shut down the RMS service cleanly.
 
         Stops the heartbeat timer, unsubscribes from the command queue,
-        and signals the worker thread to exit.
+        and signals the worker thread to exit. Does nothing if the service
+        was never started (or has already been stopped).
         """
+        if self._handler is None:
+            oradio_log.debug("RMS service not running")
+            return
+
         Heartbeat.stop_heartbeat()
         Commands.unsubscribe(self._queue)
         self._handler.stop()
+        self._handler = None
+        self._queue = None
+        oradio_log.info("RMS service stopped")
 
 ##### Stand-alone entry point #############################
 
@@ -481,8 +519,9 @@ if __name__ == "__main__":
         # Create the wifi service interface
         wifi_service = WifiService()
 
-        # Instantiate RMS service
+        # Instantiate and start RMS service
         rms = RMService()
+        rms.start()
 
         # User command loop
         while True:

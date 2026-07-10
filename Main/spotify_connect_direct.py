@@ -38,8 +38,10 @@ from messaging import (
     SPOTIFY_DISCONNECTED_EVENT,
     SPOTIFY_PLAYING_EVENT,
     SPOTIFY_PAUSED_EVENT,
-    SPOTIFY_FAILED,
+    SPOTIFY_START_FAILED,
     SPOTIFY_STOPPED,
+    SPOTIFY_MUTE_FAILED,
+    SPOTIFY_UNMUTE_FAILED,
 )
 
 ##### LOCAL constants #####################################
@@ -187,6 +189,7 @@ class SpotifyConnect:
             oradio_log.info("SpotifyConnect: muted via amixer.")
         except subprocess.CalledProcessError as ex_err:
             oradio_log.error("SpotifyConnect: error muting via amixer: %s", ex_err)
+            Incidents.publish(IncidentMessage(SPOTIFY_SOURCE, SPOTIFY_MUTE_FAILED))
 
     def unmute(self) -> None:
         """Unmute Spotify Connect by setting the ALSA channel to 100%.
@@ -204,6 +207,7 @@ class SpotifyConnect:
             oradio_log.info("SpotifyConnect: unmuted via amixer.")
         except subprocess.CalledProcessError as ex_err:
             oradio_log.error("SpotifyConnect: error unmuting via amixer: %s", ex_err)
+            Incidents.publish(IncidentMessage(SPOTIFY_SOURCE, SPOTIFY_UNMUTE_FAILED))
 
     def get_state(self) -> dict[str, bool]:
         """Return current state as {'active': bool, 'playing': bool}.
@@ -233,12 +237,12 @@ class SpotifyConnect:
 
         if not self._worker.safe_start():
             oradio_log.error("SpotifyConnect monitor thread failed to start")
-            Incidents.publish(IncidentMessage(SPOTIFY_SOURCE, SPOTIFY_FAILED))
+            Incidents.publish(IncidentMessage(SPOTIFY_SOURCE, SPOTIFY_START_FAILED))
             return
 
         if self._worker.crashed:
             oradio_log.error("SpotifyConnect monitor thread crashed during startup: %s", self._worker.exception)
-            Incidents.publish(IncidentMessage(SPOTIFY_SOURCE, SPOTIFY_FAILED))
+            Incidents.publish(IncidentMessage(SPOTIFY_SOURCE, SPOTIFY_START_FAILED))
             return
 
         oradio_log.info("SpotifyConnect monitor thread started")

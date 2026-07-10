@@ -56,9 +56,9 @@ _MAX_QUEUE_SIZE = 1000
 
 ##### Messaging constants #################################
 # Backlighting
-BACKLIGHTING_SOURCE  = "Backlighting message"
-BACKLIGHTING_FAILED  = "Backlighting failed to start"
-BACKLIGHTING_STOPPED = "Backlighting stopped"
+BACKLIGHTING_SOURCE       = "Backlighting message"
+BACKLIGHTING_START_FAILED = "Backlighting failed to start"
+BACKLIGHTING_STOPPED      = "Backlighting stopped"
 
 # Buttons
 BUTTON_SOURCE              = "Button message"
@@ -70,22 +70,36 @@ BUTTON_SHORT_PRESS_PRESET3 = BUTTON_SHORT_PRESS + BUTTON_PRESET3
 BUTTON_LONG_PRESS_PLAY     = BUTTON_LONG_PRESS + BUTTON_PLAY
 
 # GPIO
-GPIO_SOURCE = "GPIO message"
-GPIO_FAILED = "GPIO service incident"
+GPIO_SOURCE         = "GPIO message"
+GPIO_PINS_FAILED    = "GPIO failed to initialise and configure all GPIO pins"
+GPIO_BUTTONS_FAILED = "GPIO failed to enable GPIO edge detection on all button pins"
 
 # I2C
-I2C_SOURCE       = "I2C service message"
-I2C_INCIDENT_BUS = "I2C bus incident"
+I2C_SOURCE       = "I2C message"
+I2C_BUS_FAILED   = "I2C bus error"
+I2C_READ_FAILED  = "I2C read failed"
+I2C_WRITE_FAILED = "I2C write failed"
+
+# LED
+LED_SOURCE             = "LED message"
+LED_BLINK_START_FAILED = "LED blinking failed to start"
+LED_BLINK_STOP_FAILED  = "LED blinking failed to stop"
 
 # MPD
-MPD_SOURCE           = "MPD message"
-MPD_INCIDENT_CONNECT = "MPD connect incident"
-MPD_INCIDENT_EXECUTE = "MPD execute incident"
-MPD_INCIDENT_MONITOR = "MPD monitor incident"
+MPD_SOURCE         = "MPD message"
+MPD_CONNECT_FAILED = "MPD failed to connect"
+MPD_EXECUTE_FAILED = "MPD failed to execute"
+MPD_MONITOR_FAILED = "MPD monitor incident"
+MPD_PRESET_INVALID = "MPD preset incident"
+
+# Power supply
+POWER_SOURCE             = "Power supply message"
+POWER_NEGOTIATION_FAILED = "Power supply negotiation failed"
 
 # Remote Monitoring
-RMS_SOURCE           = "RMS message"
-RMS_INCIDENT_SERVICE = "RMS service incident"
+RMS_SOURCE       = "RMS message"
+RMS_START_FAILED = "RMS failed to start"
+RMS_POST_FAILED  = "RMS failed to post message"
 
 # Spotify
 SPOTIFY_SOURCE             = "Spotify message"
@@ -93,52 +107,61 @@ SPOTIFY_CONNECTED_EVENT    = "Spotify connected event"
 SPOTIFY_DISCONNECTED_EVENT = "Spotify disconnected event"
 SPOTIFY_PLAYING_EVENT      = "Spotify playing event"
 SPOTIFY_PAUSED_EVENT       = "Spotify paused event"
-SPOTIFY_FAILED             = "Spotify monitor failed to start"
+SPOTIFY_START_FAILED       = "Spotify monitor failed to start"
 SPOTIFY_STOPPED            = "Spotify monitor stopped"
+SPOTIFY_MUTE_FAILED        = "Spotify Connect failed to mute"
+SPOTIFY_UNMUTE_FAILED      = "Spotify Connect failed to unmute"
+
+# System sounds
+SOUND_SOURCE          = "System sound message"
+SOUND_MISSING_DIR     = "System sounds directory missing"
+SOUND_PLAYBACK_FAILED = "System sound playback incident"
 
 # Throttling
-THROTTLING_SOURCE    = "RPi throttling message"
-THROTTLING_FAILED    = "RPi throttling monitor failed to start"
-THROTTLING_STOPPED   = "RPi throttling monitor stopped"
-THROTTLING_THROTTLED = "RPi throttled"
+THROTTLING_SOURCE       = "RPi throttling message"
+THROTTLING_START_FAILED = "RPi throttling monitor failed to start"
+THROTTLING_THROTTLED    = "RPi throttled"
+THROTTLING_STOPPED      = "RPi throttling monitor stopped"
 
 # USB
-USB_SOURCE           = "USB message"
-USB_ABSENT           = "USB drive absent"
-USB_PRESENT          = "USB drive present"
-USB_INCIDENT_FILE    = "USB file incident"
-USB_INCIDENT_SERVICE = "USB service incident"
+USB_SOURCE       = "USB message"
+USB_ABSENT       = "USB drive absent"
+USB_PRESENT      = "USB drive present"
+USB_FILE_FAILED  = "USB file import failed"
+USB_START_FAILED = "USB service failed to start"
+USB_STOPPED      = "USB service stopped"
 
 # Volume
-VOLUME_SOURCE  = "Volume message"
-VOLUME_FAILED  = "Volume control failed to start"
-VOLUME_STOPPED = "Volume control stopped"
-VOLUME_CHANGED = "Volume changed"
+VOLUME_SOURCE       = "Volume message"
+VOLUME_CHANGED      = "Volume changed"
+VOLUME_START_FAILED = "Volume control failed to start"
+VOLUME_SET_FAILED   = "Volume change failed"
+VOLUME_STOPPED      = "Volume control stopped"
 
 # Web interface
-WEB_SOURCE           = "Web message"
-WEB_IDLE             = "Web service is idle"
-WEB_ACTIVE           = "Web service is running"
-WEB_PL1_PLAYLIST     = "PL1 changed to playlist"
-WEB_PL2_PLAYLIST     = "PL2 changed to playlist"
-WEB_PL3_PLAYLIST     = "PL3 changed to playlist"
-WEB_PL1_WEBRADIO     = "PL1 changed to webradio"
-WEB_PL2_WEBRADIO     = "PL2 changed to webradio"
-WEB_PL3_WEBRADIO     = "PL3 changed to webradio"
-WEB_PLAYING_SONG     = "Web service plays a song"
-WEB_INCIDENT_START   = "Web service failed to start"
-WEB_INCIDENT_STOP    = "Web service failed to stop"
-WEB_INCIDENT_SERVICE = "Web service incident"
+WEB_SOURCE        = "Web message"
+WEB_IDLE          = "Web service is idle"
+WEB_ACTIVE        = "Web service is running"
+WEB_PL1_PLAYLIST  = "PL1 changed to playlist"
+WEB_PL2_PLAYLIST  = "PL2 changed to playlist"
+WEB_PL3_PLAYLIST  = "PL3 changed to playlist"
+WEB_PL1_WEBRADIO  = "PL1 changed to webradio"
+WEB_PL2_WEBRADIO  = "PL2 changed to webradio"
+WEB_PL3_WEBRADIO  = "PL3 changed to webradio"
+WEB_PLAYING_SONG  = "Web server plays a song"
+WEB_SERVER_FAILED = "Web service failed to start"
+WEB_START_FAILED  = "Web server failed to start"
+WEB_STOP_FAILED   = "Web server failed to stop"
 
 # wifi
-WIFI_SOURCE              = "Wifi message"
-WIFI_CONNECTED           = "Wifi connected"
-WIFI_DISCONNECTED        = "Wifi disconnected"
-WIFI_ACCESS_POINT        = "Wifi configured as access point"
-WIFI_INCIDENT_DBUS       = "D-Bus event handler failed"
-WIFI_INCIDENT_NMCLI      = "NetworkManager wrapper failed"
-WIFI_INCIDENT_CONNECT    = "Wifi failed to connect"
-WIFI_INCIDENT_DISCONNECT = "Wifi failed to disconnect"
+WIFI_SOURCE            = "Wifi message"
+WIFI_CONNECTED         = "Wifi connected"
+WIFI_DISCONNECTED      = "Wifi disconnected"
+WIFI_ACCESS_POINT      = "Wifi configured as access point"
+WIFI_DBUS_FAILED       = "D-Bus event handler failed"
+WIFI_NMCLI_FAILED      = "NetworkManager wrapper failed"
+WIFI_CONNECT_FAILED    = "Wifi failed to connect"
+WIFI_DISCONNECT_FAILED = "Wifi failed to disconnect"
 
 class Topic(str, Enum):
     """

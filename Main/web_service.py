@@ -62,9 +62,9 @@ from messaging import (
     WEB_SOURCE,
     WEB_IDLE,
     WEB_ACTIVE,
-    WEB_INCIDENT_START,
-    WEB_INCIDENT_STOP,
-    WEB_INCIDENT_SERVICE,
+    WEB_SERVER_FAILED,
+    WEB_START_FAILED,
+    WEB_STOP_FAILED,
 )
 
 ##### GLOBAL constants ####################################
@@ -255,7 +255,7 @@ class WebService:
         Sets up the shared queue, wires it into the FastAPI application state,
         creates the Uvicorn wrapper, and starts the message-listener thread,
         which runs for the full lifetime of the process and has no stop mechanism.
-        Logs an error and publishes WEB_INCIDENT_SERVICE if either the Uvicorn
+        Logs an error and publishes WEB_SERVER_FAILED if either the Uvicorn
         wrapper or the listener thread fails to initialise. Publishes WEB_IDLE
         to the message bus so the controller starts from a known baseline.
 
@@ -280,7 +280,7 @@ class WebService:
             self.uvicorn_server = UvicornServerThread(api_app)
         except Exception as ex_err:     # pylint: disable=broad-exception-caught
             oradio_log.error("Failed to initialize UvicornServerThread: %s", ex_err)
-            Incidents.publish(IncidentMessage(WEB_SOURCE, WEB_INCIDENT_SERVICE))
+            Incidents.publish(IncidentMessage(WEB_SOURCE, WEB_SERVER_FAILED))
 
         # Daemon thread: drains request_queue and dispatches to service methods.
         # Exits automatically when the main process exits.
@@ -291,7 +291,7 @@ class WebService:
             oradio_log.info("Web server started")
         except Exception as ex_err:  # pylint: disable=broad-exception-caught
             oradio_log.error("Web server failed to start: %s", ex_err)
-            Incidents.publish(IncidentMessage(WEB_SOURCE, WEB_INCIDENT_SERVICE))
+            Incidents.publish(IncidentMessage(WEB_SOURCE, WEB_SERVER_FAILED))
 
         # Announce initial state so the controller starts from a known baseline.
         Commands.publish(CommandMessage(WEB_SOURCE, self.state))
@@ -446,7 +446,7 @@ class WebService:
         would silently end all future message processing for the life of the
         process (the portal could be left stuck running or stuck stopped,
         with no incident reported). Catching, logging, publishing
-        WEB_INCIDENT_SERVICE, and continuing keeps the listener alive to
+        WEB_SERVER_FAILED, and continuing keeps the listener alive to
         handle the next message instead.
         """
         while True:
@@ -480,8 +480,8 @@ class WebService:
             # Broad catch is intentional: this loop must never die, since
             # nothing else drains request_queue or restarts this thread.
             except Exception as ex_err:  # pylint: disable=broad-exception-caught
-                oradio_log.error("Error handling message '%s': %s", message, ex_err)
-                Incidents.publish(IncidentMessage(WEB_SOURCE, WEB_INCIDENT_SERVICE))
+                oradio_log.error("Error handling server message '%s': %s", message, ex_err)
+                Incidents.publish(IncidentMessage(WEB_SOURCE, WEB_SERVER_FAILED))
 
 ##### Public API ##########################################
 
@@ -530,7 +530,7 @@ class WebService:
         """
         if self.uvicorn_server is None:
             oradio_log.error("Uvicorn server not initialized")
-            Incidents.publish(IncidentMessage(WEB_SOURCE, WEB_INCIDENT_START))
+            Incidents.publish(IncidentMessage(WEB_SOURCE, WEB_START_FAILED))
             return False
 
         # Check running state before committing to any side-effecting steps.
@@ -544,7 +544,7 @@ class WebService:
         status = True
 
         if not self._ensure_port_redirect() or not self._ensure_dns_redirect():
-            Incidents.publish(IncidentMessage(WEB_SOURCE, WEB_INCIDENT_START))
+            Incidents.publish(IncidentMessage(WEB_SOURCE, WEB_START_FAILED))
             status = False
 
         # Reset the inactivity timer (auto-stops the portal after no client
@@ -564,7 +564,7 @@ class WebService:
             oradio_log.error(
                 "Refusing to reset keep-alive timer state: uvicorn server unexpectedly still running"
             )
-            Incidents.publish(IncidentMessage(WEB_SOURCE, WEB_INCIDENT_START))
+            Incidents.publish(IncidentMessage(WEB_SOURCE, WEB_START_FAILED))
             status = False
 
         if status:
@@ -577,11 +577,11 @@ class WebService:
 
             if not self.uvicorn_server.start():
                 oradio_log.error("Uvicorn server failed to start")
-                Incidents.publish(IncidentMessage(WEB_SOURCE, WEB_INCIDENT_START))
+                Incidents.publish(IncidentMessage(WEB_SOURCE, WEB_START_FAILED))
                 status = False
 
         if status and not self._wait_for_wifi_state({WIFI_ACCESS_POINT}):
-            Incidents.publish(IncidentMessage(WEB_SOURCE, WEB_INCIDENT_START))
+            Incidents.publish(IncidentMessage(WEB_SOURCE, WEB_START_FAILED))
             status = False
 
         # Commands only on full success -- Incidents already reported any
@@ -605,8 +605,8 @@ class WebService:
         4. Remove the dnsmasq DNS redirect config file.
         5. Wait for the WiFi interface to reach WIFI_DISCONNECTED or WIFI_CONNECTED.
 
-        Step 2 publishes WEB_INCIDENT_STOP directly in stop() if the Uvicorn server
-        fails to stop. Steps 3 and 4 publish WEB_INCIDENT_STOP internally in their
+        Step 2 publishes WEB_STOP_FAILED directly in stop() if the Uvicorn server
+        fails to stop. Steps 3 and 4 publish WEB_STOP_FAILED internally in their
         helper methods. All failures continue so that remaining teardown steps
         are still attempted.
         """
@@ -619,23 +619,23 @@ class WebService:
 
         if self.uvicorn_server is None:
             oradio_log.error("Uvicorn server not initialized")
-            Incidents.publish(IncidentMessage(WEB_SOURCE, WEB_INCIDENT_STOP))
+            Incidents.publish(IncidentMessage(WEB_SOURCE, WEB_STOP_FAILED))
             status = False
         else:
             if not self.uvicorn_server.stop():
-                Incidents.publish(IncidentMessage(WEB_SOURCE, WEB_INCIDENT_STOP))
+                Incidents.publish(IncidentMessage(WEB_SOURCE, WEB_STOP_FAILED))
                 status = False
 
         if not self._remove_port_redirect():
             status = False
-            Incidents.publish(IncidentMessage(WEB_SOURCE, WEB_INCIDENT_STOP))
+            Incidents.publish(IncidentMessage(WEB_SOURCE, WEB_STOP_FAILED))
 
         if not self._remove_dns_redirect():
-            Incidents.publish(IncidentMessage(WEB_SOURCE, WEB_INCIDENT_STOP))
+            Incidents.publish(IncidentMessage(WEB_SOURCE, WEB_STOP_FAILED))
             status = False
 
         if not self._wait_for_wifi_state({WIFI_DISCONNECTED, WIFI_CONNECTED}):
-            Incidents.publish(IncidentMessage(WEB_SOURCE, WEB_INCIDENT_STOP))
+            Incidents.publish(IncidentMessage(WEB_SOURCE, WEB_STOP_FAILED))
             status = False
 
         # Commands only on full success -- Incidents already reported any

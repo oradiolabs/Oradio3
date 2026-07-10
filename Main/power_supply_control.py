@@ -27,6 +27,12 @@ from time import sleep
 ##### Oradio modules ######################################
 from log_service import oradio_log
 from i2c_service import I2CService
+from messaging import (
+    Incidents,
+    IncidentMessage,
+    POWER_SOURCE,
+    POWER_NEGOTIATION_FAILED,
+)
 
 ##### LOCAL constants #####################################
 
@@ -123,13 +129,18 @@ class PowerSupplyService:
             True if the request succeeded and requirements are met, False on any failure.
         """
         try:
-            return self._set_voltage(voltage_v=voltage_v, current_a=current_a, min_current_a=min_current_a)
+            success = self._set_voltage(voltage_v=voltage_v, current_a=current_a, min_current_a=min_current_a)
         except (OSError, RuntimeError, ValueError, KeyError, TypeError) as exc:
             oradio_log.warning(
                 "PowerSupply: request %sV @ %.1fA failed: %s",
                 voltage_v, current_a, exc
             )
+            Incidents.publish(IncidentMessage(POWER_SOURCE, POWER_NEGOTIATION_FAILED))
             return False
+
+        if not success:
+            Incidents.publish(IncidentMessage(POWER_SOURCE, POWER_NEGOTIATION_FAILED))
+        return success
 
     def _set_voltage(self, voltage_v: int, current_a: float, min_current_a: float) -> bool:
         """

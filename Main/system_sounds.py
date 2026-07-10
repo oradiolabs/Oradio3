@@ -22,6 +22,13 @@ from pathlib import Path
 
 ##### Oradio modules ######################################
 from log_service import oradio_log
+from messaging import (
+    Incidents,
+    IncidentMessage,
+    SOUND_SOURCE,
+    SOUND_MISSING_DIR,
+    SOUND_PLAYBACK_FAILED,
+)
 
 ##### GLOBAL constants ####################################
 from constants import (
@@ -79,6 +86,7 @@ SOUND_FILES = {
 # is visible immediately rather than surfacing per-file at play time.
 if not SOUND_FILES_PATH.is_dir():
     oradio_log.critical("System sounds directory not found: %s", SOUND_FILES_PATH)
+    Incidents.publish(IncidentMessage(SOUND_SOURCE, SOUND_MISSING_DIR))
 
 def play_sound(sound_key: str) -> None:
     """
@@ -109,15 +117,20 @@ def play_sound(sound_key: str) -> None:
     # shell-injection risks from special characters in the file path.
     # start_new_session=True detaches the child from the parent process group,
     # preventing zombie processes and ensuring playback survives a parent exit.
-    subprocess.Popen(               # pylint: disable=consider-using-with
-        ["aplay", "-D", SYSTEM_SOUND_SINK, sound_file],
-        shell=False,
-        stdout=subprocess.DEVNULL,
-        stderr=subprocess.DEVNULL,
-        stdin=subprocess.DEVNULL,
-        start_new_session=True,     # detach from parent; prevents zombies and survives parent exit
-        close_fds=True
-    )
+    try:
+        subprocess.Popen(       # pylint: disable=consider-using-with
+            ["aplay", "-D", SYSTEM_SOUND_SINK, sound_file],
+            shell=False,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            stdin=subprocess.DEVNULL,
+            start_new_session=True,
+            close_fds=True
+        )
+    except OSError as ex_err:
+        oradio_log.error("Failed to launch sound playback for '%s': %s", sound_file, ex_err)
+        Incidents.publish(IncidentMessage(SOUND_SOURCE, SOUND_PLAYBACK_FAILED))
+        return
 
     oradio_log.debug("System sound process launched: %s", sound_file)
 

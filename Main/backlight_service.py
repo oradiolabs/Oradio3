@@ -32,7 +32,7 @@ from messaging import (
     Incidents,
     IncidentMessage,
     BACKLIGHTING_SOURCE,
-    BACKLIGHTING_FAILED,
+    BACKLIGHTING_START_FAILED,
     BACKLIGHTING_STOPPED,
 )
 
@@ -239,12 +239,12 @@ class Backlighting:
 
         if not self._worker.safe_start():
             oradio_log.error("Backlight worker thread failed to start")
-            Incidents.publish(IncidentMessage(BACKLIGHTING_SOURCE, BACKLIGHTING_FAILED))
+            Incidents.publish(IncidentMessage(BACKLIGHTING_SOURCE, BACKLIGHTING_START_FAILED))
             return
 
         if self._worker.crashed:
             oradio_log.error("Backlight worker thread crashed during startup: %s", self._worker.exception)
-            Incidents.publish(IncidentMessage(BACKLIGHTING_SOURCE, BACKLIGHTING_FAILED))
+            Incidents.publish(IncidentMessage(BACKLIGHTING_SOURCE, BACKLIGHTING_START_FAILED))
             return
 
         oradio_log.info("Backlight worker thread started")

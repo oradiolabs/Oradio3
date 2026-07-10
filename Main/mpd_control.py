@@ -42,6 +42,12 @@ from unicodedata import normalize, category
 from log_service import oradio_log
 from utilities import load_presets, ThreadTemplate
 from mpd_service import MPDService
+from messaging import (
+    Incidents,
+    IncidentMessage,
+    MPD_SOURCE,
+    MPD_PRESET_INVALID,
+)
 
 ##### GLOBAL constants ####################################
 from constants import USB_MUSIC
@@ -200,6 +206,9 @@ class MPDControl(MPDService):
         # Remove any dummy entries left by a prior interrupted playlist creation.
         self._sanitize_playlists()
 
+        # Verify presets playlists/directories exist.
+        self._validate_presets()
+
         # Reused across play_song() calls when idle, to avoid spawning a new
         # OS thread per call in the common (sequential) case. See play_song().
         self._song_monitor = _SongFinishMonitor(self)
@@ -274,6 +283,32 @@ class MPDControl(MPDService):
                     oradio_log.warning(
                         "Startup cleanup: removed stale dummy entry from playlist '%s'", name,
                     )
+
+    def _validate_presets(self) -> None:
+        """
+        Verify each configured preset resolves to an existing playlist or
+        directory, and publish an incident (once, at startup) for any that
+        don't -- e.g. a preset pointing at a playlist that was since deleted,
+        or a presets.json that failed to load (see utilities.load_presets(),
+        which degrades to empty listnames on missing/corrupt files rather
+        than raising, so a broken preset would otherwise be silent until a
+        user actually pressed that preset button).
+        """
+        presets = load_presets()
+        playlists = self._execute("listplaylists") or []
+        playlist_names = {
+            p.get("playlist") for p in playlists
+            if isinstance(p, dict) and p.get("playlist")
+        }
+        directories = set(self.get_directories())
+
+        for preset, listname in presets.items():
+            if not listname:
+                oradio_log.warning("Preset '%s' has no listname configured", preset)
+                Incidents.publish(IncidentMessage(MPD_SOURCE, MPD_PRESET_INVALID))
+            elif listname not in playlist_names and listname not in directories:
+                oradio_log.warning("Preset '%s' points to missing playlist/directory '%s'", preset, listname)
+                Incidents.publish(IncidentMessage(MPD_SOURCE, MPD_PRESET_INVALID))
 
     def _current_uri(self) -> str | None:
         """Return the URI of the currently playing song."""
@@ -401,6 +436,7 @@ class MPDControl(MPDService):
 
         if not listname:
             oradio_log.warning("Preset '%s' does not resolve to a playlist", preset)
+            Incidents.publish(IncidentMessage(MPD_SOURCE, MPD_PRESET_INVALID))
             return
 
         playlists = self._execute("listplaylists") or []

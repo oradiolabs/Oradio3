@@ -34,7 +34,9 @@ from messaging import (
     Incidents,
     IncidentMessage,
     I2C_SOURCE,
-    I2C_INCIDENT_BUS,
+    I2C_BUS_FAILED,
+    I2C_READ_FAILED,
+    I2C_WRITE_FAILED,
 )
 
 ##### LOCAL constants #####################################
@@ -141,13 +143,13 @@ class I2CService:
         buses = find_i2c_buses()
         if not buses:
             oradio_log.error("No I2C buses found under /dev/")
-            Incidents.publish(IncidentMessage(I2C_SOURCE, I2C_INCIDENT_BUS))
+            Incidents.publish(IncidentMessage(I2C_SOURCE, I2C_BUS_FAILED))
             return
 
         info = test_i2c_bus(buses[0])
         if not info["ok"]:
             oradio_log.error("I2C bus %d not accessible: %s", buses[0], info['error'])
-            Incidents.publish(IncidentMessage(I2C_SOURCE, I2C_INCIDENT_BUS))
+            Incidents.publish(IncidentMessage(I2C_SOURCE, I2C_BUS_FAILED))
             return
 
         self._bus = SMBus(buses[0])
@@ -169,7 +171,7 @@ class I2CService:
         """
         if self._bus is None:
             oradio_log.error("I2C bus not available")
-            Incidents.publish(IncidentMessage(I2C_SOURCE, I2C_INCIDENT_BUS))
+            Incidents.publish(IncidentMessage(I2C_SOURCE, I2C_BUS_FAILED))
             return None
 
         with self._lock:
@@ -178,6 +180,7 @@ class I2CService:
                 return value
             except (OSError, ValueError, TypeError) as ex_err:
                 oradio_log.error("I2C read: device=0x%02X, register=0x%02X -> %s", device, register, ex_err)
+                Incidents.publish(IncidentMessage(I2C_SOURCE, I2C_READ_FAILED))
         return None
 
     def write_byte(self, device: int, register: int, value: int) -> None:
@@ -194,7 +197,7 @@ class I2CService:
         """
         if self._bus is None:
             oradio_log.error("I2C bus not available")
-            Incidents.publish(IncidentMessage(I2C_SOURCE, I2C_INCIDENT_BUS))
+            Incidents.publish(IncidentMessage(I2C_SOURCE, I2C_BUS_FAILED))
             return
 
         for attempt in range(1, I2C_RETRIES + 1):
@@ -203,11 +206,18 @@ class I2CService:
                     self._bus.write_byte_data(device, register, value)
                     return
                 except (OSError, ValueError, TypeError) as ex_err:
-                    oradio_log.warning("I2C write byte failed (attempt %d/%d): device=0x%02X, register=0x%02X, value=0x%02X -> %s", attempt, I2C_RETRIES, device, register, value, ex_err)
+                    oradio_log.warning(
+                        "I2C write byte failed (attempt %d/%d): device=0x%02X, register=0x%02X, value=0x%02X -> %s",
+                        attempt, I2C_RETRIES, device, register, value, ex_err
+                    )
             # Avoid hammering the I2C bus
             sleep(I2C_BACKOFF)
         # All retries exhausted
-        oradio_log.error("Failed writing byte to device=0x%02X, register=0x%02X, value=0x%02X after %d attempts", device, register, value, I2C_RETRIES)
+        oradio_log.error(
+            "Failed writing byte to device=0x%02X, register=0x%02X, value=0x%02X after %d attempts",
+            device, register, value, I2C_RETRIES
+        )
+        Incidents.publish(IncidentMessage(I2C_SOURCE, I2C_WRITE_FAILED))
 
 ##### Block operations ####################################
 
@@ -227,11 +237,12 @@ class I2CService:
         """
         if self._bus is None:
             oradio_log.error("I2C bus not available")
-            Incidents.publish(IncidentMessage(I2C_SOURCE, I2C_INCIDENT_BUS))
+            Incidents.publish(IncidentMessage(I2C_SOURCE, I2C_BUS_FAILED))
             return None
 
         if length > 32:
             oradio_log.error("SMBus block read supports a maximum of 32 bytes")
+            Incidents.publish(IncidentMessage(I2C_SOURCE, I2C_READ_FAILED))
             return None
 
         with self._lock:
@@ -239,7 +250,11 @@ class I2CService:
                 data = self._bus.read_i2c_block_data(device, register, length)
                 return data
             except (OSError, ValueError, TypeError) as ex_err:
-                oradio_log.error("I2C read block ERROR: device=0x%02X, register=0x%02X, length=%d -> %s", device, register, length, ex_err)
+                oradio_log.error(
+                    "I2C read block ERROR: device=0x%02X, register=0x%02X, length=%d -> %s",
+                    device, register, length, ex_err
+                )
+                Incidents.publish(IncidentMessage(I2C_SOURCE, I2C_READ_FAILED))
         return None
 
     def write_block(self, device: int, register: int, data: list) -> None:
@@ -256,7 +271,7 @@ class I2CService:
         """
         if self._bus is None:
             oradio_log.error("I2C bus not available")
-            Incidents.publish(IncidentMessage(I2C_SOURCE, I2C_INCIDENT_BUS))
+            Incidents.publish(IncidentMessage(I2C_SOURCE, I2C_BUS_FAILED))
             return
 
         if len(data) > 32:
@@ -269,11 +284,18 @@ class I2CService:
                     self._bus.write_i2c_block_data(device, register, data)
                     return
                 except (OSError, ValueError, TypeError) as ex_err:
-                    oradio_log.warning("I2C write block failed (attempt %d/%d): device=0x%02X, register=0x%02X, data=%s -> %s", attempt, I2C_RETRIES, device, register, data, ex_err)
+                    oradio_log.warning(
+                        "I2C write block failed (attempt %d/%d): device=0x%02X, register=0x%02X, data=%s -> %s",
+                        attempt, I2C_RETRIES, device, register, data, ex_err
+                    )
             # Avoid hammering the I2C bus
             sleep(I2C_BACKOFF)
         # All retries exhausted
-        oradio_log.error("Failed writing block to device=0x%02X, register=0x%02X, data=%s after %d attempts", device, register, data, I2C_RETRIES)
+        oradio_log.error(
+            "Failed writing block to device=0x%02X, register=0x%02X, data=%s after %d attempts",
+            device, register, data, I2C_RETRIES
+        )
+        Incidents.publish(IncidentMessage(I2C_SOURCE, I2C_WRITE_FAILED))
 
 ##### Stand-alone entry point #############################
 

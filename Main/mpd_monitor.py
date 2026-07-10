@@ -39,7 +39,7 @@ from messaging import (
     Incidents,
     IncidentMessage,
     MPD_SOURCE,
-    MPD_INCIDENT_MONITOR,
+    MPD_MONITOR_FAILED,
 )
 
 ##### LOCAL constants #####################################
@@ -301,14 +301,14 @@ class MPDMonitor:
 
         if not self._worker.safe_start():
             oradio_log.error("MPD monitor thread failed to start")
-            Incidents.publish(IncidentMessage(MPD_SOURCE, MPD_INCIDENT_MONITOR))
+            Incidents.publish(IncidentMessage(MPD_SOURCE, MPD_MONITOR_FAILED))
             return
 
         if self._worker.crashed:
             oradio_log.error(
                 "MPD monitor thread crashed during startup: %s", self._worker.exception,
             )
-            Incidents.publish(IncidentMessage(MPD_SOURCE, MPD_INCIDENT_MONITOR))
+            Incidents.publish(IncidentMessage(MPD_SOURCE, MPD_MONITOR_FAILED))
             return
 
         oradio_log.info("MPD monitor thread started")

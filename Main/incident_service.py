@@ -31,52 +31,20 @@ from messaging import (
     Incidents,
     IncidentMessage,
     MessageHandlerTemplate,
-
-    BACKLIGHTING_SOURCE,
-    BACKLIGHTING_FAILED,
-    BACKLIGHTING_STOPPED,
-
-    GPIO_SOURCE,
-    GPIO_FAILED,
-
-    I2C_SOURCE,
-    I2C_INCIDENT_BUS,
-
-    MPD_SOURCE,
-    MPD_INCIDENT_CONNECT,
-    MPD_INCIDENT_EXECUTE,
-    MPD_INCIDENT_MONITOR,
-
-    RMS_SOURCE,
-    RMS_INCIDENT_SERVICE,
-
-    SPOTIFY_SOURCE,
-    SPOTIFY_FAILED,
-    SPOTIFY_STOPPED,
-
-    THROTTLING_SOURCE,
-    THROTTLING_FAILED,
-    THROTTLING_THROTTLED,
-    THROTTLING_STOPPED,
-
-    USB_SOURCE,
-    USB_INCIDENT_FILE,
-    USB_INCIDENT_SERVICE,
-
-    VOLUME_SOURCE,
-    VOLUME_FAILED,
-    VOLUME_STOPPED,
-
-    WEB_SOURCE,
-    WEB_INCIDENT_START,
-    WEB_INCIDENT_STOP,
-    WEB_INCIDENT_SERVICE,
-
-    WIFI_SOURCE,
-    WIFI_INCIDENT_DBUS,
-    WIFI_INCIDENT_NMCLI,
-    WIFI_INCIDENT_CONNECT,
-    WIFI_INCIDENT_DISCONNECT,
+    BACKLIGHTING_SOURCE, BACKLIGHTING_START_FAILED, BACKLIGHTING_STOPPED,
+    GPIO_SOURCE, GPIO_PINS_FAILED, GPIO_BUTTONS_FAILED,
+    I2C_SOURCE, I2C_BUS_FAILED, I2C_READ_FAILED, I2C_WRITE_FAILED,
+    LED_SOURCE, LED_BLINK_START_FAILED, LED_BLINK_STOP_FAILED,
+    MPD_SOURCE, MPD_CONNECT_FAILED, MPD_EXECUTE_FAILED, MPD_MONITOR_FAILED, MPD_PRESET_INVALID,
+    POWER_SOURCE, POWER_NEGOTIATION_FAILED,
+    RMS_SOURCE, RMS_START_FAILED, RMS_POST_FAILED,
+    SOUND_SOURCE, SOUND_MISSING_DIR, SOUND_PLAYBACK_FAILED,
+    SPOTIFY_SOURCE, SPOTIFY_START_FAILED, SPOTIFY_STOPPED, SPOTIFY_MUTE_FAILED, SPOTIFY_UNMUTE_FAILED,
+    THROTTLING_SOURCE, THROTTLING_START_FAILED, THROTTLING_THROTTLED, THROTTLING_STOPPED,
+    USB_SOURCE, USB_FILE_FAILED, USB_START_FAILED, USB_STOPPED,
+    VOLUME_SOURCE, VOLUME_START_FAILED, VOLUME_SET_FAILED, VOLUME_STOPPED,
+    WEB_SOURCE, WEB_START_FAILED, WEB_STOP_FAILED, WEB_INCIDENT_SERVICE,
+    WIFI_SOURCE, WIFI_DBUS_FAILED, WIFI_NMCLI_FAILED, WIFI_INCIDENT_CONNECT, WIFI_INCIDENT_DISCONNECT,
 )
 
 ##### LOCAL constants #####################################
@@ -107,8 +75,11 @@ class IncidentHandler(MessageHandlerTemplate):
             BACKLIGHTING_SOURCE: self._handle_backlighting_incident,
             GPIO_SOURCE:         self._handle_gpio_incident,
             I2C_SOURCE:          self._handle_i2c_incident,
+            LED_SOURCE:          self._handle_led_incident,
             MPD_SOURCE:          self._handle_mpd_incident,
+            POWER_SOURCE:        self._handle_power_incident,
             RMS_SOURCE:          self._handle_rms_incident,
+            SOUND_SOURCE:        self._handle_sound_incident,
             SPOTIFY_SOURCE:      self._handle_spotify_incident,
             THROTTLING_SOURCE:   self._handle_throttling_incident,
             USB_SOURCE:          self._handle_usb_incident,
@@ -132,7 +103,7 @@ class IncidentHandler(MessageHandlerTemplate):
         Args:
             incident: Incident message received from the incident bus.
         """
-        if incident.message == BACKLIGHTING_FAILED:
+        if incident.message == BACKLIGHTING_START_FAILED:
             # MITIGATION TO BE IMPLEMENTED:
             #   Report backlighting start failed + status to RMS
             #   If retry_count < MAX_RETRIES: retry starting Backlighting
@@ -155,10 +126,16 @@ class IncidentHandler(MessageHandlerTemplate):
         Args:
             incident: Incident message received from the incident bus.
         """
-        if incident.message == GPIO_FAILED:
+        if incident.message == GPIO_PINS_FAILED:
             # MITIGATION TO BE IMPLEMENTED:
-            #   Report GPIO setup failed + status to RMS
-            #   Can GPIO be reset? IF yes add and try, if not pwoer cycle
+            #   Report GPIO pins setup failed + status to RMS
+            #   Can GPIO be reset? IF yes add and try, if not power cycle
+            #   If retry_count < MAX_RETRIES: call gpio_cleanup() and restart Oradio
+            oradio_log.debug("Mitigation to be implemented")
+        if incident.message == GPIO_BUTTONS_FAILED:
+            # MITIGATION TO BE IMPLEMENTED:
+            #   Report GPIO buttons setup failed + status to RMS
+            #   Can GPIO be reset? IF yes add and try, if not power cycle
             #   If retry_count < MAX_RETRIES: call gpio_cleanup() and restart Oradio
             oradio_log.debug("Mitigation to be implemented")
         else:
@@ -174,11 +151,41 @@ class IncidentHandler(MessageHandlerTemplate):
         Args:
             incident: Incident message received from the incident bus.
         """
-        if incident.message == I2C_INCIDENT_BUS:
-# NIET VERGETEN: implement I2C-recovery logic (e.g. back-off, retry)
+        if incident.message == I2C_BUS_FAILED:
+            # MITIGATION TO BE IMPLEMENTED:
+            #   Report I2C bus access failed + status to RMS
+            #   Can I2C be reset? IF yes add and try, if not power cycle
+            #   If retry_count < MAX_RETRIES: restart Oradio
+            oradio_log.debug("Mitigation to be implemented")
+        if incident.message == I2C_READ_FAILED:
+            # MITIGATION TO BE IMPLEMENTED:
+            #   Report I2C read failed + status to RMS
+            #   Can I2C be reset? IF yes add and try, if not power cycle
+            #   If retry_count < MAX_RETRIES: restart Oradio
+            oradio_log.debug("Mitigation to be implemented")
+        if incident.message == I2C_WRITE_FAILED:
+            # MITIGATION TO BE IMPLEMENTED:
+            #   Report I2C write failed + status to RMS
+            #   Can I2C be reset? IF yes add and try, if not power cycle
+            #   If retry_count < MAX_RETRIES: restart Oradio
             oradio_log.debug("Mitigation to be implemented")
         else:
             oradio_log.error("Unhandled I2C incident: '%s'", incident.message)
+
+    def _handle_led_incident(self, incident: IncidentMessage) -> None:
+        """Handle LED-related incident."""
+        if incident.message == LED_BLINK_START_FAILED:
+            # MITIGATION TO BE IMPLEMENTED:
+            #   Report LED worker start failure + status to RMS
+            #   If retry_count < MAX_RETRIES: retry the blink worker
+            oradio_log.debug("Mitigation to be implemented")
+        elif incident.message == LED_BLINK_STOP_FAILED:
+            # MITIGATION TO BE IMPLEMENTED:
+            #   Report LED worker stop failure + status to RMS
+            #   If retry_count < MAX_RETRIES: retry the blink worker
+            oradio_log.debug("Mitigation to be implemented")
+        else:
+            oradio_log.error("Unhandled LED incident: '%s'", incident.message)
 
     def _handle_mpd_incident(self, incident: IncidentMessage) -> None:
         """
@@ -190,17 +197,38 @@ class IncidentHandler(MessageHandlerTemplate):
         Args:
             incident: Incident message received from the incident bus.
         """
-        if incident.message == MPD_INCIDENT_CONNECT:
-# NIET VERGETEN: implement MPDService-recovery logic (e.g. back-off, retry)
+        if incident.message == MPD_CONNECT_FAILED:
+            # MITIGATION TO BE IMPLEMENTED:
+            #   Report MPD connect failure + status to RMS
+            #   If retry_count < MAX_RETRIES: retry reconnect
             oradio_log.debug("Mitigation to be implemented")
-        elif incident.message == MPD_INCIDENT_EXECUTE:
-# NIET VERGETEN: implement MPDMonitor-recovery logic (e.g. back-off, retry)
+        elif incident.message == MPD_EXECUTE_FAILED:
+            # MITIGATION TO BE IMPLEMENTED:
+            #   Report MPD execute failure + status to RMS
+            #   If retry_count < MAX_RETRIES: retry execute
             oradio_log.debug("Mitigation to be implemented")
-        elif incident.message == MPD_INCIDENT_MONITOR:
-# NIET VERGETEN: implement MPDMonitor-recovery logic (e.g. back-off, retry)
+        elif incident.message == MPD_MONITOR_FAILED:
+            # MITIGATION TO BE IMPLEMENTED:
+            #   Report MPD monitor failure + status to RMS
+            #   If retry_count < MAX_RETRIES: retry start
+            oradio_log.debug("Mitigation to be implemented")
+        elif incident.message == MPD_PRESET_INVALID:
+            # MITIGATION TO BE IMPLEMENTED:
+            #   Report broken preset mapping + status to RMS
+            #   Notify web interface so the user can reassign the preset
             oradio_log.debug("Mitigation to be implemented")
         else:
             oradio_log.error("Unhandled MPD incident: '%s'", incident.message)
+
+    def _handle_power_incident(self, incident: IncidentMessage) -> None:
+        """Handle power-supply-related incident."""
+        if incident.message == POWER_NEGOTIATION_FAILED:
+            # MITIGATION TO BE IMPLEMENTED:
+            #   Report PD negotiation failure + status to RMS
+            #   If retry_count < MAX_RETRIES: retry negotiation, else fall back to standby voltage
+            oradio_log.debug("Mitigation to be implemented")
+        else:
+            oradio_log.error("Unhandled power supply incident: '%s'", incident.message)
 
     def _handle_rms_incident(self, incident: IncidentMessage) -> None:
         """
@@ -212,11 +240,29 @@ class IncidentHandler(MessageHandlerTemplate):
         Args:
             incident: Incident message received from the incident bus.
         """
-        if incident.message == RMS_INCIDENT_SERVICE:
-# NIET VERGETEN: implement rms-recovery logic (e.g. back-off, retry)
+        if incident.message == RMS_START_FAILED:
+            # MITIGATION TO BE IMPLEMENTED:
+            #   Report RMS start failure + status to RMS
+            oradio_log.debug("Mitigation to be implemented")
+        if incident.message == RMS_POST_FAILED:
+            # MITIGATION TO BE IMPLEMENTED:
+            #   Report RMS post failure + status to RMS
             oradio_log.debug("Mitigation to be implemented")
         else:
             oradio_log.error("Unhandled Remote monitoring incident: '%s'", incident.message)
+
+    def _handle_sound_incident(self, incident: IncidentMessage) -> None:
+        """Handle system-sound-related incident."""
+        if incident.message == SOUND_MISSING_DIR:
+            # MITIGATION TO BE IMPLEMENTED:
+            #   Report system sound mdirectory missing + status to RMS
+            oradio_log.debug("Mitigation to be implemented")
+        elif incident.message == SOUND_PLAYBACK_FAILED:
+            # MITIGATION TO BE IMPLEMENTED:
+            #   Report system sound playback failed + status to RMS
+            oradio_log.debug("Mitigation to be implemented")
+        else:
+            oradio_log.error("Unhandled system sound incident: '%s'", incident.message)
 
     def _handle_spotify_incident(self, incident: IncidentMessage) -> None:
         """
@@ -228,7 +274,7 @@ class IncidentHandler(MessageHandlerTemplate):
         Args:
             incident: Incident message received from the incident bus.
         """
-        if incident.message == SPOTIFY_FAILED:
+        if incident.message == SPOTIFY_START_FAILED:
             # MITIGATION TO BE IMPLEMENTED:
             #   Report Spotify monitor start failed + status to RMS
             #   If retry_count < MAX_RETRIES: retry starting Spotify monitor
@@ -237,6 +283,16 @@ class IncidentHandler(MessageHandlerTemplate):
             # MITIGATION TO BE IMPLEMENTED:
             #   Report Spotify monitor stopped + status to RMS
             #   If retry_count < MAX_RETRIES: retry starting Spotify monitor
+            oradio_log.debug("Mitigation to be implemented")
+        elif incident.message == SPOTIFY_MUTE_FAILED:
+            # MITIGATION TO BE IMPLEMENTED:
+            #   Report mute amixer failure + status to RMS
+            #   If retry_count < MAX_RETRIES: retry mute
+            oradio_log.debug("Mitigation to be implemented")
+        elif incident.message == SPOTIFY_UNMUTE_FAILED:
+            # MITIGATION TO BE IMPLEMENTED:
+            #   Report unmute amixer failure + status to RMS
+            #   If retry_count < MAX_RETRIES: retry unmute
             oradio_log.debug("Mitigation to be implemented")
         else:
             oradio_log.error("Unhandled Spotify incident: '%s'", incident.message)
@@ -255,7 +311,7 @@ class IncidentHandler(MessageHandlerTemplate):
             # MITIGATION TO BE IMPLEMENTED:
             #   Report RPi throttled to RMS
             oradio_log.debug("Mitigation to be implemented")
-        elif incident.message == THROTTLING_FAILED:
+        elif incident.message == THROTTLING_START_FAILED:
             # MITIGATION TO BE IMPLEMENTED:
             #   Report throttling monitor start failed + status to RMS
             #   If retry_count < MAX_RETRIES: retry starting throttling monitor
@@ -278,11 +334,19 @@ class IncidentHandler(MessageHandlerTemplate):
         Args:
             incident: Incident message received from the incident bus.
         """
-        if incident.message == USB_INCIDENT_FILE:
-# NIET VERGETEN: implement file-level USB error recovery (e.g. re-mount, rescan)
+        if incident.message == USB_FILE_FAILED:
+            # MITIGATION TO BE IMPLEMENTED:
+            #   Report usb file import failed + status to RMS
             oradio_log.debug("Mitigation to be implemented")
-        elif incident.message == USB_INCIDENT_SERVICE:
-# NIET VERGETEN: implement USB service recovery (e.g. restart udev / service)
+        elif incident.message == USB_START_FAILED:
+            # MITIGATION TO BE IMPLEMENTED:
+            #   Report usb file import failed + status to RMS
+            #   If retry_count < MAX_RETRIES: retry starting usb service
+            oradio_log.debug("Mitigation to be implemented")
+        elif incident.message == USB_STOPPED:
+            # MITIGATION TO BE IMPLEMENTED:
+            #   Report usb service stopped + status to RMS
+            #   If retry_count < MAX_RETRIES: retry starting usb service
             oradio_log.debug("Mitigation to be implemented")
         else:
             oradio_log.error("Unhandled USB incident: '%s'", incident.message)
@@ -297,10 +361,14 @@ class IncidentHandler(MessageHandlerTemplate):
         Args:
             incident: Incident message received from the incident bus.
         """
-        if incident.message == VOLUME_FAILED:
+        if incident.message == VOLUME_START_FAILED:
             # MITIGATION TO BE IMPLEMENTED:
             #   Report volume control start failed + status to RMS
             #   If retry_count < MAX_RETRIES: retry starting volume control
+            oradio_log.debug("Mitigation to be implemented")
+        elif incident.message == VOLUME_SET_FAILED:
+            # MITIGATION TO BE IMPLEMENTED:
+            #   Report volume amixer control failure + status to RMS
             oradio_log.debug("Mitigation to be implemented")
         elif incident.message == VOLUME_STOPPED:
             # MITIGATION TO BE IMPLEMENTED:
@@ -320,14 +388,20 @@ class IncidentHandler(MessageHandlerTemplate):
         Args:
             incident: Incident message received from the incident bus.
         """
-        if incident.message == WEB_INCIDENT_SERVICE:
-# NIET VERGETEN: implement web-recovery logic (e.g. back-off, retry)
+        if incident.message == WEB_SERVER_FAILED:
+            # MITIGATION TO BE IMPLEMENTED:
+            #   Report web service failed to start to RMS
+            #   If retry_count < MAX_RETRIES: retry start
             oradio_log.debug("Mitigation to be implemented")
-        elif incident.message == WEB_INCIDENT_START:
-# NIET VERGETEN: implement web-recovery logic (e.g. back-off, retry)
+        elif incident.message == WEB_START_FAILED:
+            # MITIGATION TO BE IMPLEMENTED:
+            #   Report web server failed to start to RMS
+            #   If retry_count < MAX_RETRIES: retry start
             oradio_log.debug("Mitigation to be implemented")
-        elif incident.message == WEB_INCIDENT_STOP:
-# NIET VERGETEN: implement web-recovery logic (e.g. back-off, retry)
+        elif incident.message == WEB_STOP_FAILED:
+            # MITIGATION TO BE IMPLEMENTED:
+            #   Report web server failed to stop to RMS
+            #   If retry_count < MAX_RETRIES: retry stop
             oradio_log.debug("Mitigation to be implemented")
         else:
             oradio_log.error("Unhandled web incident: '%s'", incident.message)
@@ -342,18 +416,22 @@ class IncidentHandler(MessageHandlerTemplate):
         Args:
             incident: Incident message received from the incident bus.
         """
-        if incident.message == WIFI_INCIDENT_DBUS:
-# NIET VERGETEN: implement D-Bus event handler error recovery
+        if incident.message == WIFI_DBUS_FAILED:
+            # MITIGATION TO BE IMPLEMENTED:
+            #   Report wifi D-Bus failure to RMS
             oradio_log.debug("Mitigation to be implemented")
-        elif incident.message == WIFI_INCIDENT_NMCLI:
-# NIET VERGETEN: implement failed to interact with NetworkManager error recovery
+        elif incident.message == WIFI_NMCLI_FAILED:
+            # MITIGATION TO BE IMPLEMENTED:
+            #   Report wifi nmcli failure to RMS
             oradio_log.debug("Mitigation to be implemented")
-        elif incident.message == WIFI_INCIDENT_CONNECT:
-# NIET VERGETEN: implement wifi connect failed recovery
+        elif incident.message == WIFI_CONNECT_FAILED:
+            # MITIGATION TO BE IMPLEMENTED:
+            #   Report wifi internet connection failure to RMS
 # LET OP: wordt in wifi_service als command verstuurd en in oradio_control in state machine afgehandeld
             oradio_log.debug("Mitigation to be implemented")
-        elif incident.message == WIFI_INCIDENT_DISCONNECT:
-# NIET VERGETEN: implement wifi disconnect failed recovery
+        elif incident.message == WIFI_DISCONNECT_FAILED:
+            # MITIGATION TO BE IMPLEMENTED:
+            #   Report wifi disconnect failure to RMS
             oradio_log.debug("Mitigation to be implemented")
         else:
             oradio_log.error("Unhandled wifi incident: '%s'", incident.message)

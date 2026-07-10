@@ -36,9 +36,10 @@ from messaging import (
     CommandMessage,
     IncidentMessage,
     VOLUME_SOURCE,
-    VOLUME_FAILED,
-    VOLUME_STOPPED,
     VOLUME_CHANGED,
+    VOLUME_START_FAILED,
+    VOLUME_SET_FAILED,
+    VOLUME_STOPPED,
 )
 
 ##### LOCAL constants #####################################
@@ -179,6 +180,7 @@ class VolumeControl(ThreadTemplate):
         result, response = run_shell_script(cmd)
         if not result:
             oradio_log.error("Error setting volume: %s", response)
+            Incidents.publish(IncidentMessage(VOLUME_SOURCE, VOLUME_SET_FAILED))
         else:
             oradio_log.debug("Volume of '%s' set to: %s", control, volume)
 
@@ -290,12 +292,12 @@ class VolumeControl(ThreadTemplate):
 
         if not self.safe_start():
             oradio_log.error("Volume manager thread failed to start")
-            Incidents.publish(IncidentMessage(VOLUME_SOURCE, VOLUME_FAILED))
+            Incidents.publish(IncidentMessage(VOLUME_SOURCE, VOLUME_START_FAILED))
             return
 
         if self.crashed:
             oradio_log.error("Volume manager thread crashed during startup: %s", self.exception)
-            Incidents.publish(IncidentMessage(VOLUME_SOURCE, VOLUME_FAILED))
+            Incidents.publish(IncidentMessage(VOLUME_SOURCE, VOLUME_START_FAILED))
             return
 
         oradio_log.info("Volume manager thread started")
