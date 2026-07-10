@@ -32,6 +32,7 @@ from os import path, remove
 from json import load, JSONDecodeError
 from threading import Timer, Lock
 from watchdog.observers import Observer
+from watchdog.observers.api import BaseObserver
 from watchdog.events import FileSystemEventHandler
 
 ##### Oradio modules ######################################
@@ -323,7 +324,7 @@ class USBService:
         No Observer is created and no thread is started here; call
         start() to begin monitoring.
         """
-        self.observer: Observer | None = None
+        self.observer: BaseObserver | None = None
         self._health_timer: Timer | None = None
 
         # Serialises start()/stop()/_check_health() so a health check firing
