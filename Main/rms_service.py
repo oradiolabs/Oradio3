@@ -45,7 +45,7 @@ from messaging import (
     Commands,
     Incidents,
     IncidentMessage,
-    MessageHandlerBase,
+    MessageHandlerTemplate,
     WIFI_SOURCE,
     WIFI_CONNECTED,
     WIFI_DISCONNECTED,
@@ -283,7 +283,7 @@ class Heartbeat(Timer):
             else:
                 oradio_log.debug("No heartbeat to stop")
 
-class WifiMessageHandler(MessageHandlerBase):
+class WifiMessageHandler(MessageHandlerTemplate):
     """
     Handle WiFi state change messages and drive heartbeat and RMS reporting.
 

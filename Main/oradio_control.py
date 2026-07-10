@@ -23,7 +23,6 @@ Created on Januari 31, 2025
 """
 import threading
 from time import sleep
-from multiprocessing import Queue
 
 from log_service import oradio_log
 from backlight_service import Backlighting
@@ -45,8 +44,8 @@ from throttling_monitor import ThrottlingMonitor
 # Moved from constants
 from messaging import (
     Commands,
-    safe_put,
-    MessageHandlerBase,
+    CommandMessage,
+    MessageHandlerTemplate,
     USB_SOURCE,
     USB_ABSENT,
     USB_PRESENT,
@@ -703,50 +702,48 @@ HANDLERS = {
 
 }
 
-def handle_message(message: dict):
-    '''
-    handle the received message
-    :arguments
-        message (dict) : the (Oradio) message to be processed
-    '''
-    if message:
-        command_source = message.get("source")
-        state          = message.get("state")
-        error          = message.get("error")
+def handle_message(message: CommandMessage) -> None:
+    """
+    Handle a received command message.
 
-        if not isinstance(command_source, str):
-            oradio_log.warning("Invalid message source: %s", message)
-            return
+    Args:
+        message: The CommandMessage to be processed.
+    """
+    command_source = message.source
+    state          = message.message
+    error          = MESSAGE_NO_ERROR if message.data is None else message.data
 
-        handlers = HANDLERS.get(command_source)
-        if handlers is None:
-            oradio_log.warning("Unhandled message source: %s", message)
-            return
+    handlers = HANDLERS.get(command_source)
+    if handlers is None:
+        oradio_log.warning("Unhandled message source: %s", message)
+        return
 
-        if isinstance(state, str) and (handler := handlers.get(state)):
+    if handler := handlers.get(state):
+        handler()
+    else:
+        oradio_log.warning(
+            "Unhandled state '%s' for message source '%s'.", state, command_source
+        )
+
+#REVIEW:
+#   errors, tegenwoording incidents, worden niet  via de Command bus doorgegeven, gaan naar de incident handler.
+#   CommandMessage kent een data veld met mogelijk extra info bij message.
+#   Het is dus logischer om data hierboven aan de handler mee te geven en in handler te verwerken.
+    if error != MESSAGE_NO_ERROR and isinstance(error, str):
+        if handler := handlers.get(error):
             handler()
         else:
             oradio_log.warning(
-                "Unhandled state '%s' for message source '%s'.", state, command_source
+                "Unhandled error '%s' for message source '%s'.", error, command_source
             )
 
-        if error and error != MESSAGE_NO_ERROR and isinstance(error, str):
-            if handler := handlers.get(error):
-                handler()
-            else:
-                oradio_log.warning(
-                    "Unhandled error '%s' for message source '%s'.", error, command_source
-                )
-    else:
-        oradio_log.warning("Invalid message received")
-
 # 3)----------- Process the messages---------
-def process_messages(msg_queue):
-    """Continuously read and handle messages from the shared queue."""
-    while True:
-        msg = msg_queue.get()  # blocking
-        #oradio_log.debug("Henk:Received message in Queue:", str(msg))
-        handle_message(msg)
+
+class OradioCommandHandler(MessageHandlerTemplate):
+    """Dispatches every published CommandMessage straight to handle_message()."""
+
+    def _handle_message(self, message: CommandMessage) -> None:
+        handle_message(message)
 
 #-------------USB presence sync at start -up---------------------------------------
 
@@ -768,51 +765,10 @@ def sync_usb_presence_from_service():
 
 # ------------------Start-up - instantiate and define other modules ---------------
 
-shared_queue: Queue = Queue()  # Create a shared queue
-
-##### Messaging PROXY-begin ###############################
-
-class ProxyCommandHandler(MessageHandlerBase):
-    """
-    Wraps a subscriber queue in a daemon thread that forwards command messages to legacy queue.
-    """
-    def __init__(self, queue) -> None:
-        """
-        Subscribe to the error bus and start the listener thread.
-        """
-        # Initialise base class and start the worker thread
-        super().__init__(Commands.subscribe())
-        self._legacy_queue = queue
-
-    # Errors for each module are grouped separatly for maintainability
-    def _handle_message(self, message) -> None:    # pylint: disable=too-many-branches,too-many-statements
-        """
-        Handle incoming command message and forwards it to the legacy queue.
-
-        Args:
-            message: The received message from the command queue.
-        """
-        oradio_log.debug("[COMMAND PROXY SERVICE] received: %r", message)
-        # Convert command message to legacy message
-        legacy_message = {
-            "source": message.source,
-            "state": message.message,
-            "error": MESSAGE_NO_ERROR if message.data is None else message.data,
-        }
-        oradio_log.debug("[COMMAND PROXY SERVICE] forward: %s", message)
-        safe_put(self._legacy_queue, legacy_message)
-
-# Register _command_handler with the messaging layer. ProxyCommandHandler starts
-# a daemon thread, so the handler runs in the background without blocking
-# the main application thread, and is automatically torn down when the process exits.
-ProxyCommandHandler(shared_queue)
-
 from incident_service import IncidentHandler     # pylint: disable=wrong-import-position
 
-# Subscribe to error topics so messages published are printed to console
+# Subscribe to incidents bus so incidents published are mitigated
 incident_handler = IncidentHandler()
-
-##### Messaging PROXY-end #################################
 
 # Instantiate the state machine
 state_machine = StateMachine()
@@ -843,10 +799,8 @@ state_machine.set_services(oradio_web_service)
 # start the state_machine transition
 state_machine.transition("StateStartUp")
 
-# instantiate the process messages
-threading.Thread(
-    target=process_messages, args=(shared_queue,), daemon=True
-).start()
+# Subscribe to and dispatch all command messages (starts its own worker thread)
+oradio_command_handler = OradioCommandHandler(Commands.subscribe())
 
 def main() -> None:
     """

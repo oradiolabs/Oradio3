@@ -535,7 +535,7 @@ def safe_put(queue: Queue, message: object) -> None:
 
 ##### Template ############################################
 
-class MessageHandlerBase(ThreadTemplate):
+class MessageHandlerTemplate(ThreadTemplate):
     """
     Base class for background message handlers.
 
@@ -645,7 +645,7 @@ class MessageHandlerBase(ThreadTemplate):
 
 ##### Debug ###############################################
 
-class DebugMessageHandler(MessageHandlerBase):
+class DebugMessageHandler(MessageHandlerTemplate):
     """
     Message handler used for debugging and testing that logs every received message.
 

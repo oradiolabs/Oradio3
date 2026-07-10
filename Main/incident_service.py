@@ -30,7 +30,7 @@ from log_service import oradio_log
 from messaging import (
     Incidents,
     IncidentMessage,
-    MessageHandlerBase,
+    MessageHandlerTemplate,
 
     BACKLIGHTING_SOURCE,
     BACKLIGHTING_FAILED,
@@ -86,7 +86,7 @@ TEST_SOURCE = "Test message"
 # Placeholder source name used to exercise the unrecognised-incident code path
 UNEXPECTED = "Unexpected source"
 
-class IncidentHandler(MessageHandlerBase):
+class IncidentHandler(MessageHandlerTemplate):
     """
     Handle Incident messages and perform incident-specific mitigation.
 
