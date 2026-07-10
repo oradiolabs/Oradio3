@@ -30,7 +30,6 @@ Created on January 17, 2025
 """
 from os import path, remove
 from json import load, JSONDecodeError
-from typing import Optional
 from threading import Timer, Lock
 from watchdog.observers import Observer
 from watchdog.events import FileSystemEventHandler
@@ -324,8 +323,8 @@ class USBService:
         No Observer is created and no thread is started here; call
         start() to begin monitoring.
         """
-        self.observer: Optional[Observer] = None
-        self._health_timer: Optional[Timer] = None
+        self.observer: Observer | None = None
+        self._health_timer: Timer | None = None
 
         # Serialises start()/stop()/_check_health() so a health check firing
         # concurrently with an explicit stop() cannot race on self.observer.
