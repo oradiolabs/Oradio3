@@ -155,7 +155,3 @@ DEBUGGER_CONNECTED      = "Debugger connected"
 DEBUGGER_NOT_CONNECTED  = "Debugger not connected"
 DEBUGGER_DISABLED       = "debugger disabled"
 DEBUGGER_ENABLED        = "debugger enabled"
-
-##### MODULE TEST defines #################################
-TEST_ENABLED  = "test enabled"
-TEST_DISABLED = "test disabled"
