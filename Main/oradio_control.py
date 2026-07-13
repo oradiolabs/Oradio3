@@ -141,7 +141,7 @@ Backlighting().start()
 
 # Any incident starting throttling monitor is reported to and handled by IncidentHandler
 oradio_log.info("Start throttling monitor")
-ThrottlingMonitor().start()
+RPiThrottlingMonitor().start()
 
 # Any incident starting log monitor is reported to and handled by IncidentHandler
 oradio_log.info("Start log health monitor")
