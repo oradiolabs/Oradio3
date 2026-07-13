@@ -25,8 +25,6 @@ Created on January 29, 2025
     Blinking is implemented as a background worker per LED, built on
     ThreadTemplate (utilities.py), so each blink can be cleanly started,
     stopped and restarted, and reports crashes instead of dying silently.
-    Mirrors the shape used by mpd_monitor.py, throttling_monitor.py,
-    volume_control.py and backlight_service.py.
 """
 from threading import Timer
 

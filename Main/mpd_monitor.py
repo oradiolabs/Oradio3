@@ -23,8 +23,7 @@ Created on January 10, 2025
     - Composes an MPDService connection and a background _MPDMonitorWorker
       (built on ThreadTemplate, utilities.py), so the monitor can be
       cleanly started, stopped and restarted, and reports crashes instead
-      of dying silently. Mirrors the shape used by throttling_monitor.py,
-      volume_control.py and backlight_service.py.
+      of dying silently.
 """
 from os import path
 from time import sleep
