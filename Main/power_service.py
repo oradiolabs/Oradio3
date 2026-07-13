@@ -33,6 +33,11 @@ Created on December 18, 2025
         PD protocol request (000=no response yet, 001=success, 011=invalid
         command/argument, 100=command not supported, 101=transaction fail).
         This is polled after a request instead of using a fixed delay.
+      - PD_STATUS0 (the negotiated voltage/current selection) has been
+        observed to update a short time after PD_RESPONSE reports Success,
+        not atomically with it - reading it once immediately on Success can
+        still return the previous contract's values. A short follow-up poll
+        on PD_STATUS0 closes that gap.
       - SRC_PDO_5V/9V/12V/... (0x02-0x07) are read-only capability
         registers: bit 7 indicates whether the source advertises that
         voltage at all. These are used at startup to detect whether the
@@ -118,9 +123,11 @@ _PD_RESPONSE_MESSAGES = {
     _PD_RESPONSE_TRANSACTION_FAIL: "transaction fail (no GoodCRC received)",
 }
 
-# Polling parameters for waiting on PD_RESPONSE after a PDO/capability request
-_PD_RESPONSE_POLL_INTERVAL_S = 0.02   # 20 ms between polls
-_PD_RESPONSE_TIMEOUT_S = 0.5          # give up after 500 ms
+# Polling parameters for waiting on a definitive negotiation outcome after a
+# PDO request: either PD_RESPONSE reports a failure, or PD_STATUS0 settles on
+# the requested voltage. A single poll loop checks both each iteration.
+_NEGOTIATION_POLL_INTERVAL_S = 0.02   # 20 ms between polls
+_NEGOTIATION_TIMEOUT_S = 0.5          # give up after 500 ms total
 
 class PowerSupplyService:
     """
@@ -167,10 +174,15 @@ class PowerSupplyService:
             return None
         return (status1 >> 3) & 0b111
 
-    def _wait_for_pd_response(self, timeout_s: float = _PD_RESPONSE_TIMEOUT_S) -> bool:
+    def _wait_for_pd_response(self, timeout_s: float = _NEGOTIATION_TIMEOUT_S) -> bool:
         """
         Poll PD_STATUS1.PD_RESPONSE until the HUSB238 reports a definitive
         response to the last request, or until timeout_s elapses.
+
+        Used for requests that have no associated PD_STATUS0 value to wait on
+        (e.g. Get_SRC_Cap during capability detection). For a PDO voltage
+        request, use _wait_for_voltage_negotiation() instead, which checks
+        PD_RESPONSE and PD_STATUS0 together in a single poll.
 
         Args:
             timeout_s: Maximum time to wait for a definitive response.
@@ -189,20 +201,80 @@ class PowerSupplyService:
                 return False
 
             if response == _PD_RESPONSE_NO_RESPONSE:
-                sleep(_PD_RESPONSE_POLL_INTERVAL_S)
+                sleep(_NEGOTIATION_POLL_INTERVAL_S)
                 continue
 
             if response == _PD_RESPONSE_SUCCESS:
                 return True
 
             # Any other code is a definitive failure - no point polling further
-            oradio_log.error("PD_RESPONSE=0b%s (%s)", format(response, '03b'),
-                _PD_RESPONSE_MESSAGES.get(response, "unknown/reserved"),
+            oradio_log.error(
+                "PD_RESPONSE=0b%s (%s)", format(response, '03b'),
+                _PD_RESPONSE_MESSAGES.get(response, "unknown/reserved")
             )
             return False
 
         oradio_log.error("timed out after %.2fs waiting for PD_RESPONSE", timeout_s)
         return False
+
+    def _wait_for_voltage_negotiation(self, voltage_v: int, timeout_s: float = _NEGOTIATION_TIMEOUT_S) -> tuple[bool, dict]:
+        """
+        Poll after a PDO voltage request until the outcome is known, checking
+        both signals in a single pass with one shared timeout budget:
+
+          - PD_RESPONSE reporting a definitive failure code (anything other
+            than Success) ends the wait immediately - there is no point
+            waiting for PD_STATUS0 to update after a rejected request.
+          - PD_STATUS0 reflecting the requested voltage_v means the contract
+            has settled and negotiation succeeded.
+
+        Checking PD_RESPONSE isn't redundant with polling PD_STATUS0: it lets
+        a rejected request (invalid command, not supported, no GoodCRC) fail
+        fast with a specific, logged reason instead of silently burning the
+        full timeout waiting for a status value that was never going to
+        arrive. It also distinguishes "no negotiation happened at all" from
+        "negotiation succeeded but the status register hasn't caught up yet" -
+        PD_STATUS0 alone can't tell those apart, and if the same voltage was
+        already active before this request, a stale PD_STATUS0 match could
+        otherwise look like a fresh success with no protocol exchange at all.
+
+        Args:
+            voltage_v: The voltage that was just requested.
+            timeout_s: Maximum total time to wait for a definitive outcome.
+
+        Returns:
+            (True, status) once PD_STATUS0 confirms voltage_v.
+            (False, status) on a PD_RESPONSE failure code, an I2C read
+            failure, or timeout - status holds whatever was last read.
+        """
+        deadline = monotonic() + timeout_s
+        status = self.read_status()
+
+        while monotonic() < deadline:
+            response = self._read_pd_response()
+
+            if response is None:
+                oradio_log.error("PD Status register 1 read failed while polling negotiation outcome")
+                return False, status
+
+            if response not in (_PD_RESPONSE_NO_RESPONSE, _PD_RESPONSE_SUCCESS):
+                oradio_log.error(
+                    "PD_RESPONSE=0b%s (%s)", format(response, '03b'),
+                    _PD_RESPONSE_MESSAGES.get(response, "unknown/reserved")
+                )
+                return False, status
+
+            status = self.read_status()
+            if status["voltage_v"] == voltage_v:
+                return True, status
+
+            sleep(_NEGOTIATION_POLL_INTERVAL_S)
+
+        oradio_log.error(
+            "Timed out after %.2fs waiting for negotiation of %sV to settle "
+            "(last read: %sV)", timeout_s, voltage_v, status["voltage_v"]
+        )
+        return False, status
 
     def _detect_capabilities(self) -> dict:
         """
@@ -252,7 +324,7 @@ class PowerSupplyService:
 
         return {"attached": True, "pd_capable": bool(voltages), "voltages": voltages}
 
-    def _safe_set_voltage(self, voltage_v: int, current_a: float, min_current_a: float) -> bool:
+    def _safe_set_voltage(self, voltage_v: int, min_current_a: float) -> bool:
         """
         Safe wrapper around _set_voltage().
 
@@ -268,9 +340,6 @@ class PowerSupplyService:
 
         Args:
             voltage_v: Requested voltage in volts.
-            current_a: Requested current in amperes (informational only - see
-                _set_voltage for why the HUSB238 cannot request a specific
-                current).
             min_current_a: Minimum acceptable negotiated current.
 
         Returns:
@@ -291,9 +360,9 @@ class PowerSupplyService:
             return False
 
         try:
-            success = self._set_voltage(voltage_v=voltage_v, current_a=current_a, min_current_a=min_current_a)
+            success = self._set_voltage(voltage_v=voltage_v, min_current_a=min_current_a)
         except (OSError, RuntimeError, ValueError, KeyError, TypeError) as exc:
-            oradio_log.warning("Request %sV @ %.1fA failed: %s", voltage_v, current_a, exc)
+            oradio_log.warning("Request %sV (min %.1fA) failed: %s", voltage_v, min_current_a, exc)
             Incidents.publish(IncidentMessage(POWER_SOURCE, POWER_NEGOTIATION_FAILED))
             return False
 
@@ -301,18 +370,16 @@ class PowerSupplyService:
             Incidents.publish(IncidentMessage(POWER_SOURCE, POWER_NEGOTIATION_FAILED))
         return success
 
-    def _set_voltage(self, voltage_v: int, current_a: float, min_current_a: float) -> bool:
+    def _set_voltage(self, voltage_v: int, min_current_a: float) -> bool:
         """
         Perform a PD voltage request and verify the negotiated result.
 
         Note: the HUSB238 cannot request a specific current (see module docstring).
-        current_a is accepted for logging/documentation of the profile being
-        requested; only min_current_a is actually checked, against whatever
-        current the source negotiated for the requested voltage.
+        min_current_a is checked, against whatever current the source actually negotiated
+        for the requested voltage.
 
         Args:
             voltage_v: Requested voltage in volts.
-            current_a: Nominal current for this profile (informational only).
             min_current_a: Minimum acceptable negotiated current.
 
         Returns:
@@ -327,12 +394,11 @@ class PowerSupplyService:
         # Configure the requested PDO and trigger negotiation
         self._configure_pdo(voltage_v=voltage_v)
 
-        # Wait for the HUSB238 to report a definitive response to the request, instead of guessing how long negotiation takes
-        if not self._wait_for_pd_response():
+        # Poll for a definitive outcome in one pass: either a PD_RESPONSE
+        # failure code (fail fast) or PD_STATUS0 settling on voltage_v (success)
+        settled, status = self._wait_for_voltage_negotiation(voltage_v)
+        if not settled:
             return False
-
-        # Read back the negotiated PD status
-        status = self.read_status()
 
         # Ensure a USB-C attachment is present
         if status["attach"] is False:
@@ -350,7 +416,7 @@ class PowerSupplyService:
         # Check whether the negotiated contract meets requirements
         success = (delivered_v == voltage_v) and (delivered_a >= min_current_a)
         if success:
-            oradio_log.info("negotiated %sV @ %.1fA", delivered_v, delivered_a)
+            oradio_log.info("Negotiated %sV @ %.1fA", delivered_v, delivered_a)
             return True
 
         # Negotiation failed or does not meet requirements
@@ -391,7 +457,7 @@ class PowerSupplyService:
         Returns:
             True if the negotiated PD contract meets the requirements, False otherwise.
         """
-        return self._safe_set_voltage(voltage_v=5, current_a=3.0, min_current_a=3.0)
+        return self._safe_set_voltage(voltage_v=5, min_current_a=3.0)
 
     def set_nom_voltage(self) -> bool:
         """
@@ -400,7 +466,7 @@ class PowerSupplyService:
         Returns:
             True if the negotiated voltage/current meets the requirements.
         """
-        return self._safe_set_voltage(voltage_v=9, current_a=2.0, min_current_a=2.0)
+        return self._safe_set_voltage(voltage_v=9, min_current_a=2.0)
 
     def set_max_voltage(self) -> bool:
         """
@@ -409,7 +475,7 @@ class PowerSupplyService:
         Returns:
             True if the negotiated voltage/current meets the requirements.
         """
-        return self._safe_set_voltage(voltage_v=12, current_a=1.5, min_current_a=1.5)
+        return self._safe_set_voltage(voltage_v=12, min_current_a=1.5)
 
     def refresh_capabilities(self) -> None:
         """
