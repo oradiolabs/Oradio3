@@ -41,8 +41,8 @@ from utilities import has_internet
 from system_sounds import play_sound
 from incident_service import IncidentHandler
 from log_monitor import LogHealthMonitor
-from rpi_monitor import ThrottlingMonitor
-from power_supply_control import PowerSupplyService
+from rpi_monitor import RPiThrottlingMonitor
+from power_control import PowerSupplyService
 
 # Moved from constants
 from messaging import (

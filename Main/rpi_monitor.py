@@ -66,7 +66,7 @@ ACTIVE_MASK = 0x1 | 0x2 | 0x4 | 0x8
 HISTORICAL_MASK = 0xFFFF0000
 
 @singleton
-class ThrottlingMonitor(ThreadTemplate):
+class RPiThrottlingMonitor(ThreadTemplate):
     """
     Singleton background monitor for Raspberry Pi throttling state.
 
@@ -93,7 +93,7 @@ class ThrottlingMonitor(ThreadTemplate):
         begins (and stop()/start() again later) rather than having it
         begin as a side effect of import.
         """
-        super().__init__(name="ThrottlingMonitor")
+        super().__init__(name="RPiThrottlingMonitor")
 
         # Cache of the last observed active-flag combination. Reset in
         # setup() at the start of every run, so a restart always produces
@@ -253,7 +253,7 @@ if __name__ == "__main__":
     # Most modules use similar code in stand-alone
     # pylint: disable=duplicate-code
 
-    monitor = ThrottlingMonitor()
+    monitor = RPiThrottlingMonitor()
 
     # In test mode a single-item dict is used so the poller thread and
     # this main thread share the same mutable object without needing a lock
