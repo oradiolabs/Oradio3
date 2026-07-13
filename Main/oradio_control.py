@@ -40,6 +40,7 @@ from utilities import has_internet
 from power_supply_control import PowerSupplyService
 from system_sounds import play_sound    # For better readability. pylint: disable=wrong-import-order
 from throttling_monitor import ThrottlingMonitor
+from log_health_monitor import LogHealthMonitor
 
 # Moved from constants
 from messaging import (
@@ -134,6 +135,10 @@ Backlighting().start()
 # Any incident starting throttling monitor is reported to and handled by IncidentHandler
 oradio_log.info("Start throttling monitor")
 ThrottlingMonitor().start()
+
+# Any incident starting log health monitor is reported to and handled by IncidentHandler
+oradio_log.info("Start log health monitor")
+LogHealthMonitor().start()
 
 # Any incident starting volume control is reported to and handled by IncidentHandler
 oradio_log.info("Start volumen control")
