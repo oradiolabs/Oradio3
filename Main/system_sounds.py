@@ -7,7 +7,7 @@
  #    #  #   #   #    #  #    #     #    #    #
   ####   #    #  #    #  #####      #     ####
 
-Created on Januari 30, 2025
+Created on January 30, 2025
 @author:        Henk Stevens & Olaf Mastenbroek & Onno Janssen
 @copyright:     Copyright 2024, Oradio Stichting
 @license:       GNU General Public License (GPL)
@@ -20,12 +20,18 @@ Created on Januari 30, 2025
 import subprocess
 from pathlib import Path
 
-##### oradio modules ####################
-from oradio_logging import oradio_log
+##### Oradio modules ######################################
+from log_service import oradio_log
+from messaging import (
+    Incidents,
+    IncidentMessage,
+    SOUND_SOURCE,
+    SOUND_MISSING_DIR,
+    SOUND_PLAYBACK_FAILED,
+)
 
-##### GLOBAL constants ####################
-from oradio_const import (
-    RED, YELLOW, NC,
+##### GLOBAL constants ####################################
+from constants import (
     SOUND_START,
     SOUND_STOP,
     SOUND_PLAY,
@@ -46,9 +52,11 @@ from oradio_const import (
     SOUND_NEW_WEBRADIO,
 )
 
-##### LOCAL constants ###################
+##### LOCAL constants #####################################
+
 # ALSA device for playing system sounds
 SYSTEM_SOUND_SINK = "SysSound_in"
+
 # Directory containing system sound files
 SOUND_FILES_PATH = (Path(__file__).parent.parent / "system_sounds").resolve()
 SOUND_FILES = {
@@ -74,66 +82,78 @@ SOUND_FILES = {
     SOUND_NEW_WEBRADIO: f"{SOUND_FILES_PATH}/NewPlaylistWebradio_melding.wav",
 }
 
+# Critical error at import time if the sounds directory is missing, so the problem
+# is visible immediately rather than surfacing per-file at play time.
+if not SOUND_FILES_PATH.is_dir():
+    oradio_log.critical("System sounds directory not found: %s", SOUND_FILES_PATH)
+    Incidents.publish(IncidentMessage(SOUND_SOURCE, SOUND_MISSING_DIR))
+
 def play_sound(sound_key: str) -> None:
     """
-    Fire-and-forget the system command that plays the given sound file.
+    Launch a fire-and-forget subprocess that plays the given system sound.
+
+    The function returns as soon as the playback process is launched;
+    it does not wait for playback to complete and provides no return value
+    to indicate success or failure. If the sound key is unknown or its file
+    is missing, the error is logged and the function returns silently.
 
     Args:
-       sound_key: Name of the sound key listed in SOUND_FILES to be played.
+        sound_key (str): One of the SOUND_* constants imported from constants
+                         (e.g. SOUND_START, SOUND_CLICK). Must be a key in
+                         SOUND_FILES; an unknown key is logged as an error.
     """
-    # Get sound file from sound key
+    # Resolve the sound key to a file path
     sound_file = SOUND_FILES.get(sound_key)
     if not sound_file:
         oradio_log.error("Invalid sound key: %s", sound_key)
         return
 
-    # Check if sound file exists
+    # Verify the file exists before attempting playback
     if not Path(sound_file).is_file():
         oradio_log.debug("Sound file does not exist or is not a file: %s", sound_file)
         return
 
-    # FOR ANALYSIS: Get time since power-on
-    if sound_key == SOUND_START:
-        try:
-            with open("/proc/uptime", "r", encoding="utf-8") as file:
-                uptime = float(file.readline().split()[0])
-            oradio_log.debug("Playing %s %.2f seconds after power-on", sound_file, uptime)
-        except (FileNotFoundError, ValueError, IndexError) as ex_err:
-            oradio_log.warning("Could not read uptime: %s", ex_err)
+    # Launch aplay as a detached process. Passing a list with shell=False avoids
+    # shell-injection risks from special characters in the file path.
+    # start_new_session=True detaches the child from the parent process group,
+    # preventing zombie processes and ensuring playback survives a parent exit.
+    try:
+        subprocess.Popen(       # pylint: disable=consider-using-with
+            ["aplay", "-D", SYSTEM_SOUND_SINK, sound_file],
+            shell=False,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            stdin=subprocess.DEVNULL,
+            start_new_session=True,
+            close_fds=True
+        )
+    except OSError as ex_err:
+        oradio_log.error("Failed to launch sound playback for '%s': %s", sound_file, ex_err)
+        Incidents.publish(IncidentMessage(SOUND_SOURCE, SOUND_PLAYBACK_FAILED))
+        return
 
-    # Command to play sound
-    cmd = f"aplay -D '{SYSTEM_SOUND_SINK}' {sound_file}"
+    oradio_log.debug("System sound process launched: %s", sound_file)
 
-    # Using 'with' has no added value, only slows down code execution
-    _ = subprocess.Popen(           # pylint: disable=consider-using-with
-        cmd,
-        shell=True,
-        stdout=subprocess.DEVNULL,
-        stderr=subprocess.DEVNULL,
-        stdin=subprocess.DEVNULL,
-        start_new_session=True,     # detaches process to prevent zombies
-        close_fds=True
-    )
+##### Stand-alone entry point #############################
 
-    oradio_log.debug("System sound played successfully: %s", sound_file)
-
-# Entry point for stand-alone operation
 if __name__ == '__main__':
 
     # Imports only relevant when stand-alone
     import time
     import random
-    import threading
+    from threading import Thread
+    from utilities import input_prompt
+    from constants import RED, YELLOW, NC           # pylint: disable=ungrouped-imports
 
-# Most modules use similar code in stand-alone
-# pylint: disable=duplicate-code
-
-    print("\nStarting System Sound Player Standalone Test...\n")
+    # Most modules use similar code in stand-alone
+    # pylint: disable=duplicate-code
 
     sound_keys = list(SOUND_FILES.keys())
 
     def build_menu():
-        """Create stand-alone menu options """
+        """
+        Build and return the interactive test menu as a string.
+        """
         menu = "\nSelect a function:\n  0-Quit\n"
         for idx, sound_key in enumerate(sound_keys, start=1):
             menu += f"{idx:>3}-Play {sound_key}\n"
@@ -143,17 +163,14 @@ if __name__ == '__main__':
         return menu
 
     def interactive_menu():
-        """Show menu with test options"""
-
-        # User command loop
+        """
+        Run an interactive self-test menu for system sound playback.
+        Blocks until the user enters 0 to quit.
+        """
         while True:
-            try:
-                choice = int(input(build_menu()))
-            except ValueError:
-                choice = -1
+            choice = input_prompt(build_menu(), int, -1)
 
             if choice == 0:
-                print("\nExiting test program...\n")
                 break
 
             if 1 <= choice <= len(sound_keys):
@@ -163,13 +180,18 @@ if __name__ == '__main__':
 
             elif choice == 99:
                 print("\nStress Test\n")
-                duration = int(input("Enter duration in seconds: "))
+                try:
+                    duration = int(input("Enter duration in seconds (max 60): "))
+                except ValueError:
+                    print(f"{RED}Invalid input: enter a whole number of seconds.{NC}")
+                    continue
+                duration = max(1, min(duration, 60))
                 start = time.time()
                 def rnd():
                     while time.time() - start < duration:
                         play_sound(random.choice(sound_keys))
                         time.sleep(random.uniform(0.1, 0.5))
-                threads = [threading.Thread(target=rnd) for _ in range(5)]
+                threads = [Thread(target=rnd) for _ in range(5)]
                 for thread in threads:
                     thread.start()
                 for thread in threads:
@@ -180,23 +202,25 @@ if __name__ == '__main__':
                 print("\nCustom Sequence Test\n")
                 seq_input = input(f"Enter 5 numbers (1–{len(sound_keys)}) separated by spaces: ")
                 nums = seq_input.strip().split()
-                if len(nums) != 5 or not all(n.isdigit() for n in nums):
-                    print(f"{RED}Invalid input: need exactly 5 integers.\n{NC}")
+                indices = [int(n) for n in nums if n.isdigit()]
+                if len(indices) != 5 or not all(1 <= i <= len(sound_keys) for i in indices):
+                    print(f"{RED}Invalid input: need exactly 5 integers between 1 and {len(sound_keys)}.{NC}")
                     continue
-                indices = [int(n) for n in nums]
-                if not all(1 <= i <= len(sound_keys) for i in indices):
-                    print(f"{RED}Numbers out of range.\n{NC}")
-                    continue
-                seq = [sound_keys[i-1] for i in indices]
+                seq = [sound_keys[i - 1] for i in indices]
                 print(f"Enqueuing sequence: {seq}\n")
                 for k in seq:
                     play_sound(k)
 
             else:
                 print(f"{YELLOW}\nInvalid selection. Please enter a valid number.{NC}")
+        # pylint: enable=duplicate-code
 
-    # Present menu with tests
+    print("\nStarting test program...\n")
+
+    # Launch the interactive test menu; blocks until the user quits
     interactive_menu()
 
-# Restore temporarily disabled pylint duplicate code check
-# pylint: enable=duplicate-code
+    print("\nExiting test program...\n")
+
+    # Restore temporarily disabled pylint duplicate code check
+    # pylint: enable=duplicate-code

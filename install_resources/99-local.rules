@@ -1,2 +1,5 @@
-KERNEL=="sd[a-z][0-9]", SUBSYSTEMS=="usb", ACTION=="add", RUN+="/usr/bin/systemctl start usb-mount@%k.service"
-KERNEL=="sd[a-z][0-9]", SUBSYSTEMS=="usb", ACTION=="remove", RUN+="/usr/bin/systemctl stop usb-mount@%k.service"
+# Trigger when device is added, apply to block device partition, match label ORADIO, handle by systemd, start template service
+ACTION=="add", SUBSYSTEM=="block", ENV{DEVTYPE}=="partition", ENV{ID_FS_LABEL}=="ORADIO", RUN+="/usr/bin/systemctl start usb-drive@add.service"
+
+# Trigger when device is removed, apply to block devices, match label ORADIO, handle by systemd, start template service
+ACTION=="remove", SUBSYSTEM=="block", ENV{DEVTYPE}=="partition", ENV{ID_FS_LABEL}=="ORADIO", RUN+="/usr/bin/systemctl start usb-drive@remove.service"

@@ -1,0 +1,13 @@
+[Unit]
+Description=USB drive handler (ORADIO)
+# Ensures udev infrastructure is ready before this service runs
+After=systemd-udevd.service
+
+[Service]
+# Controls where file descriptor 1 (stdout) and 2 (stderr) of the executed processes is connected to
+StandardOutput=append:PLACEHOLDER_LOGFILE_USB
+StandardError=append:PLACEHOLDER_LOGFILE_USB
+# Service runs a single task and then exits
+Type=oneshot
+# %i expands to the instance name from the template
+ExecStart=/usr/local/bin/usb-drive.sh %i

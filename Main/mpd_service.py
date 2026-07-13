@@ -31,51 +31,61 @@ Created on January 10, 2025
 """
 from typing import Any
 from time import sleep
-# Lock added as a safeguard; unnecessary if MPDControl is used correctly per thread/process
-from threading import Lock
+from threading import Lock  # Safeguard against concurrent access; callers using one thread or process per instance do not require it.
 # Use MPDConnectionError because mpd2 raises a different ConnectionError than Python's built-in one
 from mpd import MPDClient, CommandError, ProtocolError, ConnectionError as MPDConnectionError
 
-##### oradio modules ####################
-from oradio_logging import oradio_log
+##### Oradio modules ######################################
+from log_service import oradio_log
+from messaging import (
+    Incidents,
+    IncidentMessage,
+    MPD_SOURCE,
+    MPD_CONNECT_FAILED,
+    MPD_EXECUTE_FAILED,
+)
 
-##### GLOBAL constants ####################
-
-##### Local constants ####################
+##### LOCAL constants #####################################
 MPD_HOST     = "localhost"
 MPD_PORT     = 6600
 MPD_RETRIES  = 3
-MPD_BACKOFF  = 1    # seconds
+MPD_BACKOFF  = 1    # seconds between retry attempts, to avoid hammering the MPD server
 LOCK_TIMEOUT = 5    # seconds
 
 class MPDService:
     """
     Thread-safe class for interacting with an MPD (Music Player Daemon) server.
-    - Automatic connection and reconnection to the MPD server.
-    - Retry logic with backoff for commands and connections.
-    - Safe execution of MPD commands with optional auto-reconnect.
-    - Locking to prevent concurrent access from multiple threads.
-    - Logging of commands, connection attempts, and errors.
+
+    Uses a Lock to prevent concurrent access from multiple threads. Callers
+    that use only one thread or process per instance do not require this guard,
+    but it is retained as a safeguard.
+
+    Features:
+        - Automatic connection and reconnection to the MPD server.
+        - Retry logic with backoff for commands and connections.
+        - Safe execution of MPD commands with optional auto-reconnect.
+        - Locking to prevent concurrent access from multiple threads.
+        - Logging of commands, connection attempts, and errors.
     """
     def __init__(self, crossfade: int | None = None) -> None:
         """
-        Initialize the MPDService class and connect to the MPD server.
+        Initialise the MPDService and connect to the MPD server.
 
         Args:
-            crossfade (int | None): Optional crossfade value in seconds.
-                                    If None, crossfade will not be set.
+            crossfade (int | None): Optional crossfade duration in seconds.
+                                    If None, crossfade will not be configured.
         """
         self._lock = Lock()
         self._crossfade = crossfade
         self._client = MPDClient()
         self._connect_client()
 
-# -----Helper methods----------------
+##### Helpers #############################################
 
-    def _is_connected(self):
-        """Return True if client is connected to MPD, False otherwise."""
+    def _is_connected(self) -> bool:
+        """Return True if the client is currently connected to MPD, False otherwise."""
         try:
-            self._client.ping() # pylint: disable=no-member
+            self._client.ping()     # pylint: disable=no-member
             return True
         except (MPDConnectionError, BrokenPipeError, OSError):
             return False
@@ -83,24 +93,24 @@ class MPDService:
     def _connect_client(self) -> None:
         """
         Establish a connection to MPD with retries and backoff.
-        Optionally sets the crossfade value after a successful connection.
+
+        Cleans up any stale connection before each attempt, then connects
+        and optionally sets the crossfade value. If all retries are exhausted,
+        an error is logged and published to the Incidents topic.
         """
         for attempt in range(1, MPD_RETRIES + 1):
             try:
-                # Disconnect stale connection if ping fails
-                if not self._is_connected():
+                if self._is_connected():
+                    oradio_log.debug("MPD client already connected, skipping connect")
+                else:
+                    # Ensure any stale connection is cleanly closed before reconnecting.
                     try:
                         self._client.disconnect()
                     except MPDConnectionError:
-                        # Already disconnected, safe to ignore
-                        pass
+                        pass    # Already disconnected; safe to ignore
 
-                # Connect if not connected
-                if not self._is_connected():
                     self._client.connect(MPD_HOST, MPD_PORT)
                     oradio_log.info("Connected to MPD on %s:%s", MPD_HOST, MPD_PORT)
-                else:
-                    oradio_log.debug("MPD client already connected, skipping connect")
 
                 # Set crossfade if specified
                 if self._crossfade is not None:
@@ -110,34 +120,46 @@ class MPDService:
                 return  # Connection successful
 
             except (MPDConnectionError, BrokenPipeError, OSError) as ex_err:
-                # Wait and retry
-                oradio_log.warning("Connection attempt %d/%d failed (%s). Retrying...", attempt, MPD_RETRIES, ex_err)
+                oradio_log.warning(
+                    "Connection attempt %d/%d failed (%s). Retrying...",
+                    attempt, MPD_RETRIES, ex_err,
+                )
 
             except Exception as ex_unexpected:  # pylint: disable=broad-exception-caught
-                # Catch-all for unexpected errors
-                oradio_log.exception("Unexpected error during MPD connection attempt %d/%d: %s", attempt, MPD_RETRIES, ex_unexpected)
+                oradio_log.error(
+                    "Unexpected error during MPD connection attempt %d/%d: %s",
+                    attempt, MPD_RETRIES, ex_unexpected,
+                )
 
-            # Avoid hammering the MPD server
             sleep(MPD_BACKOFF)
 
         # All retries exhausted
         oradio_log.error("Failed to connect to MPD after %d attempts", MPD_RETRIES)
+        Incidents.publish(IncidentMessage(MPD_SOURCE, MPD_CONNECT_FAILED))
 
-    def _execute(self, command: str, *args, allow_reconnect: bool = True, **kwargs) -> Any:
+    def _execute(self, command: str, *args, allow_reconnect: bool = True, **kwargs) -> Any | None:
         """
-        Execute an MPD command safely and efficiently.
-        - Retries only on actual lost connections.
-        - ProtocolErrors are handled intelligently.
-        - Supports lock timeout to prevent deadlocks.
+        Execute an MPD command safely with retry logic and lock protection.
+
+        Retries only on connection-related errors. Some expected CommandErrors
+        (e.g. "Not playing") are silently ignored; others are logged as errors.
+        Acquires the instance lock with a timeout on each attempt to prevent
+        deadlocks.
 
         Args:
-            command (str): MPD command to execute.
-            *args: Positional arguments.
-            allow_reconnect (bool): Prevent recursive reconnects.
-            **kwargs: Keyword arguments.
+            command (str):          MPD command to execute.
+            *args:                  Positional arguments passed to the command.
+            allow_reconnect (bool): If True, a lost connection triggers
+                                    _connect_client() before retrying. Pass False
+                                    when calling from _connect_client() itself
+                                    to prevent infinite recursion. Default is True.
+            **kwargs:               Keyword arguments passed to the command.
 
         Returns:
-            Result of the command, or None if all retries fail.
+            The command result on success, or None if:
+            - the command name is not a valid MPD command,
+            - the command fails with a CommandError (expected or not), or
+            - all retry attempts are exhausted.
         """
         function = getattr(self._client, command, None)
         if not callable(function):
@@ -147,73 +169,95 @@ class MPDService:
         for attempt in range(1, MPD_RETRIES + 1):
             acquired = False
             try:
-                # Acquire lock with timeout (therefore not using 'with')
-                acquired = self._lock.acquire(timeout=LOCK_TIMEOUT) # pylint: disable=consider-using-with
+                # Acquire lock with timeout (therefore not using 'with').
+                acquired = self._lock.acquire(timeout=LOCK_TIMEOUT)     # pylint: disable=consider-using-with
                 if not acquired:
-                    oradio_log.warning("Timeout waiting for MPD lock (attempt %d/%d, command '%s')", attempt, MPD_RETRIES, command)
-                    # Avoid hammering the MPD server
-                    sleep(MPD_BACKOFF)
-                    continue
-
-                # Execute the MPD command
-                return function(*args, **kwargs)
+                    oradio_log.warning(
+                        "Timeout waiting for MPD lock (attempt %d/%d, command '%s')",
+                        attempt, MPD_RETRIES, command,
+                    )
+                else:
+                    return function(*args, **kwargs)
 
             except CommandError as ex_cmd:
-                # Handle logical errors that can safely be ignored
-                ignored_errors = [
-                    "Not playing",
-                ]
+                # Some CommandErrors are expected (e.g. "Not playing"); ignore those and log the rest.
+                ignored_errors = ["Not playing"]
                 msg = str(ex_cmd)
                 if any(err in msg for err in ignored_errors):
-                    oradio_log.warning("Ignoring logical error: '%s' for command '%s'", msg, command)
+                    oradio_log.warning(
+                        "Ignoring expected CommandError: '%s' for command '%s'",
+                        msg, command,
+                    )
                 else:
-                    # Invalid command
                     oradio_log.error("MPD command '%s' failed: %s", command, ex_cmd)
                 return None
 
             except (MPDConnectionError, ProtocolError, BrokenPipeError, ConnectionResetError) as ex_err:
-                oradio_log.warning("MPD connection error '%s' for command '%s'. Retry %d/%d...", ex_err, command, attempt, MPD_RETRIES)
+                oradio_log.warning(
+                    "MPD connection error '%s' for command '%s'. Retry %d/%d...",
+                    ex_err, command, attempt, MPD_RETRIES,
+                )
                 if allow_reconnect:
                     self._connect_client()
-                # Avoid hammering the MPD server
-                sleep(MPD_BACKOFF)
 
             except Exception as ex_unexpected:  # pylint: disable=broad-exception-caught
-                # Unexpected runtime error
-                oradio_log.exception("Unexpected error executing MPD command '%s': %s", command, ex_unexpected)
+                oradio_log.error("Unexpected error executing MPD command '%s': %s", command, ex_unexpected)
+                Incidents.publish(IncidentMessage(MPD_SOURCE, MPD_EXECUTE_FAILED))
                 return None
 
             finally:
-                # Release lock if acquired
                 if acquired:
                     self._lock.release()
 
+            sleep(MPD_BACKOFF)
+
         # All retries exhausted
         oradio_log.error("Failed to execute MPD command '%s' after %d retries", command, MPD_RETRIES)
+        Incidents.publish(IncidentMessage(MPD_SOURCE, MPD_EXECUTE_FAILED))
         return None
 
-# -----Public methods----------------
+##### Public API ##########################################
 
     def get_stats(self) -> dict[str, Any]:
         """
-        Retrieve and combine playback statistics and current status information.
+        Retrieve and combine MPD playback statistics and current status.
+
+        Merges the results of the MPD 'stats' and 'status' commands into a
+        single dictionary. If either command fails after all retries, its
+        contribution is an empty dict; the failure is logged and published
+        to the Incidents topic by _execute().
 
         Returns:
-            dict: A merged dictionary containing both statistics and status data.
+            dict: Merged dictionary of statistics and status data, or a
+                  partial/empty dict if one or both commands failed.
         """
-        stats = self._execute("stats") or {}
+        stats  = self._execute("stats")  or {}
         status = self._execute("status") or {}
-        # Return combined dicts
         return stats | status
 
-# Entry point for stand-alone operation
+##### Stand-alone entry point #############################
+
 if __name__ == '__main__':
 
-    # Initialise MPD service
-    mpd_service = MPDService()
+    # Imports only relevant when stand-alone
+    from messaging import DebugMessageHandler       # pylint: disable=ungrouped-imports
 
-    # Print MPD info
+    print("\nStarting test program...\n")
+
+    # Subscribe to error topic so published messages are printed to console
+    incident_handler = DebugMessageHandler(Incidents.subscribe())
+
+    # Instantiate MPD service and print current stats
+    mpd_service = MPDService()
     info = mpd_service.get_stats()
     print("\nRunning MPDService standalone - MPD info:")
     for key, value in info.items():
         print(f"{key:>20} : {value}")
+
+    # Stop receiving messages
+    Incidents.unsubscribe(incident_handler.get_queue())
+
+    # Signal the thread to exit and confirm it has exited
+    incident_handler.stop()
+
+    print("\nExiting test program...\n")

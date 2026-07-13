@@ -8,200 +8,194 @@
  #    #  #   #   #    #  #    #     #    #    #
   ####   #    #  #    #  #####      #     ####
 
-
 Created on December 23, 2024
 @author:        Henk Stevens & Olaf Mastenbroek & Onno Janssen
-@copyright:     Copyright 2024, Oradio Stichting
+@copyright:     Copyright, Oradio Stichting
 @license:       GNU General Public License (GPL)
 @organization:  Oradio Stichting
-@version:       3
+@version:       5
 @email:         oradioinfo@stichtingoradio.nl
 @status:        Development
-@summary: Class for web interface and Captive Portal
-    Note:
-    Install:
-    Documentation:
+@summary:
+    Provides two classes for managing the Oradio web interface:
+
+    UvicornServerThread — wraps a FastAPI/ASGI application in a background
+    daemon thread and exposes start/stop control.  Readiness is determined by
+    polling uvicorn.Server.started, which Uvicorn sets once the server is
+    accepting connections.  A fresh Server instance is created on each call to
+    start() so that internal Uvicorn state (started, should_exit) is always
+    clean.
+
+    WebService — orchestrates the full Captive Portal lifecycle: brings up a
+    WiFi access point, configures iptables HTTP port-forwarding and dnsmasq DNS
+    redirection, starts the Uvicorn server, and tears everything down cleanly
+    on stop.  An internal queue thread relays requests from the web API (e.g.
+    WiFi connect, portal stop) to the service without blocking the ASGI event
+    loop.
+
+    References:
         https://www.uvicorn.org/
         https://fastapi.tiangolo.com/
         https://captivebehavior.wballiance.com/
         https://superfastpython.com/multiprocessing-in-python/
 """
 import time
-import socket
 from pathlib import Path
-from threading import Thread, Event, Lock
-from multiprocessing import Process, Queue
-import asyncio
+from multiprocessing import Queue
+from threading import Thread, RLock
 import uvicorn
 
-##### oradio modules ####################
-from oradio_logging import oradio_log, ORADIO_LOG_LEVEL
-from oradio_utils import safe_put, run_shell_script
-from fastapi_server import api_app
+##### Oradio modules ######################################
+from log_service import oradio_log, ORADIO_LOG_LEVEL
+from utilities import run_shell_script
+from web_server import api_app
 from wifi_service import WifiService, get_wifi_connection
-
-##### GLOBAL constants ####################
-from oradio_const import (
-    RED, GREEN, YELLOW, NC,
-    ACCESS_POINT_HOST,
-    ACCESS_POINT_SSID,
-    STATE_WIFI_IDLE,
-    STATE_WIFI_CONNECTED,
-    STATE_WIFI_ACCESS_POINT,
-    WEB_SERVER_HOST,
-    WEB_SERVER_PORT,
-    MESSAGE_REQUEST_CONNECT,
-    MESSAGE_REQUEST_STOP,
-    MESSAGE_WEB_SERVICE_SOURCE,
-    STATE_WEB_SERVICE_IDLE,
-    STATE_WEB_SERVICE_ACTIVE,
-    MESSAGE_WEB_SERVICE_FAIL_START,
-    MESSAGE_WEB_SERVICE_FAIL_STOP,
-    MESSAGE_NO_ERROR,
+from messaging import (
+    safe_get,
+    Commands,
+    Incidents,
+    CommandMessage,
+    IncidentMessage,
+    WIFI_DISCONNECTED,
+    WIFI_CONNECTED,
+    WIFI_ACCESS_POINT,
+    WEB_SOURCE,
+    WEB_IDLE,
+    WEB_ACTIVE,
+    WEB_SERVER_FAILED,
+    WEB_START_FAILED,
+    WEB_STOP_FAILED,
 )
 
-##### LOCAL constants ####################
-READY_TIMEOUT  = 15     # Seconds to wait for server ready
-SOCKET_TIMEOUT = 3      # Seconds between pings. Safe for small devices and small networks.
-THREAD_TIMEOUT = 3      # Timeout for thread to respond (seconds)
-# Close the message listener thread
-MESSAGE_REQUEST_CLOSE = "close listener thread"
+##### GLOBAL constants ####################################
+from constants import (
+    ACCESS_POINT_HOST,
+    ACCESS_POINT_SSID,
+    WEB_SERVER_HOST,
+    WEB_SERVER_PORT,
+    REQUEST_CONNECT,
+    REQUEST_STOP,
+)
+
+##### LOCAL constants #####################################
+# Seconds to wait for the Uvicorn server to become ready.
+SERVER_READY_TIMEOUT = 15
+
+# Seconds to wait for WiFi state transitions (access point up, disconnect, reconnect).
+WIFI_STATE_TIMEOUT = 15
+
+SOCKET_TIMEOUT = 3   # WebSocket ping interval/timeout in seconds; safe for small devices and networks
+
+# iptables NAT rule that redirects inbound HTTP (port 80) to the portal port.
+# The string uses the iptables-save -A (append) format, which is what
+# _get_nat_rules() returns, so start() and stop() can check presence with a
+# simple substring test.  The actual deletion command uses -D instead of -A.
+_IPTABLES_REDIRECT_RULE = (
+    f"-A PREROUTING -p tcp -m tcp --dport 80 -j REDIRECT --to-ports {WEB_SERVER_PORT}"
+)
+
+# dnsmasq config file that resolves all hostnames to the captive portal address.
+_DNS_REDIRECT_CONF = Path("/etc/NetworkManager/dnsmasq-shared.d/redirect.conf")
 
 class UvicornServerThread:
     """
-    Manage a Uvicorn ASGI server in a background thread.
-    
-    Provides start/stop control, thread safety, and readiness checks.
-    Uses a threading.Event to efficiently wait until the server is ready.
+    Manage a Uvicorn ASGI server running in a background daemon thread.
+
+    Uses uvicorn.Server.run() as the thread target directly, and polls
+    server.started (set by Uvicorn once the server is accepting connections)
+    to determine readiness.
+
+    A fresh Server instance is created on each call to start() so that
+    internal Uvicorn state (started, should_exit) is always clean.  The
+    Config object is built once in __init__ and reused across restarts because
+    it is immutable after construction.
     """
     def __init__(self, app, host=WEB_SERVER_HOST, port=WEB_SERVER_PORT, level=ORADIO_LOG_LEVEL):
         """
-        Initialize the server manager.
+        Initialise the manager without starting the server.
 
         Args:
-            app: ASGI application instance
-            host (str): Host address to bind to
-            port (int): Port number to bind to
-            level (str): Logging level for Uvicorn
+            app:         ASGI application instance to serve.
+            host (str):  Network interface to bind.
+            port (int):  TCP port to listen on.
+            level (str): Uvicorn log level string. Accepted values (passed
+                         through to Uvicorn): "trace", "debug", "info",
+                         "warning", "error", "critical".
         """
-        self.app = app
-        self.host = host
-        self.port = port
-        self.level = level
-
-        self.server = None            # Will hold the uvicorn.Server instance
-        self.thread = None            # Thread running the server
-        self.lock = Lock()            # Ensure thread-safe start/stop
-        self.last_exception = None    # Store exceptions raised during startup
-        self._ready_event = Event()   # Event to signal server readiness
-
-    def _run(self):
-        """
-        Run the Uvicorn server (blocking call).
-        The server can be stopped by setting `self.server.should_exit = True`.
-        """
-        # Configure Uvicorn
-        config = uvicorn.Config(
-            self.app,
-            host=self.host,
-            port=self.port,
-            lifespan="off",
-            log_config=None,
-            log_level=self.level,
+        self._config = uvicorn.Config(
+            app,
+            host=host,
+            port=port,
+            lifespan="off",   # Disable ASGI lifespan events (startup/shutdown hooks)
+            log_config=None,  # Uvicorn logging is handled by oradio_log
+            log_level=level,
             ws_ping_timeout=SOCKET_TIMEOUT,
             ws_ping_interval=SOCKET_TIMEOUT,
         )
-        self.server = uvicorn.Server(config)
+        self._server = None
+        self._thread = None
+        # RLock, not Lock: is_running acquires it too, and is_running is called from
+        # inside start()/stop(), which already hold the lock. A plain Lock would deadlock.
+        self._lock = RLock()
 
-        try:
-            # Run the server (blocking)
-            asyncio.run(self.server.serve())
-        except asyncio.CancelledError:
-            # Normal shutdown via cancellation
-            pass
-        except OSError as ex_err:
-            # port binding failures are the most common cause of uvicorn startup crashes
-            self.last_exception = ex_err
-            oradio_log.error("Uvicorn server crashed: %s", ex_err)
-        # server.Serve() can raise unknown excptions, so catch all
-        except Exception as ex_err:     #pylint: disable=broad-exception-caught
-            # Capture unexpected exceptions
-            self.last_exception = ex_err
-            oradio_log.error("Uvicorn server crashed: %s", ex_err)
-
-    def _wait_until_ready(self):
+    def start(self) -> bool:
         """
-        Block until the server is accepting connections or timeout occurs
+        Start the server if not already running.
+
+        Creates a fresh Server instance, launches it on a daemon thread, then
+        polls server.started until Uvicorn signals it is accepting connections
+        or SERVER_READY_TIMEOUT seconds elapse.
 
         Returns:
-            True if server became ready, False on timeout
+            bool: True if the server is ready, False on thread start failure
+                or timeout.
         """
-        # 0.0.0.0 is not routable
-        host_to_check = "127.0.0.1" if self.host == "0.0.0.0" else self.host
-
-        # Wait for socket to respond
-        end = time.time() + READY_TIMEOUT
-        while time.time() < end:
-            try:
-                with socket.create_connection((host_to_check, self.port), timeout=0.5):
-                    return True
-            except OSError:
-                time.sleep(0.1)
-        return False
-
-    def start(self):
-        """
-        Start the Uvicorn server if not already running.
-
-        Returns:
-            bool: True if server started successfully, False otherwise
-        """
-        with self.lock:
+        with self._lock:
             if self.is_running:
                 oradio_log.debug("Uvicorn server already running")
                 return True
 
             oradio_log.info("Starting Uvicorn server...")
-            self.last_exception = None
-            # Clear event in case of restart
-            self._ready_event.clear()
+            self._server = uvicorn.Server(self._config)
 
-            # Start server in a background thread
-            self.thread = Thread(target=self._run, daemon=True)
-            self.thread.start()
-
-            # Wait for the server to become ready
-            if not self._wait_until_ready():
-
-                if self.last_exception:
-                    oradio_log.error("Uvicorn server failed to start: %s", self.last_exception)
-                else:
-                    oradio_log.warning("Uvicorn server did not become ready in time")
+            self._thread = Thread(target=self._server.run, daemon=True)
+            try:
+                self._thread.start()
+                oradio_log.info("Uvicorn server started")
+            except Exception as ex_err:  # pylint: disable=broad-exception-caught
+                oradio_log.error("Uvicorn server failed to start: %s", ex_err)
                 return False
+
+            # Poll server.started — set by Uvicorn once the server is accepting connections.
+            deadline = time.time() + SERVER_READY_TIMEOUT
+            while not self._server.started:
+                if time.time() > deadline:
+                    oradio_log.warning("Uvicorn server did not become ready in time")
+                    return False
+                time.sleep(0.1)
 
             oradio_log.info("Uvicorn server running")
             return True
 
-    def stop(self):
+    def stop(self) -> bool:
         """
-        Stop the Uvicorn server if it is running.
+        Stop the running server and wait for the thread to exit.
 
         Returns:
-            bool: True if server stopped cleanly, False otherwise
+            bool: True if stopped cleanly, False if the thread did not exit
+                within SERVER_READY_TIMEOUT seconds.
         """
-        with self.lock:
+        with self._lock:
             if not self.is_running:
                 oradio_log.debug("Uvicorn server already stopped")
                 return True
 
             oradio_log.debug("Stopping Uvicorn server...")
-            # Signal the server to exit
-            self.server.should_exit = True
-            self.server.force_exit = True
-            # Wait for the thread to finish
-            self.thread.join(timeout=READY_TIMEOUT)
+            self._server.should_exit = True
+            self._server.force_exit  = True
+            self._thread.join(timeout=SERVER_READY_TIMEOUT)
 
-            if self.thread.is_alive():
+            if self._thread.is_alive():
                 oradio_log.warning("Uvicorn server thread did not exit cleanly")
                 return False
 
@@ -209,318 +203,475 @@ class UvicornServerThread:
             return True
 
     @property
-    def is_running(self):
+    def is_running(self) -> bool:
         """
-        Check if the server thread is alive and not exiting.
+        True if the server thread is alive, the server has started, and
+        shutdown has not been requested.
+
+        Reads self._thread / self._server under self._lock so a caller from
+        an unrelated thread (e.g. WebService.state) always sees a
+        consistent snapshot rather than attributes mid-transition from a
+        concurrent start()/stop().
 
         Returns:
-            bool: True if server is running, False otherwise
+            bool: True if the server is actively accepting connections,
+                False in all other states (not started, stopping, stopped).
         """
-        return (
-            self.thread is not None and
-            self.thread.is_alive() and
-            self.server is not None and
-            not self.server.should_exit
-        )
+        with self._lock:
+            return (
+                self._thread is not None and
+                self._thread.is_alive() and
+                self._server is not None and
+                self._server.started and
+                not self._server.should_exit
+            )
 
 class WebService:
     """
-    Manage the web interface over wifi or an internal access point (Captive Portal)
-    This class coordinates:
-    - wifi access point setup
-    - Captive portal redirection (HTTP and DNS)
-    - Launching and stopping the web server
-    - Relaying status and error messages to a controller
-    It starts a dedicated process to listen for server messages, configures
-    iptables and DNS redirection, and ensures the web service is active when required
+    Manage the Captive Portal web interface over WiFi or a hosted access point.
+
+    Coordinates the full lifecycle of the portal:
+
+    1. Bring up a WiFi access point (via WifiService).
+    2. Redirect port-80 HTTP traffic to the portal port (iptables PREROUTING).
+    3. Redirect all DNS queries to the portal host (dnsmasq config file).
+    4. Start the Uvicorn web server.
+    5. Reverse all of the above on stop.
+
+    Private helper methods handle each system operation (iptables, DNS, WiFi
+    polling) in isolation so that start() and stop() read as straightforward
+    sequences of steps rather than inline shell-script management code.
+    Each helper publishes its own error message on failure; callers do not
+    re-publish.
+
+    An internal daemon thread (_check_server_messages) drains a Queue that the
+    FastAPI routes write to, and translates queue messages into service actions
+    (WiFi connect, portal stop) without blocking the ASGI event loop.
     """
-    def __init__(self, queue):
+    def __init__(self):
         """
-        Initialize a new WebService instance
+        Initialise the WebService and start the background message listener.
+
+        Sets up the shared queue, wires it into the FastAPI application state,
+        creates the Uvicorn wrapper, and starts the message-listener thread,
+        which runs for the full lifetime of the process and has no stop mechanism.
+        Logs an error and publishes WEB_SERVER_FAILED if either the Uvicorn
+        wrapper or the listener thread fails to initialise. Publishes WEB_IDLE
+        to the message bus so the controller starts from a known baseline.
+
+        uvicorn_server is pre-assigned to None before initialisation so that
+        the state property and start/stop methods can safely check for
+        initialisation failure with a simple None guard.
+        """
+        # Shared queue: FastAPI route handlers post plain dicts here;
+        # _check_server_messages() reads and dispatches them.
+        self.request_queue = Queue()
+
+        self.wifi_service = WifiService()
+
+        # Give the FastAPI app a reference to the queue so route handlers can
+        # enqueue requests without importing this module.
+        api_app.state.queue = self.request_queue
+
+        # Pre-assign to None so state, start(), and stop() can check for
+        # initialisation failure with a simple None guard rather than hasattr.
+        self.uvicorn_server = None
+        try:
+            self.uvicorn_server = UvicornServerThread(api_app)
+        except Exception as ex_err:     # pylint: disable=broad-exception-caught
+            oradio_log.error("Failed to initialize UvicornServerThread: %s", ex_err)
+            Incidents.publish(IncidentMessage(WEB_SOURCE, WEB_SERVER_FAILED))
+
+        # Daemon thread: drains request_queue and dispatches to service methods.
+        # Exits automatically when the main process exits.
+        self.server_listener = Thread(target=self._check_server_messages, daemon=True)
+
+        try:
+            self.server_listener.start()
+            oradio_log.info("Web server started")
+        except Exception as ex_err:  # pylint: disable=broad-exception-caught
+            oradio_log.error("Web server failed to start: %s", ex_err)
+            Incidents.publish(IncidentMessage(WEB_SOURCE, WEB_SERVER_FAILED))
+
+        # Announce initial state so the controller starts from a known baseline.
+        Commands.publish(CommandMessage(WEB_SOURCE, self.state))
+
+##### Helpers #############################################
+
+    def _get_nat_rules(self) -> str | None:
+        """
+        Return the current iptables NAT table as a string.
+
+        Returns:
+            str | None: Rule dump on success, None if the command fails.
+        """
+        result, output = run_shell_script('sudo bash -c "iptables-save -t nat"')
+        if not result:
+            oradio_log.error("Failed to read iptables NAT rules: %s", output)
+            return None
+        return output
+
+    def _ensure_port_redirect(self) -> bool:
+        """
+        Add the iptables PREROUTING redirect rule if not already present.
+
+        Returns:
+            bool: True if the rule is (or was already) in place, False on error.
+        """
+        rules = self._get_nat_rules()
+        if rules is None:
+            oradio_log.error("Failed to get NAT rules")
+            return False
+        if _IPTABLES_REDIRECT_RULE in rules:
+            return True  # Already present; nothing to do.
+        cmd = (
+            f"sudo iptables -t nat -A PREROUTING "
+            f"-p tcp --dport 80 -j REDIRECT --to-ports {WEB_SERVER_PORT}"
+        )
+        result, error = run_shell_script(cmd)
+        if not result:
+            oradio_log.error("Failed to add port redirect rule: %s", error)
+            return False
+        return True
+
+    def _remove_port_redirect(self) -> bool:
+        """
+        Delete the iptables PREROUTING redirect rule if present.
+
+        Returns:
+            bool: True if the rule is (or was already) absent, False on error.
+        """
+        rules = self._get_nat_rules()
+        if rules is None:
+            oradio_log.error("Failed to get NAT rules")
+            return False
+        if _IPTABLES_REDIRECT_RULE not in rules:
+            return True  # Already absent; nothing to do.
+        cmd = (
+            f"sudo iptables -t nat -D PREROUTING "
+            f"-p tcp --dport 80 -j REDIRECT --to-ports {WEB_SERVER_PORT}"
+        )
+        result, error = run_shell_script(cmd)
+        if not result:
+            oradio_log.error("Failed to remove port redirect rule: %s", error)
+            return False
+        return True
+
+    def _ensure_dns_redirect(self) -> bool:
+        """
+        Write the dnsmasq wildcard redirect config if it does not already exist.
+
+        Returns:
+            bool: True if the file is (or was already) in place, False on error.
+        """
+        if _DNS_REDIRECT_CONF.exists():
+            return True  # Already present; nothing to do.
+        cmd = f'sudo bash -c \'echo "address=/#/{ACCESS_POINT_HOST}" > {_DNS_REDIRECT_CONF}\''
+        result, error = run_shell_script(cmd)
+        if not result:
+            oradio_log.error("Failed to write DNS redirect config: %s", error)
+            return False
+        return True
+
+    def _remove_dns_redirect(self) -> bool:
+        """
+        Remove the dnsmasq redirect config file if it exists.
+
+        Returns:
+            bool: True if the file is (or was already) absent, False on error.
+        """
+        if not _DNS_REDIRECT_CONF.exists():
+            return True  # Already absent; nothing to do.
+        result, error = run_shell_script(f"sudo rm -f {_DNS_REDIRECT_CONF}")
+        if not result:
+            oradio_log.error("Failed to remove DNS redirect config: %s", error)
+            return False
+        return True
+
+    def _wait_for_wifi_state(self, target_states) -> bool:
+        """
+        Poll until the WiFi interface reaches one of the expected states.
+
+        Note:
+            Polling is used instead of subscribing to WiFi messages because
+            the caller must block until the transition completes before
+            proceeding. A 1-second sleep between polls reduces CPU usage.
 
         Args:
-            queue (multiprocessing.Queue): Outgoing queue for sending messages to the controller
+            target_states (set): Acceptable WifiService state values to wait for.
+
+        Returns:
+            bool: True if a target state was reached, False on timeout.
         """
-        # Queue for sending messages to the external controller
-        self.outgoing_q = queue
+        deadline = time.time() + WIFI_STATE_TIMEOUT
+        while self.wifi_service.get_state() not in target_states:
+            if time.time() > deadline:
+                oradio_log.error("Timeout waiting for WiFi state in %s", target_states)
+                return False
+            time.sleep(1)
+        return True
 
-        # Queue for receiving messages from the web server or wifi service
-        self.incoming_q = Queue()
-
-        # Create the wifi service interface
-        self.wifi_service = WifiService(self.incoming_q)
-
-        # Pass the receiving queue to the web server API
-        api_app.state.queue = self.incoming_q
-
-        # Prepare the embedded web server: Uvicorn running in a background thread
-        self.uvicorn_server = UvicornServerThread(api_app)
-
-        # Start thread to continuously monitor incoming messages
-        self.server_listener = Thread(target=self._check_server_messages, daemon=True)
-        self.server_listener.start()
-
-        # Send initial "no error" state to the controller
-        self._send_message(MESSAGE_NO_ERROR)
-
-    def _check_server_messages(self):
+    def _check_server_messages(self) -> None:
         """
-        Continuously read messages from the incoming queue and forward them to the controller.
-        Runs as a separate thread to avoid blocking the main thread.
-        Is stopped by setting the stop event.
+        Drain the incoming queue and act on API requests indefinitely.
+
+        Runs on a daemon thread started in __init__. Blocks on safe_get()
+        until a message arrives, consuming no CPU while idle, with fatal-exit
+        handling for broken queues. There is no stopping condition: the thread
+        is intentionally kept alive for the full lifetime of the process so
+        that API requests are never dropped. Unrecognised request types are
+        logged as warnings.
+
+        Note:
+            request_queue carries plain dicts posted by FastAPI route handlers,
+            not CommandMessage objects. message.get("request") is used rather
+            than message.message for this reason.
+
+        Recognised request types:
+        - REQUEST_CONNECT: extract SSID and optional password, call
+          WifiService.wifi_connect(), then stop the Captive Portal.
+        - REQUEST_STOP: stop the Captive Portal directly.
+
+        stop() is dispatched on its own daemon thread rather than called
+        inline: UvicornServerThread.stop() blocks on a join() of up to
+        SERVER_READY_TIMEOUT seconds, and _wait_for_wifi_state() can block
+        for up to WIFI_STATE_TIMEOUT seconds on top of that. Calling it
+        inline here would leave this listener -- the only thing draining
+        request_queue -- unresponsive to new messages for that entire
+        window. stop() is idempotent (guarded by is_running checks), so
+        concurrent or overlapping calls from multiple such threads are safe.
+
+        Dispatch is wrapped in a broad try/except: this thread has no
+        supervisor and is never restarted, so an uncaught exception here
+        would silently end all future message processing for the life of the
+        process (the portal could be left stuck running or stuck stopped,
+        with no incident reported). Catching, logging, publishing
+        WEB_SERVER_FAILED, and continuing keeps the listener alive to
+        handle the next message instead.
         """
         while True:
-            # Wait indefinitely until a message arrives from the server/wifi service
-            message = self.incoming_q.get(block=True, timeout=None)
-            oradio_log.debug("WebService: message received: '%s'", message)
+            message = safe_get(self.request_queue)
+            oradio_log.debug("Message received: '%s'", message)
 
-            request = message.get("request")
-            forward = True  # default: forward all messages
+            try:
+                # Guard against wrong message type
+                if not isinstance(message, dict):
+                    oradio_log.warning("Unexpected message type %s: %s", type(message).__name__, message)
+                    continue
 
-            if request == MESSAGE_REQUEST_CLOSE:
-                # Stop the listener loop
-                break
+                request = message.get("request")
 
-            if request == MESSAGE_REQUEST_CONNECT:
-                # Attempt to connect to wifi if SSID is provided
-                if ssid := message.get("ssid"):
-                    pswd = message.get("pswd", "")  # password can be empty for open networks
-                    self.wifi_service.wifi_connect(ssid, pswd)
-                    self.stop()  # stop captive portal
-                    forward = False
+                if request == REQUEST_CONNECT:
+                    if ssid := message.get("ssid"):
+                        # Password is optional; None is passed for open networks.
+                        pswd = message.get("pswd")
+                        self.wifi_service.wifi_connect(ssid, pswd)
+                        # Tear down the Captive Portal after handing off to the
+                        # new network. Runs on its own thread so a slow stop()
+                        # doesn't block this loop from draining new messages.
+                        Thread(target=self.stop, daemon=True).start()
 
-            elif request == MESSAGE_REQUEST_STOP:
-                # Stop the Captive Portal service
-                self.stop()
-                forward = False
+                elif request == REQUEST_STOP:
+                    Thread(target=self.stop, daemon=True).start()
 
-            # At this point, 'forward' indicates if the message should be forwarded
-            if forward:
-                oradio_log.debug("WebService: Forwarding message: %s", message)
-                safe_put(self.outgoing_q, message)
+                else:
+                    oradio_log.warning("Unrecognised request: %s", request)
 
-    def _send_message(self, error):
+            # Broad catch is intentional: this loop must never die, since
+            # nothing else drains request_queue or restarts this thread.
+            except Exception as ex_err:  # pylint: disable=broad-exception-caught
+                oradio_log.error("Error handling server message '%s': %s", message, ex_err)
+                Incidents.publish(IncidentMessage(WEB_SOURCE, WEB_SERVER_FAILED))
+
+##### Public API ##########################################
+
+    @property
+    def state(self) -> str:
         """
-        Send a structured status message to the controller
+        Current operational state of the web service.
 
-        Args:
-            error (str): Error message or code to include in the message
+        Returns:
+            str: WEB_ACTIVE if the Uvicorn server is running, WEB_IDLE otherwise.
         """
-        # Build the status message
-        message = {
-            "source": MESSAGE_WEB_SERVICE_SOURCE,
-            "state" : self.get_state(),
-            "error" : error
-        }
+        if self.uvicorn_server is None:
+            return WEB_IDLE
+        return WEB_ACTIVE if self.uvicorn_server.is_running else WEB_IDLE
 
-        # Send message to the outgoing queue
-        oradio_log.debug("Send web service message: %s", message)
-        safe_put(self.outgoing_q, message)
+    def start(self) -> bool:
+        """
+        Start the Captive Portal service.
 
-    def get_state(self):
-        """
-        Return the current operational state of the web service
+        Performs the following steps in order:
 
-        Returns: STATE_WEB_SERVICE_ACTIVE if the server is running,
-                 STATE_WEB_SERVICE_IDLE otherwise
-        """
-        if self.uvicorn_server and self.uvicorn_server.is_running:
-            return STATE_WEB_SERVICE_ACTIVE
-        return STATE_WEB_SERVICE_IDLE
+        1. Switch WiFi into access point mode (transition is asynchronous;
+           confirmation is deferred to step 5 so the server can start in
+           parallel).
+        2. Ensure the iptables port-redirect rule is in place.
+        3. Ensure the dnsmasq DNS redirect config is in place.
+        4. Start the Uvicorn web server.
+        5. Wait for the WiFi transition (started in step 1) to reach
+           WIFI_ACCESS_POINT state.
 
-    def start(self):
+        Two hard preconditions (uninitialised uvicorn_server, already running)
+        return immediately since there is nothing meaningful to accumulate
+        status over in either case. Once past those, each remaining step is
+        skipped (via the status guard) if an earlier one already failed, so
+        later steps never run against a known-bad state -- but there is still
+        only one return statement for the whole step sequence, matching stop().
+
+        All helper methods only log and return False on failure; start() is
+        solely responsible for publishing to Incidents, so each failure is
+        reported exactly once. Commands.publish(self.state) is only called on
+        full success -- a Commands-only subscriber therefore never sees a
+        "success" state announced after a failed start().
+
+        Returns:
+            bool: True if the portal started successfully, False otherwise.
         """
-        Start the Captive Portal service
-        This performs:
-        - wifi access point activation
-        - HTTP port redirection (iptables)
-        - DNS redirection to the captive portal
-        - uvicorn web server start
-        The method blocks until the access point is confirmed active or a timeout occurs
-        """
-        # Enable wifi access point mode
+        if self.uvicorn_server is None:
+            oradio_log.error("Uvicorn server not initialized")
+            Incidents.publish(IncidentMessage(WEB_SOURCE, WEB_START_FAILED))
+            return False
+
+        # Check running state before committing to any side-effecting steps.
+        if self.uvicorn_server.is_running:
+            oradio_log.debug("Web service already running")
+            return True
+
+        # wifi_connect is non-blocking; the AP transition is confirmed in step 5.
         self.wifi_service.wifi_connect(ACCESS_POINT_SSID, None)
 
-        # Get current NAT (iptables) configuration
-        cmd = "sudo bash -c \"iptables-save -t nat\""
-        result, rules = run_shell_script(cmd)
-        if not result:
-            oradio_log.error("Error during <%s> to get iptables rules, error = %s", cmd, rules)
-            self._send_message(MESSAGE_WEB_SERVICE_FAIL_START)
-            return
+        status = True
 
-        # Configure HTTP port redirection to captive portal port
-        oradio_log.debug("Configure port redirection")
-        if f"-A PREROUTING -p tcp -m tcp --dport 80 -j REDIRECT --to-ports {WEB_SERVER_PORT}" not in rules:
-            cmd = (
-                f"sudo iptables -t nat -A PREROUTING "
-                f"-p tcp --dport 80 -j REDIRECT --to-ports {WEB_SERVER_PORT}"
+        if not self._ensure_port_redirect() or not self._ensure_dns_redirect():
+            Incidents.publish(IncidentMessage(WEB_SOURCE, WEB_START_FAILED))
+            status = False
+
+        # Reset the inactivity timer (auto-stops the portal after no client
+        # activity) before the server accepts connections, and cancel any
+        # lingering timer task from a previous session.
+        #
+        # api_app.state.timer_task is an asyncio.Task that belongs to the
+        # uvicorn event loop, which runs on a different OS thread than this
+        # method. Task.cancel() is not documented as thread-safe when called
+        # from outside the loop's own thread. This is only safe here because
+        # is_running (checked above) guarantees the previous UvicornServerThread
+        # has already been stop()'d and joined -- so if timer_task is not None,
+        # it belongs to an event loop that is no longer running. The guard below
+        # makes that invariant explicit and refuses to proceed if it's ever
+        # violated, rather than silently racing on live asyncio internals.
+        if status and self.uvicorn_server.is_running:
+            oradio_log.error(
+                "Refusing to reset keep-alive timer state: uvicorn server unexpectedly still running"
             )
-            result, error = run_shell_script(cmd)
-            if not result:
-                oradio_log.error("Error during <%s> to configure port redirection, error = %s", cmd, error)
-                self._send_message(MESSAGE_WEB_SERVICE_FAIL_START)
-                return
+            Incidents.publish(IncidentMessage(WEB_SOURCE, WEB_START_FAILED))
+            status = False
 
-        # Configure DNS redirection to captive portal host
-        oradio_log.debug("Redirect DNS")
-        if not Path("/etc/NetworkManager/dnsmasq-shared.d/redirect.conf").exists():
-            cmd = "sudo bash -c 'echo \"address=/#/"+ACCESS_POINT_HOST+"\" > /etc/NetworkManager/dnsmasq-shared.d/redirect.conf'"
-            result, error = run_shell_script(cmd)
-            if not result:
-                oradio_log.error("Error during <%s> to configure DNS redirection, error: %s", cmd, error)
-                # Send message with current state and error message
-                self._send_message(MESSAGE_WEB_SERVICE_FAIL_START)
-                # Error, no point continuing
-                return
+        if status:
+            # timer_task is set by the FastAPI app and may not exist on first run,
+            # so getattr is used rather than a direct attribute access.
+            if getattr(api_app.state, "timer_task", None) is not None:
+                api_app.state.timer_task.cancel()
+                api_app.state.timer_task = None
+            api_app.state.timer_started = False
 
-        # Start the web server
-        api_app.state.timer_started = False     # Initialize timer not running
-        if not self.uvicorn_server.start():
-            # Send message web server did not start
-            self._send_message(MESSAGE_WEB_SERVICE_FAIL_START)
-            return
+            if not self.uvicorn_server.start():
+                oradio_log.error("Uvicorn server failed to start")
+                Incidents.publish(IncidentMessage(WEB_SOURCE, WEB_START_FAILED))
+                status = False
 
-        # Wait until wifi is confirmed to be in access point mode, or timeout
-        start_time = time.time()
-        state = self.wifi_service.get_state()
-        while state != STATE_WIFI_ACCESS_POINT:
-            # Check if the timeout has been reached
-            if time.time() - start_time > READY_TIMEOUT:
-                oradio_log.error("Timeout waiting for access point to become active")
-                # Send message web server did not start
-                self._send_message(MESSAGE_WEB_SERVICE_FAIL_START)
-                return
-            # Sleep for a short interval to prevent busy-waiting
-            time.sleep(1)
-            # Check active network again
-            state = self.wifi_service.get_state()
+        if status and not self._wait_for_wifi_state({WIFI_ACCESS_POINT}):
+            Incidents.publish(IncidentMessage(WEB_SOURCE, WEB_START_FAILED))
+            status = False
 
-        # Notify controller that the captive portal is active
-        self._send_message(MESSAGE_NO_ERROR)
+        # Commands only on full success -- Incidents already reported any
+        # individual failure above, so a Commands-only subscriber never sees
+        # a "success" state announced after a failed start().
+        if status:
+            Commands.publish(CommandMessage(WEB_SOURCE, self.state))
 
-    def stop(self):
+        return status
+
+    def stop(self) -> bool:
         """
-        Stop the Captive Portal service
-        This performs:
-        - wifi access point shutdown
-        - uvicorn web server stop
-        - Removal of HTTP port redirection
-        - Removal of DNS redirection
-        The method blocks until the access point is confirmed inactive or a timeout occurs
-        """
-        # Assume no error until proven otherwise
-        err_msg = MESSAGE_NO_ERROR
+        Stop the Captive Portal service.
 
-        # Disconnect wifi if currently in access point mode
-        state = self.wifi_service.get_state()
-        if state == STATE_WIFI_ACCESS_POINT:
+        Reverses the steps performed by start() in order:
+
+        1. Disconnect the access point (if currently active) so connected
+           clients are dropped before the server stops.
+        2. Stop the Uvicorn web server.
+        3. Remove the iptables port-redirect rule.
+        4. Remove the dnsmasq DNS redirect config file.
+        5. Wait for the WiFi interface to reach WIFI_DISCONNECTED or WIFI_CONNECTED.
+
+        Step 2 publishes WEB_STOP_FAILED directly in stop() if the Uvicorn server
+        fails to stop. Steps 3 and 4 publish WEB_STOP_FAILED internally in their
+        helper methods. All failures continue so that remaining teardown steps
+        are still attempted.
+        """
+        status = True
+
+        # Disconnect WiFi first so clients are dropped gracefully before the
+        # server stops accepting connections.
+        if self.wifi_service.get_state() == WIFI_ACCESS_POINT:
             self.wifi_service.wifi_disconnect()
 
-        # Stop the uvicorn web server
-        if not self.uvicorn_server.stop():
-            err_msg = MESSAGE_WEB_SERVICE_FAIL_STOP
-
-        # Get current NAT (iptables) configuration
-        cmd = "sudo bash -c \"iptables-save -t nat\""
-        result, rules = run_shell_script(cmd)
-        if not result:
-            oradio_log.error("Error during <%s> to get iptables rules, error = %s", cmd, rules)
-            err_msg = MESSAGE_WEB_SERVICE_FAIL_STOP
-
-        # Remove HTTP port redirection if present
-        oradio_log.debug("Remove port redirection")
-        if f"-A PREROUTING -p tcp -m tcp --dport 80 -j REDIRECT --to-ports {WEB_SERVER_PORT}" in rules:
-            cmd = (
-                f"sudo iptables -t nat -D PREROUTING "
-                f"-p tcp --dport 80 -j REDIRECT --to-ports {WEB_SERVER_PORT}"
-            )
-            result, error = run_shell_script(cmd)
-            if not result:
-                oradio_log.error("Error during <%s> to remove iptables port redirection, error = %s", cmd, error)
-                err_msg = MESSAGE_WEB_SERVICE_FAIL_STOP
-
-        # Remove DNS redirection file if it exists
-        oradio_log.debug("Remove DNS redirection")
-        if Path("/etc/NetworkManager/dnsmasq-shared.d/redirect.conf").exists():
-            cmd = "sudo rm -rf /etc/NetworkManager/dnsmasq-shared.d/redirect.conf"
-            result, error = run_shell_script(cmd)
-            if not result:
-                oradio_log.error("Error during <%s> to remove DNS redirection, error: %s", cmd, error)
-                # Set error message
-                err_msg = MESSAGE_WEB_SERVICE_FAIL_STOP
-
-        # Wait until wifi is no longer in access point mode, or timeout
-        start_time = time.time()
-        while state not in (STATE_WIFI_IDLE, STATE_WIFI_CONNECTED):
-            # Check if the timeout has been reached
-            if time.time() - start_time > READY_TIMEOUT:
-                oradio_log.error("Timeout waiting for access point to become inactive")
-                err_msg = MESSAGE_WEB_SERVICE_FAIL_STOP
-                break
-            # Sleep for a short interval to prevent busy-waiting
-            time.sleep(1)
-            # Check active network again
-            state = self.wifi_service.get_state()
-
-        # Notify controller that the captive portal has stopped (or failed to stop cleanly)
-        self._send_message(err_msg)
-
-    def close(self):
-        """
-        Stop the web service
-        - Stop Captive Portal service
-        - Close the wifi service
-        """
-        # Remove captive portal, stops uvicorn
-        self.stop()
-
-        # Close wifi service and unsubscribe from events
-        self.wifi_service.close()
-
-        if self.server_listener:
-            # message: stop message listener thread
-            safe_put(self.incoming_q, {"request": MESSAGE_REQUEST_CLOSE})
-
-            # Avoid hanging forever if the thread is stuck in I/O
-            self.server_listener.join(timeout=THREAD_TIMEOUT)
-
-        if self.server_listener.is_alive():
-            oradio_log.error("Join timed out: message listener thread is still running")
+        if self.uvicorn_server is None:
+            oradio_log.error("Uvicorn server not initialized")
+            Incidents.publish(IncidentMessage(WEB_SOURCE, WEB_STOP_FAILED))
+            status = False
         else:
-            oradio_log.info("web service closed")
+            if not self.uvicorn_server.stop():
+                Incidents.publish(IncidentMessage(WEB_SOURCE, WEB_STOP_FAILED))
+                status = False
 
-# Entry point for stand-alone operation
+        if not self._remove_port_redirect():
+            status = False
+            Incidents.publish(IncidentMessage(WEB_SOURCE, WEB_STOP_FAILED))
+
+        if not self._remove_dns_redirect():
+            Incidents.publish(IncidentMessage(WEB_SOURCE, WEB_STOP_FAILED))
+            status = False
+
+        if not self._wait_for_wifi_state({WIFI_DISCONNECTED, WIFI_CONNECTED}):
+            Incidents.publish(IncidentMessage(WEB_SOURCE, WEB_STOP_FAILED))
+            status = False
+
+        # Commands only on full success -- Incidents already reported any
+        # individual failure above, so a Commands-only subscriber never
+        # sees a "success" state announced after a partially failed stop().
+        if status:
+            Commands.publish(CommandMessage(WEB_SOURCE, self.state))
+
+        return status
+
+##### Stand-alone entry point #############################
+
 if __name__ == '__main__':
 
-    # Imports only relevant when stand-alone
     import requests
     import subprocess
+    from utilities import input_prompt          # pylint: disable=ungrouped-imports
+    from constants import RED, YELLOW, NC       # pylint: disable=ungrouped-imports
+    from messaging import DebugMessageHandler   # pylint: disable=ungrouped-imports
 
-# Most modules use similar code in stand-alone
-# pylint: disable=duplicate-code
+    # Most stand-alone entry points share this pattern; pylint flags it as duplicate code across modules.
+    # pylint: disable=duplicate-code
 
-    def _check_messages(queue):
+    def interactive_menu():  # pylint: disable=too-many-branches
         """
-        Check if a new message is put into the queue
-        If so, read the message from queue and display it
+        Run an interactive command-line menu for manual WebService testing.
 
-        Args:
-            queue = the queue to check for
+        Creates a WebService instance and presents a numbered menu that lets a
+        developer exercise start, stop, WiFi connect, and state inspection
+        without running the full Oradio application stack.
+
+        The too-many-branches pylint warning is suppressed because the match
+        statement has one branch per menu option, which is unavoidable here.
         """
-        while True:
-            # Wait indefinitely until a message arrives from the server/wifi service
-            message = queue.get(block=True, timeout=None)
-            # Show message received
-            print(f"\n{GREEN}Message received: '{message}'{NC}\n")
+        web_service = WebService()
 
-    # Pylint PEP8 ignoring limit of max 12 branches is ok for test menu
-    def interactive_menu(queue):    # pylint: disable=too-many-branches
-        """Show menu with test options"""
-        # Initialize
-        web_service = WebService(queue)
-
-        # Show menu with test options
         input_selection = (
             "Select a function, input the number.\n"
             " 0-Quit\n"
@@ -528,29 +679,23 @@ if __name__ == '__main__':
             " 2-start web service (emulate long-press-AAN)\n"
             " 3-stop web service (emulate any-press-UIT)\n"
             " 4-start and right away stop web service (test robustness)\n"
-            " 5-start, connect to wifi, stop service (emulate web interface submit network)\n"
+            " 5-emulate web interface submit network\n"
             " 6-get wifi state and connection\n"
             "Select: "
         )
 
-        # User command loop
         while True:
-            # Get user input
-            try:
-                function_nr = int(input(input_selection))
-            except ValueError:
-                function_nr = -1
-            # Execute selected function
-            match function_nr:
+            test_choice = input_prompt(input_selection, int, -1)
+            match test_choice:
                 case 0:
-                    print("\nStopping the web service...\n")
-                    web_service.close()
-                    print("\nExiting test program...\n")
                     break
                 case 1:
-                    # Check if a process is listening on WEB_SERVER_HOST:WEB_SERVER_PORT
-                    proc = subprocess.run(f"ss -tuln | grep {WEB_SERVER_HOST}:{WEB_SERVER_PORT}", shell=True, check=False, stdout=subprocess.DEVNULL)
-                    if not proc.returncode:
+                    # Use ss to check whether a process is listening on the configured host:port.
+                    proc = subprocess.run(
+                        f"ss -tuln | grep {WEB_SERVER_HOST}:{WEB_SERVER_PORT}",
+                        shell=True, check=False, stdout=subprocess.DEVNULL
+                    )
+                    if proc.returncode == 0:
                         print("\nActive web service found\n")
                     else:
                         print("\nNo active web service found\n")
@@ -574,33 +719,39 @@ if __name__ == '__main__':
                         print(f"\nConnecting with '{name}'. Check messages for result\n")
                         url = f"http://{WEB_SERVER_HOST}:{WEB_SERVER_PORT}/wifi_connect"
                         try:
-                            requests.post(url, json={"ssid": name, "pswd": pswrd}, timeout=READY_TIMEOUT)
+                            requests.post(url, json={"ssid": name, "pswd": pswrd}, timeout=SERVER_READY_TIMEOUT)
                         except requests.exceptions.RequestException:
                             print(f"{RED}Failed to connect. Make sure you have an active web server{NC}\n")
                     else:
                         print(f"\n{YELLOW}No network given{NC}\n")
                 case 6:
+                    # WiFi state may lag during transitions; re-run this option once settled if needed.
                     print(f"{YELLOW}Careful: state may not be correct if wifi is still processing: check messages and run again when in doubt{NC}")
                     wifi_state = web_service.wifi_service.get_state()
-                    if wifi_state == STATE_WIFI_IDLE:
+                    if wifi_state == WIFI_DISCONNECTED:
                         print(f"\nWiFi state: '{wifi_state}'\n")
                     else:
                         print(f"\nWiFi state: '{wifi_state}'. Connected with: '{get_wifi_connection()}'\n")
                 case _:
                     print(f"\n{YELLOW}Please input a valid number{NC}\n")
 
-    # Initialize
-    message_queue = Queue()
+    print("\nStarting test program...\n")
 
-    # Start  process to monitor the message queue
-    message_listener = Process(target=_check_messages, args=(message_queue,))
-    message_listener.start()
+    # Subscribe to command and error topics so published messages are printed to console
+    command_handler = DebugMessageHandler(Commands.subscribe())
+    incident_handler = DebugMessageHandler(Incidents.subscribe())
 
-    # Present menu with tests
-    interactive_menu(message_queue)
+    # Launch the interactive test menu; blocks until the user quits
+    interactive_menu()
 
-    # Stop listening to messages
-    message_listener.terminate()
+    # Stop receiving messages
+    Commands.unsubscribe(command_handler.get_queue())
+    Incidents.unsubscribe(incident_handler.get_queue())
+    # Signal the thread to exit and confirm it has exited
+    command_handler.stop()
+    incident_handler.stop()
 
-# Restore temporarily disabled pylint duplicate code check
-# pylint: enable=duplicate-code
+    print("\nExiting test program...\n")
+
+    # Restore temporarily disabled pylint duplicate code check
+    # pylint: enable=duplicate-code

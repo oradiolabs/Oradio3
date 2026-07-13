@@ -8,52 +8,126 @@
  #    #  #   #   #    #  #    #     #    #    #
   ####   #    #  #    #  #####      #     ####
 
-Created on Februari 1, 2025
+Created on February 1, 2025
 @author:        Henk Stevens & Olaf Mastenbroek & Onno Janssen
+@copyright:     Copyright 2024, Oradio Stichting
+@license:       GNU General Public License (GPL)
+@organization:  Oradio Stichting
+@version:       2
+@email:         oradioinfo@stichtingoradio.nl
+@status:        Development
+@summary:
 @summary:  Spotify Connect
-
-The librespot audio Spotify Connect is (un) muted when Oradio on/off.
-Connection stays active and music streaming. The status of the Librespot
-connection is monitored via Librespot events which put status in two files:
-spotactive.flag and spotplaying.flag.
+    The librespot audio Spotify Connect is (un)muted when Oradio on/off.
+    Connection stays active and music keeps streaming. The status of the
+    Librespot connection is monitored via Librespot events which write
+    status into two files: spotactive.flag and spotplaying.flag.
 """
-
-import time
 import subprocess
-import threading
-from multiprocessing import Queue
-from queue import Full  # for queue-full errors in send_event
 
-# Oradio modules
-from oradio_logging import oradio_log
-
-# Constants from oradio_const
-from oradio_const import (
-    MESSAGE_NO_ERROR,
-    MESSAGE_SPOTIFY_SOURCE,
-    SPOTIFY_CONNECT_CONNECTED_EVENT,
-    SPOTIFY_CONNECT_DISCONNECTED_EVENT,
-    SPOTIFY_CONNECT_PLAYING_EVENT,
-    SPOTIFY_CONNECT_PAUSED_EVENT,
+##### Oradio modules ######################################
+from log_service import oradio_log
+from utilities import ThreadTemplate
+from messaging import (
+    Commands,
+    Incidents,
+    CommandMessage,
+    IncidentMessage,
+    SPOTIFY_SOURCE,
+    SPOTIFY_CONNECTED_EVENT,
+    SPOTIFY_DISCONNECTED_EVENT,
+    SPOTIFY_PLAYING_EVENT,
+    SPOTIFY_PAUSED_EVENT,
+    SPOTIFY_START_FAILED,
+    SPOTIFY_STOPPED,
+    SPOTIFY_MUTE_FAILED,
+    SPOTIFY_UNMUTE_FAILED,
 )
 
-# Local constants
+##### LOCAL constants #####################################
 ALSA_MIXER_SPOTCON = "VolumeSpotCon1"
-ACTIVE_FLAG_FILE = "/home/pi/Oradio3/Spotify/spotactive.flag"
-PLAYING_FLAG_FILE = "/home/pi/Oradio3/Spotify/spotplaying.flag"
+ACTIVE_FLAG_FILE   = "/home/pi/Oradio3/Spotify/spotactive.flag"
+PLAYING_FLAG_FILE  = "/home/pi/Oradio3/Spotify/spotplaying.flag"
+MONITOR_INTERVAL   = 0.5  # seconds between flag file polls
 
+class _SpotifyMonitorWorker(ThreadTemplate):
+    """
+    Background worker that polls the Librespot flag files and publishes
+    connect/play state-change events.
+
+    One instance is created per SpotifyConnect object (see
+    SpotifyConnect.__init__) and reused across repeated start()/stop()
+    cycles: ThreadTemplate itself is restartable, so a single
+    _SpotifyMonitorWorker instance can be safe_start()ed and safe_stop()ped
+    any number of times.
+    """
+    def __init__(self, spotify: "SpotifyConnect") -> None:
+        super().__init__(interval=MONITOR_INTERVAL, name="SpotifyMonitorWorker")
+        self._spotify = spotify
+        # Snapshot of active/playing from the previous do_work() iteration,
+        # used to detect transitions. Set in setup(), updated in do_work().
+        self._prev_active = False
+        self._prev_playing = False
+
+    def setup(self) -> None:
+        """
+        Take the initial flag reading before the poll loop (re)begins, so
+        spotify.active/spotify.playing are already valid by the time
+        safe_start() returns, and so the first do_work() pass doesn't fire
+        spurious transition events for the startup state.
+        """
+        oradio_log.info("SpotifyConnect: starting flag monitoring.")
+        self._spotify.update_flags()
+        self._prev_active = self._spotify.active
+        self._prev_playing = self._spotify.playing
+
+    def do_work(self) -> None:
+        """
+        One poll iteration: re-read the flag files and publish events for
+        any active/playing transition since the previous iteration.
+
+        Transitions detected:
+        - active  0->1: SPOTIFY_CONNECTED_EVENT
+        - active  1->0: SPOTIFY_DISCONNECTED_EVENT
+        - playing 0->1: SPOTIFY_PLAYING_EVENT
+        - playing 1->0: SPOTIFY_PAUSED_EVENT
+        """
+        self._prev_active = self._spotify.active
+        self._prev_playing = self._spotify.playing
+        self._spotify.update_flags()
+
+        if self._prev_active != self._spotify.active:
+            if self._spotify.active:
+                Commands.publish(CommandMessage(SPOTIFY_SOURCE, SPOTIFY_CONNECTED_EVENT))
+            else:
+                Commands.publish(CommandMessage(SPOTIFY_SOURCE, SPOTIFY_DISCONNECTED_EVENT))
+
+        if self._prev_playing != self._spotify.playing:
+            if self._spotify.playing:
+                Commands.publish(CommandMessage(SPOTIFY_SOURCE, SPOTIFY_PLAYING_EVENT))
+            else:
+                Commands.publish(CommandMessage(SPOTIFY_SOURCE, SPOTIFY_PAUSED_EVENT))
+
+    def teardown(self) -> None:
+        """Report incident: Oradio never intentionally stops Spotify Monitor."""
+        Incidents.publish(IncidentMessage(SPOTIFY_SOURCE, SPOTIFY_STOPPED))
 
 class SpotifyConnect:
-    """Basic Spotify functionality based on Librespot service."""
+    """
+    Basic Spotify functionality based on Librespot service.
+    - Monitors the Librespot active/playing state via flag files.
+    - Supports muting/unmuting the ALSA output channel.
+    - Runs the flag monitoring in a background worker; start()/stop() can
+      be called repeatedly since the worker (ThreadTemplate) is restartable.
+    """
 
-    def __init__(self, message_queue=None):
+    def __init__(self):
         """
-        Initialize with a message queue used to send events to oradio_control.py.
-        Starts monitoring flags in a separate thread.
+        Initialize SpotifyConnect. Does NOT start monitoring automatically
+        -- call start() to begin polling the flag files.
         """
         self.active = False
         self.playing = False
-        self.message_queue = message_queue
 
         # Track whether we've already warned about a missing/unreadable file
         self._warned_missing = {
@@ -61,29 +135,28 @@ class SpotifyConnect:
             PLAYING_FLAG_FILE: False,
         }
 
-        # Start monitor_flags in a separate daemon thread.
-        self.monitor_thread = threading.Thread(target=self.monitor_flags, daemon=True)
-        self.monitor_thread.start()
-        oradio_log.info("SpotifyConnect: monitor thread started.")
-
+        # Created once; safe_start()/safe_stop() can be called on it
+        # repeatedly since ThreadTemplate itself supports restarting.
+        self._worker = _SpotifyMonitorWorker(self)
 
     def _read_flag(self, filepath: str) -> bool:
         """
         Return True iff the file's trimmed content is '1'.
-        If the file is missing/unreadable, return False and log a one-time INFO.
-        Once the file becomes readable again, clear the warning latch.
+
+        If the file is missing or unreadable, return False and log a
+        one-time INFO message. Once the file becomes readable again,
+        the warning latch is cleared so the message fires once more
+        if it disappears a second time.
         """
         try:
-            with open(filepath, "r", encoding="utf-8") as flag_file:
+            with open(filepath, encoding="utf-8") as flag_file:
                 value = flag_file.read().strip() == "1"
-            # If it was missing before and now it's back, clear the latch (optional)
             if self._warned_missing.get(filepath, False):
                 oradio_log.info("Flag file %s available again.", filepath)
                 self._warned_missing[filepath] = False
             return value
 
         except (FileNotFoundError, OSError) as ex:
-            # Log only once per filepath, at INFO level (no ERRORs sent to ORMS)
             if not self._warned_missing.get(filepath, False):
                 oradio_log.info(
                     "Flag file %s not readable (%s); treating as '0' until it appears.",
@@ -93,56 +166,19 @@ class SpotifyConnect:
                 self._warned_missing[filepath] = True
             return False
 
-
-
     def update_flags(self) -> None:
         """Update 'active' and 'playing' by reading their flag files."""
         self.active = self._read_flag(ACTIVE_FLAG_FILE)
         self.playing = self._read_flag(PLAYING_FLAG_FILE)
 
-    # ---------- Events to oradio_control ----------
-
-    def send_event(self, event: str) -> None:
-        """
-        Send an event via the message queue. The message dict contains:
-          - 'source': MESSAGE_SPOTIFY_SOURCE
-          - 'state' : the event (string)
-          - 'error' : MESSAGE_NO_ERROR
-        """
-        if not self.message_queue:
-            oradio_log.error("SpotifyConnect: message queue not set; cannot send event.")
-            return
-
-        try:
-            message = {
-                "source": MESSAGE_SPOTIFY_SOURCE,
-                "state": event,
-                "error": MESSAGE_NO_ERROR,
-            }
-            self.message_queue.put(message)
-            oradio_log.info("SpotifyConnect: message sent to queue: %s", message)
-        except Full:
-            oradio_log.error("SpotifyConnect: message queue is full; event dropped.")
-        except (OSError, ValueError) as ex_err:
-            oradio_log.error("SpotifyConnect: error sending event to queue: %s", ex_err)
-
     # ---------- Control (mute/unmute) ----------
 
-    def play(self) -> None:
-        """Unmute Spotify Connect by setting ALSA channel to 100%."""
-        try:
-            subprocess.run(
-                ["amixer", "-c", "DigiAMP", "sset", ALSA_MIXER_SPOTCON, "100%"],
-                check=True,
-                stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL,
-            )
-            oradio_log.info("SpotifyConnect: unmuted via amixer.")
-        except subprocess.CalledProcessError as ex_err:
-            oradio_log.error("SpotifyConnect: error unmuting via amixer: %s", ex_err)
+    def mute(self) -> None:
+        """Mute Spotify Connect by setting the ALSA channel to 0%.
 
-    def pause(self) -> None:
-        """Mute Spotify Connect by setting ALSA channel to 0%."""
+        This is an ALSA-level volume operation only; it does not pause
+        Librespot playback or affect the Spotify Connect session.
+        """
         try:
             subprocess.run(
                 ["amixer", "-c", "DigiAMP", "sset", ALSA_MIXER_SPOTCON, "0%"],
@@ -153,67 +189,151 @@ class SpotifyConnect:
             oradio_log.info("SpotifyConnect: muted via amixer.")
         except subprocess.CalledProcessError as ex_err:
             oradio_log.error("SpotifyConnect: error muting via amixer: %s", ex_err)
+            Incidents.publish(IncidentMessage(SPOTIFY_SOURCE, SPOTIFY_MUTE_FAILED))
 
-    def get_state(self) -> dict:
-        """Return current state as a dict: {'active': bool, 'playing': bool}."""
+    def unmute(self) -> None:
+        """Unmute Spotify Connect by setting the ALSA channel to 100%.
+
+        This is an ALSA-level volume operation only; it does not resume
+        Librespot playback or affect the Spotify Connect session.
+        """
+        try:
+            subprocess.run(
+                ["amixer", "-c", "DigiAMP", "sset", ALSA_MIXER_SPOTCON, "100%"],
+                check=True,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+            )
+            oradio_log.info("SpotifyConnect: unmuted via amixer.")
+        except subprocess.CalledProcessError as ex_err:
+            oradio_log.error("SpotifyConnect: error unmuting via amixer: %s", ex_err)
+            Incidents.publish(IncidentMessage(SPOTIFY_SOURCE, SPOTIFY_UNMUTE_FAILED))
+
+    def get_state(self) -> dict[str, bool]:
+        """Return current state as {'active': bool, 'playing': bool}.
+
+        Note: self.active and self.playing are written by the monitor
+        thread. Reads here are safe under CPython's GIL (attribute
+        assignment is atomic), but callers must not assume the values
+        are perfectly in sync with one another.
+        """
         return {"active": self.active, "playing": self.playing}
 
-    # ---------- Monitor loop ----------
+    # ---------- Monitor thread control ----------
 
-    def monitor_flags(self, interval: float = 0.5) -> None:
+    def start(self) -> None:
         """
-        Continuously monitor the flag files and send events when values change.
+        Start the flag-monitoring worker if not already running.
+        Blocks until the worker signals readiness or a timeout occurs.
 
-        - active  0→1: SPOTIFY_CONNECT_CONNECTED_EVENT
-        - active  1→0: SPOTIFY_CONNECT_DISCONNECTED_EVENT
-        - playing 0→1: SPOTIFY_CONNECT_PLAYING_EVENT
-        - playing 1→0: SPOTIFY_CONNECT_PAUSED_EVENT
+        Note:
+            Safe to call after a previous stop() -- the underlying worker
+            is restartable and resumes monitoring; self.active/self.playing
+            are re-read fresh in setup() before this returns.
         """
-        self.update_flags()
-        prev_active = self.active
-        prev_playing = self.playing
-        oradio_log.info("SpotifyConnect: starting flag monitoring.")
+        if self._worker.is_alive():
+            oradio_log.debug("SpotifyConnect monitor thread already running")
+            return
 
-        try:
-            while True:
-                prev_active, prev_playing = self.active, self.playing
-                self.update_flags()
+        if not self._worker.safe_start():
+            oradio_log.error("SpotifyConnect monitor thread failed to start")
+            Incidents.publish(IncidentMessage(SPOTIFY_SOURCE, SPOTIFY_START_FAILED))
+            return
 
-                if prev_active != self.active:
-                    if self.active:
-                        self.send_event(SPOTIFY_CONNECT_CONNECTED_EVENT)
-                    else:
-                        self.send_event(SPOTIFY_CONNECT_DISCONNECTED_EVENT)
+        if self._worker.crashed:
+            oradio_log.error("SpotifyConnect monitor thread crashed during startup: %s", self._worker.exception)
+            Incidents.publish(IncidentMessage(SPOTIFY_SOURCE, SPOTIFY_START_FAILED))
+            return
 
-                if prev_playing != self.playing:
-                    if self.playing:
-                        self.send_event(SPOTIFY_CONNECT_PLAYING_EVENT)
-                    else:
-                        self.send_event(SPOTIFY_CONNECT_PAUSED_EVENT)
+        oradio_log.info("SpotifyConnect monitor thread started")
 
-                time.sleep(interval)
-        except KeyboardInterrupt:
-            oradio_log.info("SpotifyConnect: monitoring stopped.")
+    def stop(self) -> None:
+        """
+        Stop the flag-monitoring worker and wait for it to terminate.
 
+        Note:
+            The worker can be resumed later via start().
+        """
+        if not self._worker.is_alive():
+            oradio_log.debug("SpotifyConnect monitor thread not running")
+            return
 
-if __name__ == "__main__":
-    # Stand-alone test harness
-    msg_queue = Queue()
-    spotify = SpotifyConnect(message_queue=msg_queue)
-
-    # Simple interactive test for amixer control
-    while True:
-        print("\nSelect an option:")
-        print("1. Play (100% volume)")
-        print("2. Pause (0% volume)")
-        print("q. Quit")
-        choice = input("Enter your choice: ").strip()
-        if choice == "1":
-            spotify.play()
-        elif choice == "2":
-            spotify.pause()
-        elif choice.lower() == "q":
-            print("Exiting test mode.")
-            break
+        if not self._worker.safe_stop():
+            oradio_log.error("SpotifyConnect monitor thread did not stop cleanly")
         else:
-            print("Invalid option. Please try again.")
+            oradio_log.info("SpotifyConnect monitor thread stopped")
+
+##### Stand-alone entry point #############################
+
+if __name__ == '__main__':
+
+    # Imports only relevant when stand-alone
+    from constants import YELLOW, NC
+    from utilities import input_prompt              # pylint: disable=ungrouped-imports
+    from messaging import DebugMessageHandler       # pylint: disable=ungrouped-imports
+
+    # Most stand-alone entry points share this pattern across modules
+    # pylint: disable=duplicate-code
+
+    # Pylint allows more than 12 branches here because this is a test menu
+    def interactive_menu() -> None:    # pylint: disable=too-many-branches,too-many-statements
+        """
+        Run an interactive self-test menu for the Spotify Connect service.
+
+        Instantiates SpotifyConnect and loops until the user selects quit (0).
+        Options cover starting/stopping the flag monitor and mute/unmute
+        (ALSA channel control).
+        """
+        input_selection = (
+            "Select a function, input the number:\n"
+            " 0-Quit\n"
+            " 1-Start flag monitor\n"
+            " 2-Stop flag monitor\n"
+            " 3-Unmute (100% volume)\n"
+            " 4-Mute (0% volume)\n"
+            "Select: "
+        )
+
+        spotify = SpotifyConnect()
+
+        while True:
+            test_choice = input_prompt(input_selection, int, -1)
+            match test_choice:
+                case 0:
+                    break
+                case 1:
+                    print("Starting flag monitor...")
+                    spotify.start()
+                case 2:
+                    print("Stopping flag monitor...")
+                    spotify.stop()
+                case 3:
+                    spotify.unmute()
+                case 4:
+                    spotify.mute()
+                case _:
+                    print(f"\n{YELLOW}Please input a valid number{NC}\n")
+
+        # Make sure the monitor thread isn't left running when the menu exits
+        spotify.stop()
+
+    print("\nStarting test program...\n")
+
+    # Subscribe to command and error topics so published messages are printed to console
+    command_handler = DebugMessageHandler(Commands.subscribe())
+    incident_handler = DebugMessageHandler(Incidents.subscribe())
+
+    # Launch the interactive test menu; blocks until the user quits
+    interactive_menu()
+
+    # Stop receiving messages
+    Commands.unsubscribe(command_handler.get_queue())
+    Incidents.unsubscribe(incident_handler.get_queue())
+    # Signal the thread to exit and confirm it has exited
+    command_handler.stop()
+    incident_handler.stop()
+
+    print("\nExiting test program...\n")
+
+    # Re-enable the duplicate-code check for any code that follows
+    # pylint: enable=duplicate-code

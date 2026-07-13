@@ -424,14 +424,12 @@ echo "--------------------------------------------------"
 EOL'
 fi
 
-# Ensure defined state when booting: service removes /media/usb_ready
-install_resource $RESOURCES_PATH/usb-prepare.service /etc/systemd/system/usb-prepare.service 'systemctl enable usb-prepare.service'
-# Configure the USB mount script
-install_resource $RESOURCES_PATH/usb-mount.sh /usr/local/bin/usb-mount.sh 'chmod +x /usr/local/bin/usb-mount.sh'
-# Configure the USB service
-install_resource $RESOURCES_PATH/usb-mount@.service /etc/systemd/system/usb-mount@.service
-# Install rules if new or changed and reload to activate
+# Install udev rules triggering when inserting/removing ORADIO USB drive
 install_resource $RESOURCES_PATH/99-local.rules /etc/udev/rules.d/99-local.rules
+# Configure the USB service triggered by udev rules
+install_resource $RESOURCES_PATH/usb-drive@.service /etc/systemd/system/usb-drive@.service
+# Configure the USB mount/unmount script used by the system service
+install_resource $RESOURCES_PATH/usb-drive.sh /usr/local/bin/usb-drive.sh 'chmod +x /usr/local/bin/usb-drive.sh'
 # Progress report
 echo -e "${GREEN}USB functionalty loaded and configured. System automounts USB drives on '/media'${NC}"
 
