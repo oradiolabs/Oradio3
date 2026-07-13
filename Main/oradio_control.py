@@ -777,7 +777,6 @@ def sync_usb_presence_from_service():
 
 # ------------------Start-up - instantiate and define other modules ---------------
 
-
 # IMPORTANT: Start Remote Service before any incidents can happen, as othewise those incidents may nog be reported 
 remote_monitor = RMService()
 remote_monitor.start()
@@ -793,7 +792,6 @@ oradio_usb_service.start()
 # REVIEW Onno: sync_usb_presence_from_service is overbodig, want USB status komt via de command queue
 sync_usb_presence_from_service()
 
-# REVIEW: Do we need to start the incident handler?
 # Subscribe to incidents bus so incidents published are mitigated
 incident_handler = IncidentHandler()
 
@@ -801,7 +799,7 @@ incident_handler = IncidentHandler()
 spotify_connect = SpotifyConnect()
 spotify_connect.start()
 
-# REVIEW: Do we need to start touch_buttons?
+# Instantiate and start handling buttons
 touch_buttons = TouchButtons()
 
 # REVIEW: Do we need to start the web service?
