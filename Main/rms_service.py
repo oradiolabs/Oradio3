@@ -502,10 +502,9 @@ class RMService:
 
     Construction only sets up internal state; the WiFi subscription and the
     handler's worker thread are not started until start() is called
-    explicitly, mirroring ThrottlingMonitor's separation between
-    construction and start(). This lets callers control exactly when the
-    service begins subscribing/threading (and stop()/start() again later)
-    rather than having it begin as a side effect of instantiation.
+    explicitly. This lets callers control exactly when the service begins
+    subscribing/threading (and stop()/start() again later) rather than
+    having it begin as a side effect of instantiation.
     """
     def __init__(self) -> None:
         """

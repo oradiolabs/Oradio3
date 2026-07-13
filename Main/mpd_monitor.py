@@ -244,8 +244,7 @@ class MPDMonitor:
     (built on ThreadTemplate, see _MPDMonitorWorker above). Construction
     only sets up state; the background polling thread is not started
     until start() is called explicitly, mirroring ThreadTemplate's own
-    separation between construction and safe_start(), and matching the
-    shape used by ThrottlingMonitor, VolumeControl and Backlighting.
+    separation between construction and safe_start().
 
     Features:
         - Maintains a snapshot of the MPD database (directory -> files),

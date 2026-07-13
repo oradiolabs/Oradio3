@@ -304,11 +304,9 @@ class USBService:
     to query the current USB state by inspecting the mount point directly.
 
     Construction only sets up internal state; the watchdog Observer is not
-    created or started until start() is called explicitly, mirroring the
-    construction/start separation used by RMService and ThrottlingMonitor.
-    This lets callers control exactly when filesystem monitoring begins (and
-    stop()/start() again later) rather than having it begin as a side
-    effect of instantiation.
+    created or started until start() is called explicitly. This lets callers
+    control exactly when filesystem monitoring begins (and stop()/start()
+    again later) rather than having it begin as a side effect of instantiation.
 
     Watchdog gives no callback when its threads die (e.g. an unhandled
     exception in a handler, or an emitter hitting the OS inotify watch
@@ -369,8 +367,7 @@ class USBService:
         Does nothing if the service was never started (or has already been
         stopped, whether explicitly or via a detected crash). Publishes
         USB_STOPPED once the observer has actually stopped, since Oradio
-        treats loss of USB monitoring as an incident worth reporting
-        (mirroring ThrottlingMonitor.teardown()).
+        treats loss of USB monitoring as an incident worth reporting.
         """
         with self._lock:
             self._cancel_health_check()

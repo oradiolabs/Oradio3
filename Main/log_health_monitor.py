@@ -24,10 +24,8 @@ Created on July 13, 2026
     log_service must not import other Oradio modules (see the NOTE near
     the top of log_service.py), so it cannot publish incidents itself.
     Rather than log_service calling back into this module, this dedicated
-    monitor polls SafeLogger.dropped_count -- the same pattern
-    ThrottlingMonitor uses for vcgencmd's throttle state -- so it depends
-    on both log_service and messaging while neither of those depends on
-    it.
+    monitor polls SafeLogger.dropped_count so it depends on both log_service
+    and messaging while neither of those depends on it.
 """
 
 ##### Oradio modules ######################################
@@ -55,8 +53,7 @@ class LogHealthMonitor(ThreadTemplate):
     via start(). Built on ThreadTemplate, which provides the restartable
     setup()/do_work()/teardown() background-thread machinery (safe_start(),
     safe_stop(), crash detection, etc.), so this class only needs to
-    implement the log-health-specific behaviour -- mirroring
-    ThrottlingMonitor's structure.
+    implement the log-health-specific behaviour.
     """
     def __init__(self) -> None:
         """
@@ -94,8 +91,7 @@ class LogHealthMonitor(ThreadTemplate):
         they're reset to their healthy defaults (not full / alive)
         instead of baselined to their current value. That means if either
         is already unhealthy when the monitor (re)starts, the very first
-        do_work() poll reports it as a transition -- mirroring
-        ThrottlingMonitor surfacing pre-existing throttling at startup.
+        do_work() poll reports it as a transition.
         """
         self._last_dropped = oradio_log.dropped_count
         self._was_full = False
@@ -118,8 +114,7 @@ class LogHealthMonitor(ThreadTemplate):
           incident-worthy events.
 
         Reporting on transitions only (rather than every poll while a
-        condition persists) matches ThrottlingMonitor's convention and
-        avoids repeatedly publishing the same incident.
+        condition persists) avoids repeatedly publishing the same incident.
         """
         listener_alive = oradio_log.listener_alive
         queue_full = oradio_log.queue_full

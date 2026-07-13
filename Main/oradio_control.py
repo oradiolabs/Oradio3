@@ -130,6 +130,11 @@ web_service_active.clear() # Start-up state is no Web service
 usb_present = threading.Event()
 usb_present.set() # USB present to go over start-up sequence (will be updated after first message of USB service
 
+""" Resource-owning modules have an explicit start/stop allowing it to possibly be restarted when failing. """
+# IMPORTANT: Start Remote Service before any incidents can happen, as othewise those incidents may nog be reported
+remote_monitor = RMService()
+remote_monitor.start()
+
 # Any incident starting backlight is reported to and handled by IncidentHandler
 oradio_log.info("Start backlighting")
 Backlighting().start()
@@ -777,10 +782,6 @@ def sync_usb_presence_from_service():
 
 # ------------------Start-up - instantiate and define other modules ---------------
 
-# IMPORTANT: Start Remote Service before any incidents can happen, as othewise those incidents may nog be reported
-remote_monitor = RMService()
-remote_monitor.start()
-
 # Instantiate and start the wifi service for monitoring wifi state
 oradio_wifi_service = WifiService()
 oradio_wifi_service.start()
@@ -802,7 +803,6 @@ spotify_connect.start()
 # Instantiate and start handling buttons
 touch_buttons = TouchButtons()
 
-# REVIEW: Do we need to start the web service?
 # Instantiate and start the web service for managing the access point
 oradio_web_service = WebService()
 
