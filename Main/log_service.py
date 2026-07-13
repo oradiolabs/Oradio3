@@ -26,30 +26,22 @@ Created on January 17, 2025
       - Centralizes log records from multiple threads/processes
     - StreamHandler: Logs messages to console
     - ConcurrentRotatingFileHandler: Logs to a file with rotation, safe for multiple threads/processes
-    - RemoteMonitoringHandler: Sends warnings/errors to remote monitoring service, off the
-      QueueListener thread via its own internal worker + queue, so a slow/unreachable remote
-      endpoint cannot stall local console/file logging.
 @Reference:
     https://docs.python.org/3/howto/logging.html
     https://pypi.org/project/concurrent-log-handler/
 """
-import json
 import atexit
 import logging
 import traceback
-import subprocess
 import faulthandler
 from sys import stderr
 from time import sleep
 from pathlib import Path
-from datetime import datetime
-from contextlib import ExitStack
-from threading import Thread, Event
-from queue import Queue, Full, Empty
+from threading import Thread
+from queue import Queue, Full
 from logging import DEBUG, INFO, WARNING, ERROR, CRITICAL
 from logging.handlers import QueueHandler, QueueListener, SysLogHandler
 from concurrent_log_handler import ConcurrentRotatingFileHandler
-from requests import post, RequestException, Timeout
 
 ##### Oradio modules ######################################
 # NOTE: Do not import Oradio modules using oradio_log to avoid circular imports
@@ -57,8 +49,6 @@ from requests import post, RequestException, Timeout
 ##### GLOBAL constants ####################################
 from constants import (
     BLUE, GREY, WHITE, YELLOW, RED, MAGENTA, NC,
-    REMOTE_SERVER,
-    POST_TIMEOUT,
 )
 
 ##### LOCAL constants #####################################
@@ -72,18 +62,8 @@ ORADIO_LOG_FILESIZE = 512 * 1024   # 512 KB
 ORADIO_LOG_BACKUPS  = 1
 # Items to queue when busy
 QUEUE_SIZE = 10000
-# Items to queue for the remote-post worker specifically. Kept smaller than
-# QUEUE_SIZE on purpose: this queue only ever holds WARNING+ payloads, and if
-# the remote endpoint is down for a long time we'd rather drop old alerts
-# (and say so loudly) than let memory grow unbounded.
-REMOTE_QUEUE_SIZE = 500
 # How often (in dropped-item counts) to log a "still dropping" reminder
 DROP_LOG_INTERVAL = 50
-# Robust remote access
-MAX_RETRIES    = 3
-BACKOFF_FACTOR = 2
-REMOTE_WORKER_POLL = 1.0  # seconds; how often the worker checks its stop flag
-REMOTE_WORKER_JOIN_TIMEOUT = 5.0  # seconds; max wait for worker to exit on shutdown
 # Fallback delivery for drop/health notices, independent of stdout/stderr
 # (which headless deployments may not capture). /dev/log is forwarded to
 # the system journal by journald on virtually every modern Linux distro,
@@ -104,38 +84,6 @@ logging.Logger.trace = trace    # type: ignore[attr-defined]
 
 # Enable Python faulthandler for crashes
 faulthandler.enable(file=stderr)
-
-##### Helpers #############################################
-
-def _get_rpi_serial() -> str:
-    """Extract serial from Raspberry Pi."""
-    try:
-        with open("/proc/cpuinfo", encoding="utf-8") as file:
-            for line in file:
-                if line.startswith("Serial"):
-                    serial = line.split(":", 1)[1].strip()
-                    # Leading zeros are stripped, matching Pi's conventional serial display format.
-                    return serial.lstrip("0") or "0"
-    except (FileNotFoundError, PermissionError, OSError):
-        pass
-    return "Unsupported platform"
-
-def _has_internet() -> bool:
-    """
-    Check for internet access using NetworkManager.
-    NOTE: ping is NOT reliable because the network interface uses power management.
-    Returns:
-        bool: True if internet is reachable, False otherwise.
-    """
-    try:
-        result = subprocess.check_output(
-            ["nmcli", "-t", "-f", "CONNECTIVITY", "general"],
-            stderr=subprocess.DEVNULL
-        ).decode().strip()
-        return result == "full"
-    except (FileNotFoundError, subprocess.CalledProcessError, UnicodeDecodeError):
-        # Treat any exception as equivalent to 'no internet'
-        return False
 
 class ColorFormatter(logging.Formatter):
     """Formatter that adds ANSI color to messages depending on log level."""
@@ -244,130 +192,6 @@ class _NonBlockingQueueHandler(QueueHandler):
         """Total number of records dropped due to a full queue."""
         return self._dropped
 
-class SafeRemotePostHandler(logging.Handler):
-    """
-    Send WARNING+ log messages to a remote HTTP server safely.
-
-    emit() only ever enqueues a payload onto this handler's own internal
-    queue and returns immediately -- it does no network I/O itself. A
-    dedicated background worker thread drains that queue and performs the
-    actual (potentially slow, retried) POST. This keeps a slow/unreachable
-    remote endpoint from stalling the shared QueueListener thread, which is
-    also responsible for console and file logging.
-    """
-    def __init__(self, url: str, fallback_handlers: list[logging.Handler] | None = None) -> None:
-        super().__init__(level=WARNING) # Use logging framework to only handle WARNING+ level messages
-        self._url = url
-        self._serial = _get_rpi_serial()
-        # Where to write drop/failure notices so they survive headless
-        # operation (see _emit_fallback) instead of relying on stderr.
-        self._fallback_handlers = fallback_handlers or []
-
-        # Decoupled send pipeline: emit() (called from the QueueListener
-        # thread) only pushes here; _worker_loop() (its own thread) does
-        # the actual network I/O and retries.
-        self._send_queue: Queue = Queue(maxsize=REMOTE_QUEUE_SIZE)
-        self._dropped = 0
-        self._stop_event = Event()
-        self._worker = Thread(
-            target=self._worker_loop,
-            name="SafeRemotePostWorker",
-            daemon=True
-        )
-        self._worker.start()
-
-    def emit(self, record) -> None:
-        """Build the payload and hand it off to the worker thread; never blocks."""
-        # Compile context for POST request; the remote server expects message as an opaque JSON string field
-        payload_info = {
-            'generated': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
-            'serial'   : self._serial,
-            'type'     : record.levelname,
-            'message'  : json.dumps({
-                            'source': f"{record.filename}:{record.lineno}",
-                            'message': record.getMessage()
-                        })
-        }
-        try:
-            self._send_queue.put_nowait(payload_info)
-        except Full:
-            self._dropped += 1
-            if self._dropped == 1 or self._dropped % DROP_LOG_INTERVAL == 0:
-                _emit_fallback(
-                    self._fallback_handlers, WARNING,
-                    f"[SafeRemotePostHandler] send queue full (maxsize={REMOTE_QUEUE_SIZE}); "
-                    f"dropped {self._dropped} payload(s) so far"
-                )
-
-    def _worker_loop(self) -> None:
-        """Background thread: drain the send queue and POST each payload."""
-        while not self._stop_event.is_set():
-            try:
-                # Bounded wait so the loop periodically re-checks _stop_event
-                # instead of blocking forever on an empty queue.
-                payload_info = self._send_queue.get(timeout=REMOTE_WORKER_POLL)
-            except Empty:
-                continue
-            try:
-                self._send(payload_info)
-            finally:
-                self._send_queue.task_done()
-
-    def _send(self, payload_info: dict) -> None:
-        """Perform the actual (retried) POST for a single payload. Runs on the worker thread."""
-        if not _has_internet():
-            return
-
-        try:
-            # Retry loop
-            for attempt in range(1, MAX_RETRIES + 1):
-                try:
-                    # Use ExitStack to safely open multiple files
-                    with ExitStack() as stack:
-                        # Compile files in logging directory for POST request always sending full context with every alert
-                        send_files = ORADIO_LOG_PATH.glob("*.log")
-                        payload_files = {f.name: (f.name, stack.enter_context(f.open("rb"))) for f in send_files}
-                        # Send POST with files
-                        response = post(self._url, data=payload_info, files=payload_files, timeout=POST_TIMEOUT)
-                        # Check for any errors
-                        response.raise_for_status()
-                        # Success, exit retry loop
-                        break
-                except (RequestException, Timeout) as ex_err:
-                    _emit_fallback(
-                        self._fallback_handlers, WARNING,
-                        f"[SafeRemotePostHandler] Attempt {attempt} failed: {ex_err}"
-                    )
-                    if attempt == MAX_RETRIES:
-                        # Let fallback mechanism take over
-                        raise
-                    # Exponential backoff. This sleep now happens on the
-                    # dedicated worker thread, not the shared QueueListener
-                    # thread, so it no longer delays console/file logging.
-                    sleep(BACKOFF_FACTOR ** (attempt - 1))
-
-        # Catching ALL exceptions is fallback, makes logger safe
-        except Exception as ex_err:     # pylint: disable=broad-exception-caught
-            # Written straight to disk (not the root logger's stderr-only
-            # lastResort handler) so it's visible headless too.
-            _emit_fallback(
-                self._fallback_handlers, ERROR,
-                f"[SafeRemotePostHandler fallback] Failed to POST log: {ex_err}"
-            )
-
-    def close(self) -> None:
-        """Stop the worker thread and wait for it to exit before closing the handler."""
-        self._stop_event.set()
-        self._worker.join(timeout=REMOTE_WORKER_JOIN_TIMEOUT)
-        if self._worker.is_alive():
-            # Not fatal (worker is a daemon thread and will die with the
-            # process), but worth knowing about if it happens.
-            _emit_fallback(
-                self._fallback_handlers, WARNING,
-                "[SafeRemotePostHandler] worker thread did not stop cleanly"
-            )
-        super().close()
-
 ##### Safe logger wrapper #################################
 
 class SafeLogger:
@@ -375,8 +199,6 @@ class SafeLogger:
     Logging wrapper using QueueHandler + QueueListener architecture.
     Architecture:
         Logger → QueueHandler → log_queue → QueueListener → real handlers
-    The remote handler further decouples itself: QueueListener → SafeRemotePostHandler.emit()
-    (fast, just enqueues) → its own worker thread → actual network POST.
     """
     def __init__(self, name=None, level=DEBUG) -> None:
         # Get system logger
@@ -454,13 +276,6 @@ class SafeLogger:
             h for h in (file_handler, syslog_handler) if h is not None
         ]
 
-        # Remote handler (only enqueues on the listener thread; its own
-        # worker thread does the actual, potentially slow, network I/O).
-        # Given the same fallback sinks so its own drop/failure notices
-        # also survive headless operation rather than relying on stderr.
-        self._remote_handler = SafeRemotePostHandler(REMOTE_SERVER, fallback_handlers=self._fallback_handlers)
-        handlers.append(self._remote_handler)
-
         # QueueListener (consumer)
         self._listener = QueueListener(self._log_queue, *handlers, respect_handler_level=True)
         self._listener.start()
@@ -516,11 +331,6 @@ class SafeLogger:
     def critical(self, msg, *args, **kwargs) -> None:
         """Log a message with CRITICAL severity level."""
         self._safe_log(CRITICAL, msg, *args, **kwargs)
-    def exception(self, msg, *args, **kwargs) -> None:
-        """Log an ERROR-level message including the active exception traceback."""
-        kwargs.setdefault("exc_info", True)
-        self._safe_log(ERROR, msg, *args, **kwargs)
-
     def set_level(self, level) -> None:
         """Set the logging level for the logger and its queue handler."""
         self._logger.setLevel(level)
@@ -531,10 +341,34 @@ class SafeLogger:
         """Total number of log records dropped due to the main queue being full."""
         return self._queue_handler.dropped
 
+    @property
+    def queue_size(self) -> int:
+        """Approximate current number of records waiting in the log queue."""
+        return self._log_queue.qsize()
+
+    @property
+    def queue_full(self) -> bool:
+        """Whether the log queue is currently at capacity (further puts will be dropped)."""
+        return self._log_queue.full()
+
+    @property
+    def listener_alive(self) -> bool:
+        """
+        Whether the QueueListener's background dispatch thread is currently
+        running. False means the queue will never drain again (e.g. a
+        handler's emit() hung, or the thread died) -- a permanent failure
+        distinct from ordinary congestion, where queue_full may be True
+        but the listener is still actively draining it.
+
+        QueueListener doesn't expose thread liveness itself, so this reads
+        its internal _thread attribute directly.
+        """
+        thread = self._listener._thread     # pylint: disable=protected-access
+        return thread is not None and thread.is_alive()
+
     def shutdown(self):
-        """Shutdown logging queue listener, the remote-post worker thread, and fallback sinks."""
+        """Shutdown logging queue listener and fallback sinks."""
         self._listener.stop()
-        self._remote_handler.close()
         for handler in self._fallback_handlers:
             handler.close()
 
