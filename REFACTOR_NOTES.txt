@@ -24,7 +24,7 @@ messaging.py
 mpd_control.py
 mpd_monitor.py
 mpd_service.py
-power_control.py			(renamed from power_supply_control.py)
+power_service.py			(renamed from power_supply_control.py)
 singleton.py
 rms_service					(renamed from remote_monitoring.py)
 rpi_monitor.py				(renamed from throttling_monitor.py)

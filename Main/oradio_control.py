@@ -42,7 +42,7 @@ from system_sounds import play_sound
 from incident_service import IncidentHandler
 from log_monitor import LogHealthMonitor
 from rpi_monitor import RPiThrottlingMonitor
-from power_control import PowerSupplyService
+from power_service import PowerSupplyService
 
 # Moved from constants
 from messaging import (
