@@ -130,7 +130,7 @@ web_service_active.clear() # Start-up state is no Web service
 usb_present = threading.Event()
 usb_present.set() # USB present to go over start-up sequence (will be updated after first message of USB service
 
-""" Resource-owning modules have an explicit start/stop allowing it to possibly be restarted when failing. """
+""" Resource-owning modules have an explicit start/stop allowing it to possibly be restarted when failing. """  # pylint: disable=pointless-string-statement
 # IMPORTANT: Start Remote Service before any incidents can happen, as othewise those incidents may nog be reported
 remote_monitor = RMService()
 remote_monitor.start()
