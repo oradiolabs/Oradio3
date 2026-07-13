@@ -23,6 +23,15 @@ Created on February 8, 2025
     started and a one-time SYS_INFO message containing hardware and
     software information is sent. The heartbeat stops when WiFi is lost.
 
+    Any other service in the application (e.g. incident_service) can also
+    use RMService.send_message(INCIDENT, incident) to report an
+    IncidentMessage to RMS, attaching the current log files for context.
+    This replaces the log-service-embedded SafeRemotePostHandler, which
+    posted such alerts directly from the logging pipeline. Like
+    HEARTBEAT/SYS_INFO, this requires start() to have been called; RMS is
+    expected to start early enough in the boot sequence that this is not
+    a practical limitation.
+
     Helper functions collect Raspberry Pi telemetry and software version
     information. Outgoing POST requests are protected by a simple
     exponential backoff retry mechanism.
@@ -34,13 +43,14 @@ from time import sleep
 from threading import Timer
 from datetime import datetime
 from platform import python_version
+from contextlib import ExitStack
 from multiprocessing import Queue, Lock
 from requests import post, RequestException, Timeout
 
 ##### Oradio modules ######################################
 from utilities import get_serial
 from wifi_service import WifiService
-from log_service import oradio_log
+from log_service import oradio_log, ORADIO_LOG_PATH
 from messaging import (
     Commands,
     Incidents,
@@ -64,6 +74,7 @@ from constants import (
 # RMS message type identifiers
 HEARTBEAT = 'HEARTBEAT'
 SYS_INFO  = 'SYS_INFO'
+INCIDENT  = 'INCIDENT'
 
 # Path to the JSON file written by the deployment pipeline with version info
 SW_LOG_FILE = "/var/log/oradio_sw_version.log"
@@ -182,6 +193,52 @@ def _handle_response_command(response_text) -> None:
                 command, ex_err.returncode, ex_err.stdout, ex_err.stderr
             )
 
+def _post_with_retry(payload_info: dict, attach_log_files: bool = False, context: str = "message"):
+    """
+    POST payload_info to the RMS server with exponential backoff retries.
+
+    Shared across the message types handled by WifiMessageHandler.
+    send_message(): all POST to the same RMS_SERVER_URL under the same
+    MAX_RETRIES/BACKOFF_FACTOR/POST_TIMEOUT policy, and all publish
+    RMS_POST_FAILED once retries are exhausted. They differ only in
+    whether log files are attached and in what happens with a
+    successful response (SYS_INFO/HEARTBEAT act on a returned command;
+    an incident alert does not) -- both of those stay with the caller.
+
+    Args:
+        payload_info:     Form fields to POST.
+        attach_log_files: If True, attach every *.log file in
+                           ORADIO_LOG_PATH on each attempt. Files are
+                           (re)opened fresh per attempt inside the loop,
+                           since a file object already consumed by a
+                           failed attempt can't be resent as-is.
+        context:          Short label used in log messages, e.g.
+                           "message" or "incident".
+
+    Returns:
+        The successful requests.Response, or None if every retry failed
+        (RMS_POST_FAILED has already been published in that case).
+    """
+    for attempt in range(1, MAX_RETRIES + 1):
+        try:
+            with ExitStack() as stack:
+                payload_files = None
+                if attach_log_files:
+                    send_files = ORADIO_LOG_PATH.glob("*.log")
+                    payload_files = {f.name: (f.name, stack.enter_context(f.open("rb"))) for f in send_files}
+                response = post(RMS_SERVER_URL, data=payload_info, files=payload_files, timeout=POST_TIMEOUT)
+                response.raise_for_status()
+            return response  # POST succeeded; exit the retry loop
+        except (RequestException, Timeout) as ex_err:
+            oradio_log.warning("Attempt %d failed to POST %s: %s", attempt, context, ex_err)
+            if attempt == MAX_RETRIES:
+                oradio_log.error("Failed to POST %s: %s", context, ex_err)
+                Incidents.publish(IncidentMessage(RMS_SOURCE, RMS_POST_FAILED))
+                return None
+            # Wait before retrying; delay grows exponentially with each attempt
+            sleep(BACKOFF_FACTOR ** attempt)
+    return None  # Unreachable (loop always returns or raises), keeps type checkers happy
+
 class Heartbeat(Timer):
     """
     Timer that repeatedly invokes a callback.
@@ -292,6 +349,12 @@ class WifiMessageHandler(MessageHandlerTemplate):
     WIFI_CONNECTED event the heartbeat timer is started and a one-time
     SYS_INFO message is sent to the RMS server. On a WIFI_DISCONNECTED
     event the heartbeat timer is stopped.
+
+    send_message() also handles INCIDENT, used by other services (e.g.
+    incident_service) via RMService.send_message() to report an
+    IncidentMessage to RMS. All three message types require this handler
+    to exist (i.e. RMService.start() to have been called) and, for
+    SYS_INFO/INCIDENT, WiFi to currently be connected.
     """
     def __init__(self, queue: Queue) -> None:
         """
@@ -303,8 +366,18 @@ class WifiMessageHandler(MessageHandlerTemplate):
         # Cache serial number once; used in every outgoing RMS message
         self._serial = get_serial()
 
+        # Tracks the most recently observed WiFi state; updated in
+        # _handle_message() below. Starts False since no WIFI_* message
+        # has been processed yet at construction time.
+        self._wifi_connected = False
+
         # Initialise base class and start the worker thread
         super().__init__(queue)
+
+    @property
+    def wifi_connected(self) -> bool:
+        """Whether WiFi is currently connected, per the last WIFI_* message processed."""
+        return self._wifi_connected
 
     def _handle_message(self, message) -> None:
         """
@@ -314,10 +387,12 @@ class WifiMessageHandler(MessageHandlerTemplate):
             message: The received message from the queue.
         """
         if message.message == WIFI_DISCONNECTED:
+            self._wifi_connected = False
             Heartbeat.stop_heartbeat()
             oradio_log.debug("WiFi disconnected. Heartbeat stopped.")
 
         elif message.message == WIFI_CONNECTED:
+            self._wifi_connected = True
             Heartbeat.start_heartbeat(HEARTBEAT_REPEAT, self.send_message, args=(HEARTBEAT,))
             # Immediately report hardware/software identity on every new connection
             self.send_message(SYS_INFO)
@@ -325,22 +400,35 @@ class WifiMessageHandler(MessageHandlerTemplate):
 
         elif message.message == WIFI_ACCESS_POINT:
             # Heartbeat cannot be active, info message cannot be sent
-            pass
+            self._wifi_connected = False
 
         else:
             oradio_log.error("Unexpected message: %s", message)
 
-    def send_message(self, msg_type) -> None:
+    def send_message(self, msg_type: str, incident: IncidentMessage | None = None) -> None:
         """
         Build and send a message to the RMS server.
 
-        Depending on the message type, either runtime telemetry or hardware
-        and software information is included. Failed HTTP requests are retried
-        with exponential backoff.
+        HEARTBEAT and SYS_INFO carry runtime/hardware telemetry. INCIDENT
+        reports an IncidentMessage from another service, attaching the
+        current log files for context and skipping the response-command
+        handling HEARTBEAT/SYS_INFO get (an incident alert doesn't act on
+        anything the server returns).
+
+        Only attempted while WiFi is currently known to be connected; if not,
+        nothing is sent and a debug line is logged instead, since attempting
+        a POST with no network would just burn through the full retry/backoff
+        cycle before failing anyway.
 
         Args:
-            msg_type (str): HEARTBEAT or SYS_INFO.
+            msg_type: HEARTBEAT, SYS_INFO, or INCIDENT.
+            incident: Required when msg_type is INCIDENT (ignored
+                      otherwise) -- the IncidentMessage to report.
         """
+        if not self._wifi_connected:
+            oradio_log.debug("WiFi not available; not sending %s message", msg_type)
+            return
+
         # Base fields present in every message type
         payload_info = {
             'generated': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
@@ -363,28 +451,27 @@ class WifiMessageHandler(MessageHandlerTemplate):
                 'rpi-os'    : _get_os_version(),
             })
 
+        # Report an incident from another service, attaching current logs
+        elif msg_type == INCIDENT:
+            if incident is None:
+                oradio_log.error("send_message(INCIDENT) requires an IncidentMessage")
+                return
+            payload_info['message'] = json.dumps({
+                'source' : incident.source,
+                'message': incident.message,
+            })
+            # Result intentionally unused: unlike HEARTBEAT/SYS_INFO, an
+            # incident alert doesn't act on any command in the response.
+            _post_with_retry(payload_info, attach_log_files=True, context="incident")
+            return
+
         else:
             oradio_log.error("Unsupported message type: %s", msg_type)
             return  # Nothing to POST; exit early
 
-        # Retry loop with exponential backoff: delays are 1s, 2s, 4s, ...
-        response = None
-        for attempt in range(1, MAX_RETRIES + 1):
-            try:
-                response = post(RMS_SERVER_URL, data=payload_info, timeout=POST_TIMEOUT)
-                response.raise_for_status()
-                break  # POST succeeded; exit the retry loop
-            except (RequestException, Timeout) as ex_err:
-                oradio_log.warning("Attempt %d failed: %s", attempt, ex_err)
-                if attempt == MAX_RETRIES:
-                    oradio_log.error("Failed to POST log: %s", ex_err)
-                    Incidents.publish(IncidentMessage(RMS_SOURCE, RMS_POST_FAILED))
-                    return
-                # Wait before retrying; delay grows exponentially with each attempt
-                sleep(BACKOFF_FACTOR ** attempt)
-
+        response = _post_with_retry(payload_info, context="message")
         if response is None:
-            # All retries failed without breaking out of the loop — nothing to process
+            # All retries failed; _post_with_retry() already published the incident
             return
 
         # A non-2xx status after a successful raise_for_status() shouldn't
@@ -404,8 +491,12 @@ class RMService:
     Manage communication with the Remote Monitoring Service (RMS).
 
     Subscribes to WiFi connectivity events and delegates all message
-    handling — heartbeat scheduling, SYS_INFO reporting, and HTTP
-    POST retries — to an internal WifiMessageHandler.
+    handling -- HEARTBEAT, SYS_INFO, and INCIDENT alike -- to an internal
+    WifiMessageHandler. All three require start() to have been called;
+    RMS is expected to start early enough in the application's boot
+    sequence that no incident could plausibly be raised before it, so
+    this is a deliberate simplification rather than an oversight (see
+    WifiMessageHandler.send_message() for the per-type detail).
 
     Construction only sets up internal state; the WiFi subscription and the
     handler's worker thread are not started until start() is called
@@ -450,22 +541,28 @@ class RMService:
             self._queue = None
             Incidents.publish(IncidentMessage(RMS_SOURCE, RMS_START_FAILED))
 
-    def send_message(self, msg_type: str) -> None:
+    def send_message(self, msg_type: str, incident: IncidentMessage | None = None) -> None:
         """
         Send a message to the RMS server.
 
-        Delegates to the internal handler. Provided so callers and the
-        interactive test menu can trigger sends directly on the RMService
-        instance without accessing internal state.
+        Thin delegator to the internal WiFi-driven handler, which now
+        handles HEARTBEAT, SYS_INFO, and INCIDENT uniformly -- see
+        WifiMessageHandler.send_message() for what each type does and
+        which additionally require WiFi to be currently connected.
+        Provided so callers and the interactive test menu can trigger
+        sends directly on the RMService instance without accessing
+        internal state.
 
         Args:
-            msg_type (str): HEARTBEAT or SYS_INFO.
+            msg_type: HEARTBEAT, SYS_INFO, or INCIDENT.
+            incident: Required when msg_type is INCIDENT (ignored
+                      otherwise) -- the IncidentMessage to report.
         """
         if self._handler is None:
             oradio_log.error("RMS service not started; cannot send %s", msg_type)
             return
 
-        self._handler.send_message(msg_type)
+        self._handler.send_message(msg_type, incident)
 
     def stop(self) -> None:
         """
@@ -513,12 +610,13 @@ if __name__ == "__main__":
         input_selection = (
             "Select a function, input the number.\n"
             " 0-Quit\n"
-            " 1-Test sending heartbeat\n"
-            " 2-Test sending sys_info\n"
-            " 3-Start heartbeat timer\n"
-            " 4-Stop heartbeat timer\n"
-            " 5-Connect to wifi\n"
-            " 6-Disconnect wifi\n"
+            " 1-Test sending HEARTBEAT message\n"
+            " 2-Test sending SYS_INFO message\n"
+            " 3-Test sending INCIDENT message\n"
+            " 4-Start heartbeat timer\n"
+            " 5-Stop heartbeat timer\n"
+            " 6-Connect to wifi\n"
+            " 7-Disconnect wifi\n"
             "Select: "
         )
 
@@ -543,12 +641,15 @@ if __name__ == "__main__":
                     print("\nSend SYS_INFO test message to Remote Monitoring Service...\n")
                     rms.send_message(SYS_INFO)
                 case 3:
+                    print("\nSend test INCIDENT message to Remote Monitoring Service...\n")
+                    rms.send_message(INCIDENT, IncidentMessage("rms_service.py:0", "Test incident from interactive menu"))
+                case 4:
                     print("\nStarting heartbeat timer...\n")
                     Heartbeat.start_heartbeat(HEARTBEAT_REPEAT, rms.send_message, args=(HEARTBEAT,))
-                case 4:
+                case 5:
                     print("\nStop heartbeat timer...\n")
                     Heartbeat.stop_heartbeat()
-                case 5:
+                case 6:
                     name = input("Enter SSID of the network to add: ")
                     pswrd = input("Enter password for the network to add (empty for open network): ")
                     if name:
@@ -556,7 +657,7 @@ if __name__ == "__main__":
                         print(f"\nConnecting with '{name}'. Check messages for result\n")
                     else:
                         print(f"\n{YELLOW}No network given{NC}\n")
-                case 6:
+                case 7:
                     print("\nDisconnecting wifi...\n")
                     wifi_service.wifi_disconnect()
                 case _:

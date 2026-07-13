@@ -27,6 +27,7 @@ from collections.abc import Callable
 
 ##### Oradio modules ######################################
 from log_service import oradio_log
+from rms_service import RMService, INCIDENT
 from messaging import (
     Incidents,
     IncidentMessage,
@@ -69,6 +70,9 @@ class IncidentHandler(MessageHandlerTemplate):
         """
         # Subscribe to incident messages and initialise base class and start the worker thread
         self._queue = Incidents.subscribe()
+
+        # Used to post incidents to Remote Monitoring Service
+        self._rms = RMService()
 
         # Map each source constant to its handler method.
         # Adding a new source only requires one new line here.
@@ -493,6 +497,10 @@ class IncidentHandler(MessageHandlerTemplate):
             message: The received message from the queue.
         """
         oradio_log.debug("Incident message received: %r", message)
+
+        # Post incident (if connected to internet)
+        self._rms.send_message(INCIDENT, message)
+
         handler = self._dispatch.get(message.source)
         if handler:
             handler(message)

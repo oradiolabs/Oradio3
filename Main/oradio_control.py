@@ -37,10 +37,12 @@ from usb_service import USBService
 from web_service import WebService
 from wifi_service import WifiService
 from utilities import has_internet
-from power_supply_control import PowerSupplyService
-from system_sounds import play_sound    # For better readability. pylint: disable=wrong-import-order
-from throttling_monitor import ThrottlingMonitor
+# from system_sounds import play_sound    # For better readability. pylint: disable=wrong-import-order
+from system_sounds import play_sound
+from incident_service import IncidentHandler
 from log_health_monitor import LogHealthMonitor
+from throttling_monitor import ThrottlingMonitor
+from power_supply_control import PowerSupplyService
 
 # Moved from constants
 from messaging import (
@@ -775,21 +777,14 @@ def sync_usb_presence_from_service():
 
 # ------------------Start-up - instantiate and define other modules ---------------
 
-from incident_service import IncidentHandler     # pylint: disable=wrong-import-position
 
-# Subscribe to incidents bus so incidents published are mitigated
-incident_handler = IncidentHandler()
-
-# Instantiate the state machine
-state_machine = StateMachine()
-
-# Instantiate and start remote monitor managing the heartbeat and sys_info messages when wifi state changes
+# IMPORTANT: Start Remote Service before any incidents can happen, as othewise those incidents may nog be reported 
 remote_monitor = RMService()
 remote_monitor.start()
 
-# Instantiate and start Spotify connect
-spotify_connect = SpotifyConnect()
-spotify_connect.start()
+# Instantiate and start the wifi service for monitoring wifi state
+oradio_wifi_service = WifiService()
+oradio_wifi_service.start()
 
 # Instantiate and start the USB service monitoring USB present/absent
 oradio_usb_service = USBService()
@@ -798,14 +793,23 @@ oradio_usb_service.start()
 # REVIEW Onno: sync_usb_presence_from_service is overbodig, want USB status komt via de command queue
 sync_usb_presence_from_service()
 
+# REVIEW: Do we need to start the incident handler?
+# Subscribe to incidents bus so incidents published are mitigated
+incident_handler = IncidentHandler()
+
+# Instantiate and start Spotify connect
+spotify_connect = SpotifyConnect()
+spotify_connect.start()
+
+# REVIEW: Do we need to start touch_buttons?
 touch_buttons = TouchButtons()
 
-# Instantiate and start the wifi service for monitoring wifi state
-oradio_wifi_service = WifiService()
-oradio_wifi_service.start()
-
+# REVIEW: Do we need to start the web service?
 # Instantiate and start the web service for managing the access point
 oradio_web_service = WebService()
+
+# Instantiate the state machine
+state_machine = StateMachine()
 
 # inject the services into the Statemachine
 state_machine.set_services(oradio_web_service)
