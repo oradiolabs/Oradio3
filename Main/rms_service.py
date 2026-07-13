@@ -623,6 +623,7 @@ if __name__ == "__main__":
 
         # Create the wifi service interface
         wifi_service = WifiService()
+        wifi_service.start()
 
         # Instantiate and start RMS service
         rms = RMService()
