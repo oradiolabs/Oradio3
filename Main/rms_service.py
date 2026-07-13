@@ -48,7 +48,7 @@ from multiprocessing import Queue, Lock
 from requests import post, RequestException, Timeout
 
 ##### Oradio modules ######################################
-from singleton import singelton
+from singleton import singleton
 from utilities import get_serial
 from wifi_service import WifiService
 from log_service import oradio_log, ORADIO_LOG_PATH

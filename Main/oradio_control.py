@@ -777,7 +777,7 @@ def sync_usb_presence_from_service():
 
 # ------------------Start-up - instantiate and define other modules ---------------
 
-# IMPORTANT: Start Remote Service before any incidents can happen, as othewise those incidents may nog be reported 
+# IMPORTANT: Start Remote Service before any incidents can happen, as othewise those incidents may nog be reported
 remote_monitor = RMService()
 remote_monitor.start()
 
