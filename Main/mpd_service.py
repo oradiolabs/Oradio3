@@ -126,7 +126,7 @@ class MPDService:
                 )
 
             except Exception as ex_unexpected:  # pylint: disable=broad-exception-caught
-                oradio_log.exception(
+                oradio_log.error(
                     "Unexpected error during MPD connection attempt %d/%d: %s",
                     attempt, MPD_RETRIES, ex_unexpected,
                 )
@@ -185,7 +185,8 @@ class MPDService:
                 msg = str(ex_cmd)
                 if any(err in msg for err in ignored_errors):
                     oradio_log.warning(
-                        "Ignoring expected CommandError: '%s' for command '%s'", msg, command,
+                        "Ignoring expected CommandError: '%s' for command '%s'",
+                        msg, command,
                     )
                 else:
                     oradio_log.error("MPD command '%s' failed: %s", command, ex_cmd)
@@ -200,7 +201,7 @@ class MPDService:
                     self._connect_client()
 
             except Exception as ex_unexpected:  # pylint: disable=broad-exception-caught
-                oradio_log.exception("Unexpected error executing MPD command '%s': %s", command, ex_unexpected)
+                oradio_log.error("Unexpected error executing MPD command '%s': %s", command, ex_unexpected)
                 Incidents.publish(IncidentMessage(MPD_SOURCE, MPD_EXECUTE_FAILED))
                 return None
 
