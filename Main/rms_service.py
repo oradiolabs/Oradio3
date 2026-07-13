@@ -48,6 +48,7 @@ from multiprocessing import Queue, Lock
 from requests import post, RequestException, Timeout
 
 ##### Oradio modules ######################################
+from singleton import singelton
 from utilities import get_serial
 from wifi_service import WifiService
 from log_service import oradio_log, ORADIO_LOG_PATH
@@ -486,6 +487,7 @@ class WifiMessageHandler(MessageHandlerTemplate):
         # Act on any command the RMS server included in its response body
         _handle_response_command(response.text)
 
+@singleton
 class RMService:
     """
     Manage communication with the Remote Monitoring Service (RMS).
