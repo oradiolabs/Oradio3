@@ -218,7 +218,7 @@ class MPDService:
 
 ##### Public API ##########################################
 
-    def get_stats(self) -> dict:
+    def get_stats(self) -> dict[str, Any]:
         """
         Retrieve and combine MPD playback statistics and current status.
 

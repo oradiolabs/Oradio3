@@ -206,7 +206,7 @@ class SafeLogger:
         self._logger.setLevel(level)
 
         # Create shared log queue
-        self._log_queue: Queue = Queue(maxsize=QUEUE_SIZE)
+        self._log_queue: Queue[logging.LogRecord] = Queue(maxsize=QUEUE_SIZE)
 
         # Get color formatter
         self._formatter = ColorFormatter()

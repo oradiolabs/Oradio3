@@ -54,7 +54,7 @@ jobs:
           source ~/.venv/bin/activate
           pip install --upgrade pip
           pip install -r .github/workflows/oradio_modules.txt
-          # Linting / analysis tools (pinned to avoid surprise breakage)
+          # Linting / analysis tools
           pip install pylint ruff mypy
 
       # -----------------------------------------------------------------------
