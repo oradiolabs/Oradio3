@@ -85,6 +85,14 @@ LED_SOURCE             = "LED message"
 LED_BLINK_START_FAILED = "LED blinking failed to start"
 LED_BLINK_STOP_FAILED  = "LED blinking failed to stop"
 
+# Logging
+LOG_SOURCE          = "Logging message"
+LOG_START_FAILED    = "Log health monitor failed to start"
+LOG_QUEUE_OVERFLOW  = "Log queue full; records dropped"
+LOG_QUEUE_RECOVERED = "Log queue drained; accepting records again"
+LOG_LISTENER_DEAD   = "Log queue listener thread not running; log queue will not drain"
+LOG_STOPPED         = "Log health monitor stopped"
+
 # MPD
 MPD_SOURCE         = "MPD message"
 MPD_CONNECT_FAILED = "MPD failed to connect"

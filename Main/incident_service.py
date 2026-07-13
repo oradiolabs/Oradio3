@@ -36,6 +36,7 @@ from messaging import (
     I2C_SOURCE, I2C_BUS_FAILED, I2C_READ_FAILED, I2C_WRITE_FAILED,
     LED_SOURCE, LED_BLINK_START_FAILED, LED_BLINK_STOP_FAILED,
     MPD_SOURCE, MPD_CONNECT_FAILED, MPD_EXECUTE_FAILED, MPD_MONITOR_FAILED, MPD_PRESET_INVALID,
+    LOG_SOURCE, LOG_START_FAILED, LOG_QUEUE_OVERFLOW, LOG_QUEUE_RECOVERED, LOG_LISTENER_DEAD, LOG_STOPPED,
     POWER_SOURCE, POWER_NEGOTIATION_FAILED,
     RMS_SOURCE, RMS_START_FAILED, RMS_POST_FAILED,
     SOUND_SOURCE, SOUND_MISSING_DIR, SOUND_PLAYBACK_FAILED,
@@ -76,6 +77,7 @@ class IncidentHandler(MessageHandlerTemplate):
             GPIO_SOURCE:         self._handle_gpio_incident,
             I2C_SOURCE:          self._handle_i2c_incident,
             LED_SOURCE:          self._handle_led_incident,
+            LOG_SOURCE:          self._handle_log_incident,
             MPD_SOURCE:          self._handle_mpd_incident,
             POWER_SOURCE:        self._handle_power_incident,
             RMS_SOURCE:          self._handle_rms_incident,
@@ -186,6 +188,42 @@ class IncidentHandler(MessageHandlerTemplate):
             oradio_log.debug("Mitigation to be implemented")
         else:
             oradio_log.error("Unhandled LED incident: '%s'", incident.message)
+
+    def _handle_log_incident(self, incident: IncidentMessage) -> None:
+        """
+        Handle log-related incident.
+
+        Attempts recovery from known log conditions and logs
+        unrecognised incidents for further investigation.
+
+        Args:
+            incident: Incident message received from the incident bus.
+        """
+        if incident.message == LOG_START_FAILED:
+            # MITIGATION TO BE IMPLEMENTED:
+            #   Report log monitor failure + status to RMS
+            #   If retry_count < MAX_RETRIES: retry reconnect
+            oradio_log.debug("Mitigation to be implemented")
+        elif incident.message == LOG_QUEUE_OVERFLOW:
+            # MITIGATION TO BE IMPLEMENTED:
+            #   Report log records dropped + status to RMS
+            #   Wait to give log service chance to recover
+            oradio_log.debug("Mitigation to be implemented")
+        elif incident.message == LOG_QUEUE_RECOVERED:
+            # MITIGATION TO BE IMPLEMENTED:
+            #   Report log service recovered + status to RMS
+            oradio_log.debug("Mitigation to be implemented")
+        elif incident.message == LOG_LISTENER_DEAD:
+            # MITIGATION TO BE IMPLEMENTED:
+            #   Report broken logging service + status to RMS
+            oradio_log.debug("Mitigation to be implemented")
+        elif incident.message == LOG_STOPPED:
+            # MITIGATION TO BE IMPLEMENTED:
+            #   Report log monitor stopped + status to RMS
+            #   If retry_count < MAX_RETRIES: retry starting log monitor
+            oradio_log.debug("Mitigation to be implemented")
+        else:
+            oradio_log.error("Unhandled MPD incident: '%s'", incident.message)
 
     def _handle_mpd_incident(self, incident: IncidentMessage) -> None:
         """
