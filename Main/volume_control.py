@@ -59,6 +59,8 @@ VOLUME_CONTROL_MASTER    = "Digital Playback Volume"
 DEFAULT_VOLUME_MPD       = "100%"
 DEFAULT_VOLUME_SPOTIFY   = "100%"
 DEFAULT_VOLUME_SYS_SOUND = "90%"
+# Level at which the sys_sound level is kept flat by reducing the Volume_sys_sound channel
+VOLUME_SYS_SOUND_FLAT    = "70%"
 
 # MCP3021 - A/D Converter
 MCP3021_ADDRESS      = 0x4D
@@ -184,6 +186,55 @@ class VolumeControl(ThreadTemplate):
         else:
             oradio_log.debug("Volume of '%s' set to: %s", control, volume)
 
+    def _calculate_sys_sound_volume(self, master_volume: int) -> int:
+        """
+        Calculate the system-sound volume corresponding to the given master
+        volume.
+
+        The system-sound volume remains at DEFAULT_VOLUME_SYS_SOUND until the
+        master volume exceeds VOLUME_SYS_SOUND_FLAT. Above that threshold, the
+        system-sound volume is reduced one percentage point for every percentage
+        point the master volume increases.
+
+        Args:
+            master_volume: Master volume in the range 0..100.
+
+        Returns:
+            System-sound volume in the range 0..100.
+        """
+        default_volume = int(DEFAULT_VOLUME_SYS_SOUND.removesuffix("%"))
+        flat_threshold = int(VOLUME_SYS_SOUND_FLAT.removesuffix("%"))
+
+        reduction = max(0, master_volume - flat_threshold)
+
+        return max(0, min(100, default_volume - reduction))
+
+    def _set_master_volume(self, volume: int) -> None:
+        """
+        Set the master volume and update all dependent volume controls.
+
+        The master volume is the reference level for the entire audio system.
+        Whenever it changes, the system-sound channel is adjusted to maintain
+        consistent notification loudness.
+
+        Args:
+            volume: Master volume in the range 0..100.
+        """
+        # Update the ALSA master volume to match the requested level.
+        self._set_volume(VOLUME_CONTROL_MASTER, f"{volume}%")
+
+        # The system-sound channel is intentionally attenuated above
+        # VOLUME_SYS_SOUND_FLAT so notification sounds do not become
+        # excessively loud as the master volume approaches 100%.
+        sys_sound_volume = self._calculate_sys_sound_volume(volume)
+        self._set_volume(VOLUME_CONTROL_SYS_SOUND, f"{sys_sound_volume}%")
+
+        oradio_log.debug(
+            "Master volume set to %d%%, system sound volume set to %d%%",
+            volume,
+            sys_sound_volume,
+        )
+
 ##### ThreadTemplate overrides ############################
 
     def setup(self) -> None:
@@ -204,9 +255,9 @@ class VolumeControl(ThreadTemplate):
             raise RuntimeError("ADC read failed on startup, volume manager cannot start")
         self._previous_adc = previous_adc
 
-        # Set master volume in line with position of the volume knob
+        # Initialise the audio subsystem to match the current position of the volume knob
         volume = self._adc2volume(previous_adc)
-        self._set_volume(VOLUME_CONTROL_MASTER, f"{volume}%")
+        self._set_master_volume(volume)
 
         # Start with 'slow' polling
         self._interval = POLLING_MAX_INTERVAL
@@ -245,8 +296,9 @@ class VolumeControl(ThreadTemplate):
             # Convert ADC reading to volume level
             volume = self._adc2volume(adc_value)
 
-            # Set master volume in line with position of the volume knob
-            self._set_volume(VOLUME_CONTROL_MASTER, f"{volume}%")
+            # Convert the knob position into a master-volume percentage
+            # and update every volume control derived from it
+            self._set_master_volume(volume)
 
             # Disarmed until the knob settles again, preventing repeated
             # notifications while it's still being turned.
