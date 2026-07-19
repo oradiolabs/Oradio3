@@ -33,17 +33,23 @@ Created on December 18, 2025
         PD protocol request (000=no response yet, 001=success, 011=invalid
         command/argument, 100=command not supported, 101=transaction fail).
         This is polled after a request instead of using a fixed delay.
-      - PD_STATUS0 (the negotiated voltage/current selection) has been
-        observed to update a short time after PD_RESPONSE reports Success,
-        not atomically with it - reading it once immediately on Success can
-        still return the previous contract's values. A short follow-up poll
-        on PD_STATUS0 closes that gap.
+      - PD_STATUS0 (the negotiated voltage/current selection) can update a
+        short time after PD_RESPONSE reports Success, not atomically with
+        it - reading it once immediately on Success can still return the
+        previous contract's values. A short follow-up poll on PD_STATUS0
+        closes that gap.
       - SRC_PDO_5V/9V/12V/... (0x02-0x07) are read-only capability
         registers: bit 7 indicates whether the source advertises that
         voltage at all. These are used at startup to detect whether the
         connected supply supports PD negotiation before any voltage is
         requested, so an incompatible (non-PD) supply doesn't generate
         negotiation-failure incidents.
+      - A GO_COMMAND request can occasionally come back with
+        PD_RESPONSE=Transaction Fail (no GoodCRC received) as a transient
+        ack-timing condition rather than a genuine rejection, particularly
+        when it follows closely behind a prior PD transaction on the same
+        source. Requests are retried a bounded number of times to absorb
+        this before treating it as a real failure.
 """
 from time import sleep, monotonic
 
@@ -129,6 +135,27 @@ _PD_RESPONSE_MESSAGES = {
 _NEGOTIATION_POLL_INTERVAL_S = 0.02   # 20 ms between polls
 _NEGOTIATION_TIMEOUT_S = 0.5          # give up after 500 ms total
 
+# Retry parameters for Get_SRC_Cap during capability detection. A bounded
+# retry absorbs a transient Transaction Fail (no GoodCRC) response without
+# masking a source that is genuinely not PD-capable.
+_GET_SRC_CAP_MAX_ATTEMPTS = 3
+_GET_SRC_CAP_RETRY_DELAY_S = 0.05     # 50 ms between attempts
+
+# Retry parameters for a PDO voltage request (set_standby/nom/max_voltage).
+# Only a Transaction Fail (no GoodCRC) response is retried - INVALID_CMD,
+# NOT_SUPPORTED, and a plain timeout are genuine outcomes and are not
+# retried.
+_VOLTAGE_REQUEST_MAX_ATTEMPTS = 3
+_VOLTAGE_REQUEST_RETRY_DELAY_S = 0.05  # 50 ms between attempts
+
+# Settle delay applied after capability detection's own Get_SRC_Cap
+# transaction (see _detect_capabilities_and_settle()), used by both
+# __init__ and refresh_capabilities(). Without it, a caller that issues a
+# voltage request immediately afterward can land close enough behind
+# Get_SRC_Cap on the same source to race it and get a transient Transaction
+# Fail, even though the request itself is valid.
+_POST_INIT_SETTLE_DELAY_S = 0.2
+
 class PowerSupplyService:
     """
     Service class for controlling a USB-C PD power supply using a HUSB238.
@@ -158,7 +185,7 @@ class PowerSupplyService:
         up front so later requests know whether negotiation is even possible.
         """
         self._i2c_service = I2CService()
-        self._capabilities = self._detect_capabilities()
+        self._capabilities = self._detect_capabilities_and_settle()
 
 ##### Helpers #############################################
 
@@ -174,7 +201,7 @@ class PowerSupplyService:
             return None
         return (status1 >> 3) & 0b111
 
-    def _wait_for_pd_response(self, timeout_s: float = _NEGOTIATION_TIMEOUT_S) -> bool:
+    def _wait_for_pd_response(self, timeout_s: float = _NEGOTIATION_TIMEOUT_S, is_final_attempt: bool = True) -> bool:
         """
         Poll PD_STATUS1.PD_RESPONSE until the HUSB238 reports a definitive
         response to the last request, or until timeout_s elapses.
@@ -186,18 +213,23 @@ class PowerSupplyService:
 
         Args:
             timeout_s: Maximum time to wait for a definitive response.
+            is_final_attempt: Whether this is the last attempt in the caller's
+                retry loop. A failure is logged at ERROR when true, or DEBUG
+                when false since the caller is about to retry and a single
+                failed attempt isn't (yet) an actionable problem.
 
         Returns:
             True if PD_RESPONSE reports Success.
             False on any other definitive response code, on an I2C read failure,
             or on timeout (no response received in time).
         """
+        log_failure = oradio_log.error if is_final_attempt else oradio_log.debug
         deadline = monotonic() + timeout_s
         while monotonic() < deadline:
             response = self._read_pd_response()
 
             if response is None:
-                oradio_log.error("PD Status register 1 (attach, CC, response) read failed while polling PD_RESPONSE")
+                log_failure("PD Status register 1 (attach, CC, response) read failed while polling PD_RESPONSE")
                 return False
 
             if response == _PD_RESPONSE_NO_RESPONSE:
@@ -208,16 +240,16 @@ class PowerSupplyService:
                 return True
 
             # Any other code is a definitive failure - no point polling further
-            oradio_log.error(
+            log_failure(
                 "PD_RESPONSE=0b%s (%s)", format(response, '03b'),
                 _PD_RESPONSE_MESSAGES.get(response, "unknown/reserved")
             )
             return False
 
-        oradio_log.error("timed out after %.2fs waiting for PD_RESPONSE", timeout_s)
+        log_failure("timed out after %.2fs waiting for PD_RESPONSE", timeout_s)
         return False
 
-    def _wait_for_voltage_negotiation(self, voltage_v: int, timeout_s: float = _NEGOTIATION_TIMEOUT_S) -> tuple[bool, dict]:
+    def _wait_for_voltage_negotiation(self, voltage_v: int, timeout_s: float = _NEGOTIATION_TIMEOUT_S, is_final_attempt: bool = True) -> tuple[bool, dict]:
         """
         Poll after a PDO voltage request until the outcome is known, checking
         both signals in a single pass with one shared timeout budget:
@@ -241,12 +273,17 @@ class PowerSupplyService:
         Args:
             voltage_v: The voltage that was just requested.
             timeout_s: Maximum total time to wait for a definitive outcome.
+            is_final_attempt: Whether this is the last attempt in the caller's
+                retry loop. A failure is logged at ERROR when true, or DEBUG
+                when false since the caller is about to retry and a single
+                failed attempt isn't (yet) an actionable problem.
 
         Returns:
             (True, status) once PD_STATUS0 confirms voltage_v.
             (False, status) on a PD_RESPONSE failure code, an I2C read
             failure, or timeout - status holds whatever was last read.
         """
+        log_failure = oradio_log.error if is_final_attempt else oradio_log.debug
         deadline = monotonic() + timeout_s
         status = self.read_status()
 
@@ -254,14 +291,19 @@ class PowerSupplyService:
             response = self._read_pd_response()
 
             if response is None:
-                oradio_log.error("PD Status register 1 read failed while polling negotiation outcome")
+                log_failure("PD Status register 1 read failed while polling negotiation outcome")
                 return False, status
 
             if response not in (_PD_RESPONSE_NO_RESPONSE, _PD_RESPONSE_SUCCESS):
-                oradio_log.error(
+                log_failure(
                     "PD_RESPONSE=0b%s (%s)", format(response, '03b'),
                     _PD_RESPONSE_MESSAGES.get(response, "unknown/reserved")
                 )
+                # Surface the failing code so the caller (_set_voltage) can
+                # tell a transient Transaction Fail apart from a genuine
+                # rejection - status["pd_response"] would otherwise still
+                # hold whatever was read on the last successful poll.
+                status["pd_response"] = response
                 return False, status
 
             status = self.read_status()
@@ -270,11 +312,26 @@ class PowerSupplyService:
 
             sleep(_NEGOTIATION_POLL_INTERVAL_S)
 
-        oradio_log.error(
+        log_failure(
             "Timed out after %.2fs waiting for negotiation of %sV to settle "
             "(last read: %sV)", timeout_s, voltage_v, status["voltage_v"]
         )
         return False, status
+
+    def _request_src_cap(self, is_final_attempt: bool = True) -> bool:
+        """
+        Issue a single Get_SRC_Cap request and wait for a definitive PD_RESPONSE.
+
+        Args:
+            is_final_attempt: Forwarded to _wait_for_pd_response() so a
+                failure that the caller is about to retry logs at DEBUG
+                instead of ERROR.
+
+        Returns:
+            True if PD_RESPONSE reports Success, False otherwise.
+        """
+        self._i2c_service.write_byte(HUSB238_ADDRESS, REG_GO_COMMAND, _CMD_GET_SRC_CAP)
+        return self._wait_for_pd_response(is_final_attempt=is_final_attempt)
 
     def _detect_capabilities(self) -> dict:
         """
@@ -285,11 +342,16 @@ class PowerSupplyService:
         registers to see which of the voltages Oradio needs (5V, 9V, 12V) the
         source actually advertises support for.
 
-        A source with no CC attachment, one that never responds to Get_SRC_Cap, or
-        one that simply doesn't list any of these voltages (e.g. a legacy 5V-only
-        USB charger with no PD support) is not considered a fault - it's just a
-        power supply that can't do what Oradio wants, and callers should not raise
-        an incident for that.
+        Get_SRC_Cap is retried a bounded number of times (see
+        _GET_SRC_CAP_MAX_ATTEMPTS) to absorb a transient Transaction Fail
+        (no GoodCRC) response before concluding the source is genuinely not
+        PD-capable.
+
+        A source with no CC attachment, one that never responds to Get_SRC_Cap
+        after retries, or one that simply doesn't list any of these voltages
+        (e.g. a legacy 5V-only USB charger with no PD support) is not
+        considered a fault - it's just a power supply that can't do what
+        Oradio wants, and callers should not raise an incident for that.
 
         Returns:
             {"attached": bool, "pd_capable": bool, "voltages": set[int]}
@@ -305,10 +367,25 @@ class PowerSupplyService:
             oradio_log.warning("No USB-C attachment detected during capability check")
             return {"attached": False, "pd_capable": False, "voltages": set()}
 
-        # Ask the source to (re)send its capabilities and wait for a definitive response
-        self._i2c_service.write_byte(HUSB238_ADDRESS, REG_GO_COMMAND, _CMD_GET_SRC_CAP)
-        if not self._wait_for_pd_response():
-            oradio_log.warning("Source did not respond to Get_SRC_Cap; treating as a non-PD power supply")
+        # Ask the source to (re)send its capabilities, retrying a bounded
+        # number of times to absorb a transient Transaction Fail (no GoodCRC).
+        got_response = False
+        for attempt in range(1, _GET_SRC_CAP_MAX_ATTEMPTS + 1):
+            got_response = self._request_src_cap(is_final_attempt=(attempt == _GET_SRC_CAP_MAX_ATTEMPTS))
+            if got_response:
+                break
+            if attempt < _GET_SRC_CAP_MAX_ATTEMPTS:
+                oradio_log.debug(
+                    "Get_SRC_Cap attempt %d/%d failed, retrying",
+                    attempt, _GET_SRC_CAP_MAX_ATTEMPTS
+                )
+                sleep(_GET_SRC_CAP_RETRY_DELAY_S)
+
+        if not got_response:
+            oradio_log.warning(
+                "Source did not respond to Get_SRC_Cap after %d attempts; treating as a non-PD power supply",
+                _GET_SRC_CAP_MAX_ATTEMPTS
+            )
             return {"attached": True, "pd_capable": False, "voltages": set()}
 
         voltages = set()
@@ -323,6 +400,25 @@ class PowerSupplyService:
         oradio_log.info("detected source voltages: %s", sorted(voltages) or "none")
 
         return {"attached": True, "pd_capable": bool(voltages), "voltages": voltages}
+
+    def _detect_capabilities_and_settle(self) -> dict:
+        """
+        Run _detect_capabilities() and, if it actually performed a bus
+        transaction (source attached), give the source a moment to settle
+        before returning control to the caller.
+
+        Used by both __init__ and refresh_capabilities(), since a caller
+        may immediately issue a voltage request right after either call
+        returns. This is recovery from a transaction this class itself just
+        made, so it belongs here rather than in every caller.
+
+        Returns:
+            Same shape as _detect_capabilities().
+        """
+        capabilities = self._detect_capabilities()
+        if capabilities["attached"]:
+            sleep(_POST_INIT_SETTLE_DELAY_S)
+        return capabilities
 
     def _safe_set_voltage(self, voltage_v: int, min_current_a: float) -> bool:
         """
@@ -391,13 +487,61 @@ class PowerSupplyService:
             oradio_log.error("Unsupported voltage request %sV. Supported: %s", voltage_v, sorted(_VOLTAGE_SEL.keys()))
             return False
 
-        # Configure the requested PDO and trigger negotiation
-        self._configure_pdo(voltage_v=voltage_v)
+        # If the source already has an active contract that satisfies this
+        # request, skip triggering a fresh negotiation entirely. Some
+        # sources reject/NAK a request that looks redundant given their
+        # current state, which reads back as PD_RESPONSE=Transaction Fail
+        # (no GoodCRC) rather than as a normal renegotiation.
+        current_status = self.read_status()
+        if (
+            current_status["attach"]
+            and current_status["voltage_v"] == voltage_v
+            and current_status["current_a"] is not None
+            and current_status["current_a"] >= min_current_a
+        ):
+            oradio_log.info(
+                "Source already negotiated %sV @ %.1fA (matches request); skipping renegotiation",
+                current_status["voltage_v"], current_status["current_a"]
+            )
+            return True
 
-        # Poll for a definitive outcome in one pass: either a PD_RESPONSE
-        # failure code (fail fast) or PD_STATUS0 settling on voltage_v (success)
-        settled, status = self._wait_for_voltage_negotiation(voltage_v)
+        # Configure the requested PDO and trigger negotiation. Retried a
+        # bounded number of times specifically when the source comes back
+        # with Transaction Fail (no GoodCRC), in case a genuinely fresh
+        # negotiation still hits a short ack-timing blip. Any other failure
+        # (invalid command, not supported, or a plain timeout) is a genuine
+        # outcome and is not retried.
+        settled = False
+        status = {}
+        for attempt in range(1, _VOLTAGE_REQUEST_MAX_ATTEMPTS + 1):
+            self._configure_pdo(voltage_v=voltage_v)
+
+            # Poll for a definitive outcome in one pass: either a PD_RESPONSE
+            # failure code (fail fast) or PD_STATUS0 settling on voltage_v
+            # (success). Always suppress this call's own error-level logging
+            # (is_final_attempt=False) - whether this is truly the last
+            # attempt depends on the failure reason, which isn't known until
+            # after the call returns, so the definitive log happens below
+            # instead, once we know no further retry will occur.
+            settled, status = self._wait_for_voltage_negotiation(voltage_v, is_final_attempt=False)
+            if settled:
+                break
+
+            if status.get("pd_response") != _PD_RESPONSE_TRANSACTION_FAIL:
+                break
+
+            if attempt < _VOLTAGE_REQUEST_MAX_ATTEMPTS:
+                oradio_log.debug(
+                    "PDO request for %sV attempt %d/%d got Transaction Fail (no GoodCRC), retrying",
+                    voltage_v, attempt, _VOLTAGE_REQUEST_MAX_ATTEMPTS
+                )
+                sleep(_VOLTAGE_REQUEST_RETRY_DELAY_S)
+
         if not settled:
+            oradio_log.error(
+                "PDO request for %sV did not settle (last pd_response=%s)",
+                voltage_v, status.get("pd_response")
+            )
             return False
 
         # Ensure a USB-C attachment is present
@@ -485,7 +629,7 @@ class PowerSupplyService:
         (e.g. a hot-plug event) since __init__ or the last refresh, so a newly
         connected supply's capabilities are picked up.
         """
-        self._capabilities = self._detect_capabilities()
+        self._capabilities = self._detect_capabilities_and_settle()
 
     def read_status(self) -> dict:
         """
