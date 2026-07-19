@@ -84,7 +84,8 @@ SW_LOG_FILE = "/var/log/oradio_sw_version.log"
 HEARTBEAT_REPEAT = 60 * 60
 
 # Remote Monitoring Service endpoint and HTTP POST tuning parameters
-RMS_SERVER_URL = 'https://oradiolabs.nl/rms/receive.php'
+RMS_SERVER_URL = "https://oradiolabs.nl/rmsv2/api/index.php/v1/oradiorms/records"
+RMS_SERVER_KEY = "fb40600e990431f0934995ccf6464de740e32a9d7eb68c89ac1a17f9ef43f3a5"
 MAX_RETRIES    = 3    # Maximum number of POST attempts before giving up
 BACKOFF_FACTOR = 2    # Base for exponential backoff: delay = BACKOFF_FACTOR ** attempt (1s, 2s, 4s)
 POST_TIMEOUT   = 5    # Per-attempt HTTP timeout in seconds
@@ -227,7 +228,13 @@ def _post_with_retry(payload_info: dict, attach_log_files: bool = False, context
                 if attach_log_files:
                     send_files = ORADIO_LOG_PATH.glob("*.log")
                     payload_files = {f.name: (f.name, stack.enter_context(f.open("rb"))) for f in send_files}
-                response = post(RMS_SERVER_URL, data=payload_info, files=payload_files, timeout=POST_TIMEOUT)
+                response = post(
+                    url=RMS_SERVER_URL,
+                    headers={"X-Api-Key": RMS_SERVER_KEY},
+                    data=payload_info,
+                    files=payload_files,
+                    timeout=POST_TIMEOUT
+                )
                 response.raise_for_status()
             return response  # POST succeeded; exit the retry loop
         except (RequestException, Timeout) as ex_err:
@@ -439,28 +446,22 @@ class WifiMessageHandler(MessageHandlerTemplate):
 
         # Append lightweight runtime telemetry for periodic sign-of-life messages
         if msg_type == HEARTBEAT:
-            payload_info['message'] = json.dumps({
-                'temperature': _get_temperature(),
-            })
+            payload_info['temperature'] = _get_temperature()
 
         # Append full hardware/software identification for onboarding messages
         elif msg_type == SYS_INFO:
-            payload_info['message'] = json.dumps({
-                'sw_version': _get_sw_version(),
-                'python'    : python_version(),
-                'rpi'       : _get_rpi_version(),
-                'rpi-os'    : _get_os_version(),
-            })
+            payload_info['sw_version'] = _get_sw_version()
+            payload_info['python']     = python_version()
+            payload_info['rpi']        = _get_rpi_version()
+            payload_info['rpi-os']     = _get_os_version()
 
         # Report an incident from another service, attaching current logs
         elif msg_type == INCIDENT:
             if incident is None:
                 oradio_log.error("send_message(INCIDENT) requires an IncidentMessage")
                 return
-            payload_info['message'] = json.dumps({
-                'source' : incident.source,
-                'message': incident.message,
-            })
+            payload_info['source']  = incident.source
+            payload_info['message'] = incident.message
             # Result intentionally unused: unlike HEARTBEAT/SYS_INFO, an
             # incident alert doesn't act on any command in the response.
             _post_with_retry(payload_info, attach_log_files=True, context="incident")
