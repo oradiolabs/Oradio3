@@ -51,6 +51,7 @@ Created on December 18, 2025
         source. Requests are retried a bounded number of times to absorb
         this before treating it as a real failure.
 """
+from typing import TypedDict
 from time import sleep, monotonic
 
 ##### Oradio modules ######################################
@@ -156,6 +157,14 @@ _VOLTAGE_REQUEST_RETRY_DELAY_S = 0.05  # 50 ms between attempts
 # Fail, even though the request itself is valid.
 _POST_INIT_SETTLE_DELAY_S = 0.2
 
+class PDStatus(TypedDict):
+    """Decoded PD status fields, as returned by read_status()."""
+    voltage_v: int | None
+    current_a: float | None
+    attach: bool | None
+    cc_dir: int | None
+    pd_response: int | None
+
 class PowerSupplyService:
     """
     Service class for controlling a USB-C PD power supply using a HUSB238.
@@ -249,7 +258,7 @@ class PowerSupplyService:
         log_failure("timed out after %.2fs waiting for PD_RESPONSE", timeout_s)
         return False
 
-    def _wait_for_voltage_negotiation(self, voltage_v: int, timeout_s: float = _NEGOTIATION_TIMEOUT_S, is_final_attempt: bool = True) -> tuple[bool, dict]:
+    def _wait_for_voltage_negotiation(self, voltage_v: int, timeout_s: float = _NEGOTIATION_TIMEOUT_S, is_final_attempt: bool = True) -> tuple[bool, PDStatus]:
         """
         Poll after a PDO voltage request until the outcome is known, checking
         both signals in a single pass with one shared timeout budget:
@@ -512,7 +521,7 @@ class PowerSupplyService:
         # (invalid command, not supported, or a plain timeout) is a genuine
         # outcome and is not retried.
         settled = False
-        status: dict[str, object] = {}
+        status: PDStatus = self.read_status()
         for attempt in range(1, _VOLTAGE_REQUEST_MAX_ATTEMPTS + 1):
             self._configure_pdo(voltage_v=voltage_v)
 
@@ -635,7 +644,7 @@ class PowerSupplyService:
         """
         self._capabilities = self._detect_capabilities_and_settle()
 
-    def read_status(self) -> dict:
+    def read_status(self) -> PDStatus:
         """
         Read and decode the current PD status from the HUSB238.
 
