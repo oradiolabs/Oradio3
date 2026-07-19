@@ -371,7 +371,7 @@ class PowerSupplyService:
         # number of times to absorb a transient Transaction Fail (no GoodCRC).
         got_response = False
         for attempt in range(1, _GET_SRC_CAP_MAX_ATTEMPTS + 1):
-            got_response = self._request_src_cap(is_final_attempt=(attempt == _GET_SRC_CAP_MAX_ATTEMPTS))
+            got_response = self._request_src_cap(is_final_attempt=attempt == _GET_SRC_CAP_MAX_ATTEMPTS)
             if got_response:
                 break
             if attempt < _GET_SRC_CAP_MAX_ATTEMPTS:
@@ -512,7 +512,7 @@ class PowerSupplyService:
         # (invalid command, not supported, or a plain timeout) is a genuine
         # outcome and is not retried.
         settled = False
-        status = {}
+        status: dict[str, object] = {}
         for attempt in range(1, _VOLTAGE_REQUEST_MAX_ATTEMPTS + 1):
             self._configure_pdo(voltage_v=voltage_v)
 
@@ -561,16 +561,20 @@ class PowerSupplyService:
         success = (delivered_v == voltage_v) and (delivered_a >= min_current_a)
         if success:
             oradio_log.info("Negotiated %sV @ %.1fA", delivered_v, delivered_a)
-            return True
+        else:
+            # Negotiation failed or does not meet requirements
+            oradio_log.error(
+                "Negotiation mismatch. Requested %sV (min %.1fA) but got %sV @ %sA",
+                voltage_v, min_current_a, delivered_v, delivered_a
+            )
+            # Log additional PD response information if available
+            if status["pd_response"] is not None:
+                oradio_log.warning(
+                    "PD Status register 1: pd_response=%s, cc_dir=%s, attach=%s",
+                    status["pd_response"], status["cc_dir"], status["attach"]
+                )
 
-        # Negotiation failed or does not meet requirements
-        oradio_log.error("Negotiation mismatch. Requested %sV (min %.1fA) but got %sV @ %sA", voltage_v, min_current_a, delivered_v, delivered_a)
-
-        # Log additional PD response information if available
-        if status["pd_response"] is not None:
-            oradio_log.warning("PD Status register 1: pd_response=%s, cc_dir=%s, attach=%s", status["pd_response"], status["cc_dir"], status["attach"])
-
-        return False
+        return success
 
     def _configure_pdo(self, voltage_v: int) -> None:
         """
