@@ -39,6 +39,7 @@ from os import path
 from unicodedata import normalize, category
 
 ##### Oradio modules ######################################
+from singleton import singleton
 from log_service import oradio_log
 from utilities import load_presets, ThreadTemplate
 from mpd_service import MPDService
@@ -189,6 +190,7 @@ class _SongFinishMonitor(ThreadTemplate):
         if not self._suppress_resume:
             self._control._resume_queue_if_not_empty()   # pylint: disable=protected-access
 
+@singleton
 class MPDControl(MPDService):
     """
     Wrapper for an MPD (Music Player Daemon) client.
