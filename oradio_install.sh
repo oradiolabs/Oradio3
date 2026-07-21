@@ -89,26 +89,26 @@ unset INSTALL_ERROR
 
 # Install file replacing placeholders and execute follow-up commands
 function install_resource {
-    if [ $# -lt 2 ]; then
-        echo -e "${RED}Aborting: install_resource has too few arguments: '$@'${NC}"
+	if [ $# -lt 2 ]; then
+		echo -e "${RED}Aborting: install_resource has too few arguments: '$@'${NC}"
 		echo "Usage: $0 src dst"
 		# Stop with error flag
-        INSTALL_ERROR=1
-        return
-    fi
+		INSTALL_ERROR=1
+		return
+	fi
 
 	SRC=$1
 	DST=$2
 	shift 2
 
-    if [ -f "$SRC.template" ]; then
+	if [ -f "$SRC.template" ]; then
 
 		# Create by replacing placeholders
-        cp "$SRC.template" "$SRC"
+		cp "$SRC.template" "$SRC"
 
 		# Replace placeholders
-        sed -i "s/PLACEHOLDER_USER/$(id -un)/g" "$SRC"
-        sed -i "s/PLACEHOLDER_GROUP/$(id -gn)/g" "$SRC"
+		sed -i "s/PLACEHOLDER_USER/$(id -un)/g" "$SRC"
+		sed -i "s/PLACEHOLDER_GROUP/$(id -gn)/g" "$SRC"
 		for VAR_NAME in MAIN_PATH SPOTIFY_PATH LOGGING_PATH LOGFILE_USB LOGFILE_MPD LOGFILE_INSTALL LOGFILE_SPOTIFY LOGFILE_TRACEBACK; do
 			VALUE="${!VAR_NAME}"
 			# Escape & because sed treats it specially
@@ -117,19 +117,19 @@ function install_resource {
 			# Use | as delimiter instead of /
 			sed -i "s|$PLACEHOLDER|$ESCAPED_VALUE|g" "$SRC"
 		done
-    fi
+	fi
 
-    # Install only if files differ
-    if ! cmp -s "$SRC" "$DST"; then
+	# Install only if files differ
+	if ! cmp -s "$SRC" "$DST"; then
 		echo "Installing '$SRC' to '$DST'"
-        sudo cp "$SRC" "$DST"
+		sudo cp "$SRC" "$DST"
 
-        # Execute any extra commands
-        for CMD in "$@"; do
+		# Execute any extra commands
+		for CMD in "$@"; do
 			echo "Executing: '$CMD'"
-            sudo bash -c "$CMD"
-        done
-    fi
+			sudo bash -c "$CMD"
+		done
+	fi
 }
 
 ########## INITIALIZE END ##########
@@ -160,7 +160,11 @@ if [ "$1" != "--continue" ]; then
 	# Update lists if to old
 	if (( age > MAX_AGE )); then
 		echo -e "${YELLOW}Package lists out of date, updating...${NC}"
-		sudo apt-get update
+		# Ensure the package list is clean
+		sudo rm -rf /var/lib/apt/lists/*
+		sudo apt clean
+		# Get the latest package lists
+		sudo apt update
 		# Save time lists were updated
 		date +%s | sudo tee "$STAMP_FILE" >/dev/null
 	fi
@@ -416,9 +420,9 @@ echo "--------------------------------------------------"
 # Get Oradio3 serial number and software version
 echo "Serial number: \$(vcgencmd otp_dump | grep "28:" | cut -c 4-)"
 if [ -f /var/log/oradio_sw_version.log ]; then
-        echo "SW version: \$(cat /var/log/oradio_sw_version.log | jq -r ".gitinfo")"
+	echo "SW version: \$(cat /var/log/oradio_sw_version.log | jq -r ".gitinfo")"
 else
-        echo "SW version: Unknown (No 'oradio_sw_version.log')"
+	echo "SW version: Unknown (No 'oradio_sw_version.log')"
 fi
 echo "--------------------------------------------------"
 EOL'
