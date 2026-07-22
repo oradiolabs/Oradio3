@@ -9,10 +9,13 @@ Before=oradio.service
 [Service]
 Type=oneshot
 
+# Shows active after boot, allowing to distinguish 'healthy' from 'never run'
+RemainAfterExit=yes
+
 # allow USB to suspend when idle
-#ExecStart=/usr/bin/bash -c 'echo auto > /sys/bus/usb/devices/1-1/power/control'
+ExecStart=/usr/bin/bash -c 'p=/sys/bus/usb/devices/1-1/power/control; [ -w "$p" ] && echo auto > "$p" || echo "usb_low_idle_power: $p not found" >&2'
 # Temporarily disable allowing USB to suspend. See GitHub issue #485 for details
-ExecStart=/usr/bin/bash -c 'echo on > /sys/bus/usb/devices/1-1/power/control'
+ExecStart=/usr/bin/bash -c 'p=/sys/bus/usb/devices/1-1/power/control; [ -w "$p" ] && echo on > "$p" || echo "usb_low_idle_power: $p not found" >&2'
 
 [Install]
 WantedBy=oradio.service
