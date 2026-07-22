@@ -538,7 +538,7 @@ echo -e "${GREEN}i2c installed and configured${NC}"
 
 # Install audio configuration, set volume to reasonable level, play silence to activate
 install_resource "$RESOURCES_PATH/asound.conf" /etc/asound.conf \
-	'amixer -c 0 cset name="Digital Playback Volume" 120'\
+	'amixer -c DigiAMP cset name="Digital Playback Volume" 120'\
 	'aplay -D SpotCon_in /dev/zero -f FLOAT_LE -c 2 -r 44100 -d 1' \
 	'aplay -D MPD_in /dev/zero -f FLOAT_LE -c 2 -r 44100 -d 1' \
 	'aplay -D SysSound_in /dev/zero -f FLOAT_LE -c 2 -r 44100 -d 1'
