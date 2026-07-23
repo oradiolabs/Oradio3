@@ -594,7 +594,8 @@ class MessageHandlerTemplate(ThreadTemplate):
             queue: The queue to handle messages from.
         """
         self._queue = queue
-        self._lock = Lock()                                 # guards idempotent stop()
+        # Guard stop() as a whole (check-stop_event-set + sentinel-put + safe_stop())
+        self._lock = Lock()
         self._stop_sentinel = f"STOP_{uuid.uuid4().hex}"    # Unique per instance
 
         # interval=0: do_work() itself blocks on safe_get(), so there's no
