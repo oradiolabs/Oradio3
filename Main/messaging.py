@@ -594,7 +594,8 @@ class MessageHandlerTemplate(ThreadTemplate):
             queue: The queue to handle messages from.
         """
         self._queue = queue
-        self._lock = Lock()                                 # guards idempotent stop()
+        # Guard stop() as a whole (check-stop_event-set + sentinel-put + safe_stop())
+        self._lock = Lock()
         self._stop_sentinel = f"STOP_{uuid.uuid4().hex}"    # Unique per instance
 
         # interval=0: do_work() itself blocks on safe_get(), so there's no
@@ -661,7 +662,11 @@ class MessageHandlerTemplate(ThreadTemplate):
             self._handle_message(message)
         # We don't know what code is executed, thus not what exceptions are possible
         except Exception as ex_err:     # pylint: disable=broad-exception-caught
-            oradio_log.error("Error handling message: %s", ex_err)
+            oradio_log.error(
+                "Error handling message in %s: %r (%s)",
+                self.__class__.__name__, message, ex_err,
+                exc_info=True,
+            )
 
     def _handle_message(self, message) -> None:
         """
