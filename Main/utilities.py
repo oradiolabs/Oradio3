@@ -71,6 +71,12 @@ class ThreadTemplate:
     safe_start() creates a fresh internal Thread (since a Thread object
     itself can only ever be run once) and resets the events/exception state
     left over from the previous run.
+
+    safe_start() and safe_stop() are themselves safe to call concurrently
+    from multiple threads (e.g. a watchdog thread and the main thread both
+    driving the same instance): a dedicated lifecycle lock serializes the
+    check-and-mutate sequence on `_thread` so two overlapping calls can't
+    race and orphan a Thread object.
     """
 
     def __init__(self, *, interval: float = 1.0, name: str | None = None) -> None:
@@ -94,6 +100,21 @@ class ThreadTemplate:
         self._exception_lock = Lock()
         self._exception: Exception | None = None
 
+        # Guards the check-then-mutate sequences in safe_start()/safe_stop()
+        # that read and write self._thread. Without this, two concurrent
+        # safe_start() calls could both pass the "already running" check
+        # before either assigns self._thread, each starting its own Thread
+        # and the second assignment silently orphaning the first (nobody
+        # keeps a reference to it, so it can no longer be stopped). It also
+        # prevents safe_start() and safe_stop() from tearing on the same
+        # instance, e.g. safe_stop() joining a thread that safe_start() is
+        # in the middle of replacing.
+        # Note: run() never calls safe_start()/safe_stop() on itself, and
+        # nothing below holds this lock while blocking on _started_event.wait()
+        # or _thread.join() -- see the comments in safe_start()/safe_stop() --
+        # so there is no deadlock risk between the worker thread and callers.
+        self._lifecycle_lock = Lock()
+
         # The actual OS thread, (re)created fresh on each safe_start() since
         # a Thread object itself can only ever be started once.
         self._thread: Thread | None = None
@@ -108,6 +129,11 @@ class ThreadTemplate:
         over from any previous run, so this can be called again after
         safe_stop() to run the same instance a second (or later) time.
 
+        Thread-safe: the "is it already running" check and the creation/
+        start of the new Thread happen under `_lifecycle_lock`, so two
+        threads calling safe_start() on the same instance at the same time
+        can't both slip past the check and each start their own Thread.
+
         Args:
             timeout: Max seconds to wait for setup() to finish.
 
@@ -118,30 +144,39 @@ class ThreadTemplate:
             succeeded -- check the crashed property afterward to distinguish
             "timed out" from "started and immediately crashed".
         """
-        if self._thread is not None and self._thread.is_alive():
-            oradio_log.debug("%s is already running", self._name)
-            return False
+        # Hold the lock only for the check-and-mutate part (creating and
+        # starting the Thread object). The actual wait for readiness happens
+        # below, outside the lock, so a concurrent safe_stop() isn't blocked
+        # from proceeding once this run is underway.
+        with self._lifecycle_lock:
+            if self._thread is not None and self._thread.is_alive():
+                oradio_log.debug("%s is already running", self._name)
+                return False
 
-        # Reset state left over from a previous run so this run starts clean.
-        self._stop_event.clear()
-        self._started_event.clear()
-        with self._exception_lock:
-            self._exception = None
+            # Reset state left over from a previous run so this run starts clean.
+            self._stop_event.clear()
+            self._started_event.clear()
+            with self._exception_lock:
+                self._exception = None
 
-        # A fresh Thread object every time -- Thread.start() itself refuses
-        # to run twice, so restartability requires a new one per run.
-        self._thread = Thread(target=self.run, name=self._name, daemon=True)
+            # A fresh Thread object every time -- Thread.start() itself refuses
+            # to run twice, so restartability requires a new one per run.
+            self._thread = Thread(target=self.run, name=self._name, daemon=True)
 
-        try:
-            # Spawns the OS thread and schedules run(). Can raise
-            # RuntimeError if the OS can't allocate a new thread.
-            self._thread.start()
-        except RuntimeError:
-            oradio_log.error("%s failed to start thread", self._name)
-            return False
+            try:
+                # Spawns the OS thread and schedules run(). Can raise
+                # RuntimeError if the OS can't allocate a new thread.
+                self._thread.start()
+            except RuntimeError:
+                oradio_log.error("%s failed to start thread", self._name)
+                return False
 
         # Block here until run() signals that setup() has completed,
         # rather than assuming the thread is ready as soon as it's spawned.
+        # Deliberately done outside `_lifecycle_lock`: waiting here can take
+        # up to `timeout` seconds, and holding the lock that long would
+        # needlessly block a concurrent safe_stop() from even signalling
+        # the thread to stop.
         started_ok = self._started_event.wait(timeout)
         if not started_ok:
             oradio_log.error("%s failed to start within %ss", self._name, timeout)
@@ -193,6 +228,11 @@ class ThreadTemplate:
         After this returns, safe_start() can be called again to run the
         same instance again from a clean state.
 
+        Thread-safe: reading/clearing `self._thread` is done under
+        `_lifecycle_lock`, so a concurrent safe_start() can't replace
+        `self._thread` with a new Thread while this call is still looking
+        at (or about to clear) the old one.
+
         Args:
             timeout: Max seconds to wait for the thread to exit.
 
@@ -203,24 +243,42 @@ class ThreadTemplate:
             Note that a stuck thread cannot be forcibly killed -- False just
             tells you it happened.
         """
-        if self._thread is None:
-            oradio_log.debug("%s was not started", self._name)
+        # Grab a reference to the current thread under the lock, so we're
+        # guaranteed to join() the same Thread object we checked for None --
+        # not one a concurrent safe_start() swapped in afterward.
+        with self._lifecycle_lock:
+            # Snapshot into a local variable rather than reading self._thread
+            # again further down: the lock is released before the blocking
+            # join() below, so self._thread could be reassigned by a
+            # concurrent safe_start() in the meantime. `thread` stays a
+            # stable reference to the run we're actually stopping.
+            thread = self._thread
+            if thread is None:
+                oradio_log.debug("%s was not started", self._name)
+                return True
+            self._stop_event.set()  # tells run()'s loop condition to exit
+
+        # join() can block for up to `timeout` seconds; done outside the
+        # lock so a concurrent safe_start() (e.g. on a fresh run after this
+        # one) isn't blocked from doing its own quick, lock-protected setup.
+        thread.join(timeout)
+
+        with self._lifecycle_lock:
+            if thread.is_alive():
+                oradio_log.error("%s did not stop within %ss", self._name, timeout)
+                return False
+
+            if self.crashed:
+                oradio_log.error("%s crashed with exception: %s", self._name, self.exception)
+                return False
+
+            # Cleanup and return stopped. Only clear self._thread if it's
+            # still the same object we joined -- guards against the (rare)
+            # case where a concurrent safe_start() already replaced it with
+            # a new run in the time between the join() above and this block.
+            if self._thread is thread:
+                self._thread = None
             return True
-
-        self._stop_event.set()      # tells run()'s loop condition to exit
-        self._thread.join(timeout)  # blocks until the thread actually exits
-
-        if self._thread.is_alive():
-            oradio_log.error("%s did not stop within %ss", self._name, timeout)
-            return False
-
-        if self.crashed:
-            oradio_log.error("%s crashed with exception: %s", self._name, self.exception)
-            return False
-
-        # Cleanup and return stopped
-        self._thread = None
-        return True
 
     def is_alive(self) -> bool:
         """
