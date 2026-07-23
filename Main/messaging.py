@@ -663,9 +663,8 @@ class MessageHandlerTemplate(ThreadTemplate):
         # We don't know what code is executed, thus not what exceptions are possible
         except Exception as ex_err:     # pylint: disable=broad-exception-caught
             oradio_log.error(
-                "Error handling message in %s: %r",
-                self.__class__.__name__,
-                message,
+                "Error handling message in %s: %r (%s)",
+                self.__class__.__name__, message, ex_err,
                 exc_info=True,
             )
 
