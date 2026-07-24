@@ -84,8 +84,8 @@ SW_LOG_FILE = "/var/log/oradio_sw_version.log"
 HEARTBEAT_REPEAT = 60 * 60
 
 # Remote Monitoring Service endpoint and HTTP POST tuning parameters
-RMS_SERVER_URL = "https://oradiolabs.nl/rmsv2/api/index.php/v1/oradiorms/records"
-RMS_SERVER_KEY = "fb40600e990431f0934995ccf6464de740e32a9d7eb68c89ac1a17f9ef43f3a5"
+RMS_SERVER_URL = "https://oradiolabs.nl/rms/api/index.php/v1/oradiorms/records"
+RMS_SERVER_KEY = "e8590bb5e3d88fa306c214bbb066e3638000f6c45aeb04fc8e043af57233e0d9"
 MAX_RETRIES    = 3    # Maximum number of POST attempts before giving up
 BACKOFF_FACTOR = 2    # Base for exponential backoff: delay = BACKOFF_FACTOR ** attempt (1s, 2s, 4s)
 POST_TIMEOUT   = 5    # Per-attempt HTTP timeout in seconds
