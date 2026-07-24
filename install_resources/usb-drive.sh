@@ -82,7 +82,7 @@ case "$ACTION" in
 
 		# Verify unmount actually happened
 		if mountpoint -q "$MOUNTPOINT"; then
-			log "Error: Failed to unmount '{$MOUNTPOINT}'"
+			log "Error: Failed to unmount '$MOUNTPOINT'"
 			exit 1
 		fi
 

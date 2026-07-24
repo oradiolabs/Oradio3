@@ -50,7 +50,6 @@ done
 # -------------------
 # SSH Parallelization
 # -------------------
-#!/bin/bash
 SSH_UNIT_FILE="/lib/systemd/system/ssh.service"
 
 # Replace any line starting with "After=" in the [Unit] section with "After=basic.target"
@@ -134,23 +133,29 @@ for service_with_comment in "${SERVICES_TO_MASK[@]}"; do
     service="${service_with_comment%%[[:space:]]*}"
 
 	# Mask the main service if not already masked
-	if ! systemctl is-enabled "$service" | grep -q masked; then
-		sudo systemctl mask "$service" || true
+	if systemctl is-enabled "$service" | grep -q masked; then
+		echo "Service '$service' already masked"
+	elif sudo systemctl mask "$service"; then
+		echo "Service '$service' masked"
+	else
+		echo -e "${YELLOW}Warning: Failed to mask service '$service'${NC}"
 	fi
-	echo "Service '$service' masked"
 
 	# Stop and mask directly related units (same base name)
-	base="${service%.service}"
+	base="${service%.*}"
 	for ext in "${SAFE_EXTENSIONS[@]}"; do
 		unit="${base}.${ext}"
 		# Skip if same as main service
 		[[ "$unit" == "$service" || "$unit" == "${service}.service" ]] && continue
 		if systemctl list-unit-files --no-legend | grep -q "^$unit"; then
 			# Mask if not masked
-			if ! systemctl is-enabled "$unit" | grep -q masked; then
-				sudo systemctl mask "$unit" || true
+			if systemctl is-enabled "$unit" | grep -q masked; then
+				echo "Related unit '$unit' already masked"
+			elif sudo systemctl mask "$unit"; then
+				echo "Related unit '$unit' masked"
+			else
+				echo -e "${YELLOW}Warning: Failed to mask related unit '$unit'${NC}"
 			fi
-			echo "Related unit '$unit' masked"
 		fi
 	done
 
@@ -164,10 +169,13 @@ for service_with_comment in "${SERVICES_TO_MASK[@]}"; do
 			continue
 		fi
 		# Mask if not masked
-		if ! systemctl is-enabled "$unit" | grep -q masked; then
-			sudo systemctl mask "$unit" || true
+		if systemctl is-enabled "$unit" | grep -q masked; then
+			echo "Reverse dependency '$unit' already masked"
+		elif sudo systemctl mask "$unit"; then
+			echo "Reverse dependency '$unit' masked"
+		else
+			echo -e "${YELLOW}Warning: Failed to mask reverse dependency '$unit'${NC}"
 		fi
-		echo "Reverse dependency '$unit' masked"
 	done
 
 done
