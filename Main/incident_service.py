@@ -29,7 +29,9 @@ from collections.abc import Callable
 from log_service import oradio_log
 from rms_service import RMService, INCIDENT
 from messaging import (
+    Commands,
     Incidents,
+    CommandMessage,
     IncidentMessage,
     MessageHandlerTemplate,
     BACKLIGHTING_SOURCE, BACKLIGHTING_START_FAILED, BACKLIGHTING_STOPPED,
@@ -469,7 +471,10 @@ class IncidentHandler(MessageHandlerTemplate):
         elif incident.message == WIFI_CONNECT_FAILED:
             # MITIGATION TO BE IMPLEMENTED:
             #   Report wifi internet connection failure to RMS
-# LET OP: wordt in wifi_service als command verstuurd en in oradio_control in state machine afgehandeld
+# REVIEW Onno:
+#   WIFI_CONNECT_FAILED wordt als incident gerapporteerd, hier nu als command doorgestuurd.
+#   Te kiezen: is het een command of een incident?
+            Commands.publish(CommandMessage(WIFI_SOURCE, WIFI_CONNECT_FAILED))
             oradio_log.debug("Mitigation to be implemented")
         elif incident.message == WIFI_DISCONNECT_FAILED:
             # MITIGATION TO BE IMPLEMENTED:
