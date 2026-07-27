@@ -672,9 +672,8 @@ def update_spotify_available():
 # 2)-----The Handler map, defining message content and the handler funtion---
 
 # REVIEW Onno:
-#   Let op: WIFI_CONNECT_FAILED wordt ook als incident gerapporteerd.
-#   Te kiezen: is het een command zoals nu, of een incident?
-#   Voorstel: Het is een incident, met als mitigation een announcement en state wordt disconnected
+#   WIFI_CONNECT_FAILED wordt als incident gerapporteerd, daar nu als command doorgestuurd.
+#   Te kiezen: is het een command of een incident?
 HANDLERS = {
     VOLUME_SOURCE: {
         VOLUME_CHANGED: on_volume_changed,
