@@ -353,7 +353,7 @@ if [ "${1:-}" != "--continue" ]; then
 	# `pip` tracks installed versions and can diff them against the index
 	# itself, so we ask it once for "what's installed" and once for "what's
 	# outdated", then look up each package in those two results.
-	echo "Collecting installed Python packages status"
+	echo "Collecting installed Python packages status..."
 	INSTALLED_JSON=$(python3 -m pip list --format=json) || { echo -e "${RED}Aborting: pip list failed${NC}"; exit 1; }
 	OUTDATED_JSON=$(python3 -m pip list --outdated --format=json) || { echo -e "${RED}Aborting: pip list --outdated failed${NC}"; exit 1; }
 
