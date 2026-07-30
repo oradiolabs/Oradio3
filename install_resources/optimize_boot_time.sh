@@ -62,8 +62,6 @@ echo "Modified $SSH_UNIT_FILE to start after basic.target"
 CMDLINE_FILE="/boot/firmware/cmdline.txt"
 CMDLINE_OPTS=(
 	elevator=deadline	# Better SD/USB IO
-	quiet				# Suppress most boot messages
-	loglevel=0			# Show only critical errors
 	fastboot			# Skip hardware checks and delays
 )
 
