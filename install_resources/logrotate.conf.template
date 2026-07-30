@@ -32,6 +32,14 @@ PLACEHOLDER_LOGFILE_INSTALL {
 	copytruncate
 }
 
+PLACEHOLDER_LOGFILE_SWUPDATE {
+	size 100k
+	missingok
+	nocompress
+	rotate 1
+	copytruncate
+}
+
 PLACEHOLDER_LOGFILE_TRACEBACK {
 	size 100k
 	missingok

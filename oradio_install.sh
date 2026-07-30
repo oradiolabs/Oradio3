@@ -68,6 +68,7 @@ LOGFILE_USB="$LOGGING_PATH/usb.log"
 LOGFILE_MPD="$LOGGING_PATH/mpd.log"
 LOGFILE_SPOTIFY="$LOGGING_PATH/spotify.log"
 LOGFILE_INSTALL="$LOGGING_PATH/install.log"
+LOGFILE_SWUPDATE="$LOGGING_PATH/update.log"
 LOGFILE_TRACEBACK="$LOGGING_PATH/traceback.log"
 
 # Redirect script output to console and file
@@ -140,7 +141,7 @@ function install_resource {
 		# Replace placeholders. Combined into one sed invocation (instead of one
 		# `sed -i` per substitution) to avoid re-opening/rewriting the file N times.
 		local SED_ARGS=(-e "s/PLACEHOLDER_USER/$(id -un)/g" -e "s/PLACEHOLDER_GROUP/$(id -gn)/g")
-		for VAR_NAME in MAIN_PATH SPOTIFY_PATH LOGGING_PATH LOGFILE_USB LOGFILE_MPD LOGFILE_INSTALL LOGFILE_SPOTIFY LOGFILE_TRACEBACK; do
+		for VAR_NAME in MAIN_PATH SPOTIFY_PATH LOGGING_PATH LOGFILE_USB LOGFILE_MPD LOGFILE_SPOTIFY LOGFILE_INSTALL LOGFILE_SWUPDATE LOGFILE_TRACEBACK; do
 			local VALUE="${!VAR_NAME}"
 			# Escape & because sed treats it specially in the replacement text
 			local ESCAPED_VALUE
@@ -499,7 +500,7 @@ fi
 # Generate new sw version info
 sudo bash -c 'cat << EOL > /var/log/oradio_sw_version.log
 {
-    "serial": "$1",
+    "dtstamp": "$1",
     "gitinfo": "$2"
 }
 EOL' -- "$gitdate" "$gitinfo"
@@ -529,6 +530,17 @@ install_resource "$RESOURCES_PATH/usb-drive@.service" /etc/systemd/system/usb-dr
 install_resource "$RESOURCES_PATH/usb-drive.sh" /usr/local/bin/usb-drive.sh 'chmod +x /usr/local/bin/usb-drive.sh'
 # Progress report
 echo -e "${GREEN}USB functionalty loaded and configured. System automounts USB drives on '/media'${NC}"
+
+# Configure the software update service
+install_resource "$RESOURCES_PATH/swupdate.service" /etc/systemd/system/swupdate.service
+# Configure the software update triggers by the USB and SWU markers
+install_resource "$RESOURCES_PATH/swupdate.path" /etc/systemd/system/swupdate.path 'systemctl enable swupdate.path'
+# Configure the software update scripts used by the swupdate system service
+sudo install -m 0755 swupdate.sh install-swu.sh ab-boot-switch.sh /usr/local/sbin/
+# Install the software update signing certificate
+sudo install -D -m 0644 "$RESOURCES_PATH/oradio3-signing.cert.pem" /etc/oradio3/update-signing.cert.pem
+# Progress report
+echo -e "${GREEN}Software update functionalty loaded and configured${NC}"
 
 # Activate i2c interface
 # https://www.raspberrypi.com/documentation/computers/configuration.html#i2c-nonint

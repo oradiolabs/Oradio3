@@ -1,0 +1,27 @@
+[Unit]
+Description=Install an Oradio3 software update
+Documentation=file:/usr/local/sbin/swupdate.sh
+# The rootfs and the boot partition both have to be mounted: the package is read
+# from a mounted medium and the attempt counter lives on /boot/firmware.
+After=local-fs.target
+Requires=local-fs.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/swupdate.sh
+
+# Redirect file descriptor 1 (stdout) and 2 (stderr) of the executed processes
+StandardOutput=append:PLACEHOLDER_LOGFILE_SWUPDATE
+StandardError=append:PLACEHOLDER_LOGFILE_SWUPDATE
+
+# Unpacking a rootfs onto an SD card takes minutes. The default 90s start
+# timeout would kill the install part-way through, leaving the inactive slot
+# half-written — recoverable, but only because the running slot is untouched.
+TimeoutStartSec=0
+
+# The script reboots on success, so systemd sees the unit interrupted rather
+# than finished. Nothing should try to restart or repair that.
+Restart=no
+
+# Enough privilege to format the inactive slot and write the boot partition
+User=root

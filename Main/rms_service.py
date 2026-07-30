@@ -78,7 +78,7 @@ SYS_INFO  = 'SYS_INFO'
 INCIDENT  = 'INCIDENT'
 
 # Path to the JSON file written by the deployment pipeline with version info
-SW_LOG_FILE = "/var/log/oradio_sw_version.log"
+SOFTWARE_VERSION_FILE = "/var/log/oradio_sw_version.log"
 
 # How often the heartbeat is sent (seconds); currently once per hour
 HEARTBEAT_REPEAT = 60 * 60
@@ -152,11 +152,11 @@ def _get_sw_version() -> str:
         version file is missing or invalid.
     """
     try:
-        with open(SW_LOG_FILE, encoding="utf-8") as file:
+        with open(SOFTWARE_VERSION_FILE, encoding="utf-8") as file:
             data = json.load(file)
-        return data["serial"] + " (" + data["gitinfo"] + ")"
+        return data["dtstamp"] + " (" + data["gitinfo"] + ")"
     except (FileNotFoundError, json.JSONDecodeError, KeyError):
-        oradio_log.error("'%s': Missing file or invalid content", SW_LOG_FILE)
+        oradio_log.error("'%s': Missing file or invalid content", SOFTWARE_VERSION_FILE)
         return "Invalid SW version"
 
 def _handle_response_command(response_text) -> None:

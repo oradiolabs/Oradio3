@@ -1,0 +1,18 @@
+[Unit]
+Description=Watch for an Oradio3 software update
+Documentation=file:/usr/local/sbin/swupdate.sh
+
+[Path]
+# Created by udev when the ORADIO drive mounts, removed when it unmounts, so
+# each insertion triggers once. The service looks for a package on the drive
+# itself — nothing has to write a request, and no trigger needs privileges.
+PathExists=/run/usb_present
+
+# A request from a trigger that already runs as root, such as an internet
+# downloader. Its contents are the path of the package to install.
+PathExists=/run/swu_present
+
+Unit=update.service
+
+[Install]
+WantedBy=multi-user.target
