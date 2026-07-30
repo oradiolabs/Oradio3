@@ -536,7 +536,7 @@ install_resource "$RESOURCES_PATH/swupdate.service" /etc/systemd/system/swupdate
 # Configure the software update triggers by the USB and SWU markers
 install_resource "$RESOURCES_PATH/swupdate.path" /etc/systemd/system/swupdate.path 'systemctl enable swupdate.path'
 # Configure the software update scripts used by the swupdate system service
-sudo install -m 0755 swupdate.sh install-swu.sh ab-boot-switch.sh /usr/local/sbin/
+sudo install -m 0755 "$RESOURCES_PATH/swupdate.sh" "$RESOURCES_PATH/install-swu.sh" "$RESOURCES_PATH/ab-boot-switch.sh" /usr/local/sbin/
 # Install the software update signing certificate
 sudo install -D -m 0644 "$RESOURCES_PATH/oradio3-signing.cert.pem" /etc/oradio3/update-signing.cert.pem
 # Progress report
