@@ -3,13 +3,17 @@ Description=Watch for an Oradio3 software update
 Documentation=file:/usr/local/sbin/oradio3-update.sh
 
 [Path]
-# Created by udev when the ORADIO drive mounts, removed when it unmounts, so
-# each insertion triggers once. The service looks for a package on the drive
-# itself — nothing has to write a request, and no trigger needs privileges.
-PathExists=/run/usb_present
-
-# A request from a trigger that already runs as root, such as an internet
-# downloader. Its contents are the path of the package to install.
+# Written by a trigger that already runs as root, such as an internet downloader.
+# Its contents are the path of the package to install.
+#
+# oradio3-update.sh DELETES this file as it takes the request. That is required,
+# not incidental: a path unit re-activates its service the moment the service
+# exits if the watched path still exists, so a condition the service cannot
+# clear spins until systemd's start limiter stops it.
+#
+# For that reason /run/usb_present is deliberately NOT watched here — it belongs
+# to the udev mount handler and must outlive the update. That handler starts
+# oradio3-update.service directly instead, once per insertion.
 PathExists=/run/swu_present
 
 Unit=oradio3-update.service
