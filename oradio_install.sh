@@ -155,7 +155,7 @@ function install_resource {
 
 	# Install only if files differ
 	if ! cmp -s "$SRC" "$DST"; then
-		echo "Installing '$SRC' to '$DST'"
+		echo "Installing '$SRC' to '$DST'..."
 		if ! sudo cp "$SRC" "$DST"; then
 			echo -e "${RED}Failed to install '$DST'${NC}"
 			INSTALL_ERROR=1
@@ -166,7 +166,7 @@ function install_resource {
 		# checked independently and failures are recorded but don't stop the loop,
 		# so a single bad follow-up command doesn't hide problems with the others.
 		for CMD in "$@"; do
-			echo "Executing: '$CMD'"
+			echo "Executing: '$CMD'..."
 			if ! sudo bash -c "$CMD"; then
 				echo -e "${RED}Command failed: '$CMD'${NC}"
 				INSTALL_ERROR=1
@@ -317,7 +317,7 @@ if [ "${1:-}" != "--continue" ]; then
 
 	# If needed, prepare python virtual environment including system site packages
 	if [ -n "${REBUILD_PYTHON_ENV:-}" ]; then
-		echo "Configuring Python virtual environment"
+		echo "Configuring Python virtual environment..."
 		python3 -m venv --system-site-packages ~/.venv
 	fi
 
