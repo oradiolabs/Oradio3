@@ -1,6 +1,6 @@
 [Unit]
 Description=Install an Oradio3 software update
-Documentation=file:/usr/local/sbin/swupdate.sh
+Documentation=file:/usr/local/sbin/oradio3-update.sh
 # The rootfs and the boot partition both have to be mounted: the package is read
 # from a mounted medium and the attempt counter lives on /boot/firmware.
 After=local-fs.target
@@ -8,11 +8,11 @@ Requires=local-fs.target
 
 [Service]
 Type=oneshot
-ExecStart=/usr/local/sbin/swupdate.sh
+ExecStart=/usr/local/sbin/oradio3-update.sh
 
 # Redirect file descriptor 1 (stdout) and 2 (stderr) of the executed processes
-StandardOutput=append:PLACEHOLDER_LOGFILE_SWUPDATE
-StandardError=append:PLACEHOLDER_LOGFILE_SWUPDATE
+StandardOutput=append:PLACEHOLDER_LOGFILE_UPDATE
+StandardError=append:PLACEHOLDER_LOGFILE_UPDATE
 
 # Unpacking a rootfs onto an SD card takes minutes. The default 90s start
 # timeout would kill the install part-way through, leaving the inactive slot

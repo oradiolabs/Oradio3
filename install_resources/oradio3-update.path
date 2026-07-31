@@ -1,6 +1,6 @@
 [Unit]
 Description=Watch for an Oradio3 software update
-Documentation=file:/usr/local/sbin/swupdate.sh
+Documentation=file:/usr/local/sbin/oradio3-update.sh
 
 [Path]
 # Created by udev when the ORADIO drive mounts, removed when it unmounts, so
@@ -12,7 +12,7 @@ PathExists=/run/usb_present
 # downloader. Its contents are the path of the package to install.
 PathExists=/run/swu_present
 
-Unit=update.service
+Unit=oradio3-update.service
 
 [Install]
 WantedBy=multi-user.target

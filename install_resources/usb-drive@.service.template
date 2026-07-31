@@ -10,4 +10,4 @@ StandardError=append:PLACEHOLDER_LOGFILE_USB
 # Service runs a single task and then exits
 Type=oneshot
 # %i expands to the instance name from the template
-ExecStart=/usr/local/bin/usb-drive.sh %i
+ExecStart=/usr/local/sbin/usb-drive.sh %i

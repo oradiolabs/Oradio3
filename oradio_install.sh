@@ -66,9 +66,9 @@ mkdir -p "$LOGGING_PATH" || { echo -e "${RED}Aborting: Failed to create director
 # Define log files
 LOGFILE_USB="$LOGGING_PATH/usb.log"
 LOGFILE_MPD="$LOGGING_PATH/mpd.log"
+LOGFILE_UPDATE="$LOGGING_PATH/update.log"
 LOGFILE_SPOTIFY="$LOGGING_PATH/spotify.log"
 LOGFILE_INSTALL="$LOGGING_PATH/install.log"
-LOGFILE_SWUPDATE="$LOGGING_PATH/update.log"
 LOGFILE_TRACEBACK="$LOGGING_PATH/traceback.log"
 
 # Redirect script output to console and file
@@ -141,7 +141,7 @@ function install_resource {
 		# Replace placeholders. Combined into one sed invocation (instead of one
 		# `sed -i` per substitution) to avoid re-opening/rewriting the file N times.
 		local SED_ARGS=(-e "s/PLACEHOLDER_USER/$(id -un)/g" -e "s/PLACEHOLDER_GROUP/$(id -gn)/g")
-		for VAR_NAME in MAIN_PATH SPOTIFY_PATH LOGGING_PATH LOGFILE_USB LOGFILE_MPD LOGFILE_SPOTIFY LOGFILE_INSTALL LOGFILE_SWUPDATE LOGFILE_TRACEBACK; do
+		for VAR_NAME in MAIN_PATH SPOTIFY_PATH LOGGING_PATH LOGFILE_USB LOGFILE_MPD LOGFILE_UPDATE LOGFILE_SPOTIFY LOGFILE_INSTALL LOGFILE_TRACEBACK; do
 			local VALUE="${!VAR_NAME}"
 			# Escape & because sed treats it specially in the replacement text
 			local ESCAPED_VALUE
@@ -526,17 +526,17 @@ fi
 install_resource "$RESOURCES_PATH/99-local.rules" /etc/udev/rules.d/99-local.rules
 # Configure the USB service triggered by udev rules
 install_resource "$RESOURCES_PATH/usb-drive@.service" /etc/systemd/system/usb-drive@.service
-# Configure the USB mount/unmount script used by the system service
-install_resource "$RESOURCES_PATH/usb-drive.sh" /usr/local/bin/usb-drive.sh 'chmod +x /usr/local/bin/usb-drive.sh'
+# Install the USB mount/unmount script used by the system service
+sudo install -m 0755 "$RESOURCES_PATH/usb-drive.sh" /usr/local/sbin/
 # Progress report
 echo -e "${GREEN}USB functionalty loaded and configured. System automounts USB drives on '/media'${NC}"
 
 # Configure the software update service
-install_resource "$RESOURCES_PATH/swupdate.service" /etc/systemd/system/swupdate.service
+install_resource "$RESOURCES_PATH/oradio3-update.service" /etc/systemd/system/oradio3-update.service
 # Configure the software update triggers by the USB and SWU markers
-install_resource "$RESOURCES_PATH/swupdate.path" /etc/systemd/system/swupdate.path 'systemctl enable swupdate.path'
-# Configure the software update scripts used by the swupdate system service
-sudo install -m 0755 "$RESOURCES_PATH/swupdate.sh" "$RESOURCES_PATH/install-swu.sh" "$RESOURCES_PATH/ab-boot-switch.sh" /usr/local/sbin/
+install_resource "$RESOURCES_PATH/oradio3-update.path" /etc/systemd/system/oradio3-update.path 'systemctl enable oradio3-update.path'
+# Configure the software update scripts used by the software update system service
+sudo install -m 0755 "$RESOURCES_PATH/oradio3-update.sh" "$RESOURCES_PATH/install-swu.sh" "$RESOURCES_PATH/ab-boot-switch.sh" /usr/local/sbin/
 # Install the software update signing certificate
 sudo install -D -m 0644 "$RESOURCES_PATH/oradio3-signing.cert.pem" /etc/oradio3/update-signing.cert.pem
 # Progress report

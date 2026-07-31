@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 #
-# swupdate.sh — install a software update package, once, safely.
+# oradio3-update.sh — install a software update package, once, safely.
 #
-# RUNS ON THE PI, as root, from swupdate.service. Not run by hand
+# RUNS ON THE PI, as root, from oradio3-update.service. Not run by hand
 # (though it is safe to: it declines anything it should not install).
 #
 # A drive carrying a .swu, or a trigger that names one, brings this service up.
@@ -21,9 +21,9 @@ set -euo pipefail
 
 # Two ways in, so that no trigger needs privileges it would not otherwise have.
 #
-# 1. /run/usb_present — created by udev when the ORADIO drive mounts, removed
-#    when it unmounts. Nothing has to be written by anyone: this service looks
-#    for a package on the drive itself.
+# 1. /run/usb_present — touched by the udev mount handler after the drive is
+#    mounted, removed after it is unmounted. Nothing has to be written by
+#    anyone: this service looks for a package on the drive itself.
 # 2. /run/swu_present — written by a trigger that already runs as root, such as
 #    an internet downloader. Its contents are the path of the package. On
 #    tmpfs, so a reboot cannot replay a stale marker.
@@ -33,12 +33,12 @@ SWU_MARKER="/run/swu_present"
 # Where the OS auto-mounts the ORADIO drive, and what a package looks like.
 USB_MOUNT_POINT="/media/oradio"
 SWU_GLOB="*.swu"
-LOCK_FILE="/run/swupdate.lock"
+LOCK_FILE="/run/oradio3-update.lock"
 
 # Attempt state must survive a slot switch, so it cannot live on the rootfs:
 # after switching, /var belongs to the newly installed slot and anything written
 # here would be gone. The boot partition is shared by both slots.
-STATE_FILE="/boot/firmware/swupdate.state"
+STATE_FILE="/boot/firmware/oradio3-update.state"
 MAX_ATTEMPTS=2
 
 # Where the running software records its own identity. Written by the project,
@@ -52,9 +52,9 @@ CERT="/etc/oradio3/update-signing.cert.pem"
 ##### logging #############################################
 # stdout goes to the journal. A refused or failed update does not switch slots,
 # so the journal you need is the one on the slot you are still running.
-log() { printf '%s swupdate: %s\n' "$(date -Is)" "$*"; }
+log() { printf '%s oradio3-update: %s\n' "$(date -Is)" "$*"; }
 die() {
-	printf '%s swupdate: ERROR: %s\n' "$(date -Is)" "$*" >&2
+	printf '%s oradio3-update: ERROR: %s\n' "$(date -Is)" "$*" >&2
 	exit 1
 }
 
@@ -72,14 +72,12 @@ package_version() {
 }
 
 # The identity of the software in a rootfs, read from its version file:
-#
 #   {
-#       "dtstamp": "2026-07-30-12-28-54",
-#       "gitinfo":  "Branch 'swupdate' @ 10e3f8a"
+#       "dtstamp": "YYYY-MM-DD-hh-mm-ss",
+#       "gitinfo":  "<string>"
 #   }
-#
-# "dtstamp" is the identity, because it is unique per build and sorts. The
-# commit alone is not: rebuilding a dirty tree gives the same hash.
+# "dtstamp" is the identity, because it is unique per build and sorts.
+# The commit alone is not: rebuilding a dirty tree gives the same hash.
 #
 # build-swu.sh reads the same field out of the rootfs it packages, so the two
 # sides of the comparison come from the same place by construction. Change this
@@ -170,7 +168,16 @@ if [[ -s "$SWU_MARKER" ]]; then
 # Otherwise this was the USB marker, so look on the drive. Doing the looking
 # here rather than in the trigger is what keeps the trigger unprivileged: udev
 # already creates the marker as root, and nothing else has to write anything.
-elif [[ -e "$USB_MARKER" ]] && mountpoint -q "$USB_MOUNT_POINT"; then
+elif [[ -e "$USB_MARKER" ]]; then
+	# usb-drive.sh touches the marker only after mount(8) has returned success,
+	# so the drive is mounted by the time this runs. If it is not, the drive was
+	# pulled in between or the mount handler failed part-way — say which, rather
+	# than reporting it as nothing to do.
+	mountpoint -q "$USB_MOUNT_POINT" || {
+		log "$USB_MARKER is set but $USB_MOUNT_POINT is not mounted — drive removed?"
+		exit 0
+	}
+
 	mapfile -t found < <(find "$USB_MOUNT_POINT" -maxdepth 1 -name "$SWU_GLOB" -type f | sort)
 	if ((${#found[@]} == 0)); then
 		log "drive mounted, no $SWU_GLOB on it — nothing to do"
