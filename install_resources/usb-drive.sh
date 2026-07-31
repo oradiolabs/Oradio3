@@ -2,7 +2,7 @@
 #
 # Handles USB drive mount/unmount for devices labelled ORADIO.
 # Invoked by systemd via usb-drive@.service, with the action ("add" or "remove")
-# passed as the first argument by the %i template specifier.
+# passed as the instance name (%i).
 
 # Stop on errors (-e), catch unset variables (-u), catch failures in any part of a pipeline (-o pipefail)
 set -euo pipefail
@@ -12,6 +12,8 @@ PARTITION="/dev/disk/by-label/ORADIO"	# Stable symlink; survives device renumber
 MOUNTPOINT="/media/oradio"				# Location where USB is mounted
 MONITOR="/run/usb_present"				# RAM-based flag file; present = mounted, absent = unmounted
 LOCK="/run/usb_mount.lock"				# Prevents concurrent runs from duplicate udev events
+LOCK_WAIT=30							# Seconds to wait for the lock before giving up
+SYMLINK_WAIT=5							# Seconds to wait for the by-label symlink to appear
 
 # Logging helper: prefixes every message with a timestamp
 log() {
@@ -20,23 +22,36 @@ log() {
 
 # Acquire an exclusive lock for the duration of this script.
 # Prevents a rapid remove/add or duplicate udev event from running two instances at once.
+# The wait is bounded: if an earlier instance is wedged, fail visibly in the log rather
+# than hanging until systemd's timeout kills us.
 exec 9>"$LOCK"
-flock -x 9
+if ! flock -x -w "$LOCK_WAIT" 9; then
+	log "Error: timed out after ${LOCK_WAIT}s waiting for '$LOCK'"
+	exit 1
+fi
 
 case "$ACTION" in
-
 	# Runs when a USB device labelled ORADIO is inserted and detected by udev
 	add)
-		# Guard: partition symlink must exist before attempting to mount
+		# The by-label symlink is created by a separate udev rule once blkid has
+		# probed the partition, so it can lag the event that triggered us.
+		for ((i = 0; i < SYMLINK_WAIT * 10; i++)); do
+			if [ -b "$PARTITION" ]; then
+				break
+			fi
+			sleep 0.1
+		done
 		if [ ! -b "$PARTITION" ]; then
-			log "Warning: ${PARTITION} not found"
+			log "Warning: '$PARTITION' did not appear within ${SYMLINK_WAIT}s"
 			exit 1
 		fi
 
-		# Guard: skip if already mounted (should not happen; log as warning if it does)
-		if mountpoint -q "$MOUNTPOINT"; then
-			log "Warning: '${PARTITION}' already mounted at ${MOUNTPOINT}"
-			exit 1
+		# Guard: skip if already mounted. Benign - a duplicate udev event or a
+		# second partition with the same label - so exit 0 and leave the mount
+		# alone rather than marking the unit failed.
+		if mountpoint -q "$MOUNTPOINT" 2>/dev/null; then
+			log "Warning: '$MOUNTPOINT' already mounted; nothing to do"
+			exit 0
 		fi
 
 		# Ensure mount point directory exists
@@ -44,7 +59,7 @@ case "$ACTION" in
 
 		# Mount options chosen to reduce risk of data loss on FAT volumes:
 		#   rw			read/write mode
-		#   users		allows non-root users to unmount
+		#   users		allows non-root users to unmount (implies noexec,nosuid,nodev)
 		#   uid=0		files owned by root
 		#   gid=100		files belong to the "users" group
 		#   fmask=111	file permissions: read+write (no execute)
@@ -56,46 +71,69 @@ case "$ACTION" in
 		#   sync		write file data immediately (no deferred writeback)
 		OPTS="rw,users,uid=0,gid=100,fmask=111,dmask=000,utf8=1,noatime,nodiratime,flush,sync"
 
-		# Attempt mount; capture exit status before the if-branch resets $?
-		if ! mount -t vfat -o "$OPTS" "$PARTITION" "$MOUNTPOINT" 2>/tmp/mount-error.txt; then
-			log "Error: Mounting '$PARTITION' failed: $(cat /tmp/mount-error.txt)"
+		# Capture mount's diagnostics in a variable - no fixed path in the
+		# world-writable /tmp, and no stale text from an earlier run.
+		if ! mount_err=$(mount -t vfat -o "$OPTS" "$PARTITION" "$MOUNTPOINT" 2>&1); then
+			log "Error: mounting '$PARTITION' failed: $mount_err"
 			exit 1
 		fi
 
 		# Create flag triggering the Python watchdog
 		touch "$MONITOR"
+		log "Success: mounted '$PARTITION' at '$MOUNTPOINT'"
 
-		log "Success: Mounted '$PARTITION' at '$MOUNTPOINT'"
+		# Hand any software update package to the update service.
+		# --no-block: installing takes minutes and ends in a reboot.
+		# Waiting would deadlock: we hold $LOCK, which the remove path needs.
+		if compgen -G "$MOUNTPOINT/*.swu" >/dev/null; then
+			log "Software update package found; starting oradio3-update.service"
+			if ! systemctl start --no-block oradio3-update.service; then
+				log "Error: could not start oradio3-update.service"
+			fi
+		fi
 		;;
 
 	# Runs when a USB device labelled ORADIO is physically removed
 	remove)
 		# Guard: nothing to do if already unmounted
 		# (can happen if a prior remove event already cleaned up)
-		if ! mountpoint -q "$MOUNTPOINT"; then
+		if ! mountpoint -q "$MOUNTPOINT" 2>/dev/null; then
 			log "Info: '$MOUNTPOINT' already unmounted"
 			exit 0
 		fi
 
-		# Try clean unmount first, lazy unmount if clean unmount fails, force success if lazy unmount fails
+		# The updater reads the .swu straight off the stick, which is already
+		# gone by the time this event fires - its reads are failing either way.
+		# Stop it anyway: it releases its file handles, so the clean umount
+		# below can succeed instead of falling through to the lazy one.
+		# Re-inserting the stick restarts the install from the top.
+		if systemctl is-active --quiet oradio3-update.service; then
+			log "Warning: oradio3-update.service active; stopping it before unmount"
+			if ! timeout 30 systemctl stop oradio3-update.service; then
+				log "Error: could not stop oradio3-update.service within 30s"
+			fi
+		fi
+
+		# Try clean unmount first, lazy unmount if that fails, tolerate failure
 		umount "$MOUNTPOINT" || umount -l "$MOUNTPOINT" || true
 
 		# Verify unmount actually happened
-		if mountpoint -q "$MOUNTPOINT"; then
-			log "Error: Failed to unmount '$MOUNTPOINT'"
+		if mountpoint -q "$MOUNTPOINT" 2>/dev/null; then
+			log "Error: failed to unmount '$MOUNTPOINT'"
 			exit 1
 		fi
 
-		# Now it is safe to clean up
+		# Now it is safe to clean up. rmdir is best-effort: a stray file written
+		# into the directory while nothing was mounted must not turn a
+		# successful unmount into a failed unit.
 		rm -f "$MONITOR"
-		rmdir "$MOUNTPOINT"
-
-		log "Success: Unmounted '$MOUNTPOINT'"
+		rmdir "$MOUNTPOINT" 2>/dev/null || log "Info: '$MOUNTPOINT' not empty; leaving directory in place"
+		log "Success: unmounted '$MOUNTPOINT'"
 		;;
 
 	# Catch unexpected or missing action argument
 	*)
-		log "Error: Unknown action: '$ACTION'"
+		log "Error: unknown action: '$ACTION'"
 		exit 1
 		;;
 esac

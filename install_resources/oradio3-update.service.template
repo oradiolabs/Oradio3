@@ -7,10 +7,14 @@ After=local-fs.target
 Requires=local-fs.target
 
 [Service]
+# Service runs a single task and then exits.
 Type=oneshot
+
+# Run software update script
 ExecStart=/usr/local/sbin/oradio3-update.sh
 
-# Redirect file descriptor 1 (stdout) and 2 (stderr) of the executed processes
+# Redirect stdout (fd 1) and stderr (fd 2) to the Oradio log file.
+# Note this takes the output *out* of the journal: journalctl -u usb-drive@add will be empty.
 StandardOutput=append:PLACEHOLDER_LOGFILE_UPDATE
 StandardError=append:PLACEHOLDER_LOGFILE_UPDATE
 

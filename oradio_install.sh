@@ -531,6 +531,8 @@ sudo install -m 0755 "$RESOURCES_PATH/usb-drive.sh" /usr/local/sbin/
 # Progress report
 echo -e "${GREEN}USB functionalty loaded and configured. System automounts USB drives on '/media'${NC}"
 
+# swupdate.service is Debian's and not used. install-swu.sh invokes the swupdate binary directly as a one-shot.
+sudo systemctl disable swupdate.service swupdate.socket
 # Configure the software update service
 install_resource "$RESOURCES_PATH/oradio3-update.service" /etc/systemd/system/oradio3-update.service
 # Configure the software update triggers by the USB and SWU markers
