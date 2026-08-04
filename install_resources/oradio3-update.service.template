@@ -14,7 +14,7 @@ Type=oneshot
 ExecStart=/usr/local/sbin/oradio3-update.sh
 
 # Redirect stdout (fd 1) and stderr (fd 2) to the Oradio log file.
-# Note this takes the output *out* of the journal: journalctl -u usb-drive@add will be empty.
+# Note this takes the output *out* of the journal: journalctl -u oradio3-update will be empty.
 StandardOutput=append:PLACEHOLDER_LOGFILE_UPDATE
 StandardError=append:PLACEHOLDER_LOGFILE_UPDATE
 
@@ -27,5 +27,5 @@ TimeoutStartSec=0
 # than finished. Nothing should try to restart or repair that.
 Restart=no
 
-# Enough privilege to format the inactive slot and write the boot partition
+# Enough privilege to format the inactive slot and write the boot partition.
 User=root

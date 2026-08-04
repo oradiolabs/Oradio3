@@ -66,6 +66,7 @@ mkdir -p "$LOGGING_PATH" || { echo -e "${RED}Aborting: Failed to create director
 # Define log files
 LOGFILE_USB="$LOGGING_PATH/usb.log"
 LOGFILE_MPD="$LOGGING_PATH/mpd.log"
+LOGFILE_BOOT="$LOGGING_PATH/boot.log"
 LOGFILE_UPDATE="$LOGGING_PATH/update.log"
 LOGFILE_SPOTIFY="$LOGGING_PATH/spotify.log"
 LOGFILE_INSTALL="$LOGGING_PATH/install.log"
@@ -141,7 +142,18 @@ function install_resource {
 		# Replace placeholders. Combined into one sed invocation (instead of one
 		# `sed -i` per substitution) to avoid re-opening/rewriting the file N times.
 		local SED_ARGS=(-e "s/PLACEHOLDER_USER/$(id -un)/g" -e "s/PLACEHOLDER_GROUP/$(id -gn)/g")
-		for VAR_NAME in MAIN_PATH SPOTIFY_PATH LOGGING_PATH LOGFILE_USB LOGFILE_MPD LOGFILE_UPDATE LOGFILE_SPOTIFY LOGFILE_INSTALL LOGFILE_TRACEBACK; do
+		for VAR_NAME in
+			MAIN_PATH 
+			SPOTIFY_PATH
+			LOGGING_PATH
+			LOGFILE_USB
+			LOGFILE_MPD
+			LOGFILE_BOOT
+			LOGFILE_UPDATE
+			LOGFILE_SPOTIFY
+			LOGFILE_INSTALL
+			LOGFILE_TRACEBACK
+		do
 			local VALUE="${!VAR_NAME}"
 			# Escape & because sed treats it specially in the replacement text
 			local ESCAPED_VALUE
@@ -291,8 +303,7 @@ if [ "${1:-}" != "--continue" ]; then
 				# `sh` the local copy (optionally after inspecting/pinning it).
 				if curl -sL https://dtcooper.github.io/raspotify/install.sh | sh; then
 					# Only keep librespot
-					sudo systemctl stop raspotify
-					sudo systemctl disable raspotify
+					sudo systemctl mask --now raspotify
 				else
 					echo -e "${RED}Failed to install raspotify${NC}"
 					INSTALL_ERROR=1
@@ -529,10 +540,38 @@ install_resource "$RESOURCES_PATH/usb-drive@.service" /etc/systemd/system/usb-dr
 # Install the USB mount/unmount script used by the system service
 sudo install -m 0755 "$RESOURCES_PATH/usb-drive.sh" /usr/local/sbin/
 # Progress report
-echo -e "${GREEN}USB functionalty loaded and configured. System automounts USB drives on '/media'${NC}"
+echo -e "${GREEN}USB functionality loaded and configured. System automounts USB drives on '/media'${NC}"
 
-# swupdate.service is Debian's and not used. install-swu.sh invokes the swupdate binary directly as a one-shot.
-sudo systemctl disable swupdate.service swupdate.socket
+# Configure tryboot: A/B rollback
+install_resource "$RESOURCES_PATH/ab-boot-trial.sh" /usr/local/sbin/ab-boot-trial.sh 'chmod 0755 /usr/local/sbin/ab-boot-trial.sh'
+# Detect that the firmware fell back to this slot (i.e. the trial failed)
+install_resource "$RESOURCES_PATH/ab-boot-check.service" /etc/systemd/system/ab-boot-check.service 'systemctl enable ab-boot-check.service'
+# Started by the timer below, never directly
+install_resource "$RESOURCES_PATH/ab-boot-timeout.service" /etc/systemd/system/ab-boot-timeout.service
+# If nothing has committed within OnBootSec, the trial is considered failed and the board reboots back to the committed slot
+install_resource "$RESOURCES_PATH/ab-boot-timeout.timer" /etc/systemd/system/ab-boot-timeout.timer 'systemctl enable ab-boot-timeout.timer'
+# Pet the watchdog every RuntimeWatchdogSec, and let the board reset if it stops
+DROPIN_DIR="/etc/systemd/system.conf.d"
+DROPIN="$DROPIN_DIR/10-oradio3-watchdog.conf"
+WATCHDOG_SEC=15
+sudo install -d -m 0755 "$DROPIN_DIR" || {
+	echo -e "${RED}Failed to create $DROPIN_DIR${NC}"
+	INSTALL_ERROR=1
+}
+if ! cat <<EOF | sudo tee "$DROPIN" >/dev/null
+# Resets the board if systemd stops petting the watchdog
+[Manager]
+RuntimeWatchdogSec=${WATCHDOG_SEC}
+EOF
+then
+	echo -e "${RED}Failed to write $DROPIN${NC}"
+	INSTALL_ERROR=1
+fi
+# Progress report
+echo -e "${GREEN}Tryboot functionality loaded and configured${NC}"
+
+# swupdate daemon is not used. install-swu.sh invokes the swupdate binary directly as a one-shot
+sudo systemctl mask --now swupdate.service swupdate.socket
 # Configure the software update service
 install_resource "$RESOURCES_PATH/oradio3-update.service" /etc/systemd/system/oradio3-update.service
 # Configure the software update triggers by the USB and SWU markers
@@ -542,7 +581,7 @@ sudo install -m 0755 "$RESOURCES_PATH/oradio3-update.sh" "$RESOURCES_PATH/instal
 # Install the software update signing certificate
 sudo install -D -m 0644 "$RESOURCES_PATH/oradio3-signing.cert.pem" /etc/oradio3/update-signing.cert.pem
 # Progress report
-echo -e "${GREEN}Software update functionalty loaded and configured${NC}"
+echo -e "${GREEN}Software update functionality loaded and configured${NC}"
 
 # Activate i2c interface
 # https://www.raspberrypi.com/documentation/computers/configuration.html#i2c-nonint

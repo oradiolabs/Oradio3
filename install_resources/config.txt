@@ -56,6 +56,9 @@ enable_uart=0
 
 [all]
 
+#### Enable watchdog to catch a/b boot timeout ####
+dtparam=watchdog=on
+
 #### Oradio backlighting options ####
 # gpio pinning LEDs all leds off - only backlighting
 gpio=23=op,dl

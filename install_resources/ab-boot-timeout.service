@@ -1,0 +1,18 @@
+[Unit]
+Description=Roll back an A/B trial boot that never committed
+Documentation=file:/usr/local/sbin/ab-boot-trial.sh
+# Needs the boot partition mounted: the trial state lives there.
+After=local-fs.target
+
+[Service]
+# Service runs a single task and then exits.
+Type=oneshot
+
+# Redirect stdout (fd 1) and stderr (fd 2) to the Oradio log file.
+# Note this takes the output *out* of the journal: journalctl -u ab-boot-timeout will be empty.
+StandardOutput=append:PLACEHOLDER_LOGFILE_BOOT
+StandardError=append:PLACEHOLDER_LOGFILE_BOOT
+
+# 'timeout' declares an uncommitted trial failed, records the version so the
+# same package is not installed again, removes the tryboot files and reboots.
+ExecStart=/usr/local/sbin/ab-boot-trial.sh timeout

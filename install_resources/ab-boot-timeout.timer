@@ -1,0 +1,23 @@
+[Unit]
+Description=Deadline for an A/B trial boot to prove itself
+Documentation=file:/usr/local/sbin/ab-boot-trial.sh
+
+[Timer]
+# Measured from boot, not from when the trial started, because the trial IS this boot.
+# Long enough for a cold start to reach the point where the application knows it is
+# healthy and calls `ab-boot-trial.sh commit`; short enough that a unit which boots
+# but does not work is not left broken for long.
+#
+# Raise this if the application legitimately takes longer than ten minutes to settle.
+OnBootSec=10min
+
+# A minute either way is immaterial here, and a loose tolerance lets systemd batch
+# the wakeup instead of holding a precise timer for ten minutes.
+AccuracySec=10s
+
+# Timer is triggered by the service.
+Unit=ab-boot-timeout.service
+
+[Install]
+# The timer is what gets enabled, never the service it triggers.
+WantedBy=timers.target
