@@ -216,6 +216,70 @@ fi
 warn "Everything on $TARGET_DEV (slot $TARGET_SLOT) will be overwritten."
 info "The running system on $RUNNING_DEV is not touched."
 
+# ------------------------------------------------- kernel compatibility --
+# The kernel lives in /boot/firmware, which both slots share and no package
+# carries. A rootfs whose modules target a different kernel release will boot
+# and then load none of them: no wifi, no audio, and nothing obvious in the
+# logs. Refuse before writing anything.
+#
+# The declaration is inside the signed sw-description, so it cannot be altered
+# without invalidating the signature. Packages built before this field existed
+# simply do not have it, and are allowed through with a warning.
+# What matters is the kernel that will BOOT the installed slot, which is not
+# always the one running now: after an apt upgrade the new kernel is already in
+# /boot/firmware while uname -r still reports the old one until a reboot.
+#
+# So accept a package matching either:
+#   - the running kernel                    (nothing has changed)
+#   - any kernel installed in this rootfs    (an upgrade is pending a reboot)
+# and refuse only when it matches neither.
+RUNNING_KERNEL="$(uname -r)"
+mapfile -t LOCAL_KERNELS < <(ls -1 /lib/modules 2>/dev/null || true)
+
+PKG_KERNELS="$(head -c 65536 -- "$SWU" 2>/dev/null |
+	cpio -i --to-stdout sw-description 2>/dev/null |
+	sed -n 's/.*kernel-release:[[:space:]]*\[\(.*\)\].*/\1/p' |
+	tr -d '" ' | tr ',' ' ' || true)"
+
+if [[ -z "$PKG_KERNELS" ]]; then
+	warn "package declares no kernel-release; cannot check module compatibility"
+	warn "  running kernel is $RUNNING_KERNEL"
+
+elif [[ " $PKG_KERNELS " == *" $RUNNING_KERNEL "* ]]; then
+	info "kernel   : $RUNNING_KERNEL (package carries modules for it)"
+
+else
+	# Not the running kernel. If it is one this rootfs already has modules for,
+	# an upgrade has been installed and is waiting for a reboot — the package is
+	# built for what will actually boot.
+	PENDING=""
+	for k in "${LOCAL_KERNELS[@]}"; do
+		[[ " $PKG_KERNELS " == *" $k "* ]] && PENDING="$k" && break
+	done
+
+	if [[ -n "$PENDING" ]]; then
+		warn "package targets $PENDING but this Pi is still running $RUNNING_KERNEL"
+		warn "  $PENDING is installed here, so a kernel upgrade is pending a reboot."
+		warn "  The installed slot will be correct once the Pi reboots into it."
+		warn ""
+		warn "  Reboot into the new kernel BEFORE relying on this slot: the trial"
+		warn "  boot will load $PENDING, and the slot you would roll back to still"
+		warn "  has to work with it."
+	else
+		warn "This package carries modules for: $PKG_KERNELS"
+		warn "but this Pi boots kernel: $RUNNING_KERNEL"
+		warn "and has modules only for: ${LOCAL_KERNELS[*]:-none}"
+		warn ""
+		warn "The kernel is in /boot/firmware, shared by both slots and not carried"
+		warn "by any package, so the installed slot would boot this kernel and find"
+		warn "no modules for it — no wifi, no audio, no clear error."
+		warn ""
+		warn "Either rebuild the package from a rootfs matching this kernel, or"
+		warn "re-image the card, which replaces kernel and rootfs together."
+		die "refusing: package modules do not match any kernel on this Pi"
+	fi
+fi
+
 # ------------------------------------------------------- format the slot --
 # The tarball is streamed, so it is unpacked while SWUpdate reads the cpio —
 # before any preinstall script in the package could run. That means the slot has

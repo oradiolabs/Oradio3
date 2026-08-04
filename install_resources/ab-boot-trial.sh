@@ -45,6 +45,16 @@ die() {
 	exit 1
 }
 
+# reboot(8) returns as soon as the shutdown is queued — the system takes several
+# more seconds to actually go down. Returning here would let the caller carry on
+# and report a failure for a reboot that is already happening, so block instead.
+# If the request was refused, say so rather than hanging forever.
+do_reboot() { # do_reboot [reboot-arg...]
+	reboot "$@" || die "reboot was refused"
+	sleep 120
+	die "still running two minutes after requesting a reboot"
+}
+
 part_dev() {
 	if [[ "$1" =~ [0-9]$ ]]; then echo "${1}p${2}"; else echo "${1}${2}"; fi
 }
@@ -200,7 +210,7 @@ cmd_timeout() {
 	log "rebooting; the firmware will return to the committed slot"
 	sync
 	sleep 2
-	reboot
+	do_reboot
 }
 
 ##### status ##############################################

@@ -122,6 +122,16 @@ require_raspberry_pi() {
 }
 
 # /dev/mmcblk0 -> /dev/mmcblk0p2 ; /dev/sda -> /dev/sda2
+# reboot(8) returns as soon as the shutdown is queued — the system takes several
+# more seconds to actually go down. Returning here would let the caller carry on
+# and report a failure for a reboot that is already happening, so block instead.
+# If the request was refused, say so rather than hanging forever.
+do_reboot() { # do_reboot [reboot-arg...]
+	reboot "$@" || die "reboot was refused"
+	sleep 120
+	die "still running two minutes after requesting a reboot"
+}
+
 part_dev() {
 	if [[ "$1" =~ [0-9]$ ]]; then echo "${1}p${2}"; else echo "${1}${2}"; fi
 }
@@ -357,7 +367,7 @@ EOF
 		done
 		printf '\n'
 		# The quoted argument is what sets the one-shot flag.
-		reboot "0 tryboot"
+		do_reboot "0 tryboot"
 	else
 		info 'Start the trial with:  sudo reboot "0 tryboot"'
 	fi
@@ -404,7 +414,7 @@ if ((REBOOT)); then
 		sleep 1
 	done
 	printf '\n'
-	reboot
+	do_reboot
 else
 	info "Reboot to apply:  sudo reboot"
 fi
