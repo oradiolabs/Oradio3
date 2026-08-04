@@ -74,12 +74,31 @@ die() {
 # The package version, read from sw-description without reading the package.
 # sw-description is the first member of the cpio archive, so a short prefix is
 # enough — worth caring about when the package sits on a slow USB stick.
+#
+# Reports which step failed rather than a single "no version": the package being
+# unreadable and the package having no version are different problems, and so is
+# cpio simply not being installed.
 package_version() {
-	local pkg="$1" desc
+	local pkg="$1" desc ver
 	desc="$(head -c 65536 -- "$pkg" 2>/dev/null |
 		cpio -i --to-stdout sw-description 2>/dev/null || true)"
-	[[ -n "$desc" ]] || return 1
-	sed -n 's/.*version[[:space:]]*=[[:space:]]*"\([^"]*\)".*/\1/p' <<<"$desc" | head -1
+
+	# Diagnostics go to stderr: this function is called in $( ), so anything on
+	# stdout would be captured AS the version.
+	if [[ -z "$desc" ]]; then
+		log "could not read sw-description from $(basename "$pkg")" >&2
+		log "  it should be the first member of the .swu's cpio archive" >&2
+		log "  check the file is a complete package:  cpio -it < '$pkg' | head" >&2
+		return 1
+	fi
+
+	ver="$(sed -n 's/.*version[[:space:]]*=[[:space:]]*"\([^"]*\)".*/\1/p' <<<"$desc" | head -1)"
+	if [[ -z "$ver" ]]; then
+		log "sw-description has no version field. It reads:" >&2
+		while IFS= read -r l; do log "    $l" >&2; done <<<"$desc"
+		return 1
+	fi
+	printf '%s' "$ver"
 }
 
 # The identity of the running software: the SHA-256 of its version file, taken
@@ -112,6 +131,13 @@ exec 9>"$LOCK_FILE"
 flock -n 9 || die "another update is already running"
 
 [[ $EUID -eq 0 ]] || die "must run as root"
+
+# cpio reads the version out of the package, sha256sum identifies the running
+# build. Without them every package looks unreadable, which is easy to mistake
+# for a bad package.
+for t in cpio sha256sum; do
+	command -v "$t" >/dev/null || die "missing tool: $t (apt install $t)"
+done
 
 ##### find something to install ###########################
 SWU=""
