@@ -53,6 +53,10 @@ VERSION_FILE="/var/log/oradio_sw_version.log"
 # the medium the package arrives on.
 CERT="/etc/oradio3/update-signing.cert.pem"
 
+# The rest of the toolkit. Installed together, so their location is known rather
+# than searched for.
+INSTALL_SCRIPT="/usr/local/sbin/install-swu.sh"
+
 ##### logging #############################################
 # stdout and stderr are redirected to the Oradio log file by
 # oradio3-update.service, so this output does not appear in `journalctl -u`.
@@ -100,17 +104,6 @@ version_failed_trial() { # version_failed_trial <version>
 	local failed
 	failed="$(sed -n 's/^failed_version=//p' "$TRIAL_STATE" | tail -1)"
 	[[ -n "$failed" && "$failed" == "$1" ]]
-}
-
-SELF_DIR="$(cd -- "$(dirname -- "$(readlink -f "${BASH_SOURCE[0]}")")" && pwd)"
-
-find_installer() {
-	local c
-	for c in "$SELF_DIR/install-swu.sh" /usr/local/sbin/install-swu.sh \
-		/usr/local/bin/install-swu.sh ./install-swu.sh; do
-		[[ -f "$c" ]] && printf '%s' "$c" && return 0
-	done
-	return 1
 }
 
 ##### one at a time #######################################
@@ -170,7 +163,7 @@ rm -f "$SWU_MARKER"
 [[ -f "$SWU" ]] || die "package not found: $SWU (was the medium removed?)"
 [[ -f "$CERT" ]] || die "signing certificate not found: $CERT"
 
-INSTALLER="$(find_installer)" || die "install-swu.sh not found"
+[[ -f "$INSTALL_SCRIPT" ]] || die "$INSTALL_SCRIPT not found — is the toolkit installed?"
 
 ##### decide ##############################################
 PKG_VER="$(package_version "$SWU" || true)"
@@ -216,13 +209,13 @@ fi
 
 ##### install #############################################
 log "installing $PKG_VER"
-log "handing over to $INSTALLER; it starts a trial boot of the other slot"
+log "handing over to $INSTALL_SCRIPT; it starts a trial boot of the other slot"
 
 # install-swu.sh reboots on success, so nothing after this line runs then. On
 # failure it returns non-zero and the running slot is untouched — retrying then
 # costs nothing, so re-inserting the drive is all it takes and no attempt is
 # recorded. A package that installs but cannot boot is caught separately, by the
 # trial-failure check above.
-bash "$INSTALLER" -i "$SWU" -k "$CERT"
+bash "$INSTALL_SCRIPT" -i "$SWU" -k "$CERT"
 
 die "install-swu.sh returned without rebooting — the update did not complete"

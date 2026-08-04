@@ -30,6 +30,11 @@ TRIAL=0
 # construction and neither has to parse it.
 VERSION_FILE="/var/log/oradio_sw_version.log"
 
+# Installed alongside this script, so its location is known rather than searched
+# for. It is what commits a trial; without it a trial could never be made
+# permanent.
+TRIAL_SCRIPT="/usr/local/sbin/ab-boot-trial.sh"
+
 TRYBOOT_CONFIG="/boot/firmware/tryboot.txt"
 TRIAL_CMDLINE="/boot/firmware/tryboot-cmdline.txt"
 TRIAL_STATE="/boot/firmware/oradio3-boot.state"
@@ -129,11 +134,11 @@ MODEL="$(require_raspberry_pi)"
 command -v blkid >/dev/null || die "missing tool: blkid"
 
 # --------------------------------------------------------- locate cmdline --
-CMDLINE=""
-for c in /boot/firmware/cmdline.txt /boot/cmdline.txt; do
-	[[ -f "$c" ]] && CMDLINE="$c" && break
-done
-[[ -n "$CMDLINE" ]] || die "cmdline.txt not found — is the boot partition mounted?"
+# Fixed path: Raspberry Pi OS mounts the boot partition here, and every other
+# file this toolkit touches on it — tryboot.txt, config.txt, the trial state —
+# is addressed the same way.
+CMDLINE="/boot/firmware/cmdline.txt"
+[[ -f "$CMDLINE" ]] || die "$CMDLINE not found — is the boot partition mounted?"
 
 # -------------------------------------------------------------- the disk --
 RUNNING_DEV="$(findmnt -nro SOURCE / || true)"
@@ -303,15 +308,10 @@ if ((TRIAL)); then
 
 	# A trial nobody can commit reverts at the next reboot, which looks like the
 	# update silently undoing itself days later. Say so before that happens.
-	commit_path=""
-	for c in "$(dirname -- "$(readlink -f "${BASH_SOURCE[0]}")")/ab-boot-trial.sh" \
-		/usr/local/sbin/ab-boot-trial.sh /usr/local/bin/ab-boot-trial.sh; do
-		[[ -f "$c" ]] && commit_path="$c" && break
-	done
-	if [[ -z "$commit_path" ]]; then
+	if [[ ! -f "$TRIAL_SCRIPT" ]]; then
 		warn "ab-boot-trial.sh is not installed, so this trial cannot be committed."
 		warn "Slot $TARGET would run until the next reboot and then revert."
-		((FORCE)) || die "install ab-boot-trial.sh first (--force overrides)"
+		((FORCE)) || die "install $TRIAL_SCRIPT first (--force overrides)"
 		warn "--force given, continuing anyway"
 	fi
 

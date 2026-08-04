@@ -22,6 +22,11 @@ LABEL_B="rootfs_b"
 # signs with; HW_REVISION must match the hardware-compatibility list in the
 # package.
 CERT="oradio3-signing.cert.pem"
+
+# The rest of the toolkit. Installed together, so their location is known rather
+# than searched for.
+SWITCH_SCRIPT="/usr/local/sbin/ab-boot-switch.sh"
+TRIAL_SCRIPT="/usr/local/sbin/ab-boot-trial.sh"
 BOARD_NAME="oradio3"
 HW_REVISION="1.0"
 
@@ -115,6 +120,10 @@ MODEL="$(require_raspberry_pi)"
 
 command -v swupdate >/dev/null || die "swupdate is not installed. Run: apt install swupdate"
 command -v mkfs.ext4 >/dev/null || die "missing tool: mkfs.ext4 (apt install e2fsprogs)"
+
+[[ -f "$SWITCH_SCRIPT" ]] || die "$SWITCH_SCRIPT not found — is the toolkit installed?"
+# Rollback is not optional: without this nothing could ever commit a trial.
+[[ -f "$TRIAL_SCRIPT" ]] || die "$TRIAL_SCRIPT not found — is the toolkit installed?"
 
 [[ -f "$CERT" ]] || die "signing certificate not found: $CERT
     Copy it from the build host; swupdate rejects unsigned packages."
@@ -238,42 +247,6 @@ fi
 ok "Installed into slot $TARGET_SLOT ($TARGET_DEV)."
 
 # ------------------------------------------------------- move the pointer --
-# Look for the switcher next to this script, then in the working directory, then
-# on the usual install path. Test for existence rather than the execute bit and
-# run it through bash: a script copied over scp or from a Windows-side path
-# routinely arrives without +x, which says nothing about whether it is usable.
-SELF_DIR="$(cd -- "$(dirname -- "$(readlink -f "${BASH_SOURCE[0]}")")" && pwd)"
-SWITCH_CANDIDATES=(
-	"$SELF_DIR/ab-boot-switch.sh"
-	"./ab-boot-switch.sh"
-	"/usr/local/sbin/ab-boot-switch.sh"
-	"/usr/local/bin/ab-boot-switch.sh"
-)
-
-SWITCH=""
-for c in "${SWITCH_CANDIDATES[@]}"; do
-	[[ -f "$c" ]] && SWITCH="$c" && break
-done
-
-if [[ -z "$SWITCH" ]]; then
-	warn "ab-boot-switch.sh not found. Looked in:"
-	for c in "${SWITCH_CANDIDATES[@]}"; do warn "  $c"; done
-	warn "The slot is installed but the Pi will still boot $RUNNING_DEV."
-	warn "Set the pointer manually, then reboot."
-	exit 1
-fi
-
-# Rollback is not optional: ab-boot-trial.sh must be present to commit a trial,
-# and install-swu.sh will not switch a slot any other way.
-TRIAL=""
-for c in "$SELF_DIR/ab-boot-trial.sh" /usr/local/sbin/ab-boot-trial.sh \
-	/usr/local/bin/ab-boot-trial.sh ./ab-boot-trial.sh; do
-	[[ -f "$c" ]] && TRIAL="$c" && break
-done
-[[ -n "$TRIAL" ]] || die "ab-boot-trial.sh not found on this system, so a trial
-    boot could never be committed. Install it before updating:
-      sudo install -m 0755 ab-boot-trial.sh /usr/local/sbin/"
-
 # Everything that ends a trial lives inside the slot being trialled, so the slot
 # has to carry all of it:
 #
@@ -288,9 +261,8 @@ done
 SLOT_MNT="$(mktemp -d)"
 MISSING=()
 if mount -o ro "$TARGET_DEV" "$SLOT_MNT" 2>/dev/null; then
-	[[ -f "$SLOT_MNT/usr/local/sbin/ab-boot-trial.sh" ||
-		-f "$SLOT_MNT/usr/local/bin/ab-boot-trial.sh" ]] ||
-		MISSING+=("ab-boot-trial.sh (nothing could commit the trial)")
+	[[ -f "$SLOT_MNT$TRIAL_SCRIPT" ]] ||
+		MISSING+=("$TRIAL_SCRIPT (nothing could commit the trial)")
 
 	unit_enabled "$SLOT_MNT" timers.target.wants ab-boot-timeout.timer ||
 		MISSING+=("ab-boot-timeout.timer, enabled (nothing would end an uncommitted trial)")
@@ -314,7 +286,6 @@ if ((${#MISSING[@]})); then
 fi
 
 log "Starting a trial boot of slot $TARGET_SLOT"
-info "using $SWITCH"
 
 # Printed before the handover, because the reboot does not return.
 cat <<EOF
@@ -332,4 +303,4 @@ EOF
 # config.txt keeps pointing at the running slot. If ab-boot-switch.sh refuses —
 # an incomplete slot, or an fstab naming a boot partition that is not on this
 # card — nothing is changed and the Pi stays up on $RUNNING_DEV.
-bash "$SWITCH" --to "$TARGET_SLOT" --trial --reboot
+bash "$SWITCH_SCRIPT" --to "$TARGET_SLOT" --trial --reboot
