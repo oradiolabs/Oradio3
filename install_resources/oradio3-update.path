@@ -1,4 +1,7 @@
 [Unit]
+# Do NOT rename these units to swupdate.path / swupdate.service: the swupdate
+# package ships units of that name, and replacing them makes the distro's
+# swupdate.socket try to activate this script instead.
 Description=Watch for an Oradio3 software update
 Documentation=file:/usr/local/sbin/oradio3-update.sh
 

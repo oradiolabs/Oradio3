@@ -3,6 +3,9 @@ Description=Roll back an A/B trial boot that never committed
 Documentation=file:/usr/local/sbin/ab-boot-trial.sh
 # Needs the boot partition mounted: the trial state lives there.
 After=local-fs.target
+# Deliberately no [Install] section: this is started by ab-boot-timeout.timer and
+# by nothing else. Enabling it would run the timeout at every boot, ending a
+# trial the moment it began.
 
 [Service]
 # Service runs a single task and then exits.

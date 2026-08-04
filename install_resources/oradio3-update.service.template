@@ -1,8 +1,11 @@
 [Unit]
+# Do NOT rename these units to swupdate.path / swupdate.service: the swupdate
+# package ships units of that name, and replacing them makes the distro's
+# swupdate.socket try to activate this script instead.
 Description=Install an Oradio3 software update
 Documentation=file:/usr/local/sbin/oradio3-update.sh
 # The rootfs and the boot partition both have to be mounted: the package is read
-# from a mounted medium and the attempt counter lives on /boot/firmware.
+# from a mounted medium and the trial-failure record it consults lives there.
 After=local-fs.target
 Requires=local-fs.target
 
