@@ -18,6 +18,7 @@ set -euo pipefail
 
 TARGET=""
 STATUS_ONLY=0
+TRIAL_VERSION=""
 FORCE=0
 REBOOT=0
 TRIAL=0
@@ -243,6 +244,14 @@ release_check_dir() {
 }
 
 if [[ -n "$CHECK_DIR" ]]; then
+	# The slot is mounted, so read its version rather than being told it. Taking
+	# it from the slot itself means the recorded failure always describes what
+	# was actually booted, and there is no argument to pass down or get wrong.
+	# Same hash as build-swu.sh put in the package: both hash this file whole.
+	TRIAL_VERSION="$(sha256sum "$CHECK_DIR$VERSION_FILE" 2>/dev/null | cut -c1-16 || true)"
+	[[ -n "$TRIAL_VERSION" ]] ||
+		warn "slot $TARGET has no readable $VERSION_FILE; a failed trial cannot be attributed"
+
 	if [[ ! -e "$CHECK_DIR/sbin/init" && ! -e "$CHECK_DIR/usr/lib/systemd/systemd" ]]; then
 		warn "slot $TARGET has no /sbin/init — it looks empty or incomplete."
 		warn "Booting it would leave the Pi unable to start userspace."
@@ -287,8 +296,8 @@ if ((TRIAL)); then
 
 	[[ -f "$CONFIG_TXT" ]] || die "$CONFIG_TXT not found"
 
-	# A trial nobody can commit reverts on the next reboot, which looks like the
-	# update silently undoing itself. Say so before that happens.
+	# A trial nobody can commit reverts at the next reboot, which looks like the
+	# update silently undoing itself days later. Say so before that happens.
 	commit_path=""
 	for c in "$(dirname -- "$(readlink -f "${BASH_SOURCE[0]}")")/ab-boot-trial.sh" \
 		/usr/local/sbin/ab-boot-trial.sh /usr/local/bin/ab-boot-trial.sh; do
@@ -297,7 +306,7 @@ if ((TRIAL)); then
 	if [[ -z "$commit_path" ]]; then
 		warn "ab-boot-trial.sh is not installed, so this trial cannot be committed."
 		warn "Slot $TARGET would run until the next reboot and then revert."
-		((FORCE)) || die "install ab-boot-trial.sh, or use --to without --trial (--force overrides)"
+		((FORCE)) || die "install ab-boot-trial.sh first (--force overrides)"
 		warn "--force given, continuing anyway"
 	fi
 
@@ -316,8 +325,11 @@ if ((TRIAL)); then
 	} >"$TRYBOOT_CONFIG"
 	info "tryboot.txt   : cmdline=$(basename "$TRIAL_CMDLINE")"
 
-	printf 'trial=%s\ntrial_partuuid=%s\ncommitted=%s\ncommitted_root=%s\nstate=trying\nstarted=%s\n' \
-		"$TARGET" "$TARGET_PU" "$CURRENT_SLOT" "$CURRENT_ROOT" "$(date -Is)" >"$TRIAL_STATE"
+	# trial_version is what makes a failure attributable: ab-boot-trial.sh moves
+	# it to failed_version when the trial does not survive, and
+	# oradio3-update.sh refuses to install that version again.
+	printf 'trial=%s\ntrial_partuuid=%s\ntrial_version=%s\ncommitted=%s\ncommitted_root=%s\nstate=trying\nstarted=%s\n' \
+		"$TARGET" "$TARGET_PU" "$TRIAL_VERSION" "$CURRENT_SLOT" "$CURRENT_ROOT" "$(date -Is)" >"$TRIAL_STATE"
 	sync
 
 	log "Done"

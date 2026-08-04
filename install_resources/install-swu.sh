@@ -71,6 +71,25 @@ die() {
 	exit 1
 }
 
+# `systemctl enable` creates an ABSOLUTE symlink, e.g.
+#   .../multi-user.target.wants/ab-boot-check.service
+#     -> /etc/systemd/system/ab-boot-check.service
+# Read from outside the rootfs that target resolves against OUR root, not the
+# image's, so -e is always false here however correctly the unit was enabled.
+# Test the link itself with -L, then resolve its target under the mount point.
+unit_enabled() { # unit_enabled <root> <wants-dir> <unit>
+	local root="$1" link="$1/etc/systemd/system/$2/$3" target
+	[[ -L "$link" || -e "$link" ]] || return 1
+	if [[ -L "$link" ]]; then
+		target="$(readlink "$link")"
+		# absolute inside the image -> re-root it; relative -> resolve as-is
+		[[ "$target" == /* ]] && target="$root$target" ||
+			target="$1/etc/systemd/system/$2/$target"
+		[[ -e "$target" ]] || return 1
+	fi
+	return 0
+}
+
 require_raspberry_pi() {
 	local model="" f
 	for f in /proc/device-tree/model /sys/firmware/devicetree/base/model; do
@@ -244,25 +263,61 @@ if [[ -z "$SWITCH" ]]; then
 	exit 1
 fi
 
-# Rollback needs somewhere to commit from. If ab-boot-trial.sh is not installed
-# a trial could still be started, but nothing could ever make it permanent: the
-# Pi would run the new slot until the next reboot and then silently return to
-# the old one — an update that looks like it worked and then disappears.
-#
-# So the mode follows what is installed. Adding ab-boot-trial.sh and its units
-# later turns rollback on with no other change.
+# Rollback is not optional: ab-boot-trial.sh must be present to commit a trial,
+# and install-swu.sh will not switch a slot any other way.
 TRIAL=""
 for c in "$SELF_DIR/ab-boot-trial.sh" /usr/local/sbin/ab-boot-trial.sh \
 	/usr/local/bin/ab-boot-trial.sh ./ab-boot-trial.sh; do
 	[[ -f "$c" ]] && TRIAL="$c" && break
 done
+[[ -n "$TRIAL" ]] || die "ab-boot-trial.sh not found on this system, so a trial
+    boot could never be committed. Install it before updating:
+      sudo install -m 0755 ab-boot-trial.sh /usr/local/sbin/"
 
-if [[ -n "$TRIAL" ]]; then
-	log "Starting a trial boot of slot $TARGET_SLOT"
-	info "using $SWITCH"
+# Everything that ends a trial lives inside the slot being trialled, so the slot
+# has to carry all of it:
+#
+#   ab-boot-trial.sh       the only thing that can commit
+#   ab-boot-timeout.timer  the deadline that undoes an uncommitted trial
+#   ab-boot-check.service  notices a rollback and records the failed version
+#
+# Enabled, not merely installed: a unit file with no .wants symlink never runs.
+# Miss the timer and a slot that boots but never commits would run until the
+# next reboot and then silently revert — an update that appears to work and then
+# disappears days later.
+SLOT_MNT="$(mktemp -d)"
+MISSING=()
+if mount -o ro "$TARGET_DEV" "$SLOT_MNT" 2>/dev/null; then
+	[[ -f "$SLOT_MNT/usr/local/sbin/ab-boot-trial.sh" ||
+		-f "$SLOT_MNT/usr/local/bin/ab-boot-trial.sh" ]] ||
+		MISSING+=("ab-boot-trial.sh (nothing could commit the trial)")
 
-	# Printed before the handover, because the reboot does not return.
-	cat <<EOF
+	unit_enabled "$SLOT_MNT" timers.target.wants ab-boot-timeout.timer ||
+		MISSING+=("ab-boot-timeout.timer, enabled (nothing would end an uncommitted trial)")
+
+	unit_enabled "$SLOT_MNT" multi-user.target.wants ab-boot-check.service ||
+		MISSING+=("ab-boot-check.service, enabled (a rollback would go unrecorded)")
+
+	umount "$SLOT_MNT"
+else
+	MISSING+=("could not mount $TARGET_DEV to check it")
+fi
+rmdir "$SLOT_MNT"
+
+if ((${#MISSING[@]})); then
+	warn "The installed slot cannot see a trial through. Missing:"
+	for m in "${MISSING[@]}"; do warn "  - $m"; done
+	warn ""
+	warn "Install and enable the pi/ scripts and units on the reference Pi"
+	warn "BEFORE building the release, so every package carries them."
+	die "refusing to start a trial that cannot be committed or timed out"
+fi
+
+log "Starting a trial boot of slot $TARGET_SLOT"
+info "using $SWITCH"
+
+# Printed before the handover, because the reboot does not return.
+cat <<EOF
 
     The new slot is booted ONCE, on trial. config.txt still points at
     $RUNNING_DEV, so a panic, a hang, a reset, or the trial timeout
@@ -273,27 +328,8 @@ if [[ -n "$TRIAL" ]]; then
 
 EOF
 
-	# --trial writes tryboot.txt and reboots with the firmware's one-shot flag,
-	# so config.txt keeps pointing at the running slot. If ab-boot-switch.sh
-	# refuses — an incomplete slot, or an fstab naming a boot partition that is
-	# not on this card — nothing changes and the Pi stays up on $RUNNING_DEV.
-	bash "$SWITCH" --to "$TARGET_SLOT" --trial --reboot
-else
-	warn "ab-boot-trial.sh is not installed, so nothing could commit a trial."
-	warn "Switching permanently instead — this update cannot roll back."
-	warn "If slot $TARGET_SLOT does not boot, recovery is manual: put the card in"
-	warn "a reader and restore cmdline.txt.bak on the boot partition."
-
-	log "Switching to slot $TARGET_SLOT"
-	info "using $SWITCH"
-
-	cat <<EOF
-
-    If the Pi does not come back, put the card in a reader and restore
-    cmdline.txt.bak from the boot partition — that returns you to
-    $RUNNING_DEV, the slot that is running now.
-
-EOF
-
-	bash "$SWITCH" --to "$TARGET_SLOT" --reboot
-fi
+# --trial writes tryboot.txt and reboots with the firmware's one-shot flag, so
+# config.txt keeps pointing at the running slot. If ab-boot-switch.sh refuses —
+# an incomplete slot, or an fstab naming a boot partition that is not on this
+# card — nothing is changed and the Pi stays up on $RUNNING_DEV.
+bash "$SWITCH" --to "$TARGET_SLOT" --trial --reboot

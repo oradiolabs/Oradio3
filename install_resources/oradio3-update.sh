@@ -21,9 +21,9 @@ set -euo pipefail
 
 # Two ways in, so that no trigger needs privileges it would not otherwise have.
 #
-# 1. /run/usb_present — touched by the udev mount handler after the drive is
-#    mounted, removed after it is unmounted. Nothing has to be written by
-#    anyone: this service looks for a package on the drive itself.
+# 1. Started directly by the udev mount handler after it mounts the drive. No
+#    request is written: this service looks for a package on the drive itself,
+#    using /run/usb_present only to confirm a drive is there.
 # 2. /run/swu_present — written by a trigger that already runs as root, such as
 #    an internet downloader. Its contents are the path of the package. On
 #    tmpfs, so a reboot cannot replay a stale marker.
@@ -35,11 +35,16 @@ USB_MOUNT_POINT="/media/oradio"
 SWU_GLOB="*.swu"
 LOCK_FILE="/run/oradio3-update.lock"
 
-# Attempt state must survive a slot switch, so it cannot live on the rootfs:
-# after switching, /var belongs to the newly installed slot and anything written
-# here would be gone. The boot partition is shared by both slots.
-STATE_FILE="/boot/firmware/oradio3-update.state"
-MAX_ATTEMPTS=2
+# Read only — this script keeps no state of its own. The file belongs to
+# ab-boot-trial.sh, which is the only thing that can observe a slot failing to
+# boot; it records failed_version when a trial does not survive, and that is
+# what stops a still-inserted drive re-installing a package already proved
+# unbootable.
+#
+# It lives on the boot partition because it must survive a slot switch: after
+# switching, /var belongs to the newly installed slot.
+TRIAL_STATE="/boot/firmware/oradio3-boot.state"
+
 
 # Where the running software records its own identity. Written by the project,
 # carried through updates because it is in build-swu.sh's KEEP_LOGS.
@@ -71,75 +76,35 @@ package_version() {
 	sed -n 's/.*version[[:space:]]*=[[:space:]]*"\([^"]*\)".*/\1/p' <<<"$desc" | head -1
 }
 
-# The identity of the software in a rootfs, read from its version file:
-#   {
-#       "dtstamp": "YYYY-MM-DD-hh-mm-ss",
-#       "gitinfo":  "<string>"
-#   }
-# "dtstamp" is the identity, because it is unique per build and sorts.
-# The commit alone is not: rebuilding a dirty tree gives the same hash.
+# The identity of the running software: the SHA-256 of its version file, taken
+# as-is. build-swu.sh hashes the same file inside the rootfs it packages, and
+# puts the result in the signed sw-description.
 #
-# build-swu.sh reads the same field out of the rootfs it packages, so the two
-# sides of the comparison come from the same place by construction. Change this
-# function and its twin in build-swu.sh together, or the comparison stops
-# meaning anything.
-version_from_file() { # version_from_file <path>
-	local f="$1" v
-	[[ -r "$f" ]] || return 1
-	v="$(sed -n 's/.*"dtstamp"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' "$f" | head -1)"
-	if [[ -z "$v" ]]; then
-		# No dtstamp: fall back to the commit, which is better than nothing
-		v="$(sed -n 's/.*"gitinfo".*@[[:space:]]*\([0-9a-f]\{7,\}\).*/\1/p' "$f" | head -1)"
-	fi
-	[[ -n "$v" ]] || return 1
-	printf '%s' "$v"
-}
-
-gitinfo_from_file() { # gitinfo_from_file <path> — for the log only
+# Neither side parses the file, so the project owns its format entirely — keys
+# can be added, renamed or restructured without breaking the comparison. A
+# rebuild changes the file, changes the hash, and the package reads as new.
+version_id() { # version_id <path>
 	[[ -r "$1" ]] || return 1
-	sed -n 's/.*"gitinfo"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' "$1" | head -1
+	sha256sum "$1" | cut -c1-16
 }
 
-running_version() { version_from_file "$VERSION_FILE"; }
+running_version() { version_id "$VERSION_FILE"; }
 
-read_state() {
-	STATE_VERSION=""
-	STATE_COUNT=0
-	[[ -r "$STATE_FILE" ]] || return 0
-	STATE_VERSION="$(sed -n 's/^attempted=//p' "$STATE_FILE" | tail -1)"
-	STATE_COUNT="$(sed -n 's/^count=//p' "$STATE_FILE" | tail -1)"
-	[[ "$STATE_COUNT" =~ ^[0-9]+$ ]] || STATE_COUNT=0
-	return 0
+# Has this exact version already failed a trial boot? One demonstration is
+# enough: a package that installed, rebooted and did not come up will do the
+# same again, and each attempt costs an install plus a trial timeout.
+version_failed_trial() { # version_failed_trial <version>
+	[[ -r "$TRIAL_STATE" ]] || return 1
+	local failed
+	failed="$(sed -n 's/^failed_version=//p' "$TRIAL_STATE" | tail -1)"
+	[[ -n "$failed" && "$failed" == "$1" ]]
 }
 
-write_state() { # write_state <version> <count>
-	# Attempt the write rather than testing permissions: running as root, -w
-	# reports success on a directory whose mode forbids it, and the mount being
-	# read-only is the case that actually matters.
-	#
-	# This fails closed. Without a recorded attempt the boot-loop guard cannot
-	# count, and a package that installs but never comes up would be retried on
-	# every boot for as long as the medium stays inserted. Declining to install
-	# is recoverable; an unattended reboot loop on a deployed unit is not.
-	if ! printf 'attempted=%s\ncount=%s\nupdated=%s\n' \
-		"$1" "$2" "$(date -Is)" >"$STATE_FILE" 2>/dev/null; then
-		die "cannot write $STATE_FILE, so the boot-loop guard would be inoperative.
-       Refusing to install. Check that $(dirname "$STATE_FILE") is mounted read-write."
-	fi
-	# vfat, plus a reboot moments away: get it onto the card now
-	sync
-}
-
-clear_state() {
-	[[ -e "$STATE_FILE" ]] || return 0
-	rm -f "$STATE_FILE"
-	sync
-}
+SELF_DIR="$(cd -- "$(dirname -- "$(readlink -f "${BASH_SOURCE[0]}")")" && pwd)"
 
 find_installer() {
-	local self_dir c
-	self_dir="$(cd -- "$(dirname -- "$(readlink -f "${BASH_SOURCE[0]}")")" && pwd)"
-	for c in "$self_dir/install-swu.sh" /usr/local/sbin/install-swu.sh \
+	local c
+	for c in "$SELF_DIR/install-swu.sh" /usr/local/sbin/install-swu.sh \
 		/usr/local/bin/install-swu.sh ./install-swu.sh; do
 		[[ -f "$c" ]] && printf '%s' "$c" && return 0
 	done
@@ -210,46 +175,50 @@ PKG_VER="$(package_version "$SWU" || true)"
 RUN_VER="$(running_version || true)"
 log "package version: $PKG_VER"
 log "running version: ${RUN_VER:-unknown}"
-RUN_GIT="$(gitinfo_from_file "$VERSION_FILE" || true)"
-[[ -n "$RUN_GIT" ]] && log "running build   : $RUN_GIT"
-
-read_state
-
-# A previous attempt that reached the version it was aiming for succeeded, so
-# the counter has done its job.
-if [[ -n "$STATE_VERSION" && -n "$RUN_VER" && "$STATE_VERSION" == "$RUN_VER" ]]; then
-	log "previous attempt at $STATE_VERSION succeeded; clearing attempt state"
-	clear_state
-	read_state
+# Show the file itself, since the hash means nothing to a human reading a log.
+if [[ -r "$VERSION_FILE" ]]; then
+	while IFS= read -r line; do
+		[[ -n "${line//[[:space:]]/}" ]] && log "  running build : $line"
+	done <"$VERSION_FILE"
 fi
 
-# Already running it. This is the check that makes re-inserting the same stick a
-# no-op, without writing anything to the stick — which matters because the stick
-# may be read-only, and because one stick should be able to update many units.
+# Without a running version there is nothing to compare against, so every
+# trigger looks like a new package and the drive would reinstall on every
+# insertion. The trial guard still catches a package that cannot boot, but a
+# working package would be installed again and again.
+if [[ -z "$RUN_VER" ]]; then
+	log "WARNING: cannot read a version from $VERSION_FILE"
+	log "WARNING: every trigger will look like a new package, so this will"
+	log "WARNING: reinstall on every insertion until the file is readable."
+fi
+
+# Already running it. This is what makes re-inserting the same drive a no-op,
+# without writing anything to the drive — which matters because the drive may be
+# read-only, and because one drive should be able to update many units.
 if [[ -n "$RUN_VER" && "$PKG_VER" == "$RUN_VER" ]]; then
 	log "already running $PKG_VER — nothing to do"
 	exit 0
 fi
 
-# Boot-loop guard. Without this, a package that installs but does not come up
-# would be retried on every boot for as long as the medium stays inserted.
-if [[ "$STATE_VERSION" == "$PKG_VER" ]] && ((STATE_COUNT >= MAX_ATTEMPTS)); then
-	log "REFUSING: $PKG_VER has already been attempted $STATE_COUNT times"
-	log "Remove the package, or clear $STATE_FILE to try again."
+# Has this exact package already failed a trial boot? This is evidence, not a
+# guess: ab-boot-trial.sh recorded it after watching the slot fail to come up.
+if version_failed_trial "$PKG_VER"; then
+	log "REFUSING: $PKG_VER has already failed a trial boot on this unit"
+	log "It installed and then did not come up, so the Pi rolled back."
+	log "Fix the package. To try this one again anyway:"
+	log "  sudo sed -i '/^failed_version=/d' $TRIAL_STATE"
 	exit 1
 fi
 
 ##### install #############################################
-NEXT_COUNT=$((STATE_COUNT + 1))
-[[ "$STATE_VERSION" == "$PKG_VER" ]] || NEXT_COUNT=1
-write_state "$PKG_VER" "$NEXT_COUNT"
-
-log "installing $PKG_VER (attempt $NEXT_COUNT of $MAX_ATTEMPTS)"
-log "handing over to $INSTALLER; it switches slots and reboots on success"
+log "installing $PKG_VER"
+log "handing over to $INSTALLER; it starts a trial boot of the other slot"
 
 # install-swu.sh reboots on success, so nothing after this line runs then. On
-# failure it returns non-zero, the running slot is untouched, and the attempt
-# counter above is what stops this repeating forever.
+# failure it returns non-zero and the running slot is untouched — retrying then
+# costs nothing, so re-inserting the drive is all it takes and no attempt is
+# recorded. A package that installs but cannot boot is caught separately, by the
+# trial-failure check above.
 bash "$INSTALLER" -i "$SWU" -k "$CERT"
 
 die "install-swu.sh returned without rebooting — the update did not complete"
