@@ -25,6 +25,11 @@ TRIAL=0
 
 # Trial boots use the firmware's one-shot tryboot flag. config.txt keeps
 # pointing at the committed slot; tryboot.txt points at the slot on trial.
+# The version of the software in a slot: the hash of this file, taken whole.
+# build-swu.sh hashes the same file when packaging, so the two agree by
+# construction and neither has to parse it.
+VERSION_FILE="/var/log/oradio_sw_version.log"
+
 TRYBOOT_CONFIG="/boot/firmware/tryboot.txt"
 TRIAL_CMDLINE="/boot/firmware/tryboot-cmdline.txt"
 TRIAL_STATE="/boot/firmware/oradio3-boot.state"

@@ -9,13 +9,13 @@
 # It then decides whether the package is worth installing:
 #
 #   1  the package version differs from the running version
-#   2  the same package has not already failed too many times
+#   2  this exact package has not already failed a trial boot on this unit
 #
 # Only then does it hand over to install-swu.sh, which installs into the
-# inactive slot, moves the boot pointer and reboots.
+# inactive slot and starts a trial boot of it.
 #
-# Every trigger shares this decision logic and the boot-loop guard, whether the
-# package arrives on a USB drive or is fetched over the network.
+# Every trigger shares this decision, whether the package arrives on a USB drive
+# or is fetched over the network.
 #
 set -euo pipefail
 
@@ -45,7 +45,6 @@ LOCK_FILE="/run/oradio3-update.lock"
 # switching, /var belongs to the newly installed slot.
 TRIAL_STATE="/boot/firmware/oradio3-boot.state"
 
-
 # Where the running software records its own identity. Written by the project,
 # carried through updates because it is in build-swu.sh's KEEP_LOGS.
 VERSION_FILE="/var/log/oradio_sw_version.log"
@@ -55,8 +54,11 @@ VERSION_FILE="/var/log/oradio_sw_version.log"
 CERT="/etc/oradio3/update-signing.cert.pem"
 
 ##### logging #############################################
-# stdout goes to the journal. A refused or failed update does not switch slots,
-# so the journal you need is the one on the slot you are still running.
+# stdout and stderr are redirected to the Oradio log file by
+# oradio3-update.service, so this output does not appear in `journalctl -u`.
+#
+# A refused or failed update never switches slots, so the log that matters is
+# the one on the slot still running — which is the slot writing this.
 log() { printf '%s oradio3-update: %s\n' "$(date -Is)" "$*"; }
 die() {
 	printf '%s oradio3-update: ERROR: %s\n' "$(date -Is)" "$*" >&2
@@ -161,6 +163,8 @@ else
 	exit 0
 fi
 
+# Clear the marker even when the USB branch fired: a leftover from an aborted
+# run would otherwise be picked up as a request on the next insertion.
 rm -f "$SWU_MARKER"
 
 [[ -f "$SWU" ]] || die "package not found: $SWU (was the medium removed?)"
