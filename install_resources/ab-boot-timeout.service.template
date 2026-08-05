@@ -1,5 +1,5 @@
 [Unit]
-Description=Roll back an A/B trial boot that never committed
+Description=Decide an A/B trial boot: commit if healthy, else roll back
 Documentation=file:/usr/local/sbin/ab-boot-trial.sh
 # Needs the boot partition mounted: the trial state lives there.
 After=local-fs.target
@@ -16,6 +16,8 @@ Type=oneshot
 StandardOutput=append:PLACEHOLDER_LOGFILE_BOOT
 StandardError=append:PLACEHOLDER_LOGFILE_BOOT
 
-# 'timeout' declares an uncommitted trial failed, records the version so the
-# same package is not installed again, removes the tryboot files and reboots.
+# 'timeout' decides an undecided trial. If HEALTH_UNIT is running and has not
+# been restarting, the trial is committed; otherwise it is declared failed, the
+# version is recorded so the same package is not installed again, the tryboot
+# files are removed and the board reboots into the committed slot.
 ExecStart=/usr/local/sbin/ab-boot-trial.sh timeout

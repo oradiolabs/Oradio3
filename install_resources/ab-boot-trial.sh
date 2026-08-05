@@ -41,6 +41,18 @@ STATE_FILE="/boot/firmware/oradio3-boot.state"
 # the target slot neither the old release nor the new one, and the target during
 # a trial is the slot being fallen back to.
 UPDATE_LOCK="/run/oradio3-update.lock"
+
+# The unit whose health decides a trial. At the timeout, a trial is committed if
+# this is running and has not been restarting; otherwise it is rolled back.
+#
+# Set empty to disable the check, which makes the timeout an unconditional
+# rollback and leaves committing entirely to `ab-boot-trial.sh commit`.
+HEALTH_UNIT="oradio.service"
+
+# How many restarts within the trial still counts as healthy. Restart=always
+# means a crash loop can be momentarily "active"; a slot whose application keeps
+# dying is not one to make permanent.
+HEALTH_MAX_RESTARTS=3
 TRYBOOT_CONFIG="/boot/firmware/tryboot.txt"
 TRIAL_CMDLINE="/boot/firmware/tryboot-cmdline.txt"
 CMDLINE="/boot/firmware/cmdline.txt"
@@ -185,6 +197,28 @@ cmd_commit() {
 	log "cmdline.txt is now: $(cat "$CMDLINE")"
 }
 
+# Is the application actually working? "Active" alone is weak — Restart=always
+# means a crash loop is active between crashes — so also require that it has not
+# been restarting.
+health_ok() {
+	local state restarts
+	state="$(systemctl is-active "$HEALTH_UNIT" 2>/dev/null || true)"
+	if [[ "$state" != "active" ]]; then
+		log "$HEALTH_UNIT is $state, not active"
+		return 1
+	fi
+
+	restarts="$(systemctl show -p NRestarts --value "$HEALTH_UNIT" 2>/dev/null || echo 0)"
+	[[ "$restarts" =~ ^[0-9]+$ ]] || restarts=0
+	if ((restarts > HEALTH_MAX_RESTARTS)); then
+		log "$HEALTH_UNIT is active but has restarted $restarts times"
+		return 1
+	fi
+
+	log "$HEALTH_UNIT: active, $restarts restart(s)"
+	return 0
+}
+
 ##### timeout #############################################
 # Runs a fixed time after boot. If nothing has committed by now the trial is
 # considered failed. Rebooting is enough to undo it: the one-shot tryboot flag
@@ -210,6 +244,15 @@ cmd_timeout() {
 	if [[ -e "$UPDATE_LOCK" ]] && ! flock -n "$UPDATE_LOCK" true 2>/dev/null; then
 		log "an update is installing; not rebooting"
 		log "it will reboot when it completes, or the trial ends at the next boot"
+		return 0
+	fi
+
+	# Nothing has committed by hand. Decide from the application's state rather
+	# than rolling back regardless: ten minutes of it running is the evidence a
+	# trial is meant to gather.
+	if [[ -n "$HEALTH_UNIT" ]] && health_ok; then
+		log "$HEALTH_UNIT is healthy; committing slot $trial"
+		cmd_commit
 		return 0
 	fi
 

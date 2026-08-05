@@ -1,5 +1,5 @@
 [Unit]
-Description=Deadline for an A/B trial boot to prove itself
+Description=Decide an A/B trial boot: commit if healthy, else roll back
 Documentation=file:/usr/local/sbin/ab-boot-trial.sh
 
 [Timer]
