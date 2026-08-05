@@ -307,6 +307,43 @@ if [[ -n "$CHECK_DIR" ]]; then
 	release_check_dir
 fi
 
+# ------------------------------------------- is the fallback slot sound? --
+# A trial is only as safe as the slot it falls back to. That slot is the one
+# running now, so it clearly boots — but "boots" is not enough: an fstab naming
+# a device that is not on this card lets the kernel mount / and then leaves
+# systemd waiting forever for /boot/firmware. That failure is invisible until a
+# rollback actually happens, which is the worst possible moment to find it.
+if ((TRIAL)); then
+	BOOT_SRC="$(findmnt -nro SOURCE /boot/firmware 2>/dev/null || true)"
+	BOOT_PU="$(partuuid "$BOOT_SRC")"
+	RUN_FSTAB_ROOT="$(awk '$2 == "/" && $1 !~ /^#/ {print $1}' /etc/fstab 2>/dev/null || true)"
+	RUN_FSTAB_BOOT="$(awk '$2 == "/boot/firmware" && $1 !~ /^#/ {print $1}' /etc/fstab 2>/dev/null || true)"
+	RUN_PU="$(partuuid "$RUNNING_DEV")"
+
+	FALLBACK_BAD=()
+	[[ -z "$RUN_FSTAB_ROOT" || "$RUN_FSTAB_ROOT" == "PARTUUID=$RUN_PU" ||
+		"$RUN_FSTAB_ROOT" == "LABEL="* || "$RUN_FSTAB_ROOT" == "UUID="* ]] ||
+		FALLBACK_BAD+=("/ is '$RUN_FSTAB_ROOT', but this slot is PARTUUID=$RUN_PU")
+	[[ -z "$RUN_FSTAB_BOOT" || -z "$BOOT_PU" || "$RUN_FSTAB_BOOT" == "PARTUUID=$BOOT_PU" ||
+		"$RUN_FSTAB_BOOT" == "LABEL="* || "$RUN_FSTAB_BOOT" == "UUID="* ]] ||
+		FALLBACK_BAD+=("/boot/firmware is '$RUN_FSTAB_BOOT', but this card has PARTUUID=$BOOT_PU")
+
+	if ((${#FALLBACK_BAD[@]})); then
+		warn "The slot this trial would fall back to has a broken /etc/fstab:"
+		for m in "${FALLBACK_BAD[@]}"; do warn "  - $m"; done
+		warn ""
+		warn "It is running now because the kernel mounts / from cmdline.txt, but a"
+		warn "rollback would leave systemd waiting for a device that is not on this"
+		warn "card — a hang with no way back."
+		warn ""
+		warn "Fix /etc/fstab on this slot first, then retry."
+		((FORCE)) || die "refusing to trial with an unusable fallback (--force overrides)"
+		warn "--force given, continuing anyway"
+	else
+		ok "fallback slot $CURRENT_SLOT has a consistent fstab"
+	fi
+fi
+
 # ------------------------------------------------------------ trial boot --
 # A trial changes nothing that survives a reset: config.txt still names the
 # committed slot, so the rollback needs no counter and no bookkeeping on the

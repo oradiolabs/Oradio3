@@ -23,6 +23,10 @@ LABEL_B="rootfs_b"
 # package.
 CERT="oradio3-signing.cert.pem"
 
+# Written by ab-boot-trial.sh. Read here only, to refuse an install that would
+# overwrite the slot an undecided trial falls back to.
+TRIAL_STATE="/boot/firmware/oradio3-boot.state"
+
 # The rest of the toolkit. Installed together, so their location is known rather
 # than searched for.
 SWITCH_SCRIPT="/usr/local/sbin/ab-boot-switch.sh"
@@ -215,6 +219,29 @@ fi
 
 warn "Everything on $TARGET_DEV (slot $TARGET_SLOT) will be overwritten."
 info "The running system on $RUNNING_DEV is not touched."
+
+# ------------------------------------------- is a trial still in progress? --
+# While a trial is uncommitted, the "inactive" slot is the committed one — the
+# slot the Pi falls back to. Installing into it destroys the only known-good
+# system on the card, and the trial timeout may reboot part-way through, which
+# leaves it neither the old release nor the new one.
+#
+# Commit the trial or let it roll back first. Either way the card then has one
+# slot that is known good, which is what makes an install safe.
+if [[ -r "$TRIAL_STATE" ]] &&
+	[[ "$(sed -n 's/^state=//p' "$TRIAL_STATE" | tail -1)" == "trying" ]]; then
+	TRIAL_SLOT="$(sed -n 's/^trial=//p' "$TRIAL_STATE" | tail -1)"
+	warn "A trial boot of slot ${TRIAL_SLOT:-?} is still uncommitted."
+	warn ""
+	warn "Installing now would write to slot $TARGET_SLOT, which is the slot this"
+	warn "trial falls back to — the only known-good system on this card. The trial"
+	warn "timeout could also reboot part-way through the install."
+	warn ""
+	warn "Settle the trial first:"
+	warn "  sudo ab-boot-trial.sh commit    # keep the slot running now"
+	warn "  sudo reboot                     # or roll back to slot ${TRIAL_SLOT:+$([[ $TRIAL_SLOT == a ]] && echo b || echo a)}"
+	die "refusing to install while a trial is undecided"
+fi
 
 # ------------------------------------------------- kernel compatibility --
 # The kernel lives in /boot/firmware, which both slots share and no package

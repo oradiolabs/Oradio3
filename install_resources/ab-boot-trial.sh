@@ -35,6 +35,12 @@
 set -euo pipefail
 
 STATE_FILE="/boot/firmware/oradio3-boot.state"
+
+# Held by oradio3-update.sh for the duration of an install. The timeout must not
+# reboot while that lock is held: a reboot part-way through an install leaves
+# the target slot neither the old release nor the new one, and the target during
+# a trial is the slot being fallen back to.
+UPDATE_LOCK="/run/oradio3-update.lock"
 TRYBOOT_CONFIG="/boot/firmware/tryboot.txt"
 TRIAL_CMDLINE="/boot/firmware/tryboot-cmdline.txt"
 CMDLINE="/boot/firmware/cmdline.txt"
@@ -82,6 +88,10 @@ state_get() { # state_get <key>
 	printf '%s' "$v"
 }
 
+# Writing state must never be fatal. This runs Before=multi-user.target, and a
+# boot partition that is missing or read-only would otherwise take the whole
+# boot down with it — losing the rollback record is bad, losing the boot is
+# worse.
 state_set() { # state_set <key> <value>
 	[[ -r "$STATE_FILE" ]] || return 1
 	local tmp="${STATE_FILE}.tmp"
@@ -192,6 +202,14 @@ cmd_timeout() {
 	now="$(running_slot || echo '?')"
 	if [[ "$now" != "$trial" ]]; then
 		log "not running the trial slot; leaving the check service to handle it"
+		return 0
+	fi
+
+	# An install in progress reboots by itself when it finishes. Rebooting out
+	# from under it is what turns a failed update into a broken fallback slot.
+	if [[ -e "$UPDATE_LOCK" ]] && ! flock -n "$UPDATE_LOCK" true 2>/dev/null; then
+		log "an update is installing; not rebooting"
+		log "it will reboot when it completes, or the trial ends at the next boot"
 		return 0
 	fi
 
