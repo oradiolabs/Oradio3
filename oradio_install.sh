@@ -619,8 +619,6 @@ install_resource "$RESOURCES_PATH/librespot.service" /etc/systemd/system/libresp
 # Progress report
 echo -e "${GREEN}Spotify connect functionality is installed and configured${NC}"
 
-# Install the send_log_files_to_rms script
-install_resource "$RESOURCES_PATH/send_log_files_to_rms.sh" /usr/local/bin/send_log_files_to_rms.sh 'chmod +x /usr/local/bin/send_log_files_to_rms.sh'
 # Install the about script
 install_resource "$RESOURCES_PATH/about" /usr/local/bin/about 'chmod +x /usr/local/bin/about'
 # Progress report
