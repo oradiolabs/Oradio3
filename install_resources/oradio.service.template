@@ -9,14 +9,31 @@ StartLimitInterval=55
 StartLimitBurst=5
 
 [Service]
+# oradio_control.py runs in the foreground and never daemonizes, so 'simple' is
+# the right type: systemd treats the ExecStart process itself as the main process,
+# and considers the unit started as soon as it has been forked, without waiting 
+# for the script to become ready. Consequences worth knowing:
+#   - units ordered After=oradio.service may start before Oradio is actually up.
+#     Only Type=notify (with sd_notify from python) would fix that.
+#   - when that process exits, for any reason, the unit is 'stopped' and
+#     Restart=always kicks in after RestartSec.
+#   - ExecStartPre commands still run to completion before ExecStart starts.
 Type=simple
 
 # Execute service in user environment
+# NOTE: PLACEHOLDER_USER must be in the 'video' group, otherwise vcgencmd
+#       cannot open /dev/vcio and the serial below is posted empty
 User=PLACEHOLDER_USER
 Group=PLACEHOLDER_GROUP
 
-# Clear traceback.log when starting the service
-StandardError=file:PLACEHOLDER_LOGFILE_TRACEBACK
+# Capture python tracebacks.
+# 'append:' instead of 'file:' on purpose: 'file:' opens with O_TRUNC for every
+# process in this unit -- including ExecStopPost -- which would empty the log
+# just before curl uploads it. Clearing is done explicitly below instead.
+StandardError=append:PLACEHOLDER_LOGFILE_TRACEBACK
+
+# Clear traceback logfile when starting the service
+ExecStartPre=/usr/bin/truncate -s 0 PLACEHOLDER_LOGFILE_TRACEBACK
 
 # Remove any residual lock file from previous run
 ExecStartPre=/usr/bin/rm -f PLACEHOLDER_LOGGING_PATH/.__oradio.lock
@@ -25,12 +42,46 @@ ExecStartPre=/usr/bin/rm -f PLACEHOLDER_LOGGING_PATH/.__oradio.lock
 WorkingDirectory=PLACEHOLDER_MAIN_PATH
 ExecStart=/home/PLACEHOLDER_USER/.venv/bin/python3 oradio_control.py
 
-# Send traceback.log to Oradio Remote Monitoring Service
-ExecStopPost=-/usr/bin/bash -c  'curl -s \
-									-F "serial=$(vcgencmd otp_dump | grep "28:" | cut -c 4-)" \
-									-F "data=@PLACEHOLDER_LOGFILE_TRACEBACK" \
-									https://oradiolabs.nl/rms/receive.php \
-								'
+# Send traceback logfile to Oradio Remote Monitoring Service.
+#
+# Two systemd rules govern everything below. Both are applied to the raw text
+# of this line, BEFORE bash ever sees it, and quoting does not protect against
+# either one:
+#
+#   1. '%x' is a systemd specifier (%Y=unit dir, %m=machine id, %H=hostname,
+#      ...). Every literal percent must therefore be written '%%'. This is why
+#      the date format reads %%Y-%%m-%%d and not %Y-%m-%d.
+#   2. '$VAR' is expanded by systemd, and unset names become the empty string.
+#      '$(cmd)' is left alone because '(' cannot start a variable name.
+#      Rule of thumb: use $(...) freely, never use $VAR. Environment values are
+#      read with $(printenv NAME).
+#
+# Do NOT add '#' comments inside the continuation lines: systemd joins them
+# into a single line, so bash would treat the rest of the command as a comment.
+#
+# Line by line:
+#   printenv SERVICE_RESULT -> systemd sets this for ExecStopPost. Skip the
+#     report on a clean stop/reboot, otherwise Restart=always would file a
+#     CRASH on every normal shutdown and five per crash loop.
+#   [ -s ... ]              -> if the traceback is missing or empty, '-F @file'
+#     makes curl abort with exit 26 and send nothing at all, losing the whole
+#     report rather than just that one field. Skip deliberately instead.
+#   traceback.log=@...      -> the part before '=' is the multipart field name.
+#     Kept as a bare filename to match the reference python implementation;
+#     change it if the server expects something else.
+#   leading '-' on ExecStopPost -> failures here never block the stop.
+ExecStopPost=-/usr/bin/bash -c '[ "$(printenv SERVICE_RESULT)" = "success" ] && exit 0; \
+                                [ -s "PLACEHOLDER_LOGFILE_TRACEBACK" ] || exit 0; \
+                                curl -sS \
+                                -X POST "https://oradiolabs.nl/rms/api/index.php/v1/oradiorms/records" \
+                                -H "X-Api-Key: e8590bb5e3d88fa306c214bbb066e3638000f6c45aeb04fc8e043af57233e0d9" \
+                                -F "generated=$(date "+%%Y-%%m-%%d %%H:%%M:%%S")" \
+                                -F "serial=$(vcgencmd otp_dump | grep "28:" | cut -c 4-)" \
+                                -F "type=CRASH" \
+                                -F "source=Oradio service message" \
+                                -F "message=Oradio service fatal crash" \
+                                -F "traceback.log=@PLACEHOLDER_LOGFILE_TRACEBACK" \
+                                '
 
 Restart=always
 RestartSec=10
