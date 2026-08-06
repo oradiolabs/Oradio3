@@ -25,7 +25,7 @@ from pathlib import Path
 # also sources. Edit that file, not this one.
 def _load_env(path):
     values = {}
-    for line in Path(path).read_text().splitlines():
+    for line in Path(path).read_text(encoding="utf-8").splitlines():
         line = line.strip()
         if not line or line.startswith("#"):
             continue
