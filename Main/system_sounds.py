@@ -84,7 +84,7 @@ SOUND_FILES = {
 
 # Critical error at import time if the sounds directory is missing, so the problem
 # is visible immediately rather than surfacing per-file at play time.
-if not SOUNDS_PATH.is_dir():
+if not Path(SOUNDS_PATH).is_dir():
     oradio_log.critical("System sounds directory not found: %s", SOUNDS_PATH)
     Incidents.publish(IncidentMessage(SOUND_SOURCE, SOUND_MISSING_DIR))
 
