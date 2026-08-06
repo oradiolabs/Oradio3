@@ -248,7 +248,7 @@ cmd_timeout() {
 	fi
 
 	# Nothing has committed by hand. Decide from the application's state rather
-	# than rolling back regardless: ten minutes of it running is the evidence a
+	# than rolling back regardless: five minutes of it running is the evidence a
 	# trial is meant to gather.
 	if [[ -n "$HEALTH_UNIT" ]] && health_ok; then
 		log "$HEALTH_UNIT is healthy; committing slot $trial"

@@ -8,11 +8,11 @@ Documentation=file:/usr/local/sbin/ab-boot-trial.sh
 # healthy and calls `ab-boot-trial.sh commit`; short enough that a unit which boots
 # but does not work is not left broken for long.
 #
-# Raise this if the application legitimately takes longer than ten minutes to settle.
-OnBootSec=10min
+# Raise this if the application legitimately takes longer than five minutes to settle.
+OnBootSec=5min
 
 # A minute either way is immaterial here, and a loose tolerance lets systemd batch
-# the wakeup instead of holding a precise timer for ten minutes.
+# the wakeup instead of holding a precise timer for five minutes.
 AccuracySec=10s
 
 # Timer is triggered by the service.
