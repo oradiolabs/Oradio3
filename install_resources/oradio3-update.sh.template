@@ -49,6 +49,16 @@ TRIAL_STATE="/boot/firmware/oradio3-boot.state"
 # carried through updates because it is in build-swu.sh's KEEP_LOGS.
 VERSION_FILE="/var/log/oradio_sw_version.log"
 
+# Announced when an update actually starts. The radio is about to go quiet for
+# several minutes and then reboot, so say so.
+#
+# Path and device match system_sounds.py: the file lives in the project's
+# system_sounds/ directory and plays through the SysSound_in ALSA device, which
+# is defined system-wide in /etc/asound.conf and so resolves for root too.
+# Adjust SOUND_FILE if the project is installed elsewhere.
+SOUND_FILE="PLACEHOLDER_SOUNDS_PATH/Update_melding.wav"
+SOUND_SINK="SysSound_in"
+
 # The public half of the build host's signing key. Belongs on the Pi, never on
 # the medium the package arrives on.
 CERT="/etc/oradio3/update-signing.cert.pem"
@@ -123,6 +133,29 @@ version_failed_trial() { # version_failed_trial <version>
 	local failed
 	failed="$(sed -n 's/^failed_version=//p' "$TRIAL_STATE" | tail -1)"
 	[[ -n "$failed" && "$failed" == "$1" ]]
+}
+
+# Play the update announcement. Never fatal and never blocking: a silent radio
+# is a nuisance, a failed update is a problem, and the two must not be confused.
+#
+# Played as root, which works because SysSound_in is defined in
+# /etc/asound.conf. Were it only in the application user's ~/.asoundrc, root
+# could not resolve the device and this would have to drop to that user.
+play_update_sound() {
+	[[ -f "$SOUND_FILE" ]] || {
+		log "no update sound at $SOUND_FILE; continuing silently"
+		return 0
+	}
+	command -v aplay >/dev/null || {
+		log "aplay not installed; continuing silently"
+		return 0
+	}
+
+	# Detached and backgrounded, so playback outlives this script and the
+	# install starts immediately. Same reasoning as start_new_session=True in
+	# system_sounds.py.
+	setsid aplay -D "$SOUND_SINK" "$SOUND_FILE" >/dev/null 2>&1 &
+	log "playing $(basename "$SOUND_FILE")"
 }
 
 ##### one at a time #######################################
@@ -234,6 +267,10 @@ if version_failed_trial "$PKG_VER"; then
 fi
 
 ##### install #############################################
+# Only now, once every check has passed: a skipped or refused update should not
+# announce anything.
+play_update_sound
+
 log "installing $PKG_VER"
 log "handing over to $INSTALL_SCRIPT; it starts a trial boot of the other slot"
 

@@ -44,6 +44,7 @@ _ENV = _load_env(_ROOT / "constants.env")
 HOSTNAME = _ENV["ORADIO_HOSTNAME"]
 
 # Paths, derived the same way the installer derives them
+SOUNDS_PATH  = str(_ROOT / "system_sounds")
 SPOTIFY_PATH = str(_ROOT / "Spotify")
 
 # Colors

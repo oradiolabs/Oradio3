@@ -76,6 +76,8 @@ MAIN_PATH="$SCRIPT_PATH/Main"
 LOGGING_PATH="$SCRIPT_PATH/logging"
 # Spotify directory
 SPOTIFY_PATH="$SCRIPT_PATH/Spotify"
+# Location of Oradio3 system sounds
+SOUNDS_PATH="$SCRIPT_PATH/system_sounds"
 # Location of files to install
 RESOURCES_PATH="$SCRIPT_PATH/install_resources"
 
@@ -163,7 +165,7 @@ function install_resource {
 		# Replace placeholders. Combined into one sed invocation (instead of one
 		# `sed -i` per substitution) to avoid re-opening/rewriting the file N times.
 		local SED_ARGS=(-e "s/PLACEHOLDER_USER/$(id -un)/g" -e "s/PLACEHOLDER_GROUP/$(id -gn)/g")
-		for VAR_NAME in MAIN_PATH SPOTIFY_PATH LOGGING_PATH LOGFILE_USB LOGFILE_MPD \
+		for VAR_NAME in MAIN_PATH LOGGING_PATH SPOTIFY_PATH SOUNDS_PATH LOGFILE_USB LOGFILE_MPD \
 			LOGFILE_BOOT LOGFILE_UPDATE LOGFILE_SPOTIFY LOGFILE_INSTALL LOGFILE_TRACEBACK \
 			"${CONSTANT_NAMES[@]}"; do
 			local VALUE="${!VAR_NAME}"

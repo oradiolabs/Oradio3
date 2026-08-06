@@ -125,6 +125,7 @@ declare -A PROMPTS=(
 	["NoUSB_melding.wav"]="USB geheugenstick is verwijderd."
 	["OradioAPstarted_melding.wav"]="Oradio A P is gestart. Webinterface beschikbaar."
 	["OradioAPstopped_melding.wav"]="Oradio A P is gestopt."
+	["Update_melding.wav"]="De Oradio wordt bijgewerkt. - Wacht tot Oradio opnieuw opstart."
 )
 
 #---------- Config ----------
