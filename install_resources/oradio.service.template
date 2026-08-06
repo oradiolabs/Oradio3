@@ -73,8 +73,8 @@ ExecStart=/home/PLACEHOLDER_USER/.venv/bin/python3 oradio_control.py
 ExecStopPost=-/usr/bin/bash -c '[ "$(printenv SERVICE_RESULT)" = "success" ] && exit 0; \
                                 [ -s "PLACEHOLDER_LOGFILE_TRACEBACK" ] || exit 0; \
                                 curl -sS \
-                                -X POST "https://oradiolabs.nl/rms/api/index.php/v1/oradiorms/records" \
-                                -H "X-Api-Key: e8590bb5e3d88fa306c214bbb066e3638000f6c45aeb04fc8e043af57233e0d9" \
+                                -X POST "PLACEHOLDER_RMS_SERVER_URL" \
+                                -H "X-Api-Key: PLACEHOLDER_RMS_SERVER_KEY" \
                                 -F "generated=$(date "+%%Y-%%m-%%d %%H:%%M:%%S")" \
                                 -F "serial=$(vcgencmd otp_dump | grep "28:" | cut -c 4-)" \
                                 -F "type=CRASH" \

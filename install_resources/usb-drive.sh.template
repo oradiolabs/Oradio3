@@ -8,12 +8,12 @@
 set -euo pipefail
 
 ACTION="${1:-}"
-PARTITION="/dev/disk/by-label/ORADIO"	# Stable symlink; survives device renumbering
-MOUNTPOINT="/media/oradio"				# Location where USB is mounted
-MONITOR="/run/usb_present"				# RAM-based flag file; present = mounted, absent = unmounted
-LOCK="/run/usb_mount.lock"				# Prevents concurrent runs from duplicate udev events
-LOCK_WAIT=30							# Seconds to wait for the lock before giving up
-SYMLINK_WAIT=5							# Seconds to wait for the by-label symlink to appear
+PARTITION="/dev/disk/by-label/ORADIO"		# Stable symlink; survives device renumbering
+MOUNTPOINT="PLACEHOLDER_USB_MOUNT_POINT"	# Location where USB is mounted
+MONITOR="/run/usb_present"					# RAM-based flag file; present = mounted, absent = unmounted
+LOCK="/run/usb_mount.lock"					# Prevents concurrent runs from duplicate udev events
+LOCK_WAIT=30								# Seconds to wait for the lock before giving up
+SYMLINK_WAIT=5								# Seconds to wait for the by-label symlink to appear
 
 # Logging helper: prefixes every message with a timestamp
 log() {

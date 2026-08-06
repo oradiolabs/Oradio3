@@ -51,6 +51,25 @@ SCRIPT_NAME=$(basename "$BASH_SOURCE")
 # Working directory
 cd "$SCRIPT_PATH" || { echo -e "${RED}Aborting: Failed to cd to $SCRIPT_PATH${NC}"; exit 1; }
 
+# Validate constants.env: every non-blank, non-comment line must be a plain KEY=value assignment
+while IFS= read -r LINE || [ -n "$LINE" ]; do
+	# Skip blanks and comments
+	[[ "$LINE" =~ ^[[:space:]]*(#|$) ]] && continue
+	if ! [[ "$LINE" =~ ^[A-Za-z_][A-Za-z0-9_]*=[A-Za-z0-9_./:@-]*$ ]]; then
+		echo -e "${RED}Aborting: malformed line in constants.env: '$LINE'${NC}"
+		exit 1
+	fi
+done < "$SCRIPT_PATH/constants.env"
+
+# Constants shared with the Python project (Main/constants.py)
+set -a		# Mark variables for export
+. "$SCRIPT_PATH/constants.env" || { echo -e "${RED}Aborting: Failed to load constants.env${NC}"; exit 1; }
+set +a
+
+# Names defined in constants.env, so install_resource can expand each one
+# as PLACEHOLDER_<NAME> without needing to be edited when a constant is added
+mapfile -t CONSTANT_NAMES < <(sed -n 's/^[[:space:]]*\([A-Za-z_][A-Za-z0-9_]*\)=.*/\1/p' "$SCRIPT_PATH/constants.env")
+
 # Location of Oradio3 program
 MAIN_PATH="$SCRIPT_PATH/Main"
 # Location of log files
@@ -72,6 +91,11 @@ LOGFILE_SPOTIFY="$LOGGING_PATH/spotify.log"
 LOGFILE_INSTALL="$LOGGING_PATH/install.log"
 LOGFILE_TRACEBACK="$LOGGING_PATH/traceback.log"
 
+# Ensure logfiles exist and are owned by the invoking user before any service opens them
+for VAR_NAME in "${!LOGFILE_@}"; do
+	touch "${!VAR_NAME}" || { echo -e "${RED}Aborting: Failed to create ${!VAR_NAME}${NC}"; exit 1; }
+done
+
 # Redirect script output to console and file
 exec > >(tee -a "$LOGFILE_INSTALL") 2>&1
 
@@ -90,9 +114,6 @@ if [ "$OSVERSION" != "$TARGETOS" ]; then
 	# Stop with error flag
 	exit 1
 fi
-
-# Network domain name
-HOSTNAME="oradio"
 
 # Clear flag indicating reboot required to complete the installation
 unset REBOOT_NEEDED
@@ -143,7 +164,8 @@ function install_resource {
 		# `sed -i` per substitution) to avoid re-opening/rewriting the file N times.
 		local SED_ARGS=(-e "s/PLACEHOLDER_USER/$(id -un)/g" -e "s/PLACEHOLDER_GROUP/$(id -gn)/g")
 		for VAR_NAME in MAIN_PATH SPOTIFY_PATH LOGGING_PATH LOGFILE_USB LOGFILE_MPD \
-			LOGFILE_BOOT LOGFILE_UPDATE LOGFILE_SPOTIFY LOGFILE_INSTALL LOGFILE_TRACEBACK; do
+			LOGFILE_BOOT LOGFILE_UPDATE LOGFILE_SPOTIFY LOGFILE_INSTALL LOGFILE_TRACEBACK \
+			"${CONSTANT_NAMES[@]}"; do
 			local VALUE="${!VAR_NAME}"
 			# Escape & because sed treats it specially in the replacement text
 			local ESCAPED_VALUE
@@ -463,12 +485,8 @@ bash "$RESOURCES_PATH/optimize_boot_time.sh"
 sudo raspi-config nonint do_wifi_country NL		# Implicitly activates wifi
 
 # Change hostname and hosts mapping to reflect the network domain name.
-# Split into two plain sudo commands instead of one `sudo bash -c "... && ..."`
-# chain — neither command needs a shell beyond what sudo already gives it, and
-# this way a failure in one is attributable without guessing which half of the
-# chain broke.
-sudo hostnamectl set-hostname "$HOSTNAME"
-sudo sed -i "s/^127.0.1.1.*/127.0.1.1\t${HOSTNAME}/g" /etc/hosts
+sudo hostnamectl set-hostname "$ORADIO_HOSTNAME"
+sudo sed -i "s/^127.0.1.1.*/127.0.1.1\t${ORADIO_HOSTNAME}/g" /etc/hosts
 
 # Set Top Level Domain (TLD) to 'local', enabling access via http://oradio.local
 sudo sed -i "s/^.domain-name=.*/domain-name=local/g" /etc/avahi/avahi-daemon.conf
@@ -477,7 +495,7 @@ sudo sed -i "s/^.domain-name=.*/domain-name=local/g" /etc/avahi/avahi-daemon.con
 sudo sed -i "s/^#allow-interfaces=.*/allow-interfaces=eth0,wlan0/g" /etc/avahi/avahi-daemon.conf
 
 # Progress report
-echo -e "${GREEN}Wifi is enabled and network domain is set to '${HOSTNAME}.local'${NC}"
+echo -e "${GREEN}Wifi is enabled and network domain is set to '${ORADIO_HOSTNAME}.local'${NC}"
 
 # Comment any active AcceptEnv lines in main config
 sudo sed -Ei '/^[[:space:]]*AcceptEnv/ s/^[[:space:]]*/#/' /etc/ssh/sshd_config
@@ -528,12 +546,12 @@ install_resource "$RESOURCES_PATH/99-local.rules" /etc/udev/rules.d/99-local.rul
 # Configure the USB service triggered by udev rules
 install_resource "$RESOURCES_PATH/usb-drive@.service" /etc/systemd/system/usb-drive@.service
 # Install the USB mount/unmount script used by the system service
-sudo install -m 0755 "$RESOURCES_PATH/usb-drive.sh" /usr/local/sbin/
+install_resource "$RESOURCES_PATH/usb-drive.sh" /usr/local/bin/usb-drive.sh 'chmod +x /usr/local/sbin/usb-drive.sh'
 # Progress report
-echo -e "${GREEN}USB functionality loaded and configured. System automounts USB drives on '/media'${NC}"
+echo -e "${GREEN}USB functionality loaded and configured. System automounts USB drives on '$USB_MOUNT_POINT'${NC}"
 
 # Configure tryboot: A/B rollback
-install_resource "$RESOURCES_PATH/ab-boot-trial.sh" /usr/local/sbin/ab-boot-trial.sh 'chmod 0755 /usr/local/sbin/ab-boot-trial.sh'
+install_resource "$RESOURCES_PATH/ab-boot-trial.sh" /usr/local/sbin/ab-boot-trial.sh 'chmod +x /usr/local/sbin/ab-boot-trial.sh'
 # Detect that the firmware fell back to this slot (i.e. the trial failed)
 install_resource "$RESOURCES_PATH/ab-boot-check.service" /etc/systemd/system/ab-boot-check.service 'systemctl enable ab-boot-check.service'
 # Started by the timer below, never directly
@@ -567,7 +585,8 @@ install_resource "$RESOURCES_PATH/oradio3-update.service" /etc/systemd/system/or
 # Configure the software update triggers by the USB and SWU markers
 install_resource "$RESOURCES_PATH/oradio3-update.path" /etc/systemd/system/oradio3-update.path 'systemctl enable oradio3-update.path'
 # Configure the software update scripts used by the software update system service
-sudo install -m 0755 "$RESOURCES_PATH/oradio3-update.sh" "$RESOURCES_PATH/install-swu.sh" "$RESOURCES_PATH/ab-boot-switch.sh" /usr/local/sbin/
+install_resource "$RESOURCES_PATH/oradio3-update.sh" /usr/local/sbin/oradio3-update.sh 'chmod 0755 /usr/local/sbin/oradio3-update.sh'
+sudo install -m 0755 "$RESOURCES_PATH/install-swu.sh" "$RESOURCES_PATH/ab-boot-switch.sh" /usr/local/sbin/
 # Install the software update signing certificate
 sudo install -D -m 0644 "$RESOURCES_PATH/oradio3-signing.cert.pem" /etc/oradio3/update-signing.cert.pem
 # Progress report
@@ -601,12 +620,9 @@ install_resource "$RESOURCES_PATH/logrotate.conf" /etc/logrotate.d/oradio
 # Progress report
 echo -e "${GREEN}Log files rotation configured${NC}"
 
-# Configure Spotify connect
-# Ensure logfile exists with correct ownership and permissions before starting librespot
-touch "$LOGFILE_SPOTIFY"
 # Ensure Spotify directory and flag files exist with default '0' and correct ownership and permissions
 mkdir -p "$SPOTIFY_PATH" || { echo -e "${RED}Aborting: Failed to create directory $SPOTIFY_PATH${NC}"; exit 1; }
-for flag in spotactive.flag spotplaying.flag; do
+for flag in "$SPOTIFY_ACTIVE_FLAG_NAME" "$SPOTIFY_PLAYING_FLAG_NAME"; do
 	file="$SPOTIFY_PATH/$flag"
 	if [ ! -f "$file" ]; then
 		echo "0" >"$file" || { echo -e "${RED}Aborting: Failed to write $file${NC}"; exit 1; }

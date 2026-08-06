@@ -31,7 +31,7 @@ USB_MARKER="/run/usb_present"
 SWU_MARKER="/run/swu_present"
 
 # Where the OS auto-mounts the ORADIO drive, and what a package looks like.
-USB_MOUNT_POINT="/media/oradio"
+USB_MOUNT_POINT="PLACEHOLDER_USB_MOUNT_POINT"
 SWU_GLOB="*.swu"
 LOCK_FILE="/run/oradio3-update.lock"
 

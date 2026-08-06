@@ -18,7 +18,34 @@ Created on December 23, 2024
 @status:        Development
 @summary:       Defines for Oradio scripts
 """
+from pathlib import Path
+
+##### SHARED WITH INSTALLER ###############################
+# Values below are read from constants.env, which install_oradio3.sh
+# also sources. Edit that file, not this one.
+def _load_env(path):
+    values = {}
+    for line in Path(path).read_text().splitlines():
+        line = line.strip()
+        if not line or line.startswith("#"):
+            continue
+        key, sep, value = line.partition("=")
+        if sep:
+            values[key.strip()] = value.strip().strip("\"'")
+    return values
+
+# constants.py lives in Main/, so the project root is two levels up.
+# This is the same directory install_oradio3.sh calls SCRIPT_PATH.
+_ROOT = Path(__file__).resolve().parent.parent
+_ENV = _load_env(_ROOT / "constants.env")
+
 ##### SYSTEM ##############################################
+
+HOSTNAME = _ENV["ORADIO_HOSTNAME"]
+
+# Paths, derived the same way the installer derives them
+SPOTIFY_PATH = str(_ROOT / "Spotify")
+
 # Colors
 BLUE    = '\x1b[38;5;039m'
 GREY    = '\x1b[38;5;248m'
@@ -73,8 +100,8 @@ SOUND_NEW_PRESET   = "NewPlaylistPreset"
 SOUND_NEW_WEBRADIO = "NewPlaylistWebradio"
 
 ##### REMOTE SERVER #######################################
-REMOTE_SERVER = 'https://oradiolabs.nl/rms/receive.php'
-POST_TIMEOUT  = (5, 30)  # (connect timeout, read timeout)
+RMS_SERVER_URL = _ENV["RMS_SERVER_URL"]
+RMS_SERVER_KEY = _ENV["RMS_SERVER_KEY"]
 
 ##### WIFI UTILS ##########################################
 # Access point
@@ -90,9 +117,7 @@ REQUEST_CONNECT = "connect to wifi network"
 REQUEST_STOP    = "stop web service"
 
 ##### USB #################################################
-# Paths
-USB_MOUNT_PATH  = "/media"
-USB_MOUNT_POINT = USB_MOUNT_PATH + "/oradio"
+USB_MOUNT_POINT = _ENV["USB_MOUNT_POINT"]
 USB_MUSIC       = USB_MOUNT_POINT + "/Muziek"
 USB_SYSTEM      = USB_MOUNT_POINT + "/Systeem"
 
@@ -100,8 +125,10 @@ USB_SYSTEM      = USB_MOUNT_POINT + "/Systeem"
 PRESETS_FILE = USB_SYSTEM + "/presets.json"
 
 ##### SPOTIFY CONFIG ######################################
-SPOTIFY_EVENT_SOCKET_PORT = 8010
-MPV_SOCKET                = "/home/pi/spotify/mpv-socket"
+SPOTIFY_MPV_PORT     = 8010
+SPOTIFY_MPV_SOCKET   = SPOTIFY_PATH + "/mpv-socket"
+SPOTIFY_ACTIVE_FLAG  = SPOTIFY_PATH + "/" + _ENV["SPOTIFY_ACTIVE_FLAG_NAME"]
+SPOTIFY_PLAYING_FLAG = SPOTIFY_PATH + "/" + _ENV["SPOTIFY_PLAYING_FLAG_NAME"]
 
 ##### MPV_PLAYER COMMANDS #################################
 MPV_PLAYERCTL_PLAY  = "play"

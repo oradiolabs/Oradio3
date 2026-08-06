@@ -44,10 +44,14 @@ from messaging import (
     SPOTIFY_UNMUTE_FAILED,
 )
 
+##### GLOBAL constants #####################################
+from constants import (
+    SPOTIFY_ACTIVE_FLAG,
+    SPOTIFY_PLAYING_FLAG,
+)
+
 ##### LOCAL constants #####################################
 ALSA_MIXER_SPOTCON = "VolumeSpotCon1"
-ACTIVE_FLAG_FILE   = "/home/pi/Oradio3/Spotify/spotactive.flag"
-PLAYING_FLAG_FILE  = "/home/pi/Oradio3/Spotify/spotplaying.flag"
 MONITOR_INTERVAL   = 0.5  # seconds between flag file polls
 
 class _SpotifyMonitorWorker(ThreadTemplate):
@@ -131,8 +135,8 @@ class SpotifyConnect:
 
         # Track whether we've already warned about a missing/unreadable file
         self._warned_missing = {
-            ACTIVE_FLAG_FILE: False,
-            PLAYING_FLAG_FILE: False,
+            SPOTIFY_ACTIVE_FLAG: False,
+            SPOTIFY_PLAYING_FLAG: False,
         }
 
         # Created once; safe_start()/safe_stop() can be called on it
@@ -168,8 +172,8 @@ class SpotifyConnect:
 
     def update_flags(self) -> None:
         """Update 'active' and 'playing' by reading their flag files."""
-        self.active = self._read_flag(ACTIVE_FLAG_FILE)
-        self.playing = self._read_flag(PLAYING_FLAG_FILE)
+        self.active = self._read_flag(SPOTIFY_ACTIVE_FLAG)
+        self.playing = self._read_flag(SPOTIFY_PLAYING_FLAG)
 
     # ---------- Control (mute/unmute) ----------
 
