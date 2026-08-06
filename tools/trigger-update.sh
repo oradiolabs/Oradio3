@@ -30,8 +30,12 @@ SWU="$(readlink -f "$SWU")"
 
 # Write then rename. A path unit watching the marker fires on the final name
 # appearing, so it must never observe a half-written file.
-printf '%s\n' "$SWU" >"${MARKER}.tmp"
-mv -f "${MARKER}.tmp" "$MARKER"
+#
+# Via sudo tee, not a redirection: /run is root-owned, and `sudo cmd > file`
+# would open the file as the invoking user before sudo runs. Written this way
+# the script works whether or not it was itself invoked with sudo.
+printf '%s\n' "$SWU" | sudo tee "${MARKER}.tmp" >/dev/null
+sudo mv -f "${MARKER}.tmp" "$MARKER"
 
 echo "queued: $SWU"
 
@@ -41,8 +45,10 @@ sudo systemctl start --no-block "$SERVICE"
 cat <<EOF
 started $SERVICE
 
-  watch it:    journalctl -fu $SERVICE
-  or the log:  tail -F /var/log/update.log
+  watch it:    tail -F /var/log/update.log
+
+$SERVICE sends its output to that file, so
+journalctl -u $SERVICE shows only systemd's own lines.
 
 On success the Pi trial-boots the new slot and this connection drops.
 Once it is back and healthy, make it permanent:
