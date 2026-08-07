@@ -167,7 +167,7 @@ function install_resource {
 		local SED_ARGS=(-e "s/PLACEHOLDER_USER/$(id -un)/g" -e "s/PLACEHOLDER_GROUP/$(id -gn)/g")
 		for VAR_NAME in MAIN_PATH LOGGING_PATH SPOTIFY_PATH SOUNDS_PATH LOGFILE_USB LOGFILE_MPD \
 			LOGFILE_BOOT LOGFILE_UPDATE LOGFILE_SPOTIFY LOGFILE_INSTALL LOGFILE_TRACEBACK \
-			"${CONSTANT_NAMES[@]}"; do
+			DELAY_UPDATE_MESSAGE "${CONSTANT_NAMES[@]}"; do
 			local VALUE="${!VAR_NAME}"
 			# Escape & because sed treats it specially in the replacement text
 			local ESCAPED_VALUE
@@ -486,7 +486,8 @@ bash "$RESOURCES_PATH/optimize_boot_time.sh"
 # https://www.raspberrypi.com/documentation/computers/configuration.html#wlan-country-2
 sudo raspi-config nonint do_wifi_country NL		# Implicitly activates wifi
 
-# Change hostname and hosts mapping to reflect the network domain name.
+# Change hostname and hosts mapping. Use explicit hostname to avoid confusion.
+ORADIO_HOSTNAME=oradio
 sudo hostnamectl set-hostname "$ORADIO_HOSTNAME"
 sudo sed -i "s/^127.0.1.1.*/127.0.1.1\t${ORADIO_HOSTNAME}/g" /etc/hosts
 
@@ -587,6 +588,7 @@ install_resource "$RESOURCES_PATH/oradio3-update.service" /etc/systemd/system/or
 # Configure the software update triggers by the USB and SWU markers
 install_resource "$RESOURCES_PATH/oradio3-update.path" /etc/systemd/system/oradio3-update.path 'systemctl enable oradio3-update.path'
 # Configure the software update scripts used by the software update system service
+DELAY_UPDATE_MESSAGE=4
 install_resource "$RESOURCES_PATH/oradio3-update.sh" /usr/local/sbin/oradio3-update.sh 'chmod 0755 /usr/local/sbin/oradio3-update.sh'
 sudo install -m 0755 "$RESOURCES_PATH/install-swu.sh" "$RESOURCES_PATH/ab-boot-switch.sh" /usr/local/sbin/
 # Install the software update signing certificate

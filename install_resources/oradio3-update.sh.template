@@ -153,9 +153,12 @@ play_update_sound() {
 
 	# Detached and backgrounded, so playback outlives this script and the
 	# install starts immediately. Same reasoning as start_new_session=True in
-	# system_sounds.py.
-	setsid aplay -D "$SOUND_SINK" "$SOUND_FILE" >/dev/null 2>&1 &
-	log "playing $(basename "$SOUND_FILE")"
+	# system_sounds.py. The sleep runs inside the new session as well, so the
+	# delay doesn't hold up the install.
+	# The delay is so that our play comes after the 'USB present'message.
+	setsid bash -c 'sleep PLACEHOLDER_DELAY_UPDATE_MESSAGE; exec aplay -D "$1" "$2"' _ \
+		"$SOUND_SINK" "$SOUND_FILE" >/dev/null 2>&1 &
+	log "playing $(basename "$SOUND_FILE") after 4 seconds"
 }
 
 ##### one at a time #######################################
