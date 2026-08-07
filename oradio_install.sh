@@ -98,6 +98,9 @@ for VAR_NAME in "${!LOGFILE_@}"; do
 	touch "${!VAR_NAME}" || { echo -e "${RED}Aborting: Failed to create ${!VAR_NAME}${NC}"; exit 1; }
 done
 
+# Sparation between USB present and Update started announcements
+DELAY_UPDATE_MESSAGE=4
+
 # Redirect script output to console and file
 exec > >(tee -a "$LOGFILE_INSTALL") 2>&1
 
@@ -588,7 +591,6 @@ install_resource "$RESOURCES_PATH/oradio3-update.service" /etc/systemd/system/or
 # Configure the software update triggers by the USB and SWU markers
 install_resource "$RESOURCES_PATH/oradio3-update.path" /etc/systemd/system/oradio3-update.path 'systemctl enable oradio3-update.path'
 # Configure the software update scripts used by the software update system service
-DELAY_UPDATE_MESSAGE=4
 install_resource "$RESOURCES_PATH/oradio3-update.sh" /usr/local/sbin/oradio3-update.sh 'chmod 0755 /usr/local/sbin/oradio3-update.sh'
 sudo install -m 0755 "$RESOURCES_PATH/install-swu.sh" "$RESOURCES_PATH/ab-boot-switch.sh" /usr/local/sbin/
 # Install the software update signing certificate
