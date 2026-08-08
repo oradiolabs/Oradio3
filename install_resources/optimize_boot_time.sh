@@ -321,7 +321,6 @@ UNITS_TO_MASK=(
 	fstrim.timer					# Not relevant for SD card
 	dpkg-db-backup.timer			# No dpkg database backup needed
 	man-db.timer					# No man page index on an appliance
-	logrotate.timer					# Journal is volatile, see below
 	e2scrub_all.timer				# Only relevant for LVM-backed ext4
 	e2scrub_reap.service
 	rpi-resize-swap-file.service	# Swap is provided by zram, no swapfile to resize
@@ -354,6 +353,11 @@ UNITS_TO_MASK=(
 
 # Note: avahi-daemon is deliberately NOT masked. It is installed via the
 # cloud-init user-data, so mDNS (.local) discovery is wanted on this device.
+#
+# Note: logrotate.timer is deliberately NOT masked. Oradio's own logs in
+# /home/pi/Oradio3/logging/ are rotated on 'size 100k', which is only ever
+# evaluated when the timer runs logrotate. Masking it lets those files grow
+# without limit and eventually fill the SD card.
 
 for unit in "${UNITS_TO_MASK[@]}"; do
 	mask_unit "$unit"

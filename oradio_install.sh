@@ -552,8 +552,9 @@ install_resource "$RESOURCES_PATH/mpd.service" /lib/systemd/system/mpd.service '
 # Progress report
 echo -e "${GREEN}Audio installed and configured${NC}"
 
-# Setup log file rotation to limit logfile size
+# Setup log file rotation and timer to limit logfile size
 install_resource "$RESOURCES_PATH/logrotate.conf" /etc/logrotate.d/oradio
+install_resource "$RESOURCES_PATH/logrotate-timer.conf" /etc/systemd/system/logrotate.timer.d/oradio.conf
 # Progress report
 echo -e "${GREEN}Log files rotation configured${NC}"
 
