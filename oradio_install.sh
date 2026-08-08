@@ -341,16 +341,66 @@ if [ "${1:-}" != "--continue" ]; then
 
 ########## ORADIO3 LINUX PACKAGES END ##########
 
-########## PYTHON BEGIN ##########
+########## UV BEGIN ##########
 
-	# If needed, prepare python virtual environment including system site packages
-	if [ -n "${REBUILD_PYTHON_ENV:-}" ]; then
-		echo "Configuring Python virtual environment..."
-		python3 -m venv --system-site-packages ~/.venv
+	# 'uv' is a drop-in replacement for pip that resolves and installs an
+	# entire package set in one pass, typically an order of magnitude faster
+	# than pip on a Raspberry Pi. It is not in the Debian/Raspberry Pi OS
+	# archives, so we install Astral's prebuilt aarch64 binary.
+	#
+	# /usr/local/bin (rather than ~/.local/bin) keeps uv reachable from sudo,
+	# cron and systemd units, and survives a change of login user.
+	#
+	# UV_NO_MODIFY_PATH stops the installer appending PATH lines to root's
+	# shell profile: /usr/local/bin is already on PATH, so there is nothing
+	# to add. INSTALLER_NO_MODIFY_PATH is the older name for the same knob,
+	# set as well so this keeps working across installer versions.
+	#
+	# NOTE: like the raspotify install above, this pipes a remote, unpinned
+	# script into `sh`. If reproducibility ever matters more than tracking
+	# the latest release, pin it by fetching a specific version instead:
+	#   https://astral.sh/uv/0.9.7/install.sh
+	UV_BIN=/usr/local/bin/uv
+	if [ ! -x "$UV_BIN" ]; then
+		echo -e "${YELLOW}uv is missing: installing...${NC}"
+		if ! curl -LsSf https://astral.sh/uv/install.sh | sudo env \
+				UV_INSTALL_DIR=/usr/local/bin \
+				UV_NO_MODIFY_PATH=1 \
+				INSTALLER_NO_MODIFY_PATH=1 \
+				sh; then
+			echo -e "${RED}Aborting: uv installation failed${NC}"
+			exit 1
+		fi
+		if [ ! -x "$UV_BIN" ]; then
+			echo -e "${RED}Aborting: uv not found at $UV_BIN after install${NC}"
+			exit 1
+		fi
 	fi
 
-	# Activate the python virtual environment in current environment
-	source ~/.venv/bin/activate
+	# Progress report
+	echo -e "${GREEN}$("$UV_BIN" --version) is installed${NC}"
+
+########## UV END ##########
+
+########## PYTHON BEGIN ##########
+
+	# If needed, prepare python virtual environment including system site packages.
+	# We also (re)create it when ~/.venv is absent: REBUILD_PYTHON_ENV is only
+	# set when an apt package was actually installed or upgraded, so on a re-run
+	# where every Linux package is already current but ~/.venv has been removed,
+	# the `source` below would fail and every subsequent install would silently
+	# target the system Python instead.
+	if [ ! -f ~/.venv/bin/activate ] || [ -n "${REBUILD_PYTHON_ENV:-}" ]; then
+		echo "Configuring Python virtual environment"
+		python3 -m venv --system-site-packages ~/.venv || { echo -e "${RED}Aborting: Failed to create ~/.venv${NC}"; exit 1; }
+	fi
+
+	# Activate the python virtual environment in current environment.
+	# Guarded: without `set -e`, a failed `source` is silently ignored and
+	# every install below would target the system Python instead, which on
+	# trixie fails with 'externally-managed-environment' (PEP 668). Because
+	# this aborts, the commands below can rely on VIRTUAL_ENV being correct.
+	source ~/.venv/bin/activate || { echo -e "${RED}Aborting: Failed to activate ~/.venv${NC}"; exit 1; }
 
 	# Activate python virtual environment when logging in if not yet present
 	ADDTOBASHRC="source ~/.venv/bin/activate"
@@ -380,37 +430,73 @@ if [ "${1:-}" != "--continue" ]; then
 	)
 
 	# Ensure Python packages are installed and up-to-date.
-	# `pip` tracks installed versions and can diff them against the index
-	# itself, so we ask it once for "what's installed" and once for "what's
-	# outdated", then look up each package in those two results.
-	echo "Collecting installed Python packages status..."
-	INSTALLED_JSON=$(python3 -m pip list --format=json) || { echo -e "${RED}Aborting: pip list failed${NC}"; exit 1; }
-	OUTDATED_JSON=$(python3 -m pip list --outdated --format=json) || { echo -e "${RED}Aborting: pip list --outdated failed${NC}"; exit 1; }
+	#
+	# A single `uv pip install --upgrade` resolves and installs the whole set
+	# in one pass. This replaces the earlier `pip list` + `pip list --outdated`
+	# + per-package `pip install` approach, which was slow for two reasons:
+	# `--outdated` queries the index for every package in the environment (not
+	# just ours), and each install paid its own interpreter startup, index
+	# round-trip and resolve. uv performs the same "already current?" check
+	# itself, so the pre-flight query is redundant.
+	#
+	# uv targets the environment named by VIRTUAL_ENV, which the guarded
+	# `source` above guarantees is set and correct.
+	#
+	# NOTE: uv always builds via PEP 517, so no --use-pep517 flag exists or
+	# is needed. See https://peps.python.org/pep-0517/
 
-	for package in "${PYTHON_PACKAGES[@]}"; do
-		# jq -e exits 1 (not an error) when no entry matches; only a malformed
-		# JSON payload should be treated as a real failure, so we only check
-		# for that below rather than treating "not found" as fatal here.
-		if ! echo "$INSTALLED_JSON" | jq -e --arg pkg "$package" \
-				'.[] | select(.name | ascii_downcase == ($pkg | ascii_downcase))' >/dev/null; then
-			echo -e "${YELLOW}$package is missing: installing...${NC}"
-			# On --use-pep517 see https://peps.python.org/pep-0517/
-			if ! python3 -m pip install --upgrade --use-pep517 "$package"; then
+	# Snapshot versions before installing, so we can report per package below
+	# what was installed, upgraded or already current. Unlike the
+	# `pip list --outdated` this replaces, `uv pip list` only reads local
+	# metadata - it makes no network requests and costs milliseconds.
+	BEFORE_JSON=$("$UV_BIN" pip list --format=json 2>/dev/null) || BEFORE_JSON='[]'
+
+	echo "Installing/upgrading Python packages..."
+	if ! "$UV_BIN" pip install --upgrade "${PYTHON_PACKAGES[@]}"; then
+		# Retry one at a time so a single unresolvable or broken package is
+		# named in the log, instead of the whole batch failing anonymously.
+		# This only runs when the fast path failed, so a healthy install
+		# still costs exactly one uv invocation.
+		echo -e "${YELLOW}Batch install failed: retrying individually...${NC}"
+		for package in "${PYTHON_PACKAGES[@]}"; do
+			if ! "$UV_BIN" pip install --upgrade "$package"; then
 				echo -e "${RED}Failed to install $package${NC}"
 				INSTALL_ERROR=1
 			fi
-		elif echo "$OUTDATED_JSON" | jq -e --arg pkg "$package" \
-				'.[] | select(.name | ascii_downcase == ($pkg | ascii_downcase))' >/dev/null; then
-			echo -e "${YELLOW}$package is outdated: upgrading...${NC}"
-			# On --use-pep517 see https://peps.python.org/pep-0517/
-			if ! python3 -m pip install --upgrade --use-pep517 "$package"; then
-				echo -e "${RED}Failed to upgrade $package${NC}"
-				INSTALL_ERROR=1
-			fi
-		else
-			echo "$package is up-to-date"
-		fi
-	done
+		done
+	fi
+
+	# Report the outcome per package by diffing the before/after snapshots.
+	# Names are normalised per PEP 503 (lowercased, '.' and '_' folded to '-')
+	# because pip reports e.g. 'python_mpd2' where PYTHON_PACKAGES says
+	# 'python-mpd2'; comparing raw names would flag it missing on every run.
+	AFTER_JSON=$("$UV_BIN" pip list --format=json 2>/dev/null) || AFTER_JSON='[]'
+	PKGS_JSON=$(printf '%s\n' "${PYTHON_PACKAGES[@]}" | jq -Rnc '[inputs]')
+
+	# `-n` is required: every input arrives via --argjson, so without it jq
+	# would block waiting on stdin.
+	# Read via process substitution rather than a pipe, so the loop runs in
+	# this shell and an INSTALL_ERROR set below actually survives.
+	while IFS=$'\t' read -r STATUS NAME DETAIL; do
+		case "$STATUS" in
+			INSTALLED) echo -e "${GREEN}$NAME $DETAIL installed${NC}" ;;
+			UPDATED)   echo -e "${GREEN}$NAME updated: $DETAIL${NC}" ;;
+			CURRENT)   echo "$NAME $DETAIL is up-to-date" ;;
+			MISSING)   echo -e "${RED}$NAME is NOT installed${NC}"; INSTALL_ERROR=1 ;;
+		esac
+	done < <(jq -rn \
+			--argjson before "$BEFORE_JSON" \
+			--argjson after "$AFTER_JSON" \
+			--argjson pkgs "$PKGS_JSON" '
+		def norm: ascii_downcase | gsub("[._]"; "-");
+		def index: map({ (.name | norm): .version }) | add // {};
+		($before | index) as $b | ($after | index) as $a |
+		$pkgs[] | . as $name | ($name | norm) as $key |
+		if   ($a[$key] // null) == null then "MISSING\t\($name)\t"
+		elif ($b[$key] // null) == null then "INSTALLED\t\($name)\t\($a[$key])"
+		elif $b[$key] != $a[$key]       then "UPDATED\t\($name)\t\($b[$key]) -> \($a[$key])"
+		else                                 "CURRENT\t\($name)\t\($a[$key])"
+		end')
 
 	# Progress report
 	echo -e "${GREEN}Python packages installed and up-to-date${NC}"
