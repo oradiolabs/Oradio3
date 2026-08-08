@@ -1,0 +1,12 @@
+[Unit]
+Description=Hourly rotation of log files
+Documentation=man:logrotate(8) man:logrotate.conf(5)
+
+[Timer]
+# Hourly checks keep the worst case an hour of growth.
+OnCalendar=hourly
+AccuracySec=1m
+Persistent=true
+
+[Install]
+WantedBy=timers.target
