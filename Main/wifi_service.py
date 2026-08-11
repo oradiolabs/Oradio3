@@ -17,10 +17,19 @@ Created on December 23, 2024
 @email:         oradioinfo@stichtingoradio.nl
 @status:        Development
 @summary:       WiFi connectivity service.
-    Provides network scanning, connection management, access-point setup,
+    Provides network discovery, connection management, access-point setup,
     and real-time state change notifications via the messaging bus.
     Internet reachability is determined by reading NetworkManager's built-in
     Connectivity property (no separate probe is made).
+    The list of available networks is accumulated from NetworkManager's
+    AccessPointAdded/Removed D-Bus signals rather than by scanning on demand,
+    so get_wifi_networks() is a pure cache read. It is built by a burst of
+    scans at startup and kept accurate by a periodic keeper sweep, both of
+    which run in the background while the radio is otherwise idle. Having
+    the list ready in advance is what lets the access point start without
+    delay: scanning once the access point is up stalls beaconing and can
+    drop the very client that is reading the list, so the keeper stands
+    down for as long as the access point is active.
     WifiService composes a WifiEventListener (built on ThreadTemplate, utilities.py)
     and exposes explicit start()/stop() methods, so the D-Bus listener thread is only
     started when the caller asks for it rather than as a side effect of construction.
@@ -34,9 +43,11 @@ Created on December 23, 2024
         Connecting to VPN.
 """
 from typing import Any
-from threading import Thread, Lock
+from time import sleep, monotonic
+from threading import Thread, Lock, Event
 from subprocess import CalledProcessError
 import nmcli
+from nmcli import ScanningNotAllowedException
 from dbus import SystemBus, Interface
 from dbus.mainloop.glib import DBusGMainLoop
 from dbus.exceptions import DBusException
@@ -68,6 +79,74 @@ from constants import (
 )
 
 ##### LOCAL constants #####################################
+# WiFi interface name. Used for device-level nmcli calls and the kernel
+# queries in get_wifi_connection(); a different adapter name breaks both.
+WIFI_INTERFACE = "wlan0"
+
+# D-Bus names. Collected here because the access-point tracking below uses
+# several of them repeatedly; keeping them as constants avoids typo-prone
+# literals scattered through the listener.
+NM_BUS_NAME        = "org.freedesktop.NetworkManager"
+NM_OBJECT_PATH     = "/org/freedesktop/NetworkManager"
+NM_IFACE           = "org.freedesktop.NetworkManager"
+NM_DEVICE_IFACE    = "org.freedesktop.NetworkManager.Device"
+NM_WIRELESS_IFACE  = "org.freedesktop.NetworkManager.Device.Wireless"
+NM_AP_IFACE        = "org.freedesktop.NetworkManager.AccessPoint"
+DBUS_PROPS_IFACE   = "org.freedesktop.DBus.Properties"
+
+# NM_DEVICE_TYPE_WIFI: value of the Device DeviceType property for WiFi adapters
+NM_DEVICE_TYPE_WIFI = 2
+
+# NM_802_11_AP_FLAGS_PRIVACY: access point requires a key/encryption.
+# An AP counts as open only when this bit is clear *and* it advertises
+# neither WPA nor RSN, so all three are checked together.
+NM_AP_FLAGS_PRIVACY = 0x1
+
+# Startup scan burst, run in the background as soon as the listener is up
+# (see WifiService._build_network_list).
+# A single scan sweep regularly misses access points: the radio can be on
+# another channel when an AP beacons, and 5 GHz DFS channels need a longer
+# passive dwell. NetworkManager's access-point list is cumulative, so each
+# extra sweep can only add.
+#
+# Sweeps are paced by waiting for NetworkManager to report each scan
+# complete, not by a fixed interval: a sweep takes around nine seconds on
+# this hardware, so requests issued every three seconds produced one scan
+# rather than three, and the per-sweep gain figures were meaningless.
+AP_SCAN_SWEEPS = 4              # Number of completed sweeps in the startup burst
+SCAN_COMPLETE_TIMEOUT = 20.0    # Max seconds to wait for one sweep to complete
+SCAN_POLL_INTERVAL = 0.5        # Seconds between LastScan checks while waiting
+
+# Keeper scan interval. NetworkManager scans by itself while the device is
+# disconnected, but largely stops once associated -- which is the Oradio's
+# normal state -- so without this the list slowly ages out exactly when it is
+# least being refreshed. One sweep every interval keeps it accurate at the
+# cost of a few hundred milliseconds off-channel, which the audio buffer
+# absorbs. Skipped while hosting the access point, where a scan stalls
+# beaconing and can drop the connected client.
+AP_KEEPER_INTERVAL = 120  # Seconds between keeper sweeps
+
+# Maximum seconds to wait for the startup burst when the access point is
+# requested before it has finished (button pressed seconds after power-on).
+# Now that sweeps are paced by completion rather than a fixed interval, the
+# burst is AP_SCAN_SWEEPS real sweeps at roughly nine seconds each (~27s),
+# not the ~10s it appeared to be when three requests were collapsing into one
+# scan. Must stay comfortably below WIFI_STATE_TIMEOUT in web_service.py,
+# which bounds the same wait from the caller's side: if that expires first,
+# the web service reports a failed start for an access point that is merely
+# waiting and about to come up.
+AP_LIST_READY_TIMEOUT = 40.0
+
+# Waiting for NetworkManager to appear at startup (see WifiService.start).
+# oradio_control starts after basic.target, deliberately ahead of the network
+# being ready, and the listener is started as early as possible so its scan
+# burst finishes before anyone can press the button. Measured margin between
+# NM claiming its D-Bus name and the listener starting was under four seconds,
+# so rather than losing the listener for the whole boot when that margin goes
+# negative, wait for NM and start then.
+NM_WAIT_TIMEOUT  = 60.0   # Max seconds to wait for NM to claim its bus name
+NM_POLL_INTERVAL = 1.0    # Seconds between availability checks while waiting
+
 # NetworkManager device state codes
 NM_DISCONNECTED = 30
 NM_CONNECTED    = 100
@@ -108,6 +187,40 @@ _saved_lock = Lock()                # Guards concurrent reads and writes across 
 
 ##### Helpers #############################################
 
+# Must run before the first SystemBus() call anywhere in this process.
+# dbus-python binds a connection to whatever main loop is default at the time
+# the connection is constructed, and SystemBus() returns a shared connection.
+# nm_available() below opens that connection during WifiService.start(), which
+# is earlier than WifiEventListener.setup(); without this, the shared
+# connection would be cached without main-loop integration and the listener
+# would silently never receive a single StateChanged or AccessPointAdded
+# signal. setup() calls this again, which is harmless: it is idempotent.
+DBusGMainLoop(set_as_default=True)
+
+def nm_available() -> bool:
+    """
+    Report whether NetworkManager is running and owns its D-Bus name.
+
+    NetworkManager.service is a Type=dbus unit declaring NM_BUS_NAME, so
+    ownership of that name is the authoritative "NM is up and serving"
+    signal -- the same condition that must hold for
+    WifiEventListener.setup() to succeed.
+
+    Cheap: one call on the already-open shared system bus, with no
+    subprocess and no radio activity.
+
+    Returns:
+        True if the NetworkManager daemon holds NM_BUS_NAME on the system
+        bus, False if it does not or if the system bus is unreachable.
+    """
+    try:
+        return bool(SystemBus().name_has_owner(NM_BUS_NAME))
+    except (DBusException, OSError) as ex_err:
+        # Debug, not error: an absent bus is an expected early-boot state
+        # here, not a fault worth reporting on the incident bus.
+        oradio_log.debug("System D-Bus not reachable: %s", ex_err)
+        return False
+
 def _set_saved_network(network) -> None:
     """
     Store the last active WiFi network in a process-safe manner.
@@ -122,7 +235,7 @@ def _set_saved_network(network) -> None:
     with _saved_lock:
         _saved_network["network"] = str(network) if network else ""
 
-def _nmcli_try(func, *args, **kwargs) -> tuple[bool, Any | None]:
+def _nmcli_try(func, *args, ignore=(), **kwargs) -> tuple[bool, Any | None]:
     """
     Call an nmcli function, catching all known nmcli and OS errors.
 
@@ -132,6 +245,10 @@ def _nmcli_try(func, *args, **kwargs) -> tuple[bool, Any | None]:
     Args:
         func:     The nmcli callable to invoke.
         *args:    Positional arguments forwarded to func.
+        ignore:   Exception classes treated as a benign non-result: logged at
+                  debug and reported as failure, but with no error logged and
+                  no incident published. Defaults to an empty tuple, which
+                  never matches, so existing callers are unaffected.
         **kwargs: Keyword arguments forwarded to func.
 
     Returns:
@@ -142,6 +259,10 @@ def _nmcli_try(func, *args, **kwargs) -> tuple[bool, Any | None]:
     try:
         result = func(*args, **kwargs)
         return True, result
+    # Must precede the general clause below, which would otherwise match first
+    except ignore as ex_err:
+        oradio_log.debug("nmcli call declined for %s: %s", func.__name__, ex_err)
+        return False, None
     # Exceptions built dynamically, so mypy can't verify it's a valid exception tuple statically
     except (*nmcli_exceptions, CalledProcessError, OSError) as ex_err:      # type: ignore[misc]
         oradio_log.error("nmcli call failed for %s: %s", func.__name__, ex_err)
@@ -230,6 +351,25 @@ class WifiEventListener(ThreadTemplate):
         self._nm_props: Interface | None = None
         self._loop: GLib.MainLoop | None = None
 
+        # Accumulated view of the WiFi neighbourhood, maintained from
+        # AccessPointAdded/Removed signals and read by get_wifi_networks().
+        # Keyed by D-Bus object path rather than SSID: paths are unique per
+        # BSSID, so removals are unambiguous and one SSID served by several
+        # access points is tracked correctly. Deduplication by SSID happens
+        # at read time in get_access_points().
+        self._access_points: dict[str, dict] = {}
+        self._ap_lock = Lock()      # Guards _access_points against the GLib thread
+
+        # Set once the startup scan burst has finished. Lives here, on the
+        # singleton, rather than on WifiService: oradio_control, web_service
+        # and rms_service each construct a WifiService, so a per-instance
+        # flag would be set on one object and read on the other, and the
+        # access point path would always wait out its full timeout.
+        # The singleton decorator runs this __init__ exactly once per
+        # process, so neither this nor _access_points is ever reset by a
+        # later construction.
+        self.list_ready = Event()
+
     def setup(self) -> None:
         """
         One-time D-Bus integration: connect to the bus, find the WiFi
@@ -252,21 +392,20 @@ class WifiEventListener(ThreadTemplate):
             self.bus = SystemBus()
 
             # Obtain the top-level NetworkManager object and its primary interface
-            nm_object = self.bus.get_object("org.freedesktop.NetworkManager", "/org/freedesktop/NetworkManager")
-            nm_iface = Interface(nm_object, "org.freedesktop.NetworkManager")
+            nm_object = self.bus.get_object(NM_BUS_NAME, NM_OBJECT_PATH)
+            nm_iface = Interface(nm_object, NM_IFACE)
 
             # Store a Properties interface on the NM object so the signal
             # callback can read the Connectivity property without reopening
             # the bus connection on every state change.
-            self._nm_props = Interface(nm_object, "org.freedesktop.DBus.Properties")
+            self._nm_props = Interface(nm_object, DBUS_PROPS_IFACE)
 
-            # Iterate devices and find the first WiFi adapter.
-            # DeviceType == 2 corresponds to NM_DEVICE_TYPE_WIFI.
+            # Iterate devices and find the first WiFi adapter
             for device in nm_iface.GetDevices():
-                dev = self.bus.get_object("org.freedesktop.NetworkManager", device)
-                dev_props = Interface(dev, "org.freedesktop.DBus.Properties")
-                dev_type = dev_props.Get("org.freedesktop.NetworkManager.Device", "DeviceType")
-                if dev_type == 2:
+                dev = self.bus.get_object(NM_BUS_NAME, device)
+                dev_props = Interface(dev, DBUS_PROPS_IFACE)
+                dev_type = dev_props.Get(NM_DEVICE_IFACE, "DeviceType")
+                if dev_type == NM_DEVICE_TYPE_WIFI:
                     self._wifi_path = device
                     break
 
@@ -278,10 +417,38 @@ class WifiEventListener(ThreadTemplate):
             # signals from other network devices (ethernet, VPN, etc.).
             self.bus.add_signal_receiver(
                 self._wifi_state_changed,
-                dbus_interface="org.freedesktop.NetworkManager.Device",
+                dbus_interface=NM_DEVICE_IFACE,
                 signal_name="StateChanged",
                 path=self._wifi_path,
             )
+
+            # Track the access points NetworkManager discovers. NM scans on its
+            # own whenever the device is idle or disconnected, so subscribing is
+            # enough to accumulate the neighbourhood over time without this
+            # module ever requesting a scan. That matters because scanning is
+            # impossible while hosting the access point and disruptive to
+            # playback while associated.
+            for signal_name, handler in (
+                ("AccessPointAdded",   self._access_point_added),
+                ("AccessPointRemoved", self._access_point_removed),
+            ):
+                self.bus.add_signal_receiver(
+                    handler,
+                    dbus_interface=NM_WIRELESS_IFACE,
+                    signal_name=signal_name,
+                    path=self._wifi_path,
+                )
+
+            # Signals only report changes from now on, so anything NM already
+            # knows about would never be seen. Seed from the current property
+            # value; subscription happens first so an access point discovered
+            # between these two steps arrives as a signal instead of being lost.
+            self._seed_access_points()
+
+            # Keep the list accurate for as long as the loop runs. Registered
+            # on the same main context the loop below uses, so it needs no
+            # thread of its own and stops automatically when the loop quits.
+            GLib.timeout_add_seconds(AP_KEEPER_INTERVAL, self._keeper_sweep)
 
             # Built here; run (as do_work) on the worker thread started by safe_start().
             self._loop = GLib.MainLoop()
@@ -364,13 +531,234 @@ class WifiEventListener(ThreadTemplate):
         if self._nm_props is None:
             return NM_CONNECTIVITY_NONE
         try:
-            return int(self._nm_props.Get(
-                "org.freedesktop.NetworkManager",
-                "Connectivity",
-            ))
+            return int(self._nm_props.Get(NM_IFACE, "Connectivity"))
         except DBusException as ex_err:
             oradio_log.error("Failed to read NM Connectivity property: %s", ex_err.get_dbus_message())
             return NM_CONNECTIVITY_NONE     # Treat unreadable state as no connectivity
+
+    def _seed_access_points(self) -> None:
+        """
+        Load the access points NetworkManager already knows about.
+
+        Called once from setup(), immediately after subscribing to the
+        AccessPointAdded/Removed signals, because those signals carry only
+        subsequent changes.
+        """
+        try:
+            wifi_props = Interface(
+                self.bus.get_object(NM_BUS_NAME, self._wifi_path), DBUS_PROPS_IFACE
+            )
+            ap_paths = wifi_props.Get(NM_WIRELESS_IFACE, "AccessPoints")
+        except DBusException as ex_err:
+            # Not fatal: the list simply starts empty and fills from signals.
+            oradio_log.warning("Could not read known access points: %s", ex_err.get_dbus_message())
+            return
+
+        for ap_path in ap_paths:
+            self._access_point_added(ap_path)
+
+        # Access points, not networks: one SSID is commonly served by several
+        # (2.4 and 5 GHz radios, mesh nodes), so the network count is lower.
+        oradio_log.debug(
+            "Seeded %d access points (%d networks)", len(ap_paths), len(self.get_access_points())
+        )
+
+    def _access_point_added(self, ap_path) -> None:
+        """
+        Record an access point NetworkManager has discovered.
+
+        Called by the GLib main loop thread on every AccessPointAdded signal,
+        and once per known access point from _seed_access_points().
+
+        Args:
+            ap_path: D-Bus object path of the new access point.
+        """
+        try:
+            ap_props = Interface(
+                self.bus.get_object(NM_BUS_NAME, ap_path), DBUS_PROPS_IFACE
+            ).GetAll(NM_AP_IFACE)
+        except DBusException:
+            # The access point can disappear between the signal and this read;
+            # there is simply nothing to record.
+            return
+
+        # Ssid is a byte array, not a string, and is not guaranteed to be valid
+        # UTF-8: a hidden network advertises an empty one, and a misconfigured
+        # access point can advertise arbitrary bytes.
+        ssid = bytes(ap_props.get("Ssid", b"")).decode("utf-8", errors="replace")
+
+        # Skip hidden networks and the Oradio's own access point
+        if not ssid or ssid == ACCESS_POINT_SSID:
+            return
+
+        secured = bool(
+            ap_props.get("Flags", 0) & NM_AP_FLAGS_PRIVACY
+            or ap_props.get("WpaFlags", 0)
+            or ap_props.get("RsnFlags", 0)
+        )
+
+        with self._ap_lock:
+            self._access_points[str(ap_path)] = {
+                "ssid":   ssid,
+                "type":   "closed" if secured else "open",
+                "signal": int(ap_props.get("Strength", 0)),
+            }
+
+    def _access_point_removed(self, ap_path) -> None:
+        """
+        Forget an access point NetworkManager has aged out.
+
+        Ignored while hosting the Oradio access point: no scanning is possible
+        in that mode, so NM keeps ageing entries out with nothing to refresh
+        them. Honouring removals would make the network list shown to the
+        connected client quietly shrink the longer they take to choose.
+
+        Args:
+            ap_path: D-Bus object path of the departed access point.
+        """
+        if get_wifi_connection() == ACCESS_POINT_SSID:
+            return
+
+        with self._ap_lock:
+            self._access_points.pop(str(ap_path), None)
+
+    def get_access_points(self) -> list:
+        """
+        Return the accumulated access points, strongest first.
+
+        Deduplicates by SSID, keeping the strongest signal where the same
+        network is served by several access points. Reads cached state only:
+        no scan, no subprocess, and therefore safe to call while the Oradio
+        access point is serving a client.
+
+        Returns:
+            A list of {"ssid": str, "type": "open" | "closed"} dicts ordered
+            by descending signal strength.
+        """
+        with self._ap_lock:
+            access_points = list(self._access_points.values())
+
+        strongest: dict[str, dict] = {}
+        for access_point in access_points:
+            ssid = access_point["ssid"]
+            if ssid not in strongest or access_point["signal"] > strongest[ssid]["signal"]:
+                strongest[ssid] = access_point
+
+        return [
+            {"ssid": ap["ssid"], "type": ap["type"]}
+            for ap in sorted(strongest.values(), key=lambda ap: ap["signal"], reverse=True)
+        ]
+
+    def request_scan(self) -> bool:
+        """
+        Ask NetworkManager to scan for access points.
+
+        Goes through nmcli rather than the Device.Wireless RequestScan D-Bus
+        method: that method is gated by the polkit action
+        org.freedesktop.NetworkManager.wifi.scan, which is granted to active
+        local sessions only. oradio_control runs as a systemd system service
+        and therefore has no session, so every direct call fails with
+        "not authorized". The nmcli package invokes the binary under sudo,
+        which is authorized.
+
+        Returns as soon as NM accepts the request; the scan itself completes
+        in the background and its results arrive as AccessPointAdded signals.
+
+        Returns:
+            True if NM accepted the request, False if it declined or failed.
+        """
+        # ScanningNotAllowedException means a scan is already running or one
+        # finished very recently. Both mean scanning is happening, which is
+        # the point, so it warrants neither an error nor an incident.
+        is_ok, _ = _nmcli_try(nmcli.device.wifi_rescan, ignore=(ScanningNotAllowedException,))
+        return is_ok
+
+    def last_scan(self) -> int | None:
+        """
+        Return NetworkManager's LastScan timestamp for the WiFi device.
+
+        The value is CLOCK_BOOTTIME milliseconds at the point the last scan
+        completed, or -1 if no scan has ever completed. Only used to detect
+        that a scan has finished, by watching for the value to change, so
+        the clock it is measured against does not matter.
+
+        Returns:
+            The raw LastScan value, or None if it cannot be read.
+        """
+        if self._wifi_path is None:
+            return None
+        try:
+            return int(
+                Interface(
+                    self.bus.get_object(NM_BUS_NAME, self._wifi_path), DBUS_PROPS_IFACE
+                ).Get(NM_WIRELESS_IFACE, "LastScan")
+            )
+        except DBusException:
+            return None
+
+    def scan_and_wait(self, timeout: float = SCAN_COMPLETE_TIMEOUT) -> bool:
+        """
+        Request a scan and wait for NetworkManager to report it complete.
+
+        Requesting scans on a fixed interval does not work: a full sweep
+        takes several seconds (5 GHz DFS channels must be dwelt on
+        passively), and a request issued while one is running is either
+        refused or folded into it. Measured on Raspberry Pi hardware, three
+        requests three seconds apart produced a single scan, not three.
+        Waiting for LastScan to advance instead paces each request behind
+        the previous result, so a sweep is genuinely a sweep, and adapts
+        automatically to however long the hardware takes.
+
+        Args:
+            timeout: Maximum seconds to wait for completion.
+
+        Returns:
+            True if a scan completed within timeout, False on timeout or if
+            LastScan cannot be read.
+        """
+        baseline = self.last_scan()
+        self.request_scan()
+
+        if baseline is None:
+            # No LastScan to watch (device path missing, or property
+            # unreadable): fall back to a fixed wait so the caller still
+            # paces itself rather than spinning.
+            sleep(SCAN_POLL_INTERVAL)
+            return False
+
+        deadline = monotonic() + timeout
+        while monotonic() < deadline:
+            sleep(SCAN_POLL_INTERVAL)
+            if self.last_scan() != baseline:
+                return True
+
+        oradio_log.debug("Scan did not complete within %.0fs", timeout)
+        return False
+
+    def _keeper_sweep(self) -> bool:
+        """
+        Periodic scan that keeps the access point list accurate.
+
+        Runs on the GLib main loop thread. NetworkManager scans on its own
+        while the device is disconnected but largely stops once associated,
+        so without this the list ages out during exactly the long connected
+        periods where nothing else refreshes it.
+
+        Returns:
+            True, so GLib keeps rescheduling it. Returning False would
+            cancel the timeout permanently.
+        """
+        # Never while hosting the access point: a scan there stalls beaconing
+        # and can drop the client currently reading the list.
+        if get_wifi_connection() == ACCESS_POINT_SSID:
+            return True
+
+        before = len(self.get_access_points())
+        self.request_scan()
+        # Logged at debug and reported next sweep: the scan is asynchronous,
+        # so its results are not in the list yet at this point.
+        oradio_log.debug("Keeper sweep requested (%d networks known)", before)
+        return True
 
     def _wifi_state_changed(self, new_state, _old_state, _reason) -> None:
         """
@@ -435,6 +823,7 @@ class WifiEventListener(ThreadTemplate):
             oradio_log.error("Error handling WiFi StateChanged signal (new_state=%s): %s", new_state, ex_err)
             Incidents.publish(IncidentMessage(WIFI_SOURCE, WIFI_DBUS_FAILED))
 
+@singleton
 class WifiService:
     """
     Manage WiFi connection state and expose connect/disconnect operations.
@@ -447,6 +836,14 @@ class WifiService:
     Construction only sets up state; the background D-Bus listener thread
     is not started until start() is called.
 
+    Singleton, because oradio_control, web_service and rms_service each
+    construct one and they must not diverge: the network list, its
+    readiness flag and the listener thread describe one radio, not one per
+    caller. Any state added here would otherwise be written by whichever
+    module acted and read as absent by the others -- which is precisely how
+    the access point path came to wait out its full timeout on a list that
+    had been built minutes earlier.
+
     Note:
         The initial Commands.publish happens in start(), not __init__.
         Error states are never published at start time; they are only
@@ -456,25 +853,105 @@ class WifiService:
         """
         Create (but do not start) the WifiEventListener singleton.
 
-        Callers must call start() explicitly to begin monitoring D-Bus
-        state changes, and may stop()/start() again later since the
-        listener is restartable.
+        The singleton decorator ensures this constructor runs at most once
+        per process. Callers must call start() explicitly to begin
+        monitoring D-Bus state changes, and may stop()/start() again later
+        since the listener is restartable.
         """
-        # Singleton D-Bus listener, shared across all WifiService instances.
+        # Singleton D-Bus listener; the same instance this class is bound to.
         self.nm_listener = WifiEventListener()
 
-    def start(self) -> None:
+        # Set by stop(), so a deferred start still waiting for NetworkManager
+        # aborts instead of bringing the listener up after shutdown.
+        self._stopping = Event()
+
+    def start(self, wait: float = NM_WAIT_TIMEOUT) -> None:
         """
         Start the background WiFi event listener thread and publish the
         current connection state.
 
-        Blocks until the listener signals readiness, or until it crashes
-        or times out. Idempotent: a no-op if already running.
+        If NetworkManager is already up this behaves exactly as before:
+        the listener starts synchronously and this returns once it is
+        running. If NetworkManager is not up yet, starting now would only
+        make setup() fail on D-Bus and publish a misleading WIFI_DBUS_FAILED,
+        losing the listener -- and with it all state reporting and the
+        network list -- for the rest of the boot. In that case the start is
+        handed to a background thread that waits for NM to appear.
+
+        oradio_control starts after basic.target and the listener is started
+        as early as the module initialisation allows, so the margin over NM
+        claiming its bus name is only a few seconds and not guaranteed.
+        Waiting turns "started too early" from a lost boot into a short delay.
+
+        Idempotent: a no-op if the listener is already running.
+
+        Args:
+            wait: Seconds to keep waiting for NetworkManager in the
+                  background. Pass 0 to skip starting entirely when NM is
+                  absent, which suits tests and stand-alone runs.
         """
         if self.nm_listener.is_alive():
             oradio_log.debug("WiFi event listener thread already running")
             return
 
+        # A previous stop() may have set this; clear it so a restart works
+        self._stopping.clear()
+
+        if nm_available():
+            self._start_listener()
+            return
+
+        if wait <= 0:
+            oradio_log.info("NetworkManager not running; WiFi listener not started")
+            return
+
+        oradio_log.info("NetworkManager not up yet; deferring WiFi listener start")
+        # Daemon thread: exits automatically when the process does.
+        Thread(target=self._start_when_nm_ready, args=(wait,), daemon=True).start()
+
+    def _start_when_nm_ready(self, timeout) -> None:
+        """
+        Wait for NetworkManager to appear, then start the listener.
+
+        Runs on a background thread. Polls rather than watching D-Bus
+        NameOwnerChanged, because receiving that signal would itself need a
+        running GLib main loop -- which is what the listener provides and is
+        precisely what does not exist yet at this point.
+
+        Args:
+            timeout: Maximum seconds to wait before giving up and reporting.
+        """
+        started = monotonic()
+        deadline = started + timeout
+
+        while monotonic() < deadline:
+            # Checked before sleeping and after waking, so stop() takes
+            # effect within one poll interval at worst.
+            if self._stopping.is_set():
+                oradio_log.debug("Deferred WiFi listener start aborted by stop()")
+                return
+            if nm_available():
+                oradio_log.info(
+                    "NetworkManager available after %.1fs; starting WiFi listener",
+                    monotonic() - started,
+                )
+                self._start_listener()
+                return
+            sleep(NM_POLL_INTERVAL)
+
+        if not self._stopping.is_set():
+            # NM never appeared: masked, disabled or failed to start. Unlike
+            # the transient absence above, that is worth an incident.
+            oradio_log.error("NetworkManager did not appear within %.0fs", timeout)
+            Incidents.publish(IncidentMessage(WIFI_SOURCE, WIFI_DBUS_FAILED))
+
+    def _start_listener(self) -> None:
+        """
+        Bring up the listener thread, start the scan burst and publish state.
+
+        Called once NetworkManager is known to be available, either directly
+        from start() or from the deferred _start_when_nm_ready() thread.
+        """
         if not self.nm_listener.safe_start():
             oradio_log.error("WiFi event listener thread failed to start")
             Incidents.publish(IncidentMessage(WIFI_SOURCE, WIFI_DBUS_FAILED))
@@ -489,9 +966,72 @@ class WifiService:
 
         oradio_log.info("WiFi event listener thread started")
 
+        # Build the network list now, in the background, so it is already
+        # complete by the time the user asks for the access point. Started
+        # only here, so the GLib loop is running and the resulting
+        # AccessPointAdded signals are actually delivered. Daemon thread:
+        # nothing waits on it and it exits when the process does.
+        Thread(target=self._build_network_list, daemon=True).start()
+
         # Publish the current state immediately so subscribers don't have to
         # wait for the first state-change signal from NetworkManager
         Commands.publish(CommandMessage(WIFI_SOURCE, self.get_state()))
+
+    def _build_network_list(self) -> None:
+        """
+        Populate the network list with a burst of scans at startup.
+
+        The radio cannot be scanned once the access point is up without
+        risking the connected client, so the list has to be right before the
+        user asks for it. Doing that here rather than at the moment of asking
+        is what keeps the delay between the button press and the "access
+        point ready" announcement at zero: by then this has long finished and
+        the keeper has been maintaining the result.
+
+        Several sweeps rather than one because a single scan misses access
+        points that beacon while the radio is on another channel. NM's list
+        is cumulative, so each sweep can only add.
+
+        Runs on a background thread; sets the listener's list_ready when done.
+        """
+        before = {net["ssid"] for net in get_wifi_networks()}
+        started = monotonic()
+        found = before
+
+        oradio_log.debug(
+            "Building network list: %d sweeps (%d networks known)", AP_SCAN_SWEEPS, len(before)
+        )
+
+        for sweep in range(1, AP_SCAN_SWEEPS + 1):
+            # Without the listener there is nothing to collect the results:
+            # the scans would run but no AccessPointAdded signal would arrive.
+            if not self.nm_listener.is_alive():
+                oradio_log.warning("Listener not running; network list may be incomplete")
+                break
+
+            completed = self.nm_listener.scan_and_wait()
+
+            # Measured after the scan is reported complete, so the gain is
+            # genuinely this sweep's: a sweep that repeatedly adds +0 means
+            # AP_SCAN_SWEEPS can be reduced.
+            previous, found = found, {net["ssid"] for net in get_wifi_networks()}
+            oradio_log.debug(
+                "Sweep %d of %d at %.1fs: %d networks (+%d)%s",
+                sweep, AP_SCAN_SWEEPS, monotonic() - started, len(found), len(found - previous),
+                "" if completed else " [not confirmed complete]",
+            )
+
+        # Set even if the burst was cut short: waiting longer would not help,
+        # and blocking the access point indefinitely is worse than an
+        # incomplete list.
+        self.nm_listener.list_ready.set()
+
+        oradio_log.info(
+            "Network list ready: %d networks (+%d) in %.1fs",
+            len(found), len(found - before), monotonic() - started,
+        )
+        if found - before:
+            oradio_log.debug("Networks found only by scanning: %s", ", ".join(sorted(found - before)))
 
     def stop(self) -> None:
         """
@@ -499,7 +1039,11 @@ class WifiService:
 
         WifiEventListener.safe_stop() unblocks its own blocking GLib
         loop.run() call before joining.
+
+        Also cancels a deferred start still waiting for NetworkManager, so
+        the listener cannot come up after shutdown was requested.
         """
+        self._stopping.set()
         self.nm_listener.safe_stop()
 
     def get_state(self) -> str:
@@ -528,6 +1072,12 @@ class WifiService:
         Saves the current connection (if any, and not the AP) so it can be
         restored later, then starts a daemon Thread to activate the profile
         so the blocking nmcli call does not stall the caller.
+
+        When ssid is the Oradio access point, that thread first confirms the
+        network list is complete (see _wait_for_network_list). That normally
+        returns immediately, so the access point comes up without added
+        delay; it waits only when the button is pressed before the startup
+        scan has finished.
 
         Args:
             ssid: SSID of the network to connect to.
@@ -559,12 +1109,59 @@ class WifiService:
         Args:
             network: SSID of the NetworkManager connection profile to activate.
         """
+        # The list must be complete before the access point takes the radio,
+        # since scanning afterwards risks the connected client. It normally
+        # already is, so this does not delay activation.
+        if network == ACCESS_POINT_SSID:
+            self._wait_for_network_list()
+
         if not _wifi_up(network):
             # Activation failed; clean up the broken profile
             networkmanager_del(network)     # includes its own error logging
         else:
             # Connection is up; WifiEventListener will publish the new state
             oradio_log.info("Connected with '%s'", network)
+
+    def _wait_for_network_list(self) -> None:
+        """
+        Ensure the network list is complete before the access point starts.
+
+        Normally returns immediately: the list was built by
+        _build_network_list() at startup and has been kept accurate by the
+        listener's keeper sweeps ever since, so nothing needs to happen here
+        and the access point comes up without delay.
+
+        Only when the access point is requested within seconds of power-on,
+        before the startup burst has finished, does this wait -- which is the
+        one case where a delay is worth it, since the alternative is serving
+        the user a list that is empty or half built.
+
+        No scanning happens here. Scanning at this point would put the delay
+        back into the path between the button press and the "access point
+        ready" announcement, which is exactly what building the list in
+        advance avoids.
+
+        The flag is read from the listener singleton, not from this
+        WifiService: oradio_control and web_service each construct their own
+        WifiService, so a per-instance flag is set on one and read on the
+        other, and this would always wait out its full timeout.
+        """
+        if self.nm_listener.list_ready.is_set():
+            oradio_log.debug("Network list already built; starting access point")
+            return
+
+        oradio_log.info("Waiting for initial network scan to complete")
+        started = monotonic()
+
+        if self.nm_listener.list_ready.wait(AP_LIST_READY_TIMEOUT):
+            oradio_log.info("Network list ready after %.1fs", monotonic() - started)
+        else:
+            # Bounded rather than indefinite: an access point with a partial
+            # list is more use than no access point at all.
+            oradio_log.warning(
+                "Initial scan not complete after %.0fs; starting access point anyway",
+                AP_LIST_READY_TIMEOUT,
+            )
 
     def wifi_disconnect(self) -> None:
         """
@@ -585,96 +1182,6 @@ class WifiService:
         else:
             oradio_log.debug("Already disconnected")
 
-class WifiScanner:
-    """
-    Fast WiFi network scanner backed by NetworkManager's scan cache.
-
-    Always reads from the NetworkManager cache (fast, no radio delay), and
-    triggers a background rescan after each read to keep the cache fresh.
-    The Oradio access point SSID, empty SSIDs, and duplicate SSIDs are
-    always excluded from results.
-    """
-    def __init__(self) -> None:
-        """
-        Prime the NetworkManager scan cache so the first get_active_ssids()
-        call returns real results rather than an empty cache.
-        """
-        is_ok, _ = _nmcli_try(nmcli.device.wifi, None, True)
-        if not is_ok:
-            oradio_log.warning("Initial WiFi scan failed; NM cache may be empty")
-
-    def _rescan(self) -> None:
-        """
-        Trigger a background WiFi rescan without blocking the caller, to
-        keep the NM cache fresh for the next call to get_active_ssids.
-        """
-        # Daemon thread: exits automatically when the main process exits.
-        Thread(target=_nmcli_try, args=(nmcli.device.wifi, None, True), daemon=True).start()
-
-    def _parse_nmcli_output(self, nmcli_output) -> list:
-        """
-        Parse raw nmcli scan results into a deduplicated, sorted network list.
-
-        Deduplicates by SSID, sorts by descending signal strength, and
-        excludes empty SSIDs, duplicates, and the Oradio access point.
-
-        Args:
-            nmcli_output: List of nmcli network objects exposing ssid,
-                          signal, and security attributes.
-
-        Returns:
-            A list of {"ssid": str, "type": "open" | "closed"} dicts,
-            ordered by descending signal strength.
-        """
-        seen_ssids = set()
-        networks_formatted = []
-
-        # Sort by signal strength descending; networks without a signal
-        # attribute are treated as weakest (0) and appear at the end.
-        sorted_networks = sorted(
-            nmcli_output, key=lambda n: getattr(n, "signal", 0), reverse=True
-        )
-
-        for network in sorted_networks:
-            ssid = getattr(network, "ssid", "")
-            # Skip empty SSIDs, the Oradio access point, and already-seen SSIDs
-            if ssid and ssid != ACCESS_POINT_SSID and ssid not in seen_ssids:
-                seen_ssids.add(ssid)
-                networks_formatted.append({
-                    "ssid": ssid,
-                    "type": "closed" if getattr(network, "security", False) else "open",
-                })
-
-        return networks_formatted
-
-    def get_active_ssids(self) -> list:
-        """
-        Return currently visible WiFi networks from the NM cache, and kick
-        off an asynchronous background rescan to keep the cache fresh.
-
-        Returns:
-            A list of {"ssid": str, "type": "open" | "closed"} dicts
-            ordered by descending signal strength, excluding the Oradio AP,
-            empty SSIDs, and duplicates.
-        """
-        oradio_log.debug("Scanning for wifi networks...")
-
-        # Read from the NM cache without triggering a new scan (rescan=False)
-        is_ok, nmcli_output = _nmcli_try(nmcli.device.wifi, None, False)
-        if is_ok and nmcli_output:
-            networks = self._parse_nmcli_output(nmcli_output)
-        else:
-            oradio_log.warning("No networks found in cached NM scan")
-            networks = []
-
-        # Refresh the cache in the background for the next call
-        self._rescan()
-
-        return networks
-
-# Module-level scanner instance; shared by all callers of get_wifi_networks()
-_wifi_scanner = WifiScanner()
-
 ##### Public API ##########################################
 
 def get_saved_network() -> str:
@@ -690,14 +1197,25 @@ def get_saved_network() -> str:
 
 def get_wifi_networks() -> list:
     """
-    Return visible WiFi networks from the NetworkManager scan cache.
+    Return the WiFi networks accumulated from NetworkManager D-Bus signals.
+
+    Reads cached state only — it never triggers a scan — so it is safe to
+    call while the Oradio access point is serving a client, where scanning
+    would drop that client's connection.
+
+    An empty list means either that no networks are in range or that the
+    event listener never started (NetworkManager unavailable). Check
+    WifiService.nm_listener.is_alive() to tell those apart: retrying only
+    helps in the first case.
 
     Returns:
         A list of {"ssid": str, "type": "open" | "closed"} dicts ordered
-        by descending signal strength, excluding the Oradio AP, empty
+        by descending signal strength, excluding the Oradio AP, hidden
         SSIDs, and duplicates.
     """
-    return _wifi_scanner.get_active_ssids()
+    # WifiEventListener is a singleton, so this returns the running instance
+    # (or constructs an inert one, which correctly reports no networks).
+    return WifiEventListener().get_access_points()
 
 def get_wifi_connection() -> str | None:
     """
@@ -706,14 +1224,17 @@ def get_wifi_connection() -> str | None:
     Queries the kernel directly via iw (with iwgetid as fallback) so the
     result reflects the live radio state independent of NM's view.
 
-    Note: the interface name wlan0 is hardcoded; a different interface
+    Note: the interface name is fixed by WIFI_INTERFACE; a different adapter
     name will cause this to silently return None.
 
     Returns:
         The active SSID, or None if the command fails or no connection
         is active.
     """
-    cmd = "iw dev wlan0 info | awk '/ssid/ {print $2}' || iwgetid -r wlan0"
+    cmd = (
+        f"iw dev {WIFI_INTERFACE} info | awk '/ssid/ {{print $2}}'"
+        f" || iwgetid -r {WIFI_INTERFACE}"
+    )
     result, response = run_shell_script(cmd)
     if not result:
         oradio_log.warning("Could not determine active WiFi connection: %s", response)

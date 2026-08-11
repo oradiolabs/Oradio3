@@ -82,7 +82,15 @@ from constants import (
 SERVER_READY_TIMEOUT = 15
 
 # Seconds to wait for WiFi state transitions (access point up, disconnect, reconnect).
-WIFI_STATE_TIMEOUT = 15
+# Normally the access point is up in ~1.5s: wifi_service builds its network
+# list in the background at startup, so nothing is scanned on this path. The
+# exception is the access point being requested seconds after power-on, before
+# that list is built, where wifi_service waits for it -- bounded there by
+# AP_LIST_READY_TIMEOUT (20s). This value must stay above that bound, so the
+# access point is reported rather than declared failed while it is merely
+# waiting. Waiting longer costs nothing on success: _wait_for_wifi_state()
+# returns as soon as the state arrives.
+WIFI_STATE_TIMEOUT = 30
 
 SOCKET_TIMEOUT = 3   # WebSocket ping interval/timeout in seconds; safe for small devices and networks
 
