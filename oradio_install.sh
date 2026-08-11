@@ -686,11 +686,6 @@ install_resource "$RESOURCES_PATH/about" /usr/local/bin/about 'chmod +x /usr/loc
 # Progress report
 echo -e "${GREEN}Support tools installed${NC}"
 
-# Configure the power-save (USB low idle power) service to start on boot
-install_resource "$RESOURCES_PATH/usb_low_idle_power.service" /etc/systemd/system/usb_low_idle_power.service 'systemctl enable usb_low_idle_power.service'
-# Progress report
-echo -e "${GREEN}Power save features configured${NC}"
-
 # Configure the oradio service to start on boot
 install_resource "$RESOURCES_PATH/oradio.service" /etc/systemd/system/oradio.service 'systemctl enable oradio.service'
 # Progress report
