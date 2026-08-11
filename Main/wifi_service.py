@@ -550,6 +550,10 @@ class WifiEventListener(ThreadTemplate):
         AccessPointAdded/Removed signals, because those signals carry only
         subsequent changes.
         """
+        if self.bus is None or self._wifi_path is None:
+            oradio_log.warning("Cannot seed access points: D-Bus not set up")
+            return
+
         try:
             wifi_props = Interface(
                 self.bus.get_object(NM_BUS_NAME, self._wifi_path), DBUS_PROPS_IFACE
@@ -579,6 +583,9 @@ class WifiEventListener(ThreadTemplate):
         Args:
             ap_path: D-Bus object path of the new access point.
         """
+        if self.bus is None:
+            return          # Silent: called once per access point
+
         try:
             ap_props = Interface(
                 self.bus.get_object(NM_BUS_NAME, ap_path), DBUS_PROPS_IFACE
@@ -691,8 +698,9 @@ class WifiEventListener(ThreadTemplate):
         Returns:
             The raw LastScan value, or None if it cannot be read.
         """
-        if self._wifi_path is None:
+        if self.bus is None or self._wifi_path is None:
             return None
+
         try:
             return int(
                 Interface(
