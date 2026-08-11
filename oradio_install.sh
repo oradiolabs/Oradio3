@@ -663,7 +663,7 @@ echo -e "${GREEN}Audio installed and configured${NC}"
 
 # Configure log file rotation and timer to limit logfile size
 install_resource "$RESOURCES_PATH/logrotate.conf" /etc/logrotate.d/oradio
-install_resource "$RESOURCES_PATH/logrotate.timer" /etc/systemd/system/logrotate.timer
+install_resource "$RESOURCES_PATH/logrotate-timer-override.conf" /etc/systemd/system/logrotate.timer.d/oradio.conf 'systemctl daemon-reload'
 # Progress report
 echo -e "${GREEN}Log files rotation configured${NC}"
 
