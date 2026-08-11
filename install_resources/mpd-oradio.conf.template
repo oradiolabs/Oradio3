@@ -1,0 +1,19 @@
+# Placeholders will be modified by ../oradio_install.sh script
+#
+# Drop-in for the packaged /usr/lib/systemd/system/mpd.service.
+#
+# Only the log file ownership is Oradio-specific. Everything else - the security
+# hardening (ProtectSystem, RestrictAddressFamilies, NoNewPrivileges, ...),
+# LimitRTPRIO, ExecStart and After=sound.target - is Debian's and is deliberately
+# NOT copied here, so package updates to those settings actually apply.
+
+[Service]
+# MPD writes its own timestamped log via log_file in /etc/mpd.conf, so stdout
+# and stderr are deliberately NOT redirected here. Two writers on one file, with
+# logrotate copytruncate in between, interleaves and loses lines. Leaving the
+# journal attached also means startup errors that occur before mpd.conf is
+# parsed are still visible via 'journalctl -u mpd'.
+
+# MPD runs as user 'mpd' but the log lives in PLACEHOLDER_USER's directory, so
+# ownership has to be fixed before MPD opens it. '+' means run this as root.
+ExecStartPre=-+/usr/bin/chown PLACEHOLDER_USER:PLACEHOLDER_GROUP PLACEHOLDER_LOGFILE_MPD
