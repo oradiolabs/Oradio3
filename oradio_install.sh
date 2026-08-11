@@ -267,7 +267,6 @@ if [ "${1:-}" != "--continue" ]; then
 		mpc
 		caps
 		iptables
-		swupdate
 		raspotify
 		python3-gi
 		python3-dev
