@@ -70,6 +70,9 @@ LOGFILE_SPOTIFY="$LOGGING_PATH/spotify.log"
 LOGFILE_INSTALL="$LOGGING_PATH/install.log"
 LOGFILE_TRACEBACK="$LOGGING_PATH/traceback.log"
 
+# Separation between USB present and Update started announcements
+DELAY_UPDATE_MESSAGE=4
+
 # Redirect script output to console and file
 exec > >(tee -a "$LOGFILE_INSTALL") 2>&1
 
@@ -545,20 +548,14 @@ bash "$RESOURCES_PATH/optimize_boot_time.sh"
 # https://www.raspberrypi.com/documentation/computers/configuration.html#wlan-country-2
 sudo raspi-config nonint do_wifi_country NL		# Implicitly activates wifi
 
-# Change hostname and hosts mapping to reflect the network domain name.
-# Split into two plain sudo commands instead of one `sudo bash -c "... && ..."`
-# chain — neither command needs a shell beyond what sudo already gives it, and
-# this way a failure in one is attributable without guessing which half of the
-# chain broke.
-sudo hostnamectl set-hostname "$HOSTNAME"
-sudo sed -i "s/^127.0.1.1.*/127.0.1.1\t${HOSTNAME}/g" /etc/hosts
-
+# Change hostname and hosts mapping. Use explicit hostname to avoid confusion.
+ORADIO_HOSTNAME=oradio
+sudo hostnamectl set-hostname "$ORADIO_HOSTNAME"
+sudo sed -i "s/^127.0.1.1.*/127.0.1.1\t${ORADIO_HOSTNAME}/g" /etc/hosts
 # Set Top Level Domain (TLD) to 'local', enabling access via http://oradio.local
 sudo sed -i "s/^.domain-name=.*/domain-name=local/g" /etc/avahi/avahi-daemon.conf
-
 # Allow mDNS on wired and wireless interfaces
 sudo sed -i "s/^#allow-interfaces=.*/allow-interfaces=eth0,wlan0/g" /etc/avahi/avahi-daemon.conf
-
 # Progress report
 echo -e "${GREEN}Wifi is enabled and network domain is set to '${HOSTNAME}.local'${NC}"
 
@@ -608,6 +605,8 @@ fi
 
 # Install udev rules triggering when inserting/removing ORADIO USB drive
 install_resource "$RESOURCES_PATH/99-local.rules" /etc/udev/rules.d/99-local.rules
+# Configure the USB service triggered at boot
+install_resource "$RESOURCES_PATH/usb-drive-boot.service" /etc/systemd/system/usb-drive-boot.service 'systemctl enable usb-drive-boot.service'
 # Configure the USB service triggered by udev rules
 install_resource "$RESOURCES_PATH/usb-drive@.service" /etc/systemd/system/usb-drive@.service
 # Configure the USB mount/unmount script used by the system service
@@ -668,11 +667,6 @@ install_resource "$RESOURCES_PATH/send_log_files_to_rms.sh" /usr/local/bin/send_
 install_resource "$RESOURCES_PATH/about" /usr/local/bin/about 'chmod +x /usr/local/bin/about'
 # Progress report
 echo -e "${GREEN}Support tools installed${NC}"
-
-# Configure the power-save (USB low idle power) service to start on boot
-install_resource "$RESOURCES_PATH/usb_low_idle_power.service" /etc/systemd/system/usb_low_idle_power.service 'systemctl enable usb_low_idle_power.service'
-# Progress report
-echo -e "${GREEN}Power save features configured${NC}"
 
 # Configure the oradio service to start on boot
 install_resource "$RESOURCES_PATH/oradio.service" /etc/systemd/system/oradio.service 'systemctl enable oradio.service'
