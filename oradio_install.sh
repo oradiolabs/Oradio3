@@ -656,13 +656,16 @@ install_resource "$RESOURCES_PATH/mpd.conf" /etc/mpd.conf
 # Install empty MPD database (prevents MPD updating when starting)
 install_resource "$RESOURCES_PATH/mpd.database" /var/lib/mpd/tag_cache
 # Configure the MPD service to start on boot
-install_resource "$RESOURCES_PATH/mpd-oradio.conf" /etc/systemd/system/mpd.service.d/oradio.conf 'systemctl enable mpd.service'
+install_resource "$RESOURCES_PATH/mpd-oradio.conf" /etc/systemd/system/mpd-oradio.conf 'systemctl enable mpd.service'
 
 # Progress report
 echo -e "${GREEN}Audio installed and configured${NC}"
 
-# Configure log file rotation and timer to limit logfile size
+# Configure log file rotation to limit logfile size
 install_resource "$RESOURCES_PATH/logrotate.conf" /etc/logrotate.d/oradio
+# Ensure drop-in folder exists
+mkdir -p /etc/systemd/system/logrotate.timer.d
+# Configure rotation timer to limit logfile size
 install_resource "$RESOURCES_PATH/logrotate-timer-override.conf" /etc/systemd/system/logrotate.timer.d/oradio.conf 'systemctl daemon-reload'
 # Progress report
 echo -e "${GREEN}Log files rotation configured${NC}"
