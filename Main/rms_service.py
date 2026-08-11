@@ -50,7 +50,6 @@ from requests import post, RequestException, Timeout
 ##### Oradio modules ######################################
 from singleton import singleton
 from utilities import get_serial
-from wifi_service import WifiService
 from log_service import oradio_log, ORADIO_LOG_PATH
 from messaging import (
     Commands,
@@ -597,6 +596,7 @@ if __name__ == "__main__":
 
     # Imports only relevant when stand-alone
     from utilities import input_prompt              # pylint: disable=ungrouped-imports
+    from wifi_service import WifiService
 
     # Most modules use similar code in stand-alone
     # pylint: disable=duplicate-code
