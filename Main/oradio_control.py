@@ -135,6 +135,10 @@ usb_present.set() # USB present to go over start-up sequence (will be updated af
 remote_monitor = RMService()
 remote_monitor.start()
 
+# Instantiate and start the wifi service for monitoring wifi state
+oradio_wifi_service = WifiService()
+oradio_wifi_service.start()
+
 # Any incident starting backlight is reported to and handled by IncidentHandler
 oradio_log.info("Start backlighting")
 Backlighting().start()
@@ -780,10 +784,6 @@ def sync_usb_presence_from_service():
         oradio_log.warning("Unexpected USB service state: %r", state)
 
 # ------------------Start-up - instantiate and define other modules ---------------
-
-# Instantiate and start the wifi service for monitoring wifi state
-oradio_wifi_service = WifiService()
-oradio_wifi_service.start()
 
 # Instantiate and start the USB service monitoring USB present/absent
 oradio_usb_service = USBService()
