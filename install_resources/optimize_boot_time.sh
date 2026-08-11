@@ -108,7 +108,6 @@ mask_unit() {
 # disable it at runtime with 'touch /etc/cloud/cloud-init.disabled', then restore
 # the cloud-* entries in UNITS_TO_MASK and GENERATORS_TO_MASK below.
 PACKAGES_TO_REMOVE=(
-	modemmanager	# No mobile modem present
 	cloud-init		# First-boot provisioning only; see the warning above. Purging
 					# removes ~10 units, the cloud-init generator and the flag-file
 					# dance that used to be needed to keep them all quiet.
@@ -580,11 +579,6 @@ fi
 write_boot_dropin() {
 	local unit="$1" content="$2"
 	local dir="/etc/systemd/system/${unit}.d"
-
-	if ! systemctl list-unit-files --no-legend -- "$unit" 2>/dev/null | grep -q .; then
-		echo "Unit '$unit' not present, skipping drop-in"
-		return 0
-	fi
 
 	sudo install -d -m 0755 "$dir"
 	if printf '%s\n' "$content" | sudo tee "${dir}/oradio-sched.conf" >/dev/null; then
