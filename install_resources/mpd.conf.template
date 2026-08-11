@@ -40,8 +40,8 @@ db_file				"/var/lib/mpd/tag_cache"
 # The special value "syslog" makes MPD use the local syslog daemon. This
 # setting defaults to logging to syslog.
 #
-# If you use systemd, do not configure a log_file. With systemd, MPD
-# defaults to the systemd journal, which is fine.
+# MPD's own log lines carry a timestamp, and sending them to stderr under
+# systemd makes MPD drop it. MPD is the only writer to this log file.
 #
 log_file			"PLACEHOLDER_LOGFILE_MPD"
 
