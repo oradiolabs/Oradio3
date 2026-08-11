@@ -42,6 +42,12 @@ Created on December 23, 2024
         Connecting through a captive portal (detected but not handled).
         Connecting to VPN.
 """
+# File exceeds pylint's default 1000-line module threshold. The bulk of it is
+# one cohesive class (WifService) plus its own standalone test menu in
+# __main__, matching every other module in this codebase (see utilities.py,
+# wifi_service.py); splitting WifiService itself would hurt cohesion more than
+# it would help, so the check is disabled here rather than restructured.
+# pylint: disable=too-many-lines
 from typing import Any
 from time import sleep, monotonic
 from threading import Thread, Lock, Event
