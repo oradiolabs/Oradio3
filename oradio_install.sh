@@ -51,12 +51,33 @@ SCRIPT_NAME=$(basename "$BASH_SOURCE")
 # Working directory
 cd "$SCRIPT_PATH" || { echo -e "${RED}Aborting: Failed to cd to $SCRIPT_PATH${NC}"; exit 1; }
 
+# Validate constants.env: every non-blank, non-comment line must be a plain KEY=value assignment
+while IFS= read -r LINE || [ -n "$LINE" ]; do
+	# Skip blanks and comments
+	[[ "$LINE" =~ ^[[:space:]]*(#|$) ]] && continue
+	if ! [[ "$LINE" =~ ^[A-Za-z_][A-Za-z0-9_]*=[A-Za-z0-9_./:@-]*$ ]]; then
+		echo -e "${RED}Aborting: malformed line in constants.env: '$LINE'${NC}"
+		exit 1
+	fi
+done < "$SCRIPT_PATH/constants.env"
+
+# Constants shared with the Python project (Main/constants.py)
+set -a		# Mark variables for export
+. "$SCRIPT_PATH/constants.env" || { echo -e "${RED}Aborting: Failed to load constants.env${NC}"; exit 1; }
+set +a
+
+# Names defined in constants.env, so install_resource can expand each one
+# as PLACEHOLDER_<NAME> without needing to be edited when a constant is added
+mapfile -t CONSTANT_NAMES < <(sed -n 's/^[[:space:]]*\([A-Za-z_][A-Za-z0-9_]*\)=.*/\1/p' "$SCRIPT_PATH/constants.env")
+
 # Location of Oradio3 program
 MAIN_PATH="$SCRIPT_PATH/Main"
 # Location of log files
 LOGGING_PATH="$SCRIPT_PATH/logging"
 # Spotify directory
 SPOTIFY_PATH="$SCRIPT_PATH/Spotify"
+# Location of Oradio3 system sounds
+SOUNDS_PATH="$SCRIPT_PATH/system_sounds"
 # Location of files to install
 RESOURCES_PATH="$SCRIPT_PATH/install_resources"
 
@@ -67,13 +88,14 @@ mkdir -p "$LOGGING_PATH" || { echo -e "${RED}Aborting: Failed to create director
 LOGFILE_USB="$LOGGING_PATH/usb.log"
 LOGFILE_MPD="$LOGGING_PATH/mpd.log"
 LOGFILE_BOOT="$LOGGING_PATH/boot.log"
-LOGFILE_UPDATE="$LOGGING_PATH/update.log"
 LOGFILE_SPOTIFY="$LOGGING_PATH/spotify.log"
 LOGFILE_INSTALL="$LOGGING_PATH/install.log"
 LOGFILE_TRACEBACK="$LOGGING_PATH/traceback.log"
 
-# Separation between USB present and Update started announcements
-DELAY_UPDATE_MESSAGE=4
+# Ensure logfiles exist and are owned by the invoking user before any service opens them
+for VAR_NAME in "${!LOGFILE_@}"; do
+	touch "${!VAR_NAME}" || { echo -e "${RED}Aborting: Failed to create ${!VAR_NAME}${NC}"; exit 1; }
+done
 
 # Redirect script output to console and file
 exec > >(tee -a "$LOGFILE_INSTALL") 2>&1
@@ -93,9 +115,6 @@ if [ "$OSVERSION" != "$TARGETOS" ]; then
 	# Stop with error flag
 	exit 1
 fi
-
-# Network domain name
-HOSTNAME="oradio"
 
 # Clear flag indicating reboot required to complete the installation
 unset REBOOT_NEEDED
@@ -145,9 +164,9 @@ function install_resource {
 		# Replace placeholders. Combined into one sed invocation (instead of one
 		# `sed -i` per substitution) to avoid re-opening/rewriting the file N times.
 		local SED_ARGS=(-e "s/PLACEHOLDER_USER/$(id -un)/g" -e "s/PLACEHOLDER_GROUP/$(id -gn)/g")
-		for VAR_NAME in MAIN_PATH SPOTIFY_PATH LOGGING_PATH \
-						LOGFILE_USB LOGFILE_BOOT LOGFILE_UPDATE LOGFILE_MPD \
-						LOGFILE_INSTALL LOGFILE_SPOTIFY LOGFILE_TRACEBACK; do
+		for VAR_NAME in MAIN_PATH LOGGING_PATH SPOTIFY_PATH SOUNDS_PATH LOGFILE_USB LOGFILE_MPD \
+			LOGFILE_BOOT LOGFILE_SPOTIFY LOGFILE_INSTALL LOGFILE_TRACEBACK \
+			"${CONSTANT_NAMES[@]}"; do
 			local VALUE="${!VAR_NAME}"
 			# Escape & because sed treats it specially in the replacement text
 			local ESCAPED_VALUE
@@ -161,7 +180,7 @@ function install_resource {
 
 	# Install only if files differ
 	if ! cmp -s "$SRC" "$DST"; then
-		echo "Installing '$SRC' to '$DST'"
+		echo "Installing '$SRC' to '$DST'..."
 		if ! sudo cp "$SRC" "$DST"; then
 			echo -e "${RED}Failed to install '$DST'${NC}"
 			INSTALL_ERROR=1
@@ -172,7 +191,7 @@ function install_resource {
 		# checked independently and failures are recorded but don't stop the loop,
 		# so a single bad follow-up command doesn't hide problems with the others.
 		for CMD in "$@"; do
-			echo "Executing: '$CMD'"
+			echo "Executing: '$CMD'..."
 			if ! sudo bash -c "$CMD"; then
 				echo -e "${RED}Command failed: '$CMD'${NC}"
 				INSTALL_ERROR=1
@@ -248,6 +267,7 @@ if [ "${1:-}" != "--continue" ]; then
 		mpc
 		caps
 		iptables
+		swupdate
 		raspotify
 		python3-gi
 		python3-dev
@@ -296,8 +316,7 @@ if [ "${1:-}" != "--continue" ]; then
 				# `sh` the local copy (optionally after inspecting/pinning it).
 				if curl -sL https://dtcooper.github.io/raspotify/install.sh | sh; then
 					# Only keep librespot
-					sudo systemctl stop raspotify
-					sudo systemctl disable raspotify
+					sudo systemctl mask --now raspotify
 				else
 					echo -e "${RED}Failed to install raspotify${NC}"
 					INSTALL_ERROR=1
@@ -556,12 +575,15 @@ sudo raspi-config nonint do_wifi_country NL		# Implicitly activates wifi
 ORADIO_HOSTNAME=oradio
 sudo hostnamectl set-hostname "$ORADIO_HOSTNAME"
 sudo sed -i "s/^127.0.1.1.*/127.0.1.1\t${ORADIO_HOSTNAME}/g" /etc/hosts
+
 # Set Top Level Domain (TLD) to 'local', enabling access via http://oradio.local
 sudo sed -i "s/^.domain-name=.*/domain-name=local/g" /etc/avahi/avahi-daemon.conf
+
 # Allow mDNS on wired and wireless interfaces
 sudo sed -i "s/^#allow-interfaces=.*/allow-interfaces=eth0,wlan0/g" /etc/avahi/avahi-daemon.conf
+
 # Progress report
-echo -e "${GREEN}Wifi is enabled and network domain is set to '${HOSTNAME}.local'${NC}"
+echo -e "${GREEN}Wifi is enabled and network domain is set to '${ORADIO_HOSTNAME}.local'${NC}"
 
 # Comment any active AcceptEnv lines in main config
 sudo sed -Ei '/^[[:space:]]*AcceptEnv/ s/^[[:space:]]*/#/' /etc/ssh/sshd_config
@@ -585,7 +607,7 @@ fi
 # Generate new sw version info
 sudo bash -c 'cat << EOL > /var/log/oradio_sw_version.log
 {
-    "serial": "$1",
+    "dtstamp": "$1",
     "gitinfo": "$2"
 }
 EOL' -- "$gitdate" "$gitinfo"
@@ -609,14 +631,12 @@ fi
 
 # Install udev rules triggering when inserting/removing ORADIO USB drive
 install_resource "$RESOURCES_PATH/99-local.rules" /etc/udev/rules.d/99-local.rules
-# Configure the USB service triggered at boot
-install_resource "$RESOURCES_PATH/usb-drive-boot.service" /etc/systemd/system/usb-drive-boot.service 'systemctl enable usb-drive-boot.service'
 # Configure the USB service triggered by udev rules
 install_resource "$RESOURCES_PATH/usb-drive@.service" /etc/systemd/system/usb-drive@.service
-# Configure the USB mount/unmount script used by the system service
+# Install the USB mount/unmount script used by the system service
 install_resource "$RESOURCES_PATH/usb-drive.sh" /usr/local/sbin/usb-drive.sh 'chmod +x /usr/local/sbin/usb-drive.sh'
 # Progress report
-echo -e "${GREEN}USB functionalty loaded and configured. System automounts USB drives on '/media'${NC}"
+echo -e "${GREEN}USB functionality loaded and configured. System automounts USB drives on '$USB_MOUNT_POINT'${NC}"
 
 # Activate i2c interface
 # https://www.raspberrypi.com/documentation/computers/configuration.html#i2c-nonint
@@ -647,12 +667,9 @@ install_resource "$RESOURCES_PATH/logrotate.timer" /etc/systemd/system/logrotate
 # Progress report
 echo -e "${GREEN}Log files rotation configured${NC}"
 
-# Configure Spotify connect
-# Ensure logfile exists with correct ownership and permissions before starting librespot
-touch "$LOGFILE_SPOTIFY"
 # Ensure Spotify directory and flag files exist with default '0' and correct ownership and permissions
 mkdir -p "$SPOTIFY_PATH" || { echo -e "${RED}Aborting: Failed to create directory $SPOTIFY_PATH${NC}"; exit 1; }
-for flag in spotactive.flag spotplaying.flag; do
+for flag in "$SPOTIFY_ACTIVE_FLAG_NAME" "$SPOTIFY_PLAYING_FLAG_NAME"; do
 	file="$SPOTIFY_PATH/$flag"
 	if [ ! -f "$file" ]; then
 		echo "0" >"$file" || { echo -e "${RED}Aborting: Failed to write $file${NC}"; exit 1; }
@@ -665,12 +682,15 @@ install_resource "$RESOURCES_PATH/librespot.service" /etc/systemd/system/libresp
 # Progress report
 echo -e "${GREEN}Spotify connect functionality is installed and configured${NC}"
 
-# Install the send_log_files_to_rms script
-install_resource "$RESOURCES_PATH/send_log_files_to_rms.sh" /usr/local/bin/send_log_files_to_rms.sh 'chmod +x /usr/local/bin/send_log_files_to_rms.sh'
 # Install the about script
 install_resource "$RESOURCES_PATH/about" /usr/local/bin/about 'chmod +x /usr/local/bin/about'
 # Progress report
 echo -e "${GREEN}Support tools installed${NC}"
+
+# Configure the power-save (USB low idle power) service to start on boot
+install_resource "$RESOURCES_PATH/usb_low_idle_power.service" /etc/systemd/system/usb_low_idle_power.service 'systemctl enable usb_low_idle_power.service'
+# Progress report
+echo -e "${GREEN}Power save features configured${NC}"
 
 # Configure the oradio service to start on boot
 install_resource "$RESOURCES_PATH/oradio.service" /etc/systemd/system/oradio.service 'systemctl enable oradio.service'
