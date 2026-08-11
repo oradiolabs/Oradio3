@@ -158,6 +158,9 @@ function install_resource {
 
 	if [ -f "$SRC.template" ]; then
 
+		# ensure destination exists
+		sudo install -d -m 0755 "$(dirname "$DST")"
+
 		# Create by replacing placeholders
 		cp "$SRC.template" "$SRC" || { echo -e "${RED}Failed to copy $SRC.template to $SRC${NC}"; INSTALL_ERROR=1; return 1; }
 
@@ -634,6 +637,8 @@ install_resource "$RESOURCES_PATH/99-local.rules" /etc/udev/rules.d/99-local.rul
 install_resource "$RESOURCES_PATH/usb-drive@.service" /etc/systemd/system/usb-drive@.service
 # Install the USB mount/unmount script used by the system service
 install_resource "$RESOURCES_PATH/usb-drive.sh" /usr/local/sbin/usb-drive.sh 'chmod +x /usr/local/sbin/usb-drive.sh'
+# Configure the USB boot service to start on boot
+install_resource "$RESOURCES_PATH/usb-drive-boot.service" /etc/systemd/system/usb-drive-boot.service 'systemctl enable usb-drive-boot.service'
 # Progress report
 echo -e "${GREEN}USB functionality loaded and configured. System automounts USB drives on '$USB_MOUNT_POINT'${NC}"
 
@@ -656,16 +661,14 @@ install_resource "$RESOURCES_PATH/mpd.conf" /etc/mpd.conf
 # Install empty MPD database (prevents MPD updating when starting)
 install_resource "$RESOURCES_PATH/mpd.database" /var/lib/mpd/tag_cache
 # Configure the MPD service to start on boot
-install_resource "$RESOURCES_PATH/mpd-oradio.conf" /etc/systemd/system/mpd-oradio.conf 'systemctl enable mpd.service'
+install_resource "$RESOURCES_PATH/mpd-oradio.conf" /etc/systemd/system/mpd.service.d/oradio.conf 'systemctl enable mpd.service'
 # Progress report
 echo -e "${GREEN}Audio installed and configured${NC}"
 
 # Configure log file rotation to limit logfile size
 install_resource "$RESOURCES_PATH/logrotate.conf" /etc/logrotate.d/oradio
-# Ensure drop-in folder exists
-sudo mkdir -p /etc/systemd/system/logrotate.timer.d
 # Configure rotation timer to limit logfile size
-install_resource "$RESOURCES_PATH/logrotate-timer-override.conf" /etc/systemd/system/logrotate.timer.d/oradio.conf 'systemctl daemon-reload'
+install_resource "$RESOURCES_PATH/logrotate-timer-override.conf" /etc/systemd/system/logrotate.timer.d/oradio.conf
 # Progress report
 echo -e "${GREEN}Log files rotation configured${NC}"
 
