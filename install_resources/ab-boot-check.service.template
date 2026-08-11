@@ -1,0 +1,32 @@
+[Unit]
+Description=Detect an A/B trial boot or a rollback
+Documentation=file:/usr/local/sbin/ab-boot-trial.sh
+# Needs the boot partition mounted: the trial state lives there.
+After=local-fs.target
+Requires=local-fs.target
+# Run before anything that depends on which slot is live.
+Before=multi-user.target
+
+[Service]
+# Service runs a single task and then exits.
+Type=oneshot
+
+# Redirect stdout (fd 1) and stderr (fd 2) to the log file.
+# Note this takes the output *out* of the journal: journalctl -u ab-boot-check will be empty.
+StandardOutput=append:PLACEHOLDER_LOGFILE_BOOT
+StandardError=append:PLACEHOLDER_LOGFILE_BOOT
+
+# Set logfile ownership. '+' means run this command as root.
+ExecStartPre=-+/usr/bin/chown PLACEHOLDER_USER:PLACEHOLDER_GROUP PLACEHOLDER_LOGFILE_BOOT
+
+# 'check' is the read-mostly subcommand: it decides whether a trial is in progress,
+# whether the firmware rolled back, and records the failed version if so.
+ExecStart=/usr/local/sbin/ab-boot-trial.sh check
+
+# Keep the unit "active" after the script exits, so systemctl status reflects
+# that the check ran this boot rather than showing it as dead.
+RemainAfterExit=yes
+
+[Install]
+# Started at every boot once enabled
+WantedBy=multi-user.target
