@@ -145,7 +145,9 @@ function install_resource {
 		# Replace placeholders. Combined into one sed invocation (instead of one
 		# `sed -i` per substitution) to avoid re-opening/rewriting the file N times.
 		local SED_ARGS=(-e "s/PLACEHOLDER_USER/$(id -un)/g" -e "s/PLACEHOLDER_GROUP/$(id -gn)/g")
-		for VAR_NAME in MAIN_PATH SPOTIFY_PATH LOGGING_PATH LOGFILE_USB LOGGING_PATH LOGFILE_BOOT LOGGING_PATH LOGFILE_UPDATE LOGFILE_MPD LOGFILE_INSTALL LOGFILE_SPOTIFY LOGFILE_TRACEBACK; do
+		for VAR_NAME in MAIN_PATH SPOTIFY_PATH LOGGING_PATH \
+						LOGFILE_USB LOGFILE_BOOT LOGFILE_UPDATE LOGFILE_MPD \
+						LOGFILE_INSTALL LOGFILE_SPOTIFY LOGFILE_TRACEBACK; do
 			local VALUE="${!VAR_NAME}"
 			# Escape & because sed treats it specially in the replacement text
 			local ESCAPED_VALUE
@@ -612,7 +614,7 @@ install_resource "$RESOURCES_PATH/usb-drive-boot.service" /etc/systemd/system/us
 # Configure the USB service triggered by udev rules
 install_resource "$RESOURCES_PATH/usb-drive@.service" /etc/systemd/system/usb-drive@.service
 # Configure the USB mount/unmount script used by the system service
-install_resource "$RESOURCES_PATH/usb-drive.sh" /usr/local/bin/usb-drive.sh 'chmod +x /usr/local/bin/usb-drive.sh'
+install_resource "$RESOURCES_PATH/usb-drive.sh" /usr/local/sbin/usb-drive.sh 'chmod +x /usr/local/sbin/usb-drive.sh'
 # Progress report
 echo -e "${GREEN}USB functionalty loaded and configured. System automounts USB drives on '/media'${NC}"
 
