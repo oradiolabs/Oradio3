@@ -14,8 +14,8 @@ StandardError=append:PLACEHOLDER_LOGFILE_SPOTIFY
 # Set logfile ownership. '+' means run this command as root.
 ExecStartPre=-+/usr/bin/chown PLACEHOLDER_USER:PLACEHOLDER_GROUP PLACEHOLDER_LOGFILE_SPOTIFY
 
-# Ensure ALSA channel is muted before starting
-ExecStartPre=/usr/bin/amixer -c DigiAMP sset VolumeSpotCon1 0%
+# Ensure ALSA channel is muted before starting (leading - ignores exit status)
+ExecStartPre=-/usr/bin/amixer -c DigiAMP sset VolumeSpotCon1 0%
 
 # Reset flag files before starting librespot
 ExecStartPre=/bin/sh -c 'echo 0 > PLACEHOLDER_SPOTIFY_PATH/spotactive.flag'
@@ -38,3 +38,6 @@ ExecStart=/usr/bin/librespot \
 
 Restart=always
 RestartSec=10
+
+[Install]
+WantedBy=multi-user.target
