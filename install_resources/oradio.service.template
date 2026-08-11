@@ -12,7 +12,7 @@ StartLimitBurst=5
 Type=simple
 
 # Scheduling priority is NOT set here. It is applied by optimize_boot_time.sh as
-# a drop-in at /etc/systemd/system/ab-boot-check.service.d/oradio-sched.conf:
+# a drop-in at /etc/systemd/system/oradio.service.d/oradio-sched.conf:
 #
 #   [Service]
 #   Nice=-5
