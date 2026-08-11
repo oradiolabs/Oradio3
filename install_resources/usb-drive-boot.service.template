@@ -1,0 +1,29 @@
+# Placeholders will be modified by ../oradio_install.sh script
+
+[Unit]
+Description=USB drive handler (ORADIO) boot fast path
+DefaultDependencies=no
+After=systemd-remount-fs.service
+ConditionPathExistsGlob=/dev/sd?1
+
+[Service]
+# Service runs a single task and then exits.
+Type=oneshot
+
+# Redirect stdout (fd 1) and stderr (fd 2) to the log file.
+# Note this takes the output *out* of the journal: journalctl -u usb will be empty.
+StandardOutput=append:PLACEHOLDER_LOGFILE_USB
+StandardError=append:PLACEHOLDER_LOGFILE_USB
+
+# Set logfile ownership. '+' means run this command as root.
+ExecStartPre=-+/usr/bin/chown PLACEHOLDER_USER:PLACEHOLDER_GROUP PLACEHOLDER_LOGFILE_USB
+
+ExecStart=/usr/local/sbin/usb-drive.sh add
+TimeoutStartSec=60
+
+# Keep the unit "active" after the script exits, so systemctl status reflects
+# that the check ran this boot rather than showing it as dead.
+RemainAfterExit=yes
+
+[Install]
+WantedBy=sysinit.target
