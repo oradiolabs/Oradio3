@@ -4,10 +4,28 @@ Description=USB drive handler (ORADIO)
 After=systemd-udevd.service
 
 [Service]
-# Controls where file descriptor 1 (stdout) and 2 (stderr) of the executed processes is connected to
+# Service runs a single task and then exits.
+Type=oneshot
+
+# Redirect stdout (fd 1) and stderr (fd 2) to the log file.
+# Note this takes the output *out* of the journal: journalctl -u usb-drive will be empty.
 StandardOutput=append:PLACEHOLDER_LOGFILE_USB
 StandardError=append:PLACEHOLDER_LOGFILE_USB
-# Service runs a single task and then exits
-Type=oneshot
-# %i expands to the instance name from the template
-ExecStart=/usr/local/bin/usb-drive.sh %i
+
+# Set logfile ownership. '+' means run this command as root.
+ExecStartPre=-+/usr/bin/chown PLACEHOLDER_USER:PLACEHOLDER_GROUP PLACEHOLDER_LOGFILE_USB
+
+# %i expands to the instance name from the template.
+ExecStart=/usr/local/sbin/usb-drive.sh %i
+
+# Type=oneshot defaults to TimeoutStartSec=infinity, NOT to the 90s default that
+# other service types get. Without this, a hung mount on a failing stick blocks
+# the unit forever - and it holds the script's lock while it does, so every
+# later add/remove queues behind it.
+TimeoutStartSec=120
+
+# Do NOT add ProtectSystem=, PrivateTmp=, ProtectHome= or similar sandboxing
+# here. They place the service in a private mount namespace, and the mount
+# would then be invisible to every other process on the system.
+
+# No [Install] section: this unit is started by name from a udev rule, never enabled.
