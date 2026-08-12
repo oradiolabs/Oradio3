@@ -86,11 +86,13 @@ SERVER_READY_TIMEOUT = 15
 # list in the background at startup, so nothing is scanned on this path. The
 # exception is the access point being requested seconds after power-on, before
 # that list is built, where wifi_service waits for it -- bounded there by
-# AP_LIST_READY_TIMEOUT (20s). This value must stay above that bound, so the
-# access point is reported rather than declared failed while it is merely
-# waiting. Waiting longer costs nothing on success: _wait_for_wifi_state()
-# returns as soon as the state arrives.
-WIFI_STATE_TIMEOUT = 30
+# AP_LIST_READY_TIMEOUT (35s). This value must stay above that bound plus the
+# ~1.5s the access point takes to come up and the 1s poll granularity below,
+# so the access point is reported rather than declared failed while it is
+# merely waiting. Waiting longer costs nothing on success:
+# _wait_for_wifi_state() returns as soon as the state arrives. Read the
+# AP_LIST_READY_TIMEOUT comment in wifi_service.py before changing either.
+WIFI_STATE_TIMEOUT = 45
 
 SOCKET_TIMEOUT = 3   # WebSocket ping interval/timeout in seconds; safe for small devices and networks
 
