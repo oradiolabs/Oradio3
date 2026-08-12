@@ -159,7 +159,7 @@ function install_resource {
 	if [ -f "$SRC.template" ]; then
 
 		# ensure destination exists
-		sudo install -d -m 0755 "$(dirname "$DST")"
+		sudo mkdir -p "$(dirname "$DST")"
 
 		# Create by replacing placeholders
 		cp "$SRC.template" "$SRC" || { echo -e "${RED}Failed to copy $SRC.template to $SRC${NC}"; INSTALL_ERROR=1; return 1; }

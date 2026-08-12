@@ -9,9 +9,8 @@
 # picked up again on the next run.
 #
 # 'size 100k' is threshold-based, not time-based: logrotate rotates whenever
-# the file exceeds 100k at the moment it runs, and ignores daily/weekly
-# directives entirely. How often that check happens is therefore set by
-# logrotate.timer, not by this file. See logrotate-timer-override.conf.
+# the file exceeds 100k at the moment it runs, and ignores daily/weekly directives
+# entirely. How often that check happens is therefore set by logrotate.timer.
 
 PLACEHOLDER_LOGGING_PATH/*.log {
 	# Act as the owner of the log directory rather than as root
