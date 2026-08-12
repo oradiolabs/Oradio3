@@ -72,7 +72,7 @@ fi
 # Mask a unit, but only if it actually exists.
 # 'systemctl mask' silently succeeds on non-existent units, which hides typos.
 mask_unit() {
-	local unit="$1"
+	local unit="$1" err
 
 	if ! systemctl list-unit-files --no-legend -- "$unit" 2>/dev/null | grep -q .; then
 		echo "Unit '$unit' not present, skipping"
@@ -81,10 +81,11 @@ mask_unit() {
 
 	if [[ "$(systemctl is-enabled "$unit" 2>/dev/null || true)" == "masked" ]]; then
 		echo "Unit '$unit' already masked"
-	elif sudo systemctl mask "$unit" >/dev/null; then
+	elif err="$(sudo systemctl mask "$unit" 2>&1 >/dev/null)"; then
 		echo "Unit '$unit' masked"
 	else
 		echo -e "${YELLOW}Warning: failed to mask unit '$unit'${NC}"
+		[[ -n "$err" ]] && printf '%s\n' "$err" >&2
 		FAILURES=$((FAILURES + 1))
 	fi
 }
