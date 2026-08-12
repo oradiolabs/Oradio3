@@ -67,8 +67,8 @@ from constants import (
 
 #### LOCAL constants ######################################
 # Fallback values returned by _get_sw_info() when the version file is absent or unreadable
-INFO_MISSING = {"serial": "not found", "version": "not found"}
-INFO_ERROR   = {"serial": "undefined", "version": "undefined"}
+INFO_MISSING = {"dtstamp": "not found", "version": "not found"}
+INFO_ERROR   = {"dtstamp": "undefined", "version": "undefined"}
 
 # Location of the JSON file written by the build/deploy process
 SOFTWARE_VERSION_FILE = "/var/log/oradio_sw_version.log"
@@ -156,11 +156,11 @@ def _get_sw_info() -> dict:
     """
     Read software version metadata from the version file.
 
-    Parses the JSON file at SOFTWARE_VERSION_FILE and extracts the
-    serial and gitinfo fields.
+    Parses the JSON file at SOFTWARE_VERSION_FILE and extracts
+    the timestamp and gitinfo fields.
 
     Returns:
-        dict with keys "serial" (str) and "version" (str) on success.
+        dict with keys "dtstamp" (str) and "version" (str) on success.
         Falls back to INFO_MISSING if the file does not exist, or
         INFO_ERROR if the file is present but unreadable or invalid.
     """
@@ -170,7 +170,7 @@ def _get_sw_info() -> dict:
         with open(SOFTWARE_VERSION_FILE, encoding="utf-8") as file:
             data = load(file)
             software_info = {
-                "serial" : data.get("serial",  "missing serial"),
+                "dtstamp": data.get("dtstamp", "missing dtstamp"),
                 "version": data.get("gitinfo", "missing gitinfo"),
             }
     except FileNotFoundError:
@@ -554,7 +554,6 @@ async def oradio3_page(request: Request):
         return JSONResponse(status_code=400, content={"message": response})
     spotify = response
 
-    serial  = get_serial()
     sw_info = _get_sw_info()
 
     context = {
@@ -563,8 +562,8 @@ async def oradio3_page(request: Request):
         "presets"    : load_presets(),
         "directories": mpd_control.get_directories(),
         "playlists"  : mpd_control.get_playlists(),
-        "serial"     : serial,
-        "sw_serial"  : sw_info["serial"],
+        "hw_serial"  : get_serial(),
+        "sw_dtstamp" : sw_info["dtstamp"],
         "sw_version" : sw_info["version"],
     }
 
