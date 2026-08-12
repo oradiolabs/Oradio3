@@ -156,10 +156,16 @@ function install_resource {
 	local DST=$2
 	shift 2
 
-	if [ -f "$SRC.template" ]; then
+	# Ensure destination directory exists
+	local DST_DIR
+	DST_DIR=$(dirname "$DST")
+	if ! sudo mkdir -p "$DST_DIR"; then
+		echo -e "${RED}Failed to create directory '$DST_DIR'${NC}"
+		INSTALL_ERROR=1
+		return 1
+	fi
 
-		# ensure destination exists
-		sudo mkdir -p "$(dirname "$DST")"
+	if [ -f "$SRC.template" ]; then
 
 		# Create by replacing placeholders
 		cp "$SRC.template" "$SRC" || { echo -e "${RED}Failed to copy $SRC.template to $SRC${NC}"; INSTALL_ERROR=1; return 1; }
