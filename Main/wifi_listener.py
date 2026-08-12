@@ -804,7 +804,8 @@ if __name__ == '__main__':
     # Most stand-alone entry points share this pattern across modules
     # pylint: disable=duplicate-code
 
-    def interactive_menu() -> None:
+    # Pylint PEP8 ignoring limit of max 12 branches is ok for test menu
+    def interactive_menu() -> None:     # pylint: disable=too-many-branches
         """
         Run an interactive self-test menu for the WiFi event listener.
 
