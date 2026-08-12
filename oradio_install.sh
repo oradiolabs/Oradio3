@@ -51,12 +51,33 @@ SCRIPT_NAME=$(basename "$BASH_SOURCE")
 # Working directory
 cd "$SCRIPT_PATH" || { echo -e "${RED}Aborting: Failed to cd to $SCRIPT_PATH${NC}"; exit 1; }
 
+# Validate constants.env: every non-blank, non-comment line must be a plain KEY=value assignment
+while IFS= read -r LINE || [ -n "$LINE" ]; do
+	# Skip blanks and comments
+	[[ "$LINE" =~ ^[[:space:]]*(#|$) ]] && continue
+	if ! [[ "$LINE" =~ ^[A-Za-z_][A-Za-z0-9_]*=[A-Za-z0-9_./:@-]*$ ]]; then
+		echo -e "${RED}Aborting: malformed line in constants.env: '$LINE'${NC}"
+		exit 1
+	fi
+done < "$SCRIPT_PATH/constants.env"
+
+# Constants shared with the Python project (Main/constants.py)
+set -a		# Mark variables for export
+. "$SCRIPT_PATH/constants.env" || { echo -e "${RED}Aborting: Failed to load constants.env${NC}"; exit 1; }
+set +a
+
+# Names defined in constants.env, so install_resource can expand each one
+# as PLACEHOLDER_<NAME> without needing to be edited when a constant is added
+mapfile -t CONSTANT_NAMES < <(sed -n 's/^[[:space:]]*\([A-Za-z_][A-Za-z0-9_]*\)=.*/\1/p' "$SCRIPT_PATH/constants.env")
+
 # Location of Oradio3 program
 MAIN_PATH="$SCRIPT_PATH/Main"
 # Location of log files
 LOGGING_PATH="$SCRIPT_PATH/logging"
 # Spotify directory
 SPOTIFY_PATH="$SCRIPT_PATH/Spotify"
+# Location of Oradio3 system sounds
+SOUNDS_PATH="$SCRIPT_PATH/system_sounds"
 # Location of files to install
 RESOURCES_PATH="$SCRIPT_PATH/install_resources"
 
@@ -66,9 +87,15 @@ mkdir -p "$LOGGING_PATH" || { echo -e "${RED}Aborting: Failed to create director
 # Define log files
 LOGFILE_USB="$LOGGING_PATH/usb.log"
 LOGFILE_MPD="$LOGGING_PATH/mpd.log"
+LOGFILE_BOOT="$LOGGING_PATH/boot.log"
 LOGFILE_SPOTIFY="$LOGGING_PATH/spotify.log"
 LOGFILE_INSTALL="$LOGGING_PATH/install.log"
 LOGFILE_TRACEBACK="$LOGGING_PATH/traceback.log"
+
+# Ensure logfiles exist and are owned by the invoking user before any service opens them
+for VAR_NAME in "${!LOGFILE_@}"; do
+	touch "${!VAR_NAME}" || { echo -e "${RED}Aborting: Failed to create ${!VAR_NAME}${NC}"; exit 1; }
+done
 
 # Redirect script output to console and file
 exec > >(tee -a "$LOGFILE_INSTALL") 2>&1
@@ -88,9 +115,6 @@ if [ "$OSVERSION" != "$TARGETOS" ]; then
 	# Stop with error flag
 	exit 1
 fi
-
-# Network domain name
-HOSTNAME="oradio"
 
 # Clear flag indicating reboot required to complete the installation
 unset REBOOT_NEEDED
@@ -132,6 +156,15 @@ function install_resource {
 	local DST=$2
 	shift 2
 
+	# Ensure destination directory exists
+	local DST_DIR
+	DST_DIR=$(dirname "$DST")
+	if ! sudo mkdir -p "$DST_DIR"; then
+		echo -e "${RED}Failed to create directory '$DST_DIR'${NC}"
+		INSTALL_ERROR=1
+		return 1
+	fi
+
 	if [ -f "$SRC.template" ]; then
 
 		# Create by replacing placeholders
@@ -140,7 +173,9 @@ function install_resource {
 		# Replace placeholders. Combined into one sed invocation (instead of one
 		# `sed -i` per substitution) to avoid re-opening/rewriting the file N times.
 		local SED_ARGS=(-e "s/PLACEHOLDER_USER/$(id -un)/g" -e "s/PLACEHOLDER_GROUP/$(id -gn)/g")
-		for VAR_NAME in MAIN_PATH SPOTIFY_PATH LOGGING_PATH LOGFILE_USB LOGFILE_MPD LOGFILE_INSTALL LOGFILE_SPOTIFY LOGFILE_TRACEBACK; do
+		for VAR_NAME in MAIN_PATH LOGGING_PATH SPOTIFY_PATH SOUNDS_PATH LOGFILE_USB LOGFILE_MPD \
+			LOGFILE_BOOT LOGFILE_SPOTIFY LOGFILE_INSTALL LOGFILE_TRACEBACK \
+			"${CONSTANT_NAMES[@]}"; do
 			local VALUE="${!VAR_NAME}"
 			# Escape & because sed treats it specially in the replacement text
 			local ESCAPED_VALUE
@@ -154,7 +189,7 @@ function install_resource {
 
 	# Install only if files differ
 	if ! cmp -s "$SRC" "$DST"; then
-		echo "Installing '$SRC' to '$DST'"
+		echo "Installing '$SRC' to '$DST'..."
 		if ! sudo cp "$SRC" "$DST"; then
 			echo -e "${RED}Failed to install '$DST'${NC}"
 			INSTALL_ERROR=1
@@ -165,7 +200,7 @@ function install_resource {
 		# checked independently and failures are recorded but don't stop the loop,
 		# so a single bad follow-up command doesn't hide problems with the others.
 		for CMD in "$@"; do
-			echo "Executing: '$CMD'"
+			echo "Executing: '$CMD'..."
 			if ! sudo bash -c "$CMD"; then
 				echo -e "${RED}Command failed: '$CMD'${NC}"
 				INSTALL_ERROR=1
@@ -289,8 +324,7 @@ if [ "${1:-}" != "--continue" ]; then
 				# `sh` the local copy (optionally after inspecting/pinning it).
 				if curl -sL https://dtcooper.github.io/raspotify/install.sh | sh; then
 					# Only keep librespot
-					sudo systemctl stop raspotify
-					sudo systemctl disable raspotify
+					sudo systemctl mask --now raspotify
 				else
 					echo -e "${RED}Failed to install raspotify${NC}"
 					INSTALL_ERROR=1
@@ -311,16 +345,66 @@ if [ "${1:-}" != "--continue" ]; then
 
 ########## ORADIO3 LINUX PACKAGES END ##########
 
-########## PYTHON BEGIN ##########
+########## UV BEGIN ##########
 
-	# If needed, prepare python virtual environment including system site packages
-	if [ -n "${REBUILD_PYTHON_ENV:-}" ]; then
-		echo "Configuring Python virtual environment"
-		python3 -m venv --system-site-packages ~/.venv
+	# 'uv' is a drop-in replacement for pip that resolves and installs an
+	# entire package set in one pass, typically an order of magnitude faster
+	# than pip on a Raspberry Pi. It is not in the Debian/Raspberry Pi OS
+	# archives, so we install Astral's prebuilt aarch64 binary.
+	#
+	# /usr/local/bin (rather than ~/.local/bin) keeps uv reachable from sudo,
+	# cron and systemd units, and survives a change of login user.
+	#
+	# UV_NO_MODIFY_PATH stops the installer appending PATH lines to root's
+	# shell profile: /usr/local/bin is already on PATH, so there is nothing
+	# to add. INSTALLER_NO_MODIFY_PATH is the older name for the same knob,
+	# set as well so this keeps working across installer versions.
+	#
+	# NOTE: like the raspotify install above, this pipes a remote, unpinned
+	# script into `sh`. If reproducibility ever matters more than tracking
+	# the latest release, pin it by fetching a specific version instead:
+	#   https://astral.sh/uv/0.9.7/install.sh
+	UV_BIN=/usr/local/bin/uv
+	if [ ! -x "$UV_BIN" ]; then
+		echo -e "${YELLOW}uv is missing: installing...${NC}"
+		if ! curl -LsSf https://astral.sh/uv/install.sh | sudo env \
+				UV_INSTALL_DIR=/usr/local/bin \
+				UV_NO_MODIFY_PATH=1 \
+				INSTALLER_NO_MODIFY_PATH=1 \
+				sh; then
+			echo -e "${RED}Aborting: uv installation failed${NC}"
+			exit 1
+		fi
+		if [ ! -x "$UV_BIN" ]; then
+			echo -e "${RED}Aborting: uv not found at $UV_BIN after install${NC}"
+			exit 1
+		fi
 	fi
 
-	# Activate the python virtual environment in current environment
-	source ~/.venv/bin/activate
+	# Progress report
+	echo -e "${GREEN}$("$UV_BIN" --version) is installed${NC}"
+
+########## UV END ##########
+
+########## PYTHON BEGIN ##########
+
+	# If needed, prepare python virtual environment including system site packages.
+	# We also (re)create it when ~/.venv is absent: REBUILD_PYTHON_ENV is only
+	# set when an apt package was actually installed or upgraded, so on a re-run
+	# where every Linux package is already current but ~/.venv has been removed,
+	# the `source` below would fail and every subsequent install would silently
+	# target the system Python instead.
+	if [ ! -f ~/.venv/bin/activate ] || [ -n "${REBUILD_PYTHON_ENV:-}" ]; then
+		echo "Configuring Python virtual environment"
+		python3 -m venv --system-site-packages ~/.venv || { echo -e "${RED}Aborting: Failed to create ~/.venv${NC}"; exit 1; }
+	fi
+
+	# Activate the python virtual environment in current environment.
+	# Guarded: without `set -e`, a failed `source` is silently ignored and
+	# every install below would target the system Python instead, which on
+	# trixie fails with 'externally-managed-environment' (PEP 668). Because
+	# this aborts, the commands below can rely on VIRTUAL_ENV being correct.
+	source ~/.venv/bin/activate || { echo -e "${RED}Aborting: Failed to activate ~/.venv${NC}"; exit 1; }
 
 	# Activate python virtual environment when logging in if not yet present
 	ADDTOBASHRC="source ~/.venv/bin/activate"
@@ -350,37 +434,73 @@ if [ "${1:-}" != "--continue" ]; then
 	)
 
 	# Ensure Python packages are installed and up-to-date.
-	# `pip` tracks installed versions and can diff them against the index
-	# itself, so we ask it once for "what's installed" and once for "what's
-	# outdated", then look up each package in those two results.
-	echo "Collecting installed Python packages status..."
-	INSTALLED_JSON=$(python3 -m pip list --format=json) || { echo -e "${RED}Aborting: pip list failed${NC}"; exit 1; }
-	OUTDATED_JSON=$(python3 -m pip list --outdated --format=json) || { echo -e "${RED}Aborting: pip list --outdated failed${NC}"; exit 1; }
+	#
+	# A single `uv pip install --upgrade` resolves and installs the whole set
+	# in one pass. This replaces the earlier `pip list` + `pip list --outdated`
+	# + per-package `pip install` approach, which was slow for two reasons:
+	# `--outdated` queries the index for every package in the environment (not
+	# just ours), and each install paid its own interpreter startup, index
+	# round-trip and resolve. uv performs the same "already current?" check
+	# itself, so the pre-flight query is redundant.
+	#
+	# uv targets the environment named by VIRTUAL_ENV, which the guarded
+	# `source` above guarantees is set and correct.
+	#
+	# NOTE: uv always builds via PEP 517, so no --use-pep517 flag exists or
+	# is needed. See https://peps.python.org/pep-0517/
 
-	for package in "${PYTHON_PACKAGES[@]}"; do
-		# jq -e exits 1 (not an error) when no entry matches; only a malformed
-		# JSON payload should be treated as a real failure, so we only check
-		# for that below rather than treating "not found" as fatal here.
-		if ! echo "$INSTALLED_JSON" | jq -e --arg pkg "$package" \
-				'.[] | select(.name | ascii_downcase == ($pkg | ascii_downcase))' >/dev/null; then
-			echo -e "${YELLOW}$package is missing: installing...${NC}"
-			# On --use-pep517 see https://peps.python.org/pep-0517/
-			if ! python3 -m pip install --upgrade --use-pep517 "$package"; then
+	# Snapshot versions before installing, so we can report per package below
+	# what was installed, upgraded or already current. Unlike the
+	# `pip list --outdated` this replaces, `uv pip list` only reads local
+	# metadata - it makes no network requests and costs milliseconds.
+	BEFORE_JSON=$("$UV_BIN" pip list --format=json 2>/dev/null) || BEFORE_JSON='[]'
+
+	echo "Installing/upgrading Python packages..."
+	if ! "$UV_BIN" pip install --upgrade "${PYTHON_PACKAGES[@]}"; then
+		# Retry one at a time so a single unresolvable or broken package is
+		# named in the log, instead of the whole batch failing anonymously.
+		# This only runs when the fast path failed, so a healthy install
+		# still costs exactly one uv invocation.
+		echo -e "${YELLOW}Batch install failed: retrying individually...${NC}"
+		for package in "${PYTHON_PACKAGES[@]}"; do
+			if ! "$UV_BIN" pip install --upgrade "$package"; then
 				echo -e "${RED}Failed to install $package${NC}"
 				INSTALL_ERROR=1
 			fi
-		elif echo "$OUTDATED_JSON" | jq -e --arg pkg "$package" \
-				'.[] | select(.name | ascii_downcase == ($pkg | ascii_downcase))' >/dev/null; then
-			echo -e "${YELLOW}$package is outdated: upgrading...${NC}"
-			# On --use-pep517 see https://peps.python.org/pep-0517/
-			if ! python3 -m pip install --upgrade --use-pep517 "$package"; then
-				echo -e "${RED}Failed to upgrade $package${NC}"
-				INSTALL_ERROR=1
-			fi
-		else
-			echo "$package is up-to-date"
-		fi
-	done
+		done
+	fi
+
+	# Report the outcome per package by diffing the before/after snapshots.
+	# Names are normalised per PEP 503 (lowercased, '.' and '_' folded to '-')
+	# because pip reports e.g. 'python_mpd2' where PYTHON_PACKAGES says
+	# 'python-mpd2'; comparing raw names would flag it missing on every run.
+	AFTER_JSON=$("$UV_BIN" pip list --format=json 2>/dev/null) || AFTER_JSON='[]'
+	PKGS_JSON=$(printf '%s\n' "${PYTHON_PACKAGES[@]}" | jq -Rnc '[inputs]')
+
+	# `-n` is required: every input arrives via --argjson, so without it jq
+	# would block waiting on stdin.
+	# Read via process substitution rather than a pipe, so the loop runs in
+	# this shell and an INSTALL_ERROR set below actually survives.
+	while IFS=$'\t' read -r STATUS NAME DETAIL; do
+		case "$STATUS" in
+			INSTALLED) echo -e "${GREEN}$NAME $DETAIL installed${NC}" ;;
+			UPDATED)   echo -e "${GREEN}$NAME updated: $DETAIL${NC}" ;;
+			CURRENT)   echo "$NAME $DETAIL is up-to-date" ;;
+			MISSING)   echo -e "${RED}$NAME is NOT installed${NC}"; INSTALL_ERROR=1 ;;
+		esac
+	done < <(jq -rn \
+			--argjson before "$BEFORE_JSON" \
+			--argjson after "$AFTER_JSON" \
+			--argjson pkgs "$PKGS_JSON" '
+		def norm: ascii_downcase | gsub("[._]"; "-");
+		def index: map({ (.name | norm): .version }) | add // {};
+		($before | index) as $b | ($after | index) as $a |
+		$pkgs[] | . as $name | ($name | norm) as $key |
+		if   ($a[$key] // null) == null then "MISSING\t\($name)\t"
+		elif ($b[$key] // null) == null then "INSTALLED\t\($name)\t\($a[$key])"
+		elif $b[$key] != $a[$key]       then "UPDATED\t\($name)\t\($b[$key]) -> \($a[$key])"
+		else                                 "CURRENT\t\($name)\t\($a[$key])"
+		end')
 
 	# Progress report
 	echo -e "${GREEN}Python packages installed and up-to-date${NC}"
@@ -459,13 +579,10 @@ bash "$RESOURCES_PATH/optimize_boot_time.sh"
 # https://www.raspberrypi.com/documentation/computers/configuration.html#wlan-country-2
 sudo raspi-config nonint do_wifi_country NL		# Implicitly activates wifi
 
-# Change hostname and hosts mapping to reflect the network domain name.
-# Split into two plain sudo commands instead of one `sudo bash -c "... && ..."`
-# chain — neither command needs a shell beyond what sudo already gives it, and
-# this way a failure in one is attributable without guessing which half of the
-# chain broke.
-sudo hostnamectl set-hostname "$HOSTNAME"
-sudo sed -i "s/^127.0.1.1.*/127.0.1.1\t${HOSTNAME}/g" /etc/hosts
+# Change hostname and hosts mapping. Use explicit hostname to avoid confusion.
+ORADIO_HOSTNAME=oradio
+sudo hostnamectl set-hostname "$ORADIO_HOSTNAME"
+sudo sed -i "s/^127.0.1.1.*/127.0.1.1\t${ORADIO_HOSTNAME}/g" /etc/hosts
 
 # Set Top Level Domain (TLD) to 'local', enabling access via http://oradio.local
 sudo sed -i "s/^.domain-name=.*/domain-name=local/g" /etc/avahi/avahi-daemon.conf
@@ -474,7 +591,7 @@ sudo sed -i "s/^.domain-name=.*/domain-name=local/g" /etc/avahi/avahi-daemon.con
 sudo sed -i "s/^#allow-interfaces=.*/allow-interfaces=eth0,wlan0/g" /etc/avahi/avahi-daemon.conf
 
 # Progress report
-echo -e "${GREEN}Wifi is enabled and network domain is set to '${HOSTNAME}.local'${NC}"
+echo -e "${GREEN}Wifi is enabled and network domain is set to '${ORADIO_HOSTNAME}.local'${NC}"
 
 # Comment any active AcceptEnv lines in main config
 sudo sed -Ei '/^[[:space:]]*AcceptEnv/ s/^[[:space:]]*/#/' /etc/ssh/sshd_config
@@ -498,7 +615,7 @@ fi
 # Generate new sw version info
 sudo bash -c 'cat << EOL > /var/log/oradio_sw_version.log
 {
-    "serial": "$1",
+    "dtstamp": "$1",
     "gitinfo": "$2"
 }
 EOL' -- "$gitdate" "$gitinfo"
@@ -524,10 +641,12 @@ fi
 install_resource "$RESOURCES_PATH/99-local.rules" /etc/udev/rules.d/99-local.rules
 # Configure the USB service triggered by udev rules
 install_resource "$RESOURCES_PATH/usb-drive@.service" /etc/systemd/system/usb-drive@.service
-# Configure the USB mount/unmount script used by the system service
-install_resource "$RESOURCES_PATH/usb-drive.sh" /usr/local/bin/usb-drive.sh 'chmod +x /usr/local/bin/usb-drive.sh'
+# Install the USB mount/unmount script used by the system service
+install_resource "$RESOURCES_PATH/usb-drive.sh" /usr/local/sbin/usb-drive.sh 'chmod +x /usr/local/sbin/usb-drive.sh'
+# Configure the USB boot service to start on boot
+install_resource "$RESOURCES_PATH/usb-drive-boot.service" /etc/systemd/system/usb-drive-boot.service 'systemctl enable usb-drive-boot.service'
 # Progress report
-echo -e "${GREEN}USB functionalty loaded and configured. System automounts USB drives on '/media'${NC}"
+echo -e "${GREEN}USB functionality loaded and configured. System automounts USB drives on '$USB_MOUNT_POINT'${NC}"
 
 # Activate i2c interface
 # https://www.raspberrypi.com/documentation/computers/configuration.html#i2c-nonint
@@ -548,21 +667,20 @@ install_resource "$RESOURCES_PATH/mpd.conf" /etc/mpd.conf
 # Install empty MPD database (prevents MPD updating when starting)
 install_resource "$RESOURCES_PATH/mpd.database" /var/lib/mpd/tag_cache
 # Configure the MPD service to start on boot
-install_resource "$RESOURCES_PATH/mpd.service" /lib/systemd/system/mpd.service 'systemctl enable mpd.service'
+install_resource "$RESOURCES_PATH/mpd-oradio.conf" /etc/systemd/system/mpd.service.d/oradio.conf 'systemctl enable mpd.service'
 # Progress report
 echo -e "${GREEN}Audio installed and configured${NC}"
 
-# Setup log file rotation to limit logfile size
+# Configure log file rotation to limit logfile size
 install_resource "$RESOURCES_PATH/logrotate.conf" /etc/logrotate.d/oradio
+# Configure rotation timer to limit logfile size
+install_resource "$RESOURCES_PATH/logrotate-timer-override.conf" /etc/systemd/system/logrotate.timer.d/oradio.conf
 # Progress report
 echo -e "${GREEN}Log files rotation configured${NC}"
 
-# Configure Spotify connect
-# Ensure logfile exists with correct ownership and permissions before starting librespot
-touch "$LOGFILE_SPOTIFY"
 # Ensure Spotify directory and flag files exist with default '0' and correct ownership and permissions
 mkdir -p "$SPOTIFY_PATH" || { echo -e "${RED}Aborting: Failed to create directory $SPOTIFY_PATH${NC}"; exit 1; }
-for flag in spotactive.flag spotplaying.flag; do
+for flag in "$SPOTIFY_ACTIVE_FLAG_NAME" "$SPOTIFY_PLAYING_FLAG_NAME"; do
 	file="$SPOTIFY_PATH/$flag"
 	if [ ! -f "$file" ]; then
 		echo "0" >"$file" || { echo -e "${RED}Aborting: Failed to write $file${NC}"; exit 1; }
@@ -575,17 +693,10 @@ install_resource "$RESOURCES_PATH/librespot.service" /etc/systemd/system/libresp
 # Progress report
 echo -e "${GREEN}Spotify connect functionality is installed and configured${NC}"
 
-# Install the send_log_files_to_rms script
-install_resource "$RESOURCES_PATH/send_log_files_to_rms.sh" /usr/local/bin/send_log_files_to_rms.sh 'chmod +x /usr/local/bin/send_log_files_to_rms.sh'
 # Install the about script
 install_resource "$RESOURCES_PATH/about" /usr/local/bin/about 'chmod +x /usr/local/bin/about'
 # Progress report
 echo -e "${GREEN}Support tools installed${NC}"
-
-# Configure the power-save (USB low idle power) service to start on boot
-install_resource "$RESOURCES_PATH/usb_low_idle_power.service" /etc/systemd/system/usb_low_idle_power.service 'systemctl enable usb_low_idle_power.service'
-# Progress report
-echo -e "${GREEN}Power save features configured${NC}"
 
 # Configure the oradio service to start on boot
 install_resource "$RESOURCES_PATH/oradio.service" /etc/systemd/system/oradio.service 'systemctl enable oradio.service'

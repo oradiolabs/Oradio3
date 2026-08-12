@@ -1,33 +1,45 @@
 # For more options and information see
 # http://rptl.io/configtxt
 # Some settings may impact device functionality. See link above for details
+#
+# FILE FORMAT: one property=value per line. Comments MUST start a line - the
+# early-stage firmware parser does not document support for trailing comments,
+# and a trailing comment on a dtparam= line can end up inside the value.
+# There is also a 98-character limit per line; anything beyond is ignored.
 
 # Uncomment some or all of these to enable the optional hardware interfaces
+# i2c_arm is required: the PCM5122 on the DigiAMP+ is controlled over I2C
 dtparam=i2c_arm=on
+# Redundant - the rpi-digiampplus overlay enables I2S itself - but harmless
 dtparam=i2s=on
 #dtparam=spi=on
 
 # Enable audio (loads snd_bcm2835)
+# Left off deliberately: Oradio uses the DigiAMP+ I2S DAC, and snd_bcm2835 is
+# additionally blocked in /etc/modprobe.d/oradio-boot-blacklist.conf
 #dtparam=audio=on
 
 # Additional overlays and parameters are documented
 # /boot/firmware/overlays/README
 
-# Automatically load overlays for detected cameras
-#camera_auto_detect=1
+# Do not automatically load overlays for detected cameras
+# NOTE: this only suppresses the overlay. The camera modules (bcm2835_isp,
+# bcm2835_mmal_vchiq, vc_sm_cma) still probe and fail with "VCHI service -22"
+# unless they are also blacklisted - see optimize_boot_time.sh
+camera_auto_detect=0
 
-# Automatically load overlays for detected DSI displays
-#display_auto_detect=1
+# Do not automatically load overlays for detected DSI displays
+display_auto_detect=0
 
-# Automatically load initramfs files, if found
-auto_initramfs=1
+# Do not automatically load initramfs files, if found
+auto_initramfs=0
 
-# Enable DRM VC4 V3D driver
+# Disable the KMS display stack: no HDMI output on a deployed Oradio
 #dtoverlay=vc4-kms-v3d
 #max_framebuffers=2
 
-# Don't have the firmware create an initial video= setting in cmdline.txt.
-# Use the kernel's default instead.
+# Don't have the firmware create an initial video= setting in cmdline.txt
+# Use the kernel's default instead
 #disable_fw_kms_setup=1
 
 # Run in 64-bit mode
@@ -36,13 +48,18 @@ arm_64bit=1
 # Disable compensation for displays with overscan
 #disable_overscan=1
 
-# Run as fast as firmware / board allows
+# arm_boost applies only to later Pi 4B revisions and the Pi 400.
+# It is a no-op on a Pi 3A+; left here only to match the stock file.
 #arm_boost=1
 
 # Disable Bluetooth (unused, save power)
 dtoverlay=disable-bt
 
-# Disable UART (serial)  (unused, save power)
+# Disable UART (serial) (unused, save power)
+#
+# LOAD-BEARING: GPIO15 is UART0 RXD. With disable-bt the PL011 moves to
+# GPIO14/15, which would fight the "gpio=15=op,dh" backlight setting below.
+# Do not re-enable without also revisiting the LED pinning.
 enable_uart=0
 
 [cm4]
@@ -56,6 +73,10 @@ enable_uart=0
 
 [all]
 
+#### Enable watchdog to catch a/b boot timeout ####
+# Paired with RuntimeWatchdogSec in /etc/systemd/system.conf.d/
+dtparam=watchdog=on
+
 #### Oradio backlighting options ####
 # gpio pinning LEDs all leds off - only backlighting
 gpio=23=op,dl
@@ -67,10 +88,41 @@ gpio=15=op,dh
 dtparam=pwr_led_trigger=none
 dtparam=pwr_led_activelow=on
 dtparam=act_led_trigger=none
-dtparam=act_led_activelow=off # the off is ok, for act it is reversed!
+# The "off" is correct here: for the ACT LED the sense is reversed
+dtparam=act_led_activelow=off
 
 #### Oradio audio options ####
 # Use memory-mapped interface for low latency real-time audio streaming
 dtoverlay=i2s-mmap
 # DigiAMP+ overlay. When the Pi powers on, the amplifier is immediately enabled
 dtoverlay=rpi-digiampplus,unmute_amp
+
+#### Oradio boot optimization ####
+
+# Full clock during boot instead of ramping up. 60 is the maximum, and has been
+# the firmware default since the November 2024 update - kept explicit so a
+# firmware regression cannot silently slow the boot down.
+initial_turbo=60
+
+# No rainbow splash screen
+disable_splash=1
+
+# No artificial delay before reading the SD card
+boot_delay=0
+
+# Minimal GPU split now that KMS is disabled.
+# This does more than free RAM: gpu_mem=16 is the ONLY way to select the
+# cut-down firmware, which drops codec, 3D and debug-logging support and caps
+# the early framebuffer at 1080p@16bpp. Smaller start.elf, faster load.
+# Do not raise this without understanding that trade.
+gpu_mem=16
+
+# Skip the startup I2C probe for a PoE HAT fan on pins ID_SD/ID_SC.
+# Documented by Raspberry Pi as a way to minimise boot time.
+disable_poe_fan=1
+
+# Skip reading a HAT ID EEPROM on the same ID_SD/ID_SC pins at power-up.
+# Safe here because the DigiAMP+ overlay is loaded explicitly above rather
+# than via HAT autodetection. VERIFY the card still registers after changing
+# this; revert to 1 if dev-snd-controlC0 stops appearing.
+force_eeprom_read=0

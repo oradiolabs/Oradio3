@@ -32,6 +32,7 @@ from messaging import (
 
 ##### GLOBAL constants ####################################
 from constants import (
+    SOUNDS_PATH,
     SOUND_START,
     SOUND_STOP,
     SOUND_PLAY,
@@ -58,34 +59,33 @@ from constants import (
 SYSTEM_SOUND_SINK = "SysSound_in"
 
 # Directory containing system sound files
-SOUND_FILES_PATH = (Path(__file__).parent.parent / "system_sounds").resolve()
 SOUND_FILES = {
     # Sounds
-    SOUND_START: f"{SOUND_FILES_PATH}/StartUp.wav",
-    SOUND_STOP:  f"{SOUND_FILES_PATH}/UIT.wav",
-    SOUND_PLAY:  f"{SOUND_FILES_PATH}/AAN.wav",
-    SOUND_CLICK: f"{SOUND_FILES_PATH}/click.wav",
+    SOUND_START: f"{SOUNDS_PATH}/StartUp.wav",
+    SOUND_STOP:  f"{SOUNDS_PATH}/UIT.wav",
+    SOUND_PLAY:  f"{SOUNDS_PATH}/AAN.wav",
+    SOUND_CLICK: f"{SOUNDS_PATH}/click.wav",
     # Announcements
-    SOUND_NEXT:         f"{SOUND_FILES_PATH}/Next_melding.wav",
-    SOUND_PRESET1:      f"{SOUND_FILES_PATH}/Preset1_melding.wav",
-    SOUND_PRESET2:      f"{SOUND_FILES_PATH}/Preset2_melding.wav",
-    SOUND_PRESET3:      f"{SOUND_FILES_PATH}/Preset3_melding.wav",
-    SOUND_SPOTIFY:      f"{SOUND_FILES_PATH}/Spotify_melding.wav",
-    SOUND_USB:          f"{SOUND_FILES_PATH}/USBPresent_melding.wav",
-    SOUND_NO_USB:       f"{SOUND_FILES_PATH}/NoUSB_melding.wav",
-    SOUND_AP_START:     f"{SOUND_FILES_PATH}/OradioAPstarted_melding.wav",
-    SOUND_AP_STOP:      f"{SOUND_FILES_PATH}/OradioAPstopped_melding.wav",
-    SOUND_WIFI:         f"{SOUND_FILES_PATH}/WifiConnected_melding.wav",
-    SOUND_NO_WIFI:      f"{SOUND_FILES_PATH}/WifiNotConnected_melding.wav",
-    SOUND_NO_INTERNET:  f"{SOUND_FILES_PATH}/NoInternet_melding.wav",
-    SOUND_NEW_PRESET:   f"{SOUND_FILES_PATH}/NewPlaylistPreset_melding.wav",
-    SOUND_NEW_WEBRADIO: f"{SOUND_FILES_PATH}/NewPlaylistWebradio_melding.wav",
+    SOUND_NEXT:         f"{SOUNDS_PATH}/Next_melding.wav",
+    SOUND_PRESET1:      f"{SOUNDS_PATH}/Preset1_melding.wav",
+    SOUND_PRESET2:      f"{SOUNDS_PATH}/Preset2_melding.wav",
+    SOUND_PRESET3:      f"{SOUNDS_PATH}/Preset3_melding.wav",
+    SOUND_SPOTIFY:      f"{SOUNDS_PATH}/Spotify_melding.wav",
+    SOUND_USB:          f"{SOUNDS_PATH}/USBPresent_melding.wav",
+    SOUND_NO_USB:       f"{SOUNDS_PATH}/NoUSB_melding.wav",
+    SOUND_AP_START:     f"{SOUNDS_PATH}/OradioAPstarted_melding.wav",
+    SOUND_AP_STOP:      f"{SOUNDS_PATH}/OradioAPstopped_melding.wav",
+    SOUND_WIFI:         f"{SOUNDS_PATH}/WifiConnected_melding.wav",
+    SOUND_NO_WIFI:      f"{SOUNDS_PATH}/WifiNotConnected_melding.wav",
+    SOUND_NO_INTERNET:  f"{SOUNDS_PATH}/NoInternet_melding.wav",
+    SOUND_NEW_PRESET:   f"{SOUNDS_PATH}/NewPlaylistPreset_melding.wav",
+    SOUND_NEW_WEBRADIO: f"{SOUNDS_PATH}/NewPlaylistWebradio_melding.wav",
 }
 
 # Critical error at import time if the sounds directory is missing, so the problem
 # is visible immediately rather than surfacing per-file at play time.
-if not SOUND_FILES_PATH.is_dir():
-    oradio_log.critical("System sounds directory not found: %s", SOUND_FILES_PATH)
+if not Path(SOUNDS_PATH).is_dir():
+    oradio_log.critical("System sounds directory not found: %s", SOUNDS_PATH)
     Incidents.publish(IncidentMessage(SOUND_SOURCE, SOUND_MISSING_DIR))
 
 def play_sound(sound_key: str) -> None:

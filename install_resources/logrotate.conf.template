@@ -1,41 +1,37 @@
-# Placeholders will be modified by ../oradio_install.sh script
+# Oradio log rotation
+#
+# Install as /etc/logrotate.d/oradio
+# The file must be owned by root and mode 0644: logrotate skips config files
+# that are group- or world-writable.
+#
+# All Oradio logs share one policy, so a glob replaces the per-file blocks.
+# Rotated files are named *.log.1, which does not match *.log, so they are not
+# picked up again on the next run.
+#
+# 'size 100k' is threshold-based, not time-based: logrotate rotates whenever
+# the file exceeds 100k at the moment it runs, and ignores daily/weekly directives
+# entirely. How often that check happens is therefore set by logrotate.timer.
 
-PLACEHOLDER_LOGFILE_USB {
-	size 100k
-	missingok
-	nocompress
-	rotate 1
-	copytruncate
-}
+PLACEHOLDER_LOGGING_PATH/*.log {
+	# Act as the owner of the log directory rather than as root
+	su PLACEHOLDER_USER PLACEHOLDER_GROUP
 
-PLACEHOLDER_LOGFILE_MPD {
+	# Rotate once the file passes 100k; keep one previous generation.
+	# Steady state is therefore about 200k per log.
 	size 100k
-	missingok
-	nocompress
 	rotate 1
-	copytruncate
-}
 
-PLACEHOLDER_LOGFILE_SPOTIFY {
-	size 100k
+	# Do not fail the whole run if a log has not been created yet
 	missingok
-	nocompress
-	rotate 1
-	copytruncate
-}
 
-PLACEHOLDER_LOGFILE_INSTALL {
-	size 100k
-	missingok
-	nocompress
-	rotate 1
-	copytruncate
-}
+	# Nothing to do for a zero-length log
+	notifempty
 
-PLACEHOLDER_LOGFILE_TRACEBACK {
-	size 100k
-	missingok
+	# Logs are small and read during support calls; keep them greppable
 	nocompress
-	rotate 1
+
+	# Oradio holds these files open, so the inode must not change.
+	# copytruncate briefly doubles the space used by the log being rotated,
+	# which at 100k is negligible.
 	copytruncate
 }
