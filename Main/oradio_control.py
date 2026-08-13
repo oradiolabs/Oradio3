@@ -258,6 +258,12 @@ class StateMachine:
         """Block WebRadio presets when no internet; return True if blocked."""
         if requested_state in WEB_PRESET_STATES:
             preset_key = requested_state[len("State"):]
+
+# REVIEW:
+#   Is has_internet() call needed? No call is preferred as the wifi state is known:
+#    WIFI_CONNECTED == internet, WIFI_DISCONNECTED and WIFI_ACCESS_POINT != internet.
+#   IF state is not known/trusted then better use wifi_service.get_state()
+
             if mpd_control.is_webradio(preset=preset_key) and not has_internet():
                 oradio_log.info("Webradio blocked: no Internet")
                 threading.Timer(2, play_sound, args=(SOUND_NO_INTERNET,)).start()
