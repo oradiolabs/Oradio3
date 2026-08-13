@@ -1,18 +1,17 @@
-[MASTER]
+[MAIN]
 # Files or directories to ignore (commonly virtual environments)
 ignore=venv
 
 [MESSAGES CONTROL]
 # Disable specific messages that are not strict PEP8 violations or often overly verbose
-# C0301: line too long
+# C0301: line too long; defaults to 100
+# C0302: max module lines; defaults to 1000
+#        too-many-statements and too-many-branches measure actual complexity
 # R0903: too-few-public-methods (e.g. for simple data classes)
 # C0411: wrong import order - To be fixed by converting Oradio3 into a package
-disable=C0301, R0903, C0411
+disable=C0301, C0302, R0903, C0411
 
 [FORMAT]
-# PEP8 recommends a maximum line length of 79 characters
-# max-line-length=79
-
 # Indentation settings (4 spaces, as per PEP8)
 indent-string='    '
 indent-after-paren=4
@@ -39,8 +38,6 @@ class-naming-style=PascalCase
 const-naming-style=UPPER_CASE
 
 [TYPECHECK]
-# Suppress warnings for dynamically defined attributes, e.g., mixins or dynamic classes
-ignore-mixin-members=yes
 # Ignore RPi-only modules
 ignored-modules=
     RPi,
