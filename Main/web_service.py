@@ -82,16 +82,24 @@ from constants import (
 SERVER_READY_TIMEOUT = 15
 
 # Seconds to wait for WiFi state transitions (access point up, disconnect, reconnect).
-# Normally the access point is up in ~1.5s: wifi_service builds its network
-# list in the background at startup, so nothing is scanned on this path. The
-# exception is the access point being requested seconds after power-on, before
-# that list is built, where wifi_service waits for it -- bounded there by
-# AP_LIST_READY_TIMEOUT (35s). This value must stay above that bound plus the
-# ~1.5s the access point takes to come up and the 1s poll granularity below,
-# so the access point is reported rather than declared failed while it is
-# merely waiting. Waiting longer costs nothing on success:
-# _wait_for_wifi_state() returns as soon as the state arrives. Read the
-# AP_LIST_READY_TIMEOUT comment in wifi_service.py before changing either.
+# Sized by the larger of two independent paths, not by the scan burst:
+#   - Access point up (start): normally ~1.5s, since wifi_service builds the network
+#     list in the background at startup and nothing is scanned on this path. The
+#     exception is the access point being requested seconds after power-on, before
+#     that list is built, where wifi_service waits for it -- bounded there by
+#     AP_LIST_READY_TIMEOUT (35s). This value must stay above that bound plus the
+#     ~1.5s the access point takes to come up and the 1s poll granularity below, so
+#     the access point is reported rather than declared failed while it is merely
+#     waiting.
+#   - Reconnect on stop() (WIFI_DISCONNECTED/WIFI_CONNECTED): association, WPA
+#     handshake and DHCP against the user's router, which the burst does not affect
+#     at all. A false timeout here publishes WEB_STOP_FAILED for a reconnect that
+#     actually succeeded.
+# Shortening the startup burst therefore does not license lowering this. Waiting
+# longer costs nothing on success: _wait_for_wifi_state() returns as soon as the
+# state arrives, so the only cost of a large value is how long a genuinely failed
+# transition takes to report. Read the AP_LIST_READY_TIMEOUT comment in
+# wifi_service.py before changing either.
 WIFI_STATE_TIMEOUT = 45
 
 SOCKET_TIMEOUT = 3   # WebSocket ping interval/timeout in seconds; safe for small devices and networks
