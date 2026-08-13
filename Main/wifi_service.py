@@ -92,16 +92,18 @@ __all__ = [
 #
 # Burst duration, for reference when tuning. Sweeps run back to back with no gap between them, and SCAN_POLL_INTERVAL
 # only sets how finely each wait is sampled, so it adds nothing on top:
-#   typical   AP_SCAN_SWEEPS * ~9s                    = ~27s   each sweep completes and the next starts at once
-#   worst     AP_SCAN_SWEEPS * SCAN_COMPLETE_TIMEOUT  = ~62s   every sweep is accepted but never completes
+#   typical   AP_SCAN_SWEEPS * ~9s                    = ~18s   each sweep completes and the next starts at once
+#   worst     AP_SCAN_SWEEPS * SCAN_COMPLETE_TIMEOUT  = ~40s   every sweep is accepted but never completes
 # The worst case needs a wedged driver: a sweep whose scan request is refused outright returns at once rather than
 # waiting (see scan_and_wait), so an unavailable radio costs no time here at all.
 #
 # Three values have to stay in this order, or the access point is reported as failed while it is merely waiting:
-#   typical burst (~27s)  <  AP_LIST_READY_TIMEOUT (35s)  <  WIFI_STATE_TIMEOUT (45s, web_service.py)
+#   typical burst (~18s)  <  AP_LIST_READY_TIMEOUT (35s)  <  WIFI_STATE_TIMEOUT (45s, web_service.py)
 # This one sits above the typical burst so the list is normally complete before the access point starts, and below
 # WIFI_STATE_TIMEOUT with room for the ~1.5s the access point itself takes to come up and the 1s poll granularity on
 # that side. Changing AP_SCAN_SWEEPS or SCAN_COMPLETE_TIMEOUT moves the first figure, so revisit all three together.
+# Dropping from three sweeps to two widened the margin here rather than narrowing it; the value is left at 35s
+# because it is a give-up bound, not a target, and the room now absorbs a slow sweep instead of a missing one.
 AP_LIST_READY_TIMEOUT = 35.0
 
 # Waiting for NetworkManager to appear at startup (see WifiService.start). oradio_control starts after basic.target,
@@ -303,11 +305,13 @@ class WifiService:
 
         The radio cannot be scanned once the access point is up without risking the connected client, so the list has
         to be right before the user asks for it. Doing that here rather than at the moment of asking is what keeps the
-        delay between the button press and the "access point ready" announcement at zero: by then this has long
-        finished and the keeper has been maintaining the result.
+        delay between the button press and the "access point ready" announcement at zero.
 
-        Several sweeps rather than one because a single scan misses access points that beacon while the radio is on
-        another channel. NM's list is cumulative, so each sweep can only add.
+        Two sweeps rather than one because a single scan misses access points that beacon while the radio is on
+        another channel; not more than two because the burst samples the neighbourhood rather than converging on it
+        (see AP_SCAN_SWEEPS). Completeness is no longer this method's job: listener entries age out on a timescale of
+        hours (AP_ENTRY_TTL), so anything missed here is added by a later keeper sweep and then stays. What this
+        method owns is getting most of the list up before anyone can press the button.
 
         Runs on a background thread; sets the listener's list_ready when done.
         """
@@ -328,8 +332,11 @@ class WifiService:
 
             completed = self.nm_listener.scan_and_wait()
 
-            # Measured after the scan is reported complete, so the gain is genuinely this sweep's: a sweep that
-            # repeatedly adds +0 means AP_SCAN_SWEEPS can be reduced.
+            # Measured after the scan is reported complete, so the gain is genuinely this sweep's. A sweep that
+            # repeatedly adds +0 means AP_SCAN_SWEEPS can be reduced -- but only when read from a cold NetworkManager.
+            # NM keeps its access-point list across a restart of this service, so after `systemctl restart` the seed
+            # already holds what the previous process just found and every sweep reports +0 regardless of merit. Judge
+            # this figure from reboots, or after restarting NetworkManager alongside oradio.
             previous, found = found, {net["ssid"] for net in get_wifi_networks()}
             oradio_log.debug(
                 "Sweep %d of %d at %.1fs: %d networks (+%d)%s",
@@ -620,10 +627,13 @@ if __name__ == '__main__':
         """
         Run an interactive self-test menu for the WiFi service.
 
-        Loops until the user selects quit (0). Covers the full public API: start/stop, scanning, connecting,
-        disconnecting, AP mode, and direct NetworkManager profile management. Everything here goes through this
-        module's public surface, including the names re-exported from wifi_listener, so it doubles as a check
-        that the facade is complete. Use the wifi_listener menu to exercise the listener on its own.
+        Loops until the user selects quit (0). Covers every name in __all__: start/stop, connecting, disconnecting,
+        AP mode, direct NetworkManager profile management, and the saved-network and stored-password lookups.
+        Everything here goes through this module's public surface, including the names re-exported from
+        wifi_listener, so it doubles as a check that the facade is complete -- one option per entry in __all__, so
+        a name added there without an option here shows up as a gap. Use the wifi_listener menu to exercise the
+        listener on its own, including scanning: no option here requests a scan, since the startup burst is the
+        service's own business and runs on start().
         """
         input_selection = (
             "Select a function, input the number:\n"
@@ -639,6 +649,9 @@ if __name__ == '__main__':
             " 9-start access point\n"
             " 10-disconnect from network\n"
             " 11-show WiFi event listener thread status\n"
+            " 12-show whether NetworkManager is available\n"
+            " 13-show saved (last connected) network\n"
+            " 14-show stored password for a network\n"
             "Select: "
         )
 
@@ -653,8 +666,16 @@ if __name__ == '__main__':
                     wifi_service.stop()  # Ensure nothing is left running on exit
                     break
                 case 1:
-                    print("\nStarting WiFi monitor...\n")
-                    wifi_service.start()
+                    # Checked here rather than left to start(), which would hand an absent NetworkManager to a
+                    # background thread that waits NM_WAIT_TIMEOUT and then publishes WIFI_DBUS_FAILED -- a minute
+                    # later, with nothing on screen to connect it to this key press. On the Oradio that wait is the
+                    # right behaviour (oradio_control starts deliberately ahead of the network); at a prompt, where
+                    # NM is either up or not coming, saying so at once is more use.
+                    if not nm_available():
+                        print(f"\n{RED}NetworkManager is not running; WiFi monitor not started{NC}\n")
+                    else:
+                        print("\nStarting WiFi monitor...\n")
+                        wifi_service.start()
                 case 2:
                     print("\nStopping WiFi monitor...\n")
                     wifi_service.stop()
@@ -696,9 +717,8 @@ if __name__ == '__main__':
                     else:
                         print(f"\n{YELLOW}No network given{NC}\n")
                 case 9:
-                    print("\nStarting access point. Check messages for result\n")
                     wifi_service.wifi_connect(ACCESS_POINT_SSID, None)
-                    print(f"\nConnecting with '{ACCESS_POINT_SSID}'. Check messages for result\n")
+                    print(f"\nStarting access point '{ACCESS_POINT_SSID}'. Check messages for result\n")
                 case 10:
                     print("\nDisconnecting. Check messages for result\n")
                     wifi_service.wifi_disconnect()
@@ -707,8 +727,29 @@ if __name__ == '__main__':
                     print(
                         f"\nis_alive={listener.is_alive()}, "
                         f"crashed={listener.crashed}, "
-                        f"exception={listener.exception}"
+                        f"exception={listener.exception}\n"
                     )
+                case 12:
+                    if nm_available():
+                        print(f"\n{GREEN}NetworkManager is available{NC}\n")
+                    else:
+                        print(f"\n{RED}NetworkManager is not available{NC}\n")
+                case 13:
+                    # Written by wifi_connect() when it replaces a live non-AP connection, so it stays empty until a
+                    # connect has actually displaced one. Module-level state, shared per process only.
+                    saved = get_saved_network()
+                    print(f"\nSaved network: '{saved}'\n" if saved else f"\n{YELLOW}No network saved{NC}\n")
+                case 14:
+                    name = input("Enter SSID of the network to look up: ")
+                    if name:
+                        password = get_wifi_password(name)
+                        if password is None:
+                            print(f"\n{RED}No stored password for '{name}'{NC}\n")
+                        else:
+                            # Empty is a legitimate answer: an open network has a profile but no passphrase.
+                            print(f"\nPassword for '{name}': '{password}'\n")
+                    else:
+                        print(f"\n{YELLOW}No network given{NC}\n")
                 case _:
                     print(f"\n{YELLOW}Please input a valid number{NC}\n")
 
