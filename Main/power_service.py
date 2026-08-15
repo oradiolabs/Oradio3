@@ -53,6 +53,7 @@ Created on December 18, 2025
 """
 from typing import TypedDict
 from time import sleep, monotonic
+from threading import Lock
 
 ##### Oradio modules ######################################
 from log_service import oradio_log
@@ -157,6 +158,12 @@ _VOLTAGE_REQUEST_RETRY_DELAY_S = 0.05  # 50 ms between attempts
 # Fail, even though the request itself is valid.
 _POST_INIT_SETTLE_DELAY_S = 0.2
 
+# Minimum idle time between two complete PD negotiations. Although a
+# negotiation is serialized by _negotiation_lock, some power supplies become
+# unstable when a second negotiation follows almost immediately after the
+# previous one has completed.
+_MIN_NEGOTIATION_INTERVAL_S = 0.5
+
 class PDStatus(TypedDict):
     """Decoded PD status fields, as returned by read_status()."""
     voltage_v: int | None
@@ -194,6 +201,14 @@ class PowerSupplyService:
         up front so later requests know whether negotiation is even possible.
         """
         self._i2c_service = I2CService()
+        
+        # Serialize complete PD negotiations. Individual I2C operations may be
+        # protected separately, but a complete HUSB238 negotiation must not overlap
+        # another negotiation.
+        self._negotiation_lock = Lock()
+        # Timestamp of the last completed PD negotiation.
+        self._last_negotiation_time = 0.0
+
         self._capabilities = self._detect_capabilities_and_settle()
 
 ##### Helpers #############################################
@@ -432,13 +447,11 @@ class PowerSupplyService:
     def _safe_set_voltage(self, voltage_v: int, min_current_a: float) -> bool:
         """
         Safe wrapper around _set_voltage().
-
         Checks the source's known PD capabilities first so that a supply which
         doesn't support PD negotiation, or doesn't advertise the requested
         voltage, fails quietly without raising an incident. Only a supply that
         claimed it could deliver the requested voltage, but then fails to
         actually do so, is treated as a genuine negotiation fault.
-
         This method guarantees that no exception propagates to the caller.
         Any I2C/negotiation error is logged and reported as a simple False
         return value.
@@ -446,33 +459,57 @@ class PowerSupplyService:
         Args:
             voltage_v: Requested voltage in volts.
             min_current_a: Minimum acceptable negotiated current.
-
         Returns:
             True if the request succeeded and requirements are met, False on any failure.
         """
         if not self._capabilities["attached"]:
-            # Nothing was attached at startup/last refresh - do a cheap live
-            # re-check in case the supply was connected afterward, rather than
-            # silently failing forever.
             self.refresh_capabilities()
 
         if not self._capabilities["pd_capable"]:
-            oradio_log.warning("Skipping %sV request - connected power supply does not support PD negotiation", voltage_v)
+            oradio_log.warning(
+                "Skipping %sV request - connected power supply does not support PD negotiation",
+                voltage_v
+            )
             return False
 
         if voltage_v not in self._capabilities["voltages"]:
-            oradio_log.warning("Skipping %sV request - connected power supply does not advertise this voltage", voltage_v)
+            oradio_log.warning(
+                "Skipping %sV request - connected power supply does not advertise this voltage",
+                voltage_v
+            )
             return False
 
         try:
-            success = self._set_voltage(voltage_v=voltage_v, min_current_a=min_current_a)
+            with self._negotiation_lock:
+                elapsed = monotonic() - self._last_negotiation_time
+
+                if elapsed < _MIN_NEGOTIATION_INTERVAL_S:
+                    sleep(_MIN_NEGOTIATION_INTERVAL_S - elapsed)
+
+                success = self._set_voltage(
+                    voltage_v=voltage_v,
+                    min_current_a=min_current_a
+                )
+
+                self._last_negotiation_time = monotonic()
+
         except (OSError, RuntimeError, ValueError, KeyError, TypeError) as exc:
-            oradio_log.warning("Request %sV (min %.1fA) failed: %s", voltage_v, min_current_a, exc)
-            Incidents.publish(IncidentMessage(POWER_SOURCE, POWER_NEGOTIATION_FAILED))
+            oradio_log.warning(
+                "Request %sV (min %.1fA) failed: %s",
+                voltage_v,
+                min_current_a,
+                exc
+            )
+            Incidents.publish(
+                IncidentMessage(POWER_SOURCE, POWER_NEGOTIATION_FAILED)
+            )
             return False
 
         if not success:
-            Incidents.publish(IncidentMessage(POWER_SOURCE, POWER_NEGOTIATION_FAILED))
+            Incidents.publish(
+                IncidentMessage(POWER_SOURCE, POWER_NEGOTIATION_FAILED)
+            )
+
         return success
 
     def _set_voltage(self, voltage_v: int, min_current_a: float) -> bool:
@@ -691,12 +728,13 @@ class PowerSupplyService:
         }
 
 ##### Stand-alone entry point #############################
-
+    
 if __name__ == '__main__':
 
     # Imports only relevant when stand-alone
     from constants import YELLOW, NC
     from utilities import input_prompt
+    from time import sleep
 
     # Most stand-alone entry points share this pattern across modules
     # pylint: disable=duplicate-code
@@ -707,7 +745,8 @@ if __name__ == '__main__':
         print(
             "\n"
             f"PD status: voltage={status['voltage_v']}V, current={status['current_a']}A, "
-            f"attach={status['attach']}, cc_dir={status['cc_dir']}, pd_response={status['pd_response']}"
+            f"attach={status['attach']}, cc_dir={status['cc_dir']}, "
+            f"pd_response={status['pd_response']}"
             "\n"
         )
 
@@ -716,10 +755,45 @@ if __name__ == '__main__':
         caps = power_service._capabilities  # pylint: disable=protected-access
         print(
             "\n"
-            f"Capabilities: attached={caps['attached']}, pd_capable={caps['pd_capable']}, "
+            f"Capabilities: attached={caps['attached']}, "
+            f"pd_capable={caps['pd_capable']}, "
             f"voltages={sorted(caps['voltages'])}"
             "\n"
         )
+
+    def dynamic_voltage_test(
+        power_service,
+        cycles: int = 100,
+        delay: float = 0.05
+    ) -> None:
+        """
+        Repeatedly request 9V and 12V.
+
+        The deliberately short delay stresses the PD negotiation protection.
+        PowerSupplyService itself must ensure that complete negotiations do not
+        overlap and that the minimum negotiation interval is respected.
+        """
+        print(
+            "\n"
+            f"Starting dynamic voltage test: {cycles} cycles, "
+            f"{delay:.2f}s requested delay\n"
+        )
+
+        for cycle in range(1, cycles + 1):
+            print(f"Cycle {cycle}/{cycles}")
+
+            result = power_service.set_nom_voltage()
+            print(f"  9V : {'OK' if result else 'FAIL'}")
+
+            sleep(delay)
+
+            result = power_service.set_max_voltage()
+            print(f" 12V : {'OK' if result else 'FAIL'}")
+
+            sleep(delay)
+
+        print("\nDynamic voltage test finished.")
+        print_status(power_service)
 
     # Pylint allows more than 12 branches here because this is a test menu
     def interactive_menu() -> None:    # pylint: disable=too-many-branches,too-many-statements
@@ -727,8 +801,9 @@ if __name__ == '__main__':
         Run an interactive self-test menu for the Power Supply service.
 
         Instantiates PowerSupplyService and loops until the user selects quit (0).
-        Options cover the full public API: reading status, requesting each
-        voltage profile, and inspecting/refreshing detected source capabilities.
+        Options cover the public API: reading status, requesting each voltage
+        profile, inspecting/refreshing detected source capabilities, and
+        dynamically stressing repeated voltage negotiations.
         """
         input_selection = (
             "Select a function, input the number:\n"
@@ -739,6 +814,7 @@ if __name__ == '__main__':
             " 4-set_max_voltage (12V / >=1.5A)\n"
             " 5-Show detected capabilities\n"
             " 6-Refresh capabilities\n"
+            " 7-Dynamic 9V <-> 12V stress test (100 cycles)\n"
             "Select: "
         )
 
@@ -747,30 +823,54 @@ if __name__ == '__main__':
 
         while True:
             test_choice = input_prompt(input_selection, int, -1)
+
             match test_choice:
                 case 0:
                     break
+
                 case 1:
                     print_status(power_service)
+
                 case 2:
                     result = power_service.set_standby_voltage()
-                    print(f"SetStandbyVoltage: {'OK' if result else 'FAIL'}")
+                    print(
+                        f"SetStandbyVoltage: "
+                        f"{'OK' if result else 'FAIL'}"
+                    )
                     print_status(power_service)
+
                 case 3:
                     result = power_service.set_nom_voltage()
-                    print(f"SetNomVoltage: {'OK' if result else 'FAIL'}")
+                    print(
+                        f"SetNomVoltage: "
+                        f"{'OK' if result else 'FAIL'}"
+                    )
                     print_status(power_service)
+
                 case 4:
                     result = power_service.set_max_voltage()
-                    print(f"SetMaxVoltage: {'OK' if result else 'FAIL'}")
+                    print(
+                        f"SetMaxVoltage: "
+                        f"{'OK' if result else 'FAIL'}"
+                    )
                     print_status(power_service)
+
                 case 5:
                     print_capabilities(power_service)
+
                 case 6:
                     power_service.refresh_capabilities()
                     print_capabilities(power_service)
+
+                case 7:
+                    dynamic_voltage_test(power_service)
+
                 case _:
-                    print(f"\n{YELLOW}Please input a valid number{NC}\n")
+                    print(
+                        f"\n{YELLOW}"
+                        "Please input a valid number"
+                        f"{NC}\n"
+                    )
 
     print("\nStarting test program...\n")
 
@@ -781,3 +881,4 @@ if __name__ == '__main__':
 
     # Re-enable the duplicate-code check for any code that follows
     # pylint: enable=duplicate-code
+
