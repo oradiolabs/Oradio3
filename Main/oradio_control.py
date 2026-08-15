@@ -42,7 +42,7 @@ from system_sounds import play_sound
 from incident_service import IncidentHandler
 from log_monitor import LogHealthMonitor
 from rpi_monitor import RPiThrottlingMonitor
-from power_service import PowerSupplyService
+#from power_service import PowerSupplyService
 
 # Moved from constants
 from messaging import (
@@ -115,7 +115,8 @@ from constants import (
 WEB_PRESET_STATES = {"StatePreset1", "StatePreset2", "StatePreset3"}
 PLAY_STATES = {"StatePlay", "StatePreset1", "StatePreset2", "StatePreset3"}
 PLAY_WEBSERVICE_STATES = {"StatePlay", "StatePreset1", "StatePreset2", "StatePreset3", "StateIdle"}
-LOW_POWER_STATES = {"StateIdle"}  # only Idle uses nominal voltage (9V)to reduce power consumption
+
+#LOW_POWER_STATES = {"StateIdle"}  # only Idle uses nominal voltage (9V)to reduce power consumption
 
 ################## Signal Primitives ######################
 
@@ -170,7 +171,7 @@ mpd_control = MPDControl()
 mpd_control.update_database()
 
 # Initialise power supply controller, to optimse supply voltage for the various states
-power_supply_service = PowerSupplyService()
+#power_supply_service = PowerSupplyService()
 
 # Instantiate  led control
 leds = LEDControl()
@@ -187,7 +188,7 @@ class StateMachine:
         self.prev_state: str | None = None
         self.task_lock = threading.Lock()
         self._websvc = None  # injected WebService
-        self._pd_mode: str | None = None  # track power supply PD state "nom" or "max"
+#        self._pd_mode: str | None = None  # track power supply PD state "nom" or "max"
 
         # Dispatch table for run_state_method
         self._handlers = {
@@ -289,18 +290,6 @@ class StateMachine:
             target=self.run_state_method, args=(self.state,), daemon=True
         ).start()
 
-    def _apply_power_policy_for_state(self, target_state: str) -> None:
-        desired_mode = "nom" if target_state in LOW_POWER_STATES else "max"
-        if desired_mode == self._pd_mode:
-            return  # already correct -> do nothing
-
-        if desired_mode == "nom":
-            success = power_supply_service.set_nom_voltage()
-        else:
-            success = power_supply_service.set_max_voltage()
-
-        if success:
-            self._pd_mode = desired_mode
 
     # ---- delayed-transition helpers ----
     def _cancel_all_delayed(self):
@@ -357,8 +346,7 @@ class StateMachine:
             leds.turn_off_all_leds()
             handler = self._handlers.get(state_to_handle, self._state_unknown)
             handler()
-        # outside lock (more responsive, and power policy can be changed even when it is playing)
-        self._apply_power_policy_for_state(state_to_handle)
+
 
     # --- State handlers ---
 
