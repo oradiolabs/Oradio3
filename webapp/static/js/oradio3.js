@@ -140,7 +140,14 @@ async function postJSON(cmd, args = {})
 
 			// Throw for HTTP errors
 			if (!response.ok)
-                throw new Error(`HTTP ${response.status}`);
+			{
+				// Mark no retry: the server answered -> a retry cannot change the outcome.
+				const error = await response.json().catch(() => ({}));
+				const httpError = new Error(error.message || `HTTP ${response.status}`);
+				httpError.status = response.status;
+				httpError.answered = true;
+				throw httpError;
+			}
 
 			// Parse JSON safely
 			const data = await response.json().catch(() => ({}));
@@ -149,11 +156,18 @@ async function postJSON(cmd, args = {})
 		}
 		catch (err)
 		{
-			if (attempt < retries)
+			// Only transport failures are retried: a timeout, an aborted request or an
+			// unreachable server can succeed on a second attempt, an answered request cannot.
+			if (attempt < retries && !err.answered)
 			{
 				// Timeout -> retry
 				console.warn(`Retrying /execute, attempt ${attempt+1}`, err);
 				await new Promise(r => setTimeout(r, 500)); // short backoff
+			}
+			else if (err.answered)
+			{
+				// The server explained itself; do not bury that under a reachability hint.
+				throw err;
 			}
 			else
 			{
