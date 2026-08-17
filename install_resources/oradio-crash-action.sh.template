@@ -45,7 +45,7 @@ if [ -s "PLACEHOLDER_LOGFILE_TRACEBACK" ]; then
 	# --max-time / --retry keep a flaky network from running into the
 	# TimeoutStartSec=300 of oradio-crash-action.service: worst case is
 	# 3 attempts of 60s plus 2 delays of 5s = 190s.
-	curl -sS --max-time 60 --retry 2 --retry-delay 5 \
+	response="$(curl -sS --max-time 60 --retry 2 --retry-delay 5 \
 		-X POST "PLACEHOLDER_RMS_SERVER_URL" \
 		-H "X-Api-Key: PLACEHOLDER_RMS_SERVER_KEY" \
 		-F "generated=$(date "+%Y-%m-%d %H:%M:%S")" \
@@ -54,7 +54,8 @@ if [ -s "PLACEHOLDER_LOGFILE_TRACEBACK" ]; then
 		-F "source=Oradio service message" \
 		-F "message=Oradio service fatal crash" \
 		-F "PLACEHOLDER_LOGFILE_TRACEBACK=@PLACEHOLDER_LOGFILE_TRACEBACK" \
-		|| echo "RMS report failed (curl exit $?)"
+		)" || echo "RMS report failed (curl exit $?)"
+		echo "RMS response: ${response:-<none>}"
 else
 	echo "Traceback logfile empty: nothing to report"
 fi
