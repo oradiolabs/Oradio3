@@ -320,10 +320,9 @@ def _post_with_retry(
                 # Outage already reported: one line per message
                 oradio_log.error("Failed to POST %s: RMS server still unreachable", context)
             return None
-        else:
-            if _RmsReachability.update(True):
-                oradio_log.info("RMS server reachable again")
-            return response  # POST succeeded; exit the retry loop
+        if _RmsReachability.update(True):
+            oradio_log.info("RMS server reachable again")
+        return response  # POST succeeded; exit the retry loop
 
     return None  # Unreachable (loop always returns or raises), keeps type checkers happy
 
