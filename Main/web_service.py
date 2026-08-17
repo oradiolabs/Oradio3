@@ -81,26 +81,20 @@ from constants import (
 # Seconds to wait for the Uvicorn server to become ready.
 SERVER_READY_TIMEOUT = 15
 
-# Seconds to wait for WiFi state transitions (access point up, disconnect, reconnect).
-# Sized by the larger of two independent paths, not by the scan burst:
-#   - Access point up (start): normally ~1.5s, since wifi_service builds the network
-#     list in the background at startup and nothing is scanned on this path. The
-#     exception is the access point being requested seconds after power-on, before
-#     that list is built, where wifi_service waits for it -- bounded there by
-#     AP_LIST_READY_TIMEOUT (35s). This value must stay above that bound plus the
-#     ~1.5s the access point takes to come up and the 1s poll granularity below, so
-#     the access point is reported rather than declared failed while it is merely
-#     waiting.
-#   - Reconnect on stop() (WIFI_DISCONNECTED/WIFI_CONNECTED): association, WPA
-#     handshake and DHCP against the user's router, which the burst does not affect
-#     at all. A false timeout here publishes WEB_STOP_FAILED for a reconnect that
-#     actually succeeded.
-# Shortening the startup burst therefore does not license lowering this. Waiting
-# longer costs nothing on success: _wait_for_wifi_state() returns as soon as the
-# state arrives, so the only cost of a large value is how long a genuinely failed
-# transition takes to report. Read the AP_LIST_READY_TIMEOUT comment in
-# wifi_service.py before changing either.
-WIFI_STATE_TIMEOUT = 45
+# Seconds to wait for the WiFi interface to settle after the access point is torn
+# down on stop(): association, WPA handshake and DHCP against the user's router.
+# A false timeout here publishes WEB_STOP_FAILED for a reconnect that actually
+# succeeded, so the value is generous; waiting longer costs nothing on success,
+# since _wait_for_wifi_state() returns as soon as the state arrives.
+#
+# This no longer has anything to say about the access point coming up on start().
+# It used to: that path can be delayed by wifi_service building its network list,
+# so this value had to be kept above wifi_service.AP_LIST_READY_TIMEOUT -- an
+# ordering that lived in prose in two files and had to be re-derived by hand
+# whenever the scan burst was retuned. wifi_service.await_access_point() now owns
+# that wait and answers with a bool, so the only timing left here is the reconnect
+# above, which the burst does not affect at all and which can be tuned on its own.
+RECONNECT_TIMEOUT = 45
 
 SOCKET_TIMEOUT = 3   # WebSocket ping interval/timeout in seconds; safe for small devices and networks
 
@@ -223,7 +217,9 @@ class UvicornServerThread:
     @property
     def is_running(self) -> bool:
         """
-        True if the server thread is alive, the server has started, and
+        Whether the server is actively accepting connections.
+
+        True when the server thread is alive, the server has started, and
         shutdown has not been requested.
 
         Reads self._thread / self._server under self._lock so a caller from
@@ -410,6 +406,12 @@ class WebService:
         """
         Poll until the WiFi interface reaches one of the expected states.
 
+        Used only by stop(), for the reconnect that follows tearing down the
+        access point. The access point coming up on start() is not waited for
+        here: wifi_service.await_access_point() owns that, because only
+        wifi_service knows whether the delay is a failure or a deliberate wait
+        for the network list.
+
         Note:
             Polling is used instead of subscribing to WiFi messages because
             the caller must block until the transition completes before
@@ -421,7 +423,7 @@ class WebService:
         Returns:
             bool: True if a target state was reached, False on timeout.
         """
-        deadline = time.time() + WIFI_STATE_TIMEOUT
+        deadline = time.time() + RECONNECT_TIMEOUT
         while self.wifi_service.get_state() not in target_states:
             if time.time() > deadline:
                 oradio_log.error("Timeout waiting for WiFi state in %s", target_states)
@@ -453,7 +455,7 @@ class WebService:
         stop() is dispatched on its own daemon thread rather than called
         inline: UvicornServerThread.stop() blocks on a join() of up to
         SERVER_READY_TIMEOUT seconds, and _wait_for_wifi_state() can block
-        for up to WIFI_STATE_TIMEOUT seconds on top of that. Calling it
+        for up to RECONNECT_TIMEOUT seconds on top of that. Calling it
         inline here would leave this listener -- the only thing draining
         request_queue -- unresponsive to new messages for that entire
         window. stop() is idempotent (guarded by is_running checks), so
@@ -527,8 +529,9 @@ class WebService:
         2. Ensure the iptables port-redirect rule is in place.
         3. Ensure the dnsmasq DNS redirect config is in place.
         4. Start the Uvicorn web server.
-        5. Wait for the WiFi transition (started in step 1) to reach
-           WIFI_ACCESS_POINT state.
+        5. Confirm the WiFi transition started in step 1 reached the access
+           point, via wifi_service.await_access_point(), which owns the
+           timing for that path.
 
         Two hard preconditions (uninitialised uvicorn_server, already running)
         return immediately since there is nothing meaningful to accumulate
@@ -598,7 +601,13 @@ class WebService:
                 Incidents.publish(IncidentMessage(WEB_SOURCE, WEB_START_FAILED))
                 status = False
 
-        if status and not self._wait_for_wifi_state({WIFI_ACCESS_POINT}):
+        # Step 5: confirm the access point requested in step 1 actually came up.
+        # wifi_service owns the timing here -- it is the only module that knows
+        # whether a slow start is a failure or a deliberate wait for the network
+        # list -- so this asks for a verdict rather than polling against a
+        # locally chosen deadline. Left last so the redirects and the web server
+        # come up in parallel with the radio, as before.
+        if status and not self.wifi_service.await_access_point():
             Incidents.publish(IncidentMessage(WEB_SOURCE, WEB_START_FAILED))
             status = False
 
@@ -627,6 +636,12 @@ class WebService:
         fails to stop. Steps 3 and 4 publish WEB_STOP_FAILED internally in their
         helper methods. All failures continue so that remaining teardown steps
         are still attempted.
+
+        Returns:
+            bool: True if every teardown step succeeded, False if any of them
+            failed. Since failures do not abort the sequence, a False here means
+            teardown was attempted in full but at least one step did not
+            complete, and one WEB_STOP_FAILED was published per failed step.
         """
         status = True
 
