@@ -26,15 +26,15 @@ Created on February 8, 2025
     Any other service in the application (e.g. incident_service) can also
     use RMService.send_message(INCIDENT, incident) to report an
     IncidentMessage to RMS, attaching the current log files for context.
-    This replaces the log-service-embedded SafeRemotePostHandler, which
-    posted such alerts directly from the logging pipeline. Like
-    HEARTBEAT/SYS_INFO, this requires start() to have been called; RMS is
-    expected to start early enough in the boot sequence that this is not
-    a practical limitation.
+    Like HEARTBEAT/SYS_INFO, this requires start() to have been called;
+    RMS is expected to start early enough in the boot sequence that this
+    is not a practical limitation.
 
     Helper functions collect Raspberry Pi telemetry and software version
     information. Outgoing POST requests are protected by a simple
-    exponential backoff retry mechanism.
+    exponential backoff retry mechanism. A failing POST marks the server
+    unreachable, after which each message makes a single probe attempt and
+    logs one line until a POST succeeds or WiFi connects.
 """
 import re
 import json
@@ -45,7 +45,7 @@ from datetime import datetime
 from platform import python_version
 from contextlib import ExitStack
 from multiprocessing import Queue, Lock
-from requests import post, RequestException, Timeout
+from requests import post, RequestException, Response, Timeout
 
 ##### Oradio modules ######################################
 from singleton import singleton
@@ -88,6 +88,60 @@ RMS_SERVER_KEY = "e8590bb5e3d88fa306c214bbb066e3638000f6c45aeb04fc8e043af57233e0
 MAX_RETRIES    = 3    # Maximum number of POST attempts before giving up
 BACKOFF_FACTOR = 2    # Base for exponential backoff: delay = BACKOFF_FACTOR ** attempt (1s, 2s, 4s)
 POST_TIMEOUT   = 5    # Per-attempt HTTP timeout in seconds
+
+##### RMS reachability state ##############################
+
+class _RmsReachability:
+    """
+    Cached view of whether the RMS server is reachable.
+
+    Cleared when a POST exhausts its retries, set again on the first
+    successful POST and when WiFi connects. While cleared, a POST makes a
+    single probe attempt rather than the full retry/backoff cycle, and
+    RMS's own incidents are dropped rather than POSTed.
+
+    Never instantiated; use the classmethods.
+
+    Attributes:
+        reachable: Whether the server is believed to be reachable.
+        lock: Serialises access to reachable across the heartbeat timer
+            thread, the WiFi handler thread, and any caller of
+            send_message().
+    """
+    reachable = True
+    lock = Lock()
+
+    @classmethod
+    def is_reachable(cls) -> bool:
+        """
+        Return whether the RMS server is believed to be reachable.
+
+        Returns:
+            bool: The current reachability state.
+        """
+        with cls.lock:
+            return cls.reachable
+
+    @classmethod
+    def update(cls, reachable: bool) -> bool:
+        """
+        Set the reachability state and report whether it changed.
+
+        The test and the assignment share one lock, so concurrent callers
+        cannot both observe the same transition.
+
+        Args:
+            reachable: The new state.
+
+        Returns:
+            bool: True if this call changed the state, False if it already
+            held that value. Callers log and publish on the transition
+            only, keeping a prolonged outage to one line per message.
+        """
+        with cls.lock:
+            changed = cls.reachable != reachable
+            cls.reachable = reachable
+        return changed
 
 ##### Helpers #############################################
 
@@ -194,17 +248,25 @@ def _handle_response_command(response_text) -> None:
                 command, ex_err.returncode, ex_err.stdout, ex_err.stderr
             )
 
-def _post_with_retry(payload_info: dict, attach_log_files: bool = False, context: str = "message"):
+def _post_with_retry(
+    payload_info: dict,
+    attach_log_files: bool = False,
+    context: str = "message",
+) -> Response | None:
     """
-    POST payload_info to the RMS server with exponential backoff retries.
+    POST payload_info to the RMS server, retrying on failure.
 
-    Shared across the message types handled by WifiMessageHandler.
-    send_message(): all POST to the same RMS_SERVER_URL under the same
-    MAX_RETRIES/BACKOFF_FACTOR/POST_TIMEOUT policy, and all publish
-    RMS_POST_FAILED once retries are exhausted. They differ only in
-    whether log files are attached and in what happens with a
-    successful response (SYS_INFO/HEARTBEAT act on a returned command;
-    an incident alert does not) -- both of those stay with the caller.
+    Shared across the message types handled by
+    WifiMessageHandler.send_message(): all POST to RMS_SERVER_URL under the
+    same MAX_RETRIES/BACKOFF_FACTOR/POST_TIMEOUT policy. They differ only
+    in whether log files are attached and in what happens with a successful
+    response (SYS_INFO/HEARTBEAT act on a returned command, an incident
+    alert does not), both of which stay with the caller.
+
+    Retries apply while _RmsReachability reports the server as reachable.
+    Once it does not, each call makes a single probe attempt, so a dead
+    server costs one timeout rather than the full retry and backoff cycle
+    while recovery is still picked up on the next message.
 
     Args:
         payload_info:     Form fields to POST.
@@ -217,10 +279,13 @@ def _post_with_retry(payload_info: dict, attach_log_files: bool = False, context
                            "message" or "incident".
 
     Returns:
-        The successful requests.Response, or None if every retry failed
-        (RMS_POST_FAILED has already been published in that case).
+        The successful requests.Response, or None if the attempts were
+        exhausted. Exhausting them clears the reachability state, and
+        publishes RMS_POST_FAILED when that state changes.
     """
-    for attempt in range(1, MAX_RETRIES + 1):
+    attempts = MAX_RETRIES if _RmsReachability.is_reachable() else 1
+
+    for attempt in range(1, attempts + 1):
         try:
             with ExitStack() as stack:
                 payload_files = None
@@ -235,46 +300,57 @@ def _post_with_retry(payload_info: dict, attach_log_files: bool = False, context
                     timeout=POST_TIMEOUT
                 )
                 response.raise_for_status()
-            return response  # POST succeeded; exit the retry loop
         except (RequestException, Timeout) as ex_err:
-            oradio_log.warning("Attempt %d failed to POST %s: %s", attempt, context, ex_err)
-            if attempt == MAX_RETRIES:
+            # Per-attempt detail is informative only while more attempts follow
+            if attempts > 1:
+                oradio_log.warning("Attempt %d failed to POST %s: %s", attempt, context, ex_err)
+
+            if attempt < attempts:
+                # Wait before retrying; delay grows exponentially with each attempt
+                sleep(BACKOFF_FACTOR ** attempt)
+                continue
+
+            # Clear the state before publishing, so send_message() recognises
+            # the incident published here as undeliverable and drops it
+            # instead of starting another POST.
+            if _RmsReachability.update(False):
                 oradio_log.error("Failed to POST %s: %s", context, ex_err)
                 Incidents.publish(IncidentMessage(RMS_SOURCE, RMS_POST_FAILED))
-                return None
-            # Wait before retrying; delay grows exponentially with each attempt
-            sleep(BACKOFF_FACTOR ** attempt)
+            else:
+                # Outage already reported: one line per message
+                oradio_log.error("Failed to POST %s: RMS server still unreachable", context)
+            return None
+        else:
+            if _RmsReachability.update(True):
+                oradio_log.info("RMS server reachable again")
+            return response  # POST succeeded; exit the retry loop
+
     return None  # Unreachable (loop always returns or raises), keeps type checkers happy
 
 class Heartbeat(Timer):
     """
     Timer that repeatedly invokes a callback.
 
-    The callback is executed immediately when the timer starts and then
-    repeated every interval seconds until cancelled.
+    Extends threading.Timer, overriding run() so the callback executes
+    immediately on start and then repeats every interval seconds until
+    cancel() is called.
 
-    Inherits from threading.Timer and overrides run so that
-    the callback executes immediately on start, then repeats every
-    interval seconds until cancel is called.
+    Use the classmethods start_heartbeat() and stop_heartbeat() rather
+    than instantiating directly; they keep at most one timer active.
 
     Note:
-        @singleton is intentionally NOT applied here. The singleton
-        decorator enforces a single shared instance for the lifetime of the
-        process, but Timer is a consumable thread — it cannot be restarted
-        once it has finished or been cancelled. start_heartbeat must be
-        able to create a fresh instance on every call. The "one active timer
-        at a time" guarantee is provided instead by cls.instance and
-        cls.start_lock, which cancel any running timer before creating
-        a new one.
+        Each start_heartbeat() call must be free to construct a fresh
+        instance, because a Timer thread is consumable and cannot run
+        again once it has finished or been cancelled. Keep this class
+        undecorated by @singleton, which would pin one instance for the
+        lifetime of the process.
 
-    Use the class-level helpers start_heartbeat and stop_heartbeat
-    instead of instantiating directly.
+    Attributes:
+        instance: The active timer, or None when no heartbeat is running.
+        start_lock: Serialises start/stop calls so they cannot race on
+            instance.
     """
-    # Tracks the active timer so start/stop helpers can cancel it.
-    # This is Heartbeat's own concern, separate from the singleton machinery.
     instance = None
-
-    # Prevents concurrent start/stop calls from racing on cls.instance.
     start_lock = Lock()
 
     def __init__(self, interval, function, args=None, kwargs=None) -> None:
@@ -400,6 +476,9 @@ class WifiMessageHandler(MessageHandlerTemplate):
 
         elif message.message == WIFI_CONNECTED:
             self._wifi_connected = True
+            # A new connection may resolve an earlier failure, so allow the
+            # next POST a full retry cycle rather than a single probe
+            _RmsReachability.update(True)
             Heartbeat.start_heartbeat(HEARTBEAT_REPEAT, self.send_message, args=(HEARTBEAT,))
             # Immediately report hardware/software identity on every new connection
             self.send_message(SYS_INFO)
@@ -459,10 +538,19 @@ class WifiMessageHandler(MessageHandlerTemplate):
             if incident is None:
                 oradio_log.error("send_message(INCIDENT) requires an IncidentMessage")
                 return
+
+            # An incident about RMS can only be delivered while RMS answers.
+            # Dropping it here keeps a failed POST from publishing an
+            # incident that triggers another POST; the failure is already in
+            # the local log.
+            if incident.source == RMS_SOURCE and not _RmsReachability.is_reachable():
+                oradio_log.debug("RMS unreachable; not reporting: %s", incident.message)
+                return
+
             payload_info['source']  = incident.source
             payload_info['message'] = incident.message
-            # Result intentionally unused: unlike HEARTBEAT/SYS_INFO, an
-            # incident alert doesn't act on any command in the response.
+            # An incident alert acts on no command in the response, so the
+            # result is unused
             _post_with_retry(payload_info, attach_log_files=True, context="incident")
             return
 
@@ -494,17 +582,15 @@ class RMService:
 
     Subscribes to WiFi connectivity events and delegates all message
     handling -- HEARTBEAT, SYS_INFO, and INCIDENT alike -- to an internal
-    WifiMessageHandler. All three require start() to have been called;
-    RMS is expected to start early enough in the application's boot
-    sequence that no incident could plausibly be raised before it, so
-    this is a deliberate simplification rather than an oversight (see
-    WifiMessageHandler.send_message() for the per-type detail).
+    WifiMessageHandler. All three require start() to have been called, so
+    start RMS early in the application's boot sequence, ahead of any
+    service that may raise an incident. See
+    WifiMessageHandler.send_message() for the per-type detail.
 
-    Construction only sets up internal state; the WiFi subscription and the
-    handler's worker thread are not started until start() is called
-    explicitly. This lets callers control exactly when the service begins
-    subscribing/threading (and stop()/start() again later) rather than
-    having it begin as a side effect of instantiation.
+    Construction only sets up internal state; the WiFi subscription and
+    the handler's worker thread begin at the first start() call. Callers
+    therefore choose when subscribing and threading start, and may
+    stop() and start() again later.
     """
     def __init__(self) -> None:
         """
@@ -546,13 +632,11 @@ class RMService:
         """
         Send a message to the RMS server.
 
-        Thin delegator to the internal WiFi-driven handler, which now
-        handles HEARTBEAT, SYS_INFO, and INCIDENT uniformly -- see
+        Thin delegator to the internal WiFi-driven handler, letting
+        callers and the interactive test menu trigger sends on the
+        RMService instance without touching internal state. See
         WifiMessageHandler.send_message() for what each type does and
-        which additionally require WiFi to be currently connected.
-        Provided so callers and the interactive test menu can trigger
-        sends directly on the RMService instance without accessing
-        internal state.
+        which require WiFi to be connected.
 
         Args:
             msg_type: HEARTBEAT, SYS_INFO, or INCIDENT.
