@@ -126,7 +126,7 @@ spotify_connect_available = threading.Event()  # track Spotify playing & connect
 
 # Log the operatonal voltage and current
 init_power_status = get_power_status()
-oradio_log.info("Initial Power supply: %sV @ %sA", init_power_status["voltage_v"], init_power_status["current_a"])
+oradio_log.info("At startup - Power supply: %sV @ %sA", init_power_status["voltage_v"], init_power_status["current_a"])
 
 web_service_active = threading.Event() # Track status web_service
 web_service_active.clear() # Start-up state is no Web service
