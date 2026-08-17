@@ -181,7 +181,15 @@ class IncidentHandler(MessageHandlerTemplate):
             oradio_log.error("Unhandled I2C incident: '%s'", incident.message)
 
     def _handle_led_incident(self, incident: IncidentMessage) -> None:
-        """Handle LED-related incident."""
+        """
+        Handle LED-related incident.
+
+        Attempts recovery from known LED conditions and logs
+        unrecognised incidents for further investigation.
+
+        Args:
+            incident: Incident message received from the incident bus.
+        """
         if incident.message == LED_BLINK_START_FAILED:
             # MITIGATION TO BE IMPLEMENTED:
             #   Report LED worker start failure + status to RMS
@@ -265,7 +273,15 @@ class IncidentHandler(MessageHandlerTemplate):
             oradio_log.error("Unhandled MPD incident: '%s'", incident.message)
 
     def _handle_power_incident(self, incident: IncidentMessage) -> None:
-        """Handle power-supply-related incident."""
+        """
+        Handle power-supply-related incident.
+
+        Attempts recovery from known power supply conditions and logs
+        unrecognised incidents for further investigation.
+
+        Args:
+            incident: Incident message received from the incident bus.
+        """
         if incident.message == POWER_NEGOTIATION_FAILED:
             # MITIGATION TO BE IMPLEMENTED:
             #   Report PD negotiation failure + status to RMS
@@ -296,10 +312,18 @@ class IncidentHandler(MessageHandlerTemplate):
             oradio_log.error("Unhandled Remote monitoring incident: '%s'", incident.message)
 
     def _handle_sound_incident(self, incident: IncidentMessage) -> None:
-        """Handle system-sound-related incident."""
+        """
+        Handle system-sound-related incident.
+
+        Attempts recovery from known system sound conditions and logs
+        unrecognised incidents for further investigation.
+
+        Args:
+            incident: Incident message received from the incident bus.
+        """
         if incident.message == SOUND_MISSING_DIR:
             # MITIGATION TO BE IMPLEMENTED:
-            #   Report system sound mdirectory missing + status to RMS
+            #   Report system sound directory missing + status to RMS
             oradio_log.debug("Mitigation to be implemented")
         elif incident.message == SOUND_PLAYBACK_FAILED:
             # MITIGATION TO BE IMPLEMENTED:
@@ -561,7 +585,7 @@ if __name__ == '__main__':
                     print("\nPublish Incident message...")
                     Incidents.publish(IncidentMessage(TEST_SOURCE, "Test incident"))
                 case 2:
-                    # Publish an unrecognised incident; handler should return False
+                    # Publish an unrecognised incident; handler should log an error
                     print("\nPublish unexpected message...")
                     Incidents.publish(IncidentMessage(UNEXPECTED, "Unexpected incident"))
                 case _:
