@@ -42,7 +42,7 @@ from system_sounds import play_sound
 from incident_service import IncidentHandler
 from log_monitor import LogHealthMonitor
 from rpi_monitor import RPiThrottlingMonitor
-from power_service import PowerSupplyService
+from power_service import get_power_status
 
 # Moved from constants
 from messaging import (
@@ -115,7 +115,6 @@ from constants import (
 WEB_PRESET_STATES = {"StatePreset1", "StatePreset2", "StatePreset3"}
 PLAY_STATES = {"StatePlay", "StatePreset1", "StatePreset2", "StatePreset3"}
 PLAY_WEBSERVICE_STATES = {"StatePlay", "StatePreset1", "StatePreset2", "StatePreset3", "StateIdle"}
-LOW_POWER_STATES = {"StateIdle"}  # only Idle uses nominal voltage (9V)to reduce power consumption
 
 ################## Signal Primitives ######################
 
@@ -124,6 +123,11 @@ spotify_connect_playing = threading.Event()  # track Spotify playing
 spotify_connect_available = threading.Event()  # track Spotify playing & connected
 
 # -----------------------
+
+# Log the operatonal voltage and current
+status = get_power_status()
+oradio_log.info("Initial Power supply: %sV @ %sA", status["voltage_v"], status["current_a"])
+
 web_service_active = threading.Event() # Track status web_service
 web_service_active.clear() # Start-up state is no Web service
 
@@ -168,9 +172,6 @@ oradio_log.info("Initialising MPDControl")
 mpd_control = MPDControl()
 # Update MPD database - happens in separate thread
 mpd_control.update_database()
-
-# Initialise power supply controller, to optimse supply voltage for the various states
-power_supply_service = PowerSupplyService()
 
 # Instantiate  led control
 leds = LEDControl()
@@ -289,19 +290,6 @@ class StateMachine:
             target=self.run_state_method, args=(self.state,), daemon=True
         ).start()
 
-    def _apply_power_policy_for_state(self, target_state: str) -> None:
-        desired_mode = "nom" if target_state in LOW_POWER_STATES else "max"
-        if desired_mode == self._pd_mode:
-            return  # already correct -> do nothing
-
-        if desired_mode == "nom":
-            success = power_supply_service.set_nom_voltage()
-        else:
-            success = power_supply_service.set_max_voltage()
-
-        if success:
-            self._pd_mode = desired_mode
-
     # ---- delayed-transition helpers ----
     def _cancel_all_delayed(self):
         """Cancel and clear all pending delayed transitions."""
@@ -357,8 +345,6 @@ class StateMachine:
             leds.turn_off_all_leds()
             handler = self._handlers.get(state_to_handle, self._state_unknown)
             handler()
-        # outside lock (more responsive, and power policy can be changed even when it is playing)
-        self._apply_power_policy_for_state(state_to_handle)
 
     # --- State handlers ---
 
@@ -457,9 +443,15 @@ class StateMachine:
         self._arm_delayed_transition("StartupToIdle", 5.0, "StateIdle")
 
     def _state_idle(self):
-        # Listen for volume changed notifications
+
+        status = get_power_status()
+        oradio_log.info("At idle - Power supply: %sV @ %sA", status["voltage_v"], status["current_a"])
+
+# REVIEW: Is this only there because transitioning through StateIdle is used by on_webservice_plX_changed() ?
+#         If yes, then fix on_webservice_plX_changed() to not abuse StateIdle to do something which should be handled in the StatePresetX state.
         if web_service_active.is_set():
             leds.control_blinking_led(LED_PLAY)
+
         if mpd_control.is_webradio():
             mpd_control.stop()
         else:
