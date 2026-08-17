@@ -125,8 +125,8 @@ spotify_connect_available = threading.Event()  # track Spotify playing & connect
 # -----------------------
 
 # Log the operatonal voltage and current
-power_status = get_power_status()
-oradio_log.info("Initial Power supply: %sV @ %sA", power_status["voltage_v"], power_status["current_a"])
+init_power_status = get_power_status()
+oradio_log.info("Initial Power supply: %sV @ %sA", init_power_status["voltage_v"], init_power_status["current_a"])
 
 web_service_active = threading.Event() # Track status web_service
 web_service_active.clear() # Start-up state is no Web service
@@ -444,8 +444,8 @@ class StateMachine:
 
     def _state_idle(self):
 
-        power_status = get_power_status()
-        oradio_log.info("At idle - Power supply: %sV @ %sA", power_status["voltage_v"], power_status["current_a"])
+        idle_power_status = get_power_status()
+        oradio_log.info("At idle - Power supply: %sV @ %sA", idle_power_status["voltage_v"], idle_power_status["current_a"])
 
 # REVIEW: Is this only there because transitioning through StateIdle is used by on_webservice_plX_changed() ?
 #         If yes, then fix on_webservice_plX_changed() to not abuse StateIdle to do something which should be handled in the StatePresetX state.
