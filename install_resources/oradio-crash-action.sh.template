@@ -1,0 +1,78 @@
+#!/usr/bin/bash
+#
+#  ####   #####     ##    #####      #     ####
+# #    #  #    #   #  #   #    #     #    #    #
+# #    #  #    #  #    #  #    #     #    #    #
+# #    #  #####   ######  #    #     #    #    #
+# #    #  #   #   #    #  #    #     #    #    #
+#  ####   #    #  #    #  #####      #     ####
+#
+# Created on August 17, 2026
+# @author:        Henk Stevens & Olaf Mastenbroek & Onno Janssen
+# @copyright:     Stichting Oradio
+# @license:       GNU General Public License (GPL)
+# @organization:  Stichting Oradio
+# @version:       1
+# @email:         info@stichtingoradio.nl
+# @status:        Development
+# @Purpose:       Handle Oradio service crashes
+#
+# Started by oradio-crash-action.service, pulled in by 'OnFailure=' in
+# oradio.service. It therefore runs ONLY after an abnormal exit: a regular
+# 'systemctl stop' or a reboot never gets here.
+#
+# Runs as root, in its own job, so systemctl calls are safe here.
+# Output goes to the journal: journalctl -u oradio-crash-action
+#
+
+# Stop script on command errors, unset variables and failed pipes
+set -o errexit -o nounset -o pipefail
+
+# Do not reboot if Oradio crashed within this many seconds of boot: see below
+readonly MIN_UPTIME_TO_REBOOT=300
+
+# Report to RMS if there is anything to report. Best effort: a failed upload
+# must not skip the recovery below, so errexit is suspended for the curl.
+if [ -s "PLACEHOLDER_LOGFILE_TRACEBACK" ]; then
+
+	# Board serial. Assigned first so an empty serial cannot silently reach RMS
+	# as a valid looking report: inside a curl argument the failure would pass
+	# unnoticed. The fallback keeps a missing vcgencmd or a failed grep from
+	# aborting the script under errexit, which would skip the recovery below.
+	serial="$(vcgencmd otp_dump | grep "28:" | cut -c 4-)" || serial="unknown"
+
+	# Send traceback logfile to Oradio Remote Monitoring Service.
+	# --max-time / --retry keep a flaky network from running into the
+	# TimeoutStartSec=300 of oradio-crash-action.service: worst case is
+	# 3 attempts of 60s plus 2 delays of 5s = 190s.
+	curl -sS --max-time 60 --retry 2 --retry-delay 5 \
+		-X POST "PLACEHOLDER_RMS_SERVER_URL" \
+		-H "X-Api-Key: PLACEHOLDER_RMS_SERVER_KEY" \
+		-F "generated=$(date "+%Y-%m-%d %H:%M:%S")" \
+		-F "serial=${serial}" \
+		-F "type=CRASH" \
+		-F "source=Oradio service message" \
+		-F "message=Oradio service fatal crash" \
+		-F "PLACEHOLDER_LOGFILE_TRACEBACK=@PLACEHOLDER_LOGFILE_TRACEBACK" \
+		|| echo "RMS report failed (curl exit $?)"
+else
+	echo "Traceback logfile empty: nothing to report"
+fi
+
+# Reboot guard. A crash shortly after boot is the signature of a crash loop:
+# rebooting would only repeat it, indefinitely, one RMS report per cycle. Leave
+# the unit failed instead, so the Oradio stays visibly dead and the reports
+# stop. Uptime is read from /proc/uptime and truncated to whole seconds.
+read -r uptime _ < /proc/uptime
+if [ "${uptime%.*}" -lt "$MIN_UPTIME_TO_REBOOT" ]; then
+	echo "Crash ${uptime%.*}s after boot, within ${MIN_UPTIME_TO_REBOOT}s: not rebooting"
+	exit 0
+fi
+
+# For now reboot the Oradio
+echo "Crash ${uptime%.*}s after boot: rebooting"
+reboot
+
+# For future try to recover:
+#	- Restore settings to factory defaults
+#	- Restart oradio service

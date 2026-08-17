@@ -3,32 +3,23 @@
 [Unit]
 Description=Oradio
 After=basic.target
-# StartLimitInterval > RestartSec * StartLimitBurst otherwise the service will be restarted indefinitely
-StartLimitInterval=55
-# Try max 5 times
-StartLimitBurst=5
+
+# Crash handling. There is no automatic restart (Restart=no below), so any abnormal exit
+# puts this unit straight into the FAILED state and OnFailure= starts the crash action.
+#
+# The OnFailure handler is a separate job, so it may call systemctl without deadlocking
+# against oradio's own stop transition.
+OnFailure=oradio-crash-action.service
 
 [Service]
 Type=simple
 
-# Scheduling priority is NOT set here. It is applied by optimize_boot_time.sh as
-# a drop-in at /etc/systemd/system/oradio.service.d/oradio-sched.conf:
-#
+# Scheduling priority is applied by optimize_boot_time.sh as a drop-in
+# at /etc/systemd/system/oradio.service.d/oradio-sched.conf:
 #   [Service]
 #   Nice=-5
 #   IOSchedulingClass=best-effort
 #   IOSchedulingPriority=0
-#
-# Rationale: by the time this unit starts, the boot is I/O bound rather than
-# dependency bound - six services start within ~500ms of each other and contend
-# for one SD card on four A53 cores. The drop-in prioritizes oradio.service and
-# deprioritises ab-boot-check.service and avahi-daemon.service, so the three
-# settings only make sense as a set.
-#
-# Consequence: a fresh install that has not run optimize_boot_time.sh gets an
-# un-prioritised app. That is intentional - the priorities are a boot-time
-# optimisation, not a functional requirement. Keep them in the drop-in rather
-# than duplicating them here, so the two cannot drift apart.
 
 # Redirect stdout (fd 1) and stderr (fd 2) to the log file.
 # Note this takes the output *out* of the journal: journalctl -u oradio will be empty.
@@ -41,11 +32,8 @@ ExecStartPre=-+/usr/bin/chown PLACEHOLDER_USER:PLACEHOLDER_GROUP PLACEHOLDER_LOG
 # Clear traceback logfile when starting the service
 ExecStartPre=/usr/bin/truncate -s 0 PLACEHOLDER_LOGFILE_TRACEBACK
 
-# Remove any residual lock file from previous run
-ExecStartPre=/usr/bin/rm -f PLACEHOLDER_LOGGING_PATH/.__oradio.lock
-
-# Timestamp when oradio service starts
-ExecStartPre=/bin/sh -c 'echo "oradio python script started after boot: $(cut -d" " -f1 /proc/uptime)s" >> PLACEHOLDER_LOGFILE_BOOT'
+# For boot time tracing: Timestamp when oradio service starts.
+ExecStartPre=-/bin/sh -c 'echo "Oradio python script started after boot: $(cut -d" " -f1 /proc/uptime)s" >> PLACEHOLDER_LOGFILE_BOOT'
 
 # Execute service in user environment.
 User=PLACEHOLDER_USER
@@ -55,49 +43,9 @@ Group=PLACEHOLDER_GROUP
 WorkingDirectory=PLACEHOLDER_MAIN_PATH
 ExecStart=/home/PLACEHOLDER_USER/.venv/bin/python3 oradio_control.py
 
-# Send traceback logfile to Oradio Remote Monitoring Service.
-#
-# Two systemd rules govern everything below. Both are applied to the raw text
-# of this line, BEFORE bash ever sees it, and quoting does not protect against
-# either one:
-#
-#   1. '%x' is a systemd specifier (%Y=unit dir, %m=machine id, %H=hostname,
-#      ...). Every literal percent must therefore be written '%%'. This is why
-#      the date format reads %%Y-%%m-%%d and not %Y-%m-%d.
-#   2. '$VAR' is expanded by systemd, and unset names become the empty string.
-#      '$(cmd)' is left alone because '(' cannot start a variable name.
-#      Rule of thumb: use $(...) freely, never use $VAR. Environment values are
-#      read with $(printenv NAME).
-#
-# Do NOT add '#' comments inside the continuation lines: systemd joins them
-# into a single line, so bash would treat the rest of the command as a comment.
-#
-# Line by line:
-#   printenv SERVICE_RESULT -> systemd sets this for ExecStopPost. Skip the
-#     report on a clean stop/reboot, otherwise Restart=always would file a
-#     CRASH on every normal shutdown and five per crash loop.
-#   [ -s ... ]              -> if the traceback is missing or empty, '-F @file'
-#     makes curl abort with exit 26 and send nothing at all, losing the whole
-#     report rather than just that one field. Skip deliberately instead.
-#   traceback.log=@...      -> the part before '=' is the multipart field name.
-#     Kept as a bare filename to match the reference python implementation;
-#     change it if the server expects something else.
-#   leading '-' on ExecStopPost -> failures here never block the stop.
-ExecStopPost=-/usr/bin/bash -c '[ "$(printenv SERVICE_RESULT)" = "success" ] && exit 0; \
-                                [ -s "PLACEHOLDER_LOGFILE_TRACEBACK" ] || exit 0; \
-                                curl -sS \
-                                -X POST "PLACEHOLDER_RMS_SERVER_URL" \
-                                -H "X-Api-Key: PLACEHOLDER_RMS_SERVER_KEY" \
-                                -F "generated=$(date "+%%Y-%%m-%%d %%H:%%M:%%S")" \
-                                -F "serial=$(vcgencmd otp_dump | grep "28:" | cut -c 4-)" \
-                                -F "type=CRASH" \
-                                -F "source=Oradio service message" \
-                                -F "message=Oradio service fatal crash" \
-                                -F "PLACEHOLDER_LOGFILE_TRACEBACK=@PLACEHOLDER_LOGFILE_TRACEBACK" \
-                                '
-
-Restart=always
-RestartSec=10
+# No automatic restart: recovery is the crash action script's job.
+# Stopping the service in a regular way has no further action.
+Restart=no
 
 [Install]
 WantedBy=multi-user.target
