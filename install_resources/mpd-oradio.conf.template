@@ -33,7 +33,8 @@ After=sound.target mpd.socket
 # the journal attached also means startup errors that occur before mpd.conf is
 # parsed stay visible via 'journalctl -u mpd'.
 
-# MPD runs as user 'mpd' but the log lives in PLACEHOLDER_USER's directory, so
-# ownership has to be fixed before MPD opens it. '+' means run this as root,
-# '-' means a failure here does not fail the unit.
+# the mpd log file may get created after starting the mpd service.
+# so creation and ownership has to be fixed before MPD opens it.
+# '+' means run this as root, '-' means a failure here does not fail the unit.
+ExecStartPre=-+/usr/bin/touch PLACEHOLDER_LOGFILE_MPD
 ExecStartPre=-+/usr/bin/chown PLACEHOLDER_USER:PLACEHOLDER_GROUP PLACEHOLDER_LOGFILE_MPD
