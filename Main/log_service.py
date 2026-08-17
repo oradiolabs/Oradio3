@@ -64,8 +64,7 @@ ORADIO_LOG_LEVEL = DEBUG
 # Log file constants
 ORADIO_LOG_PATH     = (Path(__file__).parent.parent / "logging").resolve()
 ORADIO_LOG_FILE_STR = str(ORADIO_LOG_PATH / 'oradio.log')
-# Record layout, shared by both sinks. ColorFormatter wraps it per level for the console;
-# the file handler uses it as-is, so both stay in step and only the console gets ANSI escapes.
+# Record layout, shared by both sinks. ColorFormatter wraps it per level
 LOG_FORMAT = "%(asctime)s - %(filename)s:%(lineno)d - %(levelname)s - %(message)s"
 # Items to queue when busy
 QUEUE_SIZE = 10000
@@ -93,13 +92,7 @@ logging.Logger.trace = trace    # type: ignore[attr-defined]
 faulthandler.enable(file=stderr)
 
 class ColorFormatter(logging.Formatter):
-    """
-    Formatter that adds ANSI color to messages depending on log level.
-
-    For the console sink only. The log file is written with a plain logging.Formatter over the same
-    LOG_FORMAT: escape sequences in a file that gets grepped and read during support calls are noise,
-    and they inflate every record by roughly ten bytes against a rotation budget measured in kilobytes.
-    """
+    """Formatter that adds ANSI color to messages depending on log level."""
     def __init__(self) -> None:
         super().__init__()
         self._formatters = {
@@ -220,9 +213,8 @@ class SafeLogger:
         # Create shared log queue
         self._log_queue: Queue[logging.LogRecord] = Queue(maxsize=QUEUE_SIZE)
 
-        # One formatter per sink: color for a terminal, plain text for the file.
-        self._console_formatter = ColorFormatter()
-        self._file_formatter = logging.Formatter(LOG_FORMAT)
+        # Get color formatter
+        self._formatter = ColorFormatter()
 
         # Ensure log directory exists
         ORADIO_LOG_PATH.mkdir(parents=True, exist_ok=True)
@@ -230,11 +222,10 @@ class SafeLogger:
         # REAL output handlers (consumers)
         handlers: list[logging.Handler] = []
 
-        # Console handler. Only attached when stderr is a terminal, which is also
-        # the only place the ANSI escapes ColorFormatter emits can be rendered.
+        # Console handler. Only attached when stderr is a terminal
         if stderr.isatty():
             console_handler = logging.StreamHandler()
-            console_handler.setFormatter(self._console_formatter)
+            console_handler.setFormatter(self._formatter)
             handlers.append(console_handler)
 
         # File handler. No rotation of its own -- logrotate owns that (see module docstring)
@@ -245,7 +236,7 @@ class SafeLogger:
         # disk-backed fallback sinks for drop/health notices below -- those need to survive
         # headless operation, where stdout/stderr may not be captured anywhere.
         file_handler = logging.FileHandler(ORADIO_LOG_FILE_STR, mode="a", encoding="utf-8")
-        file_handler.setFormatter(self._file_formatter)
+        file_handler.setFormatter(self._formatter)
         handlers.append(file_handler)
 
         # Second, independent fallback sink for drop/health notices only

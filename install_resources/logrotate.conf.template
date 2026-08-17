@@ -17,7 +17,7 @@ PLACEHOLDER_LOGGING_PATH/*.log {
 	# Rotate once the file passes 250k; keep one previous generation.
 	# Steady state is therefore about 500k per log.
 	size 250k
-	rotate 2
+	rotate 1
 
 	# Do not fail the whole run if a log has not been created yet.
 	missingok
