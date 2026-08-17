@@ -140,7 +140,7 @@ class IncidentHandler(MessageHandlerTemplate):
             #   Can GPIO be reset? IF yes add and try, if not power cycle
             #   If retry_count < MAX_RETRIES: call gpio_cleanup() and restart Oradio
             oradio_log.debug("Mitigation to be implemented")
-        if incident.message == GPIO_BUTTONS_FAILED:
+        elif incident.message == GPIO_BUTTONS_FAILED:
             # MITIGATION TO BE IMPLEMENTED:
             #   Report GPIO buttons setup failed + status to RMS
             #   Can GPIO be reset? IF yes add and try, if not power cycle
@@ -165,13 +165,13 @@ class IncidentHandler(MessageHandlerTemplate):
             #   Can I2C be reset? IF yes add and try, if not power cycle
             #   If retry_count < MAX_RETRIES: restart Oradio
             oradio_log.debug("Mitigation to be implemented")
-        if incident.message == I2C_READ_FAILED:
+        elif incident.message == I2C_READ_FAILED:
             # MITIGATION TO BE IMPLEMENTED:
             #   Report I2C read failed + status to RMS
             #   Can I2C be reset? IF yes add and try, if not power cycle
             #   If retry_count < MAX_RETRIES: restart Oradio
             oradio_log.debug("Mitigation to be implemented")
-        if incident.message == I2C_WRITE_FAILED:
+        elif incident.message == I2C_WRITE_FAILED:
             # MITIGATION TO BE IMPLEMENTED:
             #   Report I2C write failed + status to RMS
             #   Can I2C be reset? IF yes add and try, if not power cycle
@@ -229,7 +229,7 @@ class IncidentHandler(MessageHandlerTemplate):
             #   If retry_count < MAX_RETRIES: retry starting log monitor
             oradio_log.debug("Mitigation to be implemented")
         else:
-            oradio_log.error("Unhandled MPD incident: '%s'", incident.message)
+            oradio_log.error("Unhandled log incident: '%s'", incident.message)
 
     def _handle_mpd_incident(self, incident: IncidentMessage) -> None:
         """
@@ -288,7 +288,7 @@ class IncidentHandler(MessageHandlerTemplate):
             # MITIGATION TO BE IMPLEMENTED:
             #   Report RMS start failure + status to RMS
             oradio_log.debug("Mitigation to be implemented")
-        if incident.message == RMS_POST_FAILED:
+        elif incident.message == RMS_POST_FAILED:
             # MITIGATION TO BE IMPLEMENTED:
             #   Report RMS post failure + status to RMS
             oradio_log.debug("Mitigation to be implemented")
