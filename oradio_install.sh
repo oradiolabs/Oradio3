@@ -700,6 +700,9 @@ install_resource "$RESOURCES_PATH/about" /usr/local/bin/about 'chmod +x /usr/loc
 echo -e "${GREEN}Support tools installed${NC}"
 
 # Configure the oradio crash handling script
+install_resource "$RESOURCES_PATH/send_log_files_to_rms.sh" /usr/local/bin/send_log_files_to_rms 'chmod 700 /usr/local/sbin/send_log_files_to_rms'
+
+# Configure the oradio crash handling script
 install_resource "$RESOURCES_PATH/oradio-crash-action.sh" /usr/local/sbin/oradio-crash-action.sh 'chmod 700 /usr/local/sbin/oradio-crash-action.sh'
 # Configure the oradio crash handling service
 install_resource "$RESOURCES_PATH/oradio-crash-action.service" /etc/systemd/system/oradio-crash-action.service
