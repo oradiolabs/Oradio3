@@ -74,6 +74,7 @@ enable_uart=0
 [all]
 
 #### Enable watchdog to catch a/b boot timeout ####
+# Paired with RuntimeWatchdogSec in /etc/systemd/system.conf.d/
 dtparam=watchdog=on
 
 #### Oradio backlighting options ####
