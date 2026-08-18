@@ -1,6 +1,7 @@
 [Unit]
 # %i is the instance name ("add" or "remove"), included so the two show up distinctly in systemctl output.
 Description=USB drive handler (ORADIO) %i
+
 # Cosmetic here - we are started *by* udev, so udevd is necessarily up already.
 After=systemd-udevd.service
 
