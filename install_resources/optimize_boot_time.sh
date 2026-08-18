@@ -674,6 +674,20 @@ write_boot_dropin avahi-daemon.service '[Service]
 IOSchedulingClass=idle
 Nice=10'
 
+# The /boot/firmware fsck. The automount keeps it off the critical path — nothing
+# waits for it — but "not blocking" is not "free": measured at 1.184s of
+# synchronous FAT reads starting at 5.377s, which is the window where
+# oradio.service is doing its Python imports and the USB stick is mounting. One
+# SD card, four A53 cores. Nothing waits for it, so let it wait instead.
+#
+# This is the TEMPLATE unit, so it covers every fsck instance created from it.
+# systemd-fsck-root.service is a separate unit and is deliberately NOT touched:
+# it IS on the critical path (root cannot be used until it finishes), and
+# deprioritising it would delay the whole boot rather than get out of its way.
+write_boot_dropin 'systemd-fsck@.service' '[Service]
+IOSchedulingClass=idle
+Nice=10'
+
 # The thing the user is actually waiting for
 write_boot_dropin oradio.service '[Service]
 Nice=-5
