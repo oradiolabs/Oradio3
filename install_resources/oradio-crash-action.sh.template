@@ -22,7 +22,11 @@
 # 'systemctl stop' or a reboot never gets here.
 #
 # Runs as root, in its own job, so systemctl calls are safe here.
-# Output goes to the journal: journalctl -u oradio-crash-action
+# Output does NOT go to the journal: oradio-crash-action.service redirects both
+# stdout and stderr to the crash action logfile in the logging path, so
+# 'journalctl -u oradio-crash-action' stays empty. Read that logfile instead.
+# It is uploaded to RMS along with the other logfiles, but necessarily without
+# the lines written after the upload starts: see the marker below.
 #
 
 # Stop script on command errors, unset variables and failed pipes
@@ -31,47 +35,90 @@ set -o errexit -o nounset -o pipefail
 # Do not reboot if Oradio crashed within this many seconds of boot: see below
 readonly MIN_UPTIME_TO_REBOOT=300
 
-# Report to RMS if there is anything to report. Best effort: a failed upload
-# must not skip the recovery below, so errexit is suspended for the curl.
-if [ -s "PLACEHOLDER_LOGFILE_TRACEBACK" ]; then
+# Uptime is sampled here, not at the reboot guard below, because the RMS upload
+# in between can take minutes on a slow link. Sampling afterwards would add that
+# upload time to the measured uptime and lift an early crash over the threshold,
+# which is exactly the crash loop the guard exists to stop. Read from
+# /proc/uptime and truncated to whole seconds.
+read -r uptime _ < /proc/uptime
+readonly uptime_at_crash="${uptime%.*}"
 
-	# Board serial. Assigned first so an empty serial cannot silently reach RMS
-	# as a valid looking report: inside a curl argument the failure would pass
-	# unnoticed. The fallback keeps a missing vcgencmd or a failed grep from
-	# aborting the script under errexit, which would skip the recovery below.
-	serial="$(vcgencmd otp_dump | grep "28:" | cut -c 4-)" || serial="unknown"
+# Collect every file in the logging directory as a curl -F argument, using the
+# filename as form field name. Empty files are included: that a logfile exists
+# but is empty is itself a finding, and distinguishing it from a file that was
+# never created at all is exactly what a crash report is for. No nullglob
+# needed: if nothing matches, the glob stays literal and the -f test skips it.
+# The -f also skips subdirectories, which curl cannot upload and which would
+# abort the script under errexit.
+log_fields=()
+for logfile in "PLACEHOLDER_LOGGING_PATH"/*; do
+	[ -f "$logfile" ] || continue
+	log_fields+=(-F "$(basename "$logfile")=@${logfile}")
+done
 
-	# Send traceback logfile to Oradio Remote Monitoring Service.
-	# --max-time / --retry keep a flaky network from running into the
-	# TimeoutStartSec=300 of oradio-crash-action.service: worst case is
-	# 3 attempts of 60s plus 2 delays of 5s = 190s.
-	response="$(curl -sS --max-time 60 --retry 2 --retry-delay 5 \
-		-X POST "PLACEHOLDER_RMS_SERVER_URL" \
-		-H "X-Api-Key: PLACEHOLDER_RMS_SERVER_KEY" \
-		-F "generated=$(date "+%Y-%m-%d %H:%M:%S")" \
-		-F "serial=${serial}" \
-		-F "type=CRASH" \
-		-F "source=Oradio service message" \
-		-F "message=Oradio service fatal crash" \
-		-F "PLACEHOLDER_LOGFILE_TRACEBACK=@PLACEHOLDER_LOGFILE_TRACEBACK" \
-		)" || echo "RMS report failed (curl exit $?)"
-		echo "RMS response: ${response:-<none>}"
-else
-	echo "Traceback logfile empty: nothing to report"
-fi
+# Board serial. Assigned first so an empty serial cannot silently reach RMS
+# as a valid looking report: inside a curl argument the failure would pass
+# unnoticed. The fallback keeps a missing vcgencmd or a failed grep from
+# aborting the script under errexit, which would skip the recovery below.
+serial="$(vcgencmd otp_dump | grep "28:" | cut -c 4-)" || serial="unknown"
 
 # Reboot guard. A crash shortly after boot is the signature of a crash loop:
-# rebooting would only repeat it, indefinitely, one RMS report per cycle. Leave
-# the unit failed instead, so the Oradio stays visibly dead and the reports
-# stop. Uptime is read from /proc/uptime and truncated to whole seconds.
-read -r uptime _ < /proc/uptime
-if [ "${uptime%.*}" -lt "$MIN_UPTIME_TO_REBOOT" ]; then
-	echo "Crash ${uptime%.*}s after boot, within ${MIN_UPTIME_TO_REBOOT}s: not rebooting"
+# rebooting would only repeat it, indefinitely, one RMS report per cycle.
+# Leave the unit failed instead, so the Oradio stays visibly dead and the reports
+# stop. Uses the uptime sampled at the top of this script, before the upload.
+# The decision is taken here rather than after the upload so it can go into the
+# marker below: the uploaded copy then states what the Oradio did next, which is
+# the one thing RMS could otherwise never learn from that copy.
+if [ "$uptime_at_crash" -lt "$MIN_UPTIME_TO_REBOOT" ]; then
+	will_reboot=0
+	reboot_decision="crash ${uptime_at_crash}s after boot, within ${MIN_UPTIME_TO_REBOOT}s: NOT rebooting, unit left failed"
+else
+	will_reboot=1
+	reboot_decision="crash ${uptime_at_crash}s after boot: rebooting after this upload"
+fi
+readonly will_reboot reboot_decision
+
+# Mark the cut in the crash action logfile. That file is one of the files being
+# uploaded, and this script keeps writing to it afterwards: the RMS response is
+# appended only after curl has read it. The copy on RMS therefore always ends
+# here, while the original on the Oradio continues. Without the marker that copy
+# looks like a script that stopped mid-run.
+# No explicit flush is needed: bash flushes stdout before executing an external
+# command, so this line is in the file by the time curl opens it.
+echo "--- uploaded to RMS from here: any lines below exist only on the Oradio ---"
+echo "--- decision already taken, executed after the upload: ${reboot_decision} ---"
+
+# Send the logfiles to Oradio Remote Monitoring Service. Best effort: a failed
+# upload must not skip the recovery below, so errexit is suspended for the curl.
+# The payload is up to 5MB, so --max-time is sized for the upstream bandwidth of
+# a slow home connection rather than for the local link speed: 120s carries 5MB
+# down to ~350kbps. --speed-limit / --speed-time abandon a connection that has
+# stalled below 5kB/s for 30s, so a dead link fails fast instead of burning the
+# full 120s. Worst case is 3 attempts of 120s plus 2 delays of 5s = 370s, which
+# must stay below the TimeoutStartSec=500 of oradio-crash-action.service: curl
+# has to lose that race, otherwise systemd kills the script before it reboots.
+response="$(curl -sS --max-time 120 --retry 2 --retry-delay 5 \
+	--speed-limit 5000 --speed-time 30 \
+	-X POST "PLACEHOLDER_RMS_SERVER_URL" \
+	-H "X-Api-Key: PLACEHOLDER_RMS_SERVER_KEY" \
+	-F "generated=$(date "+%Y-%m-%d %H:%M:%S")" \
+	-F "serial=${serial}" \
+	-F "type=CRASH" \
+	-F "source=Oradio service message" \
+	-F "message=Oradio service fatal crash" \
+	"${log_fields[@]}" \
+	)" || echo "RMS report failed (curl exit $?)"
+echo "RMS response: ${response:-<none>}"
+
+# Execute the decision taken before the upload. Nothing is re-evaluated here:
+# re-reading /proc/uptime would measure the upload as if it were runtime.
+if [ "$will_reboot" -eq 0 ]; then
+	echo "Recovery: ${reboot_decision}"
 	exit 0
 fi
 
 # For now reboot the Oradio
-echo "Crash ${uptime%.*}s after boot: rebooting"
+echo "Recovery: ${reboot_decision}"
 reboot
 
 # For future try to recover:

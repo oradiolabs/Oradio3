@@ -33,6 +33,6 @@ StandardError=append:PLACEHOLDER_LOGFILE_CRASHACTION
 # systemctl from the script cannot deadlock.
 ExecStart=/usr/local/sbin/oradio-crash-action.sh
 
-# Give the script enough time to execute: at least enough for post to rms, which
-# with curl --max-time 60 --retry 2 --retry-delay 5 can take up to 190 seconds.
-TimeoutStartSec=300
+# Give the script enough time to execute: at least enough for post to rms.
+# Check oradio-crash-action.sh for worst case time needed to execute to completion.
+TimeoutStartSec=500
