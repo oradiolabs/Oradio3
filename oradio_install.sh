@@ -91,6 +91,7 @@ LOGFILE_BOOT="$LOGGING_PATH/boot.log"
 LOGFILE_SPOTIFY="$LOGGING_PATH/spotify.log"
 LOGFILE_INSTALL="$LOGGING_PATH/install.log"
 LOGFILE_TRACEBACK="$LOGGING_PATH/traceback.log"
+LOGFILE_CRASHACTION="$LOGGING_PATH/crash-action.log"
 
 # Ensure logfiles exist and are owned by the invoking user before any service opens them
 for VAR_NAME in "${!LOGFILE_@}"; do
@@ -174,7 +175,7 @@ function install_resource {
 		# `sed -i` per substitution) to avoid re-opening/rewriting the file N times.
 		local SED_ARGS=(-e "s/PLACEHOLDER_USER/$(id -un)/g" -e "s/PLACEHOLDER_GROUP/$(id -gn)/g")
 		for VAR_NAME in MAIN_PATH LOGGING_PATH SPOTIFY_PATH SOUNDS_PATH LOGFILE_USB LOGFILE_MPD \
-			LOGFILE_BOOT LOGFILE_SPOTIFY LOGFILE_INSTALL LOGFILE_TRACEBACK \
+			LOGFILE_BOOT LOGFILE_SPOTIFY LOGFILE_INSTALL LOGFILE_TRACEBACK LOGFILE_CRASHACTION \
 			"${CONSTANT_NAMES[@]}"; do
 			local VALUE="${!VAR_NAME}"
 			# Escape & because sed treats it specially in the replacement text
@@ -698,6 +699,10 @@ install_resource "$RESOURCES_PATH/about" /usr/local/bin/about 'chmod +x /usr/loc
 # Progress report
 echo -e "${GREEN}Support tools installed${NC}"
 
+# Configure the oradio crash handling script
+install_resource "$RESOURCES_PATH/oradio-crash-action.sh" /usr/local/sbin/oradio-crash-action.sh 'chmod 700 /usr/local/sbin/oradio-crash-action.sh'
+# Configure the oradio crash handling service
+install_resource "$RESOURCES_PATH/oradio-crash-action.service" /etc/systemd/system/oradio-crash-action.service
 # Configure the oradio service to start on boot
 install_resource "$RESOURCES_PATH/oradio.service" /etc/systemd/system/oradio.service 'systemctl enable oradio.service'
 # Progress report
