@@ -1,21 +1,92 @@
 #!/usr/bin/bash
-# Send log files to Oradio Remote Monitoring Service
+#
+#  ####   #####     ##    #####      #     ####
+# #    #  #    #   #  #   #    #     #    #    #
+# #    #  #    #  #    #  #    #     #    #    #
+# #    #  #####   ######  #    #     #    #    #
+# #    #  #   #   #    #  #    #     #    #    #
+#  ####   #    #  #    #  #####      #     ####
+#
+# Created on August 17, 2026
+# @author:        Henk Stevens & Olaf Mastenbroek & Onno Janssen
+# @copyright:     Stichting Oradio
+# @license:       GNU General Public License (GPL)
+# @organization:  Stichting Oradio
+# @version:       1
+# @email:         info@stichtingoradio.nl
+# @status:        Development
+# @Purpose:       Send Oradio logfiles to Remote Monitoring Service
+#
+# This is a template: the PLACEHOLDER_* tokens are substituted at install time.
+# Editing the installed copy has no lasting effect; change this template instead.
+#
 
-# Get Oradio serial number
-serial=$(vcgencmd otp_dump | grep "28:" | cut -c 4-)
+# Stop script on command errors, unset variables and failed pipes
+set -o errexit -o nounset -o pipefail
 
-# Add each file in the directory
-for file in $(ls PLACEHOLDER_LOGGING_PATH/*); do
-
-	# skip if not a regular file
-	[ -f "$file" ] || continue
-
-	# Build curl command
-	curl_cmd="curl -s -F \"serial=$serial\""
-	curl_cmd+=" -F \"data=@$file\""
-	curl_cmd+=" https://oradiolabs.nl/rms/receive.php"
-
-	# Run the curl command
-	bash -c "$curl_cmd"
-
+# Collect every file in the logging directory as a curl -F argument, using the
+# filename as form field name. Empty files are included: that a logfile exists
+# but is empty is itself a finding, and distinguishing it from a file that was
+# never created at all is exactly what a crash report is for. No nullglob
+# needed: if nothing matches, the glob stays literal and the -f test skips it,
+# leaving an empty array, which is safe to expand under nounset on bash 4.4+.
+# The -f also skips subdirectories: curl cannot read a directory with -F @, and
+# one stray subdirectory fails the whole upload, costing the entire report
+# rather than just that one entry.
+log_fields=()
+for logfile in "PLACEHOLDER_LOGGING_PATH"/*; do
+	[ -f "$logfile" ] || continue
+	log_fields+=(-F "$(basename "$logfile")=@${logfile}")
 done
+
+# Board serial, resolved here rather than inline in an -F argument: errexit is
+# suspended across the curl (see below), so a failure inside that argument list
+# would pass unnoticed and RMS would receive a valid looking report carrying no
+# serial. The fallback also keeps a missing vcgencmd or a non-matching grep
+# from aborting the script under errexit, which would skip the recovery that
+# oradio-crash-action.service performs once this script returns. Note the
+# fallback covers a non-zero exit only: a pipeline that succeeds but prints
+# nothing still leaves the serial empty.
+serial="$(vcgencmd otp_dump | grep "28:" | cut -c 4-)" || serial="unknown"
+
+# Send the logfiles to Oradio Remote Monitoring Service. Best effort: a failed
+# upload must not abort the script, or the recovery that follows in the service
+# unit is skipped, so errexit is suspended for the curl and its exit status is
+# captured instead of acted on.
+# The payload is up to 5MB, so --max-time is sized for the upstream bandwidth of
+# a slow home connection rather than for the local link speed: 120s carries 5MB
+# down to ~350kbps. --speed-limit / --speed-time abandon a connection that has
+# stalled below 5kB/s for 30s, so a dead link fails fast instead of burning the
+# full 120s. --max-time is per attempt, so worst case is 3 attempts of 120s plus
+# 2 delays of 5s = 370s.
+# The two failure reports are deliberately separate. --fail-with-body turns an
+# HTTP 4xx/5xx into exit 22 while still capturing the body, so a rejected report
+# is a real failure rather than a silent success, and it makes --retry retry on
+# 5xx. -w appends the status code so the journal records which rejection it was:
+# 401 (key rotated) and 413 (payload too large) call for different fixes, and
+# exit 22 alone cannot tell them apart. Status 000 means no HTTP response was
+# received at all, i.e. DNS, TLS or timeout, in which case the exit code is the
+# informative half.
+curl_exit=0
+response="$(curl -sS --fail-with-body -w '\n%{http_code}' \
+	--max-time 120 --retry 2 --retry-delay 5 \
+	--speed-limit 5000 --speed-time 30 \
+	-X POST "PLACEHOLDER_RMS_SERVER_URL" \
+	-H "X-Api-Key: PLACEHOLDER_RMS_SERVER_KEY" \
+	-F "generated=$(date "+%Y-%m-%d %H:%M:%S")" \
+	-F "serial=${serial}" \
+	-F "type=CRASH" \
+	-F "source=Oradio service message" \
+	-F "message=Oradio service fatal crash" \
+	"${log_fields[@]}" \
+	)" || curl_exit=$?
+
+# -w put the status code on a line of its own after the body, so split the last
+# line off. The -w newline guarantees there is one, so both expansions are safe
+# even when the server returned nothing.
+http_code="${response##*$'\n'}"
+body="${response%$'\n'*}"
+
+# Report result
+[ "$curl_exit" -eq 0 ] || echo "RMS report failed (curl exit ${curl_exit}, HTTP ${http_code})"
+echo "RMS response: HTTP ${http_code}, body: ${body:-<none>}"
