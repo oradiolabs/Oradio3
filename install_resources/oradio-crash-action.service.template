@@ -17,12 +17,13 @@ Description=Oradio crash action (runs when oradio.service crashes)
 # re-triggers it cleanly instead of being ignored as 'already running'.
 Type=oneshot
 
-# No User=/Group=: the handler runs as root, so it may restart oradio, reboot, ...
+# Log file permissions applied when the logfile is CREATED. 0002 yields -rw-rw-r-- (0664).
+UMask=0002
 
-# stdout/stderr are NOT redirected: unlike oradio.service, everything the
-# script prints lands in the journal, where it stays out of the traceback
-# logfile that has just been reported to RMS.
-#   journalctl -u oradio-crash-action
+# Redirect stdout (fd 1) and stderr (fd 2) to the log file.
+# Note this takes the output *out* of the journal: journalctl -u oradio-crash-action will be empty.
+StandardOutput=append:PLACEHOLDER_LOGFILE_CRASHACTION
+StandardError=append:PLACEHOLDER_LOGFILE_CRASHACTION
 
 # The traceback logfile is still on disk and untouched at this point; it is
 # only cleared by the next start of oradio.service, so the script can read or
