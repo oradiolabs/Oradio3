@@ -1,0 +1,38 @@
+# Placeholders will be modified by ../oradio_install.sh script
+#
+# Installed as /etc/systemd/system/oradio-crash-action.service
+#
+# Pulled in by 'OnFailure=oradio-crash-action.service' in oradio.service, which
+# fires when oradio.service enters the FAILED state, i.e. when the python script
+# died abnormally. A regular stop or reboot does not trigger it.
+# Do NOT 'systemctl enable' this unit: it has no [Install] section on purpose,
+# so it can never be started at boot. It only ever runs as a failure handler.
+
+[Unit]
+Description=Oradio crash action (runs when oradio.service crashes)
+
+[Service]
+# Type=oneshot is what the systemd docs recommend for OnFailure handlers: the
+# job runs to completion and the unit does not stay active, so a later crash
+# re-triggers it cleanly instead of being ignored as 'already running'.
+Type=oneshot
+
+# Log file permissions applied when the logfile is CREATED. 0002 yields -rw-rw-r-- (0664).
+UMask=0002
+
+# Redirect stdout (fd 1) and stderr (fd 2) to the log file.
+# Note this takes the output *out* of the journal: journalctl -u oradio-crash-action will be empty.
+StandardOutput=append:PLACEHOLDER_LOGFILE_CRASHACTION
+StandardError=append:PLACEHOLDER_LOGFILE_CRASHACTION
+
+# The traceback logfile is still on disk and untouched at this point; it is
+# only cleared by the next start of oradio.service, so the script can read or
+# copy it if the crash action needs it.
+
+# Runs as its own job, outside oradio.service's stop transition, so calling
+# systemctl from the script cannot deadlock.
+ExecStart=/usr/local/sbin/oradio-crash-action.sh
+
+# Give the script enough time to execute: at least enough for post to rms.
+# Check oradio-crash-action.sh for worst case time needed to execute to completion.
+TimeoutStartSec=500

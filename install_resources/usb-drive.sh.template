@@ -20,6 +20,19 @@ log() {
 	echo "$(date '+%F %T') $*"
 }
 
+# Probe raw partition nodes directly. devtmpfs creates these the moment the kernel finds the partition.
+find_oradio_part() {
+	local p
+	for p in /dev/sd[a-z][0-9]*; do
+		[ -b "$p" ] || continue
+		if [ "$(blkid -p -o value -s LABEL "$p" 2>/dev/null)" = "ORADIO" ]; then
+			printf '%s\n' "$p"
+			return 0
+		fi
+	done
+	return 1
+}
+
 # Acquire an exclusive lock for the duration of this script.
 # Prevents a rapid remove/add or duplicate udev event from running two instances at once.
 # The wait is bounded: if an earlier instance is wedged, fail visibly in the log rather
@@ -33,17 +46,22 @@ fi
 case "$ACTION" in
 	# Runs when a USB device labelled ORADIO is inserted and detected by udev
 	add)
-		# The by-label symlink is created by a separate udev rule once blkid has
-		# probed the partition, so it can lag the event that triggered us.
-		for ((i = 0; i < SYMLINK_WAIT * 10; i++)); do
-			if [ -b "$PARTITION" ]; then
-				break
+		if PARTITION="$(find_oradio_part)"; then
+			log "Info: found ORADIO at '$PARTITION' (direct probe)"
+		else
+			PARTITION="/dev/disk/by-label/ORADIO"
+			# The by-label symlink is created by a separate udev rule once blkid has
+			# probed the partition, so it can lag the event that triggered us.
+			for ((i = 0; i < SYMLINK_WAIT * 10; i++)); do
+				if [ -b "$PARTITION" ]; then
+					break
+				fi
+				sleep 0.1
+			done
+			if [ ! -b "$PARTITION" ]; then
+				log "Warning: '$PARTITION' did not appear within ${SYMLINK_WAIT}s"
+				exit 1
 			fi
-			sleep 0.1
-		done
-		if [ ! -b "$PARTITION" ]; then
-			log "Warning: '$PARTITION' did not appear within ${SYMLINK_WAIT}s"
-			exit 1
 		fi
 
 		# Guard: skip if already mounted. Benign - a duplicate udev event or a

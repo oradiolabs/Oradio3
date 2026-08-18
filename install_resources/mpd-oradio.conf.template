@@ -1,0 +1,38 @@
+# Placeholders will be modified by ../oradio_install.sh script
+#
+# Drop-in for the packaged /usr/lib/systemd/system/mpd.service.
+# Installed to /etc/systemd/system/mpd.service.d/oradio.conf
+#
+# Only the Oradio-specific bits live here. The security hardening
+# (ProtectSystem, RestrictAddressFamilies, NoNewPrivileges, ...),
+# LimitRTPRIO, Type=notify and ExecStart are Debian's and are NOT
+# copied, so package updates to those settings actually apply.
+
+[Unit]
+# Debian orders MPD after network.target. Oradio plays local files from the USB
+# stick, which usb-drive-boot.service mounts at ~5.5s, so the network is
+# irrelevant here - and network.target is not reached until ~8.6s.
+# Measured cost of leaving this alone: MPD starts 3.2s later than it needs to.
+#
+# After= is list-valued, so an empty assignment is required to clear Debian's
+# list before re-adding what we want. systemd adds its own implicit ordering
+# (sysinit.target, basic.target, system.slice, mpd.socket) separately via
+# DefaultDependencies=yes, so those survive the reset.
+After=
+After=sound.target mpd.socket
+
+[Service]
+# MPD writes its own timestamped log via log_file in /etc/mpd.conf, so stdout
+# and stderr are deliberately NOT redirected here. Two writers on one file,
+# with logrotate copytruncate in between, interleaves and loses lines. Leaving
+# the journal attached also means startup errors that occur before mpd.conf is
+# parsed stay visible via 'journalctl -u mpd'.
+
+# Log file permissions applied when the logfile is CREATED. 0002 yields -rw-rw-r-- (0664).
+UMask=0002
+
+# the mpd log file may get created AFTER starting the mpd service.
+# So creation and ownership has to be fixed BEFORE MPD opens it.
+# '+' means run this as root, '-' means a failure here does not fail the unit.
+ExecStartPre=-+/usr/bin/touch PLACEHOLDER_LOGFILE_MPD
+ExecStartPre=-+/usr/bin/chown PLACEHOLDER_USER:PLACEHOLDER_GROUP PLACEHOLDER_LOGFILE_MPD

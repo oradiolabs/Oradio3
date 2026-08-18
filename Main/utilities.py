@@ -426,7 +426,7 @@ def run_shell_script(script):
              success=True -> output = stdout (stripped)
              success=False -> output = stderr (stripped)
     """
-    oradio_log.debug("Running shell script: %s", script)
+    oradio_log.debug("Running shell script: %s", script, stacklevel=4)
     try:
         process = subprocess.run(
             script,

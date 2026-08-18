@@ -92,6 +92,12 @@ LOGFILE_UPDATE="$LOGGING_PATH/update.log"
 LOGFILE_SPOTIFY="$LOGGING_PATH/spotify.log"
 LOGFILE_INSTALL="$LOGGING_PATH/install.log"
 LOGFILE_TRACEBACK="$LOGGING_PATH/traceback.log"
+LOGFILE_CRASHACTION="$LOGGING_PATH/crash-action.log"
+
+# Ensure logfiles exist and are owned by the invoking user before any service opens them
+for VAR_NAME in "${!LOGFILE_@}"; do
+	touch "${!VAR_NAME}" || { echo -e "${RED}Aborting: Failed to create ${!VAR_NAME}${NC}"; exit 1; }
+done
 
 # Ensure logfiles exist and are owned by the invoking user before any service opens them
 for VAR_NAME in "${!LOGFILE_@}"; do
@@ -160,6 +166,15 @@ function install_resource {
 	local DST=$2
 	shift 2
 
+	# Ensure destination directory exists
+	local DST_DIR
+	DST_DIR=$(dirname "$DST")
+	if ! sudo mkdir -p "$DST_DIR"; then
+		echo -e "${RED}Failed to create directory '$DST_DIR'${NC}"
+		INSTALL_ERROR=1
+		return 1
+	fi
+
 	if [ -f "$SRC.template" ]; then
 
 		# Create by replacing placeholders
@@ -170,7 +185,7 @@ function install_resource {
 		local SED_ARGS=(-e "s/PLACEHOLDER_USER/$(id -un)/g" -e "s/PLACEHOLDER_GROUP/$(id -gn)/g")
 		for VAR_NAME in MAIN_PATH LOGGING_PATH SPOTIFY_PATH SOUNDS_PATH LOGFILE_USB LOGFILE_MPD \
 			LOGFILE_BOOT LOGFILE_UPDATE LOGFILE_SPOTIFY LOGFILE_INSTALL LOGFILE_TRACEBACK \
-			DELAY_UPDATE_MESSAGE "${CONSTANT_NAMES[@]}"; do
+			LOGFILE_CRASHACTION DELAY_UPDATE_MESSAGE "${CONSTANT_NAMES[@]}"; do
 			local VALUE="${!VAR_NAME}"
 			# Escape & because sed treats it specially in the replacement text
 			local ESCAPED_VALUE
@@ -684,6 +699,11 @@ sudo install -D -m 0644 "$RESOURCES_PATH/oradio3-signing.cert.pem" /etc/oradio3/
 # Progress report
 echo -e "${GREEN}Software update functionality loaded and configured${NC}"
 
+# Configure the USB boot service to start on boot
+install_resource "$RESOURCES_PATH/usb-drive-boot.service" /etc/systemd/system/usb-drive-boot.service 'systemctl enable usb-drive-boot.service'
+# Progress report
+echo -e "${GREEN}USB functionality loaded and configured. System automounts USB drives on '$USB_MOUNT_POINT'${NC}"
+
 # Activate i2c interface
 # https://www.raspberrypi.com/documentation/computers/configuration.html#i2c-nonint
 sudo raspi-config nonint do_i2c 0	# 0: enable
@@ -703,13 +723,14 @@ install_resource "$RESOURCES_PATH/mpd.conf" /etc/mpd.conf
 # Install empty MPD database (prevents MPD updating when starting)
 install_resource "$RESOURCES_PATH/mpd.database" /var/lib/mpd/tag_cache
 # Configure the MPD service to start on boot
-install_resource "$RESOURCES_PATH/mpd.service" /lib/systemd/system/mpd.service 'systemctl enable mpd.service'
+install_resource "$RESOURCES_PATH/mpd-oradio.conf" /etc/systemd/system/mpd.service.d/oradio.conf 'systemctl enable mpd.service'
 # Progress report
 echo -e "${GREEN}Audio installed and configured${NC}"
 
-# Configure log file rotation and timer to limit logfile size
+# Configure log file rotation to limit logfile size
 install_resource "$RESOURCES_PATH/logrotate.conf" /etc/logrotate.d/oradio
-install_resource "$RESOURCES_PATH/logrotate.timer" /etc/systemd/system/logrotate.timer
+# Configure rotation timer to limit logfile size
+install_resource "$RESOURCES_PATH/logrotate-timer-override.conf" /etc/systemd/system/logrotate.timer.d/oradio.conf
 # Progress report
 echo -e "${GREEN}Log files rotation configured${NC}"
 
@@ -733,11 +754,10 @@ install_resource "$RESOURCES_PATH/about" /usr/local/bin/about 'chmod +x /usr/loc
 # Progress report
 echo -e "${GREEN}Support tools installed${NC}"
 
-# Configure the power-save (USB low idle power) service to start on boot
-install_resource "$RESOURCES_PATH/usb_low_idle_power.service" /etc/systemd/system/usb_low_idle_power.service 'systemctl enable usb_low_idle_power.service'
-# Progress report
-echo -e "${GREEN}Power save features configured${NC}"
-
+# Configure the oradio crash handling script
+install_resource "$RESOURCES_PATH/oradio-crash-action.sh" /usr/local/sbin/oradio-crash-action.sh 'chmod 700 /usr/local/sbin/oradio-crash-action.sh'
+# Configure the oradio crash handling service
+install_resource "$RESOURCES_PATH/oradio-crash-action.service" /etc/systemd/system/oradio-crash-action.service
 # Configure the oradio service to start on boot
 install_resource "$RESOURCES_PATH/oradio.service" /etc/systemd/system/oradio.service 'systemctl enable oradio.service'
 # Progress report

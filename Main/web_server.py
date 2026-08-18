@@ -21,7 +21,7 @@ Created on December 23, 2024
     exposes a generic /execute command endpoint, manages a keep-alive
     timer that shuts the server down when the browser stops pinging,
     and redirects all unmatched paths back to /oradio3.
-    Documentation:
+    References:
         https://fastapi.tiangolo.com/
 """
 from os import path
@@ -156,8 +156,8 @@ def _get_sw_info() -> dict:
     """
     Read software version metadata from the version file.
 
-    Parses the JSON file at SOFTWARE_VERSION_FILE and extracts the
-    dtstamp and gitinfo fields.
+    Parses the JSON file at SOFTWARE_VERSION_FILE and extracts
+    the timestamp and gitinfo fields.
 
     Returns:
         dict with keys "dtstamp" (str) and "version" (str) on success.
@@ -211,14 +211,33 @@ def get_networks(_args: dict[str, Any] | None):
     """
     Return the list of currently visible WiFi networks.
 
+    get_wifi_networks() separates "no networks" from "no list": [] means the neighbourhood really is empty, None
+    means the WiFi event listener is not running and there is nothing to report. Returning None straight through
+    would encode as JSON null with a 200, which the page cannot iterate and which reads to the user as an empty
+    neighbourhood -- the one reading that invites them to retry forever. 503 says the subsystem is down, which is
+    what actually happened and what the page should say.
+
+    Reaching this at all means the listener died while the access point it reports on is still serving this very
+    request, so it is logged as an error rather than passed over quietly.
+
     Args:
         _args: Unused; accepted to match the command handler signature.
 
     Returns:
         A list of {"ssid": str, "type": "open" | "closed"} dicts as
-        returned by get_wifi_networks().
+        returned by get_wifi_networks(), or a JSONResponse with status 503
+        if the WiFi event listener is not running.
     """
-    return get_wifi_networks()
+    networks = get_wifi_networks()
+
+    if networks is None:
+        oradio_log.error("WiFi event listener is not running; cannot serve the network list")
+        return JSONResponse(
+            status_code=503,
+            content={"message": "Wifi-netwerken zijn niet beschikbaar. Herstart de Oradio"},
+        )
+
+    return networks
 
 def shutdown_webapp(_args: dict[str, Any] | None):
     """
@@ -554,7 +573,6 @@ async def oradio3_page(request: Request):
         return JSONResponse(status_code=400, content={"message": response})
     spotify = response
 
-    serial  = get_serial()
     sw_info = _get_sw_info()
 
     context = {
@@ -563,7 +581,7 @@ async def oradio3_page(request: Request):
         "presets"    : load_presets(),
         "directories": mpd_control.get_directories(),
         "playlists"  : mpd_control.get_playlists(),
-        "serial"     : serial,
+        "hw_serial"  : get_serial(),
         "sw_dtstamp" : sw_info["dtstamp"],
         "sw_version" : sw_info["version"],
     }

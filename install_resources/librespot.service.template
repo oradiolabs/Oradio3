@@ -2,21 +2,29 @@
 
 [Unit]
 Description=Librespot
-Before=network.target
+Wants=network-online.target
+After=network-online.target
 
 [Service]
-# Direct stdout and stderr of the executed process write to the logfile
+# Log file permissions applied when the logfile is CREATED. 0002 yields -rw-rw-r-- (0664).
+UMask=0002
+
+# Redirect stdout (fd 1) and stderr (fd 2) to the log file.
+# Note this takes the output *out* of the journal: journalctl -u librespot will be empty.
 StandardOutput=append:PLACEHOLDER_LOGFILE_SPOTIFY
 StandardError=append:PLACEHOLDER_LOGFILE_SPOTIFY
 
-# Ensure ALSA channel is muted before starting
-ExecStartPre=/usr/bin/amixer -c DigiAMP sset VolumeSpotCon1 0%
+# Set logfile ownership. '+' means run this command as root.
+ExecStartPre=-+/usr/bin/chown PLACEHOLDER_USER:PLACEHOLDER_GROUP PLACEHOLDER_LOGFILE_SPOTIFY
+
+# Ensure ALSA channel is muted before starting (leading - ignores exit status)
+ExecStartPre=-/usr/bin/amixer -c DigiAMP sset VolumeSpotCon1 0%
 
 # Reset flag files before starting librespot
-ExecStartPre=echo 0 > PLACEHOLDER_SPOTIFY_PATH/spotactive.flag
-ExecStartPre=echo 0 > PLACEHOLDER_SPOTIFY_PATH/spotplaying.flag
+ExecStartPre=/bin/sh -c 'echo 0 > PLACEHOLDER_SPOTIFY_PATH/spotactive.flag'
+ExecStartPre=/bin/sh -c 'echo 0 > PLACEHOLDER_SPOTIFY_PATH/spotplaying.flag'
 
-# Set the UNIX user or group that the processes are executed as
+# Execute service in user environment.
 User=PLACEHOLDER_USER
 Group=PLACEHOLDER_GROUP
 
@@ -35,4 +43,4 @@ Restart=always
 RestartSec=10
 
 [Install]
-WantedBy=oradio.service
+WantedBy=multi-user.target

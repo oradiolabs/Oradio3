@@ -42,7 +42,7 @@ from system_sounds import play_sound
 from incident_service import IncidentHandler
 from log_monitor import LogHealthMonitor
 from rpi_monitor import RPiThrottlingMonitor
-from power_service import PowerSupplyService
+from power_service import get_power_status
 
 # Moved from constants
 from messaging import (
@@ -115,7 +115,6 @@ from constants import (
 WEB_PRESET_STATES = {"StatePreset1", "StatePreset2", "StatePreset3"}
 PLAY_STATES = {"StatePlay", "StatePreset1", "StatePreset2", "StatePreset3"}
 PLAY_WEBSERVICE_STATES = {"StatePlay", "StatePreset1", "StatePreset2", "StatePreset3", "StateIdle"}
-LOW_POWER_STATES = {"StateIdle"}  # only Idle uses nominal voltage (9V)to reduce power consumption
 
 ################## Signal Primitives ######################
 
@@ -124,6 +123,11 @@ spotify_connect_playing = threading.Event()  # track Spotify playing
 spotify_connect_available = threading.Event()  # track Spotify playing & connected
 
 # -----------------------
+
+# Log the operatonal voltage and current
+power_status = get_power_status()
+oradio_log.info("Power supply: %sV @ %sA", power_status["voltage_v"], power_status["current_a"])
+
 web_service_active = threading.Event() # Track status web_service
 web_service_active.clear() # Start-up state is no Web service
 
@@ -134,6 +138,10 @@ usb_present.set() # USB present to go over start-up sequence (will be updated af
 # IMPORTANT: Start Remote Service before any incidents can happen, as othewise those incidents may nog be reported
 remote_monitor = RMService()
 remote_monitor.start()
+
+# Instantiate and start the wifi service for monitoring wifi state
+oradio_wifi_service = WifiService()
+oradio_wifi_service.start()
 
 # Any incident starting backlight is reported to and handled by IncidentHandler
 oradio_log.info("Start backlighting")
@@ -164,9 +172,6 @@ oradio_log.info("Initialising MPDControl")
 mpd_control = MPDControl()
 # Update MPD database - happens in separate thread
 mpd_control.update_database()
-
-# Initialise power supply controller, to optimse supply voltage for the various states
-power_supply_service = PowerSupplyService()
 
 # Instantiate  led control
 leds = LEDControl()
@@ -254,6 +259,12 @@ class StateMachine:
         """Block WebRadio presets when no internet; return True if blocked."""
         if requested_state in WEB_PRESET_STATES:
             preset_key = requested_state[len("State"):]
+
+# REVIEW:
+#   Is has_internet() call needed? No call is preferred as the wifi state is known:
+#    WIFI_CONNECTED == internet, WIFI_DISCONNECTED and WIFI_ACCESS_POINT != internet.
+#   IF state is not known/trusted then better use wifi_service.get_state()
+
             if mpd_control.is_webradio(preset=preset_key) and not has_internet():
                 oradio_log.info("Webradio blocked: no Internet")
                 threading.Timer(2, play_sound, args=(SOUND_NO_INTERNET,)).start()
@@ -278,19 +289,6 @@ class StateMachine:
         threading.Thread(
             target=self.run_state_method, args=(self.state,), daemon=True
         ).start()
-
-    def _apply_power_policy_for_state(self, target_state: str) -> None:
-        desired_mode = "nom" if target_state in LOW_POWER_STATES else "max"
-        if desired_mode == self._pd_mode:
-            return  # already correct -> do nothing
-
-        if desired_mode == "nom":
-            success = power_supply_service.set_nom_voltage()
-        else:
-            success = power_supply_service.set_max_voltage()
-
-        if success:
-            self._pd_mode = desired_mode
 
     # ---- delayed-transition helpers ----
     def _cancel_all_delayed(self):
@@ -347,8 +345,6 @@ class StateMachine:
             leds.turn_off_all_leds()
             handler = self._handlers.get(state_to_handle, self._state_unknown)
             handler()
-        # outside lock (more responsive, and power policy can be changed even when it is playing)
-        self._apply_power_policy_for_state(state_to_handle)
 
     # --- State handlers ---
 
@@ -447,9 +443,11 @@ class StateMachine:
         self._arm_delayed_transition("StartupToIdle", 5.0, "StateIdle")
 
     def _state_idle(self):
-        # Listen for volume changed notifications
+# REVIEW: Is this only there because transitioning through StateIdle is used by on_webservice_plX_changed() ?
+#         If yes, then fix on_webservice_plX_changed() to not abuse StateIdle to do something which should be handled in the StatePresetX state.
         if web_service_active.is_set():
             leds.control_blinking_led(LED_PLAY)
+
         if mpd_control.is_webradio():
             mpd_control.stop()
         else:
@@ -780,10 +778,6 @@ def sync_usb_presence_from_service():
         oradio_log.warning("Unexpected USB service state: %r", state)
 
 # ------------------Start-up - instantiate and define other modules ---------------
-
-# Instantiate and start the wifi service for monitoring wifi state
-oradio_wifi_service = WifiService()
-oradio_wifi_service.start()
 
 # Instantiate and start the USB service monitoring USB present/absent
 oradio_usb_service = USBService()

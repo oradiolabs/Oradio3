@@ -29,12 +29,6 @@ Created on January 10, 2025
     - mpdlist/mpdlists: the combination of directories and playlists
     - current: the directory/playlist in the playback queue
 """
-# File exceeds pylint's default 1000-line module threshold. The bulk of it is
-# one cohesive class (MPDControl) plus its own standalone test menu in
-# __main__, matching every other module in this codebase (see utilities.py,
-# mpd_service.py); splitting MPDControl itself would hurt cohesion more than
-# it would help, so the check is disabled here rather than restructured.
-# pylint: disable=too-many-lines
 from os import path
 from unicodedata import normalize, category
 

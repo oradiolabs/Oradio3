@@ -24,11 +24,18 @@ Created on January 17, 2025
       - Non-blocking log handling for multi-threaded applications
       - Prevents log writes from slowing down main program
       - Centralizes log records from multiple threads/processes
-    - StreamHandler: Logs messages to console
-    - ConcurrentRotatingFileHandler: Logs to a file with rotation, safe for multiple threads/processes
+    - StreamHandler: Logs messages to console, with ANSI color per level
+    - FileHandler: Logs to a file, uncolored and without rotation of its own
+    Rotation is owned entirely by logrotate (/etc/logrotate.d/oradio), not by this module. Two rotation
+    owners on one file is a race, and logrotate's threshold would win regardless: it uses copytruncate,
+    which resets the file size before any in-process byte counter could ever reach its own limit. The
+    file handler opens in append mode (O_APPEND) precisely so that copytruncate is safe -- every write
+    seeks to end-of-file atomically, so writing resumes at offset 0 after a truncate instead of leaving
+    a sparse file padded with NULs. That append behavior is also what makes it safe for several Oradio
+    processes to share the log: each record reaches the file in a single write() because emit() flushes
+    per record.
 @Reference:
     https://docs.python.org/3/howto/logging.html
-    https://pypi.org/project/concurrent-log-handler/
 """
 import atexit
 import logging
@@ -41,7 +48,6 @@ from threading import Thread
 from queue import Queue, Full
 from logging import DEBUG, INFO, WARNING, ERROR, CRITICAL
 from logging.handlers import QueueHandler, QueueListener, SysLogHandler
-from concurrent_log_handler import ConcurrentRotatingFileHandler
 
 ##### Oradio modules ######################################
 # NOTE: Do not import Oradio modules using oradio_log to avoid circular imports
@@ -58,8 +64,8 @@ ORADIO_LOG_LEVEL = DEBUG
 # Log file constants
 ORADIO_LOG_PATH     = (Path(__file__).parent.parent / "logging").resolve()
 ORADIO_LOG_FILE_STR = str(ORADIO_LOG_PATH / 'oradio.log')
-ORADIO_LOG_FILESIZE = 512 * 1024   # 512 KB
-ORADIO_LOG_BACKUPS  = 1
+# Record layout, shared by both sinks. ColorFormatter wraps it per level
+LOG_FORMAT = "%(asctime)s - %(filename)s:%(lineno)d - %(levelname)s - %(message)s"
 # Items to queue when busy
 QUEUE_SIZE = 10000
 # How often (in dropped-item counts) to log a "still dropping" reminder
@@ -89,14 +95,13 @@ class ColorFormatter(logging.Formatter):
     """Formatter that adds ANSI color to messages depending on log level."""
     def __init__(self) -> None:
         super().__init__()
-        self._msg_format = "%(asctime)s - %(filename)s:%(lineno)d - %(levelname)s - %(message)s"
         self._formatters = {
-            TRACE:    logging.Formatter(BLUE    + self._msg_format + NC),
-            DEBUG:    logging.Formatter(GREY    + self._msg_format + NC),
-            INFO:     logging.Formatter(WHITE   + self._msg_format + NC),
-            WARNING:  logging.Formatter(YELLOW  + self._msg_format + NC),
-            ERROR:    logging.Formatter(RED     + self._msg_format + NC),
-            CRITICAL: logging.Formatter(MAGENTA + self._msg_format + NC),
+            TRACE:    logging.Formatter(BLUE    + LOG_FORMAT + NC),
+            DEBUG:    logging.Formatter(GREY    + LOG_FORMAT + NC),
+            INFO:     logging.Formatter(WHITE   + LOG_FORMAT + NC),
+            WARNING:  logging.Formatter(YELLOW  + LOG_FORMAT + NC),
+            ERROR:    logging.Formatter(RED     + LOG_FORMAT + NC),
+            CRITICAL: logging.Formatter(MAGENTA + LOG_FORMAT + NC),
         }
 
     def format(self, record) -> str:
@@ -132,13 +137,13 @@ def _emit_fallback(fallback_handlers: list[logging.Handler], level: int, msg: st
     Writes straight to each given handler via emit(), bypassing the queue
     entirely -- deliberately, since the queue being full/unusable is the
     whole reason this is being called. Tries every sink (in practice: the
-    on-disk rotating file handler, then syslog/journald) rather than
-    stopping at the first success, since each is an independent failure
-    domain -- e.g. a full disk takes out the file handler but not syslog,
-    while a journald that's misconfigured or absent takes out syslog but
-    not the file. ConcurrentRotatingFileHandler and SysLogHandler are both
-    safe to call directly like this from any thread. Falls back to stderr
-    only if every sink fails, so nothing is lost silently in any case.
+    on-disk file handler, then syslog/journald) rather than stopping at
+    the first success, since each is an independent failure domain; e.g. a 
+    full disk takes out the file handler but not syslog, while a journald
+    that's misconfigured or absent takes out syslog but not the file.
+    FileHandler and SysLogHandler are both safe to call directly like this
+    from any thread. Falls back to stderr only if every sink fails, so
+    nothing is lost silently in any case.
     """
     record = logging.LogRecord(
         name=ORADIO_LOGGER, level=level, pathname=__file__, lineno=0,
@@ -217,22 +222,20 @@ class SafeLogger:
         # REAL output handlers (consumers)
         handlers: list[logging.Handler] = []
 
-        # Console handler
+        # Console handler. Only attached when stderr is a terminal
         if stderr.isatty():
             console_handler = logging.StreamHandler()
             console_handler.setFormatter(self._formatter)
             handlers.append(console_handler)
 
-        # File handler (rotating, thread-safe). Kept as its own reference
-        # (not just inside `handlers`) because it's also one of the
-        # disk-backed fallback sinks for drop/health notices below -- those
-        # need to survive headless operation, where stdout/stderr may not
-        # be captured anywhere.
-        file_handler = ConcurrentRotatingFileHandler(
-            filename=ORADIO_LOG_FILE_STR,
-            maxBytes=ORADIO_LOG_FILESIZE,
-            backupCount=ORADIO_LOG_BACKUPS,
-        )
+        # File handler. No rotation of its own -- logrotate owns that (see module docstring)
+        # and mode="a" is load-bearing rather than incidental: O_APPEND is what makes logrotate's
+        # copytruncate safe against a file this process holds open.
+        #
+        # Kept as its own reference (not just inside `handlers`) because it's also one of the
+        # disk-backed fallback sinks for drop/health notices below -- those need to survive
+        # headless operation, where stdout/stderr may not be captured anywhere.
+        file_handler = logging.FileHandler(ORADIO_LOG_FILE_STR, mode="a", encoding="utf-8")
         file_handler.setFormatter(self._formatter)
         handlers.append(file_handler)
 
