@@ -40,8 +40,8 @@ db_file				"/var/lib/mpd/tag_cache"
 # The special value "syslog" makes MPD use the local syslog daemon. This
 # setting defaults to logging to syslog.
 #
-# If you use systemd, do not configure a log_file. With systemd, MPD
-# defaults to the systemd journal, which is fine.
+# MPD's own log lines carry a timestamp, and sending them to stderr under
+# systemd makes MPD drop it. MPD is the only writer to this log file.
 #
 log_file			"PLACEHOLDER_LOGFILE_MPD"
 
@@ -424,6 +424,26 @@ replaygain_limit			"no"
 # may need to modify this setting.
 #
 filesystem_charset			"UTF-8"
+#
+###############################################################################
+
+# Resampler ###################################################################
+#
+# MPD defaults to the libsamplerate plugin with the "Fastest Sinc Interpolator"
+# converter. That converter builds its sinc tables at startup, which is CPU
+# bound and takes about 7 SECONDS on a Pi 3A+ while the rest of the boot is
+# still competing for the four A53 cores. Measured: systemd exec at 19:55:49,
+# MPD's first log line ("libsamplerate converter ...") at 19:55:56.
+#
+# Oradio does not need it. /etc/asound.conf already standardises every stream
+# to 48000 Hz / S24_LE, and the "MPD_in" device below is an ALSA plug device,
+# so any rate conversion is done by ALSA downstream of MPD. Building sinc
+# tables here is work whose result is never used.
+#
+# The internal resampler has effectively no startup cost.
+resampler {
+	plugin					"internal"
+}
 #
 ###############################################################################
 
