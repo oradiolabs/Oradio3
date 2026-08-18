@@ -94,16 +94,6 @@ LOGFILE_INSTALL="$LOGGING_PATH/install.log"
 LOGFILE_TRACEBACK="$LOGGING_PATH/traceback.log"
 LOGFILE_CRASHACTION="$LOGGING_PATH/crash-action.log"
 
-# Ensure logfiles exist and are owned by the invoking user before any service opens them
-for VAR_NAME in "${!LOGFILE_@}"; do
-	touch "${!VAR_NAME}" || { echo -e "${RED}Aborting: Failed to create ${!VAR_NAME}${NC}"; exit 1; }
-done
-
-# Ensure logfiles exist and are owned by the invoking user before any service opens them
-for VAR_NAME in "${!LOGFILE_@}"; do
-	touch "${!VAR_NAME}" || { echo -e "${RED}Aborting: Failed to create ${!VAR_NAME}${NC}"; exit 1; }
-done
-
 # Sparation between USB present and Update started announcements
 DELAY_UPDATE_MESSAGE=4
 
