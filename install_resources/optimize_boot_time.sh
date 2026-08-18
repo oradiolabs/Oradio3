@@ -75,7 +75,7 @@ mask_unit() {
 	local unit="$1" err
 
 	if ! systemctl list-unit-files --no-legend -- "$unit" 2>/dev/null | grep -q .; then
-		echo "Unit '$unit' not present, skipping"
+		echo -e "${YELLOW}Unit '$unit' not present, skipping${NC}"
 		return 0
 	fi
 
@@ -381,7 +381,7 @@ sudo install -d -m 0755 "$GENERATOR_DIR"
 for generator in "${GENERATORS_TO_MASK[@]}"; do
 	[[ -n "$generator" ]] || continue
 	if [[ ! -x "$GENERATOR_SRC_DIR/$generator" ]]; then
-		echo "Generator '$generator' not present, skipping"
+		echo -e "${YELLOW}Generator '$generator' not present, skipping${NC}"
 		continue
 	fi
 	if [[ "$(readlink -f "$GENERATOR_DIR/$generator" 2>/dev/null || true)" == "/dev/null" ]]; then
@@ -405,7 +405,7 @@ if [[ -e /usr/lib/udev/rules.d/69-libmtp.rules ]]; then
 	sudo ln -sf /dev/null /etc/udev/rules.d/69-libmtp.rules
 	echo "Masked udev rules 69-libmtp.rules"
 else
-	echo "udev rules 69-libmtp.rules not present, skipping"
+	echo -e "${YELLOW}udev rules 69-libmtp.rules not present, skipping${NC}"
 fi
 
 # --------------------------------
