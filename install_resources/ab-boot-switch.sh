@@ -139,6 +139,29 @@ part_dev() {
 partuuid() { [[ -n "${1:-}" ]] && blkid -s PARTUUID -o value "$1" 2>/dev/null || true; }
 fslabel() { [[ -n "${1:-}" ]] && blkid -s LABEL -o value "$1" 2>/dev/null || true; }
 
+BOOT_DIR="/boot/firmware"
+
+# /boot/firmware is an autofs mountpoint (see optimize_boot_time.sh). Until
+# something looks up a path underneath it, findmnt reports the placeholder —
+# SOURCE 'systemd-1', FSTYPE 'autofs' — and not the partition. blkid on that
+# yields no PARTUUID, which would make the fstab checks below skip themselves
+# via their own '-n "$BOOT_PU"' guards: silently, and exactly where the point is
+# to catch a silent failure.
+#
+# Today the [[ -f "$CMDLINE" ]] check further up happens to trigger the mount
+# first, so this is latent rather than live. That is not a thing to depend on
+# from three hundred lines away — trigger it here, where it is needed.
+boot_partition_source() {
+	stat -t "$BOOT_DIR/." >/dev/null 2>&1 || true
+	# Once mounted, findmnt lists the autofs entry and the real one; take the
+	# last. If it is still autofs, the mount did not happen.
+	local src fstype
+	src="$(findmnt -nro SOURCE "$BOOT_DIR" 2>/dev/null | tail -1 || true)"
+	fstype="$(findmnt -nro FSTYPE "$BOOT_DIR" 2>/dev/null | tail -1 || true)"
+	[[ -n "$fstype" && "$fstype" != "autofs" ]] || return 1
+	printf '%s' "$src"
+}
+
 MODEL="$(require_raspberry_pi)"
 [[ $EUID -eq 0 ]] || die "Run as root: sudo $0"
 command -v blkid >/dev/null || die "missing tool: blkid"
@@ -285,20 +308,33 @@ if [[ -n "$CHECK_DIR" ]]; then
 			"$CHECK_DIR/etc/fstab" 2>/dev/null || true)"
 		FSTAB_BOOT="$(awk '$2 == "/boot/firmware" && $1 !~ /^#/ {print $1}' \
 			"$CHECK_DIR/etc/fstab" 2>/dev/null || true)"
-		BOOT_SRC="$(findmnt -nro SOURCE /boot/firmware 2>/dev/null || true)"
+		BOOT_SRC="$(boot_partition_source || true)"
 		BOOT_PU="$(partuuid "$BOOT_SRC")"
+		[[ -n "$BOOT_PU" ]] ||
+			warn "could not identify this card's boot partition; the /boot/firmware fstab check below is being skipped"
 
 		[[ "$FSTAB_ROOT" == "PARTUUID=$TARGET_PU" ]] ||
 			warn "slot $TARGET fstab has '/' as '${FSTAB_ROOT:-missing}', expected PARTUUID=$TARGET_PU"
 
 		# The classic silent failure: / mounts, then systemd blocks forever on a
 		# /boot/firmware device that does not exist on this card.
+		#
+		# With x-systemd.automount that is no longer a hang — local-fs.target
+		# requires the .automount unit, which does not touch the device — but the
+		# quieter outcome is not the better one: the board boots, ab-boot-trial.sh
+		# finds no readable state, and a trial neither commits nor rolls back.
 		if [[ -n "$FSTAB_BOOT" && -n "$BOOT_PU" &&
 			"$FSTAB_BOOT" != "PARTUUID=$BOOT_PU" && "$FSTAB_BOOT" != "LABEL=bootfs" ]]; then
 			warn "slot $TARGET mounts /boot/firmware from '$FSTAB_BOOT',"
 			warn "but this card's boot partition is PARTUUID=$BOOT_PU."
-			warn "Boot would mount / and then hang waiting for a device that is"
-			warn "not on this card — with 'quiet' set, completely silently."
+			if grep -qE '^[^#].*[[:space:]]/boot/firmware[[:space:]].*x-systemd\.automount' \
+				"$CHECK_DIR/etc/fstab" 2>/dev/null; then
+				warn "That slot automounts it, so the boot completes and the failure"
+				warn "surfaces only as an unreadable trial state — no hang, no rollback."
+			else
+				warn "Boot would mount / and then hang waiting for a device that is"
+				warn "not on this card — with 'quiet' set, completely silently."
+			fi
 			release_check_dir
 			((FORCE)) || die "fix that fstab entry first (--force overrides)"
 			warn "--force given, continuing anyway"
@@ -314,8 +350,10 @@ fi
 # systemd waiting forever for /boot/firmware. That failure is invisible until a
 # rollback actually happens, which is the worst possible moment to find it.
 if ((TRIAL)); then
-	BOOT_SRC="$(findmnt -nro SOURCE /boot/firmware 2>/dev/null || true)"
+	BOOT_SRC="$(boot_partition_source || true)"
 	BOOT_PU="$(partuuid "$BOOT_SRC")"
+	[[ -n "$BOOT_PU" ]] ||
+		warn "could not identify this card's boot partition; the fallback /boot/firmware check is being skipped"
 	RUN_FSTAB_ROOT="$(awk '$2 == "/" && $1 !~ /^#/ {print $1}' /etc/fstab 2>/dev/null || true)"
 	RUN_FSTAB_BOOT="$(awk '$2 == "/boot/firmware" && $1 !~ /^#/ {print $1}' /etc/fstab 2>/dev/null || true)"
 	RUN_PU="$(partuuid "$RUNNING_DEV")"
@@ -333,8 +371,10 @@ if ((TRIAL)); then
 		for m in "${FALLBACK_BAD[@]}"; do warn "  - $m"; done
 		warn ""
 		warn "It is running now because the kernel mounts / from cmdline.txt, but a"
-		warn "rollback would leave systemd waiting for a device that is not on this"
-		warn "card — a hang with no way back."
+		warn "rollback would land on a slot that cannot resolve its own fstab."
+		warn "Without x-systemd.automount that is a hang with no way back; with it"
+		warn "the board boots but cannot read or write the trial state, so a later"
+		warn "trial can neither be committed nor recorded."
 		warn ""
 		warn "Fix /etc/fstab on this slot first, then retry."
 		((FORCE)) || die "refusing to trial with an unusable fallback (--force overrides)"

@@ -53,14 +53,37 @@ HEALTH_UNIT="oradio.service"
 # means a crash loop can be momentarily "active"; a slot whose application keeps
 # dying is not one to make permanent.
 HEALTH_MAX_RESTARTS=3
-TRYBOOT_CONFIG="/boot/firmware/tryboot.txt"
-TRIAL_CMDLINE="/boot/firmware/tryboot-cmdline.txt"
-CMDLINE="/boot/firmware/cmdline.txt"
+BOOT_DIR="/boot/firmware"
+TRYBOOT_CONFIG="$BOOT_DIR/tryboot.txt"
+TRIAL_CMDLINE="$BOOT_DIR/tryboot-cmdline.txt"
+CMDLINE="$BOOT_DIR/cmdline.txt"
 
 log() { printf '%s ab-boot-trial: %s\n' "$(date -Is)" "$*"; }
 die() {
 	printf '%s ab-boot-trial: ERROR: %s\n' "$(date -Is)" "$*" >&2
 	exit 1
+}
+
+# /boot/firmware is an autofs mountpoint (optimize_boot_time.sh puts
+# x-systemd.automount in fstab, which is what keeps local-fs.target from waiting
+# on the boot device). The real mount happens the first time anything looks up a
+# path underneath it, so every read below triggers it as a side effect.
+#
+# That side effect is not something to rely on. Requires=local-fs.target in the
+# unit file guarantees the autofs point exists, NOT that the partition mounted:
+# a bad card, a wrong PARTUUID or a corrupt FAT now let the boot finish and fail
+# here instead. And state_get cannot tell that apart from "no trial in progress",
+# because both are just an unreadable file — one means do nothing, the other
+# means a rollback is going unrecorded. So trigger the mount deliberately and
+# check it landed, before reading anything.
+boot_partition_ready() {
+	# Looking up a path *inside* the mountpoint is what triggers autofs.
+	stat -t "$BOOT_DIR/." >/dev/null 2>&1 || true
+	# While untriggered, findmnt reports the autofs placeholder rather than the
+	# partition; once mounted, both are listed and the real one is last.
+	local fstype
+	fstype="$(findmnt -nro FSTYPE "$BOOT_DIR" 2>/dev/null | tail -1 || true)"
+	[[ -n "$fstype" && "$fstype" != "autofs" ]]
 }
 
 # reboot(8) returns as soon as the shutdown is queued — the system takes several
@@ -127,6 +150,18 @@ clear_trial_files() {
 # are actually running from against the slot the trial was aiming at.
 cmd_check() {
 	local trial state now
+
+	# Do not report "no trial in progress" when the truth is "cannot tell".
+	# Failing the unit would be worse than useless here — it is ordered
+	# Before=multi-user.target and the board is already running something — so
+	# say so loudly and leave the state file alone.
+	if ! boot_partition_ready; then
+		log "ERROR: $BOOT_DIR is not mounted; the trial state cannot be read"
+		log "if a trial is in progress it will neither commit nor be recorded"
+		log "the next reset still returns to the committed slot, so this is not fatal"
+		return 0
+	fi
+
 	trial="$(state_get trial || true)"
 	state="$(state_get state || true)"
 
@@ -167,6 +202,13 @@ cmd_check() {
 # pointing config.txt's cmdline at the trial slot.
 cmd_commit() {
 	local trial state now
+
+	# Unlike check, commit is asked for explicitly and writes to this partition.
+	# Refusing is right: a "successful" commit that wrote nothing would leave the
+	# board one reset away from silently reverting.
+	boot_partition_ready ||
+		die "$BOOT_DIR is not mounted; refusing to commit"
+
 	trial="$(state_get trial || true)"
 	state="$(state_get state || true)"
 
@@ -225,6 +267,17 @@ health_ok() {
 # was cleared at the start of this boot, so the reset lands on config.txt.
 cmd_timeout() {
 	local trial state now
+
+	# This subcommand reboots the board. Doing that on the strength of a state
+	# file that could not be read is the one mistake here worth avoiding
+	# absolutely: it would reboot a perfectly healthy system, and on a slot whose
+	# boot partition is unreadable it would do so every five minutes forever.
+	if ! boot_partition_ready; then
+		log "ERROR: $BOOT_DIR is not mounted; not deciding a trial blind"
+		log "not rebooting: a trial that cannot be read cannot be rolled back safely"
+		return 0
+	fi
+
 	trial="$(state_get trial || true)"
 	state="$(state_get state || true)"
 
@@ -276,6 +329,15 @@ cmd_timeout() {
 
 ##### status ##############################################
 cmd_status() {
+	# Report this first: with an automounted boot partition, "no trial state" and
+	# "cannot see the boot partition" look identical from here otherwise.
+	if boot_partition_ready; then
+		printf '  boot part.   : mounted (%s)\n' \
+			"$(findmnt -nro SOURCE "$BOOT_DIR" 2>/dev/null | tail -1 || echo unknown)"
+	else
+		printf '  boot part.   : NOT MOUNTED — everything below is unreliable\n'
+	fi
+
 	if [[ ! -r "$STATE_FILE" ]]; then
 		printf 'no trial state\n'
 	else

@@ -517,50 +517,126 @@ for unit in "${UNITS_TO_MASK[@]}"; do
 	mask_unit "$unit"
 done
 
-# ---------------------------------------------------
-# /boot/firmware: automount instead of boot-time fsck
-# ---------------------------------------------------
-# Nothing reads /boot/firmware at runtime; only kernel and firmware updates do.
-# Mounting it on demand removes both the fsck and the mount from the boot path,
-# while keeping the path transparently available when something touches it.
+# -------------------------------------------------
+# /boot/firmware: mount on demand, not during boot
+# -------------------------------------------------
+# Nothing reads /boot/firmware at runtime; only kernel and firmware updates, and
+# the A/B trial state, do.
+#
+# WHAT THIS ACTUALLY DOES — the mechanism is not "the mount is skipped", and the
+# distinction matters for anyone changing it later:
+#
+#   systemd-fstab-generator emits Before=local-fs.target on BOTH the .mount and
+#   the .automount unit, and RequiredBy=local-fs.target on the .automount (the
+#   entry has no 'nofail'). Because 'noauto' keeps the .mount out of the boot
+#   transaction, its Before= never applies — ordering only takes effect between
+#   units in the same transaction. local-fs.target therefore waits for the
+#   .automount, which just installs an autofs mountpoint in the VFS and never
+#   touches the device.
+#
+#   Measured on this hardware: the boot device unit
+#   (dev-disk-by-partuuid-*.device) does not appear until ~4.4s, because that is
+#   how long the udev queue takes to reach it. With a plain mount, local-fs.target
+#   — and behind it sysinit, basic.target and oradio.service — waits for all of
+#   it. With the automount, local-fs.target completes at ~2.4s and the real mount
+#   lands at ~5.2s, off the critical path. The saving is those seconds, NOT the
+#   ~90ms the mount itself costs.
+#
+#   Second benefit, independent of timing: FAT32 has no journal, and this is a
+#   mains-powered appliance that gets unplugged. Keeping the one partition the
+#   board cannot boot without unmounted for all but a few seconds per boot is
+#   real protection against an unclean power-off landing mid-write.
+#
+# WHAT WOULD UNDO IT: anything that pulls boot-firmware.mount into the boot
+# transaction re-arms that dormant Before= and hands back the ~4.4s device wait.
+# That means any unit with After=/Requires=boot-firmware.mount, or with
+# RequiresMountsFor=/boot/firmware, that is itself ordered before local-fs.target.
+# sshswitch.service is masked above for exactly this reason. Re-run the check
+# below after any apt upgrade that ships new units, not only at install time.
+#
+# Note the reverse-dependency check cannot see the other kind of trigger: a unit
+# that simply READS a path under /boot/firmware causes autofs to mount it with no
+# unit dependency at all. ab-boot-check.service does this every boot when it reads
+# oradio3-boot.state. That is harmless — it is deprioritised by the drop-ins below
+# and off the critical path — but it means the partition IS mounted on every boot,
+# and 'the mount never happens' is the wrong mental model.
+#
+# passno is deliberately 2, not 0. With the automount, systemd-fsck@ is pulled in
+# by the .mount unit and therefore runs in the automount's transaction at ~5.2s,
+# not on the boot path — so the dirty-bit repair costs nothing here, and setting
+# it to 0 would mean the FAT partition is never checked or repaired again on a
+# device with a volatile journal and no console. A failed fsck now fails the
+# .mount, not local-fs.target, so it cannot take the boot down either.
 #
 # A broken fstab drops the system to emergency mode, so the new file is
 # validated before it is installed.
 FSTAB="/etc/fstab"
 FSTAB_OPTS="defaults,noauto,x-systemd.automount,x-systemd.idle-timeout=60"
+FSTAB_PASSNO="2"
+
+# Report units that would drag the real mount into the boot transaction.
+report_mount_triggers() {
+	local triggers deps unit
+	triggers="$(systemctl list-dependencies --reverse --plain --no-legend \
+		boot-firmware.mount 2>/dev/null | sed '1d' | tr -d ' ' || true)"
+
+	# RequiresMountsFor= produces the same effect without naming the unit, so it
+	# does not show up in the reverse dependency list above.
+	deps=""
+	for unit in $(systemctl list-units --type=service --all --plain --no-legend 2>/dev/null \
+		| awk '{print $1}'); do
+		if systemctl show "$unit" -p RequiresMountsFor --value 2>/dev/null \
+			| grep -q '/boot/firmware'; then
+			deps+="$unit"$'\n'
+		fi
+	done
+
+	if [[ -n "$triggers$deps" ]]; then
+		echo -e "${YELLOW}Units that pull in boot-firmware.mount:${NC}"
+		printf '%s%s' "$triggers" "$deps" | sed '/^$/d' | sed 's/^/  /'
+		echo -e "${YELLOW}If any of these is ordered before local-fs.target, the${NC}"
+		echo -e "${YELLOW}automount saves nothing — mask it or add nofail.${NC}"
+	else
+		echo "No units pull boot-firmware.mount into the boot transaction"
+	fi
+}
 
 if ! grep -qE '^[^#].*[[:space:]]/boot/firmware[[:space:]]' "$FSTAB"; then
 	echo -e "${YELLOW}No /boot/firmware entry in $FSTAB, skipping automount${NC}"
-elif grep -qE '^[^#].*[[:space:]]/boot/firmware[[:space:]].*x-systemd\.automount' "$FSTAB"; then
-	echo "/boot/firmware already configured as automount"
 else
-	# Warn about units that would trigger the automount during boot anyway
-	triggers="$(systemctl list-dependencies --reverse --plain --no-legend \
-		boot-firmware.mount 2>/dev/null | sed '1d' | tr -d ' ' || true)"
-	if [[ -n "$triggers" ]]; then
-		echo -e "${YELLOW}Units ordered against boot-firmware.mount:${NC}"
-		echo "$triggers" | sed 's/^/  /'
-		echo -e "${YELLOW}These will still trigger the mount at boot${NC}"
-	fi
-
-	tmp_fstab="$(mktemp)"
-	# Rewrite only the /boot/firmware line: on-demand options, no fsck pass
-	awk -v opts="$FSTAB_OPTS" 'BEGIN { OFS = "\t" }
-		/^[[:space:]]*#/ { print; next }
-		NF >= 6 && $2 == "/boot/firmware" { $4 = opts; $5 = "0"; $6 = "0"; print; next }
-		{ print }' "$FSTAB" > "$tmp_fstab"
-
-	# Validate before installing; findmnt parses fstab the way systemd does
-	if findmnt --verify --tab-file "$tmp_fstab" >/dev/null 2>&1; then
-		sudo cp "$tmp_fstab" "$FSTAB"
-		sudo chmod 644 "$FSTAB"
-		echo "Configured /boot/firmware as automount in $FSTAB"
+	# Compare against the intended options AND passno rather than just looking
+	# for x-systemd.automount. An earlier run of this script wrote passno 0; that
+	# has to be corrected, and a check that only greps for 'automount' would
+	# report "already configured" and leave it wrong forever.
+	current="$(awk '$1 !~ /^#/ && $2 == "/boot/firmware" {print $4" "$5" "$6; exit}' "$FSTAB")"
+	if [[ "$current" == "$FSTAB_OPTS 0 $FSTAB_PASSNO" ]]; then
+		echo "/boot/firmware already configured as automount with fsck pass $FSTAB_PASSNO"
+		report_mount_triggers
 	else
-		echo -e "${RED}Generated fstab failed validation, leaving $FSTAB unchanged${NC}" >&2
-		findmnt --verify --tab-file "$tmp_fstab" || true
-		FAILURES=$((FAILURES + 1))
+		report_mount_triggers
+
+		tmp_fstab="$(mktemp)"
+		# Rewrite only the /boot/firmware line: on-demand options, no dump, fsck
+		# deferred to the automount transaction.
+		awk -v opts="$FSTAB_OPTS" -v pass="$FSTAB_PASSNO" 'BEGIN { OFS = "\t" }
+			/^[[:space:]]*#/ { print; next }
+			NF >= 6 && $2 == "/boot/firmware" { $4 = opts; $5 = "0"; $6 = pass; print; next }
+			{ print }' "$FSTAB" > "$tmp_fstab"
+
+		# Validate before installing; findmnt parses fstab the way systemd does
+		if findmnt --verify --tab-file "$tmp_fstab" >/dev/null 2>&1; then
+			sudo cp "$tmp_fstab" "$FSTAB"
+			sudo chmod 644 "$FSTAB"
+			echo "Configured /boot/firmware as automount in $FSTAB"
+			echo "  was: ${current:-<no entry>}"
+			echo "  now: $FSTAB_OPTS 0 $FSTAB_PASSNO"
+		else
+			echo -e "${RED}Generated fstab failed validation, leaving $FSTAB unchanged${NC}" >&2
+			findmnt --verify --tab-file "$tmp_fstab" || true
+			FAILURES=$((FAILURES + 1))
+		fi
+		rm -f "$tmp_fstab"
 	fi
-	rm -f "$tmp_fstab"
 fi
 
 # ---------------------------------------------
@@ -666,6 +742,38 @@ echo "Configured volatile journal in $JOURNALD_DROPIN"
 # Apply unit file and udev rule changes
 sudo systemctl daemon-reload
 sudo udevadm control --reload-rules
+
+# ------------------------------------------
+# Verify the /boot/firmware wiring took
+# ------------------------------------------
+# The automount is worth seconds, and every way it can silently stop working
+# leaves a system that boots fine and is simply slower. Check the two properties
+# that matter, now, rather than discovering it in a boot chart months later.
+if systemctl cat boot-firmware.automount >/dev/null 2>&1; then
+	if systemctl show boot-firmware.automount -p RequiredBy --value 2>/dev/null \
+			| grep -q 'local-fs.target'; then
+		echo "boot-firmware.automount is required by local-fs.target (correct)"
+	else
+		echo -e "${YELLOW}boot-firmware.automount is not required by local-fs.target${NC}"
+		echo -e "${YELLOW}Check for 'nofail' in the fstab options${NC}"
+	fi
+
+	# The .mount must stay out of the boot transaction; if it is started at boot
+	# its own Before=local-fs.target applies again and the gain is gone.
+	if systemctl show boot-firmware.mount -p Requires --value 2>/dev/null \
+			| grep -q 'systemd-fsck@'; then
+		echo "boot-firmware.mount pulls in systemd-fsck (runs on trigger, off the boot path)"
+	else
+		echo -e "${YELLOW}No fsck dependency on boot-firmware.mount: the FAT partition${NC}"
+		echo -e "${YELLOW}will never be checked. Verify passno is 2 in $FSTAB${NC}"
+	fi
+
+	echo "Verify after the next boot with:"
+	echo "  systemd-analyze critical-chain local-fs.target"
+	echo "  # local-fs.target must go active BEFORE boot-firmware.mount does"
+else
+	echo -e "${YELLOW}boot-firmware.automount does not exist; automount not active${NC}"
+fi
 
 if [[ "$FAILURES" -gt 0 ]]; then
 	echo -e "${RED}Boot time optimizations incomplete: $FAILURES step(s) failed${NC}" >&2
