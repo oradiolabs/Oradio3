@@ -25,6 +25,9 @@ UMask=0002
 StandardOutput=append:PLACEHOLDER_LOGFILE_CRASHACTION
 StandardError=append:PLACEHOLDER_LOGFILE_CRASHACTION
 
+# Set logfile ownership. '+' means run this command as root.
+ExecStartPre=-+/usr/bin/chown PLACEHOLDER_USER:PLACEHOLDER_GROUP PLACEHOLDER_LOGFILE_CRASHACTION
+
 # The traceback logfile is still on disk and untouched at this point; it is
 # only cleared by the next start of oradio.service, so the script can read or
 # copy it if the crash action needs it.
