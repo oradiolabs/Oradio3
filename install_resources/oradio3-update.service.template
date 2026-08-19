@@ -16,10 +16,16 @@ Type=oneshot
 # Run software update script
 ExecStart=/usr/local/sbin/oradio3-update.sh
 
+# Log file permissions applied when the logfile is CREATED. 0002 yields -rw-rw-r-- (0664).
+UMask=0002
+
 # Redirect stdout (fd 1) and stderr (fd 2) to the Oradio log file.
 # Note this takes the output *out* of the journal: journalctl -u oradio3-update will be empty.
 StandardOutput=append:PLACEHOLDER_LOGFILE_UPDATE
 StandardError=append:PLACEHOLDER_LOGFILE_UPDATE
+
+# Set logfile ownership. '+' means run this command as root.
+ExecStartPre=-+/usr/bin/chown PLACEHOLDER_USER:PLACEHOLDER_GROUP PLACEHOLDER_LOGFILE_UPDATE
 
 # Unpacking a rootfs onto an SD card takes minutes. The default 90s start
 # timeout would kill the install part-way through, leaving the inactive slot
