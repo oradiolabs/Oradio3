@@ -686,6 +686,8 @@ install_resource "$RESOURCES_PATH/oradio3-update.sh" /usr/local/sbin/oradio3-upd
 sudo install -m 0755 "$RESOURCES_PATH/install-swu.sh" "$RESOURCES_PATH/ab-boot-switch.sh" /usr/local/sbin/
 # Install the software update signing certificate
 sudo install -D -m 0644 "$RESOURCES_PATH/oradio3-signing.cert.pem" /etc/oradio3/update-signing.cert.pem
+# Generate hw version info -- Used by swupdate: do not change
+sudo bash -c "printf 'Oradio3 1.0\n' > /etc/hwrevision"
 # Progress report
 echo -e "${GREEN}Software update functionality loaded and configured${NC}"
 
