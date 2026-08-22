@@ -19,8 +19,7 @@ LABEL_B="rootfs_b"
 
 # Distro swupdate builds require signed packages and check hardware
 # compatibility. The certificate is the public half of the key build-swu.sh
-# signs with; HW_REVISION must match the hardware-compatibility list in the
-# package.
+# signs with.
 CERT="oradio3-signing.cert.pem"
 
 # Written by ab-boot-trial.sh. Read here only, to refuse an install that would
@@ -31,8 +30,10 @@ TRIAL_STATE="/boot/firmware/oradio3-boot.state"
 # than searched for.
 SWITCH_SCRIPT="/usr/local/sbin/ab-boot-switch.sh"
 TRIAL_SCRIPT="/usr/local/sbin/ab-boot-trial.sh"
-BOARD_NAME="oradio3"
-HW_REVISION="1.0"
+
+# Per-unit hardware identity. NOT a constant here: see the check below for why
+# this script will not supply a value of its own.
+HWREVISION_FILE="/etc/hwrevision"
 
 usage() {
 	cat <<EOF
@@ -132,13 +133,39 @@ command -v mkfs.ext4 >/dev/null || die "missing tool: mkfs.ext4 (apt install e2f
 [[ -f "$CERT" ]] || die "signing certificate not found: $CERT
     Copy it from the build host; swupdate rejects unsigned packages."
 
-# swupdate refuses to install with "HW compatibility not found" if this file is
-# missing, whatever the package says.
-if [[ ! -f /etc/hwrevision ]]; then
-	warn "/etc/hwrevision missing — creating it as '$BOARD_NAME $HW_REVISION'"
-	printf '%s %s\n' "$BOARD_NAME" "$HW_REVISION" >/etc/hwrevision
-fi
-info "hwrevision: $(cat /etc/hwrevision)"
+# --------------------------------------------------- hardware identity --
+# swupdate matches this file against the package's hardware-compatibility list
+# and refuses with "HW compatibility not found" when it is absent, whatever the
+# package says. That is the right behaviour and this script must not paper over
+# it.
+#
+# The file is per-unit: it describes the board, not the software. No package
+# carries one — build-swu.sh excludes it from the payload precisely so a package
+# cannot supply it, and swu-slot.sh copies THIS board's value into each slot it
+# installs. Inventing a value here would defeat all of that, in the worst way:
+# a guessed revision either happens to match the package, making the
+# compatibility check meaningless, or quietly records this board as hardware it
+# may not be — and once written it persists, travelling into every slot
+# installed afterwards.
+#
+# A board with no recorded revision is a provisioning mistake, not something to
+# repair mid-install. Stop, and say what to write.
+[[ -f "$HWREVISION_FILE" ]] || die "$HWREVISION_FILE not found.
+
+    It records what this board IS, so nothing but provisioning may write it —
+    this script will not guess a value, and no package can supply one.
+
+    Check what the package expects:
+      cpio -i --to-stdout sw-description <'$SWU' | grep hardware-compatibility
+
+    Then write the matching revision on this board, once:
+      printf 'oradio3 <revision>\\n' | sudo tee $HWREVISION_FILE"
+
+HWREVISION="$(grep -v '^[[:space:]]*$' "$HWREVISION_FILE" | head -1 || true)"
+[[ -n "$HWREVISION" ]] || die "$HWREVISION_FILE is empty.
+    swupdate would refuse this install with 'HW compatibility not found'.
+    Write the board's revision, as above."
+info "hwrevision: $HWREVISION"
 
 # ------------------------------------------------- which slot is running? --
 # Slot identity is the partition number: 2 is slot A, 3 is slot B. Labels are
