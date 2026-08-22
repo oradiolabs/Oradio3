@@ -36,7 +36,6 @@ Created on February 8, 2025
     unreachable, after which each message makes a single probe attempt and
     logs one line until a POST succeeds or WiFi connects.
 """
-import re
 import json
 import subprocess
 from time import sleep
@@ -68,6 +67,8 @@ from messaging import (
 ##### GLOBAL constants ####################################
 from constants import (
     YELLOW, NC,
+    RMS_SERVER_URL,
+    RMS_SERVER_KEY,
 )
 
 ##### LOCAL constants #####################################
@@ -77,17 +78,18 @@ SYS_INFO  = 'SYS_INFO'
 INCIDENT  = 'INCIDENT'
 
 # Path to the JSON file written by the deployment pipeline with version info
-SW_LOG_FILE = "/var/log/oradio_sw_version.log"
+SOFTWARE_VERSION_FILE = "/var/log/oradio_sw_version.log"
 
 # How often the heartbeat is sent (seconds); currently once per hour
 HEARTBEAT_REPEAT = 60 * 60
 
 # Remote Monitoring Service endpoint and HTTP POST tuning parameters
-RMS_SERVER_URL = "https://oradiolabs.nl/rms/api/index.php/v1/oradiorms/records"
-RMS_SERVER_KEY = "e8590bb5e3d88fa306c214bbb066e3638000f6c45aeb04fc8e043af57233e0d9"
 MAX_RETRIES    = 3    # Maximum number of POST attempts before giving up
 BACKOFF_FACTOR = 2    # Base for exponential backoff: delay = BACKOFF_FACTOR ** attempt (1s, 2s, 4s)
-POST_TIMEOUT   = 5    # Per-attempt HTTP timeout in seconds
+POST_TIMEOUT   = 30   # Per-attempt HTTP timeout in seconds. Generous because RMS may
+                      # run its notification and retention routines inside the POST
+                      # before responding: giving up early would treat a stored
+                      # record as a failure and post it again on the next attempt.
 
 ##### RMS reachability state ##############################
 
@@ -205,16 +207,58 @@ def _get_sw_version() -> str:
         version file is missing or invalid.
     """
     try:
-        with open(SW_LOG_FILE, encoding="utf-8") as file:
+        with open(SOFTWARE_VERSION_FILE, encoding="utf-8") as file:
             data = json.load(file)
         return data["dtstamp"] + " (" + data["gitinfo"] + ")"
     except (FileNotFoundError, json.JSONDecodeError, KeyError):
-        oradio_log.error("'%s': Missing file or invalid content", SW_LOG_FILE)
+        oradio_log.error("'%s': Missing file or invalid content", SOFTWARE_VERSION_FILE)
         return "Invalid SW version"
 
-def _handle_response_command(response_text) -> None:
+def _extract_command(response: Response) -> str | None:
     """
-    Extract and execute a command returned by the RMS server.
+    Read the pending command out of an RMS response body.
+
+    RMS wraps its payload in the standard API envelope, so the command
+    arrives as data.command:
+
+        {"success": true, ..., "data": {"stored": true, "command": "..."}}
+
+    The unwrapped top-level shape is accepted as well, so a response that
+    is relayed rather than returned directly still works.
+
+    Args:
+        response: The successful response returned by _post_with_retry().
+
+    Returns:
+        The command to run, or None if the body carried none or could not
+        be parsed as JSON.
+    """
+    try:
+        body = response.json()
+    except ValueError:
+        oradio_log.error("RMS response was not JSON: %s", response.text[:200])
+        return None
+
+    if not isinstance(body, dict):
+        return None
+
+    data = body.get("data")
+    command = body.get("command") or (data.get("command") if isinstance(data, dict) else None)
+
+    if command is None:
+        return None
+
+    command = str(command).strip()
+
+    return command or None
+
+def _handle_response_command(response: Response) -> None:
+    """
+    Execute a command returned by the RMS server, if there was one.
+
+    RMS clears a pending command as soon as it hands it out, so it is
+    delivered exactly once: a command that is not run here is not offered
+    again on the next heartbeat.
 
     Warning:
         Executing commands received from a remote system is inherently
@@ -222,12 +266,12 @@ def _handle_response_command(response_text) -> None:
         handled elsewhere.
 
     Args:
-        response_text (str): Raw text body returned by the RMS server.
+        response: The successful response returned by _post_with_retry().
     """
-    match = re.search(r"'command'\s*=>\s*(.*)", response_text)
-    if match:
+    command = _extract_command(response)
+
+    if command is not None:
         # Pass command to linux shell for execution
-        command = match.group(1).strip()
         oradio_log.debug("Run command '%s' from RMS server", command)
         try:
             # executable must be set explicitly; without it Python falls
@@ -260,8 +304,21 @@ def _post_with_retry(
     WifiMessageHandler.send_message(): all POST to RMS_SERVER_URL under the
     same MAX_RETRIES/BACKOFF_FACTOR/POST_TIMEOUT policy. They differ only
     in whether log files are attached and in what happens with a successful
-    response (SYS_INFO/HEARTBEAT act on a returned command, an incident
-    alert does not), both of which stay with the caller.
+    response (a heartbeat acts on a returned command, the others do not),
+    both of which stay with the caller.
+
+    Failures are split the way the crash action script splits them, since
+    the two classes call for different responses:
+
+    - 4xx means the server answered and rejected this request. Retrying
+      sends the identical request and earns the identical rejection, so
+      there is no retry and the reachability state is left alone: 401 (key
+      rotated) and 413 (payload too large) are configuration faults, not an
+      outage. No incident is published either -- publishing one would POST
+      an incident that is rejected in turn, publishing another.
+    - 5xx and transport errors (DNS, TLS, timeout) may clear on their own,
+      so these retry with backoff and, once exhausted, clear the
+      reachability state and publish RMS_POST_FAILED.
 
     Retries apply while _RmsReachability reports the server as reachable.
     Once it does not, each call makes a single probe attempt, so a dead
@@ -270,27 +327,28 @@ def _post_with_retry(
 
     Args:
         payload_info:     Form fields to POST.
-        attach_log_files: If True, attach every *.log file in
-                           ORADIO_LOG_PATH on each attempt. Files are
-                           (re)opened fresh per attempt inside the loop,
-                           since a file object already consumed by a
-                           failed attempt can't be resent as-is.
+        attach_log_files: If True, attach every *.log* file in
+                           ORADIO_LOG_PATH on each attempt, rotated logs
+                           included. Files are (re)opened fresh per attempt
+                           inside the loop, since a file object already
+                           consumed by a failed attempt can't be resent
+                           as-is.
         context:          Short label used in log messages, e.g.
                            "message" or "incident".
 
     Returns:
-        The successful requests.Response, or None if the attempts were
-        exhausted. Exhausting them clears the reachability state, and
-        publishes RMS_POST_FAILED when that state changes.
+        The successful requests.Response, or None if the request was
+        rejected with a 4xx or the retryable attempts were exhausted.
     """
     attempts = MAX_RETRIES if _RmsReachability.is_reachable() else 1
 
     for attempt in range(1, attempts + 1):
+        failure = None
         try:
             with ExitStack() as stack:
                 payload_files = None
                 if attach_log_files:
-                    send_files = ORADIO_LOG_PATH.glob("*.log")
+                    send_files = ORADIO_LOG_PATH.glob("*.log*")
                     payload_files = {f.name: (f.name, stack.enter_context(f.open("rb"))) for f in send_files}
                 response = post(
                     url=RMS_SERVER_URL,
@@ -299,32 +357,53 @@ def _post_with_retry(
                     files=payload_files,
                     timeout=POST_TIMEOUT
                 )
-                response.raise_for_status()
         except (RequestException, Timeout) as ex_err:
-            # Per-attempt detail is informative only while more attempts follow
-            if attempts > 1:
-                oradio_log.warning("Attempt %d failed to POST %s: %s", attempt, context, ex_err)
+            failure = ex_err
+        else:
+            if 400 <= response.status_code < 500:
+                # The server answered, so it is reachable; the request
+                # itself is what it refused. Recorded with the status code
+                # because the fix differs per code, and returned without
+                # retrying or publishing an incident.
+                oradio_log.error(
+                    "POST %s rejected: HTTP %d, body: %s",
+                    context, response.status_code, response.text[:200] or "<none>"
+                )
+                if _RmsReachability.update(True):
+                    oradio_log.info("RMS server reachable again")
+                return None
 
-            if attempt < attempts:
-                # Wait before retrying; delay grows exponentially with each attempt
-                sleep(BACKOFF_FACTOR ** attempt)
-                continue
+            if response.status_code >= 500:
+                # Server-side and possibly transient, so treated like a
+                # transport failure and retried.
+                failure = f"HTTP {response.status_code}"
 
-            # Clear the state before publishing, so send_message() recognises
-            # the incident published here as undeliverable and drops it
-            # instead of starting another POST.
-            if _RmsReachability.update(False):
-                oradio_log.error("Failed to POST %s: %s", context, ex_err)
-                Incidents.publish(IncidentMessage(RMS_SOURCE, RMS_POST_FAILED))
-            else:
-                # Outage already reported: one line per message
-                oradio_log.error("Failed to POST %s: RMS server still unreachable", context)
-            return None
-        if _RmsReachability.update(True):
-            oradio_log.info("RMS server reachable again")
-        return response  # POST succeeded; exit the retry loop
+        if failure is None:
+            if _RmsReachability.update(True):
+                oradio_log.info("RMS server reachable again")
+            return response  # POST succeeded; exit the retry loop
 
-    return None  # Unreachable (loop always returns or raises), keeps type checkers happy
+        # Per-attempt detail is informative only while more attempts follow
+        if attempts > 1:
+            oradio_log.warning("Attempt %d failed to POST %s: %s", attempt, context, failure)
+
+        if attempt < attempts:
+            # Wait before retrying; delay grows exponentially with each attempt
+            sleep(BACKOFF_FACTOR ** attempt)
+            continue
+
+        # Clear the state before publishing, so send_message() recognises
+        # the incident published here as undeliverable and drops it
+        # instead of starting another POST.
+        if _RmsReachability.update(False):
+            oradio_log.error("Failed to POST %s: %s", context, failure)
+            Incidents.publish(IncidentMessage(RMS_SOURCE, RMS_POST_FAILED))
+        else:
+            # Outage already reported: one line per message
+            oradio_log.error("Failed to POST %s: RMS server still unreachable", context)
+        return None
+
+    return None  # Unreachable (loop always returns), keeps type checkers happy
 
 class Heartbeat(Timer):
     """
@@ -496,9 +575,11 @@ class WifiMessageHandler(MessageHandlerTemplate):
 
         HEARTBEAT and SYS_INFO carry runtime/hardware telemetry. INCIDENT
         reports an IncidentMessage from another service, attaching the
-        current log files for context and skipping the response-command
-        handling HEARTBEAT/SYS_INFO get (an incident alert doesn't act on
-        anything the server returns).
+        current log files for context.
+
+        Only a HEARTBEAT response is inspected for a pending command: that
+        is the one message type RMS attaches one to, so parsing any other
+        response for it would never find anything.
 
         Only attempted while WiFi is currently known to be connected; if not,
         nothing is sent and a debug line is logged instead, since attempting
@@ -548,8 +629,8 @@ class WifiMessageHandler(MessageHandlerTemplate):
 
             payload_info['source']  = incident.source
             payload_info['message'] = incident.message
-            # An incident alert acts on no command in the response, so the
-            # result is unused
+            # RMS attaches a command to heartbeats only, so the response
+            # here is unused
             _post_with_retry(payload_info, attach_log_files=True, context="incident")
             return
 
@@ -559,20 +640,13 @@ class WifiMessageHandler(MessageHandlerTemplate):
 
         response = _post_with_retry(payload_info, context="message")
         if response is None:
-            # All retries failed; _post_with_retry() already published the incident
+            # Rejected, or all retries failed; _post_with_retry() has
+            # already logged it and published an incident where warranted
             return
 
-        # A non-2xx status after a successful raise_for_status() shouldn't
-        # occur, but log it defensively in case the server returns an
-        # unexpected code without raising an HTTPError.
-        if not response.ok:
-            oradio_log.error(
-                "Unexpected status code=%s, response.headers=%s",
-                response.status_code, response.headers
-            )
-
-        # Act on any command the RMS server included in its response body
-        _handle_response_command(response.text)
+        # RMS attaches a pending command to a heartbeat response only
+        if msg_type == HEARTBEAT:
+            _handle_response_command(response)
 
 @singleton
 class RMService:
