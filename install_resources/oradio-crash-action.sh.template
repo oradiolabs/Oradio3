@@ -43,17 +43,21 @@ readonly MIN_UPTIME_TO_REBOOT=300
 read -r uptime _ < /proc/uptime
 readonly uptime_at_crash="${uptime%.*}"
 
-# Collect every file in the logging directory as a curl -F argument, using the
-# filename as form field name. Empty files are included: that a logfile exists
-# but is empty is itself a finding, and distinguishing it from a file that was
-# never created at all is exactly what a crash report is for. No nullglob
-# needed: if nothing matches, the glob stays literal and the -f test skips it,
-# leaving an empty array, which is safe to expand under nounset on bash 4.4+.
+# Collect the logfiles in the logging directory as curl -F arguments, using the
+# filename as form field name. The glob is *.log* so rotated logs come along
+# (oradio.log.1, oradio.log-20260822, oradio.log.1.gz); RMS accepts that shape
+# and silently discards anything else, so sending other files would cost the
+# upload time without ever storing them.
+# Empty files are included: that a logfile exists but is empty is itself a
+# finding, and distinguishing it from a file that was never created at all is
+# exactly what a crash report is for. No nullglob needed: if nothing matches,
+# the glob stays literal and the -f test skips it, leaving an empty array,
+# which is safe to expand under nounset on bash 4.4+.
 # The -f also skips subdirectories: curl cannot read a directory with -F @, and
 # one stray subdirectory fails the whole upload, costing the entire report
 # rather than just that one entry.
 log_fields=()
-for logfile in "PLACEHOLDER_LOGGING_PATH"/*; do
+for logfile in "PLACEHOLDER_LOGGING_PATH"/*.log*; do
 	[ -f "$logfile" ] || continue
 	log_fields+=(-F "$(basename "$logfile")=@${logfile}")
 done
@@ -63,10 +67,14 @@ done
 # would pass unnoticed and RMS would receive a valid looking report carrying no
 # serial. The fallback also keeps a missing vcgencmd or a non-matching grep
 # from aborting the script under errexit, which would skip the recovery that
-# oradio-crash-action.service performs once this script returns. Note the
-# fallback covers a non-zero exit only: a pipeline that succeeds but prints
-# nothing still leaves the serial empty.
-serial="$(vcgencmd otp_dump | grep "28:" | cut -c 4-)" || serial="unknown"
+# oradio-crash-action.service performs once this script returns.
+# This must produce exactly what utilities.get_serial() produces, or the same
+# Oradio arrives at RMS under two serials and its crash logs land apart from
+# its heartbeats. Hence the anchored "^28:" rather than a substring match, the
+# whitespace strip, the "Unknown" spelling, and the empty check on the second
+# line, which covers a pipeline that succeeds but prints nothing.
+serial="$(vcgencmd otp_dump | grep "^28:" | cut -c 4- | tr -d "[:space:]")" || serial="Unknown"
+[ -n "$serial" ] || serial="Unknown"
 
 # Reboot guard. A crash shortly after boot is the signature of a crash loop:
 # rebooting would only repeat it, indefinitely, one RMS report per cycle.
@@ -100,7 +108,12 @@ echo "--- decision already taken, executed after the upload: ${reboot_decision} 
 # captured instead of acted on.
 # The payload is up to 5MB, so --max-time is sized for the upstream bandwidth of
 # a slow home connection rather than for the local link speed: 120s carries 5MB
-# down to ~350kbps. --speed-limit / --speed-time abandon a connection that has
+# down to ~350kbps. The RMS server must be willing to keep receiving for at
+# least as long: PHP's max_input_time caps that independently of
+# max_execution_time, and when it expires mid-body PHP discards the request and
+# RMS answers "Missing required field: serial", which reads as a payload fault
+# rather than a slow link. Raise it there (.user.ini in the Joomla root) to
+# above this value. --speed-limit / --speed-time abandon a connection that has
 # stalled below 5kB/s for 30s, so a dead link fails fast instead of burning the
 # full 120s. --max-time is per attempt, so worst case is 3 attempts of 120s plus
 # 2 delays of 5s = 370s, which must stay below the TimeoutStartSec=500 of
