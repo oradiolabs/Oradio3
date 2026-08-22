@@ -292,6 +292,35 @@ def _handle_response_command(response: Response) -> None:
                 command, ex_err.returncode, ex_err.stdout, ex_err.stderr
             )
 
+def _mark_reachable() -> None:
+    """
+    Record that the RMS server answered, logging only the transition.
+
+    Called both when a POST succeeds and when it is rejected with a 4xx:
+    either way the server replied, so it is reachable.
+    """
+    if _RmsReachability.update(True):
+        oradio_log.info("RMS server reachable again")
+
+def _mark_unreachable(context: str, failure: str) -> None:
+    """
+    Record that a POST exhausted its attempts and report the outage once.
+
+    The state is cleared before the incident is published, so
+    send_message() recognises the incident published here as
+    undeliverable and drops it instead of starting another POST.
+
+    Args:
+        context: Short label used in log messages, e.g. "message".
+        failure: Description of the last failure, for the log line.
+    """
+    if _RmsReachability.update(False):
+        oradio_log.error("Failed to POST %s: %s", context, failure)
+        Incidents.publish(IncidentMessage(RMS_SOURCE, RMS_POST_FAILED))
+    else:
+        # Outage already reported: one line per message
+        oradio_log.error("Failed to POST %s: RMS server still unreachable", context)
+
 def _post_with_retry(
     payload_info: dict,
     attach_log_files: bool = False,
@@ -343,7 +372,10 @@ def _post_with_retry(
     attempts = MAX_RETRIES if _RmsReachability.is_reachable() else 1
 
     for attempt in range(1, attempts + 1):
-        failure = None
+        # Holds the reason this attempt failed, as text: a transport error
+        # and an HTTP 5xx are treated alike from here on, and only ever
+        # end up in a log line.
+        failure: str | None = None
         try:
             with ExitStack() as stack:
                 payload_files = None
@@ -358,7 +390,9 @@ def _post_with_retry(
                     timeout=POST_TIMEOUT
                 )
         except (RequestException, Timeout) as ex_err:
-            failure = ex_err
+            # Fall back to the class name: some requests exceptions carry
+            # an empty message, which would log a failure with no reason
+            failure = str(ex_err) or type(ex_err).__name__
         else:
             if 400 <= response.status_code < 500:
                 # The server answered, so it is reachable; the request
@@ -369,8 +403,7 @@ def _post_with_retry(
                     "POST %s rejected: HTTP %d, body: %s",
                     context, response.status_code, response.text[:200] or "<none>"
                 )
-                if _RmsReachability.update(True):
-                    oradio_log.info("RMS server reachable again")
+                _mark_reachable()
                 return None
 
             if response.status_code >= 500:
@@ -379,8 +412,7 @@ def _post_with_retry(
                 failure = f"HTTP {response.status_code}"
 
         if failure is None:
-            if _RmsReachability.update(True):
-                oradio_log.info("RMS server reachable again")
+            _mark_reachable()
             return response  # POST succeeded; exit the retry loop
 
         # Per-attempt detail is informative only while more attempts follow
@@ -392,15 +424,7 @@ def _post_with_retry(
             sleep(BACKOFF_FACTOR ** attempt)
             continue
 
-        # Clear the state before publishing, so send_message() recognises
-        # the incident published here as undeliverable and drops it
-        # instead of starting another POST.
-        if _RmsReachability.update(False):
-            oradio_log.error("Failed to POST %s: %s", context, failure)
-            Incidents.publish(IncidentMessage(RMS_SOURCE, RMS_POST_FAILED))
-        else:
-            # Outage already reported: one line per message
-            oradio_log.error("Failed to POST %s: RMS server still unreachable", context)
+        _mark_unreachable(context, failure)
         return None
 
     return None  # Unreachable (loop always returns), keeps type checkers happy
