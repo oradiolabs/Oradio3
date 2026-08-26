@@ -58,7 +58,7 @@ import uuid
 import subprocess
 from time import sleep
 from pathlib import Path
-from typing import Callable
+from collections.abc import Callable
 from threading import Timer, Event
 from datetime import datetime
 from dataclasses import dataclass
@@ -235,13 +235,13 @@ def _get_temperature() -> str:
         # timing out or exiting non-zero, the latter thanks to check=True.
         oradio_log.debug("Could not read temperature: %s", ex_err)
         return "Unsupported platform"
- 
+
     # Output format: "temp=42.8'C". Matched rather than sliced at a fixed
     # position, which only holds for a two-digit reading: a cold boot
     # ("temp=8.4'C") and a thermal event ("temp=100.0'C") are both a digit
     # off and would take the quote or drop the decimal along with them.
     reading = re.search(r"temp=(-?\d+(?:\.\d+)?)", result.stdout)
- 
+
     return reading.group(1) if reading else "Unsupported platform"
 
 def _get_rpi_version() -> str:
@@ -842,7 +842,10 @@ def _post_attempts(
             oradio_log.debug("Shutting down; abandoning POST %s", context)
             return None, set()
 
-        data = payload_info
+        # Either the plain fields or, once there is something to attach, the
+        # multipart body that carries them along with the files. Annotated
+        # because the two are assigned to the same name.
+        data: dict | _MultipartBody = payload_info
         body = None
 
         if attach_log_files:
