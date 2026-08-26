@@ -124,14 +124,16 @@ POST_TIMEOUT    = 30  # Per-attempt read timeout in seconds. Generous because RM
 # what binds is the device's own uplink. The fleet includes rural connections, where every
 # attached megabyte is real time spent, and a POST that stalls long enough on a single send
 # still runs into POST_TIMEOUT.
-# The total has no counterpart on the server and is a client-side choice: two full-size files,
-# enough for a runaway log and the generation it just rotated into.
+# The total has no counterpart on the server and is a client-side choice: it bounds what one
+# incident costs the device in upload time, which on the slowest connections in the fleet is
+# a few minutes at this size. Files that do not fit are named in the log rather than dropped
+# quietly, so a missing log is never mistaken for a fault.
 # The count matches PHP's max_file_uploads (20): a request carrying more than that has its
 # extra files ignored server-side, so they would cost upload time and arrive nowhere.
 # Under the standard logrotate policy (250k, rotate 1) real logs sit far below all three, so
 # the limits only bite when something is filling a log fast -- which is when an incident is raised.
 MAX_UPLOAD_FILE_BYTES  =  3 * 1024 * 1024   # Per attached file; under FileHelper::MAX_FILE_BYTES
-MAX_UPLOAD_TOTAL_BYTES =  6 * 1024 * 1024   # All attachments in one POST
+MAX_UPLOAD_TOTAL_BYTES = 10 * 1024 * 1024   # All attachments in one POST
 MAX_UPLOAD_FILES       = 20                 # Attachments in one POST; matches PHP max_file_uploads
 COPY_CHUNK_BYTES       = 64 * 1024          # Read granularity while streaming
 
@@ -486,8 +488,20 @@ def _collect_log_files(only_bases: set[str] | None = None) -> list[tuple[Path, i
     selected: list[tuple[Path, int, int]] = []
     budget = MAX_UPLOAD_TOTAL_BYTES
 
-    for _, size, path in candidates:
+    for index, (_, size, path) in enumerate(candidates):
         if budget <= 0 or len(selected) >= MAX_UPLOAD_FILES:
+            # Everything from here on is older than what was taken, so it is
+            # left behind. Named rather than dropped quietly: a log that is
+            # simply absent from a record looks like a fault, and this is the
+            # only place that can say it was a deliberate omission.
+            reason = ("upload budget spent" if budget <= 0
+                      else f"limit of {MAX_UPLOAD_FILES} files reached")
+            omitted = [candidate.name for _, _, candidate in candidates[index:]]
+
+            oradio_log.warning(
+                "Not attaching %d older file(s), %s: %s",
+                len(omitted), reason, ", ".join(omitted)
+            )
             break
 
         if UNSAFE_NAME_CHARS.search(path.name):

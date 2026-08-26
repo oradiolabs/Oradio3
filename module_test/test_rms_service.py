@@ -8,14 +8,9 @@
  #    #  #   #   #    #  #    #     #    #    #
   ####   #    #  #    #  #####      #     ####
 
-Created on August 26, 2026
-@author:        Henk Stevens & Olaf Mastenbroek & Onno Janssen
-@copyright:     Copyright, Stichting Oradio
+@copyright:     Copyright 2025, Oradio Stichting
 @license:       GNU General Public License (GPL)
 @organization:  Oradio Stichting
-@version:       1
-@email:         oradioinfo@stichtingoradio.nl
-@status:        Development
 @summary:
     Unit tests for rms_service.
 
@@ -120,6 +115,11 @@ class RmsTestCase(unittest.TestCase):
         _RmsReachability.update(True)
         self.addCleanup(_RmsReachability.update, True)
 
+    def warnings_logged(self):
+        """Return the warning lines produced, with their arguments filled in."""
+        return [call.args[0] % call.args[1:]
+                for call in rms_service.oradio_log.warning.call_args_list]
+
     def write_log(self, name, content):
         """Create a log file and return its path."""
         path = self.logs / name
@@ -221,6 +221,52 @@ class TestCollectLogFiles(RmsTestCase):
         self.assertLessEqual(MAX_UPLOAD_FILE_BYTES, 5 * 1024 * 1024)
         self.assertLessEqual(MAX_UPLOAD_FILES, 20)
         self.assertLessEqual(MAX_UPLOAD_FILE_BYTES, MAX_UPLOAD_TOTAL_BYTES)
+
+    def test_files_left_out_for_want_of_budget_are_named(self):
+        """
+        A log that does not fit must say so.
+
+        Without this line an omitted log is indistinguishable from a lost
+        one, which is exactly the wrong impression to leave in a record
+        somebody is reading to diagnose a fault.
+        """
+        with patch.object(rms_service, "MAX_UPLOAD_FILE_BYTES", 1000), \
+             patch.object(rms_service, "MAX_UPLOAD_TOTAL_BYTES", 1500):
+            for index, name in enumerate(("new.log", "middle.log", "old.log")):
+                path = self.write_log(name, b"x" * 1000)
+                os.utime(path, (3000 - index, 3000 - index))
+
+            _collect_log_files()
+
+        omission = [line for line in self.warnings_logged() if "Not attaching" in line]
+
+        self.assertEqual(len(omission), 1, "the omission is reported once, not per file")
+        self.assertIn("old.log", omission[0], "the omitted file must be named")
+        self.assertIn("upload budget spent", omission[0], "the reason must be given")
+        self.assertNotIn("new.log", omission[0], "an attached file is not an omission")
+
+    def test_files_left_out_by_the_file_limit_say_so(self):
+        """The count running out is reported differently from the budget running out."""
+        with patch.object(rms_service, "MAX_UPLOAD_FILES", 2):
+            for index in range(4):
+                self.write_log(f"log{index}.log", b"small\n")
+
+            _collect_log_files()
+
+        omission = [line for line in self.warnings_logged() if "Not attaching" in line]
+
+        self.assertEqual(len(omission), 1)
+        self.assertIn("limit of 2 files reached", omission[0])
+        self.assertIn("2 older file(s)", omission[0])
+
+    def test_nothing_is_reported_when_everything_fits(self):
+        """The normal case stays quiet."""
+        self.write_log("oradio.log", b"small\n")
+        self.write_log("oradio.log.1", b"small\n")
+
+        _collect_log_files()
+
+        self.assertEqual([line for line in self.warnings_logged() if "Not attaching" in line], [])
 
     def test_no_more_files_are_attached_than_the_server_will_take(self):
         """Many small logs are cut off at MAX_UPLOAD_FILES, not at the byte budget."""
