@@ -117,13 +117,22 @@ POST_TIMEOUT    = 30  # Per-attempt read timeout in seconds. Generous because RM
 
 ##### Log file attachment limits ##########################
 # Ceilings on what an INCIDENT attaches, so a runaway log cannot turn one incident into a
-# multi-hundred-MB upload. Both must stay at or below what the server accepts, or the upload
-# is transferred and then discarded: FileHelper::MAX_FILE_BYTES (5 MB) per file.
-# Note: Strato PHP's own upload_max_filesize and post_max_size (128 MB / 128 MB) are not limiting.
-# Under the standard logrotate policy (250k, rotate 1) real logs sit far below these, so the
-# limits only bite when something is filling a log fast -- which is when an incident is raised.
-MAX_UPLOAD_FILE_BYTES  =  2 * 1024 * 1024   # Per attached file
+# multi-hundred-MB upload.
+# The per-file cap sits under the server's own FileHelper::MAX_FILE_BYTES (5 MB), above which
+# an upload is transferred and then discarded. It is set lower than that ceiling on purpose:
+# Strato PHP's upload_max_filesize and post_max_size (128 MB / 128 MB) are not limiting, so
+# what binds is the device's own uplink. The fleet includes rural connections, where every
+# attached megabyte is real time spent, and a POST that stalls long enough on a single send
+# still runs into POST_TIMEOUT.
+# The total has no counterpart on the server and is a client-side choice: two full-size files,
+# enough for a runaway log and the generation it just rotated into.
+# The count matches PHP's max_file_uploads (20): a request carrying more than that has its
+# extra files ignored server-side, so they would cost upload time and arrive nowhere.
+# Under the standard logrotate policy (250k, rotate 1) real logs sit far below all three, so
+# the limits only bite when something is filling a log fast -- which is when an incident is raised.
+MAX_UPLOAD_FILE_BYTES  =  3 * 1024 * 1024   # Per attached file; under FileHelper::MAX_FILE_BYTES
 MAX_UPLOAD_TOTAL_BYTES =  6 * 1024 * 1024   # All attachments in one POST
+MAX_UPLOAD_FILES       = 20                 # Attachments in one POST; matches PHP max_file_uploads
 COPY_CHUNK_BYTES       = 64 * 1024          # Read granularity while streaming
 
 # Written into an attachment that could not be read in full, in place of the bytes that are missing.
@@ -430,10 +439,11 @@ def _collect_log_files(only_bases: set[str] | None = None) -> list[tuple[Path, i
     are considered; anything else in the directory is ignored.
 
     Files are considered newest first, so the log that was being written
-    when the incident happened gets the budget before older rotations do.
-    A file larger than what is left of the budget is attached as its tail:
-    the end of a log is where the failure is, and truncating is better than
-    dropping the file or sending the whole thing.
+    when the incident happened gets the budget before older rotations do,
+    and is the last to be cut off by the file count limit. A file larger
+    than what is left of the budget is attached as its tail: the end of a
+    log is where the failure is, and truncating is better than dropping the
+    file or sending the whole thing.
 
     Nothing is read here -- only sizes are inspected -- so this stays cheap
     even when a log has grown to hundreds of megabytes.
@@ -477,7 +487,7 @@ def _collect_log_files(only_bases: set[str] | None = None) -> list[tuple[Path, i
     budget = MAX_UPLOAD_TOTAL_BYTES
 
     for _, size, path in candidates:
-        if budget <= 0:
+        if budget <= 0 or len(selected) >= MAX_UPLOAD_FILES:
             break
 
         if UNSAFE_NAME_CHARS.search(path.name):
