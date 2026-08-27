@@ -814,28 +814,31 @@ if __name__ == '__main__':
         """
         Run an interactive self-test menu for the WiFi service.
 
-        Loops until the user selects quit (0). Covers every name in __all__: start/stop, connecting, disconnecting,
-        AP mode, direct NetworkManager profile management, and the saved-network and stored-password lookups. One
-        option per entry in __all__, so a name added there without an option here shows up as a gap. Use the
-        wifi_listener menu to exercise the listener on its own, including scanning: no option here requests a scan,
-        since the startup burst is the service's own business and runs on start().
+        Loops until the user selects quit (0). Every name in __all__ is reachable from at least one option:
+        start/stop and the WifiService methods (1, 2, 7-11), direct NetworkManager profile management (3-5), the
+        network list (6), and the saved-network, availability and stored-password lookups (12-14). A name added to
+        __all__ without an option here shows up as a gap. Use the wifi_listener menu to exercise the listener on
+        its own, including scanning: no option here requests a scan, since the startup burst is the service's own
+        business and runs on start().
+
+        The listener is called the WiFi event listener throughout, matching the rest of the module.
         """
         input_selection = (
             "Select a function, input the number:\n"
             " 0-Quit\n"
-            " 1-Start WiFi monitor\n"
-            " 2-Stop WiFi monitor\n"
-            " 3-list wifi networks in NetworkManager\n"
-            " 4-add network to NetworkManager\n"
-            " 5-remove network from NetworkManager\n"
-            " 6-list on air wifi networks\n"
+            " 1-Start WiFi service (event listener + startup scan burst)\n"
+            " 2-Stop WiFi service (listener down, network list discarded)\n"
+            " 3-list saved wifi profiles in NetworkManager\n"
+            " 4-add or update a wifi profile in NetworkManager\n"
+            " 5-remove a wifi profile from NetworkManager\n"
+            " 6-show the listener's network list (cached, not a live scan)\n"
             " 7-get wifi state and connection\n"
             " 8-connect to wifi network\n"
-            " 9-start access point\n"
+            " 9-start access point (blocks until up or failed)\n"
             " 10-disconnect from network\n"
-            " 11-show WiFi event listener thread status\n"
+            " 11-show WiFi event listener status\n"
             " 12-show whether NetworkManager is available\n"
-            " 13-show saved (last connected) network\n"
+            " 13-show remembered network (displaced by the last connect)\n"
             " 14-show stored password for a network\n"
             "Select: "
         )
@@ -856,27 +859,32 @@ if __name__ == '__main__':
                     # later, with nothing on screen to connect it to this key press. At a prompt, where NM is either
                     # up or not coming, saying so at once is more use.
                     if not nm_available():
-                        print(f"\n{RED}NetworkManager is not running; WiFi monitor not started{NC}\n")
+                        print(f"\n{RED}NetworkManager is not running; WiFi service not started{NC}\n")
                     else:
-                        print("\nStarting WiFi monitor...\n")
+                        print("\nStarting WiFi service...\n")
                         wifi_service.start()
                 case 2:
-                    print("\nStopping WiFi monitor...\n")
+                    # stop() clears list_building and list_ready, so the next start rebuilds the list from
+                    # scratch. Said here because the burst takes AP_SCAN_SWEEPS sweeps and is otherwise a
+                    # surprise on the next press of 1.
+                    print("\nStopping WiFi service; the network list will be rebuilt on the next start\n")
                     wifi_service.stop()
                 case 3:
-                    print(f"\nNetworkManager wifi connections: {networkmanager_list()}\n")
+                    print(f"\nWifi profiles saved in NetworkManager: {networkmanager_list()}\n")
                 case 4:
-                    name = input("Enter SSID of the network to add: ")
-                    pswrd = input("Enter password for the network to add (empty for open network): ")
+                    name = input("Enter SSID of the profile to add or update: ")
+                    pswrd = input("Enter password for the profile (empty for open network): ")
                     if name:
+                        # networkmanager_add() creates a profile or modifies an existing one, and reports True for
+                        # the access point profile when it is already there, so the wording covers all three.
                         if networkmanager_add(name, pswrd):
-                            print(f"\n{GREEN}'{name}' added to NetworkManager{NC}\n")
+                            print(f"\n{GREEN}'{name}' added to or updated in NetworkManager{NC}\n")
                         else:
-                            print(f"\n{RED}Failed to add '{name}' to NetworkManager{NC}\n")
+                            print(f"\n{RED}Failed to add or update '{name}' in NetworkManager{NC}\n")
                     else:
                         print(f"\n{YELLOW}No network given{NC}\n")
                 case 5:
-                    name = input("Enter network to remove from NetworkManager: ")
+                    name = input("Enter SSID of the profile to remove from NetworkManager: ")
                     if name:
                         if networkmanager_del(name):
                             print(f"\n{GREEN}'{name}' deleted from NetworkManager{NC}\n")
@@ -886,14 +894,17 @@ if __name__ == '__main__':
                         print(f"\n{YELLOW}No network given{NC}\n")
                 case 6:
                     # None and [] mean different things (see get_wifi_networks): no maintained list, versus a list
-                    # that is genuinely empty.
+                    # that is genuinely empty. None has two causes -- no listener thread, or a listener whose
+                    # NetworkManager subscription is down after an NM restart -- so this does not name one of them.
                     networks = get_wifi_networks()
                     if networks is None:
-                        print(f"\n{RED}WiFi monitor is not running; no network list available{NC}\n")
+                        print(f"\n{RED}No network list available; see option 11 for why{NC}\n")
                     elif not networks:
-                        print(f"\n{YELLOW}No networks in range{NC}\n")
+                        print(f"\n{YELLOW}The listener's network list is empty{NC}\n")
                     else:
-                        print(f"\nActive wifi networks: {networks}\n")
+                        # Entries live for AP_ENTRY_TTL and strengths date from the last keeper sweep, so this is
+                        # what the listener has heard, not what is on air at this instant.
+                        print(f"\nNetworks heard by the listener: {networks}\n")
                 case 7:
                     wifi_state = wifi_service.get_state()
                     if wifi_state == WIFI_DISCONNECTED:
@@ -909,24 +920,35 @@ if __name__ == '__main__':
                     else:
                         print(f"\n{YELLOW}No network given{NC}\n")
                 case 9:
-                    # Blocking, unlike the other connect options: this is the path web_service takes, where the
-                    # caller gets a verdict rather than a timing constant of its own.
-                    wifi_service.wifi_connect(ACCESS_POINT_SSID, None)
-                    print(f"\nStarting access point '{ACCESS_POINT_SSID}'...\n")
-                    if wifi_service.await_access_point():
-                        print(f"\n{GREEN}Access point '{ACCESS_POINT_SSID}' is up{NC}\n")
+                    # Refused rather than attempted when the listener is down: wifi_connect() would wait out
+                    # AP_LIST_READY_TIMEOUT for a list nothing is building, and at a prompt that is half a minute
+                    # of silence before an access point that comes up anyway. Same reasoning as option 1.
+                    if not wifi_service.nm_listener.is_alive():
+                        print(f"\n{RED}WiFi event listener is not running; start it first (option 1){NC}\n")
                     else:
-                        print(f"\n{RED}Access point '{ACCESS_POINT_SSID}' failed to start{NC}\n")
+                        # Blocking, unlike the other connect options: this is the path web_service takes, where the
+                        # caller gets a verdict rather than a timing constant of its own.
+                        wifi_service.wifi_connect(ACCESS_POINT_SSID, None)
+                        print(f"\nStarting access point '{ACCESS_POINT_SSID}'...\n")
+                        if wifi_service.await_access_point():
+                            print(f"\n{GREEN}Access point '{ACCESS_POINT_SSID}' is up{NC}\n")
+                        else:
+                            print(f"\n{RED}Access point '{ACCESS_POINT_SSID}' failed to start{NC}\n")
                 case 10:
                     print("\nDisconnecting. Check messages for result\n")
                     wifi_service.wifi_disconnect()
                 case 11:
+                    # nm_connected distinguishes a healthy listener from one still subscribed to object paths an
+                    # NM restart invalidated, which is the other reason option 6 reports no list. list_building
+                    # and list_ready are what decide whether a start sweeps or reattaches.
                     listener = wifi_service.nm_listener
                     print(
                         f"\nis_alive={listener.is_alive()}, "
                         f"crashed={listener.crashed}, "
                         f"exception={listener.exception}, "
-                        f"nm_connected={listener.nm_connected}\n"
+                        f"nm_connected={listener.nm_connected}, "
+                        f"list_building={listener.list_building.is_set()}, "
+                        f"list_ready={listener.list_ready.is_set()}\n"
                     )
                 case 12:
                     if nm_available():
@@ -934,8 +956,13 @@ if __name__ == '__main__':
                     else:
                         print(f"\n{RED}NetworkManager is not available{NC}\n")
                 case 13:
+                    # Written only when wifi_connect() displaces a live non-AP connection, so it stays empty while
+                    # you are still on the first network you connected to.
                     saved = get_saved_network()
-                    print(f"\nSaved network: '{saved}'\n" if saved else f"\n{YELLOW}No network saved{NC}\n")
+                    print(
+                        f"\nRemembered network: '{saved}'\n" if saved
+                        else f"\n{YELLOW}No network remembered; no connect has displaced one yet{NC}\n"
+                    )
                 case 14:
                     name = input("Enter SSID of the network to look up: ")
                     if name:
