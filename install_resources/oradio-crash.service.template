@@ -1,8 +1,8 @@
 # Placeholders will be modified by ../oradio_install.sh script
 #
-# Installed as /etc/systemd/system/oradio-crash-action.service
+# Installed as /etc/systemd/system/oradio-crash.service
 #
-# Pulled in by 'OnFailure=oradio-crash-action.service' in oradio.service, which
+# Pulled in by 'OnFailure=oradio-crash.service' in oradio.service, which
 # fires when oradio.service enters the FAILED state, i.e. when the python script
 # died abnormally. A regular stop or reboot does not trigger it.
 # Do NOT 'systemctl enable' this unit: it has no [Install] section on purpose,
@@ -21,9 +21,9 @@ Type=oneshot
 UMask=0002
 
 # Redirect stdout (fd 1) and stderr (fd 2) to the log file.
-# Note this takes the output *out* of the journal: journalctl -u oradio-crash-action will be empty.
-StandardOutput=append:PLACEHOLDER_LOGFILE_CRASHACTION
-StandardError=append:PLACEHOLDER_LOGFILE_CRASHACTION
+# Note this takes the output *out* of the journal: journalctl -u oradio-crash will be empty.
+StandardOutput=append:PLACEHOLDER_LOGFILE_CRASH
+StandardError=append:PLACEHOLDER_LOGFILE_CRASH
 
 # The traceback logfile is still on disk and untouched at this point; it is
 # only cleared by the next start of oradio.service, so the script can read or
@@ -31,8 +31,8 @@ StandardError=append:PLACEHOLDER_LOGFILE_CRASHACTION
 
 # Runs as its own job, outside oradio.service's stop transition, so calling
 # systemctl from the script cannot deadlock.
-ExecStart=/usr/local/sbin/oradio-crash-action.sh
+ExecStart=/usr/local/sbin/oradio-crash.sh
 
 # Give the script enough time to execute: at least enough for post to rms.
-# Check oradio-crash-action.sh for worst case time needed to execute to completion.
+# Check oradio-crash.sh for worst case time needed to execute to completion.
 TimeoutStartSec=500
