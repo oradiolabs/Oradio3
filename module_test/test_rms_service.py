@@ -117,7 +117,10 @@ class RmsTestCase(unittest.TestCase):
         # produce are noise rather than signal. Patched here so a real
         # failure still stands out in the test output.
         log_patcher = patch.object(rms_service, "oradio_log")
-        log_patcher.start()
+        # The mock itself, not rms_service.oradio_log: reading the patched
+        # attribute back off the module asks static analysis to know about a
+        # substitution made at runtime, which it cannot.
+        self.log = log_patcher.start()
         self.addCleanup(log_patcher.stop)
 
         # Keep RMS_POST_FAILED off the real incident bus
@@ -131,7 +134,7 @@ class RmsTestCase(unittest.TestCase):
     def warnings_logged(self):
         """Return the warning lines produced, with their arguments filled in."""
         return [call.args[0] % call.args[1:]
-                for call in rms_service.oradio_log.warning.call_args_list]
+                for call in self.log.warning.call_args_list]
 
     def write_log(self, name, content):
         """Create a log file and return its path."""
@@ -555,7 +558,7 @@ class TestPostWithRetry(RmsTestCase):
         self.assertEqual(post_mock.call_count, 1, "the same request earns the same redirect")
         self.assertTrue(_RmsReachability.is_reachable(), "the server did answer")
 
-        logged = " ".join(str(call) for call in rms_service.oradio_log.error.call_args_list)
+        logged = " ".join(str(call) for call in self.log.error.call_args_list)
         self.assertIn("https://rms.example/v1/records", logged, "log where it points")
 
     def test_captive_portal_answering_with_200_is_not_delivery(self):
@@ -594,7 +597,7 @@ class TestPostWithRetry(RmsTestCase):
         self.assertIsNone(result)
         self.assertEqual(post_mock.call_count, MAX_RETRIES)
 
-        logged = " ".join(str(call) for call in rms_service.oradio_log.error.call_args_list)
+        logged = " ".join(str(call) for call in self.log.error.call_args_list)
         self.assertIn("quota exceeded", logged, "say what RMS objected to")
 
     def test_rms_envelope_is_accepted(self):
