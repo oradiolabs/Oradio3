@@ -20,8 +20,10 @@ Created on February 8, 2025
     Provides communication with the Remote Monitoring Service (RMS).
 
     When WiFi connectivity becomes available, a periodic heartbeat is
-    started and a one-time SYS_INFO message containing hardware and
-    software information is sent. The heartbeat stops when WiFi is lost.
+    started and a SYS_INFO message containing hardware and software
+    information is sent. The heartbeat stops when WiFi is lost. Both repeat
+    at most once per PERIODIC_SEND_COOLDOWN, so a link that keeps
+    reconnecting does not keep re-sending what it already reported.
 
     Any other service in the application (e.g. incident_service) can also
     use RMService.send_message(INCIDENT, incident) to report an
@@ -40,26 +42,38 @@ Created on February 8, 2025
     multipart body of a size fixed before the send starts, so memory use
     stays flat (tens of kB) no matter how large the logs have grown, and a
     log still being written while it is uploaded cannot corrupt the
-    request. What is attached is bounded per file and in total, and a log
-    that outgrew the per-file limit is sent as its tail rather than in
-    full. If logrotate rotates a log out from under a send, the POST still
-    completes cleanly and the logs are then sent a second time, from the
-    rotated files, so the server ends up with the complete content.
+    request. The application's own log is attached first, and what follows
+    it is bounded per file, in total and in count; a log too large for its
+    share is sent as its tail, and files that do not fit at all are named
+    in the log. Every incident is reported, but the logs ride along at most
+    once per LOG_UPLOAD_COOLDOWN, so a fault that repeats does not keep the
+    uplink busy re-sending them. If logrotate rotates a log out from under
+    a send, the POST still completes cleanly and that log is sent again
+    from its rotated generation, marked resend.
 
     Helper functions collect Raspberry Pi telemetry and software version
     information. Outgoing POST requests are protected by a simple
     exponential backoff retry mechanism. A failing POST marks the server
     unreachable, after which each message makes a single probe attempt and
-    logs one line until a POST succeeds or WiFi connects.
+    logs one line until a POST succeeds or WiFi connects. Redirects are
+    refused rather than followed, since a redirected POST arrives without
+    its body, and a success is only accepted when the reply is RMS's own,
+    so a captive portal answering in its place is not read as delivery.
+
+    A heartbeat response may carry a command for the device, which is run
+    by a thread of its own under a time limit, so it cannot hold up the
+    messages behind it.
 """
+import os
 import re
 import json
 import uuid
+import signal
 import subprocess
-from time import sleep
+from time import sleep, monotonic
 from pathlib import Path
 from collections.abc import Callable
-from threading import Timer, Event
+from threading import Timer, Event, Thread, Lock as ThreadLock
 from datetime import datetime
 from dataclasses import dataclass
 from platform import python_version
@@ -156,9 +170,37 @@ ROTATION_SETTLE_DELAY = 2
 # what lets any oversized file be sent as its tail: part of a text log is readable, part of a .gz is not.
 ALLOWED_LOG_PATTERN = re.compile(r'\.log(\.\d+)?$')
 
+# The log the application itself writes, and so the one holding the lines that explain an
+# incident. It is offered the upload budget before anything else in the directory, and its
+# current generation before its rotated ones, so a crowded log directory can cost the older
+# and less relevant files their place but never this one.
+ESSENTIAL_LOG_BASE = "oradio"
+
 # Rejects a filename that cannot be placed in a MIME header as-is. Log names never contain these;
 # a stray file in the log directory might.
 UNSAFE_NAME_CHARS = re.compile(r'[\x00-\x1f"\\\x7f]')
+
+##### Send rate limits ####################################
+# Minimum seconds between two sends of the same periodic message type. WiFi that flaps
+# reconnects repeatedly, and every reconnect fires a heartbeat and a system info message
+# that report exactly what the one before them reported. Well under HEARTBEAT_REPEAT, so
+# the hourly heartbeat is never the one suppressed.
+PERIODIC_SEND_COOLDOWN = 5 * 60
+
+# Minimum seconds between two uploads of the log files. A fault that repeats can raise an
+# incident every few seconds, and each one would otherwise attach up to
+# MAX_UPLOAD_TOTAL_BYTES, keeping a slow uplink busy indefinitely. Every incident is still
+# reported; only its logs wait, and the copy already sent covers the same fault anyway.
+LOG_UPLOAD_COOLDOWN = 15 * 60
+
+##### Remote command execution ############################
+# Seconds a command from RMS may run before it is stopped. Long enough for an update or a
+# package install, short enough that a command which will never finish does not sit on the
+# device until the next reboot.
+REMOTE_COMMAND_TIMEOUT = 5 * 60
+
+# Seconds between asking the command's process group to stop and killing it outright.
+REMOTE_COMMAND_GRACE = 5
 
 ##### Send queue ##########################################
 # Depth of the queue between send_message() and the sender thread. Deep enough to absorb a burst
@@ -345,6 +387,88 @@ def _extract_command(response: Response) -> str | None:
 
     return command or None
 
+def _run_remote_command(command: str) -> None:
+    """
+    Run one command from RMS and log what it did.
+
+    Runs on a thread of its own, so a command that takes minutes -- or never
+    finishes -- cannot hold up the sender thread and with it every message
+    behind this one.
+
+    The command gets its own process session, which is what makes the time
+    limit real: subprocess's own timeout kills the shell and leaves whatever
+    that shell started running unattended. The whole process group is
+    signalled instead, SIGTERM first so a script can tidy up, then SIGKILL
+    for anything still there.
+
+    Args:
+        command: Shell command as received from the RMS server.
+    """
+    oradio_log.debug("Run command '%s' from RMS server", command)
+
+    try:
+        with subprocess.Popen(
+            command,
+            shell=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            # executable must be set explicitly; without it Python falls
+            # back to /bin/sh which may lack bash-specific features.
+            executable="/usr/bin/bash",
+            # text=True decodes stdout/stderr to str for readable logging.
+            text=True,
+            # Its own session, so the process group can be signalled as a whole
+            start_new_session=True,
+        ) as process:
+            try:
+                stdout, stderr = process.communicate(timeout=REMOTE_COMMAND_TIMEOUT)
+            except subprocess.TimeoutExpired:
+                oradio_log.error(
+                    "Command '%s' from RMS server exceeded %d seconds; stopping it",
+                    command, REMOTE_COMMAND_TIMEOUT
+                )
+                stdout, stderr = _terminate_process_group(process)
+
+            if process.returncode == 0:
+                oradio_log.debug("shell script result:\n%s", stdout)
+            else:
+                oradio_log.error(
+                    "shell script '%s' exit code: %d\nOutput:\n%s\nError:\n%s",
+                    command, process.returncode, stdout, stderr
+                )
+    except OSError as ex_err:
+        # The shell itself could not be started: missing, not executable, or
+        # no memory to fork with.
+        oradio_log.error("Could not run command '%s' from RMS server: %s", command, ex_err)
+
+def _terminate_process_group(process: subprocess.Popen) -> tuple[str, str]:
+    """
+    Stop a timed-out command and everything it started.
+
+    Args:
+        process: The running command, started with start_new_session=True.
+
+    Returns:
+        tuple[str, str]: Whatever the command managed to write before it was
+        stopped, as (stdout, stderr).
+    """
+    for stop_signal in (signal.SIGTERM, signal.SIGKILL):
+        try:
+            os.killpg(os.getpgid(process.pid), stop_signal)
+        except (ProcessLookupError, PermissionError) as ex_err:
+            # Already gone, or not ours to signal; either way there is
+            # nothing further to do with it here.
+            oradio_log.debug("Could not signal command process group: %s", ex_err)
+            break
+
+        try:
+            return process.communicate(timeout=REMOTE_COMMAND_GRACE)
+        except subprocess.TimeoutExpired:
+            # Ignored SIGTERM, so round two is SIGKILL
+            continue
+
+    return "", ""
+
 def _handle_response_command(response: Response) -> None:
     """
     Execute a command returned by the RMS server, if there was one.
@@ -352,6 +476,11 @@ def _handle_response_command(response: Response) -> None:
     RMS clears a pending command as soon as it hands it out, so it is
     delivered exactly once: a command that is not run here is not offered
     again on the next heartbeat.
+
+    Handed to a thread rather than run here, because here is the sender
+    thread: every message to RMS goes through it, and a command that blocks
+    it stops all reporting for as long as it runs. Nothing waits on the
+    thread; its result reaches the log either way.
 
     Warning:
         Executing commands received from a remote system is inherently
@@ -363,27 +492,13 @@ def _handle_response_command(response: Response) -> None:
     """
     command = _extract_command(response)
 
-    if command is not None:
-        # Pass command to linux shell for execution
-        oradio_log.debug("Run command '%s' from RMS server", command)
-        try:
-            # executable must be set explicitly; without it Python falls
-            # back to /bin/sh which may lack bash-specific features.
-            # text=True decodes stdout/stderr to str for readable logging.
-            result = subprocess.run(
-                command,
-                shell=True,
-                capture_output=True,
-                check=True,
-                executable="/usr/bin/bash",
-                text=True,
-            )
-            oradio_log.debug("shell script result:\n%s", result.stdout)
-        except subprocess.CalledProcessError as ex_err:
-            oradio_log.error(
-                "shell script '%s' exit code: %d\nOutput:\n%s\nError:\n%s",
-                command, ex_err.returncode, ex_err.stdout, ex_err.stderr
-            )
+    if command is None:
+        return
+
+    # Daemon, so a command still running at shutdown does not keep the
+    # process alive. Commands arrive one per heartbeat at most, so no limit
+    # is placed on how many of these threads can exist.
+    Thread(target=_run_remote_command, args=(command,), name="RmsCommand", daemon=True).start()
 
 def _mark_reachable() -> None:
     """
@@ -433,6 +548,54 @@ def _log_base_name(file_name: str) -> str:
 
     return file_name[:match.start()] if match else file_name
 
+def _log_rotation_index(file_name: str) -> int:
+    """
+    Return which generation of its log a file is.
+
+    "oradio.log" is 0, "oradio.log.1" is 1, and so on, matching logrotate's
+    numbering where a higher number means older.
+
+    Args:
+        file_name: Name of a file matching ALLOWED_LOG_PATTERN.
+
+    Returns:
+        int: The rotation number, 0 for the current log.
+    """
+    match = ALLOWED_LOG_PATTERN.search(file_name)
+    suffix = match.group(1) if match else None
+
+    return int(suffix.lstrip(".")) if suffix else 0
+
+def _selection_order(candidate: tuple) -> tuple:
+    """
+    Rank one candidate file for the upload budget.
+
+    In order:
+      - the essential log first, whatever the timestamps say. Anything else
+        in the directory is another service's business; the lines that
+        explain the incident are here.
+      - then newest first, so recent material outranks old.
+      - then current generation before rotated. This decides the case
+        logrotate creates by copying a log aside and truncating it within
+        the same second: both files carry the same mtime, and the rotated
+        one is the larger of the two, so size alone would rank it first.
+      - then by name, so the result never depends on directory order.
+
+    Args:
+        candidate: (path, mtime, size) as gathered by _collect_log_files().
+
+    Returns:
+        tuple: Sort key, ascending.
+    """
+    path, mtime, _ = candidate
+
+    return (
+        0 if _log_base_name(path.name) == ESSENTIAL_LOG_BASE else 1,
+        -mtime,
+        _log_rotation_index(path.name),
+        path.name,
+    )
+
 def _collect_log_files(only_bases: set[str] | None = None) -> list[tuple[Path, int, int]]:
     """
     Choose which log files to attach, and which part of each one.
@@ -440,10 +603,11 @@ def _collect_log_files(only_bases: set[str] | None = None) -> list[tuple[Path, i
     Only "<name>.log" and its numbered rotations "<name>.log.1" and so on
     are considered; anything else in the directory is ignored.
 
-    Files are considered newest first, so the log that was being written
-    when the incident happened gets the budget before older rotations do,
-    and is the last to be cut off by the file count limit. A file larger
-    than what is left of the budget is attached as its tail: the end of a
+    Files are ranked by _selection_order(): the essential log first, then
+    newest first, so the log that explains the incident gets the budget
+    before anything else does, and is the last to be cut off by the file
+    count limit. A file larger than what is left of the budget is attached
+    as its tail: the end of a
     log is where the failure is, and truncating is better than dropping the
     file or sending the whole thing.
 
@@ -478,17 +642,17 @@ def _collect_log_files(only_bases: set[str] | None = None) -> list[tuple[Path, i
             except OSError:
                 continue
             if path.is_file() and stats.st_size > 0:
-                candidates.append((stats.st_mtime, stats.st_size, path))
+                candidates.append((path, stats.st_mtime, stats.st_size))
     except OSError as ex_err:
         oradio_log.error("Could not list log files in '%s': %s", ORADIO_LOG_PATH, ex_err)
         return []
 
-    candidates.sort(reverse=True)   # Newest first
+    candidates.sort(key=_selection_order)
 
     selected: list[tuple[Path, int, int]] = []
     budget = MAX_UPLOAD_TOTAL_BYTES
 
-    for index, (_, size, path) in enumerate(candidates):
+    for index, (path, _, size) in enumerate(candidates):
         if budget <= 0 or len(selected) >= MAX_UPLOAD_FILES:
             # Everything from here on is older than what was taken, so it is
             # left behind. Named rather than dropped quietly: a log that is
@@ -496,7 +660,7 @@ def _collect_log_files(only_bases: set[str] | None = None) -> list[tuple[Path, i
             # only place that can say it was a deliberate omission.
             reason = ("upload budget spent" if budget <= 0
                       else f"limit of {MAX_UPLOAD_FILES} files reached")
-            omitted = [candidate.name for _, _, candidate in candidates[index:]]
+            omitted = [candidate.name for candidate, _, _ in candidates[index:]]
 
             oradio_log.warning(
                 "Not attaching %d older file(s), %s: %s",
@@ -537,17 +701,15 @@ class _MultipartBody:
     the Content-Length that was announced, and the closing boundary is
     always reached, so the server sees a complete, parseable body.
 
-    Reading straight from the logs also means no copy of them exists
-    anywhere: file content passes through a COPY_CHUNK_BYTES buffer on its
-    way to the socket and is never accumulated, so memory use is flat and
-    independent of how large the logs have grown -- which is what the
-    files= argument of requests gets wrong, encoding the whole body in
-    memory (and then copying it).
+    Reading straight from the logs means no copy of them exists anywhere:
+    file content passes through a COPY_CHUNK_BYTES buffer on its way to the
+    socket and is never accumulated, so memory use is flat and independent
+    of how large the logs have grown.
 
-    requests recognises this as a stream and takes Content-Length from the
-    len attribute, the same way it does for requests_toolbelt's
-    MultipartEncoder, so the request is sent normally rather than with
-    chunked transfer encoding, which not every PHP setup accepts.
+    requests treats this as a stream, because it is iterable, and takes
+    Content-Length from the len attribute, so the request goes out with a
+    fixed length rather than in chunked transfer encoding, which not every
+    PHP setup accepts.
 
     Single use: once read, a new instance is needed to send again. Building
     one is cheap (no file is opened until it is read), so _post_with_retry()
@@ -763,13 +925,55 @@ def _build_multipart_body(
     return _MultipartBody(boundary, payload_info, attachments), \
         f"multipart/form-data; boundary={boundary}"
 
+def _rms_response_problem(response: Response) -> str | None:
+    """
+    Check that a successful status came from RMS and not from something else.
+
+    A 2xx only says something answered. A device that has joined a WiFi
+    network without getting past its captive portal, or one behind a
+    transparent proxy, gets a perfectly good 200 carrying a login page, and
+    treating that as a stored record loses the message with nothing logged.
+
+    RMS answers in Joomla's API envelope, so a body that is JSON with a
+    success flag set is the evidence that the record reached the component
+    rather than something in the way of it.
+
+    Args:
+        response: A response whose status code is below 300.
+
+    Returns:
+        str | None: None when the body is RMS's, otherwise a description of
+        what answered instead, for the retry log.
+    """
+    try:
+        body = response.json()
+    except ValueError:
+        return f"HTTP {response.status_code} carrying a non-JSON body: {response.text[:100]!r}"
+
+    if not isinstance(body, dict) or "success" not in body:
+        return f"HTTP {response.status_code} carrying an unrecognised JSON body"
+
+    if body["success"] is not True:
+        return f"HTTP {response.status_code} reporting success=false: {body.get('message')}"
+
+    return None
+
 def _attempt_post(data, headers: dict, context: str) -> tuple[Response | None, str | None]:
     """
     Make one POST attempt and classify the outcome.
 
-    Owns everything that means "the server answered": marking it reachable
-    and, for a 4xx, logging the rejection. The caller is left with the one
-    decision that is its own, namely whether to try again.
+    Owns everything that means "RMS answered": marking it reachable and,
+    for a 3xx or 4xx, logging why the request was refused. The caller is
+    left with the one decision that is its own, namely whether to try
+    again.
+
+    A 2xx is not taken at face value. It is checked against
+    _rms_response_problem() first, so a reply from something standing in
+    the way of RMS is not mistaken for a stored record.
+
+    Redirects are not followed. requests turns a redirected POST into a GET
+    without its body, so following one would deliver an empty request and
+    return the final status as though the record had been stored.
 
     Args:
         data:    Body to send: either the form fields or an open, rewound
@@ -783,20 +987,39 @@ def _attempt_post(data, headers: dict, context: str) -> tuple[Response | None, s
             (response, None) when the POST succeeded;
             (None, failure) when it failed in a way worth retrying, with
             failure describing why;
-            (None, None) when the server rejected the request, which is
-            final: retrying sends the identical request.
+            (None, None) when the server refused the request, by redirect
+            or by 4xx, which is final: retrying sends the identical
+            request.
     """
     try:
         response = post(
             url=RMS_SERVER_URL,
             headers=headers,
             data=data,
-            timeout=(CONNECT_TIMEOUT, POST_TIMEOUT)
+            timeout=(CONNECT_TIMEOUT, POST_TIMEOUT),
+            # requests turns a redirected POST into a GET and drops the body, so a
+            # redirect would deliver an empty request and hand back the final 200 as
+            # though the record had been stored. Followed, that is silent data loss;
+            # refused, it is a configuration fault that says so.
+            allow_redirects=False,
         )
     except (RequestException, Timeout, OSError) as ex_err:
         # Fall back to the class name: some requests exceptions carry
         # an empty message, which would log a failure with no reason
         return None, str(ex_err) or type(ex_err).__name__
+
+    if 300 <= response.status_code < 400:
+        # The server answered, so it is reachable, but RMS_SERVER_URL does not address
+        # it directly: an http-to-https upgrade, a www canonicalisation, or a missing
+        # trailing slash. Retrying repeats the same request for the same answer, so this
+        # is final, and the destination is logged to point at the fix.
+        oradio_log.error(
+            "POST %s redirected: HTTP %d to '%s'. RMS_SERVER_URL must address the endpoint "
+            "directly; a redirected POST arrives without its body.",
+            context, response.status_code, response.headers.get("Location", "<no Location>")
+        )
+        _mark_reachable()
+        return None, None
 
     if 400 <= response.status_code < 500:
         # The server answered, so it is reachable; the request itself is
@@ -815,6 +1038,14 @@ def _attempt_post(data, headers: dict, context: str) -> tuple[Response | None, s
         # failure and retried.
         return None, f"HTTP {response.status_code}"
 
+    problem = _rms_response_problem(response)
+
+    if problem is not None:
+        # Something answered in RMS's place. Retried and, once the attempts
+        # are spent, recorded as unreachable, which is what it is: whatever
+        # is in the way, the record did not arrive.
+        return None, problem
+
     _mark_reachable()
     return response, None
 
@@ -828,18 +1059,18 @@ def _post_attempts(
     """
     Deliver one message, retrying transport failures with backoff.
 
-    Failures are split the way the crash action script splits them, since
-    the two classes call for different responses:
+    Failures fall into two classes, which call for different responses:
 
-    - 4xx means the server answered and rejected this request. Retrying
-      sends the identical request and earns the identical rejection, so
-      there is no retry and the reachability state is left alone: 401 (key
-      rotated) and 413 (payload too large) are configuration faults, not an
-      outage. No incident is published either -- publishing one would POST
-      an incident that is rejected in turn, publishing another.
-    - 5xx and transport errors (DNS, TLS, timeout) may clear on their own,
-      so these retry with backoff and, once exhausted, clear the
-      reachability state and publish RMS_POST_FAILED.
+    - 3xx and 4xx mean the server answered and this request is the problem.
+      Retrying sends the identical request for the identical answer, so
+      there is no retry and the server counts as reachable: a redirect
+      (RMS_SERVER_URL not addressing the endpoint), 401 (key rotated) and
+      413 (payload too large) are configuration faults, not an outage. No
+      incident is published either -- publishing one would POST an incident
+      that is rejected in turn, publishing another.
+    - 5xx, transport errors (DNS, TLS, timeout) and a 2xx that did not come
+      from RMS may clear on their own, so these retry with backoff and, once
+      exhausted, clear the reachability state and publish RMS_POST_FAILED.
 
     Retries apply while _RmsReachability reports the server as reachable.
     Once it does not, each call makes a single probe attempt, so a dead
@@ -1137,10 +1368,9 @@ class _RmsSender(ThreadTemplate):
     Everything RMS sends goes through here, so no caller ever waits for the
     network: submit() returns as soon as the message is queued, and this
     thread does the telemetry collection, the log streaming, the POST and
-    its retries. Without it a single unreachable POST blocks its caller for
-    the whole retry cycle -- and its callers are the incident bus worker,
-    the WiFi message worker and the heartbeat timer, none of which can
-    afford to stall for a minute and a half.
+    its retries. Its callers are the incident bus worker, the WiFi message
+    worker and the heartbeat timer, and a POST that runs its full retry
+    cycle against an unreachable server takes about a minute and a half.
 
     One message is posted at a time, in submission order. That keeps the
     peak cost of RMS traffic to a single in-flight request and means the
@@ -1153,6 +1383,11 @@ class _RmsSender(ThreadTemplate):
     ThreadTemplate's stop event doubles as the abort signal handed to
     _post_with_retry(), so a retry cycle already under way gives up when
     the service stops instead of holding shutdown open.
+
+    Attributes:
+        _logs_sent_at: When the log files last went out, or None while they
+            never have. Held here because this thread is the only one that
+            reads or writes it, so it needs no lock.
     """
     def __init__(self, serial: str, is_wifi_connected: Callable[[], bool]) -> None:
         """
@@ -1177,6 +1412,10 @@ class _RmsSender(ThreadTemplate):
         # Identity comparison is enough for a queue that never crosses a
         # process boundary, so no unique-value sentinel is needed here.
         self._stop_sentinel = object()
+
+        # When the log files last went out, or None while they never have.
+        # Read and written on this thread only, so it needs no lock.
+        self._logs_sent_at: float | None = None
 
         super().__init__(interval=0, name=self.__class__.__name__)
 
@@ -1259,13 +1498,29 @@ class _RmsSender(ThreadTemplate):
         # warning on timeout, so no extra logging is needed here.
         self.safe_stop()
 
+    def _logs_are_due(self) -> bool:
+        """
+        Whether the log files may be attached to this incident.
+
+        Returns:
+            bool: True if they have never been sent, or not within
+            LOG_UPLOAD_COOLDOWN seconds.
+        """
+        return (self._logs_sent_at is None
+                or monotonic() - self._logs_sent_at >= LOG_UPLOAD_COOLDOWN)
+
     def _deliver(self, job: _SendJob) -> None:
         """
         Build the payload for one queued message and POST it.
 
-        This is the work that used to run on the caller's thread. The
-        telemetry helpers below shell out to vcgencmd, lsb_release and the
-        like, so they are called here rather than at submit time.
+        The telemetry helpers shell out to vcgencmd, lsb_release and the
+        like, so they run here, on this thread, and not at submit time.
+
+        A message queued while WiFi was up is dropped if the link has gone
+        since. An INCIDENT is always posted, but carries the log files only
+        when _logs_are_due() allows it, and says so in the message when it
+        does not. Only a HEARTBEAT response is examined for a pending
+        command; RMS attaches one to no other message type.
 
         Args:
             job: The message to send.
@@ -1309,11 +1564,34 @@ class _RmsSender(ThreadTemplate):
 
             payload_info['source']  = job.incident.source
             payload_info['message'] = job.incident.message
+
+            # A fault that repeats raises an incident each time, and every one
+            # of them would attach the same logs again, keeping a slow uplink
+            # busy for as long as the fault lasts. The incident is always
+            # reported; the logs ride along once per cooldown, since the copy
+            # already sent covers the same fault.
+            attach = self._logs_are_due()
+
+            if not attach:
+                # Recorded in the message, so a record without files is not
+                # mistaken for an upload that failed
+                payload_info['logs'] = 'skipped'
+                oradio_log.debug(
+                    "Logs already sent within the last %ds; reporting incident without them",
+                    LOG_UPLOAD_COOLDOWN
+                )
+
             # RMS attaches a command to heartbeats only, so the response
             # here is unused
             _post_with_retry(
-                payload_info, attach_log_files=True, context="incident", abort=self._stop_event
+                payload_info, attach_log_files=attach, context="incident", abort=self._stop_event
             )
+
+            if attach:
+                # Stamped after the POST, so the cooldown runs from when the
+                # upload finished rather than when it started
+                self._logs_sent_at = monotonic()
+
             return
 
         else:
@@ -1350,9 +1628,9 @@ class WifiMessageHandler(MessageHandlerTemplate):
 
     None of them is posted here. This handler owns an _RmsSender and only
     queues messages onto it, so neither the WiFi worker thread nor any
-    caller of send_message() waits for the network: a WIFI_CONNECTED event
-    is processed in microseconds rather than held for the length of a
-    SYS_INFO POST.
+    caller of send_message() waits for the network. Repeats of the periodic
+    types inside PERIODIC_SEND_COOLDOWN are dropped rather than queued, so
+    a link that keeps reconnecting does not keep re-sending them.
     """
     def __init__(self, queue: Queue) -> None:
         """
@@ -1371,6 +1649,12 @@ class WifiMessageHandler(MessageHandlerTemplate):
         # _handle_message() below. Starts False since no WIFI_* message
         # has been processed yet at construction time.
         self._wifi_connected = False
+
+        # When each periodic message type was last queued. send_message() is
+        # called from the WiFi worker, the heartbeat timer and any service
+        # reporting an incident, so the map needs its own lock.
+        self._last_queued: dict[str, float] = {}
+        self._cooldown_lock = ThreadLock()
 
         # Posts run here instead of on whichever thread called
         # send_message(). Started before the base class starts its own
@@ -1428,20 +1712,20 @@ class WifiMessageHandler(MessageHandlerTemplate):
         the sender thread, so this call does not wait for the network. A
         message that cannot be queued is dropped, never blocked on.
 
-        HEARTBEAT and SYS_INFO carry runtime/hardware telemetry. INCIDENT
-        reports an IncidentMessage from another service, attaching the
-        current log files for context. Note that those are the logs as they
-        are when the sender gets to the message, which for a queued message
-        is not exactly the moment the incident was raised.
+        HEARTBEAT and SYS_INFO carry runtime/hardware telemetry, and repeat
+        at most once per PERIODIC_SEND_COOLDOWN: a link that reconnects
+        repeatedly would otherwise re-send both on every reconnect. INCIDENT
+        reports an IncidentMessage from another service and is never rate
+        limited here; the log files attached to it are, by the sender.
 
-        Only a HEARTBEAT response is inspected for a pending command: that
-        is the one message type RMS attaches one to, so parsing any other
-        response for it would never find anything.
+        The logs an INCIDENT carries are the logs as they are when the
+        sender reaches the message, which for a queued message is not
+        exactly the moment the incident was raised.
 
         Only queued while WiFi is currently known to be connected; if not,
-        nothing is sent and a debug line is logged instead, since attempting
-        a POST with no network would just burn through the full retry/backoff
-        cycle before failing anyway.
+        nothing is sent and a debug line is logged instead, since a POST
+        with no network would burn through the full retry and backoff cycle
+        before failing anyway.
 
         Args:
             msg_type: HEARTBEAT, SYS_INFO, or INCIDENT.
@@ -1460,6 +1744,9 @@ class WifiMessageHandler(MessageHandlerTemplate):
             oradio_log.debug("WiFi not available; not sending %s message", msg_type)
             return
 
+        if not self._periodic_send_is_due(msg_type):
+            return
+
         # Timestamped here rather than at POST time, so the message reports
         # when its event happened and not when the sender got to it.
         self._sender.submit(
@@ -1469,6 +1756,45 @@ class WifiMessageHandler(MessageHandlerTemplate):
                 incident=incident,
             )
         )
+
+    def _periodic_send_is_due(self, msg_type: str) -> bool:
+        """
+        Whether a periodic message may be queued, or falls inside its cooldown.
+
+        WiFi that flaps reconnects repeatedly, and each reconnect starts the
+        heartbeat -- which fires one immediately -- and sends system info.
+        Neither reports anything the one before it did not, so past the first
+        in PERIODIC_SEND_COOLDOWN seconds they are dropped. The cooldown is
+        far shorter than HEARTBEAT_REPEAT, so the hourly heartbeat is never
+        the one suppressed.
+
+        INCIDENT is not rate limited here: every incident is reported. What
+        is held back is the log files attached to it, which the sender
+        decides for itself.
+
+        Args:
+            msg_type: HEARTBEAT, SYS_INFO, or INCIDENT.
+
+        Returns:
+            bool: True if the message should be queued.
+        """
+        if msg_type == INCIDENT:
+            return True
+
+        now = monotonic()
+
+        with self._cooldown_lock:
+            last = self._last_queued.get(msg_type)
+
+            if last is not None and now - last < PERIODIC_SEND_COOLDOWN:
+                oradio_log.debug(
+                    "%s message sent %.0fs ago; skipping this one", msg_type, now - last
+                )
+                return False
+
+            self._last_queued[msg_type] = now
+
+        return True
 
     def stop(self) -> None:
         """

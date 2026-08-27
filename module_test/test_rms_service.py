@@ -29,10 +29,13 @@ import unittest
 from pathlib import Path
 from typing import ClassVar
 from tempfile import TemporaryDirectory
-from threading import Event
+from threading import Event, Lock as ThreadLock
 from unittest.mock import patch, MagicMock
 
+from requests import Response
+
 import rms_service
+from messaging import LED_SOURCE
 from rms_service import (
     HEARTBEAT,
     SYS_INFO,
@@ -42,6 +45,9 @@ from rms_service import (
     MAX_UPLOAD_FILE_BYTES,
     MAX_UPLOAD_FILES,
     MAX_UPLOAD_TOTAL_BYTES,
+    ESSENTIAL_LOG_BASE,
+    PERIODIC_SEND_COOLDOWN,
+    REMOTE_COMMAND_TIMEOUT,
     SEND_QUEUE_SIZE,
     TRUNCATION_NOTE,
     _RmsReachability,
@@ -51,8 +57,11 @@ from rms_service import (
     _build_multipart_body,
     _collect_log_files,
     _get_temperature,
+    _handle_response_command,
     _log_base_name,
+    _log_rotation_index,
     _post_with_retry,
+    _selection_order,
 )
 
 UNSUPPORTED = "Unsupported platform"
@@ -66,13 +75,17 @@ DRAIN_MARKER = "__DRAIN_MARKER__"
 class FakeResponse:
     """Stands in for a requests.Response, carrying only what the code reads."""
 
-    def __init__(self, status_code=201, text='{"success":true}', body=None):
+    def __init__(self, status_code=201, text='{"success":true}', body=None, headers=None):
         self.status_code = status_code
         self.text = text
-        self._body = body if body is not None else {"success": True, "data": {}}
+        self.headers = headers or {}
+        # body=False means "not JSON at all", as a captive portal would answer
+        self._body = None if body is False else (body or {"success": True, "data": {}})
 
     def json(self):
-        """Return the decoded body."""
+        """Return the decoded body, or raise as requests does for non-JSON."""
+        if self._body is None:
+            raise ValueError("no JSON object could be decoded")
         return self._body
 
 
@@ -188,6 +201,43 @@ class TestCollectLogFiles(RmsTestCase):
 
         self.assertEqual(sorted(self.selected_names()),
                          ["oradio.log", "oradio.log.1", "oradio.log.12"])
+
+    def test_essential_log_outranks_a_newer_unrelated_log(self):
+        """
+        oradio.log holds the lines that explain the incident.
+
+        Another service writing a bigger, newer log into the same directory
+        must not take the budget ahead of it.
+        """
+        for name, age in (("spotify.log", 5000), ("oradio.log", 1000)):
+            os.utime(self.write_log(name, b"x" * 2000), (age, age))
+
+        self.assertEqual(self.selected_names()[0], "oradio.log")
+
+    def test_current_generation_outranks_its_rotation_on_an_mtime_tie(self):
+        """
+        logrotate copies a log aside and truncates it within the same second.
+
+        Both files then carry the same mtime and the rotated one is the
+        larger, so any size-based tie-break would rank it first.
+        """
+        os.utime(self.write_log("oradio.log.1", b"x" * 9000), (7000, 7000))
+        os.utime(self.write_log("oradio.log", b"x" * 100), (7000, 7000))
+
+        self.assertEqual(self.selected_names()[0], "oradio.log")
+
+    def test_rotation_index_orders_the_generations(self):
+        """Current is 0, and higher means older, as logrotate numbers them."""
+        self.assertEqual(_log_rotation_index("oradio.log"), 0)
+        self.assertEqual(_log_rotation_index("oradio.log.1"), 1)
+        self.assertEqual(_log_rotation_index("oradio.log.12"), 12)
+
+    def test_selection_order_puts_the_essential_log_in_the_first_rank(self):
+        """The first key decides on base name alone, before any timestamp."""
+        essential = _selection_order((Path(f"{ESSENTIAL_LOG_BASE}.log"), 0, 0))
+        other = _selection_order((Path("other.log"), 9_999_999_999, 0))
+
+        self.assertLess(essential[0], other[0])
 
     def test_empty_files_and_missing_directory_yield_nothing(self):
         """A zero-length log has nothing to say and is left out."""
@@ -481,6 +531,83 @@ class TestPostWithRetry(RmsTestCase):
         self.assertIsNone(result)
         post_mock.assert_not_called()
 
+    def test_redirects_are_not_followed(self):
+        """
+        A redirected POST arrives without its body, so it must not be followed.
+
+        requests converts a redirected POST into a GET and drops the body,
+        then reports the final 200 -- which would look like a stored record.
+        """
+        with patch.object(rms_service, "post", return_value=FakeResponse()) as post_mock:
+            _post_with_retry(self.PAYLOAD)
+
+        self.assertFalse(post_mock.call_args.kwargs["allow_redirects"])
+
+    def test_redirect_is_reported_as_a_failure_and_not_retried(self):
+        """A redirect is a URL misconfiguration: final, and worth saying out loud."""
+        redirect = FakeResponse(status_code=301,
+                                headers={"Location": "https://rms.example/v1/records"})
+
+        with patch.object(rms_service, "post", return_value=redirect) as post_mock:
+            result = _post_with_retry(self.PAYLOAD)
+
+        self.assertIsNone(result, "a redirect must not read as success")
+        self.assertEqual(post_mock.call_count, 1, "the same request earns the same redirect")
+        self.assertTrue(_RmsReachability.is_reachable(), "the server did answer")
+
+        logged = " ".join(str(call) for call in rms_service.oradio_log.error.call_args_list)
+        self.assertIn("https://rms.example/v1/records", logged, "log where it points")
+
+    def test_captive_portal_answering_with_200_is_not_delivery(self):
+        """
+        A 2xx only says something answered.
+
+        A device on a WiFi network it has not signed into gets a good 200
+        carrying a login page; counting that as a stored record loses the
+        message with nothing said.
+        """
+        portal = FakeResponse(text="<html>Please sign in</html>", body=False)
+
+        with patch.object(rms_service, "post", return_value=portal) as post_mock:
+            result = _post_with_retry(self.PAYLOAD)
+
+        self.assertIsNone(result, "a portal reply must not read as delivery")
+        self.assertEqual(post_mock.call_count, MAX_RETRIES, "retried, it may clear")
+        self.assertFalse(_RmsReachability.is_reachable(), "RMS was not reached")
+
+    def test_json_from_something_other_than_rms_is_not_delivery(self):
+        """A proxy or gateway answering in JSON still is not RMS."""
+        with patch.object(rms_service, "post",
+                          return_value=FakeResponse(body={"status": "ok"})) as post_mock:
+            result = _post_with_retry(self.PAYLOAD)
+
+        self.assertIsNone(result)
+        self.assertEqual(post_mock.call_count, MAX_RETRIES)
+
+    def test_rms_reporting_failure_in_a_200_is_not_delivery(self):
+        """RMS's own envelope says whether the record was taken."""
+        refused = FakeResponse(body={"success": False, "message": "quota exceeded"})
+
+        with patch.object(rms_service, "post", return_value=refused) as post_mock:
+            result = _post_with_retry(self.PAYLOAD)
+
+        self.assertIsNone(result)
+        self.assertEqual(post_mock.call_count, MAX_RETRIES)
+
+        logged = " ".join(str(call) for call in rms_service.oradio_log.error.call_args_list)
+        self.assertIn("quota exceeded", logged, "say what RMS objected to")
+
+    def test_rms_envelope_is_accepted(self):
+        """The reply RMS actually sends must pass on the first attempt."""
+        stored = FakeResponse(body={"success": True, "data": {"stored": True}})
+
+        with patch.object(rms_service, "post", return_value=stored) as post_mock:
+            result = _post_with_retry(self.PAYLOAD)
+
+        self.assertIs(result, stored)
+        self.assertEqual(post_mock.call_count, 1)
+        self.assertTrue(_RmsReachability.is_reachable())
+
     def test_attached_logs_are_streamed_as_multipart(self):
         """With logs to attach, the request carries a multipart body, not form fields."""
         self.write_log("oradio.log", b"content\n")
@@ -605,6 +732,105 @@ class TestGetTemperature(unittest.TestCase):
 
         with patch.object(rms_service.subprocess, "run", side_effect=error):
             self.assertEqual(_get_temperature(), UNSUPPORTED)
+
+
+class TestRemoteCommand(RmsTestCase):
+    """
+    A command from RMS must not be able to stall message delivery.
+
+    Reaches into the module's private runners deliberately: what is being
+    pinned down is how the command is started and stopped, which is exactly
+    what those functions are.
+    """
+    # pylint: disable=protected-access
+
+    @staticmethod
+    def response_with(command):
+        """Return a stand-in response carrying a pending command."""
+        response = MagicMock(spec=Response)
+        response.json.return_value = {"success": True, "data": {"command": command}}
+        return response
+
+    def test_command_does_not_run_on_the_calling_thread(self):
+        """
+        Delivery must not wait for the command.
+
+        _handle_response_command() is called from the sender thread, which
+        every message to RMS passes through: a command that blocks it stops
+        all reporting for as long as it runs.
+        """
+        running = Event()
+        finished = Event()
+        release = Event()
+
+        def blocking_run(_command):
+            running.set()
+            release.wait(1)
+            finished.set()
+
+        with patch.object(rms_service, "_run_remote_command", side_effect=blocking_run):
+            _handle_response_command(self.response_with("sleep 300"))
+
+            # Back here while the command is still going: had it run inline,
+            # the call above could not have returned until it finished.
+            self.assertTrue(running.wait(5), "the command should have started")
+            self.assertFalse(finished.is_set(), "the caller waited for the command")
+
+            release.set()
+            self.assertTrue(finished.wait(5))
+
+    def test_command_thread_does_not_outlive_the_process(self):
+        """A command still running at shutdown must not keep the process alive."""
+        with patch.object(rms_service, "Thread") as thread:
+            _handle_response_command(self.response_with("echo hello"))
+
+        self.assertEqual(thread.call_args.kwargs["target"], rms_service._run_remote_command)
+        self.assertEqual(thread.call_args.kwargs["args"], ("echo hello",))
+        self.assertTrue(thread.call_args.kwargs["daemon"])
+        thread.return_value.start.assert_called_once()
+
+    def test_command_is_run_in_its_own_session_under_a_time_limit(self):
+        """
+        Without a session of its own only the shell can be signalled.
+
+        subprocess's timeout kills the shell and leaves whatever it started
+        running unattended, so the time limit would not be a limit at all.
+        """
+        with patch.object(rms_service.subprocess, "Popen") as popen:
+            process = popen.return_value.__enter__.return_value
+            process.communicate.return_value = ("", "")
+            process.returncode = 0
+
+            rms_service._run_remote_command("echo hello")
+
+        self.assertTrue(popen.call_args.kwargs["start_new_session"])
+        self.assertEqual(process.communicate.call_args.kwargs["timeout"], REMOTE_COMMAND_TIMEOUT)
+
+    def test_timed_out_command_has_its_process_group_signalled(self):
+        """SIGTERM to let a script tidy up, then SIGKILL for anything still there."""
+        process = MagicMock()
+        process.pid = 4321
+        process.communicate.side_effect = [
+            rms_service.subprocess.TimeoutExpired("cmd", 1),   # ignores SIGTERM
+            ("", ""),                                          # gone after SIGKILL
+        ]
+
+        with patch.object(rms_service.os, "getpgid", return_value=4321), \
+             patch.object(rms_service.os, "killpg") as killpg:
+            rms_service._terminate_process_group(process)
+
+        signals = [call.args[1] for call in killpg.call_args_list]
+        self.assertEqual(signals, [rms_service.signal.SIGTERM, rms_service.signal.SIGKILL])
+
+    def test_no_command_starts_no_thread(self):
+        """The ordinary heartbeat response carries nothing to run."""
+        response = MagicMock(spec=Response)
+        response.json.return_value = {"success": True, "data": {"stored": True}}
+
+        with patch.object(rms_service, "Thread") as thread:
+            _handle_response_command(response)
+
+        thread.assert_not_called()
 
 
 class TestRmsSender(RmsTestCase):
@@ -741,6 +967,51 @@ class TestRmsSender(RmsTestCase):
         self.assertEqual(self.posted, [])
         self.assertFalse(_RmsReachability.is_reachable())
 
+    def test_repeating_fault_reports_every_incident_but_uploads_logs_once(self):
+        """
+        The incidents are the record; the logs are the payload.
+
+        A fault that repeats would otherwise attach the same logs to every
+        incident, keeping a slow uplink busy for as long as the fault lasts.
+        """
+        attached = []
+        self.post_patcher.stop()
+
+        with patch.object(rms_service, "_post_with_retry",
+                          side_effect=lambda payload, **kwargs: attached.append(
+                              (dict(payload), kwargs.get("attach_log_files")))):
+            for index in range(5):
+                self.submit(_SendJob(INCIDENT, f"t{index}",
+                                     rms_service.IncidentMessage(LED_SOURCE, "same fault")))
+            self.drain()
+
+        self.post_patcher.start()
+
+        self.assertEqual(len(attached), 5, "every incident is still reported")
+        self.assertEqual(sum(1 for _, attach in attached if attach), 1,
+                         "only the first carries the logs")
+        skipped = [payload for payload, attach in attached if not attach]
+        self.assertTrue(all(payload["logs"] == "skipped" for payload in skipped),
+                        "a record without files must say why")
+
+    def test_logs_are_attached_again_once_the_cooldown_passes(self):
+        """The hold is temporary: a fault still going gets fresh logs later."""
+        attached = []
+        self.post_patcher.stop()
+
+        with patch.object(rms_service, "_post_with_retry",
+                          side_effect=lambda payload, **kwargs: attached.append(
+                              kwargs.get("attach_log_files"))), \
+             patch.object(rms_service, "LOG_UPLOAD_COOLDOWN", 0):
+            for index in range(3):
+                self.submit(_SendJob(INCIDENT, f"t{index}",
+                                     rms_service.IncidentMessage(LED_SOURCE, "fault")))
+            self.drain()
+
+        self.post_patcher.start()
+
+        self.assertEqual(attached, [True, True, True])
+
     def test_stop_discards_the_backlog(self):
         """Shutdown is not held open by messages still waiting to go out."""
         for index in range(SEND_QUEUE_SIZE):
@@ -771,6 +1042,8 @@ class TestWifiMessageHandlerSendMessage(RmsTestCase):
         self.handler._serial = "serial123"
         self.handler._wifi_connected = True
         self.handler._sender = MagicMock()
+        self.handler._last_queued = {}
+        self.handler._cooldown_lock = ThreadLock()
 
     def submitted(self):
         """Return the job handed to the sender, or None if there was none."""
@@ -791,6 +1064,44 @@ class TestWifiMessageHandlerSendMessage(RmsTestCase):
         self.handler.send_message(SYS_INFO)
 
         self.assertRegex(self.submitted().generated, r"^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$")
+
+    def test_reconnect_burst_queues_one_of_each(self):
+        """
+        A flapping link reconnects repeatedly.
+
+        Each reconnect starts the heartbeat, which fires one immediately,
+        and sends system info. Past the first, neither reports anything the
+        one before it did not.
+        """
+        for _ in range(5):
+            self.handler.send_message(HEARTBEAT)
+            self.handler.send_message(SYS_INFO)
+
+        queued = [call.args[0].msg_type
+                  for call in self.handler._sender.submit.call_args_list]
+
+        self.assertEqual(queued, [HEARTBEAT, SYS_INFO])
+
+    def test_hourly_heartbeat_is_never_the_one_suppressed(self):
+        """The cooldown must stay well inside the heartbeat interval."""
+        self.assertLess(PERIODIC_SEND_COOLDOWN, rms_service.HEARTBEAT_REPEAT)
+
+    def test_periodic_message_is_queued_again_after_its_cooldown(self):
+        """Suppression is a cooldown, not a one-shot."""
+        self.handler.send_message(HEARTBEAT)
+
+        with patch.object(rms_service, "PERIODIC_SEND_COOLDOWN", 0):
+            self.handler.send_message(HEARTBEAT)
+
+        self.assertEqual(self.handler._sender.submit.call_count, 2)
+
+    def test_incidents_are_never_rate_limited(self):
+        """Every incident is reported; only its logs are held back."""
+        for index in range(5):
+            self.handler.send_message(INCIDENT,
+                                      rms_service.IncidentMessage(LED_SOURCE, f"fault {index}"))
+
+        self.assertEqual(self.handler._sender.submit.call_count, 5)
 
     def test_unknown_type_is_rejected(self):
         """An unsupported type is reported to whoever made the mistake."""
