@@ -1,3 +1,20 @@
+# Placeholders will be modified by ../oradio_install.sh script
+
+# Started by name from 99-local.rules, as usb-drive@add.service or
+# usb-drive@remove.service. %i is the action passed straight to the script.
+#
+# ROLE: this is the correctness path, not the speed path. It handles every
+# insertion and removal while the system is up, and at boot it is the backstop
+# for usb-drive-boot.service. Measured 2026-08-27, it ran at 7.554s on a boot
+# where the fast path had already mounted at 5.706s - see the header of
+# usb-drive-boot.service for why. Do not remove the fast path in favour of this.
+#
+# The lateness is NOT the default dependencies below. basic.target was reached at
+# 5.803s on that boot; the udev event for sda1 did not complete until 7.428s
+# because systemd-udevd's workers were saturated. Adding DefaultDependencies=no
+# here was measured to buy essentially nothing, and would cost the implicit
+# shutdown ordering. Left alone deliberately.
+
 [Unit]
 Description=USB drive handler (ORADIO)
 # Ensures udev infrastructure is ready before this service runs
@@ -18,7 +35,7 @@ StandardError=append:PLACEHOLDER_LOGFILE_USB
 # Set logfile ownership. '+' means run this command as root.
 ExecStartPre=-+/usr/bin/chown PLACEHOLDER_USER:PLACEHOLDER_GROUP PLACEHOLDER_LOGFILE_USB
 
-# %i expands to the instance name from the template.
+# %i expands to the instance name from the template: "add" or "remove".
 ExecStart=/usr/local/sbin/usb-drive.sh %i
 
 # Type=oneshot defaults to TimeoutStartSec=infinity, NOT to the 90s default that
@@ -26,6 +43,10 @@ ExecStart=/usr/local/sbin/usb-drive.sh %i
 # the unit forever - and it holds the script's lock while it does, so every
 # later add/remove queues behind it.
 TimeoutStartSec=120
+
+# No RemainAfterExit: the unit must be startable again for the next event. It
+# also means the instance unloads once it exits, which is why it does not appear
+# in systemd-analyze plot - only the system-usb-drive.slice it created does.
 
 # Do NOT add ProtectSystem=, PrivateTmp=, ProtectHome= or similar sandboxing
 # here. They place the service in a private mount namespace, and the mount
