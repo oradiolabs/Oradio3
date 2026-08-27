@@ -17,14 +17,14 @@
 # @status:        Development
 # @Purpose:       Handle Oradio service crashes
 #
-# Started by oradio-crash-action.service, pulled in by 'OnFailure=' in
+# Started by oradio-crash.service, pulled in by 'OnFailure=' in
 # oradio.service. It therefore runs ONLY after an abnormal exit: a regular
 # 'systemctl stop' or a reboot never gets here.
 #
 # Runs as root, in its own job, so systemctl calls are safe here.
-# Output does NOT go to the journal: oradio-crash-action.service redirects both
+# Output does NOT go to the journal: oradio-crash.service redirects both
 # stdout and stderr to the crash action logfile in the logging path, so
-# 'journalctl -u oradio-crash-action' stays empty. Read that logfile instead.
+# 'journalctl -u oradio-crash' stays empty. Read that logfile instead.
 # It is uploaded to RMS along with the other logfiles, but necessarily without
 # the lines written after the upload starts: see the marker below.
 #
@@ -67,7 +67,7 @@ done
 # would pass unnoticed and RMS would receive a valid looking report carrying no
 # serial. The fallback also keeps a missing vcgencmd or a non-matching grep
 # from aborting the script under errexit, which would skip the recovery that
-# oradio-crash-action.service performs once this script returns.
+# oradio-crash.service performs once this script returns.
 # This must produce exactly what utilities.get_serial() produces, or the same
 # Oradio arrives at RMS under two serials and its crash logs land apart from
 # its heartbeats. Hence the anchored "^28:" rather than a substring match, the
@@ -117,7 +117,7 @@ echo "--- decision already taken, executed after the upload: ${reboot_decision} 
 # stalled below 5kB/s for 30s, so a dead link fails fast instead of burning the
 # full 120s. --max-time is per attempt, so worst case is 3 attempts of 120s plus
 # 2 delays of 5s = 370s, which must stay below the TimeoutStartSec=500 of
-# oradio-crash-action.service: curl has to lose that race, otherwise systemd
+# oradio-crash.service: curl has to lose that race, otherwise systemd
 # kills the script before the recovery runs.
 # The two failure reports are deliberately separate. --fail-with-body turns an
 # HTTP 4xx/5xx into exit 22 while still capturing the body, so a rejected report
