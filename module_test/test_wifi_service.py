@@ -43,10 +43,11 @@ import logging
 import sys
 import types
 import unittest
+from collections.abc import Callable
 from pathlib import Path
 from threading import Event, Lock, Thread
 from time import monotonic, sleep
-from typing import Any, Callable
+from typing import Any
 from unittest.mock import patch
 
 # The modules under test sit next to this file
@@ -285,7 +286,7 @@ def _install_stubs() -> None:
 
 _install_stubs()
 
-import wifi_service                                 # noqa: E402  pylint: disable=wrong-import-position
+import wifi_service     # noqa: E402  pylint: disable=wrong-import-position
 
 ##### Helpers #############################################
 
@@ -793,7 +794,7 @@ class TestDisconnect(WifiServiceTestCase):
     def test_failure_to_disconnect_is_an_incident(self) -> None:
         """A disconnect that does not take is worth reporting."""
         self.connection = "Home"
-        self._patch(wifi_service, "_wifi_down", lambda ssid: False)      # noqa: ARG005
+        self._patch(wifi_service, "_wifi_down", lambda ssid: False)
 
         self.service.wifi_disconnect()
 
