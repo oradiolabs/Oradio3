@@ -111,6 +111,13 @@ AP_STATE_POLL_INTERVAL = 0.25
 NM_WAIT_TIMEOUT  = 60.0   # Max seconds to wait for NM to claim its bus name
 NM_POLL_INTERVAL = 1.0    # Seconds between availability checks while waiting
 
+# How long safe_start() waits for the listener's setup() to signal ready. Longer than ThreadTemplate's own
+# JOIN_TIMEOUT default of 5s, which setup() can exceed without having failed: it makes several blocking D-Bus
+# round trips and seeds the access-point list, on a cold boot with NetworkManager still settling. Overrunning
+# is not free -- _start_listener() then cannot tell a slow start from a failed one -- so the allowance is
+# generous. It costs nothing when setup is quick, since safe_start() returns as soon as the thread reports ready.
+LISTENER_START_TIMEOUT = 20.0
+
 # Module-level state, shared by every thread in this process. A plain dict behind a threading Lock, so it is
 # thread-safe within one process only: a second process gets its own copy and never sees updates made here.
 _saved_network = {"network": ""}    # Last successfully connected WiFi SSID
@@ -213,6 +220,20 @@ class WifiService:
         # waiting for a state that is never coming. Cleared by wifi_connect() on each new access-point request.
         self._ap_failed = Event()
 
+        # Serialises start(). Its checks and the claim they guard have to be one step, or two callers arriving
+        # together both find the listener down and both try to start it. Only oradio_control calls start() in the
+        # running Oradio, so the second caller is today either a stand-alone menu or a stop()/start() cycle; the
+        # lock is what keeps that from mattering. Held for the decision only, never across the start itself, so a
+        # caller is not blocked behind another caller's safe_start(). Always taken before ThreadTemplate's own
+        # lifecycle lock, never the other way round.
+        self._start_lock = Lock()
+
+        # True from the moment a start() claims the start until that start has finished -- whether it ran here or
+        # was handed to the deferred thread, and whether it succeeded, aborted or gave up. It is what makes the
+        # window between releasing _start_lock and the listener thread actually being alive safe: without it a
+        # second start() in that window sees a listener that is not alive yet and starts a second one.
+        self._starting = False
+
     def start(self, wait: float = NM_WAIT_TIMEOUT) -> None:
         """
         Start the background WiFi event listener thread and publish the current connection state.
@@ -227,30 +248,59 @@ class WifiService:
         so the margin over NM claiming its bus name is only a few seconds and not guaranteed. Waiting turns "started
         too early" into a short delay instead of a lost boot.
 
-        Idempotent: a no-op if the listener is already running.
+        Idempotent: a no-op if the listener is already running, or if another start() is still in progress --
+        including one waiting in the background for NetworkManager.
 
         Args:
             wait: Seconds to keep waiting for NetworkManager in the background. Pass 0 to skip starting entirely
                   when NM is absent, which suits tests and stand-alone runs.
         """
-        if self.nm_listener.is_alive():
-            oradio_log.debug("WiFi event listener thread already running")
-            return
+        # The lock covers the decision and the claim, not the work: everything below it can block (safe_start
+        # waits up to LISTENER_START_TIMEOUT), and holding the lock through that would make a concurrent start()
+        # wait it out rather than return at once on the _starting check.
+        with self._start_lock:
+            if self.nm_listener.is_alive():
+                oradio_log.debug("WiFi event listener thread already running")
+                return
 
-        # A previous stop() may have set this; clear it so a restart works
-        self._stopping.clear()
+            if self._starting:
+                oradio_log.debug("WiFi event listener start already in progress")
+                return
 
-        if nm_available():
-            self._start_listener()
-            return
+            # A previous stop() may have set this; clear it so a restart works
+            self._stopping.clear()
 
-        if wait <= 0:
-            oradio_log.info("NetworkManager not running; WiFi listener not started")
-            return
+            # Claimed here, released by _clear_starting() once this start has run its course.
+            self._starting = True
 
-        oradio_log.info("NetworkManager not up yet; deferring WiFi listener start")
-        # Daemon thread: exits automatically when the process does.
-        Thread(target=self._start_when_nm_ready, args=(wait,), daemon=True).start()
+        # False until the deferred thread has taken the claim over; it releases it in that case, and the finally
+        # below releases it in every other.
+        handed_over = False
+        try:
+            if nm_available():
+                self._start_listener()
+                return
+
+            if wait <= 0:
+                oradio_log.info("NetworkManager not running; WiFi listener not started")
+                return
+
+            oradio_log.info("NetworkManager not up yet; deferring WiFi listener start")
+            # Daemon thread: exits automatically when the process does.
+            Thread(target=self._start_when_nm_ready, args=(wait,), daemon=True).start()
+            handed_over = True
+        finally:
+            if not handed_over:
+                self._clear_starting()
+
+    def _clear_starting(self) -> None:
+        """
+        Release the start claim taken by start().
+
+        Called from whichever context finished the start: start() itself, or the deferred thread it handed over to.
+        """
+        with self._start_lock:
+            self._starting = False
 
     def _start_when_nm_ready(self, timeout) -> None:
         """
@@ -266,36 +316,66 @@ class WifiService:
         started = monotonic()
         deadline = started + timeout
 
-        while monotonic() < deadline:
-            # Checked before sleeping and after waking, so stop() takes effect within one poll interval at worst.
-            if self._stopping.is_set():
-                oradio_log.debug("Deferred WiFi listener start aborted by stop()")
-                return
-            if nm_available():
-                oradio_log.info(
-                    "NetworkManager available after %.1fs; starting WiFi listener",
-                    monotonic() - started,
-                )
-                self._start_listener()
-                return
-            sleep(NM_POLL_INTERVAL)
+        # try/finally so every way out of this thread -- listener started, aborted by stop(), or timed out --
+        # releases the claim start() handed over. Leaving it set would make start() a permanent no-op for the
+        # rest of the process.
+        try:
+            while monotonic() < deadline:
+                # Checked before sleeping and after waking, so stop() takes effect within one poll interval at worst.
+                if self._stopping.is_set():
+                    oradio_log.debug("Deferred WiFi listener start aborted by stop()")
+                    return
+                if nm_available():
+                    oradio_log.info(
+                        "NetworkManager available after %.1fs; starting WiFi listener",
+                        monotonic() - started,
+                    )
+                    self._start_listener()
+                    return
+                sleep(NM_POLL_INTERVAL)
 
-        if not self._stopping.is_set():
-            # NM never appeared: masked, disabled or failed to start. Unlike the transient absence above, that is
-            # worth an incident.
-            oradio_log.error("NetworkManager did not appear within %.0fs", timeout)
-            Incidents.publish(IncidentMessage(WIFI_SOURCE, WIFI_DBUS_FAILED))
+            if not self._stopping.is_set():
+                # NM never appeared: masked, disabled or failed to start. Unlike the transient absence above, that is
+                # worth an incident.
+                oradio_log.error("NetworkManager did not appear within %.0fs", timeout)
+                Incidents.publish(IncidentMessage(WIFI_SOURCE, WIFI_DBUS_FAILED))
+        finally:
+            self._clear_starting()
 
     def _start_listener(self) -> None:
         """
-        Bring up the listener thread, start the scan burst and publish state.
+        Bring up the listener thread, run the startup scan burst if it has not run yet, and publish state.
 
         Called once NetworkManager is known to be available, either directly from start() or from the deferred
         _start_when_nm_ready() thread.
         """
-        if not self.nm_listener.safe_start():
-            oradio_log.error("WiFi event listener thread failed to start")
-            Incidents.publish(IncidentMessage(WIFI_SOURCE, WIFI_DBUS_FAILED))
+        started_now = self.nm_listener.safe_start(LISTENER_START_TIMEOUT)
+
+        if not started_now:
+            # safe_start() answers False to three different questions, and only one of them is an incident. The
+            # thread object itself is the discriminator: is_alive() is False only in the last case.
+            #   * The listener is already running -- another caller got there first. Nothing to report: the thread
+            #     that matters is up. Falling through republishes the current state, which is harmless.
+            #   * setup() did not signal ready within LISTENER_START_TIMEOUT. Unlikely at that allowance, but a
+            #     thread that is merely slow is still coming up: treating it as a failure would publish
+            #     WIFI_DBUS_FAILED prematurely and, worse, skip the scan burst -- leaving list_ready clear, so every
+            #     access-point request waits out the full AP_LIST_READY_TIMEOUT. Falling through does not lose a
+            #     real failure either: setup() publishes WIFI_DBUS_FAILED itself on every path that raises.
+            #   * Thread.start() raised -- the OS would not give us a thread. Nothing is coming up, and this is the
+            #     real failure.
+            if not self.nm_listener.is_alive():
+                oradio_log.error("WiFi event listener thread failed to start")
+                Incidents.publish(IncidentMessage(WIFI_SOURCE, WIFI_DBUS_FAILED))
+                return
+
+            oradio_log.debug("WiFi event listener thread already running or still completing setup")
+
+        # Re-checked here, not just before the start: safe_start() blocks while setup() runs, and a stop() arriving
+        # in that window would otherwise be overtaken by the listener it was meant to prevent. Checked after the
+        # thread is up rather than before, so what gets torn down is a listener that exists.
+        if self._stopping.is_set():
+            oradio_log.debug("WiFi listener start overtaken by stop(); stopping again")
+            self.nm_listener.safe_stop()
             return
 
         if self.nm_listener.crashed:
@@ -305,12 +385,20 @@ class WifiService:
             Incidents.publish(IncidentMessage(WIFI_SOURCE, WIFI_DBUS_FAILED))
             return
 
-        oradio_log.info("WiFi event listener thread started")
+        if started_now:
+            oradio_log.info("WiFi event listener thread started")
 
-        # Build the network list now, in the background, so it is already complete by the time the user asks for the
-        # access point. Started only here, so the GLib loop is running and the resulting AccessPointAdded signals
-        # are actually delivered. Daemon thread: nothing waits on it and it exits when the process does.
-        Thread(target=self._build_network_list, daemon=True).start()
+        # Build the network list in the background, so it is already complete by the time the user asks for the
+        # access point. Daemon thread: nothing waits on it and it exits when the process does.
+        #
+        # Once per start/stop cycle. Within a cycle the list is maintained by the keeper sweep and by
+        # AccessPointAdded, so a second start() has nothing to build; stop() clears the flag, because a listener
+        # that has been down was maintaining nothing and the list it left behind cannot be trusted.
+        if self.nm_listener.list_building.is_set():
+            oradio_log.debug("Startup scan burst already running or run; keeping the existing network list")
+        else:
+            self.nm_listener.list_building.set()
+            Thread(target=self._build_network_list, daemon=True).start()
 
         # Publish the current state immediately so subscribers don't have to wait for the first state-change signal
         # from NetworkManager
@@ -331,7 +419,8 @@ class WifiService:
         Sweeps are paced by scan_and_wait(), which returns when NetworkManager reports the scan complete, so they
         run back to back rather than on a fixed interval.
 
-        Runs on a background thread; sets the listener's list_ready when done.
+        Runs on a background thread; sets the listener's list_ready when done, unless stop() cleared list_building
+        while it was sweeping, in which case this run has been superseded and reports nothing.
         """
         before = _known_ssids()
         started = monotonic()
@@ -364,7 +453,13 @@ class WifiService:
             )
 
         # Set even if the burst was cut short: waiting longer would not help, and blocking the access point
-        # indefinitely is worse than an incomplete list.
+        # indefinitely is worse than an incomplete list. Not set if stop() cleared list_building while this was
+        # sweeping, though: that run belongs to a torn-down listener, and the next start() means to build the
+        # list again rather than serve what this one happened to reach.
+        if not self.nm_listener.list_building.is_set():
+            oradio_log.debug("Startup scan burst superseded by stop(); network list not reported ready")
+            return
+
         self.nm_listener.list_ready.set()
 
         oradio_log.info(
@@ -382,9 +477,20 @@ class WifiService:
 
         Also cancels a deferred start still waiting for NetworkManager, so the listener cannot come up
         after shutdown was requested.
+
+        Clears the startup-burst flags, so the next start() builds the network list again. A listener that has
+        been stopped was maintaining nothing while it was down -- no keeper sweeps, no AccessPointAdded -- and
+        NetworkManager may have been restarted underneath it, so what the list holds on the way back up is not
+        evidence of what is on air now.
         """
         self._stopping.set()
         self.nm_listener.safe_stop()
+
+        # After safe_stop(), so the burst thread has already seen the listener go down and broken out of its
+        # sweep loop. It checks list_building before setting list_ready, so a sweep still in flight cannot
+        # report readiness for a list this stop has just invalidated.
+        self.nm_listener.list_building.clear()
+        self.nm_listener.list_ready.clear()
 
     def get_state(self) -> str:
         """

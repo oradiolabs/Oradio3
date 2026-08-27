@@ -307,7 +307,11 @@ class ThreadTemplate:
     @property
     def crashed(self) -> bool:
         """True if setup() or do_work() raised an exception during the current/last run."""
-        return self._exception is not None
+        # Same lock as the exception property below, and for the reason given where
+        # _exception_lock is created: _exception is written from the worker thread and
+        # read from the caller's, so the read is guarded rather than left to the GIL.
+        with self._exception_lock:
+            return self._exception is not None
 
     @property
     def exception(self) -> Exception | None:

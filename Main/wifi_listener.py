@@ -426,11 +426,20 @@ class WifiEventListener(ThreadTemplate):    # pylint: disable=too-many-instance-
         # A plain attribute needs no lock: every writer and every reader runs on the GLib main loop thread.
         self._hosting_ap = False
 
-        # Set once the startup scan burst has finished. Lives here, on the singleton, rather than on WifiService:
-        # oradio_control, web_service and rms_service each construct a WifiService, so a per-instance flag would be
-        # set on one object and read on the other, leaving the access point path to wait out its full timeout on a
-        # list that is already built. The singleton decorator runs this __init__ exactly once per process, so
-        # neither this nor _access_points is ever reset by a later construction.
+        # Startup scan burst state, both owned here rather than by WifiService because they describe this object's
+        # network list and outlive any one run of the thread. WifiService is a singleton too, so either home would
+        # be reachable by every caller; this one keeps the flags next to the list they are about.
+        #   list_building — set when WifiService._start_listener hands the burst to a thread. It is what makes the
+        #                   burst run once per start/stop cycle: a second start() finds it set and reattaches to
+        #                   the list already built.
+        #   list_ready    — set by WifiService._build_network_list when the burst finishes, and waited on by
+        #                   _wait_for_network_list before the access point takes the radio.
+        # Two flags rather than one, because a start() arriving while the first burst is still sweeping has to be
+        # turned away as well, and at that moment list_ready is still clear.
+        #
+        # Both are cleared by WifiService.stop(), which is the only thing that clears them: while the listener is
+        # down nothing maintains the list, so the next start() has to build it again.
+        self.list_building = Event()
         self.list_ready = Event()
 
     def setup(self) -> None:
