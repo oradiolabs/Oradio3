@@ -9,7 +9,7 @@ After=basic.target
 #
 # The OnFailure handler is a separate job, so it may call systemctl without deadlocking
 # against oradio's own stop transition.
-OnFailure=oradio-crash-action.service
+OnFailure=oradio-crash.service
 
 [Service]
 Type=simple
