@@ -29,16 +29,24 @@ Created on August 27, 2026
     per test so one test's listener state cannot leak into the next. TestSingleton covers the decorated
     behaviour on its own.
 
+    Both checkers read the real wifi_listener, not the stub installed here, so anything reached through
+    WifiService.nm_listener is typed as WifiEventListener and every fake-only attribute reads as an error. The
+    tests therefore hold their own FakeListener and inject it (see WifiServiceTestCase.setUp), which is honest
+    about what the object is and keeps pylint and mypy quiet without a single suppression.
+
     Run:
         python3 -m unittest test_wifi_service -v
         python3 test_wifi_service.py
 """
+import importlib
+import logging
 import sys
 import types
 import unittest
 from pathlib import Path
 from threading import Event, Lock, Thread
 from time import monotonic, sleep
+from typing import Any, Callable
 from unittest.mock import patch
 
 # The modules under test sit next to this file
@@ -67,7 +75,7 @@ class StubBus:
     """Stand-in for Commands / Incidents: records published messages for assertions."""
 
     def __init__(self) -> None:
-        self.messages = []
+        self.messages: list[StubMessage] = []
         self._lock = Lock()
 
     def publish(self, message) -> None:
@@ -80,7 +88,7 @@ class StubBus:
         with self._lock:
             self.messages.clear()
 
-    def values(self) -> list:
+    def values(self) -> list[Any]:
         """The value of every message published, in order."""
         with self._lock:
             return [message.value for message in self.messages]
@@ -94,8 +102,8 @@ class StubNmcliConnection:
     """Callable stand-in for nmcli.connection, with the sub-calls wifi_service uses."""
 
     def __init__(self) -> None:
-        self.profiles = []      # objects with .name and .conn_type, returned by the call itself
-        self.calls = []         # (operation, args) in order
+        self.profiles: list[Any] = []               # objects with .name and .conn_type, returned by the call
+        self.calls: list[tuple[str, Any]] = []      # (operation, arguments) in order
 
     def __call__(self):
         self.calls.append(("list", ()))
@@ -122,7 +130,9 @@ class StubNmcliConnection:
         self.calls.append(("delete", name))
 
 
-class FakeListener:
+# Eleven attributes against a max-attributes of 10: the fake needs one per thing a test can set and one per
+# thing a test can read. Kept local rather than raising the project limit, as WifiEventListener does.
+class FakeListener:    # pylint: disable=too-many-instance-attributes
     """
     Stand-in for WifiEventListener.
 
@@ -135,13 +145,13 @@ class FakeListener:
         self.list_building = Event()
 
         # What the tests set
-        self.safe_start_result = None   # None: succeed and go alive. True/False: return that, leave alive alone
-        self.safe_start_delay = 0.0     # Seconds safe_start() blocks, to widen races on purpose
+        self.safe_start_result: bool | None = None  # None: succeed and go alive. Else: return this as it is
+        self.safe_start_delay = 0.0                 # Seconds safe_start() blocks, to widen races on purpose
         self.crashed = False
-        self.exception = None
+        self.exception: Exception | None = None
 
         # What the tests read
-        self.safe_start_timeouts = []   # One entry per safe_start() call, holding the timeout it was passed
+        self.safe_start_timeouts: list[float] = []  # One entry per safe_start() call, holding its timeout
         self.safe_stop_calls = 0
         self.scan_calls = 0
 
@@ -152,7 +162,7 @@ class FakeListener:
         """Whether the fake thread is running."""
         return self._alive
 
-    def safe_start(self, timeout=5.0) -> bool:
+    def safe_start(self, timeout: float = 5.0) -> bool:
         """Record the call and report the result the test asked for."""
         with self._lock:
             self.safe_start_timeouts.append(timeout)
@@ -163,14 +173,14 @@ class FakeListener:
             return True
         return self.safe_start_result
 
-    def safe_stop(self, timeout=5.0) -> bool:      # pylint: disable=unused-argument
+    def safe_stop(self, timeout: float = 5.0) -> bool:      # pylint: disable=unused-argument
         """Record the call and go not-alive."""
         with self._lock:
             self.safe_stop_calls += 1
         self._alive = False
         return True
 
-    def scan_and_wait(self, timeout=None) -> bool:  # pylint: disable=unused-argument
+    def scan_and_wait(self, timeout: float | None = None) -> bool:   # pylint: disable=unused-argument
         """Count a sweep."""
         with self._lock:
             self.scan_calls += 1
@@ -183,6 +193,48 @@ class FakeListener:
         self._alive = alive
 
 
+def _stub_module(name: str, **attributes: Any) -> types.ModuleType:
+    """
+    Register a stand-in module under `name`, carrying the given attributes.
+
+    Attributes are set in a loop rather than one assignment per line, because a module object declares none of
+    them: written out, every line reads to a type checker as an attribute that does not exist.
+
+    Args:
+        name: Module name to register in sys.modules.
+        attributes: Names and values the stub should carry.
+
+    Returns:
+        The registered module.
+    """
+    module = types.ModuleType(name)
+    for attribute, value in attributes.items():
+        setattr(module, attribute, value)
+    sys.modules[name] = module
+    return module
+
+
+def _stub_nmcli_try(func: Callable[..., Any], *args: Any, ignore: tuple = (), **kwargs: Any) -> tuple:
+    """
+    Stand-in for wifi_listener.nmcli_try: call it, and report success unless it raises.
+
+    Args:
+        func: The nmcli callable to invoke.
+        args: Positional arguments for func.
+        ignore: Exception types to treat as success.
+        kwargs: Keyword arguments for func.
+
+    Returns:
+        (True, result) when the call went through, (False, None) when it raised.
+    """
+    try:
+        return True, func(*args, **kwargs)
+    except ignore:
+        return True, None
+    except Exception:                               # pylint: disable=broad-exception-caught
+        return False, None
+
+
 def _install_stubs() -> None:
     """
     Put stand-ins for wifi_service's hardware-facing imports into sys.modules.
@@ -191,61 +243,44 @@ def _install_stubs() -> None:
     for real: its behaviour is part of what TestSingleton checks. constants is used for real when it imports
     cleanly, and stubbed when it does not, so this file still runs off a Raspberry Pi.
     """
-    log_service = types.ModuleType("log_service")
-    import logging                                  # pylint: disable=import-outside-toplevel
     logger = logging.getLogger("test_wifi_service")
     logger.addHandler(logging.NullHandler())
     logger.propagate = False
-    log_service.oradio_log = logger
-    sys.modules["log_service"] = log_service
+    _stub_module("log_service", oradio_log=logger)
 
-    utilities = types.ModuleType("utilities")
-    utilities.run_shell_script = lambda cmd: (True, "")
-    sys.modules["utilities"] = utilities
+    _stub_module("utilities", run_shell_script=lambda cmd: (True, ""))
 
-    messaging = types.ModuleType("messaging")
-    messaging.Commands = COMMANDS
-    messaging.Incidents = INCIDENTS
-    messaging.CommandMessage = StubMessage
-    messaging.IncidentMessage = StubMessage
-    messaging.WIFI_SOURCE = "wifi"
-    messaging.WIFI_CONNECTED = "wifi connected"
-    messaging.WIFI_DISCONNECTED = "wifi disconnected"
-    messaging.WIFI_ACCESS_POINT = "wifi access point"
-    messaging.WIFI_DBUS_FAILED = "wifi dbus failed"
-    messaging.WIFI_DISCONNECT_FAILED = "wifi disconnect failed"
-    sys.modules["messaging"] = messaging
+    _stub_module(
+        "messaging",
+        Commands=COMMANDS,
+        Incidents=INCIDENTS,
+        CommandMessage=StubMessage,
+        IncidentMessage=StubMessage,
+        WIFI_SOURCE="wifi",
+        WIFI_CONNECTED="wifi connected",
+        WIFI_DISCONNECTED="wifi disconnected",
+        WIFI_ACCESS_POINT="wifi access point",
+        WIFI_DBUS_FAILED="wifi dbus failed",
+        WIFI_DISCONNECT_FAILED="wifi disconnect failed",
+    )
 
-    nmcli = types.ModuleType("nmcli")
-    nmcli.connection = StubNmcliConnection()
-    sys.modules["nmcli"] = nmcli
+    _stub_module("nmcli", connection=StubNmcliConnection())
 
-    listener = types.ModuleType("wifi_listener")
-    listener.AP_SCAN_SWEEPS = 3
-    listener.WifiEventListener = FakeListener
-    listener.nm_available = lambda: True
-    listener.get_wifi_connection = lambda: None
-    listener.get_wifi_networks = lambda: []
-
-    def nmcli_try(func, *args, ignore=(), **kwargs):
-        """Minimal stand-in: call it, report success unless it raises."""
-        try:
-            return True, func(*args, **kwargs)
-        except ignore:
-            return True, None
-        except Exception:                           # pylint: disable=broad-exception-caught
-            return False, None
-
-    listener.nmcli_try = nmcli_try
-    sys.modules["wifi_listener"] = listener
+    _stub_module(
+        "wifi_listener",
+        AP_SCAN_SWEEPS=3,
+        WifiEventListener=FakeListener,
+        nm_available=lambda: True,
+        nmcli_try=_stub_nmcli_try,
+        get_wifi_connection=lambda: None,
+        get_wifi_networks=lambda: [],
+    )
 
     try:
-        import constants                            # noqa: F401  pylint: disable=import-outside-toplevel,unused-import
+        # By name, so this is not a static import of a module that may not be on the path here.
+        importlib.import_module("constants")
     except Exception:                               # pylint: disable=broad-exception-caught
-        constants = types.ModuleType("constants")
-        constants.ACCESS_POINT_HOST = STUB_AP_HOST
-        constants.ACCESS_POINT_SSID = STUB_AP_SSID
-        sys.modules["constants"] = constants
+        _stub_module("constants", ACCESS_POINT_HOST=STUB_AP_HOST, ACCESS_POINT_SSID=STUB_AP_SSID)
 
 
 _install_stubs()
@@ -300,9 +335,9 @@ class WifiServiceTestCase(unittest.TestCase):
         COMMANDS.clear()
         INCIDENTS.clear()
 
-        self.nm_up = True                       # Read by the patched nm_available
-        self.connection = None                  # Read by the patched get_wifi_connection
-        self.networks = []                      # Read by the patched get_wifi_networks
+        self.nm_up = True                               # Read by the patched nm_available
+        self.connection: str | None = None              # Read by the patched get_wifi_connection
+        self.networks: list[dict[str, str]] = []        # Read by the patched get_wifi_networks
 
         self._patch(wifi_service, "nm_available", lambda: self.nm_up)
         self._patch(wifi_service, "get_wifi_connection", lambda: self.connection)
@@ -313,12 +348,17 @@ class WifiServiceTestCase(unittest.TestCase):
         self._patch(wifi_service, "AP_STATE_POLL_INTERVAL", 0.01)
         self._patch(wifi_service, "AP_SCAN_SWEEPS", 3)
 
+        # Built here and handed to WifiService, rather than read back out of service.nm_listener afterwards.
+        # Same object either way at runtime, but this way the tests hold something that is a FakeListener as
+        # far as pylint and mypy are concerned, instead of a WifiEventListener missing every fake-only member.
+        self.listener = FakeListener()
+        self._patch(wifi_service, "WifiEventListener", lambda: self.listener)
+
         self.service = new_service()
-        self.listener = self.service.nm_listener
         self.addCleanup(self._quiesce)
 
-    def _patch(self, target, name, value) -> None:
-        """Patch an attribute for the duration of the test."""
+    def _patch(self, target: object, name: str, value: Any) -> None:
+        """Patch an attribute of target for the duration of the test."""
         patcher = patch.object(target, name, value)
         patcher.start()
         self.addCleanup(patcher.stop)
@@ -422,7 +462,7 @@ class TestDeferredStart(WifiServiceTestCase):
 
         self.nm_up = True
 
-        self.assertTrue(wait_until(lambda: self.listener.is_alive()))
+        self.assertTrue(wait_until(self.listener.is_alive))
         self.wait_for_burst()
         self.assertTrue(wait_until(lambda: not self.service._starting))  # pylint: disable=protected-access
         self.assert_no_incidents()
@@ -435,7 +475,7 @@ class TestDeferredStart(WifiServiceTestCase):
 
         self.nm_up = True
 
-        self.assertTrue(wait_until(lambda: self.listener.is_alive()))
+        self.assertTrue(wait_until(self.listener.is_alive))
         self.wait_for_burst()
         sleep(0.1)      # Long enough for a second waiter to have acted, had there been one
         self.assertEqual(len(self.listener.safe_start_timeouts), 1)
@@ -634,21 +674,21 @@ class TestConnect(WifiServiceTestCase):
 
     def setUp(self) -> None:
         super().setUp()
-        self.added = []
-        self.deleted = []
-        self.activated = []
+        self.added: list[tuple[str, str | None]] = []
+        self.deleted: list[str] = []
+        self.activated: list[str] = []
         self.add_result = True
         self.up_result = True
 
-        def networkmanager_add(ssid, pswd=None) -> bool:
+        def networkmanager_add(ssid: str, pswd: str | None = None) -> bool:
             self.added.append((ssid, pswd))
             return self.add_result
 
-        def networkmanager_del(ssid) -> bool:
+        def networkmanager_del(ssid: str) -> bool:
             self.deleted.append(ssid)
             return True
 
-        def wifi_up(ssid) -> bool:
+        def wifi_up(ssid: str) -> bool:
             self.activated.append(ssid)
             return self.up_result
 
@@ -696,7 +736,7 @@ class TestConnect(WifiServiceTestCase):
 
         self.service.wifi_connect(wifi_service.ACCESS_POINT_SSID, None)
 
-        self.assertTrue(wait_until(lambda: self.service._ap_failed.is_set()))  # pylint: disable=protected-access
+        self.assertTrue(wait_until(self.service._ap_failed.is_set))     # pylint: disable=protected-access
         self.assertFalse(self.service.await_access_point(timeout=WAIT_TIMEOUT))
 
     def test_profile_that_cannot_be_added_fails_the_access_point(self) -> None:
@@ -737,8 +777,13 @@ class TestDisconnect(WifiServiceTestCase):
     def test_disconnect_brings_the_active_connection_down(self) -> None:
         """The active connection is deactivated."""
         self.connection = "Home"
-        brought_down = []
-        self._patch(wifi_service, "_wifi_down", lambda ssid: brought_down.append(ssid) or True)
+        brought_down: list[str] = []
+
+        def wifi_down(ssid: str) -> bool:
+            brought_down.append(ssid)
+            return True
+
+        self._patch(wifi_service, "_wifi_down", wifi_down)
 
         self.service.wifi_disconnect()
 
@@ -748,7 +793,7 @@ class TestDisconnect(WifiServiceTestCase):
     def test_failure_to_disconnect_is_an_incident(self) -> None:
         """A disconnect that does not take is worth reporting."""
         self.connection = "Home"
-        self._patch(wifi_service, "_wifi_down", lambda ssid: False)
+        self._patch(wifi_service, "_wifi_down", lambda ssid: False)      # noqa: ARG005
 
         self.service.wifi_disconnect()
 
@@ -757,7 +802,11 @@ class TestDisconnect(WifiServiceTestCase):
     def test_disconnect_with_nothing_active_does_nothing(self) -> None:
         """Already disconnected is not a failure."""
         self.connection = None
-        self._patch(wifi_service, "_wifi_down", lambda ssid: self.fail("should not disconnect"))
+
+        def wifi_down(ssid: str) -> bool:
+            self.fail(f"disconnected '{ssid}' with nothing active")
+
+        self._patch(wifi_service, "_wifi_down", wifi_down)
 
         self.service.wifi_disconnect()
 
@@ -791,6 +840,13 @@ class TestStop(WifiServiceTestCase):
 class TestSingleton(unittest.TestCase):
     """The decorated class, rather than the per-test instances the other cases use."""
 
+    def setUp(self) -> None:
+        # One instance serves every test in this class, and it is never stopped, so start from a known state
+        # rather than from whatever the previous test left on it.
+        listener = wifi_service.WifiService().nm_listener
+        listener.list_building.clear()
+        listener.list_ready.clear()
+
     def test_every_construction_returns_the_same_service(self) -> None:
         """oradio_control and WebService must not end up with two of these."""
         self.assertIs(wifi_service.WifiService(), wifi_service.WifiService())
@@ -807,12 +863,12 @@ class TestSingleton(unittest.TestCase):
         self.assertTrue(second.nm_listener.list_ready.is_set())
 
     def test_construction_starts_nothing(self) -> None:
-        """Constructing is not starting: no listener thread, no sweep, no timer."""
+        """Constructing is not starting: no listener thread, and no scan burst behind it."""
         service = wifi_service.WifiService()
 
         self.assertFalse(service.nm_listener.is_alive())
-        self.assertEqual(service.nm_listener.safe_start_timeouts, [])
-        self.assertEqual(service.nm_listener.scan_calls, 0)
+        self.assertFalse(service.nm_listener.list_building.is_set())
+        self.assertFalse(service.nm_listener.list_ready.is_set())
 
 
 if __name__ == "__main__":
