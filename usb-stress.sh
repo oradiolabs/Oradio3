@@ -17,6 +17,8 @@
 #   sudo ./usb-stress.sh case <name>    run one named case
 #   sudo ./usb-stress.sh sweep [N]      test a range of usb-storage.delay_use
 #                                       values, N cycles each (default 25)
+#   sudo ./usb-stress.sh scan [zone]    repeated raw-read probe of a sector range
+#                                       (zones: fat, start, end, <lba>)
 #   sudo ./usb-stress.sh report         summarise hotplug results
 #   sudo ./usb-stress.sh sweep-report   summarise sweep results
 #   sudo ./usb-stress.sh reset          clear results and restore the device
@@ -41,6 +43,13 @@ SWEEPDIR="${SWEEPDIR:-/var/log/usb-stress-sweep}"
 SWEEP_VALUES="${SWEEP_VALUES:-0 10ms 25ms 50ms 100ms 200ms}"
 SWEEP_CYCLES="${SWEEP_CYCLES:-25}"
 DELAY_ORIG=""			# Restored on exit
+
+# Raw-read surface scan
+SCANDIR="${SCANDIR:-/var/log/usb-stress-scan}"
+SCAN_PASSES="${SCAN_PASSES:-20}"	# Repeats per sector. 20 catches a ~10% fault
+									# with >87% probability; a single pass is what
+									# lets a desktop scan call a bad stick clean.
+SCAN_UNMOUNT=1						# Unmount before scanning (see do_scan)
 
 RED=$'\033[0;31m'; GREEN=$'\033[0;32m'; YELLOW=$'\033[1;33m'; NC=$'\033[0m'
 
@@ -247,6 +256,250 @@ case_busy_remove() {
 		bad "busy mount not torn down after ${ms}ms"
 		record busy-remove FAIL "$ms" "mounted=$(is_mounted && echo y || echo n)"
 	fi
+}
+
+# ---------------------------------------------------------------------------
+# Raw-read surface scan
+# ---------------------------------------------------------------------------
+# WHY THIS EXISTS: a stick can mount perfectly and still be unusable. The mount
+# path above proves the block device appears and FAT can be mounted; it does not
+# prove the sectors holding the directory entries can be read RELIABLY. A stick
+# with intermittent medium errors in its FAT metadata region mounts, reports
+# success, and then fails to find files that are physically present.
+#
+# WHY REPEATED READS: this is the whole point. A single sequential pass - which
+# is what a desktop ddrescue scan or a 'copy the files off and check' test does -
+# reads every block once. A fault that appears 10% of the time survives that with
+# ~90% probability per sector. Twenty repeats of the same sector catches it with
+# better than 87% probability. That asymmetry is exactly why a stick can read
+# clean on a Mac and fail repeatedly on a Pi: the desktop asked "is this
+# readable once", not "is this readable every time".
+#
+# WHY ON THE PI: host controller timing measurably changes the error rate on a
+# marginal device - dwc_otg schedules USB 2.0 transactions largely in software,
+# unlike a desktop's hardware xHCI. A stick can only be qualified on the
+# hardware it will run on. Do not accept a desktop scan as evidence.
+#
+# WHY DIRECT I/O AND ONE SECTOR AT A TIME: iflag=direct bypasses the page cache,
+# so every read reaches the device instead of being answered from RAM. bs=512
+# count=1 produces a single-sector READ(10), so a failure names the exact LBA
+# rather than the start of a larger request that failed somewhere inside it.
+#
+# CONTROL ZONES: the sectors immediately before and after the region of interest
+# are scanned too. Without them a bad result is ambiguous - a whole-device
+# problem (power, cable, controller) looks identical to a localised media fault.
+# Controls failing alongside the target means look at the host, not the stick.
+
+# Sectors are read relative to the whole disk (/dev/sda), not the partition, so
+# that partition-table and boot-sector areas can be probed with the same code.
+scan_dev() {
+	local part
+	part="$(blkid -L "$LABEL" 2>/dev/null)" || return 1
+	# /dev/sda1 -> /dev/sda
+	lsblk -no pkname "$part" 2>/dev/null | head -1 | sed 's#^#/dev/#'
+}
+
+# Start LBA of the ORADIO partition, so FAT-relative blocks can be converted.
+scan_part_start() {
+	local part
+	part="$(blkid -L "$LABEL" 2>/dev/null)" || return 1
+	cat "/sys/class/block/$(basename "$part")/start" 2>/dev/null
+}
+
+# read_sector <device> <lba> -> 0 ok, 1 error
+read_sector() {
+	dd if="$1" of=/dev/null bs=512 count=1 skip="$2" iflag=direct \
+		status=none 2>/dev/null
+}
+
+# scan_range <device> <first_lba> <count> <label>
+# Sets SR_OK / SR_ERR globals. Deliberately NOT echoing a result for capture by
+# $(...) - command substitution runs in a subshell, and the per-sector tallies in
+# SCAN_OK/SCAN_ERR would be discarded when it exits, leaving zone totals correct
+# but the per-LBA detail silently empty.
+#
+# Passes are interleaved (all sectors, then repeat) rather than hammering one
+# sector SCAN_PASSES times in a row: consecutive reads of the same LBA can be
+# served from the device's own cache, which would hide exactly the fault this is
+# looking for.
+scan_range() {
+	local dev="$1" first="$2" count="$3" zone="$4"
+	local pass lba
+	SR_OK=0; SR_ERR=0
+
+	for ((pass = 1; pass <= SCAN_PASSES; pass++)); do
+		printf '    %s pass %d/%d\r' "$zone" "$pass" "$SCAN_PASSES"
+		for ((lba = first; lba < first + count; lba++)); do
+			if read_sector "$dev" "$lba"; then
+				SR_OK=$((SR_OK + 1))
+				SCAN_OK["$lba"]=$(( ${SCAN_OK[$lba]:-0} + 1 ))
+			else
+				SR_ERR=$((SR_ERR + 1))
+				SCAN_ERR["$lba"]=$(( ${SCAN_ERR[$lba]:-0} + 1 ))
+			fi
+		done
+	done
+	printf '                                        \r'
+}
+
+do_scan() {
+	local dev part_start first count zone_arg="${1:-fat}"
+	declare -gA SCAN_OK=() SCAN_ERR=()
+
+	dev="$(scan_dev)" || { echo -e "${RED}No device with label $LABEL${NC}"; exit 1; }
+	part_start="$(scan_part_start)" || { echo -e "${RED}Cannot read partition start${NC}"; exit 1; }
+	say "Device: $dev   ORADIO partition starts at LBA $part_start"
+
+	# Unmount first. A mounted filesystem generates its own reads, which both
+	# perturb the measurement and can trigger errors=remount-ro. Reading the raw
+	# device while mounted is not invalid, but the error counts are then not
+	# comparable between runs.
+	if [ "$SCAN_UNMOUNT" -eq 1 ] && mountpoint -q "$MOUNTPOINT" 2>/dev/null; then
+		say "Unmounting $MOUNTPOINT for a clean measurement"
+		systemctl start --no-block usb-drive@remove.service
+		wait_for "$SETTLE" not_mounted >/dev/null || {
+			echo -e "${RED}Could not unmount; aborting rather than measure a moving target${NC}"
+			exit 1
+		}
+	fi
+
+	# Belt and braces: make the whole device read-only at the block layer so no
+	# stray writer can touch the stick during a diagnostic run.
+	blockdev --setro "$dev" 2>/dev/null || warn "could not set $dev read-only"
+
+	case "$zone_arg" in
+		fat)
+			# FAT32 root directory region. On a typical Oradio stick the
+			# directory entries sit a little way into the partition; 32768
+			# sectors in is where the reported failures landed on the RCA unit.
+			# Adjust FIRST_BLOCK if your layout differs - see 'scan help'.
+			first=$(( part_start + ${FIRST_BLOCK:-32768} ))
+			count=${SCAN_COUNT:-40}
+			;;
+		start)
+			# Partition table, boot sector and FAT copies.
+			first=0
+			count=${SCAN_COUNT:-64}
+			;;
+		end)
+			# Last sectors of the device: alignment area before the backup GPT,
+			# where the RCA unit also showed clustered failures.
+			local sectors
+			sectors="$(blockdev --getsz "$dev")"
+			first=$(( sectors - ${SCAN_COUNT:-64} ))
+			count=${SCAN_COUNT:-64}
+			;;
+		*)
+			first="$zone_arg"
+			count=${SCAN_COUNT:-40}
+			;;
+	esac
+
+	# Split into control / target / control. With the default count of 40 that
+	# is 8 control sectors, 24 target sectors, 8 control sectors.
+	local ctrl=8 target=$(( count - 16 ))
+	[ "$target" -ge 1 ] || { ctrl=0; target=$count; }
+
+	say "Scanning LBA $first .. $(( first + count - 1 )), $SCAN_PASSES passes each"
+	say "($(( count * SCAN_PASSES )) reads total, single-sector direct READ(10))"
+	echo
+
+	local lo_ok=0 lo_err=0 mid_ok=0 mid_err=0 hi_ok=0 hi_err=0
+	if [ "$ctrl" -gt 0 ]; then
+		scan_range "$dev" "$first" "$ctrl" "control-low"
+		lo_ok=$SR_OK; lo_err=$SR_ERR
+		scan_range "$dev" $(( first + ctrl )) "$target" "target"
+		mid_ok=$SR_OK; mid_err=$SR_ERR
+		scan_range "$dev" $(( first + ctrl + target )) "$ctrl" "control-high"
+		hi_ok=$SR_OK; hi_err=$SR_ERR
+	else
+		scan_range "$dev" "$first" "$target" "target"
+		mid_ok=$SR_OK; mid_err=$SR_ERR
+	fi
+
+	scan_report "$dev" "$first" "$ctrl" "$target" \
+		"$lo_ok" "$lo_err" "$mid_ok" "$mid_err" "$hi_ok" "$hi_err"
+
+	blockdev --setrw "$dev" 2>/dev/null || true
+}
+
+scan_report() {
+	local dev="$1" first="$2" ctrl="$3" target="$4"
+	local lo_ok="$5" lo_err="$6" mid_ok="$7" mid_err="$8" hi_ok="$9" hi_err="${10}"
+
+	local ctrl_ok=$(( lo_ok + hi_ok )) ctrl_err=$(( lo_err + hi_err ))
+	local ctrl_tot=$(( ctrl_ok + ctrl_err )) mid_tot=$(( mid_ok + mid_err ))
+
+	mkdir -p "$SCANDIR"
+	local out="$SCANDIR/scan-$(date '+%Y%m%dT%H%M%S').csv"
+	{
+		echo "lba,ok,error,error_pct"
+		local lba
+		for lba in $(printf '%s\n' "${!SCAN_OK[@]}" "${!SCAN_ERR[@]}" | sort -un); do
+			local o=${SCAN_OK[$lba]:-0} e=${SCAN_ERR[$lba]:-0}
+			printf '%s,%d,%d,%.2f\n' "$lba" "$o" "$e" \
+				"$(awk -v a="$e" -v b="$((o+e))" 'BEGIN{printf "%.2f", (b?100*a/b:0)}')"
+		done
+	} > "$out"
+
+	echo
+	echo "==================== raw-read surface scan ===================="
+	printf "%-16s %8s %8s %10s\n" "ZONE" "OK" "ERROR" "ERROR_%"
+	if [ "$ctrl_tot" -gt 0 ]; then
+		printf "%-16s %8d %8d %9s%%\n" "control" "$ctrl_ok" "$ctrl_err" \
+			"$(awk -v a="$ctrl_err" -v b="$ctrl_tot" 'BEGIN{printf "%.2f", 100*a/b}')"
+	fi
+	printf "%-16s %8d %8d %9s%%\n" "target" "$mid_ok" "$mid_err" \
+		"$(awk -v a="$mid_err" -v b="$mid_tot" 'BEGIN{printf "%.2f", (b?100*a/b:0)}')"
+	echo
+
+	# Per-sector detail, but only for sectors that actually failed - a clean run
+	# should be readable at a glance, not a wall of zeroes.
+	local failed=0 lba
+	for lba in $(printf '%s\n' "${!SCAN_ERR[@]}" | sort -n); do
+		[ "${SCAN_ERR[$lba]:-0}" -gt 0 ] || continue
+		[ "$failed" -eq 0 ] && printf "%-14s %6s %6s   %s\n" "FAILING LBA" "OK" "ERR" "behaviour"
+		failed=1
+		local o=${SCAN_OK[$lba]:-0} e=${SCAN_ERR[$lba]}
+		local behav="intermittent"
+		[ "$o" -eq 0 ] && behav="always failed"
+		[ "$e" -le 2 ] && behav="occasional"
+		printf "%-14s %6d %6d   %s\n" "$lba" "$o" "$e" "$behav"
+	done
+	[ "$failed" -eq 1 ] && echo
+
+	# Verdict. The control zones are what make this interpretable.
+	if [ "$ctrl_err" -gt 0 ] && [ "$mid_err" -gt 0 ]; then
+		echo "${RED}FAIL - errors in BOTH control and target zones.${NC}"
+		echo "A localised media fault does not do that. Suspect the host: power,"
+		echo "cable, connector, or the port. Check 'vcgencmd get_throttled' and"
+		echo "'dmesg | grep -i under-voltage' before blaming the stick."
+	elif [ "$mid_err" -gt 0 ]; then
+		echo "${RED}FAIL - localised read failures with clean controls.${NC}"
+		echo "This is the signature of a marginal stick: specific sectors fail"
+		echo "while their immediate neighbours are perfect. If these LBAs hold FAT"
+		echo "directory data, the stick will mount and then lose files that are"
+		echo "physically present. Replace it."
+		echo
+		echo "A clean scan on a Mac or PC does NOT contradict this. One sequential"
+		echo "pass asks whether a block is readable once; this asked whether it is"
+		echo "readable every time, on the hardware that has to run it."
+	elif [ "$ctrl_err" -gt 0 ]; then
+		echo "${YELLOW}Errors in the control zones only.${NC} Unexpected - re-run and"
+		echo "widen the range with SCAN_COUNT before drawing a conclusion."
+	else
+		echo "${GREEN}PASS - no read errors in $(( mid_tot + ctrl_tot )) reads.${NC}"
+		echo "This zone is sound. It is not a whole-surface guarantee: only the"
+		echo "scanned range was tested. Use 'scan start' and 'scan end' for the"
+		echo "other regions where failures cluster."
+	fi
+	echo
+	echo "Kernel view (medium errors are the device's own report, not Linux's guess):"
+	dmesg | grep -iE 'critical medium|Unrecovered read|Sense Key' | tail -5 | sed 's/^/  /' \
+		|| echo "  (none)"
+	echo
+	echo "Per-sector results: $out"
+	echo "=============================================================="
 }
 
 # ---------------------------------------------------------------------------
@@ -484,6 +737,29 @@ main() {
 				busy-remove)   case_busy_remove ;;
 				*) echo "Unknown case: ${2:-}"; exit 1 ;;
 			esac
+			;;
+		scan)
+			case "${2:-}" in
+				help)
+					trap - EXIT
+					echo "Usage: $0 scan [fat|start|end|<lba>]"
+					echo
+					echo "  fat    (default) FAT directory region: partition start"
+					echo "         + FIRST_BLOCK sectors. Override FIRST_BLOCK if your"
+					echo "         layout differs. To find the right value from a kernel"
+					echo "         message like 'Buffer I/O error on dev sda1, logical"
+					echo "         block 4097', the raw LBA is partition_start + 4097*8."
+					echo "  start  partition table, boot sector and FAT copies"
+					echo "  end    alignment area at the physical end of the device"
+					echo "  <lba>  an explicit raw LBA to centre the scan on"
+					echo
+					echo "  SCAN_PASSES=$SCAN_PASSES   repeats per sector"
+					echo "  SCAN_COUNT               sectors to scan (default 40)"
+					exit 0
+					;;
+			esac
+			preflight
+			do_scan "${2:-fat}"
 			;;
 		sweep)
 			preflight
