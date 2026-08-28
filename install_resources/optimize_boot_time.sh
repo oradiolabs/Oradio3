@@ -185,26 +185,6 @@ echo "Disabled apt translation downloads in $APT_LANG_CONF"
 # cmdline.txt MUST remain exactly one line. Rebuild it explicitly rather than
 # using sed, which would append to every line if a trailing newline exists.
 
-# Ask the running kernel whether usb-storage accepts a sub-second scan delay,
-# rather than inferring it from a version number. The parameter is writable at
-# runtime (mode 0644), so a successful write is proof; a pre-rework driver parses
-# it as a plain integer and rejects "100ms" with EINVAL.
-#
-# On success the value is left applied, which is harmless: it only affects
-# devices probed from here on, and 100ms is what the reboot will set anyway.
-DELAY_USE_PARAM="/sys/module/usb_storage/parameters/delay_use"
-USB_DELAY="1"
-if [[ ! -e "$DELAY_USE_PARAM" ]]; then
-	# usb_storage built as a module and not yet loaded. Fall back rather than
-	# modprobe: the safe value costs 900ms of boot, a wrong one costs a mount.
-	echo -e "${YELLOW}usb_storage not loaded; using delay_use=$USB_DELAY${NC}"
-elif echo "100ms" | sudo tee "$DELAY_USE_PARAM" >/dev/null 2>&1; then
-	USB_DELAY="100ms"
-	echo "Kernel accepts millisecond scan delay; using delay_use=$USB_DELAY"
-else
-	echo -e "${YELLOW}Kernel has no millisecond delay_use; using delay_use=$USB_DELAY${NC}"
-fi
-
 #ONNO: Uncomment quiet and loglevel before merge to main
 CMDLINE_OPTS=(
 #	quiet					# Suppress most kernel boot messages
@@ -228,38 +208,35 @@ CMDLINE_OPTS=(
 	# Use 1, not 0: some kernel versions treat rd_nr=0 as "use the default".
 	brd.rd_nr=1
 
-	# usb-storage waits before probing a new device, to let it settle. The 1s
-	# default is a legacy figure aimed at supporting the widest possible range of
-	# hardware; on this stick it is almost all dead time.
+	# usb-storage waits before probing a new device, to let it settle. The default
+	# is 1s and is a legacy figure aimed at supporting the widest possible range of
+	# hardware; on a flash drive this is almost all dead time.
 	#
 	# Do NOT set this to 0. It was 0 here and it caused intermittent boots where
 	# the ORADIO stick was never mounted: the SCSI scan runs before the device is
 	# ready, so the partition table read fails and /dev/sda1 never appears at all.
-	# Nothing downstream can recover from that - neither usb-drive-boot.service
-	# (its ConditionPathExistsGlob sees nothing) nor the udev rule (no partition
-	# device, no event). Upstream says the same: "when delay_use is set to 0
-	# (no delay), still error observed on some USB drives", which is why the
-	# parameter was reworked to accept sub-second values in the first place.
+	# Nothing downstream can recover from that.
+	# Multipe fora discussions says the same: "when delay_use is set to 0 (no delay),
+	# still error observed on some USB drives", which is why the parameter was
+	# reworked to accept sub-second values in the first place.
 	#
-	# 100ms is the value upstream suggests as safe for most pen drives, and keeps
+#
+# ONNO: Document own stress testing and results to underpin the chosen delay
+#
+	# 100ms is the value suggested as safe for most pen drives, and keeps
 	# nearly all of the win: 'scsi host0' -> '[sda]' measured 1.02s at the default
 	# and ~9ms at 0, so the settle time now dominates and costs ~100ms total.
 	#
 	# FORMAT: the 'ms' suffix needs the reworked driver (kernel ~6.11+; Trixie's
-	# 6.12 has it). Older kernels parse delay_use as a plain integer and reject
-	# "100ms", silently falling back to 1s. The block below probes for this rather
-	# than assuming, so USB_DELAY is either "100ms" or "1".
+	# 6.12 has it).
 	#
 	# SCOPE: delay_use belongs to usb-storage and does nothing for a device bound
-	# to the uas driver. The usb-storage.quirks=0781:5583:u entry already in
-	# cmdline.txt is what forces the SanDisk stick onto usb-storage, so the two
-	# settings depend on each other. A field unit fitted with a different stick
-	# may bind to uas, where this delay does not apply.
+	# to the uas driver.
 	#
 	# Verify after boot:
 	#   cat /sys/module/usb_storage/parameters/delay_use
 	#   dmesg | grep -i delay_use   # a rejected value logs "invalid for parameter"
-	usb-storage.delay_use=$USB_DELAY
+	usb-storage.delay_use=100ms
 )
 
 line="$(head -n1 "$CMDLINE_FILE")"
