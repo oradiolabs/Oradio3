@@ -1,0 +1,24 @@
+[Unit]
+Description=Record USB mount outcome for this boot (stress testing)
+
+# Deliberately ordered late. The point is to judge the FINAL state after both
+# the boot fast path and the udev fallback have had their chance, not to race
+# them. Ordering this early would measure the harness, not the system.
+After=multi-user.target oradio.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/usb-boot-check.sh
+RemainAfterExit=yes
+
+# RemainAfterExit keeps the unit active, so ExecStop runs at shutdown. It drops
+# a marker the next boot looks for: if the marker is missing, the shutdown was
+# not clean. That is what distinguishes 'sudo reboot' from a pulled plug in the
+# results, without relying on remembering which was done.
+ExecStop=/usr/local/sbin/usb-boot-check.sh --shutdown
+
+# Never let the test harness itself take the system down or mark it degraded.
+SuccessExitStatus=0 1
+
+[Install]
+WantedBy=multi-user.target
