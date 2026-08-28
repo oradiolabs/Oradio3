@@ -36,6 +36,40 @@ log() {
 	echo "$(date '+%F %T') $*"
 }
 
+#ONNO: for debugging usb-boot problems only. Remove before merging
+# Force the log onto the SD card instead of leaving it in the page cache, so a
+# power cut does not take the record of the boot that caused it. This is the
+# opposite call from oradio.log, which is deliberately NOT made durable - the
+# difference is that usb.log is test data while the boot matrix is running.
+#
+# Why the trap catches EVERY line, including the last: bash flushes stdout
+# before it forks an external command, and sync is external. So by the time
+# sync starts, the final log line is already in the file. (A builtin would not
+# have that effect - the line would still be sitting in bash's buffer.)
+# sync -d then fdatasyncs the file, which is what actually reaches the card;
+# without it ext4 would not commit for ~5s.
+#
+# On exit rather than inside log(): one fdatasync per invocation instead of one
+# per line, and it lands AFTER the mount. Measured fsync cost on this card is
+# p50 5ms, p95 36ms, max 77ms, against only ~132ms of margin between the mount
+# completing and oradio.service starting - so a sync between finding the device
+# and mounting it could eat over half that margin for a diagnostic line.
+#
+# Also trapped on TERM and INT: bash does not run EXIT traps on untrapped fatal
+# signals, so without these a script killed at TimeoutStartSec (a hung mount -
+# exactly the case worth having the log for) would flush nothing. The handler
+# re-exits with the conventional 128+signal status, which re-enters the EXIT
+# trap; SYNC_DONE makes the second call a no-op.
+SYNC_DONE=0
+sync_log() {
+	[ "$SYNC_DONE" -eq 1 ] && return 0
+	SYNC_DONE=1
+	sync -d "PLACEHOLDER_LOGFILE_USB" 2>/dev/null || true
+}
+trap 'sync_log' EXIT
+trap 'log "Warning: terminated by signal"; sync_log; exit 143' TERM
+trap 'log "Warning: interrupted"; sync_log; exit 130' INT
+
 # Locate the ORADIO partition, polling until DEVICE_WAIT expires.
 #
 # Two independent methods, tried together on every pass:
