@@ -1702,7 +1702,12 @@ class WifiMessageHandler(MessageHandlerTemplate):
         else:
             oradio_log.error("Unexpected message: %s", message)
 
-    def send_message(self, msg_type: str, incident: IncidentMessage | None = None) -> None:
+    def send_message(
+        self,
+        msg_type: str,
+        incident: IncidentMessage | None = None,
+        force: bool = False,
+    ) -> None:
         """
         Queue a message for the RMS server and return.
 
@@ -1731,6 +1736,13 @@ class WifiMessageHandler(MessageHandlerTemplate):
             msg_type: HEARTBEAT, SYS_INFO, or INCIDENT.
             incident: Required when msg_type is INCIDENT (ignored
                       otherwise) -- the IncidentMessage to report.
+            force: Skip the PERIODIC_SEND_COOLDOWN check, so a HEARTBEAT or
+                   SYS_INFO goes out even if one was just sent. For manual
+                   testing from the stand-alone menu; the application itself
+                   leaves this at False, since back-to-back periodic messages
+                   report nothing new. Everything else still applies: an
+                   unknown type is rejected and nothing is queued without
+                   WiFi.
         """
         if msg_type not in (HEARTBEAT, SYS_INFO, INCIDENT):
             oradio_log.error("Unsupported message type: %s", msg_type)
@@ -1744,7 +1756,7 @@ class WifiMessageHandler(MessageHandlerTemplate):
             oradio_log.debug("WiFi not available; not sending %s message", msg_type)
             return
 
-        if not self._periodic_send_is_due(msg_type):
+        if not self._periodic_send_is_due(msg_type, force):
             return
 
         # Timestamped here rather than at POST time, so the message reports
@@ -1757,7 +1769,7 @@ class WifiMessageHandler(MessageHandlerTemplate):
             )
         )
 
-    def _periodic_send_is_due(self, msg_type: str) -> bool:
+    def _periodic_send_is_due(self, msg_type: str, force: bool = False) -> bool:
         """
         Whether a periodic message may be queued, or falls inside its cooldown.
 
@@ -1774,6 +1786,9 @@ class WifiMessageHandler(MessageHandlerTemplate):
 
         Args:
             msg_type: HEARTBEAT, SYS_INFO, or INCIDENT.
+            force: Send regardless of how recently this type went out. The
+                   timestamp is still updated, so the cooldown that follows
+                   runs from this send.
 
         Returns:
             bool: True if the message should be queued.
@@ -1787,10 +1802,15 @@ class WifiMessageHandler(MessageHandlerTemplate):
             last = self._last_queued.get(msg_type)
 
             if last is not None and now - last < PERIODIC_SEND_COOLDOWN:
+                if not force:
+                    oradio_log.debug(
+                        "%s message sent %.0fs ago; skipping this one", msg_type, now - last
+                    )
+                    return False
+
                 oradio_log.debug(
-                    "%s message sent %.0fs ago; skipping this one", msg_type, now - last
+                    "%s message sent %.0fs ago; sending anyway (forced)", msg_type, now - last
                 )
-                return False
 
             self._last_queued[msg_type] = now
 
@@ -1864,7 +1884,12 @@ class RMService:
             self._queue = None
             Incidents.publish(IncidentMessage(RMS_SOURCE, RMS_START_FAILED))
 
-    def send_message(self, msg_type: str, incident: IncidentMessage | None = None) -> None:
+    def send_message(
+        self,
+        msg_type: str,
+        incident: IncidentMessage | None = None,
+        force: bool = False,
+    ) -> None:
         """
         Send a message to the RMS server.
 
@@ -1882,12 +1907,16 @@ class RMService:
             msg_type: HEARTBEAT, SYS_INFO, or INCIDENT.
             incident: Required when msg_type is INCIDENT (ignored
                       otherwise) -- the IncidentMessage to report.
+            force: Send a periodic message even if one went out inside
+                   PERIODIC_SEND_COOLDOWN. Intended for the interactive test
+                   menu, so a tester is not left waiting five minutes between
+                   sends; the application leaves it at its default.
         """
         if self._handler is None:
             oradio_log.error("RMS service not started; cannot send %s", msg_type)
             return
 
-        self._handler.send_message(msg_type, incident)
+        self._handler.send_message(msg_type, incident, force)
 
     def stop(self) -> None:
         """
@@ -1965,12 +1994,15 @@ if __name__ == "__main__":
                     break
                 case 1:
                     print("\nSend HEARTBEAT test message to Remote Monitoring Service...\n")
-                    rms.send_message(HEARTBEAT)
+                    # force: a tester pressing 1 twice means it twice, so the
+                    # PERIODIC_SEND_COOLDOWN that protects a flapping link is
+                    # not what should decide it here
+                    rms.send_message(HEARTBEAT, force=True)
                 case 2:
                     print("\nSend SYS_INFO test message to Remote Monitoring Service...\n")
-                    rms.send_message(SYS_INFO)
+                    rms.send_message(SYS_INFO, force=True)
                 case 3:
-                    print("\nSend test INCIDENT message to Remote Monitoring Service...\n")
+                    print("\nSend test INCIDENT message to Remote Monitoring Service...\n")
                     rms.send_message(INCIDENT, IncidentMessage("rms_service.py:0", "Test incident from interactive menu"))
                 case 4:
                     print("\nStarting heartbeat timer...\n")
