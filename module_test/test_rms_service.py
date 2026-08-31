@@ -47,7 +47,6 @@ from rms_service import (
     MAX_UPLOAD_TOTAL_BYTES,
     ESSENTIAL_LOG_BASE,
     PERIODIC_SEND_COOLDOWN,
-    REMOTE_COMMAND_TIMEOUT,
     SEND_QUEUE_SIZE,
     TRUNCATION_NOTE,
     _RmsReachability,
@@ -742,8 +741,8 @@ class TestRemoteCommand(RmsTestCase):
     A command from RMS must not be able to stall message delivery.
 
     Reaches into the module's private runners deliberately: what is being
-    pinned down is how the command is started and stopped, which is exactly
-    what those functions are.
+    pinned down is how the command is started and where its output goes,
+    which is exactly what those functions are.
     """
     # pylint: disable=protected-access
 
@@ -792,38 +791,88 @@ class TestRemoteCommand(RmsTestCase):
         self.assertTrue(thread.call_args.kwargs["daemon"])
         thread.return_value.start.assert_called_once()
 
-    def test_command_is_run_in_its_own_session_under_a_time_limit(self):
+    def test_command_is_run_in_its_own_session(self):
         """
-        Without a session of its own only the shell can be signalled.
+        A session of its own keeps the command off the service's own group.
 
-        subprocess's timeout kills the shell and leaves whatever it started
-        running unattended, so the time limit would not be a limit at all.
+        It is not what keeps the command alive across a restart of
+        oradio.service -- systemd kills the whole cgroup for that, which is
+        why a command that stops the service is sent detached instead.
         """
         with patch.object(rms_service.subprocess, "Popen") as popen:
             process = popen.return_value.__enter__.return_value
-            process.communicate.return_value = ("", "")
-            process.returncode = 0
+            process.wait.return_value = 0
 
             rms_service._run_remote_command("echo hello")
 
         self.assertTrue(popen.call_args.kwargs["start_new_session"])
-        self.assertEqual(process.communicate.call_args.kwargs["timeout"], REMOTE_COMMAND_TIMEOUT)
 
-    def test_timed_out_command_has_its_process_group_signalled(self):
-        """SIGTERM to let a script tidy up, then SIGKILL for anything still there."""
-        process = MagicMock()
-        process.pid = 4321
-        process.communicate.side_effect = [
-            rms_service.subprocess.TimeoutExpired("cmd", 1),   # ignores SIGTERM
-            ("", ""),                                          # gone after SIGKILL
-        ]
+    def test_command_runs_without_a_time_limit(self):
+        """
+        How long a command may take is the sender's business, not ours.
 
-        with patch.object(rms_service.os, "getpgid", return_value=4321), \
-             patch.object(rms_service.os, "killpg") as killpg:
-            rms_service._terminate_process_group(process)
+        wait() rather than communicate(timeout=...): there is no deadline to
+        enforce and no pipe to drain, so there is nothing to time out.
+        """
+        with patch.object(rms_service.subprocess, "Popen") as popen:
+            process = popen.return_value.__enter__.return_value
+            process.wait.return_value = 0
 
-        signals = [call.args[1] for call in killpg.call_args_list]
-        self.assertEqual(signals, [rms_service.signal.SIGTERM, rms_service.signal.SIGKILL])
+            rms_service._run_remote_command("sleep 3600")
+
+        process.wait.assert_called_once_with()
+        process.communicate.assert_not_called()
+
+    def test_command_output_is_not_read_into_this_process(self):
+        """
+        Reading the output would let a chatty command exhaust memory.
+
+        The command is handed the log file itself, so its output costs disk
+        rather than RAM. stderr shares the descriptor so the two interleave
+        in the order they were written.
+        """
+        with patch.object(rms_service.subprocess, "Popen") as popen:
+            process = popen.return_value.__enter__.return_value
+            process.wait.return_value = 0
+
+            rms_service._run_remote_command("echo hello")
+
+        kwargs = popen.call_args.kwargs
+        self.assertIsNot(kwargs["stdout"], rms_service.subprocess.PIPE)
+        self.assertEqual(kwargs["stderr"], rms_service.subprocess.STDOUT)
+
+    def test_command_output_lands_in_the_command_log(self):
+        """Both streams, and the exit code, are recorded for later reading."""
+        with TemporaryDirectory() as folder:
+            log = Path(folder) / "rms.log"
+
+            with patch.object(rms_service, "REMOTE_COMMAND_LOG", log):
+                rms_service._run_remote_command("echo out; echo err >&2; exit 3")
+
+            recorded = log.read_text(encoding="utf-8")
+
+        self.assertIn("out", recorded)
+        self.assertIn("err", recorded)
+        self.assertIn("exit code 3", recorded)
+
+    def test_command_still_runs_when_its_log_cannot_be_opened(self):
+        """
+        A card that has gone read-only is when a repair matters most.
+
+        The output is dropped rather than the command, so logging can never
+        be the reason a device cannot be fixed remotely.
+        """
+        unwritable = Path("/nonexistent-directory-for-tests/rms.log")
+
+        with patch.object(rms_service, "REMOTE_COMMAND_LOG", unwritable), \
+             patch.object(rms_service.subprocess, "Popen") as popen:
+            process = popen.return_value.__enter__.return_value
+            process.wait.return_value = 0
+
+            rms_service._run_remote_command("echo hello")
+
+        popen.assert_called_once()
+        self.assertEqual(popen.call_args.kwargs["stdout"], rms_service.subprocess.DEVNULL)
 
     def test_no_command_starts_no_thread(self):
         """The ordinary heartbeat response carries nothing to run."""
