@@ -61,14 +61,13 @@ Created on February 8, 2025
     so a captive portal answering in its place is not read as delivery.
 
     A heartbeat response may carry a command for the device, which is run
-    by a thread of its own under a time limit, so it cannot hold up the
-    messages behind it.
+    by a thread of its own, so it cannot hold up the messages behind it.
+    The command runs to completion; how long it takes is the sender's
+    responsibility.
 """
-import os
 import re
 import json
 import uuid
-import signal
 import subprocess
 from time import sleep, monotonic
 from pathlib import Path
@@ -194,13 +193,17 @@ PERIODIC_SEND_COOLDOWN = 5 * 60
 LOG_UPLOAD_COOLDOWN = 15 * 60
 
 ##### Remote command execution ############################
-# Seconds a command from RMS may run before it is stopped. Long enough for an update or a
-# package install, short enough that a command which will never finish does not sit on the
-# device until the next reboot.
-REMOTE_COMMAND_TIMEOUT = 5 * 60
+# A command from RMS runs to completion; there is no time limit. Knowing what a command does
+# and how long it takes on the device is the responsibility of whoever sends it. Anything
+# long-running should detach itself -- systemd-run is the usual way -- so that it survives a
+# reboot of the service and reports through its own unit rather than this one.
 
-# Seconds between asking the command's process group to stop and killing it outright.
-REMOTE_COMMAND_GRACE = 5
+# Where a command's stdout and stderr go. The command writes to this file descriptor itself,
+# so nothing is buffered in this process: reading the output instead would let a command that
+# writes without stopping grow the service until the OOM killer takes it. It sits in the log
+# directory and ends in .log, so it is picked up by the incident upload, and rotated by
+# logrotate, like any other log here.
+REMOTE_COMMAND_LOG = ORADIO_LOG_PATH / "rms.log"
 
 ##### Send queue ##########################################
 # Depth of the queue between send_message() and the sender thread. Deep enough to absorb a burst
@@ -389,17 +392,34 @@ def _extract_command(response: Response) -> str | None:
 
 def _run_remote_command(command: str) -> None:
     """
-    Run one command from RMS and log what it did.
+    Run one command from RMS and record what it did.
 
     Runs on a thread of its own, so a command that takes minutes -- or never
     finishes -- cannot hold up the sender thread and with it every message
     behind this one.
 
-    The command gets its own process session, which is what makes the time
-    limit real: subprocess's own timeout kills the shell and leaves whatever
-    that shell started running unattended. The whole process group is
-    signalled instead, SIGTERM first so a script can tidy up, then SIGKILL
-    for anything still there.
+    The command runs to completion with no time limit imposed here. A
+    command that never returns holds this thread until the device reboots;
+    nothing else is affected. Judging what a command does and how long it
+    takes is the sender's responsibility, not this module's.
+
+    Its stdout and stderr are handed to REMOTE_COMMAND_LOG as a file
+    descriptor, so the command writes there itself and this process holds
+    none of it. That is what makes an unbounded command safe to allow: the
+    output costs disk, which logrotate manages, rather than memory, which
+    nothing here could reclaim. The two streams share the descriptor, so
+    they interleave in the order the command wrote them, and a long run can
+    be followed with tail -f while it is still going.
+
+    Nothing here bounds the file. Trimming it between runs would not bound
+    it either -- a single command that writes without stopping grows it
+    while it runs -- and would discard history that logrotate keeps as
+    rms.log.1 and its successors, which the incident upload collects. So
+    the file's size is logrotate's to manage, like every other log here.
+
+    The command still gets its own process session, so it is not tied to the
+    lifetime of the service's own process group: a command that restarts or
+    stops oradio.service survives long enough to finish doing it.
 
     Args:
         command: Shell command as received from the RMS server.
@@ -407,67 +427,64 @@ def _run_remote_command(command: str) -> None:
     oradio_log.debug("Run command '%s' from RMS server", command)
 
     try:
+        # Append, so the header below and the command's own writes are
+        # ordered by the kernel rather than by this process's buffer.
+        output = REMOTE_COMMAND_LOG.open("a", encoding="utf-8", errors="replace")
+    except OSError as ex_err:
+        # The command must still run when its log cannot be opened. A card
+        # that has gone read-only is exactly when a repair command matters
+        # most, so the output is dropped rather than the command.
+        oradio_log.error(
+            "Could not open '%s'; running '%s' with its output discarded: %s",
+            REMOTE_COMMAND_LOG, command, ex_err
+        )
+        output = None
+
+    returncode = None
+
+    try:
+        if output is not None:
+            output.write(f"\n===== {datetime.now():%Y-%m-%d %H:%M:%S} | {command}\n")
+            # Before the child starts, or the header lands after its output
+            output.flush()
+
         with subprocess.Popen(
             command,
             shell=True,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
+            stdout=subprocess.DEVNULL if output is None else output,
+            # Same descriptor as stdout, so the two interleave in order
+            stderr=subprocess.STDOUT,
             # executable must be set explicitly; without it Python falls
             # back to /bin/sh which may lack bash-specific features.
             executable="/usr/bin/bash",
-            # text=True decodes stdout/stderr to str for readable logging.
-            text=True,
-            # Its own session, so the process group can be signalled as a whole
+            # Its own session, so the command is not signalled along with the
+            # service that started it
             start_new_session=True,
         ) as process:
-            try:
-                stdout, stderr = process.communicate(timeout=REMOTE_COMMAND_TIMEOUT)
-            except subprocess.TimeoutExpired:
-                oradio_log.error(
-                    "Command '%s' from RMS server exceeded %d seconds; stopping it",
-                    command, REMOTE_COMMAND_TIMEOUT
-                )
-                stdout, stderr = _terminate_process_group(process)
-
-            if process.returncode == 0:
-                oradio_log.debug("shell script result:\n%s", stdout)
-            else:
-                oradio_log.error(
-                    "shell script '%s' exit code: %d\nOutput:\n%s\nError:\n%s",
-                    command, process.returncode, stdout, stderr
-                )
+            # No timeout: this returns when the command does. Nothing is read
+            # from the child, so there is no pipe to drain and no deadlock to
+            # avoid by using communicate() instead.
+            returncode = process.wait()
     except OSError as ex_err:
         # The shell itself could not be started: missing, not executable, or
         # no memory to fork with.
         oradio_log.error("Could not run command '%s' from RMS server: %s", command, ex_err)
+    finally:
+        if output is not None:
+            if returncode is not None:
+                output.write(f"===== exit code {returncode}\n")
+            output.close()
 
-def _terminate_process_group(process: subprocess.Popen) -> tuple[str, str]:
-    """
-    Stop a timed-out command and everything it started.
+    # output is left non-None once opened, closed or not, so this still
+    # reports correctly for a run whose log could not be opened at all.
+    where = "discarded" if output is None else f"in '{REMOTE_COMMAND_LOG}'"
 
-    Args:
-        process: The running command, started with start_new_session=True.
-
-    Returns:
-        tuple[str, str]: Whatever the command managed to write before it was
-        stopped, as (stdout, stderr).
-    """
-    for stop_signal in (signal.SIGTERM, signal.SIGKILL):
-        try:
-            os.killpg(os.getpgid(process.pid), stop_signal)
-        except (ProcessLookupError, PermissionError) as ex_err:
-            # Already gone, or not ours to signal; either way there is
-            # nothing further to do with it here.
-            oradio_log.debug("Could not signal command process group: %s", ex_err)
-            break
-
-        try:
-            return process.communicate(timeout=REMOTE_COMMAND_GRACE)
-        except subprocess.TimeoutExpired:
-            # Ignored SIGTERM, so round two is SIGKILL
-            continue
-
-    return "", ""
+    if returncode == 0:
+        oradio_log.debug("Command '%s' finished; output %s", command, where)
+    elif returncode is not None:
+        oradio_log.error(
+            "shell script '%s' exit code: %d; output %s", command, returncode, where
+        )
 
 def _handle_response_command(response: Response) -> None:
     """
