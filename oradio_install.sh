@@ -98,15 +98,22 @@ for VAR_NAME in "${!LOGFILE_@}"; do
 	touch "${!VAR_NAME}" || { echo -e "${RED}Aborting: Failed to create ${!VAR_NAME}${NC}"; exit 1; }
 done
 
+# Save the original stdout/stderr before redirecting, so the EXIT trap below
+# can restore them whatever they were: a terminal on an interactive run, the
+# journal under systemd, a pipe when invoked from another script.
+exec 3>&1 4>&2
+
 # Redirect script output to console and file
 exec > >(tee -a "$LOGFILE_INSTALL") 2>&1
 
 # When leaving this script stop redirection and wait until redirect process has finished.
-# NOTE: this assumes a tty is attached (interactive run). If this script is ever invoked
-# from a context without one (cron, a CI runner, `ssh host script.sh < /dev/null`), the
-# `exec > /dev/tty` below will fail; that failure is harmless here since it only affects
-# where *further* output after the trap goes, not the exit status of the script itself.
-trap 'exec > /dev/tty 2>&1; wait' EXIT
+# Restoring via the saved descriptors rather than /dev/tty is what makes the
+# `wait` safe: it only returns once tee sees EOF, and tee only sees EOF once
+# nothing still holds the write end of that pipe. Redirecting to /dev/tty
+# instead fails whenever no terminal is attached (cron, a systemd unit,
+# `ssh host script.sh < /dev/null`), stdout then stays on the pipe, and the
+# script hangs here forever instead of exiting.
+trap 'exec 1>&3 2>&4; wait' EXIT
 
 # Script is for Raspberry Pi OS Lite (64bit)
 TARGETOS="Debian GNU/Linux 13 (trixie)"
