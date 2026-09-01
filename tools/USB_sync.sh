@@ -1,4 +1,4 @@
-#!/usr/bin/bash
+#!/usr/bin/env bash
 #
 #  ####   #####     ##    #####      #     ####
 # #    #  #    #   #  #   #    #     #    #    #
@@ -12,16 +12,31 @@
 # @copyright:	 Stichting Oradio
 # @license:		 GNU General Public License (GPL)
 # @organization: Stichting Oradio
-# @version:	   	 2
+# @version:	   	 3
 # @email:		 info@stichtingoradio.nl
 # @status:		 Development
-# @purpose:		 Synchronizes selected SharePoint directories to USB using rclone.
+# @purpose:		 Checks/repairs the USB filesystem and synchronizes selected
+#				 SharePoint directories to it using rclone.
 #
-#		Usage: USB_sync.sh [-y|--yes] [directory ...]
+#		Usage: USB_sync.sh [-y|--yes] [-c|--check-only] [directory ...]
 #		  e.g. USB_sync.sh                    (complete SharePoint tree)
 #		       USB_sync.sh Muziek
 #		       USB_sync.sh Muziek Speellijsten
 #		       USB_sync.sh --yes Muziek/Evergreens
+#		       USB_sync.sh --check-only       (health check, no sync)
+#
+#		This script does both jobs: the USB health check (--check-only) and the
+#		SharePoint sync. They were separate scripts until the two copies of the
+#		lock, the unmount and the fsck drifted apart; there is one
+#		implementation of each now, and --check-only stops after it.
+#
+#		The check runs before any dependency or network step, and pkg-helper.sh
+#		makes no network calls when the packages it is asked for are already
+#		installed. A stick can therefore be checked and repaired on a Pi with
+#		no internet connection.
+#
+#		--check-only does not reboot. Services are stopped for the check and
+#		restarted by the cleanup trap.
 #
 #		For unattended runs, combine --yes with ORADIO_SYNC_PW holding the
 #		config decryption password. Keep that password in a root-owned 0600
@@ -43,6 +58,10 @@
 #		2. openssl enc -aes-256-cbc -pbkdf2 -salt -in sharepoint.conf -out rclone.conf.enc -base64
 #		3. Upload rclone.conf.enc to GitHub Releases (tag: config)
 #		4. shred -u sharepoint.conf
+#
+#		Requires /etc/sudoers.d/oradio granting NOPASSWD for: mount, umount,
+#		fsck.fat, blkid, badblocks, install, rm, touch, flock, tee, apt-get,
+#		systemctl (stop/start).
 
 # Stop on errors (-e), catch unset variables (-u), catch failures in any part of a pipeline (-o pipefail)
 set -euo pipefail
@@ -53,16 +72,18 @@ YELLOW='\033[1;93m'
 GREEN='\033[1;32m'
 NC='\033[0m'
 
-# Require bash — this script uses bash-specific constructs
+# Require bash — this script uses bash-specific constructs.
+# echo -e, not echo: this is the one message that fires when the shell cannot do
+# what the rest of the script needs, so it should not print raw escape codes
 if [ -z "${BASH:-}" ]; then
-	echo "${RED}This script requires bash${NC}"
+	echo -e "${RED}This script requires bash${NC}"
 	exit 1
 fi
 
 ##### Arguments ################################
 
 function usage {
-	echo "Usage: $(basename "$0") [-y|--yes] [directory ...]"
+	echo "Usage: $(basename "$0") [-y|--yes] [-c|--check-only] [directory ...]"
 	echo
 	echo "  Without arguments the complete SharePoint tree is synchronized."
 	echo "  With arguments only those directories are synchronized; the rest of"
@@ -70,10 +91,13 @@ function usage {
 	echo "  root and are case-sensitive."
 	echo
 	echo "  Options:"
-	echo "    -y, --yes   Answer all prompts with their default and do not ask"
-	echo "                for confirmation. Runs a real sync, not a dry-run,"
-	echo "                and skips the optional sector scan"
-	echo "    -h, --help  Show this help"
+	echo "    -y, --yes         Answer all prompts with their default and do not"
+	echo "                      ask for confirmation. Runs a real sync, not a"
+	echo "                      dry-run, and skips the optional sector scan"
+	echo "    -c, --check-only  Run the USB health check and stop. Nothing is"
+	echo "                      synchronized, no network connection is needed."
+	echo "                      Exits non-zero if the filesystem was repaired"
+	echo "    -h, --help        Show this help"
 	echo
 	echo "  Environment:"
 	echo "    ORADIO_SYNC_PW  Decryption password for the rclone config. When"
@@ -84,11 +108,13 @@ function usage {
 	echo "    $(basename "$0") Muziek"
 	echo "    $(basename "$0") Muziek Speellijsten"
 	echo "    $(basename "$0") --yes Muziek/Evergreens"
+	echo "    $(basename "$0") --check-only"
 }
 
 # Normalize arguments: strip surrounding slashes and reject unusable paths.
 # No directories leaves SYNC_DIRS empty, which means "sync everything"
 ASSUME_YES=false
+CHECK_ONLY=false
 SYNC_DIRS=()
 for arg in "$@"; do
 
@@ -99,6 +125,10 @@ for arg in "$@"; do
 			;;
 		-y|--yes)
 			ASSUME_YES=true
+			continue
+			;;
+		-c|--check-only)
+			CHECK_ONLY=true
 			continue
 			;;
 		-*)
@@ -127,6 +157,14 @@ for arg in "$@"; do
 	SYNC_DIRS+=("$dir")
 done
 
+# Contradictory: --check-only never syncs anything, so directories cannot mean
+# what the caller thinks they mean. Say so rather than silently ignoring them
+if $CHECK_ONLY && [ "${#SYNC_DIRS[@]}" -gt 0 ]; then
+	echo -e "${RED}--check-only does not synchronize, so directory arguments have no effect${NC}"
+	usage
+	exit 1
+fi
+
 # Without a terminal the prompts further down cannot be answered. Fail here,
 # before services are stopped, rather than part-way through
 if ! $ASSUME_YES && [ ! -t 0 ]; then
@@ -142,10 +180,12 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # Persistent log, on the SD card rather than the journal: journald is configured
 # with Storage=volatile and RuntimeMaxUse=8M, so an unattended run leaves no
 # trace after a reboot. Appended, not truncated, so a stick that needs repairing
-# repeatedly is visible as a pattern. Rotation is left to logrotate
+# repeatedly is visible as a pattern. Rotation is left to logrotate.
+# Health checks and syncs share one file, which is the point: "how often has
+# this stick needed repairing" is only answerable if both write to it
 LOGDIR="/home/pi/Oradio3/logging"
 [ -d "$LOGDIR" ] || LOGDIR="$SCRIPT_DIR"
-LOGFILE="${ORADIO_SYNC_LOG:-$LOGDIR/rclone.log}"
+LOGFILE="${ORADIO_SYNC_LOG:-$LOGDIR/usb.log}"
 
 # Whether stdout was a terminal, recorded before it is replaced by the pipe below
 INTERACTIVE=false
@@ -173,6 +213,16 @@ fi
 # Set when fsck repaired the filesystem, so the run can report it at the end
 REPAIRED=false
 
+function report_repair {
+	echo
+	echo -e "${YELLOW}NOTE: the filesystem was repaired during this run${NC}"
+	echo "Corruption is usually a failing stick or an unclean removal."
+	if [ -n "$LOGFILE" ]; then
+		echo "Check $LOGFILE for how often this happens."
+	fi
+	echo "Any recovered fragments are in FSCK*.REC at the root of the USB."
+}
+
 ##### Cleanup / restore on exit ################
 
 # Global flag to indicate cleanup already done
@@ -197,10 +247,10 @@ function cleanup {
 	# Handle signal messages
 	case "$signal" in
 		INT)
-			echo -e "\n${RED}CTRL-C: Cleanup on exit:${NC}" 
+			echo -e "\n${RED}CTRL-C: Cleanup on exit:${NC}"
 			;;
 		TERM)
-			echo -e "\n${RED}SIGNAL: Cleanup on exit:${NC}" 
+			echo -e "\n${RED}SIGNAL: Cleanup on exit:${NC}"
 			;;
 		EXIT)
 			echo "Cleanup on exit (code $exitcode)"
@@ -223,7 +273,10 @@ function cleanup {
 		echo "No temporary files removed"
 	fi
 
-	# Remount USB with original options if it was unmounted by this script
+	# Remount USB with original options if it was unmounted by this script.
+	# OPTIONS is always set once the device is known: either captured from the
+	# live mount, or the usb-drive.sh defaults when the stick was too damaged
+	# to be mounted at all
 	if  [[ -n "${OPTIONS:-}" && -n "${DEVICE:-}" && -b "${DEVICE:-}" && -n "${MOUNTPOINT:-}" ]]; then
 
 		# Hold the usb-drive.sh lock across the remount too. Re-locking an fd
@@ -244,7 +297,10 @@ function cleanup {
 		echo "USB not remounted"
 	fi
 
-	# Restart services in reverse stop order
+	# Restart services in reverse stop order. This replaces the reboot the
+	# health check used to end with, and it takes two seconds rather than a
+	# minute, keeps the log context, and cannot turn a failing stick into a
+	# reboot loop
 	if [ "${STOPPED_SERVICES+set}" = set ] && [ "${#STOPPED_SERVICES[@]}" -gt 0 ]; then
 		for (( idx=${#STOPPED_SERVICES[@]}-1; idx>=0; idx-- )); do
 			service="${STOPPED_SERVICES[idx]}"
@@ -256,6 +312,14 @@ function cleanup {
 		done
 	else
 		echo "No services restarted"
+	fi
+
+	# A repair may have moved orphaned clusters into FSCK*.REC, so mpd's
+	# database no longer matches what is on the stick. Cheap insurance
+	if $REPAIRED && command -v mpc >/dev/null 2>&1; then
+		if mpc update >/dev/null 2>&1; then
+			echo " - mpd database update triggered"
+		fi
 	fi
 
 	# Last: stop logging and wait for the writers to drain. Nothing may echo
@@ -275,9 +339,13 @@ trap 'cleanup INT; exit 130' INT					# Ctrl+C
 trap 'cleanup TERM; exit 143' TERM					# Kill command
 trap '' HUP  										# Keep running if SSH session disconnects
 
-##### Dependencies #############################
+##### Dependencies for the health check ########
 
-sudo bash $SCRIPT_DIR/pkg-helper.sh rclone
+# Before the check, not before the sync: fsck.fat, badblocks and fuser are what
+# the check needs, and none of them is guaranteed on a Lite image. pkg-helper.sh
+# makes no network call when these are already installed, so an offline Pi still
+# gets its check. rclone is requested later, only when there is a sync to do
+bash "$SCRIPT_DIR/pkg-helper.sh" dosfstools e2fsprogs psmisc
 
 ##### Stop services using the USB ##############
 
@@ -305,6 +373,10 @@ done
 # Define USB location
 MOUNTPOINT="/media/oradio"
 
+# Filesystem label of the stick, used when it is too damaged to be mounted.
+# Check with: lsblk -o NAME,LABEL,FSTYPE
+USB_LABEL="ORADIO"
+
 # Flag file that usb-drive.sh maintains: present = mounted, absent = unmounted.
 # This script unmounts the USB for the health check, so it owns the flag for
 # the duration and must keep it truthful
@@ -315,6 +387,10 @@ USB_FLAG="/run/usb_present"
 # filesystem underneath a running fsck. usb-drive.sh's own guard does not
 # help: it tests mountpoint, which is false exactly because we unmounted
 USB_LOCK="/run/usb_mount.lock"
+
+# Used to restore the mount when the stick was never mounted to begin with and
+# there were no live options to capture. Keep in step with usb-drive.sh
+DEFAULT_MOUNT_OPTS="rw,users,uid=0,gid=100,fmask=111,dmask=000,utf8=1,sync,flush,noatime,nodiratime"
 
 # usb-drive.sh runs as root and creates the lock with 'exec 9>', leaving it
 # root-owned 0644. Opening it for writing as pi fails, so open it read-only:
@@ -331,19 +407,36 @@ if ! flock -x -w 30 9; then
 	exit 1
 fi
 
-# Check USB present
-if ! mountpoint -q "$MOUNTPOINT"; then
-	echo -e "${RED}USB is missing${NC}"
-	exit 1
-fi
+# Find the device. -M matches the mountpoint exactly: --target would resolve the
+# path to whatever filesystem contains it, which for an unmounted stick is the
+# SD card holding /
+if mountpoint -q "$MOUNTPOINT"; then
 
-# Save mount device and options so cleanup can remount with identical settings.
-# The read itself is the condition: with '|| true' inside the process
-# substitution, empty output leaves read returning 1 and set -e ends the
-# script before the checks below can explain why
-if ! read -r DEVICE OPTIONS < <(findmnt -n -o SOURCE,OPTIONS "$MOUNTPOINT"); then
-	echo -e "${RED}Could not determine device and mount options for $MOUNTPOINT${NC}"
-	exit 1
+	# Save mount device and options so cleanup can remount with identical
+	# settings. The read itself is the condition: with '|| true' inside the
+	# process substitution, empty output leaves read returning 1 and set -e ends
+	# the script before the checks below can explain why
+	if ! read -r DEVICE OPTIONS < <(findmnt -n -o SOURCE,OPTIONS -M "$MOUNTPOINT"); then
+		echo -e "${RED}Could not determine device and mount options for $MOUNTPOINT${NC}"
+		exit 1
+	fi
+
+else
+
+	# A FAT too corrupt to mount is exactly the case the check below exists for,
+	# so fall back to finding the stick by its filesystem label rather than
+	# reporting it as missing
+	echo -e "${YELLOW}Nothing mounted at $MOUNTPOINT; looking for a device labelled '$USB_LABEL'${NC}"
+	DEVICE="$(sudo blkid -L "$USB_LABEL" 2>/dev/null || true)"
+
+	if [ -z "$DEVICE" ]; then
+		echo -e "${RED}USB is missing${NC}"
+		exit 1
+	fi
+
+	# No live mount to read them from, so cleanup restores the documented set
+	OPTIONS="$DEFAULT_MOUNT_OPTS"
+	echo "Found $DEVICE by label"
 fi
 
 # Ensure DEVICE is set and exists
@@ -361,14 +454,19 @@ fi
 # Unmount before checking. fsck.fat has no mounted-filesystem guard of its own
 # (unlike e2fsck), so repairing a still-mounted volume is how small
 # inconsistencies become large ones
+sync
 sudo umount "$MOUNTPOINT" 2>/dev/null || true
 
-# Verify it is really gone. usb-drive.sh falls back to 'umount -l' on its
-# remove path, so busy mounts do happen on this device
+# Verify it is really gone, by device rather than by mountpoint: usb-drive.sh
+# falls back to 'umount -l' on its remove path, and a desktop session or udisks
+# may have auto-mounted the stick somewhere else entirely
 if findmnt -n -S "$DEVICE" >/dev/null; then
 	echo -e "${RED}$DEVICE is still mounted, cannot check safely${NC}"
 	findmnt -n -S "$DEVICE" | sed 's/^/  /'
-	echo "Find what is holding it with: sudo fuser -vm $MOUNTPOINT"
+	echo "Find what is holding it with:"
+	fuser -vm "$MOUNTPOINT" 2>&1 | sed 's/^/  /' || true
+	# Nothing was modified and the filesystem is still mounted and usable, so
+	# there is no unknown state to reboot out of: cleanup restarts the services
 	exit 1
 fi
 
@@ -388,8 +486,9 @@ else
 	# 2. Repair.
 	# No -f: in fsck.fat that means "salvage unused chains to files", not
 	# "force". Auto mode writes orphaned clusters to FSCK0000.REC at the volume
-	# root either way, so the flag only adds confusion. Exit code 1 means
-	# errors were found and corrected; 2 or more means fsck could not proceed
+	# root either way, so the flag only adds confusion. No -w either: -a already
+	# writes its corrections. Exit code 1 means errors were found and corrected;
+	# 2 or more means fsck could not proceed
 	sudo fsck.fat -a "$DEVICE" || rc=$?
 	rc=${rc:-0}
 	if [ "$rc" -ge 2 ]; then
@@ -444,7 +543,9 @@ fi
 # Remount with explicit options (ensures consistent permissions).
 # Note this drops the sync,flush,noatime,nodiratime that usb-drive.sh uses:
 # deliberate, because 'sync' would make a multi-gigabyte rclone write painfully
-# slow here. Cleanup restores the original options captured above
+# slow here. Cleanup restores the original options captured above — including
+# under --check-only, which costs one extra umount/mount cycle and keeps this
+# to a single code path
 OPTS="rw,users,uid=0,gid=100,fmask=111,dmask=000,utf8=1"
 if ! sudo mount -t vfat -o "$OPTS" "$DEVICE" "$MOUNTPOINT"; then
 	echo -e "${RED}Failed to mount $DEVICE to $MOUNTPOINT${NC}"
@@ -461,6 +562,24 @@ sudo touch "$USB_FLAG"
 
 # The health check is done, so let usb-drive.sh handle add/remove events again
 flock -u 9
+
+##### Stop here if only checking ###############
+
+# Everything below needs the network. Cleanup restores the original mount
+# options and restarts the services
+if $CHECK_ONLY; then
+	echo
+	if $REPAIRED; then
+		report_repair
+		exit 1
+	fi
+	echo -e "${GREEN}Health check complete: filesystem is clean${NC}"
+	exit 0
+fi
+
+##### Dependencies for the sync ################
+
+bash "$SCRIPT_DIR/pkg-helper.sh" rclone
 
 ##### rclone config ############################
 
@@ -733,13 +852,7 @@ fi
 # the synced directories, but the cause is not addressed, so say so plainly and
 # exit non-zero: under --yes this is the only thing that will draw attention
 if $REPAIRED; then
-	echo
-	echo -e "${YELLOW}NOTE: the filesystem was repaired during this run${NC}"
-	echo "Corruption is usually a failing stick or an unclean removal."
-	if [ -n "$LOGFILE" ]; then
-		echo "Check $LOGFILE for how often this happens."
-	fi
-	echo "Any recovered fragments are in FSCK*.REC at the root of the USB."
+	report_repair
 	exit 1
 fi
 
