@@ -1,4 +1,4 @@
-#!/usr/bin/env bash
+#!/usr/bin/bash
 #
 #  ####   #####     ##    #####      #     ####
 # #    #  #    #   #  #   #    #     #    #    #
@@ -184,10 +184,13 @@ echo "Disabled apt translation downloads in $APT_LANG_CONF"
 # ---------------------------------------
 # cmdline.txt MUST remain exactly one line. Rebuild it explicitly rather than
 # using sed, which would append to every line if a trailing newline exists.
+
+#ONNO: Uncomment quiet and loglevel before merge to main
 CMDLINE_OPTS=(
-	quiet					# Suppress most kernel boot messages
-	loglevel=3				# Errors only
 	logo.nologo				# No framebuffer logo
+#ONNO: Temporarily show all boot output for debugging
+#	quiet					# Suppress most kernel boot messages
+#	loglevel=3				# Errors only
 
 	# Contiguous Memory Allocator. The Pi device tree reserves 64 MiB by default
 	# for the camera and the KMS display stack, neither of which this device uses
@@ -206,42 +209,128 @@ CMDLINE_OPTS=(
 	# Use 1, not 0: some kernel versions treat rd_nr=0 as "use the default".
 	brd.rd_nr=1
 
-	# usb-storage waits 1 second before probing a new device, a legacy workaround
-	# for spinning drives. Measured on this hardware: 'scsi host0' -> '[sda]' fell
-	# from 1.02s to 9ms. Pure gain for a flash stick.
-	usb-storage.delay_use=0
+	# usb-storage waits before probing a new device, to let it settle. The default
+	# is 1s and is a legacy figure aimed at supporting the widest possible range of
+	# hardware; on a flash drive this is almost all dead time.
+	#
+	# Do NOT set this to 0. It was 0 here and it caused intermittent boots where
+	# the ORADIO stick was never mounted: the SCSI scan runs before the device is
+	# ready, so the partition table read fails and /dev/sda1 never appears at all.
+	# Nothing downstream can recover from that.
+	# Multipe fora discussions says the same: "when delay_use is set to 0 (no delay),
+	# still error observed on some USB drives", which is why the parameter was
+	# reworked to accept sub-second values in the first place.
+	#
+	# 100ms is the value suggested as safe for most pen drives, and keeps
+	# nearly all of the win: 'scsi host0' -> '[sda]' measured 1.02s at the default
+	# and ~9ms at 0, so the settle time now dominates and costs ~100ms total.
+	#
+	# FORMAT: the 'ms' suffix needs the reworked driver (kernel ~6.11+; Trixie's
+	# 6.12 has it).
+	#
+	# SCOPE: delay_use belongs to usb-storage and does nothing for a device bound
+	# to the uas driver. Verify after boot:
+	#   cat /sys/module/usb_storage/parameters/delay_use
+	#   dmesg | grep -i delay_use   # a rejected value logs "invalid for parameter"
+#	usb-storage.delay_use=100ms
 )
 
-line="$(head -n1 "$CMDLINE_FILE")"
+# ---------------------------------------------------------------------------
+# Rebuild cmdline.txt by KEY, not by substring
+# ---------------------------------------------------------------------------
+# Every option in CMDLINE_OPTS is OWNED by this script: any token already on the
+# line that shares its key is discarded and replaced by the value above. The file
+# therefore converges on CMDLINE_OPTS whatever it contained before.
+#
+# The previous approach compared whole strings, which silently broke whenever a
+# value changed. Editing cma=16M to cma=32M appended the new token and left the
+# old one in place; the kernel then took whichever came last, so the effective
+# setting depended on append order rather than on this file. The same trap
+# applied to loglevel=, brd.rd_nr=, systemd.gpt_auto= and usb-storage.delay_use=.
+# Matching on the key before '=' removes the whole class of bug, and collapses
+# duplicates left behind by earlier runs as a side effect.
+#
+# CMDLINE_REMOVE holds keys to strip and NOT re-add. To keep one specific value
+# of an otherwise removed key, put that value in CMDLINE_OPTS: it is stripped by
+# key first, then re-added. Dropping 'console' from CMDLINE_REMOVE is not needed
+# to keep panics on HDMI - adding 'console=tty1' to CMDLINE_OPTS is enough, and
+# still discards console=serial0,115200.
+#
+# Tokens whose key is in neither list are preserved verbatim and in their
+# original order: root=, rootfstype=, rootwait, fsck.repair=,
+# usb-storage.quirks=, and everything the firmware prepends.
+CMDLINE_REMOVE=(
+	quiet					# Suppress most kernel boot messages
+	loglevel				# Errors only
+	usb-storage.delay_use	# Wait before probing a device. Removing defaults to 1s
+	console					# Serial and tty consoles: synchronous, slow, and absent in the field
+	fastboot				# Old Raspbian "skip fsck"; superseded by fsck.mode=
+	elevator				# Kernel logs "does not have any effect anymore"; use sysfs per device
+)
+
+declare -A CMDLINE_MANAGED=()	# Keys this script controls
+declare -A CMDLINE_FOUND=()		# What was on the line for those keys, for reporting
 
 for option in "${CMDLINE_OPTS[@]}"; do
-	# Substring match, not 'grep -w': -w treats '.' and '=' as word boundaries, so
-	# options like 'brd.rd_nr=1' would match partially against unrelated text.
-	if [[ " $line " == *" $option "* ]]; then
-		echo "Option '$option' already in $CMDLINE_FILE"
+	CMDLINE_MANAGED["${option%%=*}"]=1
+done
+for key in "${CMDLINE_REMOVE[@]}"; do
+	CMDLINE_MANAGED["$key"]=1
+done
+
+# read -ra rather than an unquoted expansion: no globbing, no surprises if a
+# value ever contains a character the shell would otherwise interpret.
+read -ra cmdline_tokens <<<"$(head -n1 "$CMDLINE_FILE")"
+
+cmdline_keep=()
+for token in "${cmdline_tokens[@]}"; do
+	key="${token%%=*}"
+	if [[ -n "${CMDLINE_MANAGED[$key]:-}" ]]; then
+		# Accumulate: a key can legitimately appear more than once (console=),
+		# and duplicates from a previous buggy run must all be reported.
+		CMDLINE_FOUND["$key"]="${CMDLINE_FOUND[$key]:-}${CMDLINE_FOUND[$key]:+ }$token"
 	else
-		line="$line $option"
-		echo "Adding '$option' to $CMDLINE_FILE"
+		cmdline_keep+=("$token")
 	fi
 done
 
-# Console output on the boot path is synchronous and slow, and there is no
-# console on a deployed unit anyway.
-#
-# Also strip two options this kernel explicitly ignores and logs about:
-#   fastboot          - old Raspbian "skip fsck"; superseded by fsck.mode=
-#   elevator=<sched>  - "does not have any effect anymore", use sysfs per device
-#
-# NOTE: console=tty1 is removed as well. Keep it (drop that sed clause) if you
-# want kernel panics visible on HDMI while developing.
-line="$(sed -E \
-	-e 's/\bconsole=serial0,[0-9]+ ?//g' \
-	-e 's/\bconsole=tty1 ?//g' \
-	-e 's/\bfastboot ?//g' \
-	-e 's/\belevator=[a-zA-Z-]+ ?//g' <<<"$line")"
+for option in "${CMDLINE_OPTS[@]}"; do
+	key="${option%%=*}"
+	was="${CMDLINE_FOUND[$key]:-}"
+	if [ "$was" = "$option" ]; then
+		echo "  unchanged : $option"
+	elif [ -n "$was" ]; then
+		echo "  updated   : $option   (was: $was)"
+	else
+		echo "  added     : $option"
+	fi
+done
+for key in "${CMDLINE_REMOVE[@]}"; do
+	[[ -n "${CMDLINE_FOUND[$key]:-}" ]] || continue
+	# Skip keys that CMDLINE_OPTS re-adds; those were reported as updated above.
+	# Exact string comparison, not grep: a key like 'brd.rd_nr' or
+	# 'usb-storage.delay_use' would otherwise be a regex where '.' matches any
+	# character. Harmless with the current lists, a trap for the next one.
+	readded=""
+	for option in "${CMDLINE_OPTS[@]}"; do
+		[ "${option%%=*}" = "$key" ] && { readded=1; break; }
+	done
+	[ -n "$readded" ] && continue
+	echo "  removed   : ${CMDLINE_FOUND[$key]}"
+done
 
-# Collapse duplicate spaces and write back as a single line
+line="${cmdline_keep[*]} ${CMDLINE_OPTS[*]}"
 line="$(tr -s ' ' <<<"$line" | sed -e 's/^ //' -e 's/ $//')"
+
+# Refuse to write a line that cannot boot. A cmdline.txt without root= leaves an
+# unbootable card that needs another machine to fix, and this script keeps no
+# backups by design - so the check has to happen before the write, not after.
+if [[ " $line " != *" root="* ]]; then
+	echo -e "${RED}ABORT: rebuilt cmdline has no root= parameter. Not writing.${NC}"
+	echo "Rebuilt line was: $line"
+	exit 1
+fi
+
 printf '%s\n' "$line" | sudo tee "$CMDLINE_FILE" >/dev/null
 echo "Wrote $CMDLINE_FILE"
 

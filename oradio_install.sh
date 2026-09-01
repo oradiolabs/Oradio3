@@ -530,7 +530,6 @@ if [ "${1:-}" != "--continue" ]; then
 
 ########## CONFIGURATION BEGIN ##########
 
-	# Install boot options.
 	# install_resource returns 0 if it installed something new (or if the
 	# file was already up to date — see its "differ" check), non-zero on failure.
 	if ! cmp -s "$RESOURCES_PATH/config.txt" /boot/firmware/config.txt 2>/dev/null; then
@@ -539,15 +538,8 @@ if [ "${1:-}" != "--continue" ]; then
 		fi
 	fi
 
-	# Configure for Oradio3 USB to force load USB-storage device
-	if ! sudo grep -q "usb-storage.quirks=0781:5583:u" /boot/firmware/cmdline.txt; then
-		sudo sed -i 's/$/ usb-storage.quirks=0781:5583:u/' /boot/firmware/cmdline.txt
-		# Reboot required to activate
-		REBOOT_NEEDED=true
-	fi
-
 	# Progress report
-	echo -e "${GREEN}Boot options and USB driver configured${NC}"
+	echo -e "${GREEN}Boot options configured${NC}"
 
 ########## CONFIGURATION END ##########
 
