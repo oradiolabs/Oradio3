@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 #
 # Handles USB drive mount/unmount for devices labelled ORADIO.
 # Invoked by systemd via usb-drive@.service, with the action ("add" or "remove")
