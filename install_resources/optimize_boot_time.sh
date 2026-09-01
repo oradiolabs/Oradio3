@@ -221,7 +221,6 @@ CMDLINE_OPTS=(
 	# still error observed on some USB drives", which is why the parameter was
 	# reworked to accept sub-second values in the first place.
 	#
-# ONNO: Document own stress testing and results to underpin the chosen delay
 	# 100ms is the value suggested as safe for most pen drives, and keeps
 	# nearly all of the win: 'scsi host0' -> '[sda]' measured 1.02s at the default
 	# and ~9ms at 0, so the settle time now dominates and costs ~100ms total.
@@ -230,12 +229,10 @@ CMDLINE_OPTS=(
 	# 6.12 has it).
 	#
 	# SCOPE: delay_use belongs to usb-storage and does nothing for a device bound
-	# to the uas driver.
-	#
-	# Verify after boot:
+	# to the uas driver. Verify after boot:
 	#   cat /sys/module/usb_storage/parameters/delay_use
 	#   dmesg | grep -i delay_use   # a rejected value logs "invalid for parameter"
-	usb-storage.delay_use=100ms
+#	usb-storage.delay_use=100ms
 )
 
 # ---------------------------------------------------------------------------
@@ -263,12 +260,12 @@ CMDLINE_OPTS=(
 # original order: root=, rootfstype=, rootwait, fsck.repair=,
 # usb-storage.quirks=, and everything the firmware prepends.
 CMDLINE_REMOVE=(
-#ONNO: Temporarily show all boot output for debugging
-	quiet			# Suppress most kernel boot messages
-	loglevel		# Errors only
-	console			# Serial and tty consoles: synchronous, slow, and absent in the field
-	fastboot		# Old Raspbian "skip fsck"; superseded by fsck.mode=
-	elevator		# Kernel logs "does not have any effect anymore"; use sysfs per device
+	quiet					# Suppress most kernel boot messages
+	loglevel				# Errors only
+	usb-storage.delay_use	# Wait before probing a device. Removing defaults to 1s
+	console					# Serial and tty consoles: synchronous, slow, and absent in the field
+	fastboot				# Old Raspbian "skip fsck"; superseded by fsck.mode=
+	elevator				# Kernel logs "does not have any effect anymore"; use sysfs per device
 )
 
 declare -A CMDLINE_MANAGED=()	# Keys this script controls

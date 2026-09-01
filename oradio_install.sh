@@ -1,4 +1,4 @@
-#!/usr/bin/bash
+#!/usr/bin/env bash
 #
 #  ####   #####     ##    #####      #     ####
 # #    #  #    #   #  #   #    #     #    #    #
@@ -36,6 +36,9 @@ if [ -z "${BASH:-}" ]; then
 	echo -e "${RED}Aborting: This script requires bash${NC}"
 	exit 1
 fi
+
+# Seconds to wait before rebooting
+REBOOT_DELAY=5
 
 # Enable passwordless sudo (no password prompt running sudo)
 # https://www.raspberrypi.com/documentation/computers/configuration.html#disable-sudo-password
@@ -104,15 +107,22 @@ for VAR_NAME in "${!LOGFILE_@}"; do
 	touch "${!VAR_NAME}" || { echo -e "${RED}Aborting: Failed to create ${!VAR_NAME}${NC}"; exit 1; }
 done
 
+# Save the original stdout/stderr before redirecting, so the EXIT trap below
+# can restore them whatever they were: a terminal on an interactive run, the
+# journal under systemd, a pipe when invoked from another script.
+exec 3>&1 4>&2
+
 # Redirect script output to console and file
 exec > >(tee -a "$LOGFILE_INSTALL") 2>&1
 
 # When leaving this script stop redirection and wait until redirect process has finished.
-# NOTE: this assumes a tty is attached (interactive run). If this script is ever invoked
-# from a context without one (cron, a CI runner, `ssh host script.sh < /dev/null`), the
-# `exec > /dev/tty` below will fail; that failure is harmless here since it only affects
-# where *further* output after the trap goes, not the exit status of the script itself.
-trap 'exec > /dev/tty 2>&1; wait' EXIT
+# Restoring via the saved descriptors rather than /dev/tty is what makes the
+# `wait` safe: it only returns once tee sees EOF, and tee only sees EOF once
+# nothing still holds the write end of that pipe. Redirecting to /dev/tty
+# instead fails whenever no terminal is attached (cron, a systemd unit,
+# `ssh host script.sh < /dev/null`), stdout then stays on the pipe, and the
+# script hangs here forever instead of exiting.
+trap 'exec 1>&3 2>&4; wait' EXIT
 
 # Script is for Raspberry Pi OS Lite (64bit)
 TARGETOS="Debian GNU/Linux 13 (trixie)"
@@ -229,39 +239,43 @@ if [ "${1:-}" != "--continue" ]; then
 
 ########## OS PACKAGES BEGIN ##########
 
-	STAMP_FILE="/var/lib/apt/last_update_stamp"
+	# SHARED STATE: install and pkg-helper.sh read and write this same stamp,
+	# so whichever runs first spares the others a redundant 'apt-get update'.
+	# All three must agree on the path
+	STATEDIR="/var/lib/oradio"
+	STAMP_FILE="$STATEDIR/apt-update-stamp"
 	MAX_AGE=$((6 * 3600))	# 6 hours in seconds
+
+	sudo install -d -m 0755 "$STATEDIR"
 
 	# Get last time the list was updated, 0 if never (or if the stamp file is
 	# missing/corrupted — guard against a non-numeric value breaking the
 	# arithmetic below, e.g. after a partial write or manual edit).
-	if [[ -f "$STAMP_FILE" ]]; then
-		last_update=$(cat "$STAMP_FILE")
-		[[ "$last_update" =~ ^[0-9]+$ ]] || last_update=0
-	else
-		last_update=0
+	last_update=0
+	if [[ -f "$STAMP_FILE" ]] && read -r stamp < "$STAMP_FILE" 2>/dev/null; then
+		if [[ "$stamp" =~ ^[0-9]+$ ]]; then
+			last_update="$stamp"
+		fi
 	fi
 
 	# Get time since last update
 	current_time=$(date +%s)
 	age=$((current_time - last_update))
 
-	# Update lists if too old. Only report success (and only refresh the
-	# stamp) once `apt update` has actually confirmed success — otherwise a
-	# transient failure (e.g. no network) would get cached as "up to date"
-	# for up to MAX_AGE and mask itself on the next run.
+	# Update lists if too old. Only report success (and only refresh the stamp)
+	# once `apt-get update` has actually confirmed success — otherwise a transient
+	# failure (e.g. no network) would get cached as "up to date" for up to MAX_AGE
+	# and mask itself on the next run.
 	if (( age > MAX_AGE )); then
 		echo -e "${YELLOW}Package lists out of date, updating...${NC}"
-		# Ensure the package list is clean
-		sudo rm -rf /var/lib/apt/lists/*
-		sudo apt clean
-		# Get the latest package lists
-		if sudo apt update; then
+
+		# Fetch the latest package lists, refreshing stale lists
+		if sudo apt-get update; then
 			# Save time lists were updated
 			date +%s | sudo tee "$STAMP_FILE" >/dev/null
 			echo -e "${GREEN}Package lists are up to date${NC}"
 		else
-			echo -e "${RED}Aborting: apt update failed (check network/repositories)${NC}"
+			echo -e "${RED}Aborting: apt-get update failed (check network/repositories)${NC}"
 			exit 1
 		fi
 	else
@@ -283,7 +297,6 @@ if [ "${1:-}" != "--continue" ]; then
 		mpc
 		caps
 		iptables
-		raspotify
 		python3-gi
 		python3-dev
 		python3-dbus
@@ -292,60 +305,61 @@ if [ "${1:-}" != "--continue" ]; then
 		python3-watchdog
 	)
 
-	# Fetch list of upgradable packages once, up front, rather than shelling
-	# out to `apt` again for every package in the loop below.
-	UPGRADABLE=$(apt list --upgradable 2>/dev/null | cut -d/ -f1)
-
-	# Create associative array for fast lookup
-	declare -A UPGRADABLE_MAP
-	for package in $UPGRADABLE; do
-		UPGRADABLE_MAP["$package"]=1
-	done
-
-	# Ensure Linux packages are installed and up-to-date
+	# raspotify is not in any configured repository until its own installer has
+	# added one, so it cannot go through pkg-helper.sh on a fresh machine:
+	# pkg-helper would correctly report it as unavailable and abort. Handle it
+	# first, then let pkg-helper keep it current on later runs like any other
+	# package.
+	#
+	# Only the third field of dpkg's Status says whether the files are on disk.
+	# 'dpkg -s' exits 0 for a package removed without --purge (config-files) or
+	# left half-written by an interrupted install, which would skip the install
+	# below while raspotify is in fact not there
 	unset REBUILD_PYTHON_ENV
-	for package in "${LINUX_PACKAGES[@]}"; do
-		if dpkg -s "$package" &>/dev/null; then
-			# Check if installed package can be upgraded
-			if [[ ${UPGRADABLE_MAP["$package"]+_} ]]; then
-				echo -e "${YELLOW}$package is outdated: upgrading...${NC}"
-				if sudo apt-get install -y "$package"; then
-					REBUILD_PYTHON_ENV=1
-				else
-					echo -e "${RED}Failed to upgrade $package${NC}"
-					INSTALL_ERROR=1
-				fi
-			else
-				echo "$package is up-to-date"
-			fi
+	if [ "$(dpkg-query -W -f='${db:Status-Status}' raspotify 2>/dev/null)" != "installed" ]; then
+		echo -e "${YELLOW}raspotify is missing: installing...${NC}"
+		# NOTE: this pipes a remote, unpinned install script straight into
+		# `sh` as root. Convenient, but means the exact code that runs
+		# depends on whatever dtcooper's server serves at run time. If
+		# reproducibility/auditability ever matters more than convenience,
+		# switch to: download to a file, check `curl`'s exit status, then
+		# `sh` the local copy (optionally after inspecting/pinning it).
+		if curl -sL https://dtcooper.github.io/raspotify/install.sh | sh; then
+			# Only keep librespot
+			sudo systemctl mask --now raspotify
+			# No REBUILD_PYTHON_ENV here: raspotify ships librespot, a Rust
+			# binary the virtual environment does not link against
 		else
-			echo -e "${YELLOW}$package is missing: installing...${NC}"
-			if [ "$package" == "raspotify" ]; then
-				# raspotify needs to be configured separately
-				# Install raspotify which includes librespot.
-				# NOTE: this pipes a remote, unpinned install script straight into
-				# `sh` as root. Convenient, but means the exact code that runs
-				# depends on whatever dtcooper's server serves at run time. If
-				# reproducibility/auditability ever matters more than convenience,
-				# switch to: download to a file, check `curl`'s exit status, then
-				# `sh` the local copy (optionally after inspecting/pinning it).
-				if curl -sL https://dtcooper.github.io/raspotify/install.sh | sh; then
-					# Only keep librespot
-					sudo systemctl mask --now raspotify
-				else
-					echo -e "${RED}Failed to install raspotify${NC}"
-					INSTALL_ERROR=1
-				fi
-			else
-				if sudo apt-get install -y "$package"; then
-					REBUILD_PYTHON_ENV=1
-				else
-					echo -e "${RED}Failed to install $package${NC}"
-					INSTALL_ERROR=1
-				fi
-			fi
+			echo -e "${RED}Failed to install raspotify${NC}"
+			INSTALL_ERROR=1
 		fi
-	done
+	fi
+
+	# Everything else goes through the one implementation of "install if missing,
+	# upgrade if a newer candidate exists, confirm afterwards". pkg-helper.sh
+	# writes the packages it actually installed or upgraded to ORADIO_PKG_CHANGED,
+	# one per line, so this can tell what moved
+	PKG_CHANGED_FILE="$(mktemp)"
+	if ORADIO_PKG_CHANGED="$PKG_CHANGED_FILE" bash "$SCRIPT_PATH/tools/pkg-helper.sh" "${LINUX_PACKAGES[@]}"; then
+
+		# Rebuild the virtual environment only when a python3-* package moved.
+		# The venv is created with --system-site-packages, so it resolves
+		# python3-gi, python3-dbus and the rest from the system interpreter;
+		# replacing one of those underneath it is what makes a rebuild
+		# necessary. mpd, caps and iptables are separate binaries the venv
+		# never imports, and rebuilding for them cost several minutes on a Pi
+		# for no effect
+		mapfile -t CHANGED_PYTHON < <(grep '^python3-' "$PKG_CHANGED_FILE" || true)
+		if [ "${#CHANGED_PYTHON[@]}" -gt 0 ]; then
+			echo -e "${YELLOW}Python packages changed (${CHANGED_PYTHON[*]}): the virtual environment will be rebuilt${NC}"
+			REBUILD_PYTHON_ENV=1
+		fi
+
+	else
+		echo -e "${RED}Failed to install or upgrade the Oradio3 Linux packages${NC}"
+		INSTALL_ERROR=1
+	fi
+	rm -f "$PKG_CHANGED_FILE"
 
 	# Progress report
 	echo -e "${GREEN}Oradio3 packages installed and up to date${NC}"
@@ -397,10 +411,10 @@ if [ "${1:-}" != "--continue" ]; then
 
 	# If needed, prepare python virtual environment including system site packages.
 	# We also (re)create it when ~/.venv is absent: REBUILD_PYTHON_ENV is only
-	# set when an apt package was actually installed or upgraded, so on a re-run
-	# where every Linux package is already current but ~/.venv has been removed,
-	# the `source` below would fail and every subsequent install would silently
-	# target the system Python instead.
+	# set when a python3-* apt package was actually installed or upgraded, so
+	# on a re-run where every Linux package is already current but ~/.venv has
+	# been removed, the `source` below would fail and every subsequent install
+	# would silently target the system Python instead.
 	if [ ! -f ~/.venv/bin/activate ] || [ -n "${REBUILD_PYTHON_ENV:-}" ]; then
 		echo "Configuring Python virtual environment"
 		python3 -m venv --system-site-packages ~/.venv || { echo -e "${RED}Aborting: Failed to create ~/.venv${NC}"; exit 1; }
@@ -516,7 +530,6 @@ if [ "${1:-}" != "--continue" ]; then
 
 ########## CONFIGURATION BEGIN ##########
 
-	# Install boot options.
 	# install_resource returns 0 if it installed something new (or if the
 	# file was already up to date — see its "differ" check), non-zero on failure.
 	if ! cmp -s "$RESOURCES_PATH/config.txt" /boot/firmware/config.txt 2>/dev/null; then
@@ -544,9 +557,14 @@ if [ "${1:-}" != "--continue" ]; then
 		sudo raspi-config nonint do_boot_behaviour B2
 
 		# This script will automatically be started after reboot
-		echo -e "${YELLOW}Reboot required: Installation will continue after reboot${NC}"
-		sleep 3 # Flush output to logfile
-		sudo reboot
+		echo -e "${YELLOW}Reboot required: Installation will continue after reboot in ${REBOOT_DELAY}s${NC}"
+		sleep "$REBOOT_DELAY"
+
+		# Ensure buffered data is written to files
+		sync
+
+		# Let systemd do controlled reboot
+		sudo systemctl reboot
 	fi
 
 ########## INITIAL RUN END ##########
@@ -721,8 +739,11 @@ fi
 ########## CONFIGURATION END ##########
 
 # Progress report
-echo -e "${GREEN}Installation completed. Rebooting to start Oradio3${NC}"
-sleep 3
+echo -e "${GREEN}Installation completed. Rebooting to start Oradio3 in ${REBOOT_DELAY}s${NC}"
+sleep "$REBOOT_DELAY"
 
-# Reboot to start Oradio3
-sudo reboot
+# Ensure buffered data is written to files
+sync
+
+# Let systemd do controlled reboot
+sudo systemctl reboot
