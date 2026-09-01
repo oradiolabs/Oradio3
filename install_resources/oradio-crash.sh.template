@@ -162,7 +162,12 @@ fi
 
 # For now reboot the Oradio
 echo "Recovery: ${reboot_decision}"
-reboot
+
+# Ensure buffered data is written to files
+sync
+
+# Let systemd do controlled reboot
+systemctl reboot
 
 # For future try to recover:
 #	- Restore settings to factory defaults

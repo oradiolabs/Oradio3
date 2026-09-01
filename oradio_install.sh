@@ -37,6 +37,9 @@ if [ -z "${BASH:-}" ]; then
 	exit 1
 fi
 
+# Seconds to wait before rebooting
+REBOOT_DELAY=5
+
 # Enable passwordless sudo (no password prompt running sudo)
 # https://www.raspberrypi.com/documentation/computers/configuration.html#disable-sudo-password
 if sudo -n true 2>/dev/null; then
@@ -558,9 +561,14 @@ if [ "${1:-}" != "--continue" ]; then
 		sudo raspi-config nonint do_boot_behaviour B2
 
 		# This script will automatically be started after reboot
-		echo -e "${YELLOW}Reboot required: Installation will continue after reboot${NC}"
-		sleep 3 # Flush output to logfile
-		sudo reboot
+		echo -e "${YELLOW}Reboot required: Installation will continue after reboot in ${REBOOT_DELAY}s${NC}"
+		sleep "$REBOOT_DELAY"
+
+		# Ensure buffered data is written to files
+		sync
+
+		# Let systemd do controlled reboot
+		sudo systemctl reboot
 	fi
 
 ########## INITIAL RUN END ##########
@@ -735,8 +743,11 @@ fi
 ########## CONFIGURATION END ##########
 
 # Progress report
-echo -e "${GREEN}Installation completed. Rebooting to start Oradio3${NC}"
-sleep 3
+echo -e "${GREEN}Installation completed. Rebooting to start Oradio3 in ${REBOOT_DELAY}s${NC}"
+sleep "$REBOOT_DELAY"
 
-# Reboot to start Oradio3
-sudo reboot
+# Ensure buffered data is written to files
+sync
+
+# Let systemd do controlled reboot
+sudo systemctl reboot
