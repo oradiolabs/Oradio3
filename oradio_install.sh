@@ -39,8 +39,14 @@ fi
 
 # Enable passwordless sudo (no password prompt running sudo)
 # https://www.raspberrypi.com/documentation/computers/configuration.html#disable-sudo-password
-if ! sudo -p "Enter Oradio3 password: " raspi-config nonint do_sudo_pass 1; then
-	echo -e "${RED}Aborting: Incorrect password${NC}"
+if sudo -n true 2>/dev/null; then
+	# Already-passwordless, so not treated as an error
+	echo "Passwordless sudo already enabled"
+elif ! grep -q '^do_sudo_pass' /usr/bin/raspi-config 2>/dev/null; then
+	# Older raspi-config has no do_sudo_pass, so not treated as an error
+	echo -e "${YELLOW}Warning: raspi-config has no do_sudo_pass, skipping${NC}"
+elif ! sudo -p "Enter Oradio3 password: " raspi-config nonint do_sudo_pass 1; then
+	echo -e "${RED}Aborting: Could not enable passwordless sudo${NC}"
 	exit 1
 fi
 
