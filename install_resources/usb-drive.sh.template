@@ -1,42 +1,126 @@
 #!/usr/bin/env bash
 #
 # Handles USB drive mount/unmount for devices labelled ORADIO.
-# Invoked by systemd via usb-drive@.service, with the action ("add" or "remove")
-# passed as the instance name (%i).
-
+#
+# Invoked three ways, with the action as the first argument:
+#   boot    - usb-drive-boot.service at sysinit, once per boot. The stick may not
+#             exist yet, and may never exist. Absence is NOT an error.
+#   add     - usb-drive@add.service, started from a udev rule. udev only fires the
+#             rule for a partition it has already labelled ORADIO, so absence here
+#             means something went wrong and IS an error.
+#   remove  - usb-drive@remove.service, started from a udev rule on any sd*
+#             partition removal. Tears down the mount if one is present.
+#
 # Stop on errors (-e), catch unset variables (-u), catch failures in any part of a pipeline (-o pipefail)
 set -euo pipefail
 
 ACTION="${1:-}"
-PARTITION="/dev/disk/by-label/ORADIO"		# Stable symlink; survives device renumbering
+BY_LABEL="/dev/disk/by-label/ORADIO"		# Stable symlink; survives device renumbering
 MOUNTPOINT="PLACEHOLDER_USB_MOUNT_POINT"	# Location where USB is mounted
 MONITOR="/run/usb_present"					# RAM-based flag file; present = mounted, absent = unmounted
 LOCK="/run/usb_mount.lock"					# Prevents concurrent runs from duplicate udev events
 LOCK_WAIT=30								# Seconds to wait for the lock before giving up
-SYMLINK_WAIT=5								# Seconds to wait for the by-label symlink to appear
+DEVICE_WAIT=5								# Seconds to poll for the ORADIO partition before giving up
+
+T_START="$(date +%s%3N)"
+
+# Milliseconds since this script started. The boot path runs in a ~100ms window
+# before oradio.service starts (measured 2026-08-27: mounted at 5.706s, Oradio at
+# 5.812s), so knowing WHERE the time goes matters if that margin ever closes.
+since_start() {
+	echo "$(( $(date +%s%3N) - T_START ))"
+}
 
 # Logging helper: prefixes every message with a timestamp
 log() {
 	echo "$(date '+%F %T') $*"
 }
 
-# Probe raw partition nodes directly. devtmpfs creates these the moment the kernel finds the partition.
+#ONNO: for debugging usb-boot problems only. Remove before merging
+# Force the log onto the SD card instead of leaving it in the page cache, so a
+# power cut does not take the record of the boot that caused it. This is the
+# opposite call from oradio.log, which is deliberately NOT made durable - the
+# difference is that usb.log is test data while the boot matrix is running.
+#
+# Why the trap catches EVERY line, including the last: bash flushes stdout
+# before it forks an external command, and sync is external. So by the time
+# sync starts, the final log line is already in the file. (A builtin would not
+# have that effect - the line would still be sitting in bash's buffer.)
+# sync -d then fdatasyncs the file, which is what actually reaches the card;
+# without it ext4 would not commit for ~5s.
+#
+# On exit rather than inside log(): one fdatasync per invocation instead of one
+# per line, and it lands AFTER the mount. Measured fsync cost on this card is
+# p50 5ms, p95 36ms, max 77ms, against only ~132ms of margin between the mount
+# completing and oradio.service starting - so a sync between finding the device
+# and mounting it could eat over half that margin for a diagnostic line.
+#
+# Also trapped on TERM and INT: bash does not run EXIT traps on untrapped fatal
+# signals, so without these a script killed at TimeoutStartSec (a hung mount -
+# exactly the case worth having the log for) would flush nothing. The handler
+# re-exits with the conventional 128+signal status, which re-enters the EXIT
+# trap; SYNC_DONE makes the second call a no-op.
+SYNC_DONE=0
+sync_log() {
+	[ "$SYNC_DONE" -eq 1 ] && return 0
+	SYNC_DONE=1
+	sync -d "PLACEHOLDER_LOGFILE_USB" 2>/dev/null || true
+}
+trap 'sync_log' EXIT
+trap 'log "Warning: terminated by signal"; sync_log; exit 143' TERM
+trap 'log "Warning: interrupted"; sync_log; exit 130' INT
+
+# Locate the ORADIO partition, polling until DEVICE_WAIT expires.
+#
+# Two independent methods, tried together on every pass:
+#   1. Direct blkid probe of the raw partition nodes. devtmpfs creates these the
+#      moment the kernel finds the partition, so this can succeed long before
+#      udev has finished with the device.
+#   2. The by-label symlink, created by 60-persistent-storage.rules.
+#
+# Both are polled, rather than trying method 1 once and then falling back. A
+# single probe of method 1 fails whenever the stick is not yet answering blkid,
+# and in exactly that situation method 2 is not ready either - the same
+# unreadable device is why udev has no label for it. Trying each once therefore
+# gives up at the moment both are guaranteed to fail.
+#
+# Measured 2026-08-27 (systemd-analyze plot): the direct probe found the stick at
+# 5.706s into boot; the by-label symlink did not appear until 7.428s, because
+# udev's worker queue was saturated coldplugging the SD card while NetworkManager,
+# avahi and wpa_supplicant contended for the same four cores. Method 1 is what
+# makes the boot fast path worth 1.85s; method 2 is the backstop.
 find_oradio_part() {
-	local p
-	for p in /dev/sd[a-z][0-9]*; do
-		[ -b "$p" ] || continue
-		if [ "$(blkid -p -o value -s LABEL "$p" 2>/dev/null)" = "ORADIO" ]; then
-			printf '%s\n' "$p"
+	local deadline p
+	deadline=$(( T_START + DEVICE_WAIT * 1000 ))
+
+	while :; do
+		for p in /dev/sd[a-z][0-9]*; do
+			[ -b "$p" ] || continue
+			if [ "$(blkid -p -o value -s LABEL "$p" 2>/dev/null)" = "ORADIO" ]; then
+				printf '%s\n' "$p"
+				return 0
+			fi
+		done
+
+		if [ -b "$BY_LABEL" ]; then
+			printf '%s\n' "$BY_LABEL"
 			return 0
 		fi
+
+		[ "$(date +%s%3N)" -lt "$deadline" ] || return 1
+		sleep 0.1
 	done
-	return 1
 }
 
 # Acquire an exclusive lock for the duration of this script.
 # Prevents a rapid remove/add or duplicate udev event from running two instances at once.
 # The wait is bounded: if an earlier instance is wedged, fail visibly in the log rather
 # than hanging until systemd's timeout kills us.
+#
+# Note the boot path can hold this for up to DEVICE_WAIT seconds while polling for a
+# stick that is not there. That is intentional: if the stick appears during that
+# window the boot instance mounts it, and a udev-triggered instance queueing behind
+# the lock will simply find it already mounted and exit 0.
 exec 9>"$LOCK"
 if ! flock -x -w "$LOCK_WAIT" 9; then
 	log "Error: timed out after ${LOCK_WAIT}s waiting for '$LOCK'"
@@ -44,31 +128,27 @@ if ! flock -x -w "$LOCK_WAIT" 9; then
 fi
 
 case "$ACTION" in
-	# Runs when a USB device labelled ORADIO is inserted and detected by udev
-	add)
-		if PARTITION="$(find_oradio_part)"; then
-			log "Info: found ORADIO at '$PARTITION' (direct probe)"
-		else
-			PARTITION="/dev/disk/by-label/ORADIO"
-			# The by-label symlink is created by a separate udev rule once blkid has
-			# probed the partition, so it can lag the event that triggered us.
-			for ((i = 0; i < SYMLINK_WAIT * 10; i++)); do
-				if [ -b "$PARTITION" ]; then
-					break
-				fi
-				sleep 0.1
-			done
-			if [ ! -b "$PARTITION" ]; then
-				log "Warning: '$PARTITION' did not appear within ${SYMLINK_WAIT}s"
-				exit 1
+	# boot: opportunistic mount at startup, stick may legitimately be absent.
+	# add:  udev saw a partition labelled ORADIO, so it must be findable.
+	boot | add)
+		if ! PARTITION="$(find_oradio_part)"; then
+			if [ "$ACTION" = "boot" ]; then
+				# No stick fitted, or it is still enumerating and the udev rule
+				# will catch it later. Exit 0 so the unit does not sit in
+				# 'failed' for the rest of the session over a normal condition.
+				log "Info: no ORADIO partition within ${DEVICE_WAIT}s; nothing to mount ($(since_start)ms)"
+				exit 0
 			fi
+			log "Error: udev reported ORADIO but no partition found within ${DEVICE_WAIT}s"
+			exit 1
 		fi
+		log "Info: found ORADIO at '$PARTITION' ($(since_start)ms)"
 
-		# Guard: skip if already mounted. Benign - a duplicate udev event or a
-		# second partition with the same label - so exit 0 and leave the mount
-		# alone rather than marking the unit failed.
+		# Guard: skip if already mounted. Benign - the boot path and the udev path
+		# both run on a normal boot, and whichever loses the race lands here - so
+		# exit 0 and leave the mount alone rather than marking the unit failed.
 		if mountpoint -q "$MOUNTPOINT" 2>/dev/null; then
-			log "Warning: '$MOUNTPOINT' already mounted; nothing to do"
+			log "Info: '$MOUNTPOINT' already mounted; nothing to do ($(since_start)ms)"
 			exit 0
 		fi
 
@@ -98,7 +178,7 @@ case "$ACTION" in
 
 		# Create flag triggering the Python watchdog
 		touch "$MONITOR"
-		log "Success: mounted '$PARTITION' at '$MOUNTPOINT'"
+		log "Success: mounted '$PARTITION' at '$MOUNTPOINT' ($(since_start)ms)"
 
 		# Hand any software update package to the update service.
 		# --no-block: installing takes minutes and ends in a reboot.
@@ -111,10 +191,15 @@ case "$ACTION" in
 		fi
 		;;
 
-	# Runs when a USB device labelled ORADIO is physically removed
+	# Runs when a USB device labelled ORADIO is physically removed.
+	#
+	# The udev rule that starts this does NOT filter on ID_FS_LABEL: on a remove
+	# event udev has nothing to probe and replays what the add event stored, which
+	# is missing precisely when the add event could not read the stick. So this
+	# fires for any sd* partition removal and the guard below sorts it out.
 	remove)
 		# Guard: nothing to do if already unmounted
-		# (can happen if a prior remove event already cleaned up)
+		# (a prior remove event already cleaned up, or this was another device)
 		if ! mountpoint -q "$MOUNTPOINT" 2>/dev/null; then
 			log "Info: '$MOUNTPOINT' already unmounted"
 			exit 0
@@ -146,7 +231,7 @@ case "$ACTION" in
 		# successful unmount into a failed unit.
 		rm -f "$MONITOR"
 		rmdir "$MOUNTPOINT" 2>/dev/null || log "Info: '$MOUNTPOINT' not empty; leaving directory in place"
-		log "Success: unmounted '$MOUNTPOINT'"
+		log "Success: unmounted '$MOUNTPOINT' ($(since_start)ms)"
 		;;
 
 	# Catch unexpected or missing action argument

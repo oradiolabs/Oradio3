@@ -1,5 +1,57 @@
-# Trigger when device is added, apply to block device partition, match label ORADIO, handle by systemd, start template service
-ACTION=="add", SUBSYSTEM=="block", ENV{DEVTYPE}=="partition", ENV{ID_FS_LABEL}=="ORADIO", RUN+="/usr/bin/systemctl start usb-drive@add.service"
+# USB drive handler for devices labelled ORADIO.
+#
+# Both rules hand off to systemd rather than doing work here: udev RUN commands are killed once the event handler
+# returns, so anything long-lived must live in a unit.
+#
+# --no-block is essential. Without it, systemctl waits for the oneshot unit to finish, which parks a udev worker for
+# the whole duration of the mount. At boot that wait is much longer than the mount itself: usb-drive@.service has
+# default dependencies, so its start job is ordered After=basic.target and simply queues until basic.target is
+# reached. That risks hitting udev's 180s event_timeout, and can deadlock against anything waiting on udev to settle.
+#
+# Rules in /etc/udev/rules.d are read in lexical order, so 99- puts this after 60-persistent-storage.rules. That
+# matters: 60- is what runs the blkid builtin and sets ID_FS_LABEL, which the add rule below matches on.
+#
+# After editing:  sudo udevadm control --reload-rules
+# To check a match without running RUN:  udevadm test /sys/class/block/sda1
 
-# Trigger when device is removed, apply to block devices, match label ORADIO, handle by systemd, start template service
-ACTION=="remove", SUBSYSTEM=="block", ENV{DEVTYPE}=="partition", ENV{ID_FS_LABEL}=="ORADIO", RUN+="/usr/bin/systemctl start usb-drive@remove.service"
+
+# ---------------------------------------------------------------------------
+# Insert: partition labelled ORADIO appeared -> run the handler with "add"
+# ---------------------------------------------------------------------------
+# "add|change", not "add" alone. ID_FS_LABEL is set by the blkid builtin in 60-persistent-storage.rules. If the stick
+# is still settling when the add event is processed, blkid returns nothing, ID_FS_LABEL is unset and an add-only rule
+# does not match at all - the drive is simply never mounted. The change event that follows moments later does carry
+# the label, so matching both makes the miss recoverable instead of fatal.
+#
+# usb-storage.delay_use in cmdline.txt is the other half of this. It was 0, which scanned the device before it was
+# ready and made the empty-label add event common; it is now 100ms. That reduces how often the label is missing, but
+# it does not close the window, hence the change match here. Both are needed.
+#
+# Duplicate triggering is expected and safe: a single insert can produce an add plus one or more change events, and
+# usb-drive.sh takes a flock and exits 0 if the mount point is already mounted.
+ACTION=="add|change", SUBSYSTEM=="block", ENV{DEVTYPE}=="partition", ENV{ID_FS_LABEL}=="ORADIO", RUN+="/usr/bin/systemctl --no-block start usb-drive@add.service"
+
+
+# ---------------------------------------------------------------------------
+# Remove: a disk partition went away -> run the handler with "remove"
+# ---------------------------------------------------------------------------
+# Deliberately NOT matched on ID_FS_LABEL. On remove events udev has nothing to probe, so it replays the properties
+# stored in its database by the add event. If that add event was the empty-label case described above, ID_FS_LABEL was
+# never stored and a label-matched remove rule does not fire either.
+#
+# The failure that produces is worse than a missed mount, because it is silent and it persists: the stick is pulled,
+# no remove runs, and the mount is left pointing at a device that is gone. On the next insert usb-drive.sh sees the
+# stale mount point, logs "already mounted; nothing to do" and exits 0. There is no music and no error until reboot.
+#
+# Firing on unrelated partitions costs nothing: usb-drive.sh's remove path opens with a mountpoint check and exits 0
+# when there is nothing mounted. Broad and idempotent beats precise and fragile on a teardown path.
+#
+# KERNEL=="sd*" bounds the scope. With DEVTYPE=="partition" already excluding whole-disk nodes, this leaves partitions
+# on SCSI-style disks - on a Pi 3A+ that means USB storage, as there is no SATA. Its main job is keeping mmcblk0p1 and
+# mmcblk0p2 out: the SD card's own partitions emit remove events during shutdown, and a job started then is refused by
+# the implicit Conflicts=shutdown.target and logged as an error. Harmless, but noise in the worst possible window.
+#
+# KERNEL= is used rather than a more direct test like ENV{ID_BUS}=="usb" for the same reason the label match was
+# dropped: ID_BUS is another database property replayed from the add event. KERNEL= comes straight out of the uevent
+# and is present on every event regardless of whether any probing succeeded.
+ACTION=="remove", SUBSYSTEM=="block", ENV{DEVTYPE}=="partition", KERNEL=="sd*", RUN+="/usr/bin/systemctl --no-block start usb-drive@remove.service"
