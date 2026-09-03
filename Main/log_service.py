@@ -61,20 +61,29 @@ from constants import (
 # Logger identifier and default level
 ORADIO_LOGGER    = "oradio"
 ORADIO_LOG_LEVEL = DEBUG
+
 # Log file constants
 ORADIO_LOG_PATH     = (Path(__file__).parent.parent / "logging").resolve()
 ORADIO_LOG_FILE_STR = str(ORADIO_LOG_PATH / 'oradio.log')
-# Record layout, shared by both sinks. ColorFormatter wraps it per level
-LOG_FORMAT = "%(asctime)s - %(filename)s:%(lineno)d - %(levelname)s - %(message)s"
+
+# Shared record body. Each sink prepends its own context: file/console add a
+# timestamp, syslog adds the tag journald parses into SYSLOG_IDENTIFIER.
+LOG_BODY          = "%(filename)s:%(lineno)d - %(levelname)s - %(message)s"
+LOG_FORMAT        = "%(asctime)s - " + LOG_BODY
+SYSLOG_LOG_FORMAT = "oradio[%(process)d]: " + LOG_BODY
+
 # Items to queue when busy
 QUEUE_SIZE = 10000
+
 # How often (in dropped-item counts) to log a "still dropping" reminder
 DROP_LOG_INTERVAL = 50
+
 # Fallback delivery for drop/health notices, independent of stdout/stderr
 # (which headless deployments may not capture). /dev/log is forwarded to
 # the system journal by journald on virtually every modern Linux distro,
 # so `journalctl` shows these even if the log directory itself is gone.
 SYSLOG_ADDRESS = "/dev/log"
+
 # TRACE log level between 0 and DEBUG(=10)
 TRACE = 5
 
@@ -250,9 +259,7 @@ class SafeLogger:
         syslog_handler: logging.Handler | None = None
         try:
             syslog_handler = _StrictSysLogHandler(address=SYSLOG_ADDRESS)
-            syslog_handler.setFormatter(logging.Formatter(
-                "oradio[%(process)d]: %(filename)s:%(lineno)d - %(levelname)s - %(message)s"
-            ))
+            syslog_handler.setFormatter(logging.Formatter(SYSLOG_LOG_FORMAT))
             # SysLogHandler's constructor succeeds even when /dev/log is
             # missing -- it defers the failure to first send. Probe with a
             # real emit() now, so we find out (and fall back to file-only)
