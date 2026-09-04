@@ -1,21 +1,28 @@
 # Placeholders will be modified by ../oradio_install.sh script
+#
+# Installed as /etc/systemd/system/oradio.service
+#
+# The application itself. Started at boot via [Install] below, once the hardware
+# it needs is usable - see the hardware gate in [Service].
 
 [Unit]
 Description=Oradio
 After=basic.target
 
-# Crash handling. There is no automatic restart (Restart=no below), so any abnormal exit
-# puts this unit straight into the FAILED state and OnFailure= starts the crash action.
+# Crash handling. There is no automatic restart (Restart=no below), so any
+# abnormal exit puts this unit straight into the FAILED state and OnFailure=
+# starts the crash action.
 #
-# The OnFailure handler is a separate job, so it may call systemctl without deadlocking
-# against oradio's own stop transition.
+# The OnFailure handler is a separate job, so it may call systemctl without
+# deadlocking against oradio's own stop transition.
 OnFailure=oradio-crash.service
 
 [Service]
+# Long-running process; systemd considers the unit started once ExecStart forks.
 Type=simple
 
-# Scheduling priority is applied by optimize_boot_time.sh as a drop-in
-# at /etc/systemd/system/oradio.service.d/oradio-sched.conf:
+# Scheduling priority is applied by optimize_boot_time.sh as a drop-in at
+# /etc/systemd/system/oradio.service.d/oradio-sched.conf:
 #   [Service]
 #   Nice=-5
 #   IOSchedulingClass=best-effort
@@ -25,10 +32,18 @@ Type=simple
 UMask=0002
 
 # Redirect stdout (fd 1) and stderr (fd 2) to the log file.
-# Note this takes the output *out* of the journal: journalctl -u oradio will be empty.
+#
+# This takes the output OUT of the journal: journalctl -u oradio shows only
+# systemd's own start/stop lines. Deliberate - the journal is Storage=volatile
+# and is lost on every reboot, so the log file is the only record that survives.
+#
 # Every ExecStartPre below inherits this, so alsactl's errors land here too.
 StandardOutput=append:PLACEHOLDER_LOGFILE_TRACEBACK
 StandardError=append:PLACEHOLDER_LOGFILE_TRACEBACK
+
+# No chown of the log file here: oradio_install.sh creates it as
+# PLACEHOLDER_USER, and logrotate uses copytruncate with 'su', so the inode
+# persists and ownership cannot drift.
 
 # ---- Hardware gate. The two lines below are a pair; order is load-bearing. ----
 
@@ -37,7 +52,8 @@ StandardError=append:PLACEHOLDER_LOGFILE_TRACEBACK
 # process will actually get. Always exits 0.
 ExecStartPre=/usr/local/sbin/oradio-prestart.sh
 
-# Creates the softvol controls that /etc/asound.conf depends on.
+# Creates the softvol controls that /etc/asound.conf depends on, and that
+# librespot.service also needs before its own mixer ExecStartPre can succeed.
 #
 # '+' is required: alsactl cannot run as PLACEHOLDER_USER - asound.state, its
 # lock and the card lock are all root-only.
@@ -59,8 +75,8 @@ Group=PLACEHOLDER_GROUP
 WorkingDirectory=PLACEHOLDER_MAIN_PATH
 ExecStart=/home/PLACEHOLDER_USER/.venv/bin/python3 oradio_control.py
 
-# No automatic restart: recovery is the crash action script's job.
-# Stopping the service in a regular way has no further action.
+# No automatic restart: recovery is the crash action script's job, reached via
+# OnFailure= above. A regular stop or reboot triggers nothing further.
 Restart=no
 
 [Install]

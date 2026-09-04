@@ -5,15 +5,14 @@
 #
 # ROLE: this is the correctness path, not the speed path. It handles every
 # insertion and removal while the system is up, and at boot it is the backstop
-# for usb-drive-boot.service. Measured 2026-08-27, it ran at 7.554s on a boot
-# where the fast path had already mounted at 5.706s - see the header of
-# usb-drive-boot.service for why. Do not remove the fast path in favour of this.
+# for usb-drive-boot.service, which normally mounts the stick well before the
+# udev event completes. Do not remove the fast path in favour of this one.
 #
-# The lateness is NOT the default dependencies below. basic.target was reached at
-# 5.803s on that boot; the udev event for sda1 did not complete until 7.428s
-# because systemd-udevd's workers were saturated. Adding DefaultDependencies=no
-# here was measured to buy essentially nothing, and would cost the implicit
-# shutdown ordering. Left alone deliberately.
+# The lateness is NOT the default dependencies below: basic.target is reached
+# first, and the udev event for the partition completes later only because
+# systemd-udevd's workers are saturated. Adding DefaultDependencies=no here buys
+# essentially nothing and would cost the implicit shutdown ordering. Left alone
+# deliberately.
 
 [Unit]
 Description=USB drive handler (ORADIO)
@@ -28,12 +27,16 @@ Type=oneshot
 UMask=0002
 
 # Redirect stdout (fd 1) and stderr (fd 2) to the log file.
-# Note this takes the output *out* of the journal: journalctl -u usb-drive will be empty.
+#
+# This takes the script's output OUT of the journal: journalctl -u usb-drive@
+# shows only systemd's own start/finish lines. Deliberate - the journal is
+# Storage=volatile and is lost on every reboot, so the log file is the only
+# record that survives.
+#
+# Note stderr is unbuffered while bash block-buffers stdout to a file, so a
+# run's error messages appear ABOVE its own log lines rather than in sequence.
 StandardOutput=append:PLACEHOLDER_LOGFILE_USB
 StandardError=append:PLACEHOLDER_LOGFILE_USB
-
-# Set logfile ownership. '+' means run this command as root.
-ExecStartPre=-+/usr/bin/chown PLACEHOLDER_USER:PLACEHOLDER_GROUP PLACEHOLDER_LOGFILE_USB
 
 # %i expands to the instance name from the template: "add" or "remove".
 ExecStart=/usr/local/sbin/usb-drive.sh %i
@@ -49,7 +52,7 @@ TimeoutStartSec=120
 # in systemd-analyze plot - only the system-usb-drive.slice it created does.
 
 # Do NOT add ProtectSystem=, PrivateTmp=, ProtectHome= or similar sandboxing
-# here. They place the service in a private mount namespace, and the mount
-# would then be invisible to every other process on the system.
+# here. They place the service in a private mount namespace, and the mount would
+# then be invisible to every other process on the system.
 
 # No [Install] section: this unit is started by name from a udev rule, never enabled.

@@ -1,26 +1,52 @@
 # Placeholders will be modified by ../oradio_install.sh script
+#
+# Installed as /etc/systemd/system/librespot.service
+#
+# Spotify Connect endpoint. Started at boot via [Install] below and left running;
+# Oradio talks to it through the flag files written by spotify_event_handler.sh.
 
 [Unit]
 Description=Librespot
+
+# Spotify Connect is useless without a route to the internet, and librespot does
+# not retry its initial discovery indefinitely. Off the critical path either way:
+# nothing Oradio needs at startup waits for this unit.
 Wants=network-online.target
 After=network-online.target
 
 [Service]
+# Long-running process; systemd considers the unit started once ExecStart forks.
+Type=simple
+
 # Log file permissions applied when the logfile is CREATED. 0002 yields -rw-rw-r-- (0664).
 UMask=0002
 
 # Redirect stdout (fd 1) and stderr (fd 2) to the log file.
-# Note this takes the output *out* of the journal: journalctl -u librespot will be empty.
+#
+# This takes the output OUT of the journal: journalctl -u librespot shows only
+# systemd's own start/stop lines. Deliberate - the journal is Storage=volatile
+# and is lost on every reboot, so the log file is the only record that survives.
+#
+# Every ExecStartPre below inherits this, so their errors land here too.
 StandardOutput=append:PLACEHOLDER_LOGFILE_SPOTIFY
 StandardError=append:PLACEHOLDER_LOGFILE_SPOTIFY
 
-# Set logfile ownership. '+' means run this command as root.
-ExecStartPre=-+/usr/bin/chown PLACEHOLDER_USER:PLACEHOLDER_GROUP PLACEHOLDER_LOGFILE_SPOTIFY
+# No chown of the log file here: oradio_install.sh creates it as
+# PLACEHOLDER_USER, and logrotate uses copytruncate with 'su', so the inode
+# persists and ownership cannot drift.
 
-# Ensure ALSA channel is muted before starting (leading - ignores exit status)
+# Mute the Spotify channel before librespot can open it, so a session that was
+# playing at power-off does not come back at full volume.
+#
+# CROSS-SERVICE DEPENDENCY: VolumeSpotCon1 is a softvol control declared in
+# /etc/asound.conf, and it does not exist until 'alsactl restore' has run - see
+# the ExecStartPre in oradio.service. '-' tolerates the control being absent,
+# which matters because Restart=always below would otherwise loop this unit
+# every RestartSec forever.
 ExecStartPre=-/usr/bin/amixer -c DigiAMP sset VolumeSpotCon1 0%
 
-# Reset flag files before starting librespot
+# Reset the flag files Oradio polls, so a stale state from the previous session
+# is not read as current.
 ExecStartPre=/bin/sh -c 'echo 0 > PLACEHOLDER_SPOTIFY_PATH/spotactive.flag'
 ExecStartPre=/bin/sh -c 'echo 0 > PLACEHOLDER_SPOTIFY_PATH/spotplaying.flag'
 
@@ -28,6 +54,8 @@ ExecStartPre=/bin/sh -c 'echo 0 > PLACEHOLDER_SPOTIFY_PATH/spotplaying.flag'
 User=PLACEHOLDER_USER
 Group=PLACEHOLDER_GROUP
 
+# --device SpotCon_in is the ALSA plugin chain from /etc/asound.conf, not a
+# hardware device; --onevent drives the flag files Oradio reads.
 ExecStart=/usr/bin/librespot \
     --name Oradio \
     --initial-volume 100 \
@@ -39,6 +67,8 @@ ExecStart=/usr/bin/librespot \
     --device SpotCon_in \
     --onevent /usr/local/bin/spotify_event_handler.sh
 
+# Unlike oradio.service, this one restarts itself: there is no crash handler for
+# it and a dead Spotify endpoint should recover without user action.
 Restart=always
 RestartSec=10
 

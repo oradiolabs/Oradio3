@@ -3,74 +3,104 @@
 # Handles USB drive mount/unmount for devices labelled ORADIO.
 #
 # Invoked three ways, with the action as the first argument:
-#   boot    - usb-drive-boot.service at sysinit, once per boot. The stick may not
-#             exist yet, and may never exist. Absence is NOT an error.
-#   add     - usb-drive@add.service, started from a udev rule. udev only fires the
-#             rule for a partition it has already labelled ORADIO, so absence here
-#             means something went wrong and IS an error.
+#   boot    - usb-drive-boot.service, once per boot. The stick may not exist yet,
+#             and may never exist. Absence is NOT an error.
+#   add     - usb-drive@add.service, started from a udev rule. udev only fires
+#             the rule for a partition it has already labelled ORADIO, so
+#             absence here means something went wrong and IS an error.
 #   remove  - usb-drive@remove.service, started from a udev rule on any sd*
 #             partition removal. Tears down the mount if one is present.
 #
-# Stop on errors (-e), catch unset variables (-u), catch failures in any part of a pipeline (-o pipefail)
+# Stop on errors (-e), catch unset variables (-u), catch failures in a pipeline (-o pipefail)
 set -euo pipefail
 
 ACTION="${1:-}"
 BY_LABEL="/dev/disk/by-label/ORADIO"		# Stable symlink; survives device renumbering
 MOUNTPOINT="PLACEHOLDER_USB_MOUNT_POINT"	# Location where USB is mounted
-MONITOR="/run/usb_present"					# RAM-based flag file; present = mounted, absent = unmounted
+MONITOR="/run/usb_present"					# RAM-based flag file; present = mounted
 LOCK="/run/usb_mount.lock"					# Prevents concurrent runs from duplicate udev events
 LOCK_WAIT=30								# Seconds to wait for the lock before giving up
-DEVICE_WAIT=5								# Seconds to poll for the ORADIO partition before giving up
 
-T_START="$(date +%s%3N)"
+# Seconds to poll for the ORADIO partition before giving up. Does not delay the
+# boot: usb-drive-boot.service has DefaultDependencies=no and no Before=, so
+# nothing is ordered after it.
+DEVICE_WAIT=5
 
-# Milliseconds since this script started. The boot path runs in a ~100ms window
-# before oradio.service starts (measured 2026-08-27: mounted at 5.706s, Oradio at
-# 5.812s), so knowing WHERE the time goes matters if that margin ever closes.
-since_start() {
-	echo "$(( $(date +%s%3N) - T_START ))"
+# Milliseconds since the epoch, without forking date. EPOCHREALTIME is
+# seconds.microseconds and uses the locale decimal separator, so strip either.
+now_ms() { local us="${EPOCHREALTIME/[.,]/}"; printf '%s' "$(( us / 1000 ))"; }
+
+T_START="$(now_ms)"
+
+# Milliseconds since this script started, for spotting where the time goes.
+since_start() { printf '%s' "$(( $(now_ms) - T_START ))"; }
+
+# Logging helper: prefixes every message with a timestamp.
+# printf '%(...)T' is a bash builtin, so this costs no fork.
+log() { printf '%(%F %T)T %s\n' -1 "$*"; }
+
+# Last kernel log timestamp, used to select messages emitted after this point.
+kmsg_mark() {
+	local line
+	line="$(dmesg 2>/dev/null | tail -n1)" || true
+	line="${line#\[}"
+	line="${line%%\]*}"
+	line="${line// /}"
+	[[ "$line" =~ ^[0-9]+\.[0-9]+$ ]] && printf '%s' "$line" || printf '0.000000'
 }
 
-# Logging helper: prefixes every message with a timestamp
-log() {
-	echo "$(date '+%F %T') $*"
+# Report what the kernel said about this device since the mark.
+#
+# mount(8) exiting 0 does NOT mean the filesystem is healthy. The vfat driver
+# reports the dirty bit, a bad boot sector, and later I/O or corruption errors
+# only to the kernel log - mount's own stderr stays empty. Without this a
+# damaged stick that mounts looks identical in the log to a healthy one.
+#
+# Timestamps are compared as integers with the decimal point removed. dmesg
+# prints a fixed six decimals, so the comparison is exact.
+log_kernel_messages() {
+	local since="$1" name="$2" line ts
+	# 10# forces base 10: dmesg pads to six decimals, so removing the point can
+	# leave a leading zero, and bash would read that as octal and refuse any
+	# string containing an 8 or a 9.
+	local since_i=$(( 10#${since/./} ))
+
+	# grep first: the ring buffer holds hundreds of lines and looping over all of
+	# them in bash costs more than the mount being reported on. Only lines naming
+	# this device reach the timestamp comparison, so no further filter is needed.
+	while IFS= read -r line; do
+		ts="${line#\[}"
+		ts="${ts%%\]*}"
+		ts="${ts// /}"
+		[[ "$ts" =~ ^[0-9]+\.[0-9]+$ ]] || continue
+		(( 10#${ts/./} > since_i )) || continue
+		log "Kernel: ${line#*] }"
+	done < <(dmesg 2>/dev/null | grep -F "($name)" || true)
 }
 
-#ONNO: for debugging usb-boot problems only. Remove before merging
-# Force the log onto the SD card instead of leaving it in the page cache, so a
-# power cut does not take the record of the boot that caused it. This is the
-# opposite call from oradio.log, which is deliberately NOT made durable - the
-# difference is that usb.log is test data while the boot matrix is running.
+# True if the FAT dirty flag is set on this partition.
 #
-# Why the trap catches EVERY line, including the last: bash flushes stdout
-# before it forks an external command, and sync is external. So by the time
-# sync starts, the final log line is already in the file. (A builtin would not
-# have that effect - the line would still be sitting in bash's buffer.)
-# sync -d then fdatasyncs the file, which is what actually reaches the card;
-# without it ext4 would not commit for ~5s.
+# Hot-unplug always sets it: udev's remove event fires after the device is gone,
+# so umount cannot write the clean state back. Linux will not clear a bit it did
+# not set, so it persists until fsck runs.
 #
-# On exit rather than inside log(): one fdatasync per invocation instead of one
-# per line, and it lands AFTER the mount. Measured fsync cost on this card is
-# p50 5ms, p95 36ms, max 77ms, against only ~132ms of margin between the mount
-# completing and oradio.service starting - so a sync between finding the device
-# and mounting it could eat over half that margin for a diagnostic line.
-#
-# Also trapped on TERM and INT: bash does not run EXIT traps on untrapped fatal
-# signals, so without these a script killed at TimeoutStartSec (a hung mount -
-# exactly the case worth having the log for) would flush nothing. The handler
-# re-exits with the conventional 128+signal status, which re-enters the EXIT
-# trap; SYNC_DONE makes the second call a no-op.
-SYNC_DONE=0
-sync_log() {
-	[ "$SYNC_DONE" -eq 1 ] && return 0
-	SYNC_DONE=1
-	sync -d "PLACEHOLDER_LOGFILE_USB" 2>/dev/null || true
+# Reads the one byte rather than running fsck to find out: fsck walks the whole
+# FAT, this is a single sector read. The flag sits at 0x41 for FAT32 and 0x25
+# for FAT12/16; an unrecognised layout returns false rather than guessing.
+fat_dirty() {
+	local part="$1" ver off byte
+	ver="$(blkid -p -o value -s VERSION "$part" 2>/dev/null || true)"
+	case "$ver" in
+		FAT32)       off=65 ;;
+		FAT12|FAT16) off=37 ;;
+		*)           return 1 ;;
+	esac
+	byte="$(dd if="$part" bs=1 skip="$off" count=1 status=none 2>/dev/null | od -An -tu1 | tr -d '[:space:]')"
+	[[ "$byte" =~ ^[0-9]+$ ]] || return 1
+	(( byte & 1 ))
 }
-trap 'sync_log' EXIT
-trap 'log "Warning: terminated by signal"; sync_log; exit 143' TERM
-trap 'log "Warning: interrupted"; sync_log; exit 130' INT
 
-# Locate the ORADIO partition, polling until DEVICE_WAIT expires.
+# Locate the ORADIO partition, polling until the deadline expires.
 #
 # Two independent methods, tried together on every pass:
 #   1. Direct blkid probe of the raw partition nodes. devtmpfs creates these the
@@ -84,14 +114,12 @@ trap 'log "Warning: interrupted"; sync_log; exit 130' INT
 # unreadable device is why udev has no label for it. Trying each once therefore
 # gives up at the moment both are guaranteed to fail.
 #
-# Measured 2026-08-27 (systemd-analyze plot): the direct probe found the stick at
-# 5.706s into boot; the by-label symlink did not appear until 7.428s, because
-# udev's worker queue was saturated coldplugging the SD card while NetworkManager,
-# avahi and wpa_supplicant contended for the same four cores. Method 1 is what
-# makes the boot fast path worth 1.85s; method 2 is the backstop.
+# Method 1 lets the boot path beat udev's worker queue; method 2 is the backstop
+# for a device whose raw node is not probeable but which udev has labelled.
 find_oradio_part() {
+	local wait_s="$1"
 	local deadline p
-	deadline=$(( T_START + DEVICE_WAIT * 1000 ))
+	deadline=$(( T_START + wait_s * 1000 ))
 
 	while :; do
 		for p in /dev/sd[a-z][0-9]*; do
@@ -107,20 +135,20 @@ find_oradio_part() {
 			return 0
 		fi
 
-		[ "$(date +%s%3N)" -lt "$deadline" ] || return 1
+		[ "$(now_ms)" -lt "$deadline" ] || return 1
 		sleep 0.1
 	done
 }
 
 # Acquire an exclusive lock for the duration of this script.
-# Prevents a rapid remove/add or duplicate udev event from running two instances at once.
-# The wait is bounded: if an earlier instance is wedged, fail visibly in the log rather
-# than hanging until systemd's timeout kills us.
+# Prevents a rapid remove/add or duplicate udev event from running two instances
+# at once. The wait is bounded: if an earlier instance is wedged, fail visibly in
+# the log rather than hanging until systemd's timeout kills us.
 #
-# Note the boot path can hold this for up to DEVICE_WAIT seconds while polling for a
-# stick that is not there. That is intentional: if the stick appears during that
-# window the boot instance mounts it, and a udev-triggered instance queueing behind
-# the lock will simply find it already mounted and exit 0.
+# The boot path can hold this while polling for a stick that is not there. That
+# is intentional: if the stick appears during that window the boot instance
+# mounts it, and a udev-triggered instance queueing behind the lock will find it
+# already mounted and exit 0.
 exec 9>"$LOCK"
 if ! flock -x -w "$LOCK_WAIT" 9; then
 	log "Error: timed out after ${LOCK_WAIT}s waiting for '$LOCK'"
@@ -131,7 +159,7 @@ case "$ACTION" in
 	# boot: opportunistic mount at startup, stick may legitimately be absent.
 	# add:  udev saw a partition labelled ORADIO, so it must be findable.
 	boot | add)
-		if ! PARTITION="$(find_oradio_part)"; then
+		if ! PARTITION="$(find_oradio_part "$DEVICE_WAIT")"; then
 			if [ "$ACTION" = "boot" ]; then
 				# No stick fitted, or it is still enumerating and the udev rule
 				# will catch it later. Exit 0 so the unit does not sit in
@@ -142,14 +170,41 @@ case "$ACTION" in
 			log "Error: udev reported ORADIO but no partition found within ${DEVICE_WAIT}s"
 			exit 1
 		fi
-		log "Info: found ORADIO at '$PARTITION' ($(since_start)ms)"
 
-		# Guard: skip if already mounted. Benign - the boot path and the udev path
-		# both run on a normal boot, and whichever loses the race lands here - so
-		# exit 0 and leave the mount alone rather than marking the unit failed.
+		# Report what the partition actually is. A stick reformatted as exfat or
+		# ntfs and relabelled ORADIO passes the label match above and then fails
+		# the vfat mount below with a message that does not say why.
+		FSTYPE="$(blkid -p -o value -s TYPE "$PARTITION" 2>/dev/null || true)"
+		log "Info: found ORADIO at '$PARTITION' type '${FSTYPE:-unknown}' ($(since_start)ms)"
+		if [ -n "$FSTYPE" ] && [ "$FSTYPE" != "vfat" ]; then
+			log "Error: '$PARTITION' is '$FSTYPE', not vfat; refusing to mount"
+			exit 1
+		fi
+
+		# Guard: skip if already mounted. Benign - the boot path and the udev
+		# path both run on a normal boot, and whichever loses the race lands
+		# here - so exit 0 and leave the mount alone rather than failing.
 		if mountpoint -q "$MOUNTPOINT" 2>/dev/null; then
 			log "Info: '$MOUNTPOINT' already mounted; nothing to do ($(since_start)ms)"
 			exit 0
+		fi
+
+		# Repair a dirty filesystem before mounting. Safe here and only here: the
+		# device is unmounted at this point. Skipped when the flag is clear, so the
+		# normal case pays one sector read rather than a full FAT walk.
+		if fat_dirty "$PARTITION"; then
+			log "Warning: dirty bit set on '$PARTITION'; running fsck ($(since_start)ms)"
+			set +e
+			fsck_out="$(fsck.vfat -a "$PARTITION" 2>&1)"
+			fsck_rc=$?
+			set -e
+			# fsck.fat exit status is a bit field: 1 means errors were corrected,
+			# which is the expected outcome here and not a failure.
+			if (( fsck_rc <= 1 )); then
+				log "Info: fsck repaired '$PARTITION' ($(since_start)ms)"
+			else
+				log "Error: fsck.vfat rc=$fsck_rc on '$PARTITION': $fsck_out"
+			fi
 		fi
 
 		# Ensure mount point directory exists
@@ -169,16 +224,24 @@ case "$ACTION" in
 		#   sync		write file data immediately (no deferred writeback)
 		OPTS="rw,users,uid=0,gid=100,fmask=111,dmask=000,utf8=1,noatime,nodiratime,flush,sync"
 
+		KMSG_MARK="$(kmsg_mark)"
+
 		# Capture mount's diagnostics in a variable - no fixed path in the
 		# world-writable /tmp, and no stale text from an earlier run.
 		if ! mount_err=$(mount -t vfat -o "$OPTS" "$PARTITION" "$MOUNTPOINT" 2>&1); then
 			log "Error: mounting '$PARTITION' failed: $mount_err"
+			log_kernel_messages "$KMSG_MARK" "$(basename "$PARTITION")"
 			exit 1
 		fi
 
 		# Create flag triggering the Python watchdog
 		touch "$MONITOR"
 		log "Success: mounted '$PARTITION' at '$MOUNTPOINT' ($(since_start)ms)"
+
+		# A successful mount is not a healthy filesystem - see log_kernel_messages.
+		# Anything reported here happened despite the dirty-bit repair above, so it
+		# is a fault fsck could not fix rather than a routine unclean unmount.
+		log_kernel_messages "$KMSG_MARK" "$(basename "$PARTITION")"
 
 		# Hand any software update package to the update service.
 		# --no-block: installing takes minutes and ends in a reboot.
@@ -194,9 +257,9 @@ case "$ACTION" in
 	# Runs when a USB device labelled ORADIO is physically removed.
 	#
 	# The udev rule that starts this does NOT filter on ID_FS_LABEL: on a remove
-	# event udev has nothing to probe and replays what the add event stored, which
-	# is missing precisely when the add event could not read the stick. So this
-	# fires for any sd* partition removal and the guard below sorts it out.
+	# event udev has nothing to probe and replays what the add event stored,
+	# which is missing precisely when the add event could not read the stick. So
+	# this fires for any sd* partition removal and the guard below sorts it out.
 	remove)
 		# Guard: nothing to do if already unmounted
 		# (a prior remove event already cleaned up, or this was another device)
@@ -207,8 +270,8 @@ case "$ACTION" in
 
 		# The updater reads the .swu straight off the stick, which is already
 		# gone by the time this event fires - its reads are failing either way.
-		# Stop it anyway: it releases its file handles, so the clean umount
-		# below can succeed instead of falling through to the lazy one.
+		# Stop it anyway: it releases its file handles, so the clean umount below
+		# can succeed instead of falling through to the lazy one.
 		# Re-inserting the stick restarts the install from the top.
 		if systemctl is-active --quiet oradio3-update.service; then
 			log "Warning: oradio3-update.service active; stopping it before unmount"
@@ -217,8 +280,17 @@ case "$ACTION" in
 			fi
 		fi
 
-		# Try clean unmount first, lazy unmount if that fails, tolerate failure
-		umount "$MOUNTPOINT" || umount -l "$MOUNTPOINT" || true
+		# Clean unmount first. A lazy unmount detaches the tree without letting the
+		# filesystem finish its teardown, which on vfat leaves the dirty bit set -
+		# so record it rather than falling through silently, and name the holders.
+		if ! umount "$MOUNTPOINT" 2>/dev/null; then
+			log "Warning: clean unmount of '$MOUNTPOINT' failed; holders:"
+			lsof -t "$MOUNTPOINT" 2>/dev/null | while read -r pid; do
+				log "  pid $pid $(tr -d '\0' < "/proc/$pid/cmdline" 2>/dev/null || true)"
+			done
+			log "Falling back to lazy unmount"
+			umount -l "$MOUNTPOINT" || true
+		fi
 
 		# Verify unmount actually happened
 		if mountpoint -q "$MOUNTPOINT" 2>/dev/null; then
@@ -227,8 +299,8 @@ case "$ACTION" in
 		fi
 
 		# Now it is safe to clean up. rmdir is best-effort: a stray file written
-		# into the directory while nothing was mounted must not turn a
-		# successful unmount into a failed unit.
+		# into the directory while nothing was mounted must not turn a successful
+		# unmount into a failed unit.
 		rm -f "$MONITOR"
 		rmdir "$MOUNTPOINT" 2>/dev/null || log "Info: '$MOUNTPOINT' not empty; leaving directory in place"
 		log "Success: unmounted '$MOUNTPOINT' ($(since_start)ms)"

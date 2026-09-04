@@ -2,26 +2,20 @@
 
 # WHY THIS UNIT EXISTS, given the udev rule already covers insertion.
 #
-# Measured 2026-08-27 (systemd-analyze plot, Pi 3A+, Trixie Lite 64-bit):
-#   5.260s  this unit starts
-#   5.706s  media-oradio.mount active          <- stick mounted
-#   5.812s  oradio.service starts
-#   7.428s  /dev/disk/by-label/ORADIO appears  <- udev finishes with sda1
-#   7.554s  system-usb-drive.slice created     <- udev path finally runs
+# The udev path arrives well after this one, and typically after oradio.service
+# has started. Not because of unit ordering - basic.target is reached before
+# either - but because systemd-udevd's worker queue is saturated coldplugging
+# the SD card while NetworkManager, avahi-daemon and wpa_supplicant contend for
+# four cores and one SD card. Waiting in that queue is a structural cost no
+# unit-file tuning fixes.
 #
-# The udev path arrives 1.85s later, and 1.74s AFTER Oradio has started. Not
-# because of unit ordering - basic.target was reached at 5.803s - but because
-# systemd-udevd's worker queue is saturated coldplugging the SD card while
-# NetworkManager, avahi-daemon and wpa_supplicant contend for four cores and one
-# SD card. Waiting in that queue is a structural cost no unit-file tuning fixes.
+# This unit sidesteps the queue by probing the raw devtmpfs nodes with blkid
+# instead of waiting for udev to publish a label. That is the whole point; do
+# not "simplify" it away in favour of the udev rule alone.
 #
-# This unit sidesteps the queue entirely by probing the raw devtmpfs nodes with
-# blkid instead of waiting for udev to publish a label. That is the whole point;
-# do not "simplify" it away in favour of the udev rule alone.
-#
-# NOTE the margin is only ~106ms. If this unit ever slows down, oradio.service
-# starts before the mount exists. usb-drive.sh logs elapsed milliseconds at each
-# step so that regression is visible in PLACEHOLDER_LOGFILE_USB.
+# usb-drive.sh logs elapsed milliseconds at each step, so if this path ever
+# slows down enough to lose its lead over the mount consumers, the regression is
+# visible in PLACEHOLDER_LOGFILE_USB.
 
 [Unit]
 Description=USB drive handler (ORADIO) boot fast path
@@ -35,17 +29,16 @@ Before=shutdown.target
 
 # NOTE: there is deliberately no ConditionPathExistsGlob=/dev/sd?1 here.
 #
-# It used to be, and it was a silent single point of failure. The condition is
-# evaluated once, at whatever moment the job happens to run, with no ordering
-# against USB enumeration and no retry. When it lost that race systemd SKIPPED
-# the unit - not failed it, skipped it, which reports as "condition failed" and
-# is easy to miss - and the mount fell back to the 7.5s udev path.
+# A condition is evaluated once, at whatever moment the job happens to run, with
+# no ordering against USB enumeration and no retry. When it loses that race
+# systemd SKIPS the unit - not fails it, skips it, which reports as "condition
+# failed" and is easy to miss - and the mount falls back to the slow udev path.
 #
-# The script polls for the device itself (DEVICE_WAIT), so a stick that is 300ms
-# late is now handled instead of being written off. When no stick is fitted at
-# all the script exits 0 rather than failing, so nothing is lost by always
-# running. Cost of the poll is bounded and off the critical path: this unit is
-# WantedBy=sysinit.target but nothing is ordered After= it.
+# The script polls for the device itself (DEVICE_WAIT), so a stick that is
+# slightly late is handled rather than written off. When no stick is fitted the
+# script exits 0 rather than failing, so nothing is lost by always running. The
+# poll is bounded and off the critical path: this unit is WantedBy=sysinit.target
+# but nothing is ordered After= it.
 
 [Service]
 # Service runs a single task and then exits.
@@ -55,12 +48,16 @@ Type=oneshot
 UMask=0002
 
 # Redirect stdout (fd 1) and stderr (fd 2) to the log file.
-# Note this takes the output *out* of the journal: journalctl -u usb will be empty.
+#
+# This takes the script's output OUT of the journal: journalctl -u
+# usb-drive-boot shows only systemd's own start/finish lines. Deliberate - the
+# journal is Storage=volatile and is lost on every reboot, so the log file is
+# the only record that survives.
+#
+# Note stderr is unbuffered while bash block-buffers stdout to a file, so a
+# run's error messages appear ABOVE its own log lines rather than in sequence.
 StandardOutput=append:PLACEHOLDER_LOGFILE_USB
 StandardError=append:PLACEHOLDER_LOGFILE_USB
-
-# Set logfile ownership. '+' means run this command as root.
-ExecStartPre=-+/usr/bin/chown PLACEHOLDER_USER:PLACEHOLDER_GROUP PLACEHOLDER_LOGFILE_USB
 
 # 'boot', not 'add': tells the script a missing stick is a normal condition here
 # and must exit 0, whereas the udev-triggered 'add' means udev already saw an
@@ -73,8 +70,8 @@ TimeoutStartSec=60
 RemainAfterExit=yes
 
 # Do NOT add ProtectSystem=, PrivateTmp=, ProtectHome= or similar sandboxing
-# here. They place the service in a private mount namespace, and the mount
-# would then be invisible to every other process on the system.
+# here. They place the service in a private mount namespace, and the mount would
+# then be invisible to every other process on the system.
 
 [Install]
 WantedBy=sysinit.target
