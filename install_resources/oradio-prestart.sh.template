@@ -14,15 +14,13 @@
 # fault rather than fail the unit into oradio-crash.service.
 set -u
 
-TRACEBACK="$1"
-BOOTLOG="$2"
 DEADLINE=60          # 3s at 50ms per tick
 
-log() { echo "$(date '+%F %T') $*" >>"$BOOTLOG"; }
+log() { echo "$(date '+%F %T') $*" >>"$PLACEHOLDER_LOGFILE_BOOT"; }
 
 # Clear the traceback log for this run. Tolerated rather than assumed: a silent
 # failure would leave stale tracebacks looking current.
-: >"$TRACEBACK" 2>/dev/null || log "prestart: WARNING cannot truncate $TRACEBACK"
+: >"$PLACEHOLDER_LOGFILE_TRACEBACK" 2>/dev/null || log "prestart: WARNING cannot truncate $PLACEHOLDER_LOGFILE_TRACEBACK"
 
 wait_for() {
 	_what="$1"; shift

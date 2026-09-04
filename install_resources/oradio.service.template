@@ -35,7 +35,7 @@ StandardError=append:PLACEHOLDER_LOGFILE_TRACEBACK
 # Waits for i2c, gpio and the sound card, and truncates the traceback log.
 # No '+' prefix: runs as PLACEHOLDER_USER, so it tests the access the Python
 # process will actually get. Always exits 0.
-ExecStartPre=/usr/local/sbin/oradio-prestart.sh PLACEHOLDER_LOGFILE_TRACEBACK PLACEHOLDER_LOGFILE_BOOT
+ExecStartPre=/usr/local/sbin/oradio-prestart.sh
 
 # Creates the softvol controls that /etc/asound.conf depends on.
 #
