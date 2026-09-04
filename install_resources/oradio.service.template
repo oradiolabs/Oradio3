@@ -63,9 +63,14 @@ ExecStartPre=/usr/local/sbin/oradio-prestart.sh
 # off the audio path: alsactl restore is synchronous, so when it returns the
 # controls are there. alsa-restore.service running again later is harmless.
 #
+# '--no-ucm' skips the Use Case Manager lookup. The DigiAMP+ ships no UCM
+# profile, so without it alsactl writes a "failed to import hw:0 use case
+# configuration" error to the traceback log on every boot - harmless, but it
+# devalues that file as a signal that something actually went wrong.
+#
 # '-' so a missing DAC lets Oradio start and report the fault. The failure stays
 # visible: stderr goes to the traceback log per StandardError= above.
-ExecStartPre=-+/usr/sbin/alsactl restore
+ExecStartPre=-+/usr/sbin/alsactl --no-ucm restore
 
 # Execute service in user environment.
 User=PLACEHOLDER_USER

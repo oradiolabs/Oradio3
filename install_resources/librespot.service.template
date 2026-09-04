@@ -36,14 +36,15 @@ StandardError=append:PLACEHOLDER_LOGFILE_SPOTIFY
 # persists and ownership cannot drift.
 
 # Mute the Spotify channel before librespot can open it, so a session that was
-# playing at power-off does not come back at full volume.
+# playing at power-off does not come back at full volume. '-q' keeps amixer from
+# printing the resulting control state into the log on every start.
 #
 # CROSS-SERVICE DEPENDENCY: VolumeSpotCon1 is a softvol control declared in
 # /etc/asound.conf, and it does not exist until 'alsactl restore' has run - see
 # the ExecStartPre in oradio.service. '-' tolerates the control being absent,
 # which matters because Restart=always below would otherwise loop this unit
 # every RestartSec forever.
-ExecStartPre=-/usr/bin/amixer -c DigiAMP sset VolumeSpotCon1 0%
+ExecStartPre=-/usr/bin/amixer -q -c DigiAMP sset VolumeSpotCon1 0%
 
 # Reset the flag files Oradio polls, so a stale state from the previous session
 # is not read as current.
