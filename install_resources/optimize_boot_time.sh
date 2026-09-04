@@ -19,27 +19,16 @@
 #
 # @target:        Raspberry Pi OS Trixie Lite 64-bit, Pi 3 Model A+ (512 MB, Wi-Fi only)
 #
-# MEASURED RESULT (Pi 3A+, Trixie Lite 64-bit, August 2026).
-# All figures are absolute seconds from firmware handoff, median of 3 boots,
-# measured with 'systemd-analyze plot'. Test rig had a USB hub, keyboard and
-# USB-Ethernet attached; a field unit with only the music stick is faster.
+# The metric this script optimises is when oradio.service can exec, which
+# requires i2c, gpio and the sound card to be usable. multi-user.target is not
+# a useful measure here: it is gated by units this script deliberately
+# deprioritises.
 #
-#                           stock     v2     v3
-#   kernel                    6.07   2.86   2.83
-#   systemd generators           -   1.35   0.07
-#   basic.target             11.97   6.97   5.62
-#   oradio.service exec          -   7.32   5.62   <- when Oradio can start
-#   USB music mounted            -   9.16   5.49   <- floor for first audio
-#   sound card ready             -   9.24   6.15
-#   multi-user.target        16.83  10.58  11.26
+# Measure with 'systemd-analyze plot'. Oradio's own hardware-readiness waits are
+# logged per boot by oradio-prestart.sh.
 #
-# multi-user.target is NOT a useful metric here: it is gated by avahi-daemon,
-# which v3 deliberately deprioritises (see the scheduling drop-ins below). The
-# number that matters is when Oradio can produce sound, not when systemd
-# declares the boot finished.
-#
-# Note: Recovery from a bad boot means reading the SD card on another machine.
-# The script keeps no backups; use a card image instead.
+# Recovery from a bad boot means reading the SD card on another machine. This
+# script keeps no backups; use a card image instead.
 
 # Stop script on command errors, unset variables and failed pipes
 set -o errexit -o nounset -o pipefail
@@ -96,22 +85,19 @@ mask_unit() {
 # Note: 'dpkg -s' also succeeds for removed-but-not-purged packages, so the
 # package status is matched explicitly.
 #
-# cloud-init: Raspberry Pi OS Trixie images from 24 November 2025 onwards ship
-# cloud-init and use it for FIRST BOOT provisioning (user, hostname, Wi-Fi, SSH
-# keys) from the user-data that Raspberry Pi Imager writes to the boot
-# partition. That has already happened by the time this script runs, so purging
-# it does not break the "flash with Imager -> run oradio_install.sh" flow.
+# cloud-init provisions user, hostname, Wi-Fi and SSH keys on FIRST BOOT from
+# the user-data Raspberry Pi Imager writes to the boot partition. That has
+# already run by the time this script executes, so purging it does not break the
+# "flash with Imager -> run oradio_install.sh" flow.
 #
-# WARNING: it does break one thing. If a prepared card is cloned to produce new
-# units, those clones can no longer be customised per-device by Imager. That is
-# correct for an identical golden image and wrong if each unit needs unique
-# settings. If you need the latter, remove cloud-init from this list and instead
-# disable it at runtime with 'touch /etc/cloud/cloud-init.disabled', then restore
-# the cloud-* entries in UNITS_TO_MASK and GENERATORS_TO_MASK below.
+# WARNING: a card prepared this way can no longer be customised per-device by
+# Imager when cloned. Correct for an identical golden image, wrong if each unit
+# needs unique settings. For the latter, remove cloud-init from this list,
+# disable it at runtime with 'touch /etc/cloud/cloud-init.disabled', and re-add
+# the cloud-* entries to UNITS_TO_MASK and GENERATORS_TO_MASK below.
 PACKAGES_TO_REMOVE=(
 	cloud-init		# First-boot provisioning only; see the warning above. Purging
-					# removes ~10 units, the cloud-init generator and the flag-file
-					# dance that used to be needed to keep them all quiet.
+					# removes its units and its systemd generator.
 )
 
 for package in "${PACKAGES_TO_REMOVE[@]}"; do
@@ -129,13 +115,12 @@ for package in "${PACKAGES_TO_REMOVE[@]}"; do
 	fi
 done
 
-# Purging cloud-init orphans ~30 Python packages (jsonschema, jinja2, babel and
-# friends). They are NOT removed automatically: 'apt autoremove' would also take
-# netcat-openbsd, eatmydata and gdisk, which other things may want. Review them
+# Purging cloud-init orphans a set of Python packages (jsonschema, jinja2, babel
+# and friends). They are NOT removed automatically: 'apt autoremove' would also
+# take netcat-openbsd, eatmydata and gdisk, which other things may want. Review
 # by hand with 'apt autoremove --dry-run' if SD space matters.
 #
-# The flag file is a leftover from the previous approach and is not owned by the
-# package, so purging leaves it behind.
+# The flag file is not owned by the package, so purging leaves it behind.
 sudo rm -f /etc/cloud/cloud-init.disabled
 sudo rmdir /etc/cloud 2>/dev/null || true
 
@@ -192,41 +177,31 @@ CMDLINE_OPTS=(
 #	quiet					# Suppress most kernel boot messages
 #	loglevel=3				# Errors only
 
-	# Contiguous Memory Allocator. The Pi device tree reserves 64 MiB by default
-	# for the camera and the KMS display stack, neither of which this device uses
-	# (camera_auto_detect=0, no vc4-kms-v3d). Reclaiming ~48 MiB on a 512 MB board
-	# is page cache, and this boot is I/O bound, so it pays for itself. I2S DMA
-	# buffers are small and fit comfortably; raise to 32M if audio ever glitches.
+	# Contiguous Memory Allocator. The device tree reserves 64 MiB by default for
+	# the camera and the KMS display stack, neither of which this device uses
+	# (camera_auto_detect=0, no vc4-kms-v3d). What is reclaimed becomes page cache
+	# on a 512 MB board. I2S DMA buffers fit comfortably; raise to 32M if audio
+	# glitches.
 	cma=16M
 
-	# Skip systemd-gpt-auto-generator entirely. The SD card is MBR-partitioned
-	# (PARTUUID fd1884a8-0x), so the generator can never find a GPT to act on.
+	# Skip systemd-gpt-auto-generator entirely. The SD card is MBR-partitioned, so
+	# the generator can never find a GPT to act on.
 	systemd.gpt_auto=0
 
 	# 'brd' (the ramdisk driver) is BUILT IN to the rpt kernel and defaults to 16
-	# devices, which produced 32 spurious udev/systemd device units in the busiest
-	# part of the boot. It cannot be blacklisted; this is the only way to limit it.
-	# Use 1, not 0: some kernel versions treat rd_nr=0 as "use the default".
+	# devices, each producing udev events and systemd device units for a ramdisk
+	# nothing uses. Built-in, so it cannot be blacklisted; this is the only way to
+	# limit it. Use 1, not 0: some kernel versions treat rd_nr=0 as "the default".
 	brd.rd_nr=1
 
-	# usb-storage waits before probing a new device, to let it settle. The default
-	# is 1s and is a legacy figure aimed at supporting the widest possible range of
-	# hardware; on a flash drive this is almost all dead time.
+	# usb-storage waits this long before probing a new device, to let it settle.
+	# Commented out, so the OS default of 1s applies.
 	#
-	# Do NOT set this to 0. It was 0 here and it caused intermittent boots where
-	# the ORADIO stick was never mounted: the SCSI scan runs before the device is
-	# ready, so the partition table read fails and /dev/sda1 never appears at all.
-	# Nothing downstream can recover from that.
-	# Multipe fora discussions says the same: "when delay_use is set to 0 (no delay),
-	# still error observed on some USB drives", which is why the parameter was
-	# reworked to accept sub-second values in the first place.
+	# Do NOT set this to 0: the SCSI scan then runs before the device is ready, the
+	# partition table read fails, and /dev/sda1 never appears at all. Nothing
+	# downstream can recover from that.
 	#
-	# 100ms is the value suggested as safe for most pen drives, and keeps
-	# nearly all of the win: 'scsi host0' -> '[sda]' measured 1.02s at the default
-	# and ~9ms at 0, so the settle time now dominates and costs ~100ms total.
-	#
-	# FORMAT: the 'ms' suffix needs the reworked driver (kernel ~6.11+; Trixie's
-	# 6.12 has it).
+	# FORMAT: the 'ms' suffix needs the reworked driver (kernel 6.11 and later).
 	#
 	# SCOPE: delay_use belongs to usb-storage and does nothing for a device bound
 	# to the uas driver. Verify after boot:
@@ -242,13 +217,11 @@ CMDLINE_OPTS=(
 # line that shares its key is discarded and replaced by the value above. The file
 # therefore converges on CMDLINE_OPTS whatever it contained before.
 #
-# The previous approach compared whole strings, which silently broke whenever a
-# value changed. Editing cma=16M to cma=32M appended the new token and left the
-# old one in place; the kernel then took whichever came last, so the effective
-# setting depended on append order rather than on this file. The same trap
-# applied to loglevel=, brd.rd_nr=, systemd.gpt_auto= and usb-storage.delay_use=.
-# Matching on the key before '=' removes the whole class of bug, and collapses
-# duplicates left behind by earlier runs as a side effect.
+# Matching on the key before '=' rather than on the whole token is what makes
+# that true. A whole-string comparison appends a changed value and leaves the old
+# token in place, and the kernel then takes whichever comes last - so the
+# effective setting would depend on append order rather than on this file.
+# Key matching also collapses duplicates as a side effect.
 #
 # CMDLINE_REMOVE holds keys to strip and NOT re-add. To keep one specific value
 # of an otherwise removed key, put that value in CMDLINE_OPTS: it is stripped by
@@ -346,9 +319,12 @@ BLACKLIST_CONTENT=(
 	vc4                  # VideoCore graphics driver
 	drm_kms_helper       # Kernel Mode Setting helper
 	drm                  # Direct Rendering Manager - no display on this device
-	bcm2835_isp          # Camera ISP - fails with VCHI -22, then unregisters
+	bcm2835_isp          # Camera ISP - probes, fails, unregisters
 	bcm2835_mmal_vchiq   # MMAL/VCHIQ camera transport - same
 	vc_sm_cma            # VideoCore shared memory - same
+	bcm2835_v4l2         # V4L2 capture interface - same. camera_auto_detect=0 in
+	                     # config.txt suppresses the overlay but not the modalias
+	                     # match that loads these
 	snd_bcm2835          # Staging BCM2835 audio; Oradio uses the DigiAMP+ I2S DAC
 )
 
@@ -379,13 +355,14 @@ done
 # ---------------------------------------------
 # Preload the DigiAMP+ sound stack
 # ---------------------------------------------
-# Left to udev, these modules are loaded during coldplug and the sound card
-# only registers once the udev queue reaches it. Listing them here moves the
-# load into systemd-modules-load.service, which runs ~2s earlier.
-# Measured: dev-snd-controlC0 went from 7.49s to 6.55s (-940ms).
+# Left to udev, these modules load during coldplug and the sound card only
+# registers once the udev worker queue reaches it. Listing them here moves the
+# load into systemd-modules-load.service, which runs well before that queue is
+# drained. oradio-prestart.sh gates oradio.service on the card appearing in
+# /proc/asound/cards, so this directly determines when Oradio can start.
 #
-# Cost: systemd-modules-load grows from ~210ms to ~385ms and the extra CPU
-# contention pushed oradio.service start out by ~120ms. Net gain is large.
+# Cost: systemd-modules-load takes longer and contends for CPU with the rest of
+# early boot. Net gain is large.
 #
 # Only the three top-level modules are listed; snd_soc_core, snd_pcm and the
 # rest arrive as dependencies. i2c-bcm2835 is needed first for the PCM5122's
@@ -402,11 +379,33 @@ printf '%s\n' \
 	| sudo tee "$SOUND_MODULES_FILE" >/dev/null
 echo "Configured early sound module load in $SOUND_MODULES_FILE"
 
+# ------------------------------------
+# Stop loading the unused zram module
+# ------------------------------------
+# /usr/lib/modules-load.d/20-zram-generator.conf loads zram.ko on every boot,
+# while zram-generator is masked below and no zram device is ever configured.
+# The module still registers /dev/zram0, costing a udev event and three systemd
+# device units in the busiest part of the boot.
+#
+# A /dev/null symlink of the same name in /etc/modules-load.d overrides the file
+# in /usr/lib, the same way unit overrides work.
+ZRAM_MODLOAD="/etc/modules-load.d/20-zram-generator.conf"
+if [[ ! -e /usr/lib/modules-load.d/20-zram-generator.conf ]]; then
+	echo -e "${YELLOW}zram modules-load config not present, skipping${NC}"
+elif [[ "$(readlink -f "$ZRAM_MODLOAD" 2>/dev/null || true)" == "/dev/null" ]]; then
+	echo "zram module load already masked"
+elif sudo ln -sf /dev/null "$ZRAM_MODLOAD"; then
+	echo "Masked zram module load in $ZRAM_MODLOAD"
+else
+	echo -e "${YELLOW}Warning: failed to mask $ZRAM_MODLOAD${NC}"
+	FAILURES=$((FAILURES + 1))
+fi
+
 # -------------------------------------------------------
 # Disable systemd generators that do nothing on an Oradio
 # -------------------------------------------------------
 # Generators run serially before ANY unit starts, so their cost sits at the very
-# bottom of the critical chain. Measured 1156ms -> 69ms.
+# bottom of the critical chain.
 #
 # A /dev/null symlink in /etc/systemd/system-generators overrides the binary of
 # the same name in /usr/lib/systemd/system-generators, the same way unit file
@@ -414,7 +413,7 @@ echo "Configured early sound module load in $SOUND_MODULES_FILE"
 #
 # Two are deliberately NOT masked:
 #   systemd-fstab-generator - required; builds the mount units from /etc/fstab
-#   systemd-debug-generator - 24ms, and it is what makes systemd.mask=,
+#   systemd-debug-generator - cheap, and it is what makes systemd.mask=,
 #                             systemd.wants= and systemd.debug_shell work from
 #                             cmdline.txt. On a device where recovery means
 #                             pulling the SD card, that escape hatch is worth
@@ -422,15 +421,15 @@ echo "Configured early sound module load in $SOUND_MODULES_FILE"
 GENERATOR_SRC_DIR="/usr/lib/systemd/system-generators"
 GENERATOR_DIR="/etc/systemd/system-generators"
 GENERATORS_TO_MASK=(
-	rpi-swap-generator					# 454ms of the 717ms measured - by far the worst
-										# offender. Sizes a swapfile whose unit is masked
-										# anyway (rpi-resize-swap-file.service, below)
+	rpi-swap-generator					# The most expensive generator on this image. Sizes
+										# a swapfile whose unit is masked anyway
+										# (rpi-resize-swap-file.service, below)
 	netplan								# Shipped by netplan-generator, which cannot be
 										# purged without taking network-manager with it. A
 										# separate binary from /usr/sbin/netplan, so the
 										# dpkg-divert further down does not cover it.
-	zram-generator						# Produces nothing: it bails with "system has too
-										# much memory (462MB), limit is 0MB, ignoring"
+	zram-generator						# Produces nothing: host-memory-limit in
+										# /etc/systemd/zram-generator.conf is 0, so it bails
 	dpkg-limit							# No dpkg activity on a deployed unit
 	systemd-gpt-auto-generator			# MBR disk; also covered by systemd.gpt_auto=0
 	systemd-cryptsetup-generator		# No /etc/crypttab
@@ -486,10 +485,9 @@ done
 # -----------------------------------
 # Trim udev rules that block workers
 # -----------------------------------
-# mtp-probe opens every USB device and issues control transfers to ask whether
-# it is an MTP device. With a hub, keyboard, stick and Ethernet adapter that is
-# four blocking probes occupying udev workers while block devices queue behind
-# them. Oradio has no MTP devices.
+# mtp-probe opens every USB device and issues control transfers to ask whether it
+# is an MTP device. Each probe blocks a udev worker while block devices queue
+# behind it. Oradio has no MTP devices.
 if [[ -e /usr/lib/udev/rules.d/69-libmtp.rules ]]; then
 	sudo ln -sf /dev/null /etc/udev/rules.d/69-libmtp.rules
 	echo "Masked udev rules 69-libmtp.rules"
@@ -546,10 +544,9 @@ fi
 # image the unit set is known, and a graph walk risks masking something that
 # another unit hard-Requires.
 UNITS_TO_MASK=(
-	systemd-binfmt.service			# No foreign binary formats are used. This was the
-									# last unit holding sysinit.target: it triggered the
-									# binfmt_misc automount and waited for it. Masking both
-									# moved basic.target 428ms earlier.
+	systemd-binfmt.service			# No foreign binary formats are used. It triggers the
+									# binfmt_misc automount and waits for it, holding
+									# sysinit.target. Mask both or neither.
 	proc-sys-fs-binfmt_misc.automount	# Triggered only by the above
 	apt-daily.timer					# No daily apt index refresh
 	apt-daily.service
@@ -560,13 +557,12 @@ UNITS_TO_MASK=(
 	man-db.timer					# No man page index on an appliance
 	e2scrub_all.timer				# Only relevant for LVM-backed ext4
 	e2scrub_reap.service
-	rpi-resize-swap-file.service	# This device runs with NO swap at all - a deliberate
-									# choice for a 512 MB appliance running one Python app.
-									# zram never worked either: zram-generator bails with
-									# "system has too much memory (462MB), limit is 0MB".
-									# If you ever want swap back, fix host-memory-limit in
-									# /etc/systemd/zram-generator.conf AND unmask the
-									# zram-generator above.
+	rpi-resize-swap-file.service	# This device runs with NO swap - a deliberate choice
+									# for a 512 MB appliance running one Python app.
+									# To restore swap: set host-memory-limit in
+									# /etc/systemd/zram-generator.conf, unmask the
+									# zram-generator above, and unmask the zram module
+									# load configured earlier in this script.
 	rpi-zram-writeback.timer		# Writeback for a zram device that is never created
 	rpi-eeprom-update.service		# Pi 3A+ has no bootloader EEPROM
 	NetworkManager-wait-online.service	# Oradio detects network availability itself
@@ -577,33 +573,75 @@ UNITS_TO_MASK=(
 	sshswitch.service				# SSH comes from ssh.socket, not the /boot flag file;
 									# also holds an After=boot-firmware.mount that would
 									# trigger the automount during boot
+	systemd-journal-flush.service	# Nothing to flush: Storage=volatile in the journald
+									# drop-in below means journald never uses
+									# /var/log/journal. It is ordered before
+									# systemd-tmpfiles-setup.service on the chain into
+									# sysinit.target.
+									#
+									# LOAD-BEARING PAIR: unmask this before setting
+									# Storage=persistent for any reason. This unit is what
+									# migrates the journal from /run to /var, so with it
+									# masked persistent journalling silently does not
+									# work - journald keeps writing to tmpfs and the log
+									# is still lost on every reboot.
+	dev-mqueue.mount				# POSIX message queues, unused
+	sys-kernel-debug.mount			# debugfs, unused in the field
+	sys-kernel-tracing.mount		# tracefs, unused in the field
+									# These three run in parallel with the rest of early
+									# boot, so what they cost is contention, not ordering.
+									# COST: no ftrace or debugfs. Unmask the last two before
+									# any kernel-level investigation.
 )
 
-# Note: alsa-restore.service and alsa-state.service are deliberately NOT masked.
-# They look like dead weight - /var/lib/alsa/asound.state has entries for cards
-# this device does not have - but they are also what recreates the softvol
-# controls (VolumeMPD, VolumeSpotCon1/2, VolumeSysSound) at boot. Those controls
-# do not exist until a stream opens through the ALSA plugin, so librespot's
-# 'ExecStartPre=amixer ... sset VolumeSpotCon1 0%' fails without them, and
-# Restart=always then loops the unit every 10s forever. Masking these costs
-# ~100ms and breaks Spotify Connect. Do not do it.
+# Note: alsa-state.service and alsa-restore.service are deliberately NOT masked.
+# alsa-state saves the mixer state at shutdown, and that saved state is what
+# 'alsactl restore' reads back. The softvol controls /etc/asound.conf declares
+# (VolumeMPD, VolumeSpotCon1/2, VolumeSysSound) do not exist until they are
+# restored, and librespot's ExecStartPre sets VolumeSpotCon1 with Restart=always
+# behind it - without the controls that unit restarts forever.
+# oradio.service does not depend on alsa-restore.service: it runs 'alsactl
+# restore' itself from an ExecStartPre, after oradio-prestart.sh has confirmed
+# the card exists.
 #
-# Note: systemd-random-seed.service is deliberately NOT masked. Refreshing the
-# entropy pool costs ~0ms here ('crng init done' is the first kernel log line)
-# and librespot needs credible randomness for TLS.
+# Note: systemd-random-seed.service is deliberately NOT masked. It is cheap and
+# librespot needs credible randomness for TLS.
 #
-# Note: avahi-daemon is deliberately NOT masked. It was installed by the
-# cloud-init user-data at first boot, so mDNS (.local) discovery is wanted on
-# this device. It survives the cloud-init purge above; only the provisioning
-# machinery is removed, not what it installed.
+# Note: avahi-daemon is deliberately NOT masked. mDNS (.local) discovery is
+# wanted on this device.
 #
 # Note: logrotate.timer is deliberately NOT masked. Oradio's own logs in
-# /home/pi/Oradio3/logging/ are rotated on 'size 100k', which is only ever
-# evaluated when the timer runs logrotate. Masking it lets those files grow
-# without limit and eventually fill the SD card.
+# /etc/logrotate.d/oradio rotate on a size threshold, which is only evaluated
+# when the timer runs logrotate. Masking it lets those files grow without limit
+# and eventually fill the SD card.
 
 for unit in "${UNITS_TO_MASK[@]}"; do
 	mask_unit "$unit"
+done
+
+# ---------------------------------------------
+# Mask modprobe@ instances that do nothing here
+# ---------------------------------------------
+# Template instances, not unit files, so mask_unit's list-unit-files check
+# cannot see them and would skip them with a misleading "not present".
+#
+# drm is already blocked by 'install drm /bin/true' in the blacklist above, so
+# this unit modprobes a module that cannot load. efi_pstore has no meaning on a
+# Pi. Both contend for CPU and I/O in the busiest part of early boot.
+#
+# Check what pulls them in before assuming this is the right layer:
+#   systemctl list-dependencies --reverse modprobe@drm.service
+# If it is systemd-vconsole-setup.service, mask that instead - it is pointless
+# on a headless appliance and takes modprobe@drm with it.
+for instance in modprobe@drm.service modprobe@efi_pstore.service; do
+	if [[ "$(readlink -f "/etc/systemd/system/$instance" 2>/dev/null || true)" == "/dev/null" ]]; then
+		echo "Unit instance '$instance' already masked"
+	elif sudo ln -sf /dev/null "/etc/systemd/system/$instance"; then
+		echo "Unit instance '$instance' masked"
+	else
+		echo -e "${YELLOW}Warning: failed to mask '$instance'${NC}"
+		FAILURES=$((FAILURES + 1))
+	fi
 done
 
 # ---------------------------------------------------
@@ -655,20 +693,25 @@ fi
 # ---------------------------------------------
 # Scheduling priorities during the boot scramble
 # ---------------------------------------------
-# By this point the boot is I/O bound, not dependency bound: trivial units like
-# systemd-sysctl were measured at 600ms simply because six services start within
-# 500ms of each other and contend for one SD card on four A53 cores.
+# Past this point the boot is I/O bound rather than dependency bound: several
+# services start close together and contend for one SD card on four cores.
 #
-# ab-boot-check and avahi-daemon together occupy ~11s of wall time but are
-# almost entirely BLOCKED, so deprioritising them costs nothing real while
-# freeing I/O bandwidth for the Python interpreter's imports.
+# avahi-daemon spends most of its startup blocked, so deprioritising it costs
+# nothing real while freeing I/O bandwidth for the Python interpreter's imports.
 #
 # Side effect: multi-user.target is gated by avahi-daemon, so the headline
-# 'systemd-analyze' number gets WORSE after this change. That is expected and
-# does not matter - see the note in the header.
+# 'systemd-analyze' figure gets worse. Expected, and not the metric that
+# matters here - see the header.
 write_boot_dropin() {
 	local unit="$1" content="$2"
 	local dir="/etc/systemd/system/${unit}.d"
+
+	# Same guard as mask_unit: a drop-in for a unit that is not on the system is
+	# silent dead config, and systemd warns about it on every daemon-reload.
+	if ! systemctl list-unit-files --no-legend -- "$unit" 2>/dev/null | grep -q .; then
+		echo -e "${YELLOW}Unit '$unit' not present, skipping drop-in${NC}"
+		return 0
+	fi
 
 	sudo install -d -m 0755 "$dir"
 	if printf '%s\n' "$content" | sudo tee "${dir}/oradio-sched.conf" >/dev/null; then
@@ -679,10 +722,7 @@ write_boot_dropin() {
 	fi
 }
 
-# Blocked most of their runtime; get out of the way of the app
-write_boot_dropin ab-boot-check.service '[Service]
-IOSchedulingClass=idle
-Nice=10'
+# Blocked most of its runtime; get out of the way of the app
 write_boot_dropin avahi-daemon.service '[Service]
 IOSchedulingClass=idle
 Nice=10'
@@ -696,10 +736,9 @@ IOSchedulingPriority=0'
 # ------------------------------------------
 # NetworkManager: skip the netplan round-trip
 # ------------------------------------------
-# Debian's NetworkManager integrates with netplan: at startup it runs "netplan generate",
-# which in turn runs "systemctl daemon-reload". NM blocks on that child, and the reload
-# leaves the systemd manager unresponsive for ~1.7s. Measured on a Pi 3A+: NM's own
-# startup, from its first log line to claiming its D-Bus name.
+# Debian's NetworkManager integrates with netplan: at startup it runs "netplan
+# generate", which in turn runs "systemctl daemon-reload". NM blocks on that
+# child, and the reload leaves the systemd manager unresponsive while it runs.
 #
 # There are three separate netplan entry points, in three different packages,
 # and none of them can be removed by purging:
@@ -745,8 +784,13 @@ fi
 # Reduce journald write volume
 # ----------------------------
 # NOTE: Storage=volatile means the journal lives in RAM only, so there is no
-# 'journalctl -b -1' after a field unit misbehaves. That is a deliberate
-# trade against SD card wear; drop this section if post-mortem logs matter more.
+# 'journalctl -b -1' after a field unit misbehaves. A deliberate trade against SD
+# card wear.
+#
+# To reverse it, all three are required: set Storage=persistent here, create
+# /var/log/journal, and unmask systemd-journal-flush.service in UNITS_TO_MASK
+# above. That unit is what migrates the journal from /run to /var, so leaving it
+# masked means journald keeps writing to tmpfs whatever Storage= says.
 JOURNALD_DROPIN="/etc/systemd/journald.conf.d/oradio.conf"
 sudo mkdir -p "$(dirname "$JOURNALD_DROPIN")"
 printf '[Journal]\nStorage=volatile\nRuntimeMaxUse=8M\n' | sudo tee "$JOURNALD_DROPIN" >/dev/null
