@@ -303,6 +303,7 @@ if [ "${1:-}" != "--continue" ]; then
 		python3-jinja2
 		python3-requests
 		python3-watchdog
+		python3-rpi-lgpio
 	)
 
 	# raspotify is not in any configured repository until its own installer has
@@ -671,8 +672,10 @@ echo -e "${GREEN}USB functionality loaded and configured. System automounts USB 
 sudo raspi-config nonint do_i2c 0	# 0: enable
 # Install i2c modules
 install_resource "$RESOURCES_PATH/modules" /etc/modules
+# Adjust device permissions
+install_resource "$RESOURCES_PATH/oradio-dev.conf" /etc/tmpfiles.d/oradio-dev.conf
 # Progress report
-echo -e "${GREEN}i2c installed and configured${NC}"
+echo -e "${GREEN}i2c and device permissions configured${NC}"
 
 # Install audio configuration, set volume to reasonable level, play silence to activate
 install_resource "$RESOURCES_PATH/asound.conf" /etc/asound.conf \
