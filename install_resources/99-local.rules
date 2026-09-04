@@ -23,9 +23,15 @@
 # does not match at all - the drive is simply never mounted. The change event that follows moments later does carry
 # the label, so matching both makes the miss recoverable instead of fatal.
 #
-# usb-storage.delay_use in cmdline.txt is the other half of this. It was 0, which scanned the device before it was
-# ready and made the empty-label add event common; it is now 100ms. That reduces how often the label is missing, but
-# it does not close the window, hence the change match here. Both are needed.
+# usb-storage.delay_use is the other half of this. It is no longer set: optimize_boot_time.sh strips the key from
+# cmdline.txt and the OS default of 1s applies. It was 0 for a while, which scanned the device before it was ready
+# and made the empty-label add event common; it was then 100ms while usb-drive-boot.service raced to mount the stick
+# early. Neither applies now - nothing is ordered against the mount, so the longer settle time costs nothing and
+# makes the empty-label case rarer.
+#
+# Rarer is not gone. The settle time is a fixed delay against a variable device, and a slow stick can still miss the
+# window, so the change match below stays regardless of what delay_use is set to. Do not drop it if the OS default
+# ever appears to have fixed the problem on the sticks you happen to have.
 #
 # Duplicate triggering is expected and safe: a single insert can produce an add plus one or more change events, and
 # usb-drive.sh takes a flock and exits 0 if the mount point is already mounted.
