@@ -151,6 +151,8 @@ unset INSTALL_ERROR
 #     re-running this script is idempotent and quiet on unchanged files.
 #   - Any trailing CMD arguments run via `sudo bash -c "CMD"` *after* a
 #     successful copy (e.g. `chmod +x ...`, `systemctl enable ...`).
+#     For executable shell scripts use install_script instead: it adds a
+#     syntax check before the copy.
 #   - Sets the global INSTALL_ERROR flag (rather than exiting immediately)
 #     on any failure, so one bad resource doesn't abort the whole install;
 #     the script checks INSTALL_ERROR once, near the end, and exits then.
@@ -228,6 +230,47 @@ function install_resource {
 	return 0
 }
 
+# ---------------------------------------------------------------------------
+# install_script SRC DST [MODE]
+# ---------------------------------------------------------------------------
+# Wrapper around install_resource for executable shell scripts: syntax-check the
+# source, then install it and set MODE (default 755).
+#
+# The check runs BEFORE the copy, deliberately. A broken script that reaches
+# /usr/local/sbin is live immediately: usb-drive.sh is invoked by udev, and a
+# failing remove leaves the stick mounted with its dirty bit set - so the script
+# meant to repair that condition becomes the cause of it. Checking after the
+# copy would report the problem without preventing it.
+#
+# When a .template exists that is what gets checked, since install_resource
+# renders from it. Placeholder tokens are bare words and do not affect parsing.
+#
+# MODE is explicit rather than 'chmod +x' so the installed permissions do not
+# depend on whatever bits the source file happened to carry.
+function install_script {
+	if [ $# -lt 2 ]; then
+		echo -e "${RED}Aborting: install_script has too few arguments: '$*'${NC}"
+		echo "Usage: $0 src dst [mode]"
+		INSTALL_ERROR=1
+		return 1
+	fi
+
+	local SRC=$1
+	local DST=$2
+	local MODE=${3:-755}
+	local CHECK=$SRC
+
+	[ -f "$SRC.template" ] && CHECK="$SRC.template"
+
+	if ! bash -n "$CHECK"; then
+		echo -e "${RED}Syntax error in '$CHECK'; not installing '$DST'${NC}"
+		INSTALL_ERROR=1
+		return 1
+	fi
+
+	install_resource "$SRC" "$DST" "chmod $MODE '$DST'"
+}
+
 ########## INITIALIZE END ##########
 
 if [ "${1:-}" != "--continue" ]; then
@@ -296,7 +339,9 @@ if [ "${1:-}" != "--continue" ]; then
 		mpd
 		mpc
 		caps
+		lsof
 		iptables
+		dosfstools
 		python3-gi
 		python3-dev
 		python3-dbus
@@ -661,7 +706,7 @@ install_resource "$RESOURCES_PATH/99-local.rules" /etc/udev/rules.d/99-local.rul
 # Configure the USB service triggered by udev rules
 install_resource "$RESOURCES_PATH/usb-drive@.service" /etc/systemd/system/usb-drive@.service
 # Install the USB mount/unmount script used by the system service
-install_resource "$RESOURCES_PATH/usb-drive.sh" /usr/local/sbin/usb-drive.sh 'chmod +x /usr/local/sbin/usb-drive.sh'
+install_script "$RESOURCES_PATH/usb-drive.sh" /usr/local/sbin/usb-drive.sh
 # Configure the USB boot service to start on boot
 install_resource "$RESOURCES_PATH/usb-drive-boot.service" /etc/systemd/system/usb-drive-boot.service 'systemctl enable usb-drive-boot.service'
 # Progress report
@@ -708,23 +753,23 @@ for flag in "$SPOTIFY_ACTIVE_FLAG_NAME" "$SPOTIFY_PLAYING_FLAG_NAME"; do
 	fi
 done
 # install librespot event handler script
-install_resource "$RESOURCES_PATH/spotify_event_handler.sh" /usr/local/bin/spotify_event_handler.sh 'chmod +x /usr/local/bin/spotify_event_handler.sh'
+install_script "$RESOURCES_PATH/spotify_event_handler.sh" /usr/local/bin/spotify_event_handler.sh
 # Configure the Librespot service to start on boot
 install_resource "$RESOURCES_PATH/librespot.service" /etc/systemd/system/librespot.service 'systemctl enable librespot.service'
 # Progress report
 echo -e "${GREEN}Spotify connect functionality is installed and configured${NC}"
 
 # Install the about script
-install_resource "$RESOURCES_PATH/about" /usr/local/bin/about 'chmod +x /usr/local/bin/about'
+install_script "$RESOURCES_PATH/about" /usr/local/bin/about
 # Progress report
 echo -e "${GREEN}Support tools installed${NC}"
 
 # Configure the oradio crash handling script
-install_resource "$RESOURCES_PATH/oradio-crash.sh" /usr/local/sbin/oradio-crash.sh 'chmod 700 /usr/local/sbin/oradio-crash.sh'
+install_script "$RESOURCES_PATH/oradio-crash.sh" /usr/local/sbin/oradio-crash.sh 700
 # Configure the oradio crash handling service
 install_resource "$RESOURCES_PATH/oradio-crash.service" /etc/systemd/system/oradio-crash.service
 # Configure the oradio prestart script
-install_resource "$RESOURCES_PATH/oradio-prestart.sh" /usr/local/sbin/oradio-prestart.sh 'chmod 755 /usr/local/sbin/oradio-prestart.sh'
+install_script "$RESOURCES_PATH/oradio-prestart.sh" /usr/local/sbin/oradio-prestart.sh
 # Configure the oradio service to start on boot
 install_resource "$RESOURCES_PATH/oradio.service" /etc/systemd/system/oradio.service 'systemctl enable oradio.service'
 # Progress report
