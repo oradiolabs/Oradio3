@@ -661,6 +661,8 @@ install_resource "$RESOURCES_PATH/99-local.rules" /etc/udev/rules.d/99-local.rul
 install_resource "$RESOURCES_PATH/usb-drive@.service" /etc/systemd/system/usb-drive@.service
 # Install the USB mount/unmount script used by the system service
 install_resource "$RESOURCES_PATH/usb-drive.sh" /usr/local/sbin/usb-drive.sh 'chmod +x /usr/local/sbin/usb-drive.sh'
+# Configure the USB boot service to start on boot
+install_resource "$RESOURCES_PATH/usb-drive-boot.service" /etc/systemd/system/usb-drive-boot.service 'systemctl enable usb-drive-boot.service'
 # Progress report
 echo -e "${GREEN}USB functionality loaded and configured. System automounts USB drives on '$USB_MOUNT_POINT'${NC}"
 
