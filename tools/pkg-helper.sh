@@ -172,6 +172,25 @@ function is_held {
 	[[ "$HELD_PACKAGES" == *" $1 "* ]]
 }
 
+# dpkg --compare-versions ABORTS with a usage error if either version is empty,
+# and both call sites use it inside an `if`, which swallows the non-zero status.
+# An empty version therefore takes the "needs upgrading" branch silently while
+# dpkg's complaint scrolls past in the install log.
+#
+# Empty is not supposed to happen - both call sites check is_installed and a
+# non-empty candidate first - so treat it as a real fault: name the package and
+# return non-zero, which is the safe direction (apt is asked to reinstall).
+function version_ge {
+	local package="$1" have="$2" want="$3"
+
+	if [ -z "$have" ] || [ -z "$want" ]; then
+		echo -e "${YELLOW}$package: cannot compare versions (installed='$have' candidate='$want')${NC}"
+		return 1
+	fi
+
+	dpkg --compare-versions "$have" ge "$want"
+}
+
 #---------- Refresh the package lists if they are stale ----------
 
 # An empty or corrupted stamp - a power cut during the write below will do it -
@@ -245,10 +264,9 @@ for package in "${REQUIRED_PACKAGES[@]}"; do
 		continue
 	fi
 
-	# dpkg --compare-versions, not string equality: Debian version ordering
-	# understands epochs and '~' pre-release markers, so 1.0~rc1 correctly
-	# sorts before 1.0
-	if dpkg --compare-versions "$have" ge "$want"; then
+	# Debian version ordering, not string equality: it understands epochs and '~'
+	# pre-release markers, so 1.0~rc1 correctly sorts before 1.0
+	if version_ge "$package" "$have" "$want"; then
 		echo "$package is up-to-date ($have)"
 	elif is_held "$package"; then
 		echo -e "${YELLOW}$package is held at $have (candidate $want): leaving it alone${NC}"
@@ -308,7 +326,7 @@ for package in "${REQUIRED_PACKAGES[@]}"; do
 		continue
 	fi
 
-	if dpkg --compare-versions "$have" ge "$want"; then
+	if version_ge "$package" "$have" "$want"; then
 		continue
 	fi
 
