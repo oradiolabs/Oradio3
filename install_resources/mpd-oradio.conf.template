@@ -7,20 +7,7 @@
 # (ProtectSystem, RestrictAddressFamilies, NoNewPrivileges, ...),
 # LimitRTPRIO, Type=notify and ExecStart are Debian's and are NOT
 # copied, so package updates to those settings actually apply.
-
-[Unit]
-# Debian orders MPD after network.target. Oradio plays local files from the USB
-# stick, which usb-drive-boot.service mounts at ~5.5s, so the network is
-# irrelevant here - and network.target is not reached until ~8.6s.
-# Measured cost of leaving this alone: MPD starts 3.2s later than it needs to.
 #
-# After= is list-valued, so an empty assignment is required to clear Debian's
-# list before re-adding what we want. systemd adds its own implicit ordering
-# (sysinit.target, basic.target, system.slice, mpd.socket) separately via
-# DefaultDependencies=yes, so those survive the reset.
-After=
-After=sound.target mpd.socket
-
 [Service]
 # MPD writes its own timestamped log via log_file in /etc/mpd.conf, so stdout
 # and stderr are deliberately NOT redirected here. Two writers on one file,
