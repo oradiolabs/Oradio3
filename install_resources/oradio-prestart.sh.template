@@ -16,11 +16,11 @@ set -u
 
 DEADLINE=60          # 3s at 50ms per tick
 
-log() { echo "$(date '+%F %T') $*" >>"$PLACEHOLDER_LOGFILE_BOOT"; }
+log() { echo "$(date '+%F %T') $*" >>"PLACEHOLDER_LOGFILE_BOOT"; }
 
 # Clear the traceback log for this run. Tolerated rather than assumed: a silent
 # failure would leave stale tracebacks looking current.
-: >"$PLACEHOLDER_LOGFILE_TRACEBACK" 2>/dev/null || log "prestart: WARNING cannot truncate $PLACEHOLDER_LOGFILE_TRACEBACK"
+: >"PLACEHOLDER_LOGFILE_TRACEBACK" 2>/dev/null || log "prestart: WARNING cannot truncate PLACEHOLDER_LOGFILE_TRACEBACK"
 
 wait_for() {
 	_what="$1"; shift
