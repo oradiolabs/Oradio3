@@ -170,12 +170,10 @@ echo "Disabled apt translation downloads in $APT_LANG_CONF"
 # cmdline.txt MUST remain exactly one line. Rebuild it explicitly rather than
 # using sed, which would append to every line if a trailing newline exists.
 
-#ONNO: Uncomment quiet and loglevel before merge to main
 CMDLINE_OPTS=(
 	logo.nologo				# No framebuffer logo
-#ONNO: Temporarily show all boot output for debugging
-#	quiet					# Suppress most kernel boot messages
-#	loglevel=3				# Errors only
+	quiet					# Suppress most kernel boot messages
+	loglevel=3				# Errors only
 
 	# Contiguous Memory Allocator. The device tree reserves 64 MiB by default for
 	# the camera and the KMS display stack, neither of which this device uses
@@ -233,8 +231,6 @@ CMDLINE_OPTS=(
 # original order: root=, rootfstype=, rootwait, fsck.repair=,
 # usb-storage.quirks=, and everything the firmware prepends.
 CMDLINE_REMOVE=(
-	quiet					# Suppress most kernel boot messages
-	loglevel				# Errors only
 	usb-storage.delay_use	# Wait before probing a device. Removing defaults to 1s
 	console					# Serial and tty consoles: synchronous, slow, and absent in the field
 	fastboot				# Old Raspbian "skip fsck"; superseded by fsck.mode=
