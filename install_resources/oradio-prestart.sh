@@ -1,0 +1,54 @@
+#!/bin/sh
+# Pre-start gate for oradio.service.
+#
+# oradio_control.py touches i2c, gpio and ALSA during module import, so there is
+# no cushion between exec and first hardware access. This script blocks until
+# that hardware is usable.
+#
+# The card wait uses /proc/asound/cards, not dev-snd-controlC0.device,
+# sound.target or alsa-restore.service. Those are all udev-triggered and so
+# inherit whatever udev's queue depth happens to be; /proc/asound/cards is
+# populated by the kernel directly.
+#
+# Every wait ends in exit 0. A missing DAC must let Oradio start and report the
+# fault rather than fail the unit into oradio-crash.service.
+set -u
+
+TRACEBACK="$1"
+BOOTLOG="$2"
+DEADLINE=60          # 3s at 50ms per tick
+
+log() { echo "$(date '+%F %T') $*" >>"$BOOTLOG"; }
+
+# Clear the traceback log for this run. Tolerated rather than assumed: a silent
+# failure would leave stale tracebacks looking current.
+: >"$TRACEBACK" 2>/dev/null || log "prestart: WARNING cannot truncate $TRACEBACK"
+
+wait_for() {
+	_what="$1"; shift
+	_n=0
+	while [ "$_n" -lt "$DEADLINE" ]; do
+		if "$@"; then
+			log "prestart: $_what ready after $((_n * 50))ms"
+			return 0
+		fi
+		_n=$((_n + 1))
+		sleep 0.05
+	done
+	log "prestart: WARNING $_what NOT ready after $((DEADLINE * 50))ms"
+	return 1
+}
+
+# -r and -w rather than -e: devtmpfs creates the node root:root 0600 and it only
+# becomes usable once udev applies the group. Testing existence alone would pass
+# while open() still fails with EACCES.
+have_i2c()  { [ -r /dev/i2c-1 ] && [ -w /dev/i2c-1 ]; }
+have_gpio() { [ -r /dev/gpiochip0 ] && [ -w /dev/gpiochip0 ]; }
+have_card() { grep -q 'DigiAMP' /proc/asound/cards 2>/dev/null; }
+
+wait_for "i2c"  have_i2c
+wait_for "gpio" have_gpio
+wait_for "card" have_card
+
+log "prestart: done at $(cut -d' ' -f1 /proc/uptime)s uptime"
+exit 0

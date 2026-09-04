@@ -720,6 +720,8 @@ echo -e "${GREEN}Support tools installed${NC}"
 install_resource "$RESOURCES_PATH/oradio-crash.sh" /usr/local/sbin/oradio-crash.sh 'chmod 700 /usr/local/sbin/oradio-crash.sh'
 # Configure the oradio crash handling service
 install_resource "$RESOURCES_PATH/oradio-crash.service" /etc/systemd/system/oradio-crash.service
+# Configure the oradio prestart script
+install_resource "$RESOURCES_PATH/oradio-prestart.sh" /usr/local/sbin/oradio-prestart.sh 'chmod 755 /usr/local/sbin/oradio-prestart.sh'
 # Configure the oradio service to start on boot
 install_resource "$RESOURCES_PATH/oradio.service" /etc/systemd/system/oradio.service 'systemctl enable oradio.service'
 # Progress report

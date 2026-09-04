@@ -26,17 +26,30 @@ UMask=0002
 
 # Redirect stdout (fd 1) and stderr (fd 2) to the log file.
 # Note this takes the output *out* of the journal: journalctl -u oradio will be empty.
+# Every ExecStartPre below inherits this, so alsactl's errors land here too.
 StandardOutput=append:PLACEHOLDER_LOGFILE_TRACEBACK
 StandardError=append:PLACEHOLDER_LOGFILE_TRACEBACK
 
-# Set logfile ownership. '+' means run this command as root.
-ExecStartPre=-+/usr/bin/chown PLACEHOLDER_USER:PLACEHOLDER_GROUP PLACEHOLDER_LOGFILE_TRACEBACK
+# ---- Hardware gate. The two lines below are a pair; order is load-bearing. ----
 
-# Clear traceback logfile when starting the service
-ExecStartPre=/usr/bin/truncate -s 0 PLACEHOLDER_LOGFILE_TRACEBACK
+# Waits for i2c, gpio and the sound card, and truncates the traceback log.
+# No '+' prefix: runs as PLACEHOLDER_USER, so it tests the access the Python
+# process will actually get. Always exits 0.
+ExecStartPre=/usr/local/sbin/oradio-prestart.sh PLACEHOLDER_LOGFILE_TRACEBACK PLACEHOLDER_LOGFILE_BOOT
 
-# For boot time tracing: Timestamp when oradio service starts.
-ExecStartPre=-/bin/sh -c 'echo "Oradio python script started after boot: $(cut -d" " -f1 /proc/uptime)s" >> PLACEHOLDER_LOGFILE_BOOT'
+# Creates the softvol controls that /etc/asound.conf depends on.
+#
+# '+' is required: alsactl cannot run as PLACEHOLDER_USER - asound.state, its
+# lock and the card lock are all root-only.
+#
+# Ordered after the script above, which guarantees the card exists by now.
+# Running alsactl here rather than waiting for alsa-restore.service keeps udev
+# off the audio path: alsactl restore is synchronous, so when it returns the
+# controls are there. alsa-restore.service running again later is harmless.
+#
+# '-' so a missing DAC lets Oradio start and report the fault. The failure stays
+# visible: stderr goes to the traceback log per StandardError= above.
+ExecStartPre=-+/usr/sbin/alsactl restore
 
 # Execute service in user environment.
 User=PLACEHOLDER_USER
