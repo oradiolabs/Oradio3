@@ -730,8 +730,54 @@ install_resource "$RESOURCES_PATH/asound.conf" /etc/asound.conf \
 	'aplay -D SysSound_in /dev/zero -f FLOAT_LE -c 2 -r 44100 -d 1'
 # Configure MPD
 install_resource "$RESOURCES_PATH/mpd.conf" /etc/mpd.conf
-# Install empty MPD database (prevents MPD updating when starting)
-install_resource "$RESOURCES_PATH/mpd.database" /var/lib/mpd/tag_cache
+# Install empty MPD database.
+#
+# Without db_file present MPD scans music_directory at startup. auto_update "no"
+# does not prevent that - it governs updates after startup only. Loading a valid
+# empty database instead leaves indexing under Oradio's control, which triggers
+# it when the USB is mounted.
+#
+# Installed only when absent: MPD rewrites this file as those updates run, so
+# install_resource's "copy when different" would replace a populated index with
+# the empty one on every re-run of this script.
+if [ -f /var/lib/mpd/tag_cache ]; then
+	echo "MPD database already present, leaving it alone"
+else
+	install_resource "$RESOURCES_PATH/mpd.database" /var/lib/mpd/tag_cache
+fi
+
+# The shipped database is only accepted while it matches MPD. Two things can
+# invalidate it, and both fail the same silent way - MPD discards it and rescans
+# the whole stick at every boot, competing with Oradio's startup:
+#
+#   format:          MPD's on-disk database format, bumped by an MPD upgrade.
+#                    pkg-helper.sh upgrades mpd whenever a newer candidate exists.
+#   tag: lines       must match metadata_to_use in mpd.conf, case-insensitively.
+#
+# Checked here rather than left to be discovered as a slow boot. A mismatch is
+# not fatal, so this warns and records a failure rather than aborting the install.
+DB_TAGS="$(zcat "$RESOURCES_PATH/mpd.database" 2>/dev/null | sed -n 's/^tag: //p' | tr 'A-Z' 'a-z' | sort | paste -sd, -)"
+CFG_TAGS="$(sed -n 's/^metadata_to_use[[:space:]]*"\(.*\)"[[:space:]]*$/\1/p' /etc/mpd.conf | tr -d ' ' | tr 'A-Z' 'a-z' | tr ',' '\n' | sort | paste -sd, -)"
+
+if [ -z "$DB_TAGS" ] || [ -z "$CFG_TAGS" ]; then
+	echo -e "${YELLOW}Could not compare MPD database tags ('$DB_TAGS') with mpd.conf ('$CFG_TAGS')${NC}"
+	INSTALL_ERROR=1
+elif [ "$DB_TAGS" != "$CFG_TAGS" ]; then
+	echo -e "${YELLOW}MPD database tags '$DB_TAGS' do not match metadata_to_use '$CFG_TAGS'${NC}"
+	echo -e "${YELLOW}MPD will discard the database and rescan the USB at every boot${NC}"
+	echo -e "${YELLOW}Regenerate mpd.database, or revert metadata_to_use in mpd.conf${NC}"
+	INSTALL_ERROR=1
+else
+	echo "MPD database tags match mpd.conf ($CFG_TAGS)"
+fi
+
+# Format version the shipped database was written for, against the MPD that is
+# actually installed. Informational: MPD validates on 'format:', and the version
+# string is only a provenance signal, but a large gap is worth seeing.
+DB_FORMAT="$(zcat "$RESOURCES_PATH/mpd.database" 2>/dev/null | sed -n 's/^format: //p')"
+DB_MPD_VERSION="$(zcat "$RESOURCES_PATH/mpd.database" 2>/dev/null | sed -n 's/^mpd_version: //p')"
+MPD_VERSION="$(dpkg-query -W -f='${Version}' mpd 2>/dev/null || true)"
+echo "MPD database format $DB_FORMAT, written by MPD $DB_MPD_VERSION; installed MPD ${MPD_VERSION:-unknown}"
 # Configure the MPD service to start on boot
 install_resource "$RESOURCES_PATH/mpd-oradio.conf" /etc/systemd/system/mpd.service.d/oradio.conf 'systemctl enable mpd.service'
 # Progress report
