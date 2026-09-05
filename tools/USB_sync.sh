@@ -18,17 +18,20 @@
 # @purpose:		 Checks/repairs the USB filesystem and synchronizes selected
 #				 SharePoint directories to it using rclone.
 #
-#		Usage: USB_sync.sh [-y|--yes] [-c|--check-only] [directory ...]
-#		  e.g. USB_sync.sh                    (complete SharePoint tree)
+#		Usage: USB_sync.sh [-y|--yes] [-c|--check-only] [-a|--all] [directory ...]
+#		  e.g. USB_sync.sh --all              (complete SharePoint tree)
 #		       USB_sync.sh Muziek
 #		       USB_sync.sh Muziek Speellijsten
 #		       USB_sync.sh --yes Muziek/Evergreens
 #		       USB_sync.sh --check-only       (health check, no sync)
 #
+#		Running with no arguments prints the usage and exits: syncing the whole
+#		tree deletes USB content that is not on SharePoint, which is too
+#		destructive to be what a bare command does. Ask for it with --all.
+#
 #		This script does both jobs: the USB health check (--check-only) and the
-#		SharePoint sync. They were separate scripts until the two copies of the
-#		lock, the unmount and the fsck drifted apart; there is one
-#		implementation of each now, and --check-only stops after it.
+#		SharePoint sync. One implementation of the lock, the unmount and the fsck
+#		serves both; --check-only stops after the check.
 #
 #		The check runs before any dependency or network step, and pkg-helper.sh
 #		makes no network calls when the packages it is asked for are already
@@ -45,9 +48,14 @@
 #		Each argument is a directory path relative to the SharePoint sync root.
 #		Names are case-sensitive and must exist on SharePoint; the script aborts
 #		if any of them does not. Directories on the USB that are not listed are
-#		left untouched — they are neither updated nor deleted. Without arguments
-#		the whole tree is mirrored and USB content that is not on SharePoint is
-#		deleted, except for the Windows System Volume Information folder.
+#		left untouched — they are neither updated nor deleted. With --all the whole
+#		tree is mirrored and USB content that is not on SharePoint is deleted,
+#		except for the Windows System Volume Information folder.
+#
+#		The usb-drive.sh lock is released once the health check is done, so a
+#		stick pulled during the sync is unmounted by the udev handler underneath
+#		rclone. That is deliberate - the alternative is blocking the unmount of a
+#		device that is already physically gone - and rclone fails visibly.
 #
 #		The rclone config contains OAuth tokens and is stored AES-256-CBC encrypted
 #		in GitHub Releases. It is fetched, decrypted at runtime, and never written to
@@ -59,9 +67,16 @@
 #		3. Upload rclone.conf.enc to GitHub Releases (tag: config)
 #		4. shred -u sharepoint.conf
 #
-#		Requires /etc/sudoers.d/oradio granting NOPASSWD for: mount, umount,
-#		fsck.fat, blkid, badblocks, install, rm, touch, flock, tee, apt-get,
-#		systemctl (stop/start).
+#		Run as pi, not root: every privileged step calls sudo on its own.
+#		Commands invoked through sudo, here and in pkg-helper.sh: mount, umount,
+#		fsck.fat, blkid, badblocks, install, rm, touch, systemctl (stop/start),
+#		flock and tee. apt-get is not among them - it runs as a child of
+#		"sudo flock ... env ... apt-get", so flock is the command sudo authorises.
+#
+#		These work through the blanket NOPASSWD rule Raspberry Pi OS ships for the
+#		pi user (/etc/sudoers.d/010_pi-nopasswd). Nothing in the Oradio install
+#		narrows that, and sudo's secure_path is what makes the /usr/sbin commands
+#		above resolve regardless of the caller's PATH.
 
 # Stop on errors (-e), catch unset variables (-u), catch failures in any part of a pipeline (-o pipefail)
 set -euo pipefail
@@ -83,14 +98,16 @@ fi
 ##### Arguments ################################
 
 function usage {
-	echo "Usage: $(basename "$0") [-y|--yes] [-c|--check-only] [directory ...]"
+	echo "Usage: $(basename "$0") [-y|--yes] [-c|--check-only] [-a|--all] [directory ...]"
 	echo
-	echo "  Without arguments the complete SharePoint tree is synchronized."
-	echo "  With arguments only those directories are synchronized; the rest of"
-	echo "  the USB is left untouched. Paths are relative to the SharePoint sync"
-	echo "  root and are case-sensitive."
+	echo "  Synchronizes SharePoint content to the USB stick. Name the directories"
+	echo "  to synchronize, or use --all for the complete tree. Paths are relative"
+	echo "  to the SharePoint sync root and are case-sensitive."
 	echo
 	echo "  Options:"
+	echo "    -a, --all         Synchronize the complete SharePoint tree. USB"
+	echo "                      content not present on SharePoint is DELETED,"
+	echo "                      except for System Volume Information"
 	echo "    -y, --yes         Answer all prompts with their default and do not"
 	echo "                      ask for confirmation. Runs a real sync, not a"
 	echo "                      dry-run, and skips the optional sector scan"
@@ -104,7 +121,7 @@ function usage {
 	echo "                    set, the password prompt is skipped"
 	echo
 	echo "  Examples:"
-	echo "    $(basename "$0")"
+	echo "    $(basename "$0") --all"
 	echo "    $(basename "$0") Muziek"
 	echo "    $(basename "$0") Muziek Speellijsten"
 	echo "    $(basename "$0") --yes Muziek/Evergreens"
@@ -112,9 +129,11 @@ function usage {
 }
 
 # Normalize arguments: strip surrounding slashes and reject unusable paths.
-# No directories leaves SYNC_DIRS empty, which means "sync everything"
+# What to sync must be stated explicitly, either as directory arguments or with
+# --all; see the check after this loop
 ASSUME_YES=false
 CHECK_ONLY=false
+SYNC_ALL=false
 SYNC_DIRS=()
 for arg in "$@"; do
 
@@ -129,6 +148,10 @@ for arg in "$@"; do
 			;;
 		-c|--check-only)
 			CHECK_ONLY=true
+			continue
+			;;
+		-a|--all)
+			SYNC_ALL=true
 			continue
 			;;
 		-*)
@@ -157,12 +180,34 @@ for arg in "$@"; do
 	SYNC_DIRS+=("$dir")
 done
 
-# Contradictory: --check-only never syncs anything, so directories cannot mean
-# what the caller thinks they mean. Say so rather than silently ignoring them
-if $CHECK_ONLY && [ "${#SYNC_DIRS[@]}" -gt 0 ]; then
-	echo -e "${RED}--check-only does not synchronize, so directory arguments have no effect${NC}"
+# Contradictory combinations, and a bare invocation, all end the same way: show
+# the usage and stop. Exit 0, not 1 - nothing was attempted and nothing failed,
+# so this is the same outcome as --help, and a real failure stays
+# distinguishable from a misuse. An unknown option still exits 1: a typo'd flag
+# in a cron entry must not look like success.
+#
+# --check-only never synchronizes, so --all and directory arguments cannot mean
+# what the caller thinks. --all already covers the whole tree, so naming
+# directories alongside it means one of the two is not what was intended.
+# Syncing the whole tree deletes USB content that is not on SharePoint, so it
+# has to be asked for with --all rather than being what a bare command does.
+if $CHECK_ONLY && { $SYNC_ALL || [ "${#SYNC_DIRS[@]}" -gt 0 ]; }; then
+	echo "--check-only does not synchronize, so --all and directory arguments have no effect"
+	echo
 	usage
-	exit 1
+	exit 0
+fi
+
+if $SYNC_ALL && [ "${#SYNC_DIRS[@]}" -gt 0 ]; then
+	echo "--all synchronizes everything, so directory arguments have no effect"
+	echo
+	usage
+	exit 0
+fi
+
+if ! $CHECK_ONLY && ! $SYNC_ALL && [ "${#SYNC_DIRS[@]}" -eq 0 ]; then
+	usage
+	exit 0
 fi
 
 # Without a terminal the prompts further down cannot be answered. Fail here,
@@ -177,15 +222,34 @@ fi
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
+# Paths shared with usb-drive.sh and Main/constants.py. Sourced rather than
+# copied: a change to USB_MOUNT_POINT must not leave this script operating on a
+# path nothing else uses. Literal assignments only, by that file's own contract
+CONSTANTS="$SCRIPT_DIR/../constants.env"
+if [ ! -f "$CONSTANTS" ]; then
+	echo -e "${RED}Cannot read $CONSTANTS${NC}"
+	exit 1
+fi
+# shellcheck source=/dev/null
+source "$CONSTANTS"
+
+if [ -z "${USB_MOUNT_POINT:-}" ]; then
+	echo -e "${RED}USB_MOUNT_POINT not set in $CONSTANTS${NC}"
+	exit 1
+fi
+
 # Persistent log, on the SD card rather than the journal: journald is configured
 # with Storage=volatile and RuntimeMaxUse=8M, so an unattended run leaves no
 # trace after a reboot. Appended, not truncated, so a stick that needs repairing
-# repeatedly is visible as a pattern. Rotation is left to logrotate.
-# Health checks and syncs share one file, which is the point: "how often has
-# this stick needed repairing" is only answerable if both write to it
+# repeatedly is visible as a pattern. Rotation is left to logrotate, which globs
+# *.log in this directory.
+#
+# Separate from usb.log, which usb-drive.sh writes: logrotate keeps one 250k
+# generation per file, and a long sync emits enough stats lines to push the
+# mount and repair history out of it
 LOGDIR="/home/pi/Oradio3/logging"
 [ -d "$LOGDIR" ] || LOGDIR="$SCRIPT_DIR"
-LOGFILE="${ORADIO_SYNC_LOG:-$LOGDIR/usb.log}"
+LOGFILE="${ORADIO_SYNC_LOG:-$LOGDIR/usb_sync.log}"
 
 # Whether stdout was a terminal, recorded before it is replaced by the pipe below
 INTERACTIVE=false
@@ -233,16 +297,19 @@ function cleanup {
 	local signal="${1:-EXIT}"	# trap signal: EXIT, INT, TERM
 	local exitcode="${2:-0}"	# optional exit code for EXIT
 
-	# Reset terminal state if running interactively
-	if [ -t 0 ]; then
-		stty sane
-	fi
-
-	# Run only once (guards against overlapping trap signals)
+	# Run only once (guards against overlapping trap signals). Everything below
+	# is inside the guard, including the terminal reset: INT runs cleanup and
+	# then exits, which fires the EXIT trap, so an unguarded statement here runs
+	# twice on every Ctrl-C
 	if $CLEANUP_DONE; then
 		return
 	fi
 	CLEANUP_DONE=true
+
+	# Reset terminal state if running interactively
+	if [ -t 0 ]; then
+		stty sane
+	fi
 
 	# Handle signal messages
 	case "$signal" in
@@ -260,18 +327,18 @@ function cleanup {
 	# Wipe decryption password from memory
 	unset PW
 
-	# Remove any /tmp files created by this script (tracked via RCLONE_* vars)
-	rclone_vars=$(compgen -v | grep '^RCLONE_' || true)  # safe even if no matches
-	if [ -n "$rclone_vars" ]; then
-		while IFS= read -r var; do
-			val="${!var:-}"		  # safe default if unset
-			if [ -n "$val" ] && [ -f "$val" ]; then
-				rm -f "$val" && echo " - Removed $val"
-			fi
-		done <<< "$rclone_vars"
-	else
-		echo "No temporary files removed"
-	fi
+	# Remove the /tmp files this script creates. Named explicitly rather than
+	# globbed from RCLONE_*: that also matched RCLONE_ARGS, an array whose first
+	# element would be deleted if it ever happened to be a path
+	removed=false
+	for var in RCLONE_ENC RCLONE_CFG; do
+		val="${!var:-}"
+		if [ -n "$val" ] && [ -f "$val" ]; then
+			rm -f "$val" && echo " - Removed $val"
+			removed=true
+		fi
+	done
+	$removed || echo "No temporary files removed"
 
 	# Remount USB with original options if it was unmounted by this script.
 	# OPTIONS is always set once the device is known: either captured from the
@@ -297,10 +364,9 @@ function cleanup {
 		echo "USB not remounted"
 	fi
 
-	# Restart services in reverse stop order. This replaces the reboot the
-	# health check used to end with, and it takes two seconds rather than a
-	# minute, keeps the log context, and cannot turn a failing stick into a
-	# reboot loop
+	# Restart services in reverse stop order, rather than rebooting: it takes
+	# seconds instead of a minute, keeps the log context of this run, and cannot
+	# turn a failing stick into a reboot loop
 	if [ "${STOPPED_SERVICES+set}" = set ] && [ "${#STOPPED_SERVICES[@]}" -gt 0 ]; then
 		for (( idx=${#STOPPED_SERVICES[@]}-1; idx>=0; idx-- )); do
 			service="${STOPPED_SERVICES[idx]}"
@@ -314,8 +380,8 @@ function cleanup {
 		echo "No services restarted"
 	fi
 
-	# A repair may have moved orphaned clusters into FSCK*.REC, so mpd's
-	# database no longer matches what is on the stick. Cheap insurance
+	# A repair may have moved orphaned clusters into FSCK*.REC, leaving mpd's
+	# database out of step with the stick. Cheap insurance
 	if $REPAIRED && command -v mpc >/dev/null 2>&1; then
 		if mpc update >/dev/null 2>&1; then
 			echo " - mpd database update triggered"
@@ -349,8 +415,14 @@ bash "$SCRIPT_DIR/pkg-helper.sh" dosfstools e2fsprogs psmisc
 
 ##### Stop services using the USB ##############
 
-# List of services to manage
-SERVICES=("oradio" "mpd")
+# Services to stop for the check, in stop order. Restarted in reverse.
+#
+# mpd.socket is here because stopping mpd.service alone leaves the socket
+# listening, and any connection would socket-activate mpd while the stick is
+# unmounted and fsck is running. Reverse order also puts it back before
+# mpd.service, which is the order mpd expects: started first, mpd inherits the
+# listening fds instead of binding the ports itself
+SERVICES=("oradio" "mpd" "mpd.socket")
 
 # Initialize array to track which services were stopped
 STOPPED_SERVICES=()
@@ -370,8 +442,8 @@ done
 
 ##### USB checks ###############################
 
-# Define USB location
-MOUNTPOINT="/media/oradio"
+# Define USB location, from constants.env above
+MOUNTPOINT="$USB_MOUNT_POINT"
 
 # Filesystem label of the stick, used when it is too damaged to be mounted.
 # Check with: lsblk -o NAME,LABEL,FSTYPE
@@ -665,10 +737,10 @@ SHAREPOINT="stichtingsharepoint:Docs_StichtingOradio/Music_Read_Only/Oradio3USB"
 
 FILTER=()
 
-if [ "${#SYNC_DIRS[@]}" -eq 0 ]; then
+if $SYNC_ALL; then
 
-	# No arguments: sync the complete tree. List the top-level directories so
-	# the summary below can show what that actually covers
+	# --all: sync the complete tree. List the top-level directories so the
+	# summary below can show what that actually covers
 	mapfile -t ROOT_DIRS < <(rclone --config "$RCLONE_CFG" lsf --dirs-only "$SHAREPOINT")
 	ROOT_DIRS=("${ROOT_DIRS[@]%/}")
 
@@ -754,7 +826,7 @@ echo "  From: $SHAREPOINT"
 echo "  To:   $MOUNTPOINT"
 echo
 
-if [ "${#SYNC_DIRS[@]}" -eq 0 ]; then
+if $SYNC_ALL; then
 	echo "  Complete SharePoint tree:"
 	for dir in "${ROOT_DIRS[@]}"; do
 		echo "    - $dir"
@@ -788,7 +860,7 @@ else
 fi
 
 echo "$(date +'%Y-%m-%d %H:%M:%S'): Start synchronizing SharePoint content to USB"
-if [ "${#SYNC_DIRS[@]}" -eq 0 ]; then
+if $SYNC_ALL; then
 	echo "Directories: complete tree (${ROOT_DIRS[*]})"
 else
 	echo "Directories: ${SYNC_DIRS[*]}"
@@ -817,8 +889,9 @@ if $INTERACTIVE; then
 	# On a terminal, keep the live single-line display. It needs rclone's stdout
 	# to BE a terminal, which it is not any more: the logging pipe replaced it.
 	# Writing straight to /dev/tty gives rclone its terminal back, at the cost of
-	# rclone's own chatter not reaching the log file - which is how this script
-	# always behaved, since only the start and finish lines were ever logged
+	# rclone's own chatter not reaching the log file. Only the start and finish
+	# lines are logged in this mode; use the unattended path below for a full
+	# record
 	#   --progress		In-place redraw of transfer progress
 	#   --stats=1s		Refresh the display every second
 	rclone "${RCLONE_ARGS[@]}" --progress --stats=1s >/dev/tty 2>&1 || SYNC_RC=$?
