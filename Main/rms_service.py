@@ -1889,7 +1889,8 @@ if __name__ == "__main__":
             print(f"Expect around {FLOOD_COUNT - SEND_QUEUE_SIZE} 'RMS send queue full' "
                   "warnings in the log\n")
 
-    def interactive_menu() -> None:
+    # Pylint allows more than 12 branches here because this is a test menu
+    def interactive_menu() -> None:     #pylint: disable=too-many-branches
         """
         Run an interactive command-line menu for manual RMService testing.
 
