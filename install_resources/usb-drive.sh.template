@@ -26,6 +26,23 @@ LOCK_WAIT=30								# Seconds to wait for the lock before giving up
 # nothing is ordered after it.
 DEVICE_WAIT=5
 
+# Fix PLACEHOLDER_LOGFILE_USB ownership. Both units redirect StandardOutput= here, and systemd
+# does that open as root, so a PLACEHOLDER_LOGFILE_USB that was deleted comes back root:root on
+# the next boot. Nothing then repairs it: logrotate runs under 'su PLACEHOLDER_USER' and cannot
+# truncate a root-owned file, so that log silently stops rotating and grows without bound.
+#
+# Done here rather than as an ExecStartPre= in the two units because both already run this
+# script as root, so it costs no extra fork - and usb-drive-boot.service is the boot fast path,
+# where forks are exactly what it is trying to avoid.
+#
+# Position is load-bearing: this must stay above the lock and above the early exits, including
+# the 'boot' path's exit 0 when no stick is fitted. That run still has to leave the file owned
+# correctly, because it is usually the first thing to touch usb.log after a reboot.
+#
+# '|| true' so a manual unprivileged run does not abort here. The chown is not this script's
+# job, only its side effect.
+chown PLACEHOLDER_USER:PLACEHOLDER_GROUP "PLACEHOLDER_LOGFILE_USB" 2>/dev/null || true
+
 # Milliseconds since the epoch, without forking date. EPOCHREALTIME is
 # seconds.microseconds and uses the locale decimal separator, so strip either.
 now_ms() { local us="${EPOCHREALTIME/[.,]/}"; printf '%s' "$(( us / 1000 ))"; }

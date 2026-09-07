@@ -38,6 +38,12 @@ UMask=0002
 StandardOutput=append:PLACEHOLDER_LOGFILE_USB
 StandardError=append:PLACEHOLDER_LOGFILE_USB
 
+# PLACEHOLDER_LOGFILE_USB ownership is NOT fixed here.
+# systemd opens StandardOutput= as root, so a deleted PLACEHOLDER_LOGFILE_USB
+# returns root:root and logrotate can no longer rotate it - but usb-drive.sh
+# already runs as root in both units and does the chown itself, at the top,
+# before its lock. One copy for both units.
+
 # %i expands to the instance name from the template: "add" or "remove".
 ExecStart=/usr/local/sbin/usb-drive.sh %i
 
