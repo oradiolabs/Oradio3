@@ -27,9 +27,10 @@ import email
 import time
 import unittest
 from pathlib import Path
+from datetime import datetime
 from typing import ClassVar
 from tempfile import TemporaryDirectory
-from threading import Event, Lock as ThreadLock
+from threading import Event
 from unittest.mock import patch, MagicMock
 
 from requests import Response
@@ -46,10 +47,8 @@ from rms_service import (
     MAX_UPLOAD_FILES,
     MAX_UPLOAD_TOTAL_BYTES,
     ESSENTIAL_LOG_BASE,
-    PERIODIC_SEND_COOLDOWN,
     SEND_QUEUE_SIZE,
     TRUNCATION_NOTE,
-    _RmsReachability,
     _MultipartBody,
     _RmsSender,
     _SendJob,
@@ -89,12 +88,7 @@ class FakeResponse:
 
 
 class RmsTestCase(unittest.TestCase):
-    """
-    Base fixture: an isolated log directory and a clean reachability state.
-
-    _RmsReachability is process-wide, so a test that leaves it cleared would
-    silently reduce the next test to a single probe attempt.
-    """
+    """Base fixture: an isolated log directory with the network stubbed out."""
 
     def setUp(self):
         # enter_context ties the directory to this test rather than to a
@@ -126,9 +120,6 @@ class RmsTestCase(unittest.TestCase):
         incidents_patcher = patch.object(rms_service, "Incidents")
         incidents_patcher.start()
         self.addCleanup(incidents_patcher.stop)
-
-        _RmsReachability.update(True)
-        self.addCleanup(_RmsReachability.update, True)
 
     def warnings_logged(self):
         """Return the warning lines produced, with their arguments filled in."""
@@ -466,13 +457,12 @@ class TestMultipartBody(RmsTestCase):
 
 
 class TestPostWithRetry(RmsTestCase):
-    """Retry policy, reachability transitions, and the abort signal."""
+    """Retry policy, response classification, and the abort signal."""
 
     PAYLOAD: ClassVar[dict] = {"serial": "abc123", "type": HEARTBEAT}
 
-    def test_success_returns_the_response_and_marks_reachable(self):
-        """One POST, one response, server known reachable."""
-        _RmsReachability.update(False)
+    def test_success_returns_the_response(self):
+        """One POST, one response, no retry."""
         response = FakeResponse()
 
         with patch.object(rms_service, "post", return_value=response) as post_mock:
@@ -480,7 +470,6 @@ class TestPostWithRetry(RmsTestCase):
 
         self.assertIs(result, response)
         self.assertEqual(post_mock.call_count, 1)
-        self.assertTrue(_RmsReachability.is_reachable())
 
     def test_client_error_is_not_retried(self):
         """A 4xx is the server refusing this request; sending it again cannot help."""
@@ -490,7 +479,22 @@ class TestPostWithRetry(RmsTestCase):
 
         self.assertIsNone(result)
         self.assertEqual(post_mock.call_count, 1)
-        self.assertTrue(_RmsReachability.is_reachable(), "a reply means reachable")
+
+    def test_rejection_publishes_no_incident(self):
+        """
+        A refused request must not become an incident.
+
+        Publishing one would POST an incident that is refused in turn and
+        publishes another, so a rotated key or an oversized payload would
+        turn into a loop instead of a log line.
+        """
+        with patch.object(rms_service, "post",
+                          return_value=FakeResponse(status_code=401)) as post_mock:
+            result = _post_with_retry(self.PAYLOAD)
+
+        self.assertIsNone(result)
+        self.assertEqual(post_mock.call_count, 1, "the same key earns the same refusal")
+        rms_service.Incidents.publish.assert_not_called()
 
     def test_server_error_is_retried_then_gives_up(self):
         """A 5xx may clear, so it is retried up to MAX_RETRIES."""
@@ -500,10 +504,9 @@ class TestPostWithRetry(RmsTestCase):
 
         self.assertIsNone(result)
         self.assertEqual(post_mock.call_count, MAX_RETRIES)
-        self.assertFalse(_RmsReachability.is_reachable())
 
     def test_transport_error_is_retried_then_publishes_one_incident(self):
-        """An unreachable server is reported once, not once per attempt."""
+        """A spent retry cycle is reported once, not once per attempt."""
         with patch.object(rms_service, "post",
                           side_effect=rms_service.RequestException("boom")) as post_mock:
             result = _post_with_retry(self.PAYLOAD)
@@ -512,15 +515,14 @@ class TestPostWithRetry(RmsTestCase):
         self.assertEqual(post_mock.call_count, MAX_RETRIES)
         self.assertEqual(rms_service.Incidents.publish.call_count, 1)
 
-    def test_recovery_after_failure_is_a_single_probe(self):
-        """While unreachable, each message costs one attempt rather than the full cycle."""
-        _RmsReachability.update(False)
-
+    def test_every_send_gets_the_full_retry_cycle(self):
+        """A failure does not make the next send try any less hard."""
         with patch.object(rms_service, "post",
-                          side_effect=rms_service.RequestException("still down")) as post_mock:
+                          side_effect=rms_service.RequestException("down")) as post_mock:
+            _post_with_retry(self.PAYLOAD)
             _post_with_retry(self.PAYLOAD)
 
-        self.assertEqual(post_mock.call_count, 1)
+        self.assertEqual(post_mock.call_count, MAX_RETRIES * 2)
 
     def test_abort_prevents_any_attempt(self):
         """A send started while stopping does not reach the network."""
@@ -555,7 +557,6 @@ class TestPostWithRetry(RmsTestCase):
 
         self.assertIsNone(result, "a redirect must not read as success")
         self.assertEqual(post_mock.call_count, 1, "the same request earns the same redirect")
-        self.assertTrue(_RmsReachability.is_reachable(), "the server did answer")
 
         logged = " ".join(str(call) for call in self.log.error.call_args_list)
         self.assertIn("https://rms.example/v1/records", logged, "log where it points")
@@ -575,7 +576,6 @@ class TestPostWithRetry(RmsTestCase):
 
         self.assertIsNone(result, "a portal reply must not read as delivery")
         self.assertEqual(post_mock.call_count, MAX_RETRIES, "retried, it may clear")
-        self.assertFalse(_RmsReachability.is_reachable(), "RMS was not reached")
 
     def test_json_from_something_other_than_rms_is_not_delivery(self):
         """A proxy or gateway answering in JSON still is not RMS."""
@@ -608,7 +608,24 @@ class TestPostWithRetry(RmsTestCase):
 
         self.assertIs(result, stored)
         self.assertEqual(post_mock.call_count, 1)
-        self.assertTrue(_RmsReachability.is_reachable())
+
+    def test_server_url_and_key_are_read_at_post_time(self):
+        """
+        Both are looked up when the request is built, not captured at import.
+
+        The stand-alone fault-injection options work by rebinding these
+        module globals to a dead address or a bad key. That only reaches the
+        sender thread because the lookup happens per POST; binding either at
+        import would leave the toggles silently doing nothing.
+        """
+        with patch.object(rms_service, "RMS_SERVER_URL", "https://elsewhere.example/api"), \
+             patch.object(rms_service, "RMS_SERVER_KEY", "other-key"), \
+             patch.object(rms_service, "post", return_value=FakeResponse()) as post_mock:
+            _post_with_retry(self.PAYLOAD)
+
+        kwargs = post_mock.call_args.kwargs
+        self.assertEqual(kwargs["url"], "https://elsewhere.example/api")
+        self.assertEqual(kwargs["headers"]["X-Api-Key"], "other-key")
 
     def test_attached_logs_are_streamed_as_multipart(self):
         """With logs to attach, the request carries a multipart body, not form fields."""
@@ -965,7 +982,7 @@ class TestRmsSender(RmsTestCase):
                          [f"2026-01-01 00:00:0{index}" for index in range(5)])
 
     def test_full_queue_drops_rather_than_blocks(self):
-        """An unreachable server must not let the backlog grow without limit."""
+        """A server that is not keeping up must not let the backlog grow without limit."""
         # Hold the worker on the first message so the queue fills up
         release = Event()
         self.post_patcher.stop()
@@ -992,7 +1009,7 @@ class TestRmsSender(RmsTestCase):
 
     def test_incident_carries_its_source_message_and_logs(self):
         """An INCIDENT posts the incident fields and asks for the logs."""
-        incident = rms_service.IncidentMessage(rms_service.RMS_SOURCE, "something broke")
+        incident = rms_service.IncidentMessage(LED_SOURCE, "something broke")
 
         with patch.object(rms_service, "_post_with_retry") as post_mock:
             self.sender.submit(_SendJob(INCIDENT, "2026-01-01 00:00:00", incident))
@@ -1008,30 +1025,49 @@ class TestRmsSender(RmsTestCase):
         self.assertEqual(payload["message"], "something broke")
         self.assertTrue(post_mock.call_args.kwargs["attach_log_files"])
 
-    def test_rms_incident_is_dropped_while_the_server_is_unreachable(self):
-        """Reporting an RMS failure to RMS would only fail again."""
-        _RmsReachability.update(False)
+    def test_rms_own_incident_is_never_posted(self):
+        """
+        Reporting an RMS failure to RMS would only fail again.
+
+        A failed POST publishes RMS_POST_FAILED, and posting that would fail
+        in turn and publish another. Dropping it here is what stops the loop.
+        """
         incident = rms_service.IncidentMessage(rms_service.RMS_SOURCE, "post failed")
 
         self.submit(_SendJob(INCIDENT, "2026-01-01 00:00:00", incident))
         self.drain()
 
         self.assertEqual(self.posted, [])
-        self.assertFalse(_RmsReachability.is_reachable())
 
-    def test_repeating_fault_reports_every_incident_but_uploads_logs_once(self):
-        """
-        The incidents are the record; the logs are the payload.
+    def test_incident_details_are_posted(self):
+        """The context captured where the incident was raised travels with it."""
+        incident = rms_service.IncidentMessage(
+            LED_SOURCE, "fault", details="Traceback (most recent call last): ..."
+        )
 
-        A fault that repeats would otherwise attach the same logs to every
-        incident, keeping a slow uplink busy for as long as the fault lasts.
-        """
+        self.submit(_SendJob(INCIDENT, "2026-01-01 00:00:00", incident))
+        self.drain()
+
+        self.assertEqual(self.posted[0]["details"],
+                         "Traceback (most recent call last): ...")
+
+    def test_incident_without_details_omits_the_field(self):
+        """An incident that suppressed its context posts no empty field."""
+        incident = rms_service.IncidentMessage(LED_SOURCE, "fault", details="")
+
+        self.submit(_SendJob(INCIDENT, "2026-01-01 00:00:00", incident))
+        self.drain()
+
+        self.assertNotIn("details", self.posted[0])
+
+    def test_every_incident_carries_the_logs(self):
+        """A repeating fault gets fresh logs with each report, not just the first."""
         attached = []
         self.post_patcher.stop()
 
         with patch.object(rms_service, "_post_with_retry",
                           side_effect=lambda payload, **kwargs: attached.append(
-                              (dict(payload), kwargs.get("attach_log_files")))):
+                              kwargs.get("attach_log_files"))):
             for index in range(5):
                 self.submit(_SendJob(INCIDENT, f"t{index}",
                                      rms_service.IncidentMessage(LED_SOURCE, "same fault")))
@@ -1039,30 +1075,20 @@ class TestRmsSender(RmsTestCase):
 
         self.post_patcher.start()
 
-        self.assertEqual(len(attached), 5, "every incident is still reported")
-        self.assertEqual(sum(1 for _, attach in attached if attach), 1,
-                         "only the first carries the logs")
-        skipped = [payload for payload, attach in attached if not attach]
-        self.assertTrue(all(payload["logs"] == "skipped" for payload in skipped),
-                        "a record without files must say why")
+        self.assertEqual(attached, [True] * 5)
 
-    def test_logs_are_attached_again_once_the_cooldown_passes(self):
-        """The hold is temporary: a fault still going gets fresh logs later."""
-        attached = []
-        self.post_patcher.stop()
+    def test_queue_depth_is_readable(self):
+        """
+        The backlog can be measured through _jobs.
 
-        with patch.object(rms_service, "_post_with_retry",
-                          side_effect=lambda payload, **kwargs: attached.append(
-                              kwargs.get("attach_log_files"))), \
-             patch.object(rms_service, "LOG_UPLOAD_COOLDOWN", 0):
-            for index in range(3):
-                self.submit(_SendJob(INCIDENT, f"t{index}",
-                                     rms_service.IncidentMessage(LED_SOURCE, "fault")))
-            self.drain()
-
-        self.post_patcher.start()
-
-        self.assertEqual(attached, [True, True, True])
+        The stand-alone flood option reads the depth this way because there
+        is no public view of the queue. Renaming the attribute would leave
+        that option broken with nothing to catch it, since code under
+        __main__ is never imported by the tests.
+        """
+        # pylint: disable=protected-access; the point of the test is the
+        # attribute the menu reaches for.
+        self.assertEqual(self.sender._jobs.qsize(), 0)
 
     def test_stop_discards_the_backlog(self):
         """Shutdown is not held open by messages still waiting to go out."""
@@ -1094,8 +1120,6 @@ class TestWifiMessageHandlerSendMessage(RmsTestCase):
         self.handler._serial = "serial123"
         self.handler._wifi_connected = True
         self.handler._sender = MagicMock()
-        self.handler._last_queued = {}
-        self.handler._cooldown_lock = ThreadLock()
 
     def submitted(self):
         """Return the job handed to the sender, or None if there was none."""
@@ -1117,14 +1141,25 @@ class TestWifiMessageHandlerSendMessage(RmsTestCase):
 
         self.assertRegex(self.submitted().generated, r"^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$")
 
-    def test_reconnect_burst_queues_one_of_each(self):
+    def test_incident_reports_when_it_was_raised(self):
         """
-        A flapping link reconnects repeatedly.
+        An incident carries its own timestamp, set where it was raised.
 
-        Each reconnect starts the heartbeat, which fires one immediately,
-        and sends system info. Past the first, neither reports anything the
-        one before it did not.
+        By the time it reaches here it has crossed the incident bus and its
+        queue, so the current time would report when RMS was told rather
+        than when the fault happened.
         """
+        raised = datetime(2026, 1, 2, 3, 4, 5)
+        incident = rms_service.IncidentMessage(
+            LED_SOURCE, "fault", timestamp=raised.timestamp()
+        )
+
+        self.handler.send_message(INCIDENT, incident)
+
+        self.assertEqual(self.submitted().generated, "2026-01-02 03:04:05")
+
+    def test_every_periodic_message_is_queued(self):
+        """A reconnect burst queues each heartbeat and system info it asks for."""
         for _ in range(5):
             self.handler.send_message(HEARTBEAT)
             self.handler.send_message(SYS_INFO)
@@ -1132,23 +1167,10 @@ class TestWifiMessageHandlerSendMessage(RmsTestCase):
         queued = [call.args[0].msg_type
                   for call in self.handler._sender.submit.call_args_list]
 
-        self.assertEqual(queued, [HEARTBEAT, SYS_INFO])
-
-    def test_hourly_heartbeat_is_never_the_one_suppressed(self):
-        """The cooldown must stay well inside the heartbeat interval."""
-        self.assertLess(PERIODIC_SEND_COOLDOWN, rms_service.HEARTBEAT_REPEAT)
-
-    def test_periodic_message_is_queued_again_after_its_cooldown(self):
-        """Suppression is a cooldown, not a one-shot."""
-        self.handler.send_message(HEARTBEAT)
-
-        with patch.object(rms_service, "PERIODIC_SEND_COOLDOWN", 0):
-            self.handler.send_message(HEARTBEAT)
-
-        self.assertEqual(self.handler._sender.submit.call_count, 2)
+        self.assertEqual(queued, [HEARTBEAT, SYS_INFO] * 5)
 
     def test_incidents_are_never_rate_limited(self):
-        """Every incident is reported; only its logs are held back."""
+        """Every incident is queued, however fast they arrive."""
         for index in range(5):
             self.handler.send_message(INCIDENT,
                                       rms_service.IncidentMessage(LED_SOURCE, f"fault {index}"))
