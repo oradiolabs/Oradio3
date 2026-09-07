@@ -41,9 +41,11 @@ UMask=0002
 StandardOutput=append:PLACEHOLDER_LOGFILE_TRACEBACK
 StandardError=append:PLACEHOLDER_LOGFILE_TRACEBACK
 
-# No chown of the log file here: oradio_install.sh creates it as
-# PLACEHOLDER_USER, and logrotate uses copytruncate with 'su', so the inode
-# persists and ownership cannot drift.
+# systemd opens StandardOutput= as root, before it drops to User=, so a log
+# file that was deleted comes back root:root on the next boot. This runs after
+# that open (the file exists by now) and before oradio-prestart.sh, which
+# truncates the same file as PLACEHOLDER_USER and would otherwise get EACCES.
+ExecStartPre=-+/usr/bin/chown PLACEHOLDER_USER:PLACEHOLDER_GROUP PLACEHOLDER_LOGFILE_TRACEBACK
 
 # ---- Hardware gate. The two lines below are a pair; order is load-bearing. ----
 

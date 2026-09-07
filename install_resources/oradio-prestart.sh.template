@@ -34,10 +34,26 @@
 set -u
 
 DEADLINE=60					# 3s at 50ms per tick
+
+# PLACEHOLDER_LOGFILE_BOOT is created by log() itself, with a plain >> redirect
+# and this script running as PLACEHOLDER_USER, so it comes out owned correctly
+# and needs no chown in oradio.service.
+#
+# That holds only because no unit points StandardOutput= at this path. Do NOT
+# turn it into a systemd redirect and do not append to it from anything running
+# as root: systemd does that open as root, so the first boot after the file is
+# deleted would bring it back root:root, and this script could not repair it -
+# it runs without '+' by design and cannot chown.
+#
+# Contrast PLACEHOLDER_LOGFILE_TRACEBACK below, which oradio.service does
+# redirect into. That file already exists, root-owned, before this script
+# starts; the '+' chown in oradio.service is what makes the truncate below
+# succeed.
 log() { printf '%(%F %T)T %s\n' -1 "$*" >>"PLACEHOLDER_LOGFILE_BOOT"; }
 
 # Clear the traceback log for this run. Tolerated rather than assumed: a silent
-# failure would leave stale tracebacks looking current.
+# failure would leave stale tracebacks looking current. In practice this only
+# fails if the '+' chown in oradio.service did not run or did not take.
 : >"PLACEHOLDER_LOGFILE_TRACEBACK" 2>/dev/null || log "prestart: WARNING cannot truncate PLACEHOLDER_LOGFILE_TRACEBACK"
 
 wait_for() {

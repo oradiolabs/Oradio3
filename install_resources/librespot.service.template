@@ -31,9 +31,12 @@ UMask=0002
 StandardOutput=append:PLACEHOLDER_LOGFILE_SPOTIFY
 StandardError=append:PLACEHOLDER_LOGFILE_SPOTIFY
 
-# No chown of the log file here: oradio_install.sh creates it as
-# PLACEHOLDER_USER, and logrotate uses copytruncate with 'su', so the inode
-# persists and ownership cannot drift.
+# systemd opens StandardOutput= itself, as root, before this unit's first Exec*
+# line runs, so a log file that was deleted comes back root:root on the next
+# boot. The file therefore already exists by the time this runs, and the chown
+# fixes that same inode before anything else touches it - notably logrotate,
+# which runs under 'su' and cannot truncate a root-owned log.
+ExecStartPre=-+/usr/bin/chown PLACEHOLDER_USER:PLACEHOLDER_GROUP PLACEHOLDER_LOGFILE_SPOTIFY
 
 # Mute the Spotify channel before librespot can open it, so a session that was
 # playing at power-off does not come back at full volume. '-q' keeps amixer from

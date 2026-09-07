@@ -37,8 +37,25 @@ if [ -z "${BASH:-}" ]; then
 	exit 1
 fi
 
+# Refuse to run as root. Nothing here needs it, as every privileged step calls
+# sudo explicitly, and running as root breaks two things silently:
+#   - install_resource renders PLACEHOLDER_USER and PLACEHOLDER_GROUP from
+#     'id -un' and 'id -gn', so every unit would be installed with User=root,
+#     and the '+' chown lines would hand each log file back to root.
+#   - install.log is created by the tee below, owned by whoever runs this
+#     script. It is the only log in the logrotate glob that no service chowns,
+#     so a root-owned one silently stops logrotate - which runs under 'su' and
+#     cannot truncate a root-owned file - from ever rotating it.
+#
+# Checked before the sudo block below, so 'raspi-config nonint do_sudo_pass' is
+# not run on behalf of the wrong user.
+if [ "$EUID" -eq 0 ]; then
+	echo -e "${RED}Aborting: do not run this script as root${NC}"
+	exit 1
+fi
+
 # Seconds to wait before rebooting
-REBOOT_DELAY=5
+REBOOT_DELAY=3
 
 # Enable passwordless sudo (no password prompt running sudo)
 # https://www.raspberrypi.com/documentation/computers/configuration.html#disable-sudo-password
@@ -93,7 +110,7 @@ RESOURCES_PATH="$SCRIPT_PATH/install_resources"
 # Ensure logging directory exists
 mkdir -p "$LOGGING_PATH" || { echo -e "${RED}Aborting: Failed to create directory $LOGGING_PATH${NC}"; exit 1; }
 
-# Define log files
+# Define log files; log files are created by their respective services
 LOGFILE_USB="$LOGGING_PATH/usb.log"
 LOGFILE_MPD="$LOGGING_PATH/mpd.log"
 LOGFILE_BOOT="$LOGGING_PATH/boot.log"
@@ -101,11 +118,6 @@ LOGFILE_CRASH="$LOGGING_PATH/crash.log"
 LOGFILE_SPOTIFY="$LOGGING_PATH/spotify.log"
 LOGFILE_INSTALL="$LOGGING_PATH/install.log"
 LOGFILE_TRACEBACK="$LOGGING_PATH/traceback.log"
-
-# Ensure logfiles exist and are owned by the invoking user before any service opens them
-for VAR_NAME in "${!LOGFILE_@}"; do
-	touch "${!VAR_NAME}" || { echo -e "${RED}Aborting: Failed to create ${!VAR_NAME}${NC}"; exit 1; }
-done
 
 # Save the original stdout/stderr before redirecting, so the EXIT trap below
 # can restore them whatever they were: a terminal on an interactive run, the

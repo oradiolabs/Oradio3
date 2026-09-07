@@ -59,6 +59,12 @@ UMask=0002
 StandardOutput=append:PLACEHOLDER_LOGFILE_USB
 StandardError=append:PLACEHOLDER_LOGFILE_USB
 
+# PLACEHOLDER_LOGFILE_USB ownership is NOT fixed here.
+# systemd opens StandardOutput= as root, so a deleted PLACEHOLDER_LOGFILE_USB
+# returns root:root and logrotate can no longer rotate it - but usb-drive.sh
+# already runs as root in both units and does the chown itself, at the top,
+# before its lock. One copy for both units, and no extra fork on the fast path.
+
 # 'boot', not 'add': tells the script a missing stick is a normal condition here
 # and must exit 0, whereas the udev-triggered 'add' means udev already saw an
 # ORADIO label, so not finding it is a real error worth reporting.
