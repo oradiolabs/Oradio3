@@ -114,6 +114,9 @@ INCIDENT  = 'INCIDENT'
 # Path to the JSON file written by the deployment pipeline with version info
 SOFTWARE_VERSION_FILE = "/var/log/oradio_sw_version.log"
 
+# How the 'generated' field is formatted in every message posted to RMS
+TIMESTAMP_FORMAT = '%Y-%m-%d %H:%M:%S'
+
 # How often the heartbeat is sent (seconds); currently once per hour
 HEARTBEAT_REPEAT = 60 * 60
 
@@ -1369,9 +1372,12 @@ class _SendJob:
 
     Attributes:
         msg_type:  HEARTBEAT, SYS_INFO, or INCIDENT.
-        generated: Timestamp of the moment send_message() was called, not
-            of the moment the POST happens: a message that waits behind a
-            slow send still reports when its event occurred.
+        generated: Timestamp of the moment the event happened, not of the
+            moment the POST happens: a message that waits behind a slow
+            send still reports when its event occurred. For HEARTBEAT and
+            SYS_INFO that is when send_message() was called; for INCIDENT
+            it is taken from the IncidentMessage itself, which is when the
+            incident was raised, before it crossed the bus to get here.
         incident:  The IncidentMessage to report, for INCIDENT only.
     """
     msg_type: str
@@ -1582,6 +1588,12 @@ class _RmsSender(ThreadTemplate):
             payload_info['source']  = job.incident.source
             payload_info['message'] = job.incident.message
 
+            # Traceback or call stack captured where the incident was raised.
+            # Omitted when empty, so routine incidents that suppress it do
+            # not post an empty field.
+            if job.incident.details:
+                payload_info['details'] = job.incident.details
+
             # A fault that repeats raises an incident each time, and every one
             # of them would attach the same logs again, keeping a slow uplink
             # busy for as long as the fault lasts. The incident is always
@@ -1765,11 +1777,22 @@ class WifiMessageHandler(MessageHandlerTemplate):
             return
 
         # Timestamped here rather than at POST time, so the message reports
-        # when its event happened and not when the sender got to it.
+        # when its event happened and not when the sender got to it. For an
+        # incident the event is when it was raised, which is earlier still:
+        # it has already crossed the incident bus and its queue to get here,
+        # so its own timestamp is used in place of the current time.
+        if msg_type == INCIDENT:
+            # send_message() rejects INCIDENT without one above, so this is
+            # only for the type checker
+            assert incident is not None
+            generated = datetime.fromtimestamp(incident.timestamp).strftime(TIMESTAMP_FORMAT)
+        else:
+            generated = datetime.now().strftime(TIMESTAMP_FORMAT)
+
         self._sender.submit(
             _SendJob(
                 msg_type=msg_type,
-                generated=datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
+                generated=generated,
                 incident=incident,
             )
         )
@@ -1987,8 +2010,8 @@ if __name__ == "__main__":
                     print("\nSend SYS_INFO test message to Remote Monitoring Service...\n")
                     rms.send_message(SYS_INFO)
                 case 3:
-                    print("\nSend test INCIDENT message to Remote Monitoring Service...\n")
-                    rms.send_message(INCIDENT, IncidentMessage("rms_service.py:0", "Test incident from interactive menu"))
+                    print("\nSend test INCIDENT message to Remote Monitoring Service...\n")
+                    rms.send_message(INCIDENT, IncidentMessage(RMS_SOURCE, "Test incident from interactive menu"))
                 case 4:
                     print("\nStarting heartbeat timer...\n")
                     Heartbeat.start_heartbeat(HEARTBEAT_REPEAT, rms.send_message, args=(HEARTBEAT,))
