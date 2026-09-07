@@ -1,6 +1,8 @@
 # Stichting Oradio - Oradio3 sources
+
 This repo contains an install script to load and configure the required to prepare an SD card.
 This SD card is then to be used in an Oradio3, available from https://stichtingoradio.nl
+
 ## Installation
 
 Create an SD card using the Trixie 64bit Lite image:
