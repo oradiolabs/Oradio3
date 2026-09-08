@@ -57,9 +57,6 @@ TEST_SOURCE = "Test message"
 # Placeholder source name used to exercise the unrecognised-incident code path
 UNEXPECTED = "Unexpected source"
 
-# Instantiate  led control
-leds = LEDControl()
-
 class IncidentHandler(MessageHandlerTemplate):
     """
     Handle Incident messages and perform incident-specific mitigation.

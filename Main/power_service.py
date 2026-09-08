@@ -68,7 +68,7 @@ Created on December 18, 2025
         draws that code is retried a bounded number of times before it
         counts as a failure.
 """
-from typing import TypedDict
+from typing import Literal, TypedDict
 
 ##### Oradio modules ######################################
 from log_service import oradio_log
@@ -151,7 +151,7 @@ class PowerStatus(TypedDict):
 
 ##### Minimal read-only API ###############################
 
-def get_power_status() -> PowerStatus:
+def get_power_status() -> PowerStatus | Literal[False]:
     """Read the currently negotiated PD voltage and current.
 
     Both values live in PD_STATUS0, so this is a single I2C register read. It
@@ -166,9 +166,10 @@ def get_power_status() -> PowerStatus:
     contract), use get_diagnostic_status() in the stand-alone section.
 
     Returns:
-        The negotiated contract. Both fields are None if the register could
-        not be read; an individual field is None if its selector falls
-        outside the set of values Oradio uses.
+        The negotiated contract, or False when PD_STATUS0 could not be read
+        or the contract is not one Oradio can run on. On a returned contract
+        both fields are populated: voltage_v is one of _OPERATING_VOLTAGES
+        and current_a meets the _POWER_PROFILES minimum for it.
     """
     status0 = I2CService().read_byte(HUSB238_ADDRESS, REG_PD_STATUS0)
     if status0 is None:
@@ -184,7 +185,11 @@ def get_power_status() -> PowerStatus:
     # Report an incident for any contract Oradio cannot run on: a voltage
     # outside _OPERATING_VOLTAGES, or one of those voltages below its minimum
     # current. The incident service decides what follows from the incident.
-    if voltage_v not in _OPERATING_VOLTAGES or current_a < _POWER_PROFILES[voltage_v]:
+    if (
+        voltage_v not in _OPERATING_VOLTAGES
+        or current_a is None
+        or current_a < _POWER_PROFILES[voltage_v]
+    ):
         oradio_log.error(
             "Contract (voltage_v=%s, current_a=%s) does not meet the Oradio operating profiles (%s)",
             voltage_v, current_a,
@@ -516,13 +521,15 @@ if __name__ == '__main__':
             status = get_diagnostic_status()
 
             while True:
-                if status["raw_status1"] is None:
+                # get_diagnostic_status() leaves pd_response None exactly when
+                # the PD_STATUS1 read failed, so this covers both.
+                response = status["pd_response"]
+                if response is None:
                     log_failure(
                         "PD Status register 1 read failed while polling negotiation outcome"
                     )
                     return False, status
 
-                response = status["pd_response"]
                 if response not in (_PD_RESPONSE_NO_RESPONSE, _PD_RESPONSE_SUCCESS):
                     log_failure(
                         "PD_RESPONSE=0b%s (%s)", format(response, '03b'),
@@ -795,6 +802,27 @@ if __name__ == '__main__':
                 )
                 return False
 
+            return self._verify_contract(status, voltage_v, min_current_a)
+
+        def _verify_contract(
+            self, status: DiagnosticStatus, voltage_v: int, min_current_a: float
+        ) -> bool:
+            """Check a settled contract against the profile that was requested.
+
+            Split out of _set_voltage(), which negotiates; this reports on the
+            result. Assumes negotiation has already settled, so it reads the
+            status it is given and performs no I2C access of its own.
+
+            Args:
+                status: The status read when negotiation settled.
+                voltage_v: The voltage that was requested.
+                min_current_a: Minimum acceptable negotiated current.
+
+            Returns:
+                True if the negotiated voltage matches exactly and the negotiated
+                current is greater than or equal to the minimum required current,
+                False otherwise.
+            """
             # Ensure a USB-C attachment is present
             if status["attach"] is False:
                 oradio_log.error("USB-C not attached (PD Status register 1: attach=0)")
