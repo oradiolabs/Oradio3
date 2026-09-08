@@ -21,8 +21,8 @@
 # @Purpose:
 #	This script generates Oradio system prompt WAV files using ElevenLabs TTS Eleven v3, voice 'Roos'
 #	- trims leading/trailing silence
-#	- normalizes to -19 LUFS loudness (ffmpeg `loudnorm`, two pass, EBU R128)
-#	- offers a simple playback menu (`aplay`)
+#	- normalizes to -16.5 LUFS loudness (ffmpeg `loudnorm`, two pass, EBU R128)
+#	- offers a simple playback menu (`aplay`, through the Oradio's own ALSA device)
 #
 #	Trimming and normalizing are the same two ffmpeg passes mp3_to_wav_converter.sh
 #	uses, so a message generated here and one converted from a hand made recording
@@ -115,21 +115,71 @@ SILENCE_THRESHOLD="-50dB"
 SILENCE_DURATION=0
 SILENCE_KEEP=0.1
 
-# LOUDNESS_TARGET: integrated loudness in LUFS
-# TRUE_PEAK_MAX:   ceiling in dBTP, below 0 to leave room for the intersample
+# LOUDNESS_TARGET: integrated loudness in LUFS, the level every file is lifted
+#                  or lowered to
+# TRUE_PEAK_MAX:   ceiling in dBTP. Kept below 0 to leave room for intersample
 #                  peaks that only appear after the DAC reconstructs the signal
 # LOUDNESS_RANGE:  allowed spread between soft and loud parts, in LU
 #
-# -19 rather than the -16 usual for speech, because the target and the peak
-# ceiling fight each other: lifting some prompts to -16 with one constant gain
-# would push their loudest syllable past TRUE_PEAK_MAX, so loudnorm gives back
-# gain and the file lands short of the target. Measured on the 'Roos' set, -16
-# produced a spread of -15.8 to -18.4 LUFS while -19 hit the target within
-# 0.2 LU on every file. Too soft on the Oradio speaker? Raise the playback
-# volume, not this number
-LOUDNESS_TARGET="-19"
-TRUE_PEAK_MAX="-1.5"
+# -16.5 is the average loudness of the older system_sounds set. Those files were
+# peak normalized to -1.0 dBFS rather than loudness normalized, so they do not
+# sit at one level at all: the fourteen spoken ones run from -20.2 to -13.4
+# LUFS, a spread of 6.8 LU, with mean and median both -16.6. Matching that
+# average is what makes a message generated here sound as loud as the ones
+# already on the device
+#
+# The earlier -19 was chosen because at -16 the target and the peak ceiling
+# fought each other and the set spread out again. That is still true, but far
+# less so once the ceiling moves from -1.5 to -1.0 dBTP. Verified end to end on
+# the fifteen ElevenLabs 'Roos' MP3s, decoded and trimmed by this same chain:
+#
+#   target/ceiling   mean      spread   worst file
+#   -19   / -1.5     -19.23    1.12 LU  -20.14   (the old setting)
+#   -17   / -1.0     -17.37    1.09 LU  -18.11
+#   -16.5 / -1.0     -16.99    1.38 LU  -17.90   (this setting)
+#   -16.5 / -1.5     -17.20    1.88 LU  -18.40
+#   -16   / -1.0     -16.70    1.88 LU  -17.90
+#
+# At -16.5/-1.0 ten of the fifteen land on target and five give back gain to
+# stay under the ceiling, three of them by about 1.3 LU. That leaves the set
+# 0.42 LU below the reference average, well under the roughly 1 LU that is
+# audible on program material, and holds the spread to 1.4 LU against the 6.8 LU
+# of the set being matched. Going to -16 closes that last 0.4 LU but widens the
+# spread to 1.9, which is the wrong trade: an even set slightly below the
+# reference beats an uneven set centred on it
+#
+# The five that fall short are the ones with the highest crest factor, up to
+# 19.6 dB between integrated loudness and true peak - long messages with one
+# loud plosive. Reaching -16.5 on those needs about 4 dB of limiting, which was
+# tried (constant gain plus alimiter instead of the loudnorm second pass) and
+# bought only 0.2 LU of level and 0.3 LU of spread in exchange for compressing
+# the dynamics of two prompts. Not worth it
+#
+# TRUE_PEAK_MAX at -1.0 rather than -1.5 is worth about 0.2 LU of level and
+# 0.5 LU of spread, and is no more daring than the reference set itself, whose
+# files sit at -1.0 dBFS sample peak and measure up to -0.67 dBTP once
+# intersample peaks are counted. Move it back to -1.5 if a device ever distorts
+# on the loudest prompts, and expect the numbers in the table above
+#
+# If the whole set sounds too loud or too soft on the Oradio speaker, change the
+# playback volume first. Only change this number to track the reference set
+LOUDNESS_TARGET="-16.5"
+TRUE_PEAK_MAX="-1.0"
 LOUDNESS_RANGE="11"
+
+# ALSA device the Oradio itself uses to play these files. system_sounds.py calls
+# aplay with -D SysSound_in, while a bare "aplay file.wav" goes to the default
+# device instead. Those are two different playback paths and a named PCM can
+# carry its own gain - a softvol plugin, a route with attenuation, a dmix slave
+# with its own mixer element - so the same WAV can come out at two different
+# levels depending on which one you audition through. Comparing a file played
+# here against a sound played by the Oradio is only meaningful when both go
+# through this device
+#
+# Left empty, or set to a device that does not exist, playback falls back to the
+# default device and says so
+PLAYBACK_DEVICE="SysSound_in"
+
 
 # Trim both ends, then measure or correct the loudness of what is left. Built
 # once and shared by both passes, so the second pass cannot normalize different
@@ -165,7 +215,7 @@ Options:
 
 The spoken texts live in the PROMPTS table near the top of this script, which
 also fixes the file names. Each file is fetched as ${OUTPUT_FORMAT/pcm_/} Hz mono PCM,
-normalized to -1 dBFS and trimmed at both ends, then offered in a playback menu.
+trimmed at both ends and normalized to -16.5 LUFS, then offered in a playback menu.
 
 The ElevenLabs key is read from ELEVENLABS_API_KEY when that is set. Without it
 the script asks for the password of the encrypted key stored in this file.
@@ -511,6 +561,21 @@ normalize() {
 
 menu_playback() {
 	local files=("$@")
+
+	# Audition through the same device system_sounds.py plays through, so what is
+	# heard here is what the Oradio will produce. aplay -L lists every PCM ALSA
+	# knows about, including the ones defined in /etc/asound.conf
+	local -a device=()
+	if [ -n "${PLAYBACK_DEVICE:-}" ]; then
+		if aplay -L 2>/dev/null | grep -q "^${PLAYBACK_DEVICE}$"; then
+			device=(-D "$PLAYBACK_DEVICE")
+			echo -e "${GREEN}Playing through ALSA device '${PLAYBACK_DEVICE}'${NC}"
+		else
+			echo -e "${YELLOW}ALSA device '${PLAYBACK_DEVICE}' not found, using the default device."
+			echo -e "Levels heard here may not match what the Oradio plays${NC}"
+		fi
+	fi
+
 	echo ""
 	echo "--- Play --- (number or '0' to quit)"
 	while true; do
@@ -522,7 +587,7 @@ menu_playback() {
 		read -rp "Choice: " choice
 		[[ "$choice" == "0" ]] && break
 		if [[ "$choice" =~ ^[0-9]+$ && "$choice" -ge 1 && "$choice" -le "${#files[@]}" ]]; then
-			aplay -q "${files[$((choice-1))]}"
+			aplay -q ${device[@]+"${device[@]}"} "${files[$((choice-1))]}"
 		else
 			echo -e "${YELLOW}Invalid choice${NC}"
 		fi
