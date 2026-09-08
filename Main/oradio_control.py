@@ -31,7 +31,7 @@ from mpd_control import MPDControl
 from mpd_monitor import MPDMonitor     # Optional: MPD events monitoring in the background
 from led_control import LEDControl
 from touch_buttons import TouchButtons
-from rms_service import RMService
+from rms_service import RMService, INCIDENT
 from spotify_connect_direct import SpotifyConnect
 from usb_service import USBService
 from web_service import WebService
@@ -128,14 +128,27 @@ spotify_connect_available = threading.Event()  # track Spotify playing & connect
 # Instantiate  led control
 leds = LEDControl()
 
-# Verify the power contract
+# Start Remote Service before any incidents can happen, as othewise those incidents may nog be reported
+remote_monitor = RMService()
+remote_monitor.start()
+
+# Get power supply info
 power_status = get_power_status()
+
+# Verify the power contract
 if power_status is False:
-    # Blink the led, play the announcement and stop, as Oradio cannot operate with an unsupported power supply
-#    leds.control_blinking_led(LED_STOP, 0.7)
+    # Blink STOP/OFF led to indicate Oradio has an error
+    leds.control_blinking_led(LED_STOP, 0.7)
+
+    # Inform the user to use the original power supply
     play_sound(SOUND_POWER_ERROR)
+
+    # Post incident (if connected to internet)
+    remote_monitor.send_message(INCIDENT, "Oradio is being used with an Unsupported power supply")
+
     while True:
         sleep(3600)
+
 # Power contract is ok: log and continue
 oradio_log.info("Power supply: %sV @ %sA", power_status["voltage_v"], power_status["current_a"])
 
@@ -146,10 +159,6 @@ usb_present = threading.Event()
 usb_present.set() # USB present to go over start-up sequence (will be updated after first message of USB service
 
 """ Resource-owning modules have an explicit start/stop allowing it to possibly be restarted when failing. """  # pylint: disable=pointless-string-statement
-# IMPORTANT: Start Remote Service before any incidents can happen, as othewise those incidents may nog be reported
-remote_monitor = RMService()
-remote_monitor.start()
-
 # Instantiate and start the wifi service for monitoring wifi state
 oradio_wifi_service = WifiService()
 oradio_wifi_service.start()
