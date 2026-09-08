@@ -128,12 +128,26 @@ spotify_connect_available = threading.Event()  # track Spotify playing & connect
 
 # -----------------------
 
-# Instantiate  led control
-leds = LEDControl()
-
 # Start Remote Service before any incidents can happen, as othewise those incidents may nog be reported
 remote_monitor = RMService()
 remote_monitor.start()
+
+""" Resource-owning modules have an explicit start/stop allowing it to possibly be restarted when failing. """  # pylint: disable=pointless-string-statement
+
+# Any incident starting backlight is reported to and handled by IncidentHandler
+oradio_log.info("Start backlighting")
+Backlighting().start()
+
+# Instantiate led control
+leds = LEDControl()
+
+# Any incident starting volume control is reported to and handled by IncidentHandler
+oradio_log.info("Start volumen control")
+VolumeControl().start()
+
+# Instantiate and start the wifi service for monitoring wifi state
+oradio_wifi_service = WifiService()
+oradio_wifi_service.start()
 
 # Get power supply info
 power_status = get_power_status()
@@ -149,6 +163,7 @@ if power_status is False:
     # Post incident (if connected to internet)
     remote_monitor.send_message(INCIDENT, IncidentMessage(POWER_SOURCE, POWER_ERROR))
 
+    # Stop execution, as oradio cannot function without the correct power supply
     while True:
         sleep(3600)
 
@@ -158,18 +173,6 @@ oradio_log.info("Power supply: %sV @ %sA", power_status["voltage_v"], power_stat
 web_service_active = threading.Event() # Track status web_service
 web_service_active.clear() # Start-up state is no Web service
 
-usb_present = threading.Event()
-usb_present.set() # USB present to go over start-up sequence (will be updated after first message of USB service
-
-""" Resource-owning modules have an explicit start/stop allowing it to possibly be restarted when failing. """  # pylint: disable=pointless-string-statement
-# Instantiate and start the wifi service for monitoring wifi state
-oradio_wifi_service = WifiService()
-oradio_wifi_service.start()
-
-# Any incident starting backlight is reported to and handled by IncidentHandler
-oradio_log.info("Start backlighting")
-Backlighting().start()
-
 # Any incident starting throttling monitor is reported to and handled by IncidentHandler
 oradio_log.info("Start throttling monitor")
 RPiThrottlingMonitor().start()
@@ -177,10 +180,6 @@ RPiThrottlingMonitor().start()
 # Any incident starting log monitor is reported to and handled by IncidentHandler
 oradio_log.info("Start log health monitor")
 LogHealthMonitor().start()
-
-# Any incident starting volume control is reported to and handled by IncidentHandler
-oradio_log.info("Start volumen control")
-VolumeControl().start()
 
 oradio_log.info("Start MPD event monitoring")
 mpd_monitor = MPDMonitor()
@@ -195,6 +194,9 @@ oradio_log.info("Initialising MPDControl")
 mpd_control = MPDControl()
 # Update MPD database - happens in separate thread
 mpd_control.update_database()
+
+usb_present = threading.Event()
+usb_present.set() # USB present to go over start-up sequence (will be updated after first message of USB service
 
 # ----------------------State Machine------------------
 
