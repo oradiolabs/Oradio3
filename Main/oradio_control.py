@@ -48,6 +48,7 @@ from power_service import get_power_status
 from messaging import (
     Commands,
     CommandMessage,
+    IncidentMessage,
     MessageHandlerTemplate,
     USB_SOURCE,
     USB_ABSENT,
