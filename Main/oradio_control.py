@@ -52,6 +52,8 @@ from messaging import (
     USB_SOURCE,
     USB_ABSENT,
     USB_PRESENT,
+    POWER_SOURCE,
+    POWER_ERROR,
     WIFI_SOURCE,
     WIFI_CONNECTED,
     WIFI_DISCONNECTED,
@@ -144,7 +146,7 @@ if power_status is False:
     play_sound(SOUND_POWER_ERROR)
 
     # Post incident (if connected to internet)
-    remote_monitor.send_message(INCIDENT, "Oradio is being used with an Unsupported power supply")
+    remote_monitor.send_message(INCIDENT, IncidentMessage(POWER_SOURCE, POWER_ERROR))
 
     while True:
         sleep(3600)

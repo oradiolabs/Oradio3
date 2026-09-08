@@ -105,6 +105,10 @@ RMS_SOURCE       = "RMS message"
 RMS_START_FAILED = "RMS failed to start"
 RMS_POST_FAILED  = "RMS failed to post message"
 
+# Power supply
+POWER_SOURCE = "Power Supply message"
+POWER_ERROR  = "Unsupported power supply"
+
 # Spotify
 SPOTIFY_SOURCE             = "Spotify message"
 SPOTIFY_CONNECTED_EVENT    = "Spotify connected event"
