@@ -9,7 +9,7 @@
 
 Created on December 18, 2025
 @author:        Henk Stevens & Olaf Mastenbroek & Onno Janssen
-@copyright:     Copyright 2024, Oradio Stichting
+@copyright:     Copyright 2025, Oradio Stichting
 @license:       GNU General Public License (GPL)
 @organization:  Oradio Stichting
 @version:       2
@@ -24,9 +24,10 @@ Created on December 18, 2025
 
     Importable surface:
       - get_power_status(): negotiated voltage and current, from one read of
-        PD_STATUS0. Operational reads run on a latency budget, so this
-        performs no PD transaction, constructs no objects and publishes no
-        incidents.
+        PD_STATUS0, returning False when that contract is not one Oradio can
+        run on. The caller owns what happens next.
+        Operational reads run on a latency budget, so this performs no PD 
+        transaction and leaves an active contract untouched.
 
     Stand-alone surface (diagnosis is not time-critical, so these gather
     everything available at whatever cost):
@@ -42,31 +43,30 @@ Created on December 18, 2025
     Notes on the HUSB238 register interface (per the Hynetek HUSB238
     Register Information datasheet, rev. 1.1):
       - SRC_PDO (0x08) bits [7:4] select the requested voltage; bits [3:0]
-        are reserved and must be left 0. The HUSB238 cannot be told to
-        request a specific current - the delivered current is whatever
-        the source offers for that voltage, and is only known after the
-        fact from PD_STATUS0.
+        are reserved and are written as 0. The HUSB238 has no mechanism to
+        request a specific current - the delivered current is whatever the
+        source offers for that voltage, and is known only afterwards from
+        PD_STATUS0.
       - PD_STATUS1 bits [5:3] (PD_RESPONSE) report the outcome of the last
         PD protocol request (000=no response yet, 001=success, 011=invalid
         command/argument, 100=command not supported, 101=transaction fail).
-        This is polled after a request instead of using a fixed delay.
+        The negotiation waits poll this field until it leaves 000.
       - PD_STATUS0 (the negotiated voltage/current selection) can update a
         short time after PD_RESPONSE reports Success, not atomically with
-        it - reading it once immediately on Success can still return the
-        previous contract's values. A short follow-up poll on PD_STATUS0
-        closes that gap.
+        it, so a read taken on Success can still hold the previous
+        contract's values. A voltage request therefore also polls PD_STATUS0
+        until it reports the requested voltage.
       - SRC_PDO_5V/9V/12V/... (0x02-0x07) are read-only capability
         registers: bit 7 indicates whether the source advertises that
-        voltage at all. These are used at startup to detect whether the
-        connected supply supports PD negotiation before any voltage is
-        requested, so an incompatible (non-PD) supply fails fast instead of
-        burning a full negotiation timeout.
-      - A GO_COMMAND request can occasionally come back with
-        PD_RESPONSE=Transaction Fail (no GoodCRC received) as a transient
-        ack-timing condition rather than a genuine rejection, particularly
-        when it follows closely behind a prior PD transaction on the same
-        source. Requests are retried a bounded number of times to absorb
-        this before treating it as a real failure.
+        voltage at all. Capability detection reads them at startup, so a
+        supply that cannot negotiate, or that does not advertise the wanted
+        voltage, is rejected before a negotiation timeout is spent on it.
+      - A GO_COMMAND request can come back with PD_RESPONSE=Transaction Fail
+        (no GoodCRC received) as a transient ack-timing condition rather
+        than a genuine rejection, particularly when it follows closely
+        behind a prior PD transaction on the same source. A request that
+        draws that code is retried a bounded number of times before it
+        counts as a failure.
 """
 from typing import TypedDict
 
@@ -81,10 +81,19 @@ HUSB238_ADDRESS = 0x08
 
 # HUSB238 Register Addresses
 REG_PD_STATUS0  = 0x00  # PD Status register 0 (voltage/current selection)
-# Oradio-relevant voltages/current profiles:
-# - Standby:  5V,  min 3.0A
-# - Nominal:  9V,  min 2.0A
-# - Max:      12V, min 1.5A
+
+# Oradio power profiles: minimum acceptable current per voltage
+_POWER_PROFILES = {
+     5: 3.0,  # Standby
+     9: 2.0,  # Nominal
+    12: 1.5,  # Max
+}
+
+# Voltages Oradio runs on. Standby (5V) is deliberately absent: it is not used
+# at present, but is kept in _POWER_PROFILES and set_standby_voltage() for
+# future use. For as long as it is unused, a source sitting at 5V is a supply
+# that cannot power Oradio, and get_power_status() reports it as such.
+_OPERATING_VOLTAGES = (9, 12)
 
 # Voltage selector encoding (datasheet-defined). Written to SRC_PDO bits [7:4].
 _VOLTAGE_SEL = {
@@ -116,6 +125,20 @@ _SEL_TO_CURRENT_A = {
     0b1111: 5.0,
 }
 
+def _decode_status0(status0: int) -> tuple[int | None, float | None]:
+    """Decode the negotiated voltage and current from a PD_STATUS0 byte.
+
+    Args:
+        status0: Raw PD_STATUS0 register byte.
+
+    Returns:
+        (voltage_v, current_a). A field is None when its selector falls
+        outside the set of values Oradio uses.
+    """
+    voltage_v = _SEL_TO_VOLTAGE_V.get((status0 >> 4) & 0b1111)
+    current_a = _SEL_TO_CURRENT_A.get(status0 & 0b1111)
+    return voltage_v, current_a
+
 class PowerStatus(TypedDict):
     """Negotiated PD contract.
 
@@ -132,8 +155,12 @@ def get_power_status() -> PowerStatus:
     """Read the currently negotiated PD voltage and current.
 
     Both values live in PD_STATUS0, so this is a single I2C register read. It
-    triggers no PD transaction and publishes no incidents, so it cannot
-    disturb an active contract or add startup latency.
+    triggers no PD transaction, so it cannot disturb an active contract or
+    add startup latency.
+
+    Return False when the read fails, and when the negotiated contract is not
+    one of _OPERATING_VOLTAGES at the minimum current _POWER_PROFILES lists
+    for it. The caller handles it from there.
 
     For the PD_STATUS1 fields (attach, CC direction, PD response, 5V
     contract), use get_diagnostic_status() in the stand-alone section.
@@ -146,14 +173,24 @@ def get_power_status() -> PowerStatus:
     status0 = I2CService().read_byte(HUSB238_ADDRESS, REG_PD_STATUS0)
     if status0 is None:
         oradio_log.error("PD_STATUS0 (PD Status register 0 - voltage/current selection) read failed")
-        return {"voltage_v": None, "current_a": None}
+        return False
 
-    voltage_v = _SEL_TO_VOLTAGE_V.get((status0 >> 4) & 0b1111)
-    current_a = _SEL_TO_CURRENT_A.get(status0 & 0b1111)
+    voltage_v, current_a = _decode_status0(status0)
     if voltage_v is None:
-        # Logged at DEBUG, not WARNING: a selector outside the Oradio set
-        # (e.g. a source offering 15V/20V) is unusual but not a fault.
+        # A selector outside the Oradio set (e.g. a source offering 15V/20V)
+        # is unusual but not a fault, so this logs at DEBUG.
         oradio_log.debug("PD_STATUS0=0x%02X holds a voltage selector outside the Oradio set", status0)
+
+    # Report an incident for any contract Oradio cannot run on: a voltage
+    # outside _OPERATING_VOLTAGES, or one of those voltages below its minimum
+    # current. The incident service decides what follows from the incident.
+    if voltage_v not in _OPERATING_VOLTAGES or current_a < _POWER_PROFILES[voltage_v]:
+        oradio_log.error(
+            "Contract (voltage_v=%s, current_a=%s) does not meet the Oradio operating profiles (%s)",
+            voltage_v, current_a,
+            ", ".join(f"{volts}V >={_POWER_PROFILES[volts]}A" for volts in _OPERATING_VOLTAGES)
+        )
+        return False
 
     return {"voltage_v": voltage_v, "current_a": current_a}
 
@@ -225,10 +262,10 @@ if __name__ == '__main__':
 
     # Settle delay applied after capability detection's own Get_SRC_Cap
     # transaction (see _detect_capabilities_and_settle()), used by both
-    # __init__ and refresh_capabilities(). Without it, a caller that issues a
-    # voltage request immediately afterward can land close enough behind
-    # Get_SRC_Cap on the same source to race it and get a transient Transaction
-    # Fail, even though the request itself is valid.
+    # __init__ and refresh_capabilities(). It separates that Get_SRC_Cap from
+    # a voltage request issued immediately afterwards, which would otherwise
+    # land close enough behind it on the same source to draw a transient
+    # Transaction Fail even though the request itself is valid.
     _POST_INIT_SETTLE_DELAY_S = 0.2
 
     ##### Diagnostic read #####################################
@@ -273,6 +310,28 @@ if __name__ == '__main__':
         raw_status0: int | None
         raw_status1: int | None
 
+    def _decode_attach(status1: int) -> bool:
+        """Decode the ATTACH bit (bit 6) from a PD_STATUS1 byte.
+
+        Args:
+            status1: Raw PD_STATUS1 register byte.
+
+        Returns:
+            True when a USB-C attachment is detected on CC.
+        """
+        return ((status1 >> 6) & 0b1) == 1
+
+    def _decode_pd_response(status1: int) -> int:
+        """Decode the PD_RESPONSE field (bits [5:3]) from a PD_STATUS1 byte.
+
+        Args:
+            status1: Raw PD_STATUS1 register byte.
+
+        Returns:
+            The 3-bit PD_RESPONSE code for the most recent request.
+        """
+        return (status1 >> 3) & 0b111
+
     def get_diagnostic_status() -> DiagnosticStatus:
         """Read and decode every field the two PD status registers expose.
 
@@ -298,18 +357,19 @@ if __name__ == '__main__':
 
         # Decode voltage and current selection from PD_STATUS0
         if status0 is None:
-            oradio_log.error("PD_STATUS0 (PD Status register 0 - voltage/current selection) read failed")
+            oradio_log.error(
+                "PD_STATUS0 (PD Status register 0 - voltage/current selection) read failed"
+            )
         else:
-            voltage_v = _SEL_TO_VOLTAGE_V.get((status0 >> 4) & 0b1111)
-            current_a = _SEL_TO_CURRENT_A.get(status0 & 0b1111)
+            voltage_v, current_a = _decode_status0(status0)
 
         # Decode attach, CC orientation, PD response and 5V contract from PD_STATUS1
         if status1 is None:
             oradio_log.error("PD Status register 1 (attach, CC, response) read failed")
         else:
             cc_dir = (status1 >> 7) & 0b1
-            attach = ((status1 >> 6) & 0b1) == 1
-            pd_response = (status1 >> 3) & 0b111
+            attach = _decode_attach(status1)
+            pd_response = _decode_pd_response(status1)
             contract_5v = ((status1 >> 2) & 0b1) == 1
             contract_5v_current_a = _SEL_TO_5V_CONTRACT_A.get(status1 & 0b11)
 
@@ -364,9 +424,11 @@ if __name__ == '__main__':
             status1 = self._i2c_service.read_byte(HUSB238_ADDRESS, REG_PD_STATUS1)
             if status1 is None:
                 return None
-            return (status1 >> 3) & 0b111
+            return _decode_pd_response(status1)
 
-        def _wait_for_pd_response(self, timeout_s: float = _NEGOTIATION_TIMEOUT_S, is_final_attempt: bool = True) -> bool:
+        def _wait_for_pd_response(
+            self, timeout_s: float = _NEGOTIATION_TIMEOUT_S, is_final_attempt: bool = True
+        ) -> bool:
             """Poll PD_STATUS1.PD_RESPONSE until the HUSB238 reports a definitive
             response to the last request, or until timeout_s elapses.
 
@@ -393,7 +455,10 @@ if __name__ == '__main__':
                 response = self._read_pd_response()
 
                 if response is None:
-                    log_failure("PD Status register 1 (attach, CC, response) read failed while polling PD_RESPONSE")
+                    log_failure(
+                        "PD Status register 1 (attach, CC, response) read failed "
+                        "while polling PD_RESPONSE"
+                    )
                     return False
 
                 if response == _PD_RESPONSE_NO_RESPONSE:
@@ -413,23 +478,25 @@ if __name__ == '__main__':
             log_failure("timed out after %.2fs waiting for PD_RESPONSE", timeout_s)
             return False
 
-        def _wait_for_voltage_negotiation(self, voltage_v: int, timeout_s: float = _NEGOTIATION_TIMEOUT_S, is_final_attempt: bool = True) -> tuple[bool, DiagnosticStatus]:
+        def _wait_for_voltage_negotiation(
+            self, voltage_v: int, timeout_s: float = _NEGOTIATION_TIMEOUT_S,
+            is_final_attempt: bool = True
+        ) -> tuple[bool, DiagnosticStatus]:
             """Poll after a PDO voltage request until the outcome is known, checking
             both signals in a single pass with one shared timeout budget:
 
-              - PD_RESPONSE reporting a definitive failure code (anything other
-                than Success) ends the wait immediately - there is no point
-                waiting for PD_STATUS0 to update after a rejected request.
+              - PD_RESPONSE holding a definitive failure code (anything other
+                than No Response or Success) ends the wait immediately, so a
+                rejected request reports its reason rather than spending the
+                full timeout on a PD_STATUS0 update that will not arrive.
               - PD_STATUS0 reflecting the requested voltage_v means the contract
                 has settled and negotiation succeeded.
 
-            Both signals are needed. PD_RESPONSE lets a rejected request fail
-            fast with a specific reason instead of burning the full timeout on
-            a status value that will never arrive, and it separates "no
-            negotiation happened" from "negotiation succeeded but the status
-            register has not caught up". PD_STATUS0 alone cannot distinguish
-            those: when the requested voltage is already active, a stale match
-            looks identical to a fresh success.
+            Both signals are read because PD_STATUS0 alone cannot separate a
+            fresh success from the previous contract: when the requested
+            voltage is already active, a stale match looks identical to a
+            newly negotiated one. One get_diagnostic_status() call per
+            iteration supplies both, so they always describe the same instant.
 
             Args:
                 voltage_v: The voltage that was just requested.
@@ -448,32 +515,32 @@ if __name__ == '__main__':
             deadline = monotonic() + timeout_s
             status = get_diagnostic_status()
 
-            while monotonic() < deadline:
-                response = self._read_pd_response()
-
-                if response is None:
+            while True:
+                if status["raw_status1"] is None:
                     log_failure(
                         "PD Status register 1 read failed while polling negotiation outcome"
                     )
                     return False, status
 
+                response = status["pd_response"]
                 if response not in (_PD_RESPONSE_NO_RESPONSE, _PD_RESPONSE_SUCCESS):
                     log_failure(
                         "PD_RESPONSE=0b%s (%s)", format(response, '03b'),
                         _PD_RESPONSE_MESSAGES.get(response, "unknown/reserved")
                     )
-                    # Surface the failing code so the caller (_set_voltage) can
-                    # tell a transient Transaction Fail apart from a genuine
-                    # rejection. Without this the field holds the value from
-                    # the last successful poll.
-                    status["pd_response"] = response
+                    # The returned status carries this code, so the caller
+                    # (_set_voltage) can tell a transient Transaction Fail
+                    # apart from a genuine rejection.
                     return False, status
 
-                status = get_diagnostic_status()
                 if status["voltage_v"] == voltage_v:
                     return True, status
 
+                if monotonic() >= deadline:
+                    break
+
                 sleep(_NEGOTIATION_POLL_INTERVAL_S)
+                status = get_diagnostic_status()
 
             log_failure(
                 "Timed out after %.2fs waiting for negotiation of %sV to settle "
@@ -484,6 +551,11 @@ if __name__ == '__main__':
         def _request_src_cap(self, is_final_attempt: bool = True) -> bool:
             """Issue a single Get_SRC_Cap request and wait for a definitive PD_RESPONSE.
 
+            I2CService retries a failed write and publishes its own incident
+            before returning False, so a GO_COMMAND that never reached the bus
+            is reported here with its context instead of being polled for a
+            response the source was never asked to give.
+
             Args:
                 is_final_attempt: Forwarded to _wait_for_pd_response() so a
                     failure that the caller is about to retry logs at DEBUG
@@ -492,7 +564,12 @@ if __name__ == '__main__':
             Returns:
                 True if PD_RESPONSE reports Success, False otherwise.
             """
-            self._i2c_service.write_byte(HUSB238_ADDRESS, REG_GO_COMMAND, _CMD_GET_SRC_CAP)
+            if not self._i2c_service.write_byte(
+                HUSB238_ADDRESS, REG_GO_COMMAND, _CMD_GET_SRC_CAP
+            ):
+                oradio_log.error("GO_COMMAND write failed while requesting source capabilities")
+                return False
+
             return self._wait_for_pd_response(is_final_attempt=is_final_attempt)
 
         def _detect_capabilities(self) -> Capabilities:
@@ -520,11 +597,12 @@ if __name__ == '__main__':
             """
             status1 = self._i2c_service.read_byte(HUSB238_ADDRESS, REG_PD_STATUS1)
             if status1 is None:
-                oradio_log.error("PD Status register 1 (attach, CC, response) read failed during capability check")
+                oradio_log.error(
+                    "PD Status register 1 (attach, CC, response) read failed during capability check"
+                )
                 return {"attached": False, "pd_capable": False, "voltages": set()}
 
-            attach = ((status1 >> 6) & 0b1) == 1
-            if not attach:
+            if not _decode_attach(status1):
                 oradio_log.warning("No USB-C attachment detected during capability check")
                 return {"attached": False, "pd_capable": False, "voltages": set()}
 
@@ -532,7 +610,9 @@ if __name__ == '__main__':
             # number of times to absorb a transient Transaction Fail (no GoodCRC).
             got_response = False
             for attempt in range(1, _GET_SRC_CAP_MAX_ATTEMPTS + 1):
-                got_response = self._request_src_cap(is_final_attempt=attempt == _GET_SRC_CAP_MAX_ATTEMPTS)
+                got_response = self._request_src_cap(
+                    is_final_attempt=attempt == _GET_SRC_CAP_MAX_ATTEMPTS
+                )
                 if got_response:
                     break
                 if attempt < _GET_SRC_CAP_MAX_ATTEMPTS:
@@ -544,21 +624,27 @@ if __name__ == '__main__':
 
             if not got_response:
                 oradio_log.warning(
-                    "Source did not respond to Get_SRC_Cap after %d attempts; treating as a non-PD power supply",
+                    "Source did not respond to Get_SRC_Cap after %d attempts; "
+                    "treating as a non-PD power supply",
                     _GET_SRC_CAP_MAX_ATTEMPTS
                 )
                 return {"attached": True, "pd_capable": False, "voltages": set()}
 
             voltages = set()
-            for voltage_v, reg in ((5, REG_SRC_PDO_5V), (9, REG_SRC_PDO_9V), (12, REG_SRC_PDO_12V)):
+            capability_registers = (
+                (5, REG_SRC_PDO_5V), (9, REG_SRC_PDO_9V), (12, REG_SRC_PDO_12V)
+            )
+            for voltage_v, reg in capability_registers:
                 reg_value = self._i2c_service.read_byte(HUSB238_ADDRESS, reg)
                 if reg_value is not None and (reg_value >> 7) & 0b1:
                     voltages.add(voltage_v)
 
             if not voltages:
-                oradio_log.warning("Source attached and PD-capable, but advertises none of the required voltages (5V/9V/12V)")
+                oradio_log.warning(
+                    "Source attached and PD-capable, but advertises none of the required voltages (5V/9V/12V)"
+                )
 
-            oradio_log.info("detected source voltages: %s", sorted(voltages) or "none")
+            oradio_log.info("Detected source voltages: %s", sorted(voltages) or "none")
 
             return {"attached": True, "pd_capable": bool(voltages), "voltages": voltages}
 
@@ -582,9 +668,9 @@ if __name__ == '__main__':
 
             Checks the source's known PD capabilities first, so a supply that
             cannot negotiate, or does not advertise the requested voltage,
-            fails without attempting the transaction. No exception propagates
-            to the caller: any I2C or negotiation error is logged and reported
-            as a False return value.
+            fails without attempting the transaction. An OSError, RuntimeError,
+            ValueError, KeyError or TypeError raised by the transaction is
+            logged and reported as a False return value.
 
             Args:
                 voltage_v: Requested voltage in volts.
@@ -599,11 +685,17 @@ if __name__ == '__main__':
                 self.refresh_capabilities()
 
             if not self._capabilities["pd_capable"]:
-                oradio_log.warning("Skipping %sV request - connected power supply does not support PD negotiation", voltage_v)
+                oradio_log.warning(
+                    "Skipping %sV request - connected power supply does not support PD negotiation",
+                    voltage_v
+                )
                 return False
 
             if voltage_v not in self._capabilities["voltages"]:
-                oradio_log.warning("Skipping %sV request - connected power supply does not advertise this voltage", voltage_v)
+                oradio_log.warning(
+                    "Skipping %sV request - connected power supply does not advertise this voltage",
+                    voltage_v
+                )
                 return False
 
             try:
@@ -619,9 +711,12 @@ if __name__ == '__main__':
         def _set_voltage(self, voltage_v: int, min_current_a: float) -> bool:
             """Perform a PD voltage request and verify the negotiated result.
 
+            Returns True without renegotiating when the active contract already
+            satisfies the request.
+
             Note: the HUSB238 cannot request a specific current (see module docstring).
-            min_current_a is checked, against whatever current the source actually negotiated
-            for the requested voltage.
+            min_current_a is checked against whatever current the source actually
+            negotiated for the requested voltage.
 
             Args:
                 voltage_v: Requested voltage in volts.
@@ -633,7 +728,10 @@ if __name__ == '__main__':
             """
             # Validate requested voltage
             if voltage_v not in _VOLTAGE_SEL:
-                oradio_log.error("Unsupported voltage request %sV. Supported: %s", voltage_v, sorted(_VOLTAGE_SEL.keys()))
+                oradio_log.error(
+                    "Unsupported voltage request %sV. Supported: %s",
+                    voltage_v, sorted(_VOLTAGE_SEL.keys())
+                )
                 return False
 
             # Skip negotiation when the active contract already satisfies the
@@ -660,9 +758,12 @@ if __name__ == '__main__':
             # (invalid command, not supported, or a plain timeout) is a genuine
             # outcome and is not retried.
             settled = False
-            status: DiagnosticStatus = get_diagnostic_status()
+            status: DiagnosticStatus = current_status
             for attempt in range(1, _VOLTAGE_REQUEST_MAX_ATTEMPTS + 1):
-                self._configure_pdo(voltage_v=voltage_v)
+                # A write that never reached the bus is a bus fault, not a
+                # negotiation outcome, so it is not retried here.
+                if not self._configure_pdo(voltage_v=voltage_v):
+                    return False
 
                 # Poll for a definitive outcome in one pass: either a PD_RESPONSE
                 # failure code (fail fast) or PD_STATUS0 settling on voltage_v
@@ -676,7 +777,7 @@ if __name__ == '__main__':
                 if settled:
                     break
 
-                if status.get("pd_response") != _PD_RESPONSE_TRANSACTION_FAIL:
+                if status["pd_response"] != _PD_RESPONSE_TRANSACTION_FAIL:
                     break
 
                 if attempt < _VOLTAGE_REQUEST_MAX_ATTEMPTS:
@@ -690,7 +791,7 @@ if __name__ == '__main__':
             if not settled:
                 oradio_log.error(
                     "PDO request for %sV did not settle (last pd_response=%s)",
-                    voltage_v, status.get("pd_response")
+                    voltage_v, status["pd_response"]
                 )
                 return False
 
@@ -704,7 +805,10 @@ if __name__ == '__main__':
 
             # Validate decoded status fields
             if delivered_v is None or delivered_a is None:
-                oradio_log.error("Could not decode PD status (voltage_v=%s, current_a=%s)", delivered_v, delivered_a)
+                oradio_log.error(
+                    "Could not decode PD status (voltage_v=%s, current_a=%s)",
+                    delivered_v, delivered_a
+                )
                 return False
 
             # Check whether the negotiated contract meets requirements
@@ -712,7 +816,7 @@ if __name__ == '__main__':
             if success:
                 oradio_log.info("Negotiated %sV @ %.1fA", delivered_v, delivered_a)
             else:
-                # Negotiation failed or does not meet requirements
+                # Negotiated contract does not match the requested profile
                 oradio_log.error(
                     "Negotiation mismatch. Requested %sV (min %.1fA) but got %sV @ %sA",
                     voltage_v, min_current_a, delivered_v, delivered_a
@@ -726,21 +830,39 @@ if __name__ == '__main__':
 
             return success
 
-        def _configure_pdo(self, voltage_v: int) -> None:
+        def _configure_pdo(self, voltage_v: int) -> bool:
             """Write the requested voltage to the HUSB238 SRC_PDO register and trigger negotiation.
 
             SRC_PDO bits [7:4] select the voltage; bits [3:0] are reserved and must be
             left 0 (the HUSB238 has no mechanism to request a specific current - see
             module docstring).
 
+            I2CService retries a failed write and publishes its own incident
+            before returning False, so a request that never reached the bus is
+            reported as a write failure rather than as a negotiation that
+            failed to settle.
+
             Args:
                 voltage_v: Requested voltage in volts.
+
+            Returns:
+                True when both writes were accepted, False when either failed.
             """
             pdo_value = _VOLTAGE_SEL[voltage_v] << 4  # bits [3:0] stay 0 (reserved)
-            self._i2c_service.write_byte(HUSB238_ADDRESS, REG_SRC_PDO, pdo_value)
+            if not self._i2c_service.write_byte(
+                HUSB238_ADDRESS, REG_SRC_PDO, pdo_value
+            ):
+                oradio_log.error("SRC_PDO write failed while requesting %sV", voltage_v)
+                return False
 
             # Trigger the GO command to request the PDO just written
-            self._i2c_service.write_byte(HUSB238_ADDRESS, REG_GO_COMMAND, _CMD_REQUEST_PDO)
+            if not self._i2c_service.write_byte(
+                HUSB238_ADDRESS, REG_GO_COMMAND, _CMD_REQUEST_PDO
+            ):
+                oradio_log.error("GO_COMMAND write failed while requesting %sV", voltage_v)
+                return False
+
+            return True
 
     ##### Public API ##########################################
 
@@ -750,10 +872,14 @@ if __name__ == '__main__':
             This mode should only be used when minimal standby power is required.
             The system may enter a throttled state (e.g. Raspberry Pi supply voltage around 4.5 V).
 
+            Standby is not used at present and 5V is therefore absent from
+            _OPERATING_VOLTAGES, so get_power_status() reports a contract left
+            at 5V as an unsupported supply. Both are kept for future use.
+
             Returns:
                 True if the negotiated PD contract meets the requirements, False otherwise.
             """
-            return self._safe_set_voltage(voltage_v=5, min_current_a=3.0)
+            return self._safe_set_voltage(voltage_v=5, min_current_a=_POWER_PROFILES[5])
 
         def set_nom_voltage(self) -> bool:
             """Request nominal operating power: 9 V with a minimum of 2.0 A.
@@ -761,7 +887,7 @@ if __name__ == '__main__':
             Returns:
                 True if the negotiated voltage/current meets the requirements.
             """
-            return self._safe_set_voltage(voltage_v=9, min_current_a=2.0)
+            return self._safe_set_voltage(voltage_v=9, min_current_a=_POWER_PROFILES[9])
 
         def set_max_voltage(self) -> bool:
             """Request maximum operating power: 12 V with a minimum of 1.5 A.
@@ -769,7 +895,20 @@ if __name__ == '__main__':
             Returns:
                 True if the negotiated voltage/current meets the requirements.
             """
-            return self._safe_set_voltage(voltage_v=12, min_current_a=1.5)
+            return self._safe_set_voltage(voltage_v=12, min_current_a=_POWER_PROFILES[12])
+
+        @property
+        def capabilities(self) -> Capabilities:
+            """Capabilities detected for the attached source.
+
+            Reflects the last detection run, from __init__ or the most recent
+            refresh_capabilities() call. Read-only: callers observe it, they
+            do not modify it.
+
+            Returns:
+                Same shape as _detect_capabilities().
+            """
+            return self._capabilities
 
         def refresh_capabilities(self) -> None:
             """Re-run capability detection.
@@ -806,7 +945,8 @@ if __name__ == '__main__':
         cc_dir = status["cc_dir"]
         cc_line = "unknown" if cc_dir is None else {0: "CC1", 1: "CC2"}.get(cc_dir, "reserved")
 
-        contract_a = status["contract_5v_current_a"] or "USB default"
+        contract_5v_a = status["contract_5v_current_a"]
+        contract_a = "USB default" if contract_5v_a is None else contract_5v_a
 
         print(
             "\n"
@@ -825,7 +965,7 @@ if __name__ == '__main__':
         Args:
             power_service: Service whose detected capabilities to print.
         """
-        caps = power_service._capabilities  # pylint: disable=protected-access
+        caps = power_service.capabilities
         print(
             "\n"
             f"Capabilities: attached={caps['attached']}, pd_capable={caps['pd_capable']}, "
@@ -833,7 +973,7 @@ if __name__ == '__main__':
             "\n"
         )
 
-    # Pylint allows more than 12 branches here because this is a test menu
+    # The menu dispatch exceeds the default branch and statement limits
     def interactive_menu() -> None:    # pylint: disable=too-many-branches,too-many-statements
         """
         Run an interactive self-test menu for the Power Supply service.

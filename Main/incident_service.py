@@ -40,7 +40,6 @@ from messaging import (
     LED_SOURCE, LED_BLINK_START_FAILED, LED_BLINK_STOP_FAILED,
     MPD_SOURCE, MPD_CONNECT_FAILED, MPD_EXECUTE_FAILED, MPD_MONITOR_FAILED, MPD_PRESET_INVALID,
     LOG_SOURCE, LOG_START_FAILED, LOG_QUEUE_OVERFLOW, LOG_QUEUE_RECOVERED, LOG_LISTENER_DEAD, LOG_STOPPED,
-    POWER_SOURCE, POWER_NEGOTIATION_FAILED,
     RMS_SOURCE, RMS_START_FAILED, RMS_POST_FAILED,
     SOUND_SOURCE, SOUND_MISSING_DIR, SOUND_PLAYBACK_FAILED,
     SPOTIFY_SOURCE, SPOTIFY_START_FAILED, SPOTIFY_STOPPED, SPOTIFY_MUTE_FAILED, SPOTIFY_UNMUTE_FAILED,
@@ -57,6 +56,9 @@ TEST_SOURCE = "Test message"
 
 # Placeholder source name used to exercise the unrecognised-incident code path
 UNEXPECTED = "Unexpected source"
+
+# Instantiate  led control
+leds = LEDControl()
 
 class IncidentHandler(MessageHandlerTemplate):
     """
@@ -85,7 +87,6 @@ class IncidentHandler(MessageHandlerTemplate):
             LED_SOURCE:          self._handle_led_incident,
             LOG_SOURCE:          self._handle_log_incident,
             MPD_SOURCE:          self._handle_mpd_incident,
-            POWER_SOURCE:        self._handle_power_incident,
             RMS_SOURCE:          self._handle_rms_incident,
             SOUND_SOURCE:        self._handle_sound_incident,
             SPOTIFY_SOURCE:      self._handle_spotify_incident,
@@ -271,24 +272,6 @@ class IncidentHandler(MessageHandlerTemplate):
             oradio_log.debug("Mitigation to be implemented")
         else:
             oradio_log.error("Unhandled MPD incident: '%s'", incident.message)
-
-    def _handle_power_incident(self, incident: IncidentMessage) -> None:
-        """
-        Handle power-supply-related incident.
-
-        Attempts recovery from known power supply conditions and logs
-        unrecognised incidents for further investigation.
-
-        Args:
-            incident: Incident message received from the incident bus.
-        """
-        if incident.message == POWER_NEGOTIATION_FAILED:
-            # MITIGATION TO BE IMPLEMENTED:
-            #   Report PD negotiation failure + status to RMS
-            #   If retry_count < MAX_RETRIES: retry negotiation, else fall back to standby voltage
-            oradio_log.debug("Mitigation to be implemented")
-        else:
-            oradio_log.error("Unhandled power supply incident: '%s'", incident.message)
 
     def _handle_rms_incident(self, incident: IncidentMessage) -> None:
         """

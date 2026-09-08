@@ -42,8 +42,8 @@ from constants import (
     SOUND_PRESET2,
     SOUND_PRESET3,
     SOUND_SPOTIFY,
-    SOUND_USB,
-    SOUND_NO_USB,
+    SOUND_USB_PRESENT,
+    SOUND_USB_ABSENT,
     SOUND_AP_START,
     SOUND_AP_STOP,
     SOUND_WIFI,
@@ -51,6 +51,7 @@ from constants import (
     SOUND_NO_INTERNET,
     SOUND_NEW_PRESET,
     SOUND_NEW_WEBRADIO,
+    SOUND_POWER_ERROR,
 )
 
 ##### LOCAL constants #####################################
@@ -71,8 +72,8 @@ SOUND_FILES = {
     SOUND_PRESET2:      f"{SOUNDS_PATH}/Preset2_melding.wav",
     SOUND_PRESET3:      f"{SOUNDS_PATH}/Preset3_melding.wav",
     SOUND_SPOTIFY:      f"{SOUNDS_PATH}/Spotify_melding.wav",
-    SOUND_USB:          f"{SOUNDS_PATH}/USBPresent_melding.wav",
-    SOUND_NO_USB:       f"{SOUNDS_PATH}/NoUSB_melding.wav",
+    SOUND_USB_PRESENT:  f"{SOUNDS_PATH}/USBPresent_melding.wav",
+    SOUND_USB_ABSENT:   f"{SOUNDS_PATH}/USBAbsent_melding.wav",
     SOUND_AP_START:     f"{SOUNDS_PATH}/OradioAPstarted_melding.wav",
     SOUND_AP_STOP:      f"{SOUNDS_PATH}/OradioAPstopped_melding.wav",
     SOUND_WIFI:         f"{SOUNDS_PATH}/WifiConnected_melding.wav",
@@ -80,6 +81,7 @@ SOUND_FILES = {
     SOUND_NO_INTERNET:  f"{SOUNDS_PATH}/NoInternet_melding.wav",
     SOUND_NEW_PRESET:   f"{SOUNDS_PATH}/NewPlaylistPreset_melding.wav",
     SOUND_NEW_WEBRADIO: f"{SOUNDS_PATH}/NewPlaylistWebradio_melding.wav",
+    SOUND_POWER_ERROR:  f"{SOUNDS_PATH}/PowerSupplyNotSupported_melding.wav",
 }
 
 # Critical error at import time if the sounds directory is missing, so the problem

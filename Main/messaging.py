@@ -100,10 +100,6 @@ MPD_EXECUTE_FAILED = "MPD failed to execute"
 MPD_MONITOR_FAILED = "MPD monitor incident"
 MPD_PRESET_INVALID = "MPD preset incident"
 
-# Power supply
-POWER_SOURCE             = "Power supply message"
-POWER_NEGOTIATION_FAILED = "Power supply negotiation failed"
-
 # Remote Monitoring
 RMS_SOURCE       = "RMS message"
 RMS_START_FAILED = "RMS failed to start"

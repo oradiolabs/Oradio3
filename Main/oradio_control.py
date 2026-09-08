@@ -94,8 +94,8 @@ from constants import (
     SOUND_PRESET2,
     SOUND_PRESET3,
     SOUND_SPOTIFY,
-    SOUND_USB,
-    SOUND_NO_USB,
+    SOUND_USB_PRESENT,
+    SOUND_USB_ABSENT,
     SOUND_AP_START,
     SOUND_AP_STOP,
     SOUND_WIFI,
@@ -103,6 +103,7 @@ from constants import (
     SOUND_NO_INTERNET,
     SOUND_NEW_PRESET,
     SOUND_NEW_WEBRADIO,
+    SOUND_POWER_ERROR,
     LED_PLAY,
     LED_STOP,
     LED_PRESET1,
@@ -124,8 +125,18 @@ spotify_connect_available = threading.Event()  # track Spotify playing & connect
 
 # -----------------------
 
-# Log the operatonal voltage and current
+# Instantiate  led control
+leds = LEDControl()
+
+# Verify the power contract
 power_status = get_power_status()
+if power_status is False:
+    # Blink the led, play the announcement and stop, as Oradio cannot operate with an unsupported power supply
+#    leds.control_blinking_led(LED_STOP, 0.7)
+    play_sound(SOUND_POWER_ERROR)
+    while True:
+        sleep(3600)
+# Power contract is ok: log and continue
 oradio_log.info("Power supply: %sV @ %sA", power_status["voltage_v"], power_status["current_a"])
 
 web_service_active = threading.Event() # Track status web_service
@@ -172,9 +183,6 @@ oradio_log.info("Initialising MPDControl")
 mpd_control = MPDControl()
 # Update MPD database - happens in separate thread
 mpd_control.update_database()
-
-# Instantiate  led control
-leds = LEDControl()
 
 # ----------------------State Machine------------------
 
@@ -420,7 +428,7 @@ class StateMachine:
         mpd_control.stop()
         spotify_connect.mute()
         play_sound(SOUND_STOP)
-        play_sound(SOUND_NO_USB)
+        play_sound(SOUND_USB_ABSENT)
         if web_service_active.is_set():
             oradio_web_service.stop()
 
@@ -487,7 +495,7 @@ def on_usb_present():
     if usb_present.is_set():
         return
     usb_present.set()
-    play_sound(SOUND_USB)
+    play_sound(SOUND_USB_PRESENT)
     # Ensure MPD database is updated
     mpd_control.update_database()
     # Transition to Idle after USB is inserted
