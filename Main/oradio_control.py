@@ -87,8 +87,8 @@ from constants import (
     SOUND_PRESET1,
     SOUND_PRESET2,
     SOUND_PRESET3,
-    SOUND_USB,
-    SOUND_NO_USB,
+    SOUND_USB_PRESENT,
+    SOUND_USB_ABSENT,
     SOUND_AP_START,
     SOUND_AP_STOP,
     SOUND_WIFI,
@@ -380,7 +380,7 @@ class StateMachine:
         leds.control_blinking_led(LED_STOP, 0.7)
         mpd_control.stop()
         play_sound(SOUND_STOP)
-        play_sound(SOUND_NO_USB)
+        play_sound(SOUND_USB_ABSENT)
         if web_service_active.is_set():
             oradio_web_service.stop()
 
@@ -445,7 +445,7 @@ def on_usb_present():
     if usb_present.is_set():
         return
     usb_present.set()
-    play_sound(SOUND_USB)
+    play_sound(SOUND_USB_PRESENT)
     # Ensure MPD database is updated
     mpd_control.update_database()
     # Transition to Idle after USB is inserted

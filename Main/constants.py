@@ -86,8 +86,8 @@ SOUND_NEXT         = "Next"
 SOUND_PRESET1      = "Preset1"
 SOUND_PRESET2      = "Preset2"
 SOUND_PRESET3      = "Preset3"
-SOUND_USB          = "USBPresent"
-SOUND_NO_USB       = "NoUSB"
+SOUND_USB_PRESENT  = "USBPresent"
+SOUND_USB_ABSENT   = "USBAbsent"
 SOUND_AP_START     = "OradioAPstarted"
 SOUND_AP_STOP      = "OradioAPstopped"
 SOUND_WIFI         = "WifiConnected"
@@ -95,6 +95,7 @@ SOUND_NO_WIFI      = "WifiNotConnected"
 SOUND_NO_INTERNET  = "NoInternet"
 SOUND_NEW_PRESET   = "NewPlaylistPreset"
 SOUND_NEW_WEBRADIO = "NewPlaylistWebradio"
+SOUND_POWER_ERROR  = "OradioPowerError"
 
 ##### REMOTE SERVER #######################################
 RMS_SERVER_URL = _ENV["RMS_SERVER_URL"]
