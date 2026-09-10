@@ -57,10 +57,17 @@ from constants import (
 # Bound queue size to detect runaway producers early.
 _MAX_QUEUE_SIZE = 1000
 
-# Frames to drop when auto-capturing a call stack: _capture_details() itself
-# and the dataclass-generated __init__ that invoked it. Everything above those
-# belongs to the code that actually created the incident message.
-_CAPTURE_FRAMES_TO_SKIP = 2
+# Frames to drop when auto-capturing a call stack. Three of them sit between
+# the caller and the capture: _capture_details() itself, the __post_init__ that
+# calls it, and the dataclass-generated __init__ that calls that. Everything
+# above those belongs to the code that actually created the incident message.
+#
+# This number counts frames, so any change to the call depth between
+# IncidentMessage(...) and _capture_details() has to be counted here too. One
+# too few and every stack ends in a bare 'File "<string>", in __init__' with no
+# source line; one too many and the call site itself is cut off. Neither shows
+# up until a traceback is actually needed.
+_CAPTURE_FRAMES_TO_SKIP = 3
 
 ##### Messaging constants #################################
 # Backlighting
@@ -179,6 +186,32 @@ WIFI_NMCLI_FAILED      = "NetworkManager wrapper failed"
 WIFI_CONNECT_FAILED    = "Wifi failed to connect"
 WIFI_DISCONNECT_FAILED = "Wifi failed to disconnect"
 
+##### Incident detail capture #############################
+# Incidents whose details are suppressed: (source, message) pairs for which a
+# stack says nothing the message does not already say.
+#
+# Decided here rather than at the call sites. IncidentMessage takes an explicit
+# details="" and always will, but a convention every new caller has to know is
+# a convention that gets forgotten -- and the cost of forgetting is a stack
+# posted to the remote monitoring service for a routine event, on every
+# occurrence.
+#
+# The bar is: would a maintainer reading this incident ever ask "where did that
+# come from?". For a queue that overflowed and recovered, or a board that got
+# hot, the answer is no -- the message is the whole story, and the location is
+# always the same monitor anyway. For anything reporting that an operation
+# failed, the answer is yes: keep the stack.
+#
+# RMS_POST_FAILED is here for a second reason as well. It is raised from one
+# place in the sender and never posted to RMS at all, so its stack is both
+# constant and unreadable by anyone but a developer with the source at hand.
+DETAILS_NOT_CAPTURED = frozenset({
+    (LOG_SOURCE,        LOG_QUEUE_OVERFLOW),
+    (LOG_SOURCE,        LOG_QUEUE_RECOVERED),
+    (THROTTLING_SOURCE, THROTTLING_THROTTLED),
+    (RMS_SOURCE,        RMS_POST_FAILED),
+})
+
 ##### Helpers #############################################
 
 def _fatal_exit(message: str, stacklevel: int = 6, *, exc: BaseException | None = None, code: int = 1) -> NoReturn:
@@ -295,13 +328,45 @@ class IncidentMessage:
         details:   Formatted exception traceback when the message is created
                    inside an except block, otherwise the call stack leading
                    to its creation. Pass an explicit string to supply your own
-                   context, or "" for routine incidents where a stack adds
-                   nothing but noise.
+                   context, or "" to suppress it for this one message.
+                   Suppressed for good by listing the (source, message) pair
+                   in DETAILS_NOT_CAPTURED above.
     """
     source: str
     message: str
-    timestamp: float = field(default_factory=time.time)
-    details: str = field(default_factory=_capture_details)
+
+    # compare=False on both: two incidents are the same incident when their
+    # source and message match. The timestamp and the stack describe an
+    # occurrence, not an identity. Were they part of __eq__ and __hash__, no
+    # two incidents could ever be equal, and anything that deduplicates or
+    # counts repeats would treat every recurrence as a new fault.
+    timestamp: float = field(default_factory=time.time, compare=False)
+
+    # None means "decide in __post_init__". A caller can still pass a string
+    # to supply its own context, or "" to suppress the capture outright.
+    details: str | None = field(default=None, compare=False)
+
+    def __post_init__(self) -> None:
+        """
+        Fill in details when the caller left them to us.
+
+        Capturing here rather than from a field(default_factory=...) is what
+        makes the DETAILS_NOT_CAPTURED lookup possible at all: a default
+        factory is called with no arguments and cannot see the source and
+        message of the message being built.
+
+        object.__setattr__ because the dataclass is frozen; this is the
+        documented way to assign in __post_init__ on a frozen dataclass.
+
+        NOTE: this method is one of the frames _CAPTURE_FRAMES_TO_SKIP
+        counts. Check that constant before changing the call depth between
+        here and _capture_details().
+        """
+        if self.details is not None:
+            return
+
+        suppressed = (self.source, self.message) in DETAILS_NOT_CAPTURED
+        object.__setattr__(self, "details", "" if suppressed else _capture_details())
 
     @property
     def occurred(self) -> str:
