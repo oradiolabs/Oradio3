@@ -187,7 +187,11 @@ function remove_unit {
 	local UNIT=$1
 	local UNIT_FILE="/etc/systemd/system/$UNIT"
 
-	unit_exists "$UNIT" || [ -f "$UNIT_FILE" ] || return 0
+	# -e OR -L, never -f. A masked unit's file is a symlink to /dev/null, and
+	# -f follows the link to a character device and answers false -- so a
+	# masked leftover would be skipped without a word. -L catches the symlink
+	# whether its target exists or not.
+	unit_exists "$UNIT" || [ -e "$UNIT_FILE" ] || [ -L "$UNIT_FILE" ] || return 0
 
 	# Template unit: stop whatever instances udev or a mount happened to
 	# start. Guarded by list-units, because 'stop' on a glob matching nothing
@@ -208,7 +212,9 @@ function remove_unit {
 			sudo systemctl disable --now "$UNIT"
 	fi
 
-	if [ -f "$UNIT_FILE" ]; then
+	# Still there? An unmask above already removed a mask symlink, so this
+	# only fires for a real unit file.
+	if [ -e "$UNIT_FILE" ] || [ -L "$UNIT_FILE" ]; then
 		# Always sudo: /etc/systemd/system is root-owned on every system, so
 		# there is nothing for set_privilege_for() to decide here.
 		do_step "delete $UNIT_FILE" sudo rm -f "$UNIT_FILE"
@@ -387,8 +393,18 @@ remove_unit librespot.service
 remove_file /usr/local/bin/spotify_event_handler.sh
 
 # raspotify was only ever installed to get librespot; oradio_install.sh masked
-# the raspotify unit and used the binary. Purge rather than remove, so its
-# config and the apt source its installer added go too.
+# the raspotify unit and used the binary.
+#
+# The mask goes first, and it has to be done separately: masking writes a
+# symlink to /dev/null into /etc/systemd/system, which dpkg does not own and
+# apt therefore leaves behind. Purging alone would strip the package and keep a
+# dangling mask, so systemd would go on listing raspotify.service as masked
+# with nothing behind it -- and silently mask it again if it were ever
+# reinstalled for some other reason.
+remove_unit raspotify.service
+
+# Purge rather than remove, so its config and the apt source its installer
+# added go too.
 purge_package raspotify
 
 # The flag files librespot's --onevent handler wrote, and the directory holding
