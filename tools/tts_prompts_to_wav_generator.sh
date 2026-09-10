@@ -56,21 +56,20 @@ fi
 #---------- Prompts ----------
 
 declare -A PROMPTS=(
-	["Preset1_melding.wav"]="één"
-	["Preset2_melding.wav"]="twee."
-	["Preset3_melding.wav"]="drie!"
-	["Next_melding.wav"]="Volgende nummer."
-	["Spotify_melding.wav"]="Spotify afspelen."
-	["WifiConnected_melding.wav"]="Verbonden met wifi."
-	["USBPresent_melding.wav"]="USB-geheugenstick is aanwezig."
 	["NewPlaylistPreset_melding.wav"]="Nieuwe afspeellijst wordt afgespeeld."
 	["NewPlaylistWebradio_melding.wav"]="De gekozen webradio is ingesteld."
+	["Next_melding.wav"]="Volgende nummer."
 	["NoInternet_melding.wav"]="Geen internetverbinding."
-	["WifiNotConnected_melding.wav"]="Geen WIEFIE verbinding."
-	["NoUSB_melding.wav"]="USB geheugenstick is verwijderd."
 	["OradioAPstarted_melding.wav"]="Oradio A P is gestart. Webinterface beschikbaar."
 	["OradioAPstopped_melding.wav"]="Oradio A P is gestopt."
 	["OradioPowerError_melding.wav"]="De Oradio heeft niet de juiste voeding. Gebruik de originele bijgeleverde voeding."
+	["Preset1_melding.wav"]="één"
+	["Preset2_melding.wav"]="twee."
+	["Preset3_melding.wav"]="drie!"
+	["USBAbsent_melding.wav"]="USB geheugenstick is verwijderd."
+	["USBPresent_melding.wav"]="USB-geheugenstick is aanwezig."
+	["WifiConnected_melding.wav"]="Verbonden met wifi."
+	["WifiNotConnected_melding.wav"]="Geen WIEFIE verbinding."
 )
 
 #---------- Config ----------
