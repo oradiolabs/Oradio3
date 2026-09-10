@@ -24,9 +24,12 @@ Created on December 18, 2025
 
     Importable surface:
       - get_power_status(): negotiated voltage and current, from one read of
-        PD_STATUS0, returning False when that contract is not one Oradio can
-        run on. The caller owns what happens next.
-        Operational reads run on a latency budget, so this performs no PD 
+        PD_STATUS0. Returns the contract when it is one Oradio can run on,
+        False when the HUSB238 answered and it is not, and None when the
+        register could not be read. False is a verdict on the supply, None
+        is the absence of one, and only the verdict justifies refusing to
+        run. The caller owns what happens next.
+        Operational reads run on a latency budget, so this performs no PD
         transaction and leaves an active contract untouched.
 
     Stand-alone surface (diagnosis is not time-critical, so these gather
