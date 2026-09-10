@@ -627,7 +627,7 @@ if [ "${1:-}" != "--continue" ]; then
 		fi
 
 		# This script will automatically be started after reboot
-		echo -e "${YELLOW}Reboot required: Installation will continue after reboot in ${REBOOT_DELAY}s${NC}"
+		echo -e "${YELLOW}Reboot required: Installation will continue after reboot in ${REBOOT_DELAY}s. Use ctrl-c to interrupt.${NC}"
 		echo -e "${YELLOW}Follow it with: journalctl -fu $CONTINUE_UNIT${NC}"
 		echo -e "${YELLOW}or with: tail -f $LOGFILE_INSTALL${NC}"
 		sleep "$REBOOT_DELAY"
@@ -882,7 +882,7 @@ fi
 ########## CONFIGURATION END ##########
 
 # Progress report
-echo -e "${GREEN}Installation completed. Rebooting to start Oradio3 in ${REBOOT_DELAY}s${NC}"
+echo -e "${GREEN}Installation completed. Rebooting to start Oradio3 in ${REBOOT_DELAY}s. Use ctrl-c to interrupt.${NC}"
 sleep "$REBOOT_DELAY"
 
 # Ensure buffered data is written to files
