@@ -211,7 +211,7 @@ class TestCollectLogFiles(RmsTestCase):
         Another service writing a bigger, newer log into the same directory
         must not take the budget ahead of it.
         """
-        for name, age in (("spotify.log", 5000), ("oradio.log", 1000)):
+        for name, age in (("mpd.log", 5000), ("oradio.log", 1000)):
             os.utime(self.write_log(name, b"x" * 2000), (age, age))
 
         self.assertEqual(self.selected_names()[0], "oradio.log")
@@ -364,7 +364,7 @@ class TestCollectLogFiles(RmsTestCase):
 
     def test_only_bases_limits_the_selection_to_one_family(self):
         """A resend repeats one log and its rotations, and nothing else."""
-        for name in ("oradio.log", "oradio.log.1", "spotify.log", "spotify.log.1"):
+        for name in ("oradio.log", "oradio.log.1", "mpd.log", "mpd.log.1"):
             self.write_log(name, b"data\n")
 
         self.assertEqual(sorted(self.selected_names({"oradio"})),

@@ -181,7 +181,6 @@ async function postJSON(cmd, args = {})
 
 // Global variables
 let networks = [], networksPromise, networkInput, networkNotification, passwordBlock, passwordInput;	// Network
-let spotifyInput, spotifyNotification;																	// Spotify
 let presetsNotification;																				// Presets
 let playlistInput, playlistSongs, playlistNotification;													// Playlist songs
 let customPlaylists, customList, customInput, customSongs, customNotification;							// Custom playlists
@@ -206,8 +205,6 @@ document.addEventListener("DOMContentLoaded", () =>
 	passwordInput = document.getElementById("password-input");
 	const passwordIcon = document.getElementById("password-icon");
 	networkNotification = document.getElementById("notification_network");
-	spotifyInput = document.getElementById("spotify-input");
-	spotifyNotification = document.getElementById("notification_spotify");
 	// Buttons page
 	playlistInput = document.getElementById("playlist-input"); 
 	playlistSongs = document.getElementById("playlist-songs"); 
@@ -224,7 +221,6 @@ document.addEventListener("DOMContentLoaded", () =>
 
 	// Buttons
 	document.getElementById("submitCredentialsButton").addEventListener("click", submitCredentials);
-	document.getElementById("submitSpotifyButton").addEventListener("click", submitSpotify);
 	document.getElementById("addButton").addEventListener("click", () => addCustomPlaylist());
 	document.getElementById("delButton").addEventListener("click", () => delCustomPlaylist());
 	document.getElementById("submitSearchButton").addEventListener("click", submitSearch);
@@ -260,9 +256,6 @@ document.addEventListener("DOMContentLoaded", () =>
 		passwordIcon.classList.toggle("fa-eye", !isHidden);
 		passwordIcon.classList.toggle("fa-eye-slash", isHidden);
 	});
-
-	// Clear Spotify notification when spotify input gets focus
-	spotifyInput.addEventListener("focus", () => hideNotification(spotifyNotification));
 
 	// Populate the preset dropdowns with available directories and playlists
 	populatePresetLists();
@@ -789,50 +782,6 @@ async function submitCredentials()
 		showNotification(networkNotification, `<span class="error">${errorMessage}<br>${err.message || "Onbekende fout"}</span>`);
 		console.error(err);
 	}
-}
-
-// Modify Spotify name
-async function submitSpotify()
-{
-	hideNotification(spotifyNotification);
-
-	let name = spotifyInput.value.trim();
-	if (!name)
-	{
-		showNotification(spotifyNotification, `<span class="error">Kies een naam voor in de Spotify app</span>`);
-		return;
-	}
-
-	if (name === spotify)
-	{
-		showNotification(spotifyNotification, `<span class="warning">'${name}' is al actief</span>`);
-		return;
-	}
-
-	const errorMessage = `Instellen van Spotify naam '${name}' is mislukt`;
-
-	try
-	{
-		const cmd = "spotify";
-		const args = { "name": name };
-
-		// Submit Spotify name to server
-		name = await postJSON(cmd, args);
-
-		// Server returns Spotify name set
-		spotifyInput.value = name;
-		spotify = name;
-
-		showNotification(spotifyNotification, `<span class="success">De Spotify naam is gewijzigd in '${name}'</span>`);
-	}
-	catch (err)
-	{
-		showNotification(spotifyNotification, `<span class="error">${errorMessage}<br>${err.message || "Onbekende fout"}</span>`);
-		console.error(err);
-	}
-
-	// Hide waiting indicator
-	hideWaiting();
 }
 
 /* ========== Buttons page - Presets ========== */

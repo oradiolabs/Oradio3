@@ -25,7 +25,6 @@ Created on December 23, 2024
         https://fastapi.tiangolo.com/
 """
 from os import path
-from re import match
 from typing import Any
 from json import load, JSONDecodeError
 from asyncio import sleep, create_task, CancelledError
@@ -39,7 +38,7 @@ from starlette.responses import RedirectResponse
 
 #### Oradio modules #######################################
 from log_service import oradio_log
-from utilities import get_serial, run_shell_script, load_presets, store_presets
+from utilities import get_serial, load_presets, store_presets
 from wifi_service import get_wifi_networks, get_saved_network
 from mpd_control import MPDControl
 from messaging import (
@@ -250,59 +249,6 @@ def shutdown_webapp(_args: dict[str, Any] | None):
         _args: Unused; accepted to match the command handler signature.
     """
     safe_put(api_app.state.queue, {"request": REQUEST_STOP})
-
-def rename_spotify(args: dict[str, Any] | None):
-    """
-    Rename the Spotify (librespot) device and restart the service.
-
-    Validates the new name against the allowed character set, then updates
-    the librespot.service unit file via sed, reloads the systemd
-    daemon, and restarts the service.
-
-    Args:
-        args: dict containing "name" (str) — the new Spotify device name.
-              Allowed characters: letters, digits, hyphen (-), underscore (_).
-
-    Returns:
-        The new device name string on success, or a JSONResponse with
-        status 400 if validation fails or any shell command errors.
-
-    Raises:
-        ValueError: If args is None or does not contain "name".
-    """
-    name = args.get("name") if args else None
-    if not name:
-        raise ValueError("'spotify' vereist argument 'name'")
-
-    # Validate that the name contains only safe characters before passing it to sed.
-    pattern = r'^[A-Za-z0-9_-]+$'
-    if not bool(match(pattern, name)):
-        response = f"'{name}' is ongeldig. Alleen hoofdletters, kleine letters, cijfers, - of _ is toegestaan"
-        oradio_log.error(response)
-        return JSONResponse(status_code=400, content={"message": response})
-
-    # Replace the --name argument in the librespot service unit file.
-    cmd = f"sudo sed -i 's/--name \\S*/--name {name}/' /etc/systemd/system/librespot.service"
-    result, response = run_shell_script(cmd)
-    if not result:
-        oradio_log.error("Error during <%s> to set Spotify name, error: %s", cmd, response)
-        return JSONResponse(status_code=400, content={"message": response})
-
-    # Reload systemd so it picks up the modified unit file.
-    cmd = "sudo systemctl daemon-reload"
-    result, response = run_shell_script(cmd)
-    if not result:
-        oradio_log.error("Error during <%s> to set Spotify name, error: %s", cmd, response)
-        return JSONResponse(status_code=400, content={"message": response})
-
-    # Restart librespot to apply the new device name immediately.
-    cmd = "sudo systemctl restart librespot.service"
-    result, response = run_shell_script(cmd)
-    if not result:
-        oradio_log.error("Error during <%s> to set Spotify name, error: %s", cmd, response)
-        return JSONResponse(status_code=400, content={"message": response})
-
-    return name
 
 def wifi_connect(args: dict[str, Any] | None):
     """
@@ -520,7 +466,6 @@ async def execute(request: ExecuteRequest):
         "play"       : play_song,
         "networks"   : get_networks,
         "shutdown"   : shutdown_webapp,
-        "spotify"    : rename_spotify,
         "connect"    : wifi_connect,
         "preset"     : save_preset,
         "playlist"   : get_playlist_songs,
@@ -548,36 +493,24 @@ async def oradio3_page(request: Request):
     Render and serve the Oradio3 web interface page.
 
     Assembles the full template context by gathering the last connected
-    WiFi network, the current Spotify device name, saved presets, available
-    MPD directories and playlists, and software version information.
+    WiFi network, saved presets, available MPD directories and playlists,
+    and software version information.
 
     Args:
         request: The incoming HTTP request (passed through to the template engine).
 
     Returns:
-        A TemplateResponse rendering oradio3.html with the assembled
-        context, or a JSONResponse with status 400 if reading the Spotify
-        device name fails.
+        A TemplateResponse rendering oradio3.html with the assembled context.
     """
     oradio_log.debug("Serving Oradio3 page")
 
     # Last WiFi network connected before the access point was started (empty string if none).
     oldssid = get_saved_network()
 
-    # Read the current Spotify device name from the running service unit.
-    oradio_log.debug("Get Spotify name")
-    cmd = "systemctl show librespot | sed -n 's/.*--name \\([^ ]*\\).*/\\1/p' | uniq"
-    result, response = run_shell_script(cmd)
-    if not result:
-        oradio_log.error("Error during <%s> to get Spotify name, error: %s", cmd, response)
-        return JSONResponse(status_code=400, content={"message": response})
-    spotify = response
-
     sw_info = _get_sw_info()
 
     context = {
         "oldssid"    : oldssid,
-        "spotify"    : spotify,
         "presets"    : load_presets(),
         "directories": mpd_control.get_directories(),
         "playlists"  : mpd_control.get_playlists(),

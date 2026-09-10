@@ -109,17 +109,6 @@ RMS_SOURCE       = "RMS message"
 RMS_START_FAILED = "RMS failed to start"
 RMS_POST_FAILED  = "RMS failed to post message"
 
-# Spotify
-SPOTIFY_SOURCE             = "Spotify message"
-SPOTIFY_CONNECTED_EVENT    = "Spotify connected event"
-SPOTIFY_DISCONNECTED_EVENT = "Spotify disconnected event"
-SPOTIFY_PLAYING_EVENT      = "Spotify playing event"
-SPOTIFY_PAUSED_EVENT       = "Spotify paused event"
-SPOTIFY_START_FAILED       = "Spotify monitor failed to start"
-SPOTIFY_STOPPED            = "Spotify monitor stopped"
-SPOTIFY_MUTE_FAILED        = "Spotify Connect failed to mute"
-SPOTIFY_UNMUTE_FAILED      = "Spotify Connect failed to unmute"
-
 # System sounds
 SOUND_SOURCE          = "System sound message"
 SOUND_MISSING_DIR     = "System sounds directory missing"

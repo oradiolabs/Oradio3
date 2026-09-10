@@ -32,7 +32,6 @@ from mpd_monitor import MPDMonitor     # Optional: MPD events monitoring in the 
 from led_control import LEDControl
 from touch_buttons import TouchButtons
 from rms_service import RMService
-from spotify_connect_direct import SpotifyConnect
 from usb_service import USBService
 from web_service import WebService
 from wifi_service import WifiService
@@ -76,11 +75,6 @@ from messaging import (
     BUTTON_SHORT_PRESS_PRESET2,
     BUTTON_SHORT_PRESS_PRESET3,
     BUTTON_LONG_PRESS_PLAY,
-    SPOTIFY_SOURCE,
-    SPOTIFY_CONNECTED_EVENT,
-    SPOTIFY_DISCONNECTED_EVENT,
-    SPOTIFY_PLAYING_EVENT,
-    SPOTIFY_PAUSED_EVENT,
 )
 
 ##### GLOBAL constants ####################################
@@ -93,7 +87,6 @@ from constants import (
     SOUND_PRESET1,
     SOUND_PRESET2,
     SOUND_PRESET3,
-    SOUND_SPOTIFY,
     SOUND_USB,
     SOUND_NO_USB,
     SOUND_AP_START,
@@ -117,10 +110,6 @@ PLAY_STATES = {"StatePlay", "StatePreset1", "StatePreset2", "StatePreset3"}
 PLAY_WEBSERVICE_STATES = {"StatePlay", "StatePreset1", "StatePreset2", "StatePreset3", "StateIdle"}
 
 ################## Signal Primitives ######################
-
-spotify_connect_connected = threading.Event()  # track status Spotify connected
-spotify_connect_playing = threading.Event()  # track Spotify playing
-spotify_connect_available = threading.Event()  # track Spotify playing & connected
 
 # -----------------------
 
@@ -197,7 +186,6 @@ class StateMachine:
             "StatePreset2": self._state_preset2,
             "StatePreset3": self._state_preset3,
             "StateStop": self._state_stop,
-            "StateSpotifyConnect": self._state_spotify_connect,
             "StatePlaySongWebIF": self._state_play_song_webif,
             "StateUSBAbsent": self._state_usb_absent,
             "StateStartUp": self._state_startup,
@@ -240,13 +228,6 @@ class StateMachine:
                 oradio_log.debug("Next song")
                 return True
         return False
-
-    def _redirect_spotify_if_needed(self, requested_state: str) -> str:
-        """Redirect Play to SpotifyConnect when Spotify is available."""
-        if spotify_connect_available.is_set() and requested_state == "StatePlay":
-            oradio_log.debug("Spotify Connect active → redirecting to StateSpotifyConnect")
-            return "StateSpotifyConnect"
-        return requested_state
 
     def _stop_webservice_if_needed(self, requested_state: str) -> bool:
         """Stop AP webservice if transitioning to Stop; return True if handled."""
@@ -327,8 +308,6 @@ class StateMachine:
         if self._same_state_next_song(requested_state):
             return
 
-        requested_state = self._redirect_spotify_if_needed(requested_state)
-
         if self._stop_webservice_if_needed(requested_state):
             return
 
@@ -354,7 +333,6 @@ class StateMachine:
         else:
             leds.turn_on_led(LED_PLAY)
         mpd_control.play()
-        spotify_connect.mute()
         play_sound(SOUND_PLAY)
 
     def _state_preset1(self):
@@ -363,7 +341,6 @@ class StateMachine:
         play_sound(SOUND_PRESET1)
         if web_service_active.is_set():
             leds.control_blinking_led(LED_PLAY)
-        spotify_connect.mute()
 
     def _state_preset2(self):
         leds.turn_on_led(LED_PRESET2)
@@ -371,7 +348,6 @@ class StateMachine:
         play_sound(SOUND_PRESET2)
         if web_service_active.is_set():
             leds.control_blinking_led(LED_PLAY)
-        spotify_connect.mute()
 
     def _state_preset3(self):
         leds.turn_on_led(LED_PRESET3)
@@ -379,7 +355,6 @@ class StateMachine:
         play_sound(SOUND_PRESET3)
         if web_service_active.is_set():
             leds.control_blinking_led(LED_PLAY)
-        spotify_connect.mute()
 
     def _state_stop(self):
         leds.oneshot_on_led(LED_STOP, 4)
@@ -387,38 +362,23 @@ class StateMachine:
             mpd_control.stop()
         else:
             mpd_control.pause()
-        spotify_connect.mute()
         play_sound(SOUND_STOP)
         # Schedule interruptible transition to Idle after 4 seconds (non-blocking)
         oradio_log.debug("Stop: scheduling transition to Idle in 4 s (interruptible)")
         self._arm_delayed_transition("StopToIdle", 4.0, "StateIdle")
         # handler returns immediately; task_lock released, UI remains responsive
 
-    def _state_spotify_connect(self):
-        if web_service_active.is_set():
-            leds.control_blinking_led(LED_PLAY)
-        else:
-            leds.turn_on_led(LED_PLAY)
-        if mpd_control.is_webradio():
-            mpd_control.stop()
-        else:
-            mpd_control.pause()
-        spotify_connect.unmute()
-        play_sound(SOUND_SPOTIFY)
-
     def _state_play_song_webif(self):
         if web_service_active.is_set():
             leds.control_blinking_led(LED_PLAY)
         else:
             leds.turn_on_led(LED_PLAY)
-        spotify_connect.mute()
         mpd_control.play()
         play_sound(SOUND_PLAY)
 
     def _state_usb_absent(self):
         leds.control_blinking_led(LED_STOP, 0.7)
         mpd_control.stop()
-        spotify_connect.mute()
         play_sound(SOUND_STOP)
         play_sound(SOUND_NO_USB)
         if web_service_active.is_set():
@@ -428,7 +388,6 @@ class StateMachine:
         leds.control_blinking_led(LED_STOP, 1)
         oradio_log.debug("Starting-up")
         mpd_control.pause()
-        spotify_connect.mute()
 
         # FOR ANALYSIS: Get time since power-on
         try:
@@ -452,7 +411,6 @@ class StateMachine:
             mpd_control.stop()
         else:
             mpd_control.pause()
-        spotify_connect.mute()
         oradio_log.debug("In Idle state, wait for next step")
 
     def _state_error(self):
@@ -527,10 +485,10 @@ def on_webservice_active():
     web_service_active.set()
     leds.control_blinking_led(LED_PLAY)
     play_sound(SOUND_AP_START)
-    # handle Webradio and Spotify
-    if mpd_control.is_webradio() or state_machine.state == "StateSpotifyConnect":
+    # handle Webradio
+    if mpd_control.is_webradio():
         state_machine.transition("StateIdle")
-        oradio_log.info("Stopped WebRadio and Spotify playback on Webservice entry")
+        oradio_log.info("Stopped WebRadio playback on Webservice entry")
 
 def on_webservice_idle():
     oradio_log.info("WebService idle is acknowledged")
@@ -544,7 +502,6 @@ def on_webservice_idle():
     play_sound(SOUND_AP_STOP)
 
 def on_webservice_playing_song():
-    spotify_connect.mute()  # spotify is on pause and will not work
     if (
         state_machine.state == "StateStop"
     ):  # if webservice put songs in queue and plays it
@@ -586,39 +543,6 @@ def on_web_pl3_webradio_changed():
     threading.Timer(2, play_sound, args=(SOUND_NEW_WEBRADIO,)).start()
     oradio_log.debug("WebService on_web_pl_webradio_changed acknowledged")
 
-# -------------------SPOTIFY-----------------------
-
-def on_spotify_connect_connected():
-    spotify_connect_connected.set()
-    update_spotify_available()
-    oradio_log.debug("Spotify active is acknowledged")
-
-def on_spotify_connect_disconnected():
-    spotify_connect_connected.clear()
-    update_spotify_available()
-    oradio_log.debug("Spotify inactive is acknowledged")
-
-def on_spotify_connect_playing():
-    spotify_connect_connected.set()
-    spotify_connect_playing.set()
-    update_spotify_available()
-    oradio_log.debug("Spotify playing is acknowledged")
-
-def on_spotify_connect_paused():
-    spotify_connect_connected.set()
-    spotify_connect_playing.clear()
-    update_spotify_available()
-    oradio_log.debug("Spotify paused is acknowledged")
-
-def on_spotify_connect_stopped():
-    spotify_connect_playing.clear()
-    update_spotify_available()
-    oradio_log.debug("Spotify stopped is acknowledged")
-
-def on_spotify_connect_changed():
-    # TBD action
-    oradio_log.debug("Spotify changed is acknowledged")
-
 # ----------------- Touch buttons -----------------
 # Thread-safety for transitions (shared with volume callbacks)
 sm_lock = threading.RLock()
@@ -648,24 +572,6 @@ def _on_play_long_pressed() -> None:
     with sm_lock:
         state_machine.start_webservice()
 # --- end wiring ---
-
-def update_spotify_available():
-    """Update the 'available' flag based on connected+playing, and react if needed."""
-    if spotify_connect_connected.is_set() and spotify_connect_playing.is_set():
-        spotify_connect_available.set()
-        if state_machine.state in ("StatePlay",):
-            state_machine.transition("StateSpotifyConnect")
-    else:
-        spotify_connect_available.clear()
-        if state_machine.state == "StateSpotifyConnect":
-            state_machine.transition("StateStop")
-
-    oradio_log.info(
-        "Spotify Connect States - Connected: %s, Playing: %s, Available: %s",
-        spotify_connect_connected.is_set(),
-        spotify_connect_playing.is_set(),
-        spotify_connect_available.is_set(),
-    )
 
 # 2)-----The Handler map, defining message content and the handler funtion---
 
@@ -697,13 +603,6 @@ HANDLERS = {
         WEB_PL1_WEBRADIO: on_web_pl1_webradio_changed,
         WEB_PL2_WEBRADIO: on_web_pl2_webradio_changed,
         WEB_PL3_WEBRADIO: on_web_pl3_webradio_changed,
-    },
-    SPOTIFY_SOURCE: {
-        SPOTIFY_CONNECTED_EVENT: on_spotify_connect_connected,
-        SPOTIFY_DISCONNECTED_EVENT: on_spotify_connect_disconnected,
-        SPOTIFY_PLAYING_EVENT: on_spotify_connect_playing,
-        SPOTIFY_PAUSED_EVENT: on_spotify_connect_paused,
-        # "Spotify error": on_spotify_error,
     },
     BUTTON_SOURCE: {
         BUTTON_SHORT_PRESS_PLAY: _on_play_pressed,
@@ -788,10 +687,6 @@ sync_usb_presence_from_service()
 
 # Subscribe to incidents bus so incidents published are mitigated
 incident_handler = IncidentHandler()
-
-# Instantiate and start Spotify connect
-spotify_connect = SpotifyConnect()
-spotify_connect.start()
 
 # Instantiate and start handling buttons
 touch_buttons = TouchButtons()

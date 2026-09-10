@@ -228,13 +228,18 @@ CMDLINE_OPTS=(
 # still discards console=serial0,115200.
 #
 # Tokens whose key is in neither list are preserved verbatim and in their
-# original order: root=, rootfstype=, rootwait, fsck.repair=,
-# usb-storage.quirks=, and everything the firmware prepends.
+# original order: root=, rootfstype=, rootwait, fsck.repair=, and everything
+# the firmware prepends.
 CMDLINE_REMOVE=(
 	usb-storage.delay_use	# Wait before probing a device. Removing defaults to 1s
 	console					# Serial and tty consoles: synchronous, slow, and absent in the field
 	fastboot				# Old Raspbian "skip fsck"; superseded by fsck.mode=
 	elevator				# Kernel logs "does not have any effect anymore"; use sysfs per device
+
+	# Versions v1.0.1 to v1.0.4 had 'usb-storage.quirks=0781:5583:u', forcing the
+	# usb-storage driver for SanDisk stick 0781:5583. Obsolete, so removed if present.
+	# NOTE: Removed by KEY, so any quirk for any device goes, not just that VID:PID.
+	usb-storage.quirks
 )
 
 declare -A CMDLINE_MANAGED=()	# Keys this script controls
@@ -593,15 +598,16 @@ UNITS_TO_MASK=(
 # Note: alsa-state.service and alsa-restore.service are deliberately NOT masked.
 # alsa-state saves the mixer state at shutdown, and that saved state is what
 # 'alsactl restore' reads back. The softvol controls /etc/asound.conf declares
-# (VolumeMPD, VolumeSpotCon1/2, VolumeSysSound) do not exist until they are
-# restored, and librespot's ExecStartPre sets VolumeSpotCon1 with Restart=always
-# behind it - without the controls that unit restarts forever.
+# (VolumeMPD, VolumeSysSound) do not exist until they are restored, and
+# volume_control.py sets both at construction - without the controls every
+# start publishes a VOLUME_SET_FAILED incident.
 # oradio.service does not depend on alsa-restore.service: it runs 'alsactl
 # restore' itself from an ExecStartPre, after oradio-prestart.sh has confirmed
 # the card exists.
 #
 # Note: systemd-random-seed.service is deliberately NOT masked. It is cheap and
-# librespot needs credible randomness for TLS.
+# the HTTPS posts to the Remote Monitoring Service need credible randomness
+# for TLS.
 #
 # Note: avahi-daemon is deliberately NOT masked. mDNS (.local) discovery is
 # wanted on this device.
