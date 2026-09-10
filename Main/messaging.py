@@ -122,6 +122,7 @@ RMS_POST_FAILED  = "RMS failed to post message"
 
 # Power supply
 POWER_SOURCE = "Power Supply message"
+POWER_ERROR  = "Unsupported power supply"
 
 # System sounds
 SOUND_SOURCE          = "System sound message"
