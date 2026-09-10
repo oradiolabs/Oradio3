@@ -41,7 +41,6 @@ from rms_service import (
     HEARTBEAT,
     SYS_INFO,
     INCIDENT,
-    MAX_RETRIES,
     MAX_ROTATION_SENDS,
     MAX_UPLOAD_FILE_BYTES,
     MAX_UPLOAD_FILES,
@@ -58,7 +57,7 @@ from rms_service import (
     _handle_response_command,
     _log_base_name,
     _log_rotation_index,
-    _post_with_retry,
+    _post_message,
     _selection_order,
 )
 
@@ -101,7 +100,9 @@ class RmsTestCase(unittest.TestCase):
         patcher.start()
         self.addCleanup(patcher.stop)
 
-        # Backoff waits would otherwise add seconds per retry test
+        # ROTATION_SETTLE_DELAY would otherwise add seconds to every test
+        # that drives a rotation resend. It is the only wait in the send
+        # path, so patching it out costs nothing else.
         sleep_patcher = patch.object(rms_service, "sleep")
         sleep_patcher.start()
         self.addCleanup(sleep_patcher.stop)
@@ -456,26 +457,26 @@ class TestMultipartBody(RmsTestCase):
         self.assertEqual(body.shrunk, {"oradio"})
 
 
-class TestPostWithRetry(RmsTestCase):
-    """Retry policy, response classification, and the abort signal."""
+class TestPostMessage(RmsTestCase):
+    """Send policy, response classification, and the abort signal."""
 
     PAYLOAD: ClassVar[dict] = {"serial": "abc123", "type": HEARTBEAT}
 
     def test_success_returns_the_response(self):
-        """One POST, one response, no retry."""
+        """A message that is accepted costs one POST and returns its response."""
         response = FakeResponse()
 
         with patch.object(rms_service, "post", return_value=response) as post_mock:
-            result = _post_with_retry(self.PAYLOAD)
+            result = _post_message(self.PAYLOAD)
 
         self.assertIs(result, response)
         self.assertEqual(post_mock.call_count, 1)
 
-    def test_client_error_is_not_retried(self):
+    def test_client_error_is_reported_without_an_incident(self):
         """A 4xx is the server refusing this request; sending it again cannot help."""
         with patch.object(rms_service, "post",
                           return_value=FakeResponse(status_code=413)) as post_mock:
-            result = _post_with_retry(self.PAYLOAD)
+            result = _post_message(self.PAYLOAD)
 
         self.assertIsNone(result)
         self.assertEqual(post_mock.call_count, 1)
@@ -490,39 +491,45 @@ class TestPostWithRetry(RmsTestCase):
         """
         with patch.object(rms_service, "post",
                           return_value=FakeResponse(status_code=401)) as post_mock:
-            result = _post_with_retry(self.PAYLOAD)
+            result = _post_message(self.PAYLOAD)
 
         self.assertIsNone(result)
         self.assertEqual(post_mock.call_count, 1, "the same key earns the same refusal")
         rms_service.Incidents.publish.assert_not_called()
 
-    def test_server_error_is_retried_then_gives_up(self):
-        """A 5xx may clear, so it is retried up to MAX_RETRIES."""
+    def test_server_error_is_posted_once_and_gives_up(self):
+        """A 5xx is an outage, and an outage is not worth a second try."""
         with patch.object(rms_service, "post",
                           return_value=FakeResponse(status_code=503)) as post_mock:
-            result = _post_with_retry(self.PAYLOAD)
+            result = _post_message(self.PAYLOAD)
 
         self.assertIsNone(result)
-        self.assertEqual(post_mock.call_count, MAX_RETRIES)
+        self.assertEqual(post_mock.call_count, 1)
 
-    def test_transport_error_is_retried_then_publishes_one_incident(self):
-        """A spent retry cycle is reported once, not once per attempt."""
+    def test_transport_error_is_posted_once_and_publishes_one_incident(self):
+        """A failed POST is reported exactly once."""
         with patch.object(rms_service, "post",
                           side_effect=rms_service.RequestException("boom")) as post_mock:
-            result = _post_with_retry(self.PAYLOAD)
+            result = _post_message(self.PAYLOAD)
 
         self.assertIsNone(result)
-        self.assertEqual(post_mock.call_count, MAX_RETRIES)
+        self.assertEqual(post_mock.call_count, 1)
         self.assertEqual(rms_service.Incidents.publish.call_count, 1)
 
-    def test_every_send_gets_the_full_retry_cycle(self):
-        """A failure does not make the next send try any less hard."""
+    def test_each_send_costs_exactly_one_post(self):
+        """
+        No send is ever repeated, and no send is skipped either.
+
+        The second half matters as much as the first: a message is sent on
+        its own merits, and an earlier failure does not make the sender skip
+        the next one.
+        """
         with patch.object(rms_service, "post",
                           side_effect=rms_service.RequestException("down")) as post_mock:
-            _post_with_retry(self.PAYLOAD)
-            _post_with_retry(self.PAYLOAD)
+            _post_message(self.PAYLOAD)
+            _post_message(self.PAYLOAD)
 
-        self.assertEqual(post_mock.call_count, MAX_RETRIES * 2)
+        self.assertEqual(post_mock.call_count, 2)
 
     def test_abort_prevents_any_attempt(self):
         """A send started while stopping does not reach the network."""
@@ -530,7 +537,7 @@ class TestPostWithRetry(RmsTestCase):
         abort.set()
 
         with patch.object(rms_service, "post") as post_mock:
-            result = _post_with_retry(self.PAYLOAD, abort=abort)
+            result = _post_message(self.PAYLOAD, abort=abort)
 
         self.assertIsNone(result)
         post_mock.assert_not_called()
@@ -543,17 +550,17 @@ class TestPostWithRetry(RmsTestCase):
         then reports the final 200 -- which would look like a stored record.
         """
         with patch.object(rms_service, "post", return_value=FakeResponse()) as post_mock:
-            _post_with_retry(self.PAYLOAD)
+            _post_message(self.PAYLOAD)
 
         self.assertFalse(post_mock.call_args.kwargs["allow_redirects"])
 
-    def test_redirect_is_reported_as_a_failure_and_not_retried(self):
+    def test_redirect_is_reported_as_a_configuration_fault(self):
         """A redirect is a URL misconfiguration: final, and worth saying out loud."""
         redirect = FakeResponse(status_code=301,
                                 headers={"Location": "https://rms.example/v1/records"})
 
         with patch.object(rms_service, "post", return_value=redirect) as post_mock:
-            result = _post_with_retry(self.PAYLOAD)
+            result = _post_message(self.PAYLOAD)
 
         self.assertIsNone(result, "a redirect must not read as success")
         self.assertEqual(post_mock.call_count, 1, "the same request earns the same redirect")
@@ -572,29 +579,29 @@ class TestPostWithRetry(RmsTestCase):
         portal = FakeResponse(text="<html>Please sign in</html>", body=False)
 
         with patch.object(rms_service, "post", return_value=portal) as post_mock:
-            result = _post_with_retry(self.PAYLOAD)
+            result = _post_message(self.PAYLOAD)
 
         self.assertIsNone(result, "a portal reply must not read as delivery")
-        self.assertEqual(post_mock.call_count, MAX_RETRIES, "retried, it may clear")
+        self.assertEqual(post_mock.call_count, 1)
 
     def test_json_from_something_other_than_rms_is_not_delivery(self):
         """A proxy or gateway answering in JSON still is not RMS."""
         with patch.object(rms_service, "post",
                           return_value=FakeResponse(body={"status": "ok"})) as post_mock:
-            result = _post_with_retry(self.PAYLOAD)
+            result = _post_message(self.PAYLOAD)
 
         self.assertIsNone(result)
-        self.assertEqual(post_mock.call_count, MAX_RETRIES)
+        self.assertEqual(post_mock.call_count, 1)
 
     def test_rms_reporting_failure_in_a_200_is_not_delivery(self):
         """RMS's own envelope says whether the record was taken."""
         refused = FakeResponse(body={"success": False, "message": "quota exceeded"})
 
         with patch.object(rms_service, "post", return_value=refused) as post_mock:
-            result = _post_with_retry(self.PAYLOAD)
+            result = _post_message(self.PAYLOAD)
 
         self.assertIsNone(result)
-        self.assertEqual(post_mock.call_count, MAX_RETRIES)
+        self.assertEqual(post_mock.call_count, 1)
 
         logged = " ".join(str(call) for call in self.log.error.call_args_list)
         self.assertIn("quota exceeded", logged, "say what RMS objected to")
@@ -604,7 +611,7 @@ class TestPostWithRetry(RmsTestCase):
         stored = FakeResponse(body={"success": True, "data": {"stored": True}})
 
         with patch.object(rms_service, "post", return_value=stored) as post_mock:
-            result = _post_with_retry(self.PAYLOAD)
+            result = _post_message(self.PAYLOAD)
 
         self.assertIs(result, stored)
         self.assertEqual(post_mock.call_count, 1)
@@ -621,7 +628,7 @@ class TestPostWithRetry(RmsTestCase):
         with patch.object(rms_service, "RMS_SERVER_URL", "https://elsewhere.example/api"), \
              patch.object(rms_service, "RMS_SERVER_KEY", "other-key"), \
              patch.object(rms_service, "post", return_value=FakeResponse()) as post_mock:
-            _post_with_retry(self.PAYLOAD)
+            _post_message(self.PAYLOAD)
 
         kwargs = post_mock.call_args.kwargs
         self.assertEqual(kwargs["url"], "https://elsewhere.example/api")
@@ -632,7 +639,7 @@ class TestPostWithRetry(RmsTestCase):
         self.write_log("oradio.log", b"content\n")
 
         with patch.object(rms_service, "post", return_value=FakeResponse()) as post_mock:
-            _post_with_retry(self.PAYLOAD, attach_log_files=True)
+            _post_message(self.PAYLOAD, attach_log_files=True)
 
         kwargs = post_mock.call_args.kwargs
         self.assertIsInstance(kwargs["data"], _MultipartBody)
@@ -662,7 +669,7 @@ class TestRotationResend(RmsTestCase):
 
         with patch.object(rms_service, "_build_multipart_body", side_effect=fake_build), \
              patch.object(rms_service, "post", return_value=FakeResponse()) as post_mock:
-            result = _post_with_retry(self.PAYLOAD, attach_log_files=True, context="incident")
+            result = _post_message(self.PAYLOAD, attach_log_files=True, context="incident")
 
         self.assertIsNotNone(result)
         self.assertEqual(post_mock.call_count, 2, "the rotated send must be repeated")
@@ -682,7 +689,7 @@ class TestRotationResend(RmsTestCase):
         with patch.object(rms_service, "_build_multipart_body",
                           return_value=(self.body_stub({"oradio"}), "multipart/x")), \
              patch.object(rms_service, "post", return_value=FakeResponse()):
-            _post_with_retry(payload, attach_log_files=True)
+            _post_message(payload, attach_log_files=True)
 
         self.assertEqual(payload, self.PAYLOAD)
 
@@ -691,14 +698,14 @@ class TestRotationResend(RmsTestCase):
         with patch.object(rms_service, "_build_multipart_body",
                           return_value=(self.body_stub({"oradio"}), "multipart/x")), \
              patch.object(rms_service, "post", return_value=FakeResponse()) as post_mock:
-            _post_with_retry(self.PAYLOAD, attach_log_files=True)
+            _post_message(self.PAYLOAD, attach_log_files=True)
 
         self.assertEqual(post_mock.call_count, MAX_ROTATION_SENDS)
 
     def test_no_resend_without_attachments(self):
         """A message with no logs has nothing that can rotate."""
         with patch.object(rms_service, "post", return_value=FakeResponse()) as post_mock:
-            _post_with_retry(self.PAYLOAD)
+            _post_message(self.PAYLOAD)
 
         self.assertEqual(post_mock.call_count, 1)
 
@@ -914,7 +921,7 @@ class TestRmsSender(RmsTestCase):
 
         # Record what reaches the network without going near it
         self.post_patcher = patch.object(
-            rms_service, "_post_with_retry",
+            rms_service, "_post_message",
             side_effect=lambda payload_info, **kwargs: self.posted.append(dict(payload_info))
         )
         self.post_patcher.start()
@@ -987,7 +994,7 @@ class TestRmsSender(RmsTestCase):
         release = Event()
         self.post_patcher.stop()
 
-        with patch.object(rms_service, "_post_with_retry",
+        with patch.object(rms_service, "_post_message",
                           side_effect=lambda *a, **kw: release.wait(5)):
             accepted = [self.sender.submit(_SendJob(HEARTBEAT, "t"))
                         for _ in range(SEND_QUEUE_SIZE + 10)]
@@ -1011,7 +1018,7 @@ class TestRmsSender(RmsTestCase):
         """An INCIDENT posts the incident fields and asks for the logs."""
         incident = rms_service.IncidentMessage(LED_SOURCE, "something broke")
 
-        with patch.object(rms_service, "_post_with_retry") as post_mock:
+        with patch.object(rms_service, "_post_message") as post_mock:
             self.sender.submit(_SendJob(INCIDENT, "2026-01-01 00:00:00", incident))
 
             deadline = time.monotonic() + 5
@@ -1065,7 +1072,7 @@ class TestRmsSender(RmsTestCase):
         attached = []
         self.post_patcher.stop()
 
-        with patch.object(rms_service, "_post_with_retry",
+        with patch.object(rms_service, "_post_message",
                           side_effect=lambda payload, **kwargs: attached.append(
                               kwargs.get("attach_log_files"))):
             for index in range(5):

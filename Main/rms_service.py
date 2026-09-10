@@ -49,13 +49,12 @@ Created on February 8, 2025
     from its rotated generation, marked resend.
 
     Helper functions collect Raspberry Pi telemetry and software version
-    information. Outgoing POST requests are protected by a simple
-    exponential backoff retry mechanism. A POST that exhausts its attempts
-    is logged and publishes an incident, which is reported on the bus but
-    never posted to RMS itself. Redirects are
-    refused rather than followed, since a redirected POST arrives without
-    its body, and a success is only accepted when the reply is RMS's own,
-    so a captive portal answering in its place is not read as delivery.
+    information. Each outgoing message is POSTed once; a POST that fails is
+    logged and publishes an incident, which is reported on the bus but never
+    posted to RMS itself. Redirects are refused rather than followed, since
+    a redirected POST arrives without its body, and a success is only
+    accepted when the reply is RMS's own, so a captive portal answering in
+    its place is not read as delivery.
 
     A heartbeat response may carry a command for the device, which is run
     by a thread of its own, so it cannot hold up the messages behind it.
@@ -118,8 +117,12 @@ TIMESTAMP_FORMAT = '%Y-%m-%d %H:%M:%S'
 HEARTBEAT_REPEAT = 60 * 60
 
 # Remote Monitoring Service endpoint and HTTP POST tuning parameters
-MAX_RETRIES     = 3   # Maximum number of POST attempts before giving up
-BACKOFF_FACTOR  = 2   # Base for exponential backoff: delay = BACKOFF_FACTOR ** attempt (1s, 2s, 4s)
+#
+# Delivery is recovered by the message types themselves rather than by
+# repeating a send. Every incident is written to the log file before it is
+# posted and every incident POST carries the current log files, so a failed
+# send goes out with the next one that succeeds. Heartbeats repeat hourly and
+# SYS_INFO is sent again on the next WIFI_CONNECTED.
 CONNECT_TIMEOUT = 5   # Per-attempt TCP/TLS connect timeout in seconds. Separate from the read timeout
                       # below so a server that is simply not there fails in seconds instead of holding
                       # the sender thread for the full timeout.
@@ -298,7 +301,7 @@ def _extract_command(response: Response) -> str | None:
     is relayed rather than returned directly still works.
 
     Args:
-        response: The successful response returned by _post_with_retry().
+        response: The successful response returned by _post_message().
 
     Returns:
         The command to run, or None if the body carried none or could not
@@ -438,7 +441,7 @@ def _handle_response_command(response: Response) -> None:
         handled elsewhere.
 
     Args:
-        response: The successful response returned by _post_with_retry().
+        response: The successful response returned by _post_message().
     """
     command = _extract_command(response)
 
@@ -452,7 +455,7 @@ def _handle_response_command(response: Response) -> None:
 
 def _report_post_failure(context: str, failure: str) -> None:
     """
-    Log a POST that exhausted its attempts and publish the outage.
+    Log a failed POST and publish the outage.
 
     Args:
         context: Short label used in log messages, e.g. "message".
@@ -644,7 +647,7 @@ class _MultipartBody:
     PHP setup accepts.
 
     Single use: once read, a new instance is needed to send again. Building
-    one is cheap (no file is opened until it is read), so _post_with_retry()
+    one is cheap (no file is opened until it is read), so _post_message()
     simply builds a fresh body per attempt.
 
     Attributes:
@@ -875,7 +878,7 @@ def _rms_response_problem(response: Response) -> str | None:
 
     Returns:
         str | None: None when the body is RMS's, otherwise a description of
-        what answered instead, for the retry log.
+        what answered instead, for the failure log.
     """
     try:
         body = response.json()
@@ -915,11 +918,11 @@ def _attempt_post(data, headers: dict, context: str) -> tuple[Response | None, s
     Returns:
         tuple[Response | None, str | None]:
             (response, None) when the POST succeeded;
-            (None, failure) when it failed in a way worth retrying, with
-            failure describing why;
+            (None, failure) when it failed as an outage, with failure
+            describing why;
             (None, None) when the server refused the request, by redirect
-            or by 4xx, which is final: retrying sends the identical
-            request.
+            or by 4xx, which is a fault in the request rather than an
+            outage and so publishes no incident.
     """
     try:
         response = post(
@@ -941,8 +944,8 @@ def _attempt_post(data, headers: dict, context: str) -> tuple[Response | None, s
     if 300 <= response.status_code < 400:
         # The server answered, but RMS_SERVER_URL does not address it directly:
         # an http-to-https upgrade, a www canonicalisation, or a missing
-        # trailing slash. Retrying repeats the same request for the same answer, so this
-        # is final, and the destination is logged to point at the fix.
+        # trailing slash. The same request would earn the same answer, so the
+        # destination is logged to point at the fix.
         oradio_log.error(
             "POST %s redirected: HTTP %d to '%s'. RMS_SERVER_URL must address the endpoint "
             "directly; a redirected POST arrives without its body.",
@@ -952,9 +955,9 @@ def _attempt_post(data, headers: dict, context: str) -> tuple[Response | None, s
 
     if 400 <= response.status_code < 500:
         # The server answered; the request itself is what it refused.
-        # Recorded with the status code because the fix
-        # differs per code, and reported back as final: no retry, and no
-        # incident published.
+        # Recorded with the status code because the fix differs per code,
+        # and reported back as a request fault, so no incident is
+        # published.
         oradio_log.error(
             "POST %s rejected: HTTP %d, body: %s",
             context, response.status_code, response.text[:200] or "<none>"
@@ -962,20 +965,20 @@ def _attempt_post(data, headers: dict, context: str) -> tuple[Response | None, s
         return None, None
 
     if response.status_code >= 500:
-        # Server-side and possibly transient, so treated like a transport
-        # failure and retried.
+        # Server-side rather than a fault in this request, so treated like
+        # a transport failure: an outage worth an incident.
         return None, f"HTTP {response.status_code}"
 
     problem = _rms_response_problem(response)
 
     if problem is not None:
-        # Something answered in RMS's place. Retried like any other
+        # Something answered in RMS's place. Treated like any other
         # failure: whatever is in the way, the record did not arrive.
         return None, problem
 
     return response, None
 
-def _post_attempts(
+def _post_once(
     payload_info: dict,
     attach_log_files: bool,
     context: str,
@@ -983,20 +986,21 @@ def _post_attempts(
     only_bases: set[str] | None = None,
 ) -> tuple[Response | None, set[str]]:
     """
-    Deliver one message, retrying transport failures with backoff.
+    Deliver one message in a single POST.
 
-    Failures fall into two classes, which call for different responses:
+    Both classes of failure end the same way, with a log line and a return
+    of None. They are told apart because the log line is what tells a
+    maintainer where to look.
 
     - 3xx and 4xx mean the server answered and this request is the problem.
-      Retrying sends the identical request for the identical answer, so
-      there is no retry: a redirect
-      (RMS_SERVER_URL not addressing the endpoint), 401 (key rotated) and
-      413 (payload too large) are configuration faults, not an outage. No
-      incident is published either -- publishing one would POST an incident
-      that is rejected in turn, publishing another.
+      A redirect (RMS_SERVER_URL not addressing the endpoint), 401 (key
+      rotated) and 413 (payload too large) are configuration faults, not an
+      outage. No incident is published for these -- publishing one would
+      POST an incident that is rejected in turn, publishing another.
     - 5xx, transport errors (DNS, TLS, timeout) and a 2xx that did not come
-      from RMS may clear on their own, so these retry with backoff and, once
-      exhausted, log the failure and publish RMS_POST_FAILED.
+      from RMS are an outage rather than a bad request. These log the
+      failure and publish RMS_POST_FAILED, which is reported on the bus but
+      never posted to RMS itself.
 
     Args:
         payload_info:     Form fields to POST.
@@ -1007,91 +1011,72 @@ def _post_attempts(
 
     Returns:
         tuple[Response | None, set[str]]: The successful response (or None
-        if rejected, exhausted or abandoned), and the base names of any
-        logs the body had to pad over because they shrank while being read.
+        if rejected, failed or abandoned), and the base names of any logs
+        the body had to pad over because they shrank while being read.
     """
-    attempts = MAX_RETRIES
     headers = {"X-Api-Key": RMS_SERVER_KEY}
 
-    for attempt in range(1, attempts + 1):
-        if abort is not None and abort.is_set():
-            oradio_log.debug("Shutting down; abandoning POST %s", context)
-            return None, set()
+    if abort is not None and abort.is_set():
+        oradio_log.debug("Shutting down; abandoning POST %s", context)
+        return None, set()
 
-        # Either the plain fields or, once there is something to attach, the
-        # multipart body that carries them along with the files. Annotated
-        # because the two are assigned to the same name.
-        data: dict | _MultipartBody = payload_info
-        body = None
+    # Either the plain fields or, once there is something to attach, the
+    # multipart body that carries them along with the files. Annotated
+    # because the two are assigned to the same name.
+    data: dict | _MultipartBody = payload_info
+    body = None
 
-        if attach_log_files:
-            # Built per attempt: a body is consumed once it has been read,
-            # and rebuilding costs a directory scan, no file access. It also
-            # means a retry measures the logs again rather than resending
-            # what they held before the previous attempt failed.
-            prepared = _build_multipart_body(payload_info, only_bases)
+    if attach_log_files:
+        # A body is consumed once it has been read, so it is built here, for
+        # this send, and never reused. Building costs a directory scan, no
+        # file access.
+        prepared = _build_multipart_body(payload_info, only_bases)
 
-            if prepared is not None:
-                body, content_type = prepared
-                data = body
-                headers["Content-Type"] = content_type
+        if prepared is not None:
+            body, content_type = prepared
+            data = body
+            headers["Content-Type"] = content_type
 
-        # failure holds the reason this attempt failed, as text: a transport
-        # error and an HTTP 5xx are treated alike from here on, and only ever
-        # end up in a log line.
-        response, failure = _attempt_post(data, headers, context)
+    # failure holds the reason the POST failed, as text: a transport error
+    # and an HTTP 5xx are treated alike from here on, and only ever end up
+    # in a log line.
+    response, failure = _attempt_post(data, headers, context)
 
-        if failure is None:
-            # Either the POST succeeded, or the server rejected it and
-            # response is None. Both are final for this cycle.
-            if response is None or body is None:
-                return response, set()
-
-            return response, body.shrunk
-
-        # Per-attempt detail is informative only while more attempts follow
-        if attempts > 1:
-            oradio_log.warning("Attempt %d failed to POST %s: %s", attempt, context, failure)
-
-        if attempt < attempts:
-            # Wait before retrying; delay grows exponentially with each
-            # attempt, cut short if the service is stopping.
-            delay = BACKOFF_FACTOR ** attempt
-
-            if abort is not None:
-                abort.wait(delay)
-            else:
-                sleep(delay)
-
-            continue
-
+    if failure is not None:
         _report_post_failure(context, failure)
         return None, set()
 
-    return None, set()  # Unreachable (loop always returns), keeps type checkers happy
+    # Either the POST succeeded, or the server rejected it and response is
+    # None. Both are final.
+    if response is None or body is None:
+        return response, set()
 
-def _post_with_retry(
+    return response, body.shrunk
+
+def _post_message(
     payload_info: dict,
     attach_log_files: bool = False,
     context: str = "message",
     abort: Event | None = None,
 ) -> Response | None:
     """
-    POST payload_info to the RMS server, retrying on failure.
+    POST payload_info to the RMS server.
 
     Shared across the message types handled by
     WifiMessageHandler.send_message(): all POST to RMS_SERVER_URL under the
-    same MAX_RETRIES/BACKOFF_FACTOR/POST_TIMEOUT policy. They differ only
-    in whether log files are attached and in what happens with a successful
-    response (a heartbeat acts on a returned command, the others do not),
-    both of which stay with the caller.
+    same CONNECT_TIMEOUT/POST_TIMEOUT policy. They differ only in whether
+    log files are attached and in what happens with a successful response
+    (a heartbeat acts on a returned command, the others do not), both of
+    which stay with the caller.
 
-    Transport failures are handled by _post_attempts(). What this adds is
+    A failed POST is not repeated. What this adds on top of _post_once() is
     the one case where a POST succeeds and the result is still not the one
-    that was wanted: a log that shrank mid-send, which only happens when
-    logrotate rotated it out from under the read. The attachment that went
-    out is padded and incomplete, while the content it was missing is now
-    sitting in the next generation, so that log is sent again.
+    that was wanted: a log that shrank mid-send, which happens when logrotate
+    rotates it out from under the read. Sending that log again carries content
+    known to be missing from what was stored, which is a different thing from
+    repeating a send that failed. The attachment that went out is padded and
+    incomplete, while the content it was missing is now sitting in the next
+    generation, so that log is sent again.
 
     The repeat is narrow on purpose. It carries only the log that was
     rotated and the other generations of the same base name, since the
@@ -1110,21 +1095,21 @@ def _post_with_retry(
         context:          Short label used in log messages, e.g.
                            "message" or "incident".
         abort:            Set while the service is shutting down. Checked
-                           before each attempt and used for the backoff wait,
-                           so a pending retry cycle gives up promptly instead
-                           of holding shutdown open.
+                           before the POST and used for the wait between
+                           rotation resends, so a send in progress gives up
+                           promptly instead of holding shutdown open.
 
     Returns:
         The successful requests.Response, or None if the request was
-        rejected with a 4xx, the retryable attempts were exhausted, or the
-        send was abandoned because abort was set. When the logs were sent
-        more than once, this is the response to the last send.
+        rejected with a 4xx, the POST failed, or the send was abandoned
+        because abort was set. When the logs were sent more than once, this
+        is the response to the last send.
     """
     fields     = payload_info
     only_bases = None
 
     for send in range(1, MAX_ROTATION_SENDS + 1):
-        response, shrunk = _post_attempts(fields, attach_log_files, context, abort, only_bases)
+        response, shrunk = _post_once(fields, attach_log_files, context, abort, only_bases)
 
         if not shrunk:
             return response
@@ -1291,10 +1276,10 @@ class _RmsSender(ThreadTemplate):
 
     Everything RMS sends goes through here, so no caller ever waits for the
     network: submit() returns as soon as the message is queued, and this
-    thread does the telemetry collection, the log streaming, the POST and
-    its retries. Its callers are the incident bus worker, the WiFi message
-    worker and the heartbeat timer, and a POST that runs its full retry
-    cycle against an unreachable server takes about a minute and a half.
+    thread does the telemetry collection, the log streaming and the POST.
+    Its callers are the incident bus worker, the WiFi message worker and the
+    heartbeat timer, and a POST against an unreachable server occupies this
+    thread for one CONNECT_TIMEOUT.
 
     One message is posted at a time, in submission order, keeping the peak
     cost of RMS traffic to a single in-flight request.
@@ -1304,7 +1289,7 @@ class _RmsSender(ThreadTemplate):
     no polling delay between one message and the next.
 
     ThreadTemplate's stop event doubles as the abort signal handed to
-    _post_with_retry(), so a retry cycle already under way gives up when
+    _post_message(), so a send already under way gives up when
     the service stops instead of holding shutdown open.
     """
     def __init__(self, serial: str, is_wifi_connected: Callable[[], bool]) -> None:
@@ -1452,9 +1437,14 @@ class _RmsSender(ThreadTemplate):
 
         # Report an incident from another service, attaching current logs
         elif job.msg_type == INCIDENT:
-            # send_message() rejects INCIDENT without one, so this is only
-            # for the type checker
-            assert job.incident is not None
+            # send_message() rejects INCIDENT without an incident, so
+            # reaching this means a caller bypassed it. Reported rather than
+            # raised: an exception here would take down the sender thread,
+            # and this check is not stripped by 'python -O'. Same shape as
+            # the unsupported-type branch below.
+            if job.incident is None:
+                oradio_log.error("INCIDENT job without an incident; not sending")
+                return
 
             # RMS's own incidents are published for other services, never
             # POSTed. A failed POST publishes RMS_POST_FAILED, and posting
@@ -1477,7 +1467,7 @@ class _RmsSender(ThreadTemplate):
 
             # RMS attaches a command to heartbeats only, so the response
             # here is unused
-            _post_with_retry(
+            _post_message(
                 payload_info, attach_log_files=True, context="incident", abort=self._stop_event
             )
 
@@ -1489,10 +1479,10 @@ class _RmsSender(ThreadTemplate):
             oradio_log.error("Unsupported message type: %s", job.msg_type)
             return
 
-        response = _post_with_retry(payload_info, context="message", abort=self._stop_event)
+        response = _post_message(payload_info, context="message", abort=self._stop_event)
 
         if response is None:
-            # Rejected, or all retries failed; _post_with_retry() has
+            # Rejected, or the POST failed; _post_message() has
             # already logged it and published an incident where warranted
             return
 
@@ -1586,8 +1576,8 @@ class WifiMessageHandler(MessageHandlerTemplate):
 
         The message is validated here, on the calling thread, so a mistake
         is reported to whoever made it. Everything after that -- collecting
-        telemetry, attaching logs, the POST and its retries -- happens on
-        the sender thread, so this call does not wait for the network. A
+        telemetry, attaching logs and the POST -- happens on the sender
+        thread, so this call does not wait for the network. A
         message that cannot be queued is dropped, never blocked on.
 
         HEARTBEAT and SYS_INFO carry runtime/hardware telemetry. INCIDENT
@@ -1600,8 +1590,7 @@ class WifiMessageHandler(MessageHandlerTemplate):
 
         Only queued while WiFi is currently known to be connected; if not,
         nothing is sent and a debug line is logged instead, since a POST
-        with no network would burn through the full retry and backoff cycle
-        before failing anyway.
+        with no network can only fail.
 
         Args:
             msg_type: HEARTBEAT, SYS_INFO, or INCIDENT.
@@ -1625,10 +1614,11 @@ class WifiMessageHandler(MessageHandlerTemplate):
         # incident the event is when it was raised, which is earlier still:
         # it has already crossed the incident bus and its queue to get here,
         # so its own timestamp is used in place of the current time.
-        if msg_type == INCIDENT:
-            # send_message() rejects INCIDENT without one above, so this is
-            # only for the type checker
-            assert incident is not None
+        # 'incident is not None' rather than 'msg_type == INCIDENT': the
+        # guard above already rejects one without the other, and testing the
+        # value narrows the type for free, and does so in a way that is not
+        # stripped by 'python -O'.
+        if incident is not None:
             generated = datetime.fromtimestamp(incident.timestamp).strftime(TIMESTAMP_FORMAT)
         else:
             generated = datetime.now().strftime(TIMESTAMP_FORMAT)
@@ -1704,7 +1694,7 @@ class RMService:
             oradio_log.info("RMS service started")
         except Exception as ex_err:  # pylint: disable=broad-exception-caught
             oradio_log.error("RMS service failed to start: %s", ex_err)
-            # Roll back the subscription so a retry via start() starts clean
+            # Roll back the subscription so a later start() begins clean
             Commands.unsubscribe(self._queue)
             self._queue = None
             Incidents.publish(IncidentMessage(RMS_SOURCE, RMS_START_FAILED))
@@ -1794,30 +1784,30 @@ if __name__ == "__main__":
     # RFC 5737 TEST-NET-1, guaranteed to be routed nowhere, so a POST runs
     # into CONNECT_TIMEOUT rather than being refused. That is the shape of a
     # server that has gone away, as opposed to one that is up and saying no.
-    # A full cycle costs MAX_RETRIES connect timeouts plus backoff, so about
-    # 20 seconds; swap in "http://127.0.0.1:9/" for an immediate refusal,
-    # which takes the same code path far quicker but skips the timeouts.
+    # A send costs one CONNECT_TIMEOUT, so about 5 seconds; swap in
+    # "http://127.0.0.1:9/" for an immediate refusal, which takes the same
+    # code path far quicker but skips the timeout.
     UNREACHABLE_URL = "http://192.0.2.1/"
 
     # A key RMS will not accept, so it answers 401. The server is up and
-    # refusing the request, which is the case 3xx/4xx handling treats as
-    # final: no retry and no incident published.
+    # refusing the request, which is the case 3xx/4xx handling treats as a
+    # configuration fault: logged, but no incident published.
     INVALID_SERVER_KEY = "invalid-key-for-standalone-testing"
 
     def toggle_unreachable() -> None:
         """
         Point the service at an unroutable address, or back at RMS.
 
-        Exercises the retryable path: MAX_RETRIES attempts with backoff,
-        then the failure logged and RMS_POST_FAILED published, which is
-        reported on the bus but not posted.
+        Exercises the outage path: one attempt, then the failure logged
+        and RMS_POST_FAILED published, which is reported on the bus but
+        not posted.
         """
         global RMS_SERVER_URL       # pylint: disable=global-statement
 
         if RMS_SERVER_URL == REAL_SERVER_URL:
             RMS_SERVER_URL = UNREACHABLE_URL
             print(f"\n{YELLOW}Simulating an unreachable RMS: POSTs now go to {UNREACHABLE_URL}{NC}")
-            print("Send with 1, 2 or 3 and watch the full retry cycle, then the")
+            print("Send with 1, 2 or 3 and watch the POST fail once, then the")
             print("outage incident, which is published to the bus but never posted.\n")
         else:
             RMS_SERVER_URL = REAL_SERVER_URL
@@ -1827,16 +1817,16 @@ if __name__ == "__main__":
         """
         Send an invalid API key, or restore the real one.
 
-        Exercises the final-failure path: RMS answers 401, which is logged
-        and not retried. No incident is published, since posting one would
-        only be rejected in turn.
+        Exercises the request-fault path: RMS answers 401, which is logged.
+        No incident is published, since posting one would only be rejected
+        in turn.
         """
         global RMS_SERVER_KEY       # pylint: disable=global-statement
 
         if RMS_SERVER_KEY == REAL_SERVER_KEY:
             RMS_SERVER_KEY = INVALID_SERVER_KEY
             print(f"\n{YELLOW}Simulating rejection: POSTs now carry an invalid API key{NC}")
-            print("Send with 1, 2 or 3. Expect one attempt only, no retries and no")
+            print("Send with 1, 2 or 3. Expect a rejection in the log and no")
             print("incident.\n")
         else:
             RMS_SERVER_KEY = REAL_SERVER_KEY
