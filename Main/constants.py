@@ -95,7 +95,7 @@ SOUND_NO_WIFI      = "WifiNotConnected"
 SOUND_NO_INTERNET  = "NoInternet"
 SOUND_NEW_PRESET   = "NewPlaylistPreset"
 SOUND_NEW_WEBRADIO = "NewPlaylistWebradio"
-SOUND_POWER_ERROR  = "PowerSupplyNotSupported"
+SOUND_POWER_ERROR  = "OradioPowerError"
 
 ##### REMOTE SERVER #######################################
 RMS_SERVER_URL = _ENV["RMS_SERVER_URL"]
