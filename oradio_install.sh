@@ -57,6 +57,12 @@ fi
 # Seconds to wait before rebooting
 REBOOT_DELAY=3
 
+# Transient unit that resumes this script after the reboot in the initial run.
+# Created just before rebooting and removed again by the '--continue' pass, so
+# it exists only for the one boot it is needed for.
+CONTINUE_UNIT=oradio-install-continue.service
+CONTINUE_UNIT_FILE="/etc/systemd/system/$CONTINUE_UNIT"
+
 # Enable passwordless sudo (no password prompt running sudo)
 # https://www.raspberrypi.com/documentation/computers/configuration.html#disable-sudo-password
 if sudo -n true 2>/dev/null; then
@@ -556,7 +562,7 @@ if [ "${1:-}" != "--continue" ]; then
 
 ########## PYTHON END ##########
 
-########## CONFIGURATION BEGIN ##########
+########## BOOT OPTIONS BEGIN ##########
 
 	# install_resource returns 0 if it installed something new (or if the
 	# file was already up to date — see its "differ" check), non-zero on failure.
@@ -569,23 +575,61 @@ if [ "${1:-}" != "--continue" ]; then
 	# Progress report
 	echo -e "${GREEN}Boot options configured${NC}"
 
-########## CONFIGURATION END ##########
+########## BOOT OPTIONS END ##########
 
 	# Reboot if required for activation
 	if [ -v REBOOT_NEEDED ]; then
-		# Configure to continue the installation after reboot: appends a line to
-		# ~/.bashrc that re-invokes this script with --continue. Since this edits
-		# the invoking user's own home directory, it deliberately does NOT use
-		# sudo (the file must stay owned by that user, and no root access is
-		# needed to write to it).
-		grep -qxF "bash $SCRIPT_PATH/$SCRIPT_NAME --continue" ~/.bashrc || echo "bash $SCRIPT_PATH/$SCRIPT_NAME --continue" >> ~/.bashrc
+		# Resume after the reboot from a one-shot systemd unit.
+		#
+		# This used to append a '--continue' line to ~/.bashrc and switch the
+		# console to auto-login, which had three problems. That line fires in
+		# EVERY interactive shell until it is removed, so anyone who logged in
+		# over SSH while the console pass was running started a second,
+		# concurrent install. The output went to tty1, where the person doing
+		# the install over SSH could not see it anyway. And auto-login stayed
+		# on if the second pass never started, leaving the device in a state
+		# the installer chose and never announced.
+		#
+		# A unit has none of that: it runs exactly once, needs no login and no
+		# console, and touches nothing outside its own unit file.
+		#
+		# User=/Group= are the invoking user, for the same reason this script
+		# refuses to run as root: everything it creates has to stay owned by
+		# that user. sudo still works from here because the initial run enabled
+		# passwordless sudo before reaching this point.
+		#
+		# TimeoutStartSec=infinity is load-bearing. A Type=oneshot unit is
+		# killed after 90 seconds by default, and the '--continue' pass takes
+		# minutes -- it would be shot halfway through configuring the device.
+		sudo tee "$CONTINUE_UNIT_FILE" >/dev/null <<-EOF
+			[Unit]
+			Description=Continue Oradio installation after reboot
+			After=multi-user.target network-online.target
+			Wants=network-online.target
 
-		# Enable raspi-config to auto-login to console, so the --continue line
-		# above actually gets a chance to run without manual intervention.
-		sudo raspi-config nonint do_boot_behaviour B2
+			[Service]
+			Type=oneshot
+			User=$(id -un)
+			Group=$(id -gn)
+			WorkingDirectory=$SCRIPT_PATH
+			ExecStart=/bin/bash $SCRIPT_PATH/$SCRIPT_NAME --continue
+			TimeoutStartSec=infinity
+
+			[Install]
+			WantedBy=multi-user.target
+		EOF
+
+		sudo systemctl daemon-reload
+		if ! sudo systemctl enable "$CONTINUE_UNIT"; then
+			echo -e "${RED}Aborting: could not enable $CONTINUE_UNIT${NC}"
+			echo -e "${RED}Not rebooting: the installation would not resume${NC}"
+			exit 1
+		fi
 
 		# This script will automatically be started after reboot
 		echo -e "${YELLOW}Reboot required: Installation will continue after reboot in ${REBOOT_DELAY}s${NC}"
+		echo -e "${YELLOW}Follow it with: journalctl -fu $CONTINUE_UNIT${NC}"
+		echo -e "${YELLOW}or with: tail -f $LOGFILE_INSTALL${NC}"
 		sleep "$REBOOT_DELAY"
 
 		# Ensure buffered data is written to files
@@ -604,19 +648,56 @@ else # Execute if this script IS automatically started after reboot
 	# Progress report
 	echo -e "${GREEN}$(date +'%Y-%m-%d %H:%M:%S'): Continueing after reboot${NC}"
 
-	# Restore normal behaviour after reboot: remove the --continue line we
-	# added to ~/.bashrc before rebooting, and turn auto-login back off. No
-	# sudo needed here either, for the same reason as above.
-	sed -i "\#^bash $SCRIPT_PATH/$SCRIPT_NAME --continue\$#d" ~/.bashrc
-
-	# Disable raspi-config to auto-login to console
-	sudo raspi-config nonint do_boot_behaviour B1
+	# Take the resume unit out of service. Done FIRST, before anything below
+	# can fail: whatever happens to the rest of this pass, the device must not
+	# come up trying to resume an installation again at the next boot.
+	#
+	# Failures are reported, not fatal. A leftover unit re-runs an installation
+	# that is idempotent anyway, which is a smaller problem than refusing to
+	# finish the one already in progress.
+	if [ -f "$CONTINUE_UNIT_FILE" ]; then
+		sudo systemctl disable "$CONTINUE_UNIT" || echo -e "${YELLOW}Warning: could not disable $CONTINUE_UNIT${NC}"
+		sudo rm -f "$CONTINUE_UNIT_FILE" || echo -e "${YELLOW}Warning: could not remove $CONTINUE_UNIT_FILE${NC}"
+		sudo systemctl daemon-reload
+	fi
 
 ########## REBOOT RUN END ##########
 
 fi
 
 ########## CONFIGURATION BEGIN ##########
+
+# Remove artefacts left behind by earlier Oradio versions.
+#
+# HERE, and not in the INITIAL RUN block above, for two reasons.
+#
+# Everything the cleanup has to precede is in this section: optimize_boot_time,
+# the udev rules, the unit files and the 'systemctl enable' calls. Standing
+# immediately in front of them is the tightest guarantee that an old unit is
+# gone before the one replacing it is put in place.
+#
+# More importantly, this section is never interrupted by the reboot. The INITIAL
+# RUN block can end in one, and a cleanup placed there would leave the device
+# booting once with the old units removed and the new ones not yet installed --
+# a boot with, for instance, no USB preparation at all. Removal and replacement
+# belong in the same uninterrupted run.
+#
+# This section runs exactly once per install: the initial pass either falls
+# through to it or reboots before reaching it, and the '--continue' pass that
+# follows a reboot lands here directly.
+#
+# install_resource only copies when the file differs, so its trailing-command
+# form would run the cleanup only on the install that changes the script. The
+# cleanup is idempotent and quiet on a clean device, so it is invoked
+# explicitly instead.
+#
+# Mode 755, not 700 like oradio-crash.sh: this one runs as the Oradio user and
+# calls sudo itself, so the user has to be able to execute it -- both from here
+# and by hand with --dry-run.
+install_script "$RESOURCES_PATH/cleanup_old_versions.sh" /usr/local/sbin/cleanup_old_versions.sh 755
+# No progress report: the script prints its own, and unlike a fixed line here it
+# distinguishes "nothing found" from "removed".
+/usr/local/sbin/cleanup_old_versions.sh
 
 # Minimize Oradio boot time
 bash "$RESOURCES_PATH/optimize_boot_time.sh"
