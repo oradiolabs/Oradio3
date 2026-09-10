@@ -42,7 +42,6 @@ from messaging import (
     LOG_SOURCE, LOG_START_FAILED, LOG_QUEUE_OVERFLOW, LOG_QUEUE_RECOVERED, LOG_LISTENER_DEAD, LOG_STOPPED,
     RMS_SOURCE, RMS_START_FAILED, RMS_POST_FAILED,
     SOUND_SOURCE, SOUND_MISSING_DIR, SOUND_PLAYBACK_FAILED,
-    SPOTIFY_SOURCE, SPOTIFY_START_FAILED, SPOTIFY_STOPPED, SPOTIFY_MUTE_FAILED, SPOTIFY_UNMUTE_FAILED,
     THROTTLING_SOURCE, THROTTLING_START_FAILED, THROTTLING_THROTTLED, THROTTLING_STOPPED,
     USB_SOURCE, USB_FILE_FAILED, USB_START_FAILED, USB_STOPPED,
     VOLUME_SOURCE, VOLUME_START_FAILED, VOLUME_SET_FAILED, VOLUME_STOPPED,
@@ -86,7 +85,6 @@ class IncidentHandler(MessageHandlerTemplate):
             MPD_SOURCE:          self._handle_mpd_incident,
             RMS_SOURCE:          self._handle_rms_incident,
             SOUND_SOURCE:        self._handle_sound_incident,
-            SPOTIFY_SOURCE:      self._handle_spotify_incident,
             THROTTLING_SOURCE:   self._handle_throttling_incident,
             USB_SOURCE:          self._handle_usb_incident,
             VOLUME_SOURCE:       self._handle_volume_incident,
@@ -311,39 +309,6 @@ class IncidentHandler(MessageHandlerTemplate):
             oradio_log.debug("Mitigation to be implemented")
         else:
             oradio_log.error("Unhandled system sound incident: '%s'", incident.message)
-
-    def _handle_spotify_incident(self, incident: IncidentMessage) -> None:
-        """
-        Handle Spotify-related incident.
-
-        Attempts recovery from known Spotify conditions and logs
-        unrecognised incidents for further investigation.
-
-        Args:
-            incident: Incident message received from the incident bus.
-        """
-        if incident.message == SPOTIFY_START_FAILED:
-            # MITIGATION TO BE IMPLEMENTED:
-            #   Report Spotify monitor start failed + status to RMS
-            #   If retry_count < MAX_RETRIES: retry starting Spotify monitor
-            oradio_log.debug("Mitigation to be implemented")
-        elif incident.message == SPOTIFY_STOPPED:
-            # MITIGATION TO BE IMPLEMENTED:
-            #   Report Spotify monitor stopped + status to RMS
-            #   If retry_count < MAX_RETRIES: retry starting Spotify monitor
-            oradio_log.debug("Mitigation to be implemented")
-        elif incident.message == SPOTIFY_MUTE_FAILED:
-            # MITIGATION TO BE IMPLEMENTED:
-            #   Report mute amixer failure + status to RMS
-            #   If retry_count < MAX_RETRIES: retry mute
-            oradio_log.debug("Mitigation to be implemented")
-        elif incident.message == SPOTIFY_UNMUTE_FAILED:
-            # MITIGATION TO BE IMPLEMENTED:
-            #   Report unmute amixer failure + status to RMS
-            #   If retry_count < MAX_RETRIES: retry unmute
-            oradio_log.debug("Mitigation to be implemented")
-        else:
-            oradio_log.error("Unhandled Spotify incident: '%s'", incident.message)
 
     def _handle_throttling_incident(self, incident: IncidentMessage) -> None:
         """

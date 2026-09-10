@@ -26,12 +26,15 @@ Created on May 28, 2026
 """
 import os
 import sys
+import time
 import uuid
+import traceback
 from enum import Enum
 from queue import Full
 from threading import Thread
 from typing import Any, NoReturn
-from dataclasses import dataclass
+from datetime import datetime, timezone
+from dataclasses import dataclass, field
 from multiprocessing import Lock, Queue
 
 ##### Oradio modules ######################################
@@ -53,6 +56,18 @@ from constants import (
 ##### LOCAL constants #####################################
 # Bound queue size to detect runaway producers early.
 _MAX_QUEUE_SIZE = 1000
+
+# Frames to drop when auto-capturing a call stack. Three of them sit between
+# the caller and the capture: _capture_details() itself, the __post_init__ that
+# calls it, and the dataclass-generated __init__ that calls that. Everything
+# above those belongs to the code that actually created the incident message.
+#
+# This number counts frames, so any change to the call depth between
+# IncidentMessage(...) and _capture_details() has to be counted here too. One
+# too few and every stack ends in a bare 'File "<string>", in __init__' with no
+# source line; one too many and the call site itself is cut off. Neither shows
+# up until a traceback is actually needed.
+_CAPTURE_FRAMES_TO_SKIP = 3
 
 ##### Messaging constants #################################
 # Backlighting
@@ -107,18 +122,6 @@ RMS_POST_FAILED  = "RMS failed to post message"
 
 # Power supply
 POWER_SOURCE = "Power Supply message"
-POWER_ERROR  = "Unsupported power supply"
-
-# Spotify
-SPOTIFY_SOURCE             = "Spotify message"
-SPOTIFY_CONNECTED_EVENT    = "Spotify connected event"
-SPOTIFY_DISCONNECTED_EVENT = "Spotify disconnected event"
-SPOTIFY_PLAYING_EVENT      = "Spotify playing event"
-SPOTIFY_PAUSED_EVENT       = "Spotify paused event"
-SPOTIFY_START_FAILED       = "Spotify monitor failed to start"
-SPOTIFY_STOPPED            = "Spotify monitor stopped"
-SPOTIFY_MUTE_FAILED        = "Spotify Connect failed to mute"
-SPOTIFY_UNMUTE_FAILED      = "Spotify Connect failed to unmute"
 
 # System sounds
 SOUND_SOURCE          = "System sound message"
@@ -171,6 +174,93 @@ WIFI_NMCLI_FAILED      = "NetworkManager wrapper failed"
 WIFI_CONNECT_FAILED    = "Wifi failed to connect"
 WIFI_DISCONNECT_FAILED = "Wifi failed to disconnect"
 
+##### Incident detail capture #############################
+# Incidents whose details are suppressed: (source, message) pairs for which a
+# stack says nothing the message does not already say.
+#
+# Decided here rather than at the call sites. IncidentMessage takes an explicit
+# details="" and always will, but a convention every new caller has to know is
+# a convention that gets forgotten -- and the cost of forgetting is a stack
+# posted to the remote monitoring service for a routine event, on every
+# occurrence.
+#
+# The bar is: would a maintainer reading this incident ever ask "where did that
+# come from?". For a queue that overflowed and recovered, or a board that got
+# hot, the answer is no -- the message is the whole story, and the location is
+# always the same monitor anyway. For anything reporting that an operation
+# failed, the answer is yes: keep the stack.
+#
+# RMS_POST_FAILED is here for a second reason as well. It is raised from one
+# place in the sender and never posted to RMS at all, so its stack is both
+# constant and unreadable by anyone but a developer with the source at hand.
+DETAILS_NOT_CAPTURED = frozenset({
+    (LOG_SOURCE,        LOG_QUEUE_OVERFLOW),
+    (LOG_SOURCE,        LOG_QUEUE_RECOVERED),
+    (THROTTLING_SOURCE, THROTTLING_THROTTLED),
+    (RMS_SOURCE,        RMS_POST_FAILED),
+})
+
+##### Helpers #############################################
+
+def _fatal_exit(message: str, stacklevel: int = 6, *, exc: BaseException | None = None, code: int = 1) -> NoReturn:
+    """
+    Log a fatal error, flush all buffers, and terminate the process.
+
+    Intended for unrecoverable infrastructure failures such as queue
+    corruption, invalid internal state, or IPC failure.
+
+    Uses os._exit instead of sys.exit to terminate immediately from any thread.
+    This includes daemon threads, where sys.exit() would only terminate the calling thread.
+
+    Args:
+        message:    Human-readable description of the fatal error.
+        stacklevel: Logging stacklevel passed to oradio_log.critical().
+                    The default value reports the original caller.
+        exc:        Optional exception associated with the failure; when provided,
+                    the full traceback is included in the log entry.
+        code:       Process exit status code (default: 1).
+    """
+    # exc_info=True causes the logging framework to capture the current
+    # exception context; passing the exception object directly also works
+    # in Python 3.5+ but the bool form is more conventional.
+    oradio_log.critical(message, stacklevel=stacklevel, exc_info=exc is not None)
+
+    # Flush the logging framework before exiting so no records are lost.
+    oradio_log.shutdown()
+
+    # Flush console buffers before terminating.
+    sys.stderr.flush()
+    sys.stdout.flush()
+
+    # Bypass Python's normal shutdown sequence so the exit is immediate
+    # from any thread, including daemon threads.
+    os._exit(code)
+
+def _capture_details() -> str:
+    """
+    Return diagnostic context describing where an incident was raised.
+
+    If an exception is currently being handled, the formatted exception
+    traceback is returned, since that is the most informative context.
+    Otherwise the call stack leading to the message creation is returned,
+    with the capture machinery's own frames removed.
+
+    The result is always a plain string. Traceback and frame objects cannot
+    be pickled, so the context must be formatted at creation time for the
+    message to survive the multiprocessing queue.
+
+    Returns:
+        Formatted traceback or call stack, without a trailing newline.
+    """
+    # exc_info()[0] is only set while an exception is being handled, which
+    # in Python 3 means inside an except/finally block. Outside one it is
+    # None, so this reliably picks the right kind of context.
+    if sys.exc_info()[0] is not None:
+        return traceback.format_exc().rstrip()
+
+    stack = traceback.extract_stack()[:-_CAPTURE_FRAMES_TO_SKIP]
+    return "".join(traceback.format_list(stack)).rstrip()
+
 class Topic(str, Enum):
     """
     Enumeration of supported pub-sub topics.
@@ -213,59 +303,107 @@ class IncidentMessage:
     """
     Message sent through the incident queue.
 
+    Both timestamp and details are captured automatically at construction,
+    which is the moment the incident is reported, so existing call sites
+    keep working unchanged: IncidentMessage(SOURCE, MESSAGE) still creates
+    a complete message.
+
     Attributes:
-        source:  Name of the process, service, or component sending the message.
-        message: Incident description or diagnostic information.
+        source:    Name of the process, service, or component sending the message.
+        message:   Incident description or diagnostic information.
+        timestamp: Unix epoch seconds (UTC) at which the message was created.
+                   Defaults to the current time.
+        details:   Formatted exception traceback when the message is created
+                   inside an except block, otherwise the call stack leading
+                   to its creation. Pass an explicit string to supply your own
+                   context, or "" to suppress it for this one message.
+                   Suppressed for good by listing the (source, message) pair
+                   in DETAILS_NOT_CAPTURED above.
     """
     source: str
     message: str
 
+    # compare=False on both: two incidents are the same incident when their
+    # source and message match. The timestamp and the stack describe an
+    # occurrence, not an identity. Were they part of __eq__ and __hash__, no
+    # two incidents could ever be equal, and anything that deduplicates or
+    # counts repeats would treat every recurrence as a new fault.
+    timestamp: float = field(default_factory=time.time, compare=False)
+
+    # None means "decide in __post_init__". A caller can still pass a string
+    # to supply its own context, or "" to suppress the capture outright.
+    details: str | None = field(default=None, compare=False)
+
+    def __post_init__(self) -> None:
+        """
+        Fill in details when the caller left them to us.
+
+        Capturing here rather than from a field(default_factory=...) is what
+        makes the DETAILS_NOT_CAPTURED lookup possible at all: a default
+        factory is called with no arguments and cannot see the source and
+        message of the message being built.
+
+        object.__setattr__ because the dataclass is frozen; this is the
+        documented way to assign in __post_init__ on a frozen dataclass.
+
+        NOTE: this method is one of the frames _CAPTURE_FRAMES_TO_SKIP
+        counts. Check that constant before changing the call depth between
+        here and _capture_details().
+        """
+        if self.details is not None:
+            return
+
+        suppressed = (self.source, self.message) in DETAILS_NOT_CAPTURED
+        object.__setattr__(self, "details", "" if suppressed else _capture_details())
+
+    @property
+    def occurred(self) -> str:
+        """
+        Return the creation time as an ISO 8601 UTC string, to the second.
+
+        Use datetime.fromtimestamp(msg.timestamp).astimezone() instead if a
+        local-time rendering is needed.
+        """
+        return datetime.fromtimestamp(self.timestamp, tz=timezone.utc).isoformat(timespec="seconds")
+
+    def report(self) -> str:
+        """
+        Return the full multi-line incident report, details included.
+
+        Use this where the diagnostic context matters, such as a log entry
+        for a failure or a payload posted to remote monitoring.
+        """
+        return f"{self}\n{self.details}" if self.details else str(self)
+
+    def __str__(self) -> str:
+        """
+        Return a compact single-line summary.
+
+        The details field is deliberately excluded so that log lines and
+        queue diagnostics stay readable; call report() for the full text.
+        A dataclass only generates __repr__, so defining __str__ here does
+        not conflict with the generated code, and repr() still shows every
+        field for fatal-error logging.
+        """
+        return f"[{self.occurred}] {self.source}: {self.message}"
+
     def is_valid(self) -> bool:
         """
-        Return whether the message contains valid source and message strings.
+        Return whether the message contains valid source and message strings,
+        a plausible timestamp, and details as a string.
         """
         return (
             isinstance(self.source, str)
             and isinstance(self.message, str)
             and bool(self.source.strip())
             and bool(self.message.strip())
+            # bool is a subclass of int, so exclude it explicitly:
+            # True would otherwise pass as a timestamp of 1 second past epoch.
+            and isinstance(self.timestamp, (int, float))
+            and not isinstance(self.timestamp, bool)
+            and self.timestamp > 0
+            and isinstance(self.details, str)
         )
-
-##### Helpers #############################################
-
-def _fatal_exit(message: str, stacklevel: int = 6, *, exc: BaseException | None = None, code: int = 1) -> NoReturn:
-    """
-    Log a fatal error, flush all buffers, and terminate the process.
-
-    Intended for unrecoverable infrastructure failures such as queue
-    corruption, invalid internal state, or IPC failure.
-
-    Uses os._exit instead of sys.exit to terminate immediately from any thread.
-    This includes daemon threads, where sys.exit() would only terminate the calling thread.
-
-    Args:
-        message:    Human-readable description of the fatal error.
-        stacklevel: Logging stacklevel passed to oradio_log.critical().
-                    The default value reports the original caller.
-        exc:        Optional exception associated with the failure; when provided,
-                    the full traceback is included in the log entry.
-        code:       Process exit status code (default: 1).
-    """
-    # exc_info=True causes the logging framework to capture the current
-    # exception context; passing the exception object directly also works
-    # in Python 3.5+ but the bool form is more conventional.
-    oradio_log.critical(message, stacklevel=stacklevel, exc_info=exc is not None)
-
-    # Flush the logging framework before exiting so no records are lost.
-    oradio_log.shutdown()
-
-    # Flush console buffers before terminating.
-    sys.stderr.flush()
-    sys.stdout.flush()
-
-    # Bypass Python's normal shutdown sequence so the exit is immediate
-    # from any thread, including daemon threads.
-    os._exit(code)
 
 ##### Pub-Sub Infrastructure ##############################
 
@@ -712,7 +850,11 @@ class DebugMessageHandler(MessageHandlerTemplate):
             message: The received message from the queue.
         """
         tag = "" if self._index is None else f"[{self._index}]"
-        oradio_log.debug("DebugMessageHandler%s received: %s", tag, message)
+        # Incident messages carry a timestamp and diagnostic context; show the
+        # full report here so the captured stack is visible while debugging.
+        # Everything else keeps its default single-line rendering.
+        body = message.report() if isinstance(message, IncidentMessage) else message
+        oradio_log.debug("DebugMessageHandler%s received: %s", tag, body)
 
     def get_queue(self) -> Queue:
         """

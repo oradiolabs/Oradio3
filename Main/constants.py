@@ -42,8 +42,7 @@ _ENV = _load_env(_ROOT / "constants.env")
 ##### SYSTEM ##############################################
 
 # Paths, derived the same way the installer derives them
-SOUNDS_PATH  = str(_ROOT / "system_sounds")
-SPOTIFY_PATH = str(_ROOT / "Spotify")
+SOUNDS_PATH = str(_ROOT / "system_sounds")
 
 # Colors
 BLUE    = '\x1b[38;5;039m'
@@ -87,7 +86,6 @@ SOUND_NEXT         = "Next"
 SOUND_PRESET1      = "Preset1"
 SOUND_PRESET2      = "Preset2"
 SOUND_PRESET3      = "Preset3"
-SOUND_SPOTIFY      = "Spotify"
 SOUND_USB_PRESENT  = "USBPresent"
 SOUND_USB_ABSENT   = "USBAbsent"
 SOUND_AP_START     = "OradioAPstarted"
@@ -97,7 +95,7 @@ SOUND_NO_WIFI      = "WifiNotConnected"
 SOUND_NO_INTERNET  = "NoInternet"
 SOUND_NEW_PRESET   = "NewPlaylistPreset"
 SOUND_NEW_WEBRADIO = "NewPlaylistWebradio"
-SOUND_POWER_ERROR  = "PowerSupplyNotSupported"
+SOUND_POWER_ERROR  = "OradioPowerError"
 
 ##### REMOTE SERVER #######################################
 RMS_SERVER_URL = _ENV["RMS_SERVER_URL"]
@@ -123,59 +121,6 @@ USB_SYSTEM      = USB_MOUNT_POINT + "/Systeem"
 
 ##### AUDIO ###############################################
 PRESETS_FILE = USB_SYSTEM + "/presets.json"
-
-##### SPOTIFY CONFIG ######################################
-SPOTIFY_MPV_PORT     = 8010
-SPOTIFY_MPV_SOCKET   = SPOTIFY_PATH + "/mpv-socket"
-SPOTIFY_ACTIVE_FLAG  = SPOTIFY_PATH + "/" + _ENV["SPOTIFY_ACTIVE_FLAG_NAME"]
-SPOTIFY_PLAYING_FLAG = SPOTIFY_PATH + "/" + _ENV["SPOTIFY_PLAYING_FLAG_NAME"]
-
-##### MPV_PLAYER COMMANDS #################################
-MPV_PLAYERCTL_PLAY  = "play"
-MPV_PLAYERCTL_PAUSE = "pause"
-MPV_PLAYERCTL_STOP  = "stop"
-#MPV_PLAYER STATES ####
-MPV_PLAYERCTL_PLAYING_STATE = "Playing"
-MPV_PLAYERCTL_STOPPED_STATE = "Stopped"
-MPV_PLAYERCTL_PAUSED_STATE  = "Paused"
-
-MPV_PLAYERCTL_COMMAND_NOT_FOUND = "playerctl command not found"
-MPV_PLAYERCTL_COMMAND_ERROR     = "playerctl command failed"
-
-# MPRIS Medaio Player identifier (D-Bus service names, according the  naming convention for the MPRIS2 specification.
-# It is not a physical file or program, but a logical D-Bus service name
-# that media players register under when they support MPRIS.
-MPRIS_MPV_PLAYER          = "org.mpris.MediaPlayer2.mpv"
-MPRIS_MEDIA_PLAYER        = "/org/mpris/MediaPlayer2"
-MPRIS_MP2_PLAYER          = "org.mpris.MediaPlayer2.Player"
-MPRIS_DBUS_PROPERTIES     = "org.freedesktop.DBus.Properties"
-MPRIS_MEDIA_PLAYER_SEARCH = "org/mpris/MediaPlayer2."
-
-##### SPOTIFY events and states ###########################
-SPOTIFY_APP_STATUS_PLAYING        = "Playing"
-SPOTIFY_APP_STATUS_STOPPED        = "Stopped"
-SPOTIFY_APP_STATUS_PAUSED         = "Paused"
-SPOTIFY_APP_STATUS_DISCONNECTED   = "Disconnected"
-SPOTIFY_APP_STATUS_CONNECTED      = "Connected"
-SPOTIFY_APP_STATUS_CLIENT_CHANGED = "Client changed"
-
-# Moved to messaging:
-#SPOTIFY_CONNECT_CONNECTED_EVENT            = "Spotify Connect connected event"
-#SPOTIFY_CONNECT_DISCONNECTED_EVENT         = "Spotify Connect disconnected event"
-#SPOTIFY_CONNECT_PLAYING_EVENT              = "Spotify Connect playing event"
-#SPOTIFY_CONNECT_PAUSED_EVENT               = "Spotify Connect paused event"
-
-SPOTIFY_CONNECT_STOPPED_EVENT              = "Spotify Connect stopped event"
-SPOTIFY_CONNECT_CLIENT_CHANGED_EVENT       = "Spotify Connect client changed event"
-SPOTIFY_CONNECT_SERVERS_RUNNING            = "Spotify Connect local servers running"
-SPOTIFY_CONNECT_SERVERS_NOT_RUNNING        = "Spotify Connect local servers NOT running"
-SPOTIFY_CONNECT_MPV_SERVICE_NOT_ACTIVE     = "Spotify Connect MPV service not active"
-SPOTIFY_CONNECT_MPV_SERVICE_IS_ACTIVE      = "Spotify Connect MPV service is active"
-SPOTIFY_CONNECT_MPV_MPRIS_PLAYER_NOT_FOUND = "Spotify Connect MPV MPRIS player not found"
-SPOTIFY_CONNECT_MPV_STATE_OK               = "Spotify Connect MPV State OK"
-
-SPOTIFY_CONNECT_CONNECTED = "Spotify Connect is connected"
-SPOTIFY_CONNECT_NOT_CONNECTED = "Spotify Connect is NOT connected"
 
 ##### Remote Debugger defines #############################
 DEBUGGER_CONNECTED      = "Debugger connected"

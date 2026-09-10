@@ -1,0 +1,456 @@
+#!/usr/bin/env bash
+#
+#  ####   #####     ##    #####      #     ####
+# #    #  #    #   #  #   #    #     #    #    #
+# #    #  #    #  #    #  #    #     #    #    #
+# #    #  #####   ######  #    #     #    #    #
+# #    #  #   #   #    #  #    #     #    #    #
+#  ####   #    #  #    #  #####      #     ####
+#
+# Created on September 10, 2026
+# @author:        Henk Stevens & Olaf Mastenbroek & Onno Janssen
+# @copyright:     Stichting Oradio
+# @license:       GNU General Public License (GPL)
+# @organization:  Stichting Oradio
+# @version:       1
+# @email:         info@stichtingoradio.nl
+# @status:        Development
+# @Purpose:       Remove artefacts left behind by earlier Oradio versions
+#
+# WHY THIS EXISTS
+# oradio_install.sh installs and updates, but never removes: install_resource
+# copies a file when it differs and does nothing otherwise. So when a feature
+# is dropped from the repository, everything it installed stays behind on
+# every Oradio that already had it — units still enabled, packages still
+# installed, scripts still on disk. A fresh image is clean; an upgraded device
+# is not, and only the upgraded device is in the field.
+#
+# HOW TO ADD A SECTION
+# One section per release, oldest first, newest at the bottom, headed by the
+# release that dropped the resource. Every section must be:
+#   - idempotent: running it twice must be the same as running it once
+#   - silent when there is nothing to do, so a clean device prints nothing
+#   - non-fatal: a failure here must never abort an install, because a leftover
+#     is a smaller problem than a device that cannot be updated
+# Sections are never removed once added, and the order is never changed. A
+# device can skip any number of releases -- a unit that has been sitting on a
+# v1.0.4 device since 2026 is removed by the same section that removed it from
+# a device updating one release at a time.
+#
+# Sections are keyed on the release that DROPPED a resource, not on the release
+# that installed it. That is what makes a single section enough for every
+# device: usb-prepare.service shipped in v1.0.1 and was dropped in v1.0.5, so
+# the v1.0.5 section removes it whether the device is coming from v1.0.1 or
+# from v1.0.4. There are deliberately no v1.0.1 to v1.0.4 sections -- those
+# releases installed the same set of resources as each other and dropped
+# nothing, so there is nothing for them to clean up that a later section does
+# not already cover.
+#
+# To find what a release dropped, compare the install targets of the two tags:
+#   diff <(git show v1.0.5:oradio_install.sh | grep -oE 'install_(resource|script) [^ ]+ [^ ]+') \
+#        <(git show v1.0.6:oradio_install.sh | grep -oE 'install_(resource|script) [^ ]+ [^ ]+')
+# Watch for renames and moves: a file that changed directory is still a
+# leftover under its old path.
+#
+# USAGE
+#   cleanup_old_versions.sh [--dry-run]
+#
+#   --dry-run   report what would be removed, change nothing. Use this to check
+#               what a device is still carrying before touching it.
+#
+# Runs as the Oradio user and calls sudo itself, the same way
+# oradio_install.sh and optimize_boot_time.sh do. Do not run it as root: the
+# sections below remove files the Oradio user owns as well as root-owned ones,
+# and running the whole thing as root hides which is which.
+#
+# Called from oradio_install.sh, which has already enabled passwordless sudo by
+# the time it gets here. Run by hand, sudo may ask for a password once.
+#
+
+# Deliberately NOT 'set -o errexit': this script must not be able to abort an
+# install. Each step reports its own failure and carries on to the next.
+set -o nounset -o pipefail
+
+##### Colors #####
+RED='\033[1;31m'
+GREEN='\033[1;32m'
+YELLOW='\033[1;33m'
+NC='\033[0m'
+
+##### Paths #####
+# The Oradio install root, derived from the Main directory rather than given
+# its own placeholder: MAIN_PATH is already in oradio_install.sh's substitution
+# list, and a second path variable is a second thing to keep in step.
+ORADIO_ROOT="$(dirname 'PLACEHOLDER_MAIN_PATH')"
+readonly ORADIO_ROOT
+readonly LOGGING_PATH='PLACEHOLDER_LOGGING_PATH'
+
+##### Options #####
+DRY_RUN=0
+case "${1:-}" in
+	--dry-run) DRY_RUN=1 ;;
+	"")        ;;
+	*)         echo -e "${RED}Unknown argument: '$1'${NC}"; echo "Usage: $0 [--dry-run]"; exit 1 ;;
+esac
+
+# Tracks whether anything was actually removed, so the summary at the end can
+# stay quiet on a device that had nothing to clean.
+CLEANED=0
+
+# Tracks steps that were attempted and failed. Kept apart from CLEANED so the
+# summary cannot claim a clean device after printing three errors: something
+# that is still there is neither "removed" nor "not found".
+FAILED=0
+
+##### Helpers #############################################
+
+# Command prefix for the next privileged step: either empty or (sudo). Set by
+# set_privilege_for() below, read straight after.
+SUDO=()
+
+# Decide whether removing PATH needs sudo, and set SUDO accordingly.
+#
+# The test is on the PARENT DIRECTORY, not on the file, because that is what
+# actually governs removal: unlink permission comes from write access to the
+# containing directory, so the Oradio user can delete a root-owned logfile in
+# its own logging directory but cannot delete anything in /etc/systemd/system.
+#
+# Tested rather than listed. A list of "system paths" kept here has to stay in
+# step with every section below, and the first section that forgets to update
+# it either dies on a permission error or runs sudo on a file that never needed
+# it. A test cannot drift out of step.
+#
+# Args:
+#   $1  Path about to be removed. Its parent must exist, which it does: every
+#       caller checks the path itself exists first.
+function set_privilege_for {
+	if [ -w "$(dirname "$1")" ]; then
+		SUDO=()
+	else
+		SUDO=(sudo)
+	fi
+}
+
+# Run a command, or describe it when --dry-run. Never returns non-zero: the
+# caller decides what a failure means, and no failure here is fatal.
+function do_step {
+	local DESCRIPTION=$1
+	shift
+
+	if [ "$DRY_RUN" -eq 1 ]; then
+		echo -e "${YELLOW}Would $DESCRIPTION${NC}"
+		CLEANED=1
+		return 0
+	fi
+
+	echo -e "${YELLOW}Removing: $DESCRIPTION${NC}"
+	if ! "$@"; then
+		# Reported, not fatal. A leftover that could not be removed is worth
+		# knowing about, but it must not stop the update that follows.
+		echo -e "${RED}Failed to $DESCRIPTION${NC}"
+		FAILED=1
+		return 0
+	fi
+
+	CLEANED=1
+	return 0
+}
+
+# True when a systemd unit is known to systemd, whether enabled, disabled or
+# masked. 'systemctl cat' is the check rather than 'is-enabled', because a
+# masked unit reports 'masked' and a unit file with no [Install] section
+# reports 'static' — both are still present and still need removing.
+function unit_exists {
+	systemctl cat "$1" >/dev/null 2>&1
+}
+
+# Set by remove_unit when a unit file actually goes away, so the reload happens
+# once at the end instead of once per unit. Reloading is cheap but not free,
+# and doing it per section would make a run that removed five units reload five
+# times.
+NEED_DAEMON_RELOAD=0
+
+# Take a systemd unit out of service and delete its unit file.
+#
+# Order matters: stop and disable while systemd still knows the unit, then
+# delete the file, then reload. Deleting first leaves systemd holding a unit it
+# can no longer read, and a stale enablement symlink in
+# /etc/systemd/system/*.wants that shows up as a boot error for as long as it
+# is there.
+#
+# Args:
+#   $1  Unit name, e.g. 'usb-prepare.service'. For a template unit pass the
+#       template name with the '@', e.g. 'usb-mount@.service': running
+#       instances are stopped by glob, since a template itself is never
+#       enabled and 'disable' does not reach its instances.
+function remove_unit {
+	local UNIT=$1
+	local UNIT_FILE="/etc/systemd/system/$UNIT"
+
+	unit_exists "$UNIT" || [ -f "$UNIT_FILE" ] || return 0
+
+	# Template unit: stop whatever instances udev or a mount happened to
+	# start. Guarded by list-units, because 'stop' on a glob matching nothing
+	# is a warning on some systemd versions and an error on others.
+	if [[ "$UNIT" == *@.service ]]; then
+		local INSTANCE_GLOB="${UNIT/@.service/@*.service}"
+		if [ -n "$(systemctl list-units --all --no-legend "$INSTANCE_GLOB" 2>/dev/null)" ]; then
+			do_step "stop running instances of $UNIT" \
+				sudo systemctl stop "$INSTANCE_GLOB"
+		fi
+	elif unit_exists "$UNIT"; then
+		# A masked unit cannot be disabled; unmask first so the enablement
+		# symlinks are cleaned up properly rather than left dangling.
+		if [ "$(systemctl is-enabled "$UNIT" 2>/dev/null)" = "masked" ]; then
+			do_step "unmask $UNIT" sudo systemctl unmask "$UNIT"
+		fi
+		do_step "stop and disable $UNIT" \
+			sudo systemctl disable --now "$UNIT"
+	fi
+
+	if [ -f "$UNIT_FILE" ]; then
+		# Always sudo: /etc/systemd/system is root-owned on every system, so
+		# there is nothing for set_privilege_for() to decide here.
+		do_step "delete $UNIT_FILE" sudo rm -f "$UNIT_FILE"
+		[ "$DRY_RUN" -eq 1 ] || NEED_DAEMON_RELOAD=1
+	fi
+}
+
+# Delete a file if it is there. Kept as a helper so every section reads the
+# same way and none of them forgets the existence check that keeps a clean
+# device quiet.
+function remove_file {
+	[ -e "$1" ] || return 0
+	set_privilege_for "$1"
+	do_step "delete $1" "${SUDO[@]}" rm -f "$1"
+}
+
+# Delete a directory and its contents if it is there.
+function remove_dir {
+	[ -d "$1" ] || return 0
+	set_privilege_for "$1"
+	do_step "delete $1" "${SUDO[@]}" rm -rf "$1"
+}
+
+# Delete a logfile and its rotations.
+#
+# logrotate would age these out on its own, but rms_service collects whatever
+# logfiles it finds in the logging path, so until then every upload to the
+# Remote Monitoring Service carries a log for something that no longer exists.
+#
+# Args:
+#   $1  Logfile base name without the path, e.g. 'spotify.log'. Matches the
+#       file itself plus '.1', '.2.gz' and anything else logrotate appended.
+function remove_logfiles {
+	local LOGFILE
+	for LOGFILE in "$LOGGING_PATH/$1"*; do
+		[ -e "$LOGFILE" ] || continue
+		remove_file "$LOGFILE"
+	done
+}
+
+# Delete one exact line from a text file, if it is there.
+#
+# grep -vxF into a temporary file rather than 'sed -i': the lines this removes
+# are full shell commands containing '/', '$' and '.', every one of which would
+# have to be escaped for sed, and getting that wrong on a user's .bashrc is not
+# a mistake worth risking. -x -F means whole line, literal, no pattern at all.
+#
+# Args:
+#   $1  File to edit.
+#   $2  Exact line to remove.
+function remove_line_from_file {
+	[ -f "$1" ] || return 0
+	grep -qxF "$2" "$1" || return 0
+
+	set_privilege_for "$1"
+	# Single quotes on purpose: $1 and $2 are the inner shell's positional
+	# parameters, passed after the '_' below, not this function's.
+	# shellcheck disable=SC2016
+	do_step "remove '$2' from $1" \
+		"${SUDO[@]}" bash -c 'grep -vxF "$2" "$1" >"$1.cleanup-tmp" && mv "$1.cleanup-tmp" "$1"' _ "$1" "$2"
+}
+
+# Purge a package if its files are on disk.
+function purge_package {
+	package_installed "$1" || return 0
+	do_step "purge the $1 package" \
+		sudo env DEBIAN_FRONTEND=noninteractive apt-get purge -y "$1"
+}
+
+# True when a package's files are on disk. Only the third field of dpkg's
+# Status says so: 'dpkg -s' exits 0 for a package removed without --purge,
+# which would make us try to purge something that is already gone.
+function package_installed {
+	[ "$(dpkg-query -W -f='${db:Status-Status}' "$1" 2>/dev/null)" = "installed" ]
+}
+
+##### Preconditions #######################################
+
+# Refuse to run as root, matching oradio_install.sh and optimize_boot_time.sh:
+# every privileged step below calls sudo itself. Running the whole script as
+# root would also make set_privilege_for() answer "no sudo needed" for every
+# path, since root can write anywhere -- so the distinction between the files
+# the Oradio user owns and the ones it does not would quietly disappear.
+if [ "$EUID" -eq 0 ]; then
+	echo -e "${RED}Run this script as a normal user; it calls sudo itself${NC}" >&2
+	exit 1
+fi
+
+if [ "$DRY_RUN" -eq 1 ]; then
+	echo -e "${YELLOW}Dry run: nothing will be changed${NC}"
+fi
+
+##### v1.0.5 (2026-07-24): USB mounting rewritten ##########
+# usb-prepare.service, usb-mount@.service and usb-mount.sh were replaced by
+# usb-drive-boot.service, usb-drive@.service and usb-drive.sh. The udev rules
+# in /etc/udev/rules.d/99-local.rules were rewritten to point at the new
+# template, and that file IS overwritten by the installer, so nothing here
+# needs to touch it -- but the old units and script are still on disk, and
+# usb-prepare.service is still enabled and still runs at every boot.
+
+remove_unit usb-prepare.service
+remove_unit usb-mount@.service
+remove_file /usr/local/bin/usb-mount.sh
+
+# NOT cleaned up here, but handled: 'usb-storage.quirks=0781:5583:u' in
+# /boot/firmware/cmdline.txt, added by v1.0.1 to v1.0.4 and never since.
+#
+# It is stripped by optimize_boot_time.sh, which lists usb-storage.quirks in
+# CMDLINE_REMOVE. cmdline.txt has exactly one owner on purpose: two scripts
+# rebuilding the same line would leave the result depending on which ran last,
+# and that script is the one that refuses to write a line without root=.
+
+##### v1.0.6 (2026-08-18): USB tuning and log upload dropped
+# Three unrelated things landed in the same release:
+#
+# usb_low_idle_power.service was enabled and set the USB autosuspend policy.
+# 'Remove USB drive tuning' dropped it; on an upgraded device it is still
+# enabled and still applying a policy nothing else knows about.
+#
+# send_log_files_to_rms.sh uploaded the logging directory to the Remote
+# Monitoring Service. rms_service.py does that itself now. The script was never
+# scheduled -- no cron entry, no timer -- so it is inert, but it is a second,
+# divergent copy of the upload rules sitting where someone will find it.
+#
+# usb-drive.sh moved from /usr/local/bin to /usr/local/sbin. install_resource
+# wrote the new path and left the old one, so both exist and only one is
+# maintained.
+
+remove_unit usb_low_idle_power.service
+remove_file /usr/local/bin/send_log_files_to_rms.sh
+remove_file /usr/local/bin/usb-drive.sh
+
+# NOT cleaned up here: /lib/systemd/system/mpd.service. Until v1.0.6 the
+# installer overwrote it; since then the Oradio settings live in the drop-in
+# /etc/systemd/system/mpd.service.d/oradio.conf instead. The leftover is the
+# stock Debian unit, and /lib/systemd/system is owned by the mpd package:
+# deleting it leaves 'systemctl start mpd' with no unit at all. dpkg rewrites
+# the file on the next mpd package upgrade anyway, which is the right way for
+# it to be restored.
+
+##### v1.0.7 (2026-09-07): crash handler renamed ###########
+# oradio-crash-action.{service,sh} became oradio-crash.{service,sh}, and the
+# logfile crash-action.log became crash.log.
+#
+# The service is pulled in by 'OnFailure=' in oradio.service rather than
+# enabled, and oradio.service now names the new unit, so the old one never
+# fires. remove_unit still handles it: the point is that the unit file is gone
+# from systemd's view, not just unreferenced.
+
+remove_unit oradio-crash-action.service
+remove_file /usr/local/sbin/oradio-crash-action.sh
+remove_logfiles crash-action.log
+
+# The shared 'apt-get update' stamp moved from /var/lib/apt, which belongs to
+# apt, into /var/lib/oradio, which does not. The old file is inert -- nothing
+# reads it any more -- but it is an Oradio file in apt's state directory, and
+# the next person to go looking for why an update was skipped should find only
+# one stamp.
+remove_file /var/lib/apt/last_update_stamp
+
+##### Next release (issue #498): Spotify Connect removed ###
+# Everything below was installed by 'Spotify connect functionality' in
+# oradio_install.sh, which no longer exists.
+#
+# librespot.service is the one that matters. It is WantedBy=multi-user.target
+# and has 'Restart=always', and its ExecStart passes '--device SpotCon_in' --
+# an ALSA plugin chain that was removed from /etc/asound.conf. On an upgraded
+# device it therefore keeps starting at every boot, keeps announcing the Oradio
+# as a Spotify Connect endpoint on the network, and fails as soon as anyone
+# connects to it. The rest is inert, but leaving it invites the next reader to
+# assume the feature is still there.
+#
+# Rename this heading to the release tag once it ships.
+
+remove_unit librespot.service
+remove_file /usr/local/bin/spotify_event_handler.sh
+
+# raspotify was only ever installed to get librespot; oradio_install.sh masked
+# the raspotify unit and used the binary. Purge rather than remove, so its
+# config and the apt source its installer added go too.
+purge_package raspotify
+
+# The flag files librespot's --onevent handler wrote, and the directory holding
+# them. Owned by the Oradio user, removed here because nothing else will.
+remove_dir "$ORADIO_ROOT/Spotify"
+
+remove_logfiles spotify.log
+
+# NOT cleaned up here: the VolumeSpotCon1 and VolumeSpotCon2 softvol controls
+# stored in /var/lib/alsa/asound.state. They are recreated from that file by
+# 'alsactl restore' and are harmless once /etc/asound.conf stops declaring the
+# chain -- restore simply skips controls it cannot place. Editing asound.state
+# by hand risks the controls Oradio does need (VolumeMPD, VolumeSysSound), and
+# the file is rewritten from the live card at shutdown anyway.
+
+##### Next release: install resume mechanism replaced ######
+# oradio_install.sh used to resume after its mid-install reboot by appending a
+# line to ~/.bashrc and switching the console to auto-login. It now enables a
+# one-shot systemd unit instead, which it removes itself in the '--continue'
+# pass.
+#
+# The .bashrc line is the part that has to go. It fires in EVERY interactive
+# shell, so on a device where the second pass never ran, every login since has
+# been starting another installation.
+#
+# Rename this heading to the release tag once it ships.
+
+remove_line_from_file "$HOME/.bashrc" "bash $ORADIO_ROOT/oradio_install.sh --continue"
+
+# NOT cleaned up here: console auto-login, if an interrupted install left it
+# on. 'raspi-config nonint do_boot_behaviour B1' would turn it off, but B1 is a
+# setting an owner may have chosen deliberately, and this script has no way to
+# tell an installer leftover from a preference. Check it by hand on a device
+# that was interrupted mid-install:
+#   systemctl show getty@tty1 -p ExecStart | grep -o autologin
+
+##### Apply unit removals ##################################
+# One reload for the whole run, after every section has had its say. Reported
+# rather than fatal, like every other step: systemd picks the removals up at
+# the next reload or reboot regardless, so a failure here delays the effect
+# instead of preventing it.
+if [ "$NEED_DAEMON_RELOAD" -eq 1 ]; then
+	echo -e "${YELLOW}Reloading systemd${NC}"
+	if ! sudo systemctl daemon-reload 2>/dev/null; then
+		echo -e "${RED}Failed to reload systemd; removed units disappear at the next reboot${NC}"
+	fi
+fi
+
+##### Summary #############################################
+
+if [ "$DRY_RUN" -eq 1 ]; then
+	echo -e "${GREEN}Dry run complete: nothing was changed${NC}"
+elif [ "$FAILED" -eq 1 ]; then
+	# Checked before CLEANED: a run that removed nothing because every step
+	# failed must not report the same thing as a device that was already clean.
+	echo -e "${RED}Some artefacts from earlier versions could not be removed; see above${NC}"
+elif [ "$CLEANED" -eq 0 ]; then
+	echo -e "${GREEN}No artefacts from earlier versions found${NC}"
+else
+	echo -e "${GREEN}Artefacts from earlier versions removed${NC}"
+fi
+
+# Always 0: see the comment on 'set -o nounset' at the top. A leftover this
+# script could not remove must not abort the install that called it.
+exit 0

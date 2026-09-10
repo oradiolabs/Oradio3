@@ -19,7 +19,7 @@ Created on January 27, 2025
     Tracks the analog volume knob via the MCP3021 ADC over I2C, maps its
     position to a percentage, and updates the ALSA master volume control
     whenever the knob moves significantly. Also sets the initial default
-    volumes for MPD, Spotify, and system sounds. Publishes a single
+    volumes for MPD and system sounds. Publishes a single
     volume-changed message per "turn" of the knob. Notifications are
     automatically disarmed while the knob is moving and re-armed once it
     settles, so other components can react to knob movement without
@@ -51,13 +51,11 @@ VOL_MAX   = "100%"      # 207
 
 # ALSA volume controls
 VOLUME_CONTROL_MPD       = "VolumeMPD"
-VOLUME_CONTROL_SPOTIFY   = "VolumeSpotCon2"
 VOLUME_CONTROL_SYS_SOUND = "VolumeSysSound"
 VOLUME_CONTROL_MASTER    = "Digital Playback Volume"
 
 # Default source volume levels
 DEFAULT_VOLUME_MPD       = "100%"
-DEFAULT_VOLUME_SPOTIFY   = "100%"
 DEFAULT_VOLUME_SYS_SOUND = "90%"
 # Level at which the sys_sound level is kept flat by reducing the Volume_sys_sound channel
 VOLUME_SYS_SOUND_FLAT    = "70%"
@@ -108,9 +106,6 @@ class VolumeControl(ThreadTemplate):
 
         # Set default MPD volume
         self._set_volume(VOLUME_CONTROL_MPD, DEFAULT_VOLUME_MPD)
-
-        # Set default Spotify volume
-        self._set_volume(VOLUME_CONTROL_SPOTIFY, DEFAULT_VOLUME_SPOTIFY)
 
         # Set default system sounds volume
         self._set_volume(VOLUME_CONTROL_SYS_SOUND, DEFAULT_VOLUME_SYS_SOUND)
