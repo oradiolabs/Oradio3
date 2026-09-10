@@ -183,7 +183,7 @@ class I2CService:
                 Incidents.publish(IncidentMessage(I2C_SOURCE, I2C_READ_FAILED))
         return None
 
-    def write_byte(self, device: int, register: int, value: int) -> None:
+    def write_byte(self, device: int, register: int, value: int) -> bool:
         """
         Write a single byte to a device register.
         - Thread-safe with a lock.
@@ -194,17 +194,23 @@ class I2CService:
             device (int): I2C device address.
             register (int): Register address on the device.
             value (int): Byte value to write.
+
+        Returns:
+            bool: True once the write is acknowledged. False if the bus is
+                unavailable or every attempt failed, so a caller that depends
+                on the write landing can report that instead of waiting for an
+                effect that will not happen.
         """
         if self._bus is None:
             oradio_log.error("I2C bus not available")
             Incidents.publish(IncidentMessage(I2C_SOURCE, I2C_BUS_FAILED))
-            return
+            return False
 
         for attempt in range(1, I2C_RETRIES + 1):
             with self._lock:
                 try:
                     self._bus.write_byte_data(device, register, value)
-                    return
+                    return True
                 except (OSError, ValueError, TypeError) as ex_err:
                     oradio_log.warning(
                         "I2C write byte failed (attempt %d/%d): device=0x%02X, register=0x%02X, value=0x%02X -> %s",
@@ -218,6 +224,7 @@ class I2CService:
             device, register, value, I2C_RETRIES
         )
         Incidents.publish(IncidentMessage(I2C_SOURCE, I2C_WRITE_FAILED))
+        return False
 
 ##### Block operations ####################################
 
@@ -257,7 +264,7 @@ class I2CService:
                 Incidents.publish(IncidentMessage(I2C_SOURCE, I2C_READ_FAILED))
         return None
 
-    def write_block(self, device: int, register: int, data: list) -> None:
+    def write_block(self, device: int, register: int, data: list) -> bool:
         """
         Write a block of bytes to a device register.
         - Thread-safe with a lock.
@@ -268,21 +275,26 @@ class I2CService:
             device (int): I2C device address.
             register (int): Register address on the device.
             data (list): List of byte values to write, max 32.
+
+        Returns:
+            bool: True once the write is acknowledged. False if the bus is
+                unavailable, the block exceeds 32 bytes, or every attempt
+                failed.
         """
         if self._bus is None:
             oradio_log.error("I2C bus not available")
             Incidents.publish(IncidentMessage(I2C_SOURCE, I2C_BUS_FAILED))
-            return
+            return False
 
         if len(data) > 32:
             oradio_log.error("SMBus block write supports a maximum of 32 bytes")
-            return
+            return False
 
         for attempt in range(1, I2C_RETRIES + 1):
             with self._lock:
                 try:
                     self._bus.write_i2c_block_data(device, register, data)
-                    return
+                    return True
                 except (OSError, ValueError, TypeError) as ex_err:
                     oradio_log.warning(
                         "I2C write block failed (attempt %d/%d): device=0x%02X, register=0x%02X, data=%s -> %s",
@@ -296,6 +308,7 @@ class I2CService:
             device, register, data, I2C_RETRIES
         )
         Incidents.publish(IncidentMessage(I2C_SOURCE, I2C_WRITE_FAILED))
+        return False
 
 ##### Stand-alone entry point #############################
 
