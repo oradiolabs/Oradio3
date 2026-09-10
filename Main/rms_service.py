@@ -1699,6 +1699,28 @@ class RMService:
             self._queue = None
             Incidents.publish(IncidentMessage(RMS_SOURCE, RMS_START_FAILED))
 
+    @property
+    def wifi_connected(self) -> bool:
+        """
+        Whether WiFi is connected, per the last WIFI_* message the handler saw.
+
+        Exposed because send_message() silently drops everything while WiFi is
+        down, so a caller that must not lose its message needs to be able to
+        wait for the link instead of firing into it. Reading this rather than
+        the handler's own attribute keeps callers off _handler.
+
+        This is the gate that decides whether a message is accepted, which is
+        not the same question as WifiService.connected: that one says whether
+        WiFi is up, this one says whether this service has caught up with it
+        yet. A caller that is about to send should ask this one.
+
+        False when the service is not started: nothing can be sent then either.
+        """
+        if self._handler is None:
+            return False
+
+        return self._handler.wifi_connected
+
     def send_message(self, msg_type: str, incident: IncidentMessage | None = None) -> None:
         """
         Send a message to the RMS server.
