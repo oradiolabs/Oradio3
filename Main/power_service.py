@@ -151,30 +151,38 @@ class PowerStatus(TypedDict):
 
 ##### Minimal read-only API ###############################
 
-def get_power_status() -> PowerStatus | Literal[False]:
+def get_power_status() -> PowerStatus | None | Literal[False]:
     """Read the currently negotiated PD voltage and current.
 
     Both values live in PD_STATUS0, so this is a single I2C register read. It
     triggers no PD transaction, so it cannot disturb an active contract or
     add startup latency.
 
-    Return False when the read fails, and when the negotiated contract is not
-    one of _OPERATING_VOLTAGES at the minimum current _POWER_PROFILES lists
-    for it. The caller handles it from there.
+    Three outcomes, and the caller has to tell them apart, because two of them
+    are answers and the third is the absence of one:
+
+    - a PowerStatus: the HUSB238 answered and the contract is one Oradio runs on.
+    - False: the HUSB238 answered and the contract is not. This is a verdict
+      on the power supply, and the only outcome that justifies refusing to run.
+    - None: the register could not be read, so there is no verdict. The supply
+      may well be fine. Treating this as False would let one unanswered I2C
+      transaction stop an Oradio that has a perfectly good power supply
+      plugged in, which costs a working device to protect against a fault
+      that was never established.
 
     For the PD_STATUS1 fields (attach, CC direction, PD response, 5V
     contract), use get_diagnostic_status() in the stand-alone section.
 
     Returns:
-        The negotiated contract, or False when PD_STATUS0 could not be read
-        or the contract is not one Oradio can run on. On a returned contract
+        The negotiated contract, False when the contract is not one Oradio can
+        run on, or None when PD_STATUS0 could not be read. On a returned contract
         both fields are populated: voltage_v is one of _OPERATING_VOLTAGES
         and current_a meets the _POWER_PROFILES minimum for it.
     """
     status0 = I2CService().read_byte(HUSB238_ADDRESS, REG_PD_STATUS0)
     if status0 is None:
         oradio_log.error("PD_STATUS0 (PD Status register 0 - voltage/current selection) read failed")
-        return False
+        return None
 
     voltage_v, current_a = _decode_status0(status0)
     if voltage_v is None:
@@ -182,9 +190,10 @@ def get_power_status() -> PowerStatus | Literal[False]:
         # is unusual but not a fault, so this logs at DEBUG.
         oradio_log.debug("PD_STATUS0=0x%02X holds a voltage selector outside the Oradio set", status0)
 
-    # Report an incident for any contract Oradio cannot run on: a voltage
-    # outside _OPERATING_VOLTAGES, or one of those voltages below its minimum
-    # current. The incident service decides what follows from the incident.
+    # Reject any contract Oradio cannot run on: a voltage outside
+    # _OPERATING_VOLTAGES, or one of those voltages below its minimum current.
+    # Logged here because this is where the numbers are; what follows from it
+    # is the caller's decision.
     if (
         voltage_v not in _OPERATING_VOLTAGES
         or current_a is None

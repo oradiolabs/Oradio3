@@ -138,10 +138,22 @@ VolumeControl().start()
 oradio_wifi_service = WifiService()
 oradio_wifi_service.start()
 
+# Seconds between checks while waiting for WiFi to carry the power supply
+# incident. Long on purpose: nothing else is happening, and a tight loop would
+# only spin a core on a device that has already stopped being useful.
+POWER_INCIDENT_WIFI_POLL = 10
+
 # Get power supply info
 power_status = get_power_status()
 
-# Verify the power contract
+# Verify the power contract.
+#
+# Only an actual verdict stops the Oradio. get_power_status() returns False
+# when the HUSB238 answered and the contract is one Oradio cannot run on, and
+# None when the register could not be read at all. The second is not a verdict:
+# the supply may be fine, and refusing to run on an unanswered I2C transaction
+# would cost a working device to guard against a fault that was never
+# established.
 if power_status is False:
     # Blink STOP/OFF led to indicate Oradio has an error
     leds.control_blinking_led(LED_STOP, 0.7)
@@ -149,15 +161,41 @@ if power_status is False:
     # Inform the user to use the original power supply
     play_sound(SOUND_POWER_ERROR)
 
-    # Post incident (if connected to internet)
+    # Report to RMS, but not before WiFi can carry it.
+    #
+    # send_message() drops anything queued while WiFi is down, and nothing
+    # re-sends it. Firing it here would be firing into the dark: at this point
+    # in start-up WifiService has usually only just handed its own start to a
+    # background thread, so RMS has not seen a WIFI_CONNECTED message yet and
+    # the incident would be discarded a few lines before the Oradio stops
+    # doing anything else.
+    #
+    # Waiting has no cost. The Oradio is not going to serve this user again
+    # either way, so the only thing left to accomplish is telling RMS why. An
+    # Oradio that never reaches an access point never reports it, which is the
+    # right outcome: there is no route by which it could.
+    oradio_log.info("Waiting for WiFi to report the power supply incident")
+
+    while not remote_monitor.wifi_connected:
+        sleep(POWER_INCIDENT_WIFI_POLL)
+
     remote_monitor.send_message(INCIDENT, IncidentMessage(POWER_SOURCE, POWER_ERROR))
 
-    # Stop execution, as oradio cannot function without the correct power supply
+    # Stop execution: Oradio cannot function on this supply, and there is
+    # nothing to recover from. Replacing the power supply means unplugging it,
+    # which power-cycles the device, so the check runs again from the top on
+    # its own. No re-check here, and no way out of this loop by design.
     while True:
         sleep(3600)
 
-# Power contract is ok: log and continue
-oradio_log.info("Power supply: %sV @ %sA", power_status["voltage_v"], power_status["current_a"])
+if power_status is None:
+    # No verdict, so carry on and let the Oradio be useful. I2CService has
+    # already published I2C_READ_FAILED, so the failed read is reported by the
+    # layer that owns it and does not need a second incident here.
+    oradio_log.warning("Power supply status unknown: continuing without a verified contract")
+else:
+    # Power contract is ok: log and continue
+    oradio_log.info("Power supply: %sV @ %sA", power_status["voltage_v"], power_status["current_a"])
 
 web_service_active = threading.Event() # Track status web_service
 web_service_active.clear() # Start-up state is no Web service
