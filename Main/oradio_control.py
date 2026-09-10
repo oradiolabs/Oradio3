@@ -297,16 +297,40 @@ class StateMachine:
         return False
 
     def _block_webradio_without_internet(self, requested_state: str) -> bool:
-        """Block WebRadio presets when no internet; return True if blocked."""
+        """
+        Block WebRadio presets when no internet; return True if blocked.
+
+        Asks NetworkManager rather than resolving a name. NM keeps a
+        connectivity assessment it refreshes by probing, so this is one D-Bus
+        read with no network traffic, and it is the same signal that decides
+        whether WIFI_CONNECTED is published -- so this answer and the WiFi
+        state can never contradict each other.
+
+        It is also the better answer. A captive portal resolves every name it
+        is asked, so a successful DNS lookup behind one proves nothing, and a
+        stream started there plays a login page instead of audio. NM reports
+        that as PORTAL and this blocks it.
+
+        has_internet() survives as the fallback for one case: NM could not be
+        asked at all, because the event listener is not running. Refusing to
+        play on "we could not tell" would take music away over a fault that
+        has nothing to do with the connection, so the DNS probe gets the last
+        word there.
+        """
         if requested_state in WEB_PRESET_STATES:
             preset_key = requested_state[len("State"):]
 
-# REVIEW:
-#   Is has_internet() call needed? No call is preferred as the wifi state is known:
-#    WIFI_CONNECTED == internet, WIFI_DISCONNECTED and WIFI_ACCESS_POINT != internet.
-#   IF state is not known/trusted then better use wifi_service.get_state()
+            # Preset check first, as before: a preset that is not a webradio
+            # needs no connectivity answer at all.
+            if not mpd_control.is_webradio(preset=preset_key):
+                return False
 
-            if mpd_control.is_webradio(preset=preset_key) and not has_internet():
+            connected = oradio_wifi_service.has_connectivity()
+            if connected is None:
+                oradio_log.debug("NetworkManager could not be asked; falling back to a DNS probe")
+                connected = has_internet()
+
+            if not connected:
                 oradio_log.info("Webradio blocked: no Internet")
                 threading.Timer(2, play_sound, args=(SOUND_NO_INTERNET,)).start()
                 return True

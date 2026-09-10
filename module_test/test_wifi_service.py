@@ -131,6 +131,10 @@ class StubNmcliConnection:
         self.calls.append(("delete", name))
 
 
+# NetworkManager's connectivity code for confirmed internet access, matching what wifi_listener defines.
+# Named here because the fake listener answers get_connectivity() with it and the stub module exports it.
+STUB_NM_CONNECTIVITY_FULL = 4
+
 # Eleven attributes against a max-attributes of 10: the fake needs one per thing a test can set and one per
 # thing a test can read. Kept local rather than raising the project limit, as WifiEventListener does.
 class FakeListener:    # pylint: disable=too-many-instance-attributes
@@ -156,12 +160,20 @@ class FakeListener:    # pylint: disable=too-many-instance-attributes
         self.safe_stop_calls = 0
         self.scan_calls = 0
 
+        # What get_connectivity() reports. None mirrors a listener that is not running, which is what the
+        # real one returns when it has no D-Bus properties object to ask.
+        self.connectivity: int | None = None
+
         self._alive = False
         self._lock = Lock()
 
     def is_alive(self) -> bool:
         """Whether the fake thread is running."""
         return self._alive
+
+    def get_connectivity(self) -> int | None:
+        """Report whatever the test set, as the real listener reports NM's assessment."""
+        return self.connectivity
 
     def safe_start(self, timeout: float = 5.0) -> bool:
         """Record the call and report the result the test asked for."""
@@ -270,6 +282,7 @@ def _install_stubs() -> None:
     _stub_module(
         "wifi_listener",
         AP_SCAN_SWEEPS=3,
+        NM_CONNECTIVITY_FULL=STUB_NM_CONNECTIVITY_FULL,
         WifiEventListener=FakeListener,
         nm_available=lambda: True,
         nmcli_try=_stub_nmcli_try,
@@ -384,6 +397,29 @@ class WifiServiceTestCase(unittest.TestCase):
 
 
 ##### Tests ###############################################
+
+class TestHasConnectivity(WifiServiceTestCase):
+    """has_connectivity() maps NetworkManager's assessment onto a yes / no / cannot tell."""
+
+    def test_full_is_the_only_yes(self):
+        """Only FULL counts as internet; PORTAL and LIMITED are connections that cannot stream."""
+        self.listener.connectivity = STUB_NM_CONNECTIVITY_FULL
+        self.assertTrue(self.service.has_connectivity())
+
+        for code in (1, 2, 3):   # NONE, PORTAL, LIMITED
+            self.listener.connectivity = code
+            self.assertFalse(self.service.has_connectivity(), f"connectivity {code} is not internet")
+
+    def test_unreadable_is_not_a_no(self):
+        """
+        A listener that cannot be asked returns None, not False.
+
+        The distinction is the point of the method: a caller that treats 'cannot tell' as 'no internet'
+        would refuse to play a webradio on a device whose only fault is a listener that is not running.
+        """
+        self.listener.connectivity = None
+        self.assertIsNone(self.service.has_connectivity())
+
 
 class TestStart(WifiServiceTestCase):
     """start(): who gets to start the listener, and how often."""

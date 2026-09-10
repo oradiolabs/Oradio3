@@ -838,7 +838,7 @@ class WifiEventListener(ThreadTemplate):    # pylint: disable=too-many-instance-
             Commands.publish(CommandMessage(WIFI_SOURCE, WIFI_ACCESS_POINT))
             return
 
-        if self._get_connectivity() == NM_CONNECTIVITY_FULL:
+        if self.get_connectivity() == NM_CONNECTIVITY_FULL:
             oradio_log.debug("Republishing state after rebuild: connected")
             Commands.publish(CommandMessage(WIFI_SOURCE, WIFI_CONNECTED))
         else:
@@ -885,12 +885,16 @@ class WifiEventListener(ThreadTemplate):    # pylint: disable=too-many-instance-
         self._schedule_rebuild()
         return False
 
-    def _get_connectivity(self) -> int:
+    def get_connectivity(self) -> int | None:
         """
         Return NetworkManager's current connectivity assessment.
 
         Reads the Connectivity property from the top-level NetworkManager D-Bus object. NM maintains this value by
         probing after each connection attempt, so no additional network round-trip is made here.
+
+        Public because it answers a question no cached state can: whether there is internet access *right now*.
+        WIFI_CONNECTED is published on FULL and never republished when the uplink dies without the association
+        dropping, so a caller that needs the current answer has to ask NM rather than read the last message.
 
         Returns:
             An integer connectivity code:
@@ -900,15 +904,18 @@ class WifiEventListener(ThreadTemplate):    # pylint: disable=too-many-instance-
             * NM_CONNECTIVITY_LIMITED (3) — IP connectivity, no internet route
             * NM_CONNECTIVITY_FULL (4)    — full internet access confirmed
 
-            NM_CONNECTIVITY_NONE on any D-Bus error, so an unreadable state reads as no connectivity.
+            None when the property could not be read at all, which is deliberately NOT NM_CONNECTIVITY_NONE: NONE
+            is NetworkManager saying there is no network, None is NetworkManager not saying anything. A caller that
+            treats "cannot tell" as "no internet" would block on a device whose only fault is a listener that is
+            not running.
         """
         if self._nm_props is None:
-            return NM_CONNECTIVITY_NONE
+            return None
         try:
             return int(self._nm_props.Get(NM_IFACE, "Connectivity"))
         except DBusException as ex_err:
             oradio_log.error("Failed to read NM Connectivity property: %s", ex_err.get_dbus_message())
-            return NM_CONNECTIVITY_NONE     # Treat unreadable state as no connectivity
+            return None
 
     def _seed_access_points(self) -> None:
         """
@@ -1283,13 +1290,13 @@ class WifiEventListener(ThreadTemplate):    # pylint: disable=too-many-instance-
                 else:
                     # Read NM's connectivity assessment — it has already probed for internet access so no separate
                     # round-trip is needed here
-                    connectivity = self._get_connectivity()
+                    connectivity = self.get_connectivity()
                     if connectivity == NM_CONNECTIVITY_FULL:
                         # External network with confirmed internet access
                         oradio_log.debug("Wifi connected to internet")
                         Commands.publish(CommandMessage(WIFI_SOURCE, WIFI_CONNECTED))
                     else:
-                        # PORTAL, LIMITED, or NONE: IP may be assigned but there is no usable internet route
+                        # PORTAL, LIMITED, NONE, or unreadable: IP may be assigned but no usable internet route
                         oradio_log.debug("Wifi not connected to internet")
                         Incidents.publish(IncidentMessage(WIFI_SOURCE, WIFI_CONNECT_FAILED))
 

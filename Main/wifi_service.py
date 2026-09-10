@@ -57,6 +57,7 @@ from messaging import (
 )
 from wifi_listener import (
     AP_SCAN_SWEEPS,
+    NM_CONNECTIVITY_FULL,
     WifiEventListener,
     nm_available,
     nmcli_try,
@@ -491,6 +492,39 @@ class WifiService:
         # report readiness for a list this stop has just invalidated.
         self.nm_listener.list_building.clear()
         self.nm_listener.list_ready.clear()
+
+    def has_connectivity(self) -> bool | None:
+        """
+        Whether there is internet access right now, per NetworkManager.
+
+        Reads NM's own Connectivity assessment, which it maintains by probing
+        after each connection attempt, so this costs one D-Bus property read
+        and no network traffic.
+
+        Preferred over a DNS lookup for "can this stream play". It is the same
+        signal that decides whether WIFI_CONNECTED is published, so the two
+        cannot disagree, and it separates a captive portal from a working
+        connection -- a portal answers DNS for every name, so a name that
+        resolves proves nothing.
+
+        Preferred over the last published WiFi state because that state is only
+        as recent as the last transition: a router that loses its uplink
+        without dropping the association produces no new signal, and the last
+        message stays WIFI_CONNECTED.
+
+        Returns:
+            True when NM reports full internet access, False when it reports
+            anything less, and None when it could not be asked -- the listener
+            is not running, or the property could not be read. None is not
+            False: it means there is no answer, and a caller deciding whether
+            to refuse the user something should treat those differently.
+        """
+        connectivity = self.nm_listener.get_connectivity()
+
+        if connectivity is None:
+            return None
+
+        return connectivity == NM_CONNECTIVITY_FULL
 
     def get_state(self) -> str:
         """
