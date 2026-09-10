@@ -55,7 +55,7 @@ ExecStartPre=-+/usr/bin/chown PLACEHOLDER_USER:PLACEHOLDER_GROUP PLACEHOLDER_LOG
 ExecStartPre=/usr/local/sbin/oradio-prestart.sh
 
 # Creates the softvol controls that /etc/asound.conf depends on, and that
-# librespot.service also needs before its own mixer ExecStartPre can succeed.
+# volume_control.py sets at construction.
 #
 # '+' is required: alsactl cannot run as PLACEHOLDER_USER - asound.state, its
 # lock and the card lock are all root-only.

@@ -31,7 +31,6 @@ Design choices:
 		<script>
 			// Network page
 			const oldssid = {{ oldssid|tojson }};
-			let spotify = {{ spotify|tojson }};
 			// Buttons & playlists page
 			const directories = {{ directories|tojson }};
 			let playlists = {{ playlists|tojson }};
@@ -129,25 +128,6 @@ Design choices:
 				<!-- Show notifcation, if any -->
 				<div id="notification_network" class="notification">
 					<!-- Will be filled by Javascript -->
-				</div>
-
-				<!-- Spotify identifier -->
-				<h1>Kies naam in Spotify app</h1>
-
-				<input
-					type="text"
-					id="spotify-input"
-					name="spotify-input"
-					value="{{ spotify }}"
-					placeholder="Voer Spotify naam van deze Oradio in"
-				/>
-
-				<!-- Submit Spotify name -->
-				<button id="submitSpotifyButton" class="submit">Spotify naam instellen</button>
-
-				<!-- Show notifcation, if any -->
-				<div id="notification_spotify" class="notification">
-					<!-- Will be filled by Javascript submitSpotify() -->
 				</div>
 
 			</section>	<!-- End of network page -->

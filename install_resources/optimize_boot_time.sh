@@ -593,15 +593,16 @@ UNITS_TO_MASK=(
 # Note: alsa-state.service and alsa-restore.service are deliberately NOT masked.
 # alsa-state saves the mixer state at shutdown, and that saved state is what
 # 'alsactl restore' reads back. The softvol controls /etc/asound.conf declares
-# (VolumeMPD, VolumeSpotCon1/2, VolumeSysSound) do not exist until they are
-# restored, and librespot's ExecStartPre sets VolumeSpotCon1 with Restart=always
-# behind it - without the controls that unit restarts forever.
+# (VolumeMPD, VolumeSysSound) do not exist until they are restored, and
+# volume_control.py sets both at construction - without the controls every
+# start publishes a VOLUME_SET_FAILED incident.
 # oradio.service does not depend on alsa-restore.service: it runs 'alsactl
 # restore' itself from an ExecStartPre, after oradio-prestart.sh has confirmed
 # the card exists.
 #
 # Note: systemd-random-seed.service is deliberately NOT masked. It is cheap and
-# librespot needs credible randomness for TLS.
+# the HTTPS posts to the Remote Monitoring Service need credible randomness
+# for TLS.
 #
 # Note: avahi-daemon is deliberately NOT masked. mDNS (.local) discovery is
 # wanted on this device.

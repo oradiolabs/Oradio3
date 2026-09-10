@@ -100,8 +100,6 @@ mapfile -t CONSTANT_NAMES < <(sed -n 's/^[[:space:]]*\([A-Za-z_][A-Za-z0-9_]*\)=
 MAIN_PATH="$SCRIPT_PATH/Main"
 # Location of log files
 LOGGING_PATH="$SCRIPT_PATH/logging"
-# Spotify directory
-SPOTIFY_PATH="$SCRIPT_PATH/Spotify"
 # Location of Oradio3 system sounds
 SOUNDS_PATH="$SCRIPT_PATH/system_sounds"
 # Location of files to install
@@ -115,7 +113,6 @@ LOGFILE_USB="$LOGGING_PATH/usb.log"
 LOGFILE_MPD="$LOGGING_PATH/mpd.log"
 LOGFILE_BOOT="$LOGGING_PATH/boot.log"
 LOGFILE_CRASH="$LOGGING_PATH/crash.log"
-LOGFILE_SPOTIFY="$LOGGING_PATH/spotify.log"
 LOGFILE_INSTALL="$LOGGING_PATH/install.log"
 LOGFILE_TRACEBACK="$LOGGING_PATH/traceback.log"
 
@@ -158,7 +155,7 @@ unset INSTALL_ERROR
 #   - If "SRC.template" exists, it is rendered into SRC first, replacing
 #     PLACEHOLDER_USER / PLACEHOLDER_GROUP / PLACEHOLDER_<PATH_VAR> tokens
 #     with the current user/group and the path variables defined above
-#     (MAIN_PATH, SPOTIFY_PATH, LOGGING_PATH, LOGFILE_*).
+#     (MAIN_PATH, LOGGING_PATH, LOGFILE_*).
 #   - SRC is copied to DST via sudo only if the two files differ, so
 #     re-running this script is idempotent and quiet on unchanged files.
 #   - Any trailing CMD arguments run via `sudo bash -c "CMD"` *after* a
@@ -204,8 +201,8 @@ function install_resource {
 		# Replace placeholders. Combined into one sed invocation (instead of one
 		# `sed -i` per substitution) to avoid re-opening/rewriting the file N times.
 		local SED_ARGS=(-e "s/PLACEHOLDER_USER/$(id -un)/g" -e "s/PLACEHOLDER_GROUP/$(id -gn)/g")
-		for VAR_NAME in MAIN_PATH LOGGING_PATH SPOTIFY_PATH SOUNDS_PATH LOGFILE_USB LOGFILE_MPD \
-			LOGFILE_BOOT LOGFILE_CRASH LOGFILE_SPOTIFY LOGFILE_INSTALL LOGFILE_TRACEBACK \
+		for VAR_NAME in MAIN_PATH LOGGING_PATH SOUNDS_PATH LOGFILE_USB LOGFILE_MPD \
+			LOGFILE_BOOT LOGFILE_CRASH LOGFILE_INSTALL LOGFILE_TRACEBACK \
 			"${CONSTANT_NAMES[@]}"; do
 			local VALUE="${!VAR_NAME}"
 			# Escape & because sed treats it specially in the replacement text
@@ -363,35 +360,8 @@ if [ "${1:-}" != "--continue" ]; then
 		python3-rpi-lgpio
 	)
 
-	# raspotify is not in any configured repository until its own installer has
-	# added one, so it cannot go through pkg-helper.sh on a fresh machine:
-	# pkg-helper would correctly report it as unavailable and abort. Handle it
-	# first, then let pkg-helper keep it current on later runs like any other
-	# package.
-	#
-	# Only the third field of dpkg's Status says whether the files are on disk.
-	# 'dpkg -s' exits 0 for a package removed without --purge (config-files) or
-	# left half-written by an interrupted install, which would skip the install
-	# below while raspotify is in fact not there
+	# Cleared here so a package set installed or upgraded below can set it.
 	unset REBUILD_PYTHON_ENV
-	if [ "$(dpkg-query -W -f='${db:Status-Status}' raspotify 2>/dev/null)" != "installed" ]; then
-		echo -e "${YELLOW}raspotify is missing: installing...${NC}"
-		# NOTE: this pipes a remote, unpinned install script straight into
-		# `sh` as root. Convenient, but means the exact code that runs
-		# depends on whatever dtcooper's server serves at run time. If
-		# reproducibility/auditability ever matters more than convenience,
-		# switch to: download to a file, check `curl`'s exit status, then
-		# `sh` the local copy (optionally after inspecting/pinning it).
-		if curl -sL https://dtcooper.github.io/raspotify/install.sh | sh; then
-			# Only keep librespot
-			sudo systemctl mask --now raspotify
-			# No REBUILD_PYTHON_ENV here: raspotify ships librespot, a Rust
-			# binary the virtual environment does not link against
-		else
-			echo -e "${RED}Failed to install raspotify${NC}"
-			INSTALL_ERROR=1
-		fi
-	fi
 
 	# Everything else goes through the one implementation of "install if missing,
 	# upgrade if a newer candidate exists, confirm afterwards". pkg-helper.sh
@@ -439,9 +409,9 @@ if [ "${1:-}" != "--continue" ]; then
 	# to add. INSTALLER_NO_MODIFY_PATH is the older name for the same knob,
 	# set as well so this keeps working across installer versions.
 	#
-	# NOTE: like the raspotify install above, this pipes a remote, unpinned
-	# script into `sh`. If reproducibility ever matters more than tracking
-	# the latest release, pin it by fetching a specific version instead:
+	# NOTE: this pipes a remote, unpinned script into `sh`. If reproducibility
+	# ever matters more than tracking the latest release, pin it by fetching a
+	# specific version instead:
 	#   https://astral.sh/uv/0.9.7/install.sh
 	UV_BIN=/usr/local/bin/uv
 	if [ ! -x "$UV_BIN" ]; then
@@ -737,7 +707,6 @@ echo -e "${GREEN}i2c and device permissions configured${NC}"
 # Install audio configuration, set volume to reasonable level, play silence to activate
 install_resource "$RESOURCES_PATH/asound.conf" /etc/asound.conf \
 	'amixer -c DigiAMP cset name="Digital Playback Volume" 120'\
-	'aplay -D SpotCon_in /dev/zero -f FLOAT_LE -c 2 -r 44100 -d 1' \
 	'aplay -D MPD_in /dev/zero -f FLOAT_LE -c 2 -r 44100 -d 1' \
 	'aplay -D SysSound_in /dev/zero -f FLOAT_LE -c 2 -r 44100 -d 1'
 # Configure MPD
@@ -801,21 +770,6 @@ install_resource "$RESOURCES_PATH/logrotate.conf" /etc/logrotate.d/oradio
 install_resource "$RESOURCES_PATH/logrotate-timer-override.conf" /etc/systemd/system/logrotate.timer.d/oradio.conf
 # Progress report
 echo -e "${GREEN}Log files rotation configured${NC}"
-
-# Ensure Spotify directory and flag files exist with default '0' and correct ownership and permissions
-mkdir -p "$SPOTIFY_PATH" || { echo -e "${RED}Aborting: Failed to create directory $SPOTIFY_PATH${NC}"; exit 1; }
-for flag in "$SPOTIFY_ACTIVE_FLAG_NAME" "$SPOTIFY_PLAYING_FLAG_NAME"; do
-	file="$SPOTIFY_PATH/$flag"
-	if [ ! -f "$file" ]; then
-		echo "0" >"$file" || { echo -e "${RED}Aborting: Failed to write $file${NC}"; exit 1; }
-	fi
-done
-# install librespot event handler script
-install_script "$RESOURCES_PATH/spotify_event_handler.sh" /usr/local/bin/spotify_event_handler.sh
-# Configure the Librespot service to start on boot
-install_resource "$RESOURCES_PATH/librespot.service" /etc/systemd/system/librespot.service 'systemctl enable librespot.service'
-# Progress report
-echo -e "${GREEN}Spotify connect functionality is installed and configured${NC}"
 
 # Install the about script
 install_script "$RESOURCES_PATH/about" /usr/local/bin/about
