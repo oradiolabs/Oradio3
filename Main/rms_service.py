@@ -69,7 +69,7 @@ from time import sleep
 from pathlib import Path
 from collections.abc import Callable
 from threading import Timer, Event, Thread
-from datetime import datetime
+from datetime import datetime, timezone
 from dataclasses import dataclass
 from platform import python_version
 from queue import Queue as JobQueue, Empty, Full
@@ -111,7 +111,7 @@ INCIDENT  = 'INCIDENT'
 SOFTWARE_VERSION_FILE = "/var/log/oradio_sw_version.log"
 
 # How the 'generated' field is formatted in every message posted to RMS
-TIMESTAMP_FORMAT = '%Y-%m-%d %H:%M:%S'
+TIMESTAMP_FORMAT = '%Y-%m-%d %H:%M:%S%z'
 
 # How often the heartbeat is sent (seconds); currently once per hour
 HEARTBEAT_REPEAT = 60 * 60
@@ -1609,7 +1609,7 @@ class WifiMessageHandler(MessageHandlerTemplate):
             oradio_log.debug("WiFi not available; not sending %s message", msg_type)
             return
 
-        # Timestamped here rather than at POST time, so the message reports
+        # UTC timestamped here rather than at POST time, so the message reports
         # when its event happened and not when the sender got to it. For an
         # incident the event is when it was raised, which is earlier still:
         # it has already crossed the incident bus and its queue to get here,
@@ -1619,9 +1619,9 @@ class WifiMessageHandler(MessageHandlerTemplate):
         # value narrows the type for free, and does so in a way that is not
         # stripped by 'python -O'.
         if incident is not None:
-            generated = datetime.fromtimestamp(incident.timestamp).strftime(TIMESTAMP_FORMAT)
+            generated = datetime.fromtimestamp(incident.timestamp, tz=timezone.utc).astimezone().strftime(TIMESTAMP_FORMAT)
         else:
-            generated = datetime.now().strftime(TIMESTAMP_FORMAT)
+            generated = datetime.now().astimezone().strftime(TIMESTAMP_FORMAT)
 
         self._sender.submit(
             _SendJob(
