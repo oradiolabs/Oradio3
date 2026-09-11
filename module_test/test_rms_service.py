@@ -1146,7 +1146,12 @@ class TestWifiMessageHandlerSendMessage(RmsTestCase):
         """generated reflects the call, not the moment the sender gets to it."""
         self.handler.send_message(SYS_INFO)
 
-        self.assertRegex(self.submitted().generated, r"^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$")
+        # Trailing [+-]NNNN: every posted timestamp carries its UTC offset, so a
+        # reader never has to know which zone the device was in.
+        self.assertRegex(
+            self.submitted().generated,
+            r"^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}[+-]\d{4}$"
+        )
 
     def test_incident_reports_when_it_was_raised(self):
         """
@@ -1163,7 +1168,17 @@ class TestWifiMessageHandlerSendMessage(RmsTestCase):
 
         self.handler.send_message(INCIDENT, incident)
 
-        self.assertEqual(self.submitted().generated, "2026-01-02 03:04:05")
+        # Wall clock asserted separately from the offset. raised is a naive local
+        # datetime, so the epoch round-trip gives those digits back whatever zone
+        # the test runs in, while the offset itself is whatever that zone was --
+        # +0000 on a CI box, +0100 on a device in winter. Pinning the whole string
+        # would make this pass in one zone and fail in another.
+        generated = self.submitted().generated
+        self.assertTrue(
+            generated.startswith("2026-01-02 03:04:05"),
+            f"expected the time it was raised, got {generated}"
+        )
+        self.assertRegex(generated, r"[+-]\d{4}$")
 
     def test_every_periodic_message_is_queued(self):
         """A reconnect burst queues each heartbeat and system info it asks for."""

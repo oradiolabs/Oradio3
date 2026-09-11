@@ -110,7 +110,19 @@ INCIDENT  = 'INCIDENT'
 # Path to the JSON file written by the deployment pipeline with version info
 SOFTWARE_VERSION_FILE = "/var/log/oradio_sw_version.log"
 
-# How the 'generated' field is formatted in every message posted to RMS
+# How the 'generated' field is formatted in every message posted to RMS.
+#
+# Local time with an explicit UTC offset, e.g. '2026-01-02 04:00:45+0100'. Not
+# UTC, despite the offset being there to make that readable: the wall-clock part
+# is the time the user experienced, which is what the log files travelling in
+# the same POST also show, so an incident and the log lines around it can be
+# read side by side without arithmetic.
+#
+# The '%z' is what makes that safe. Without it a bare timestamp leaves the
+# reader guessing which zone a device was in, and the Oradio image does not fix
+# one -- oradio_install.sh sets no timezone, so it comes from whatever the
+# imager wrote. With the offset the value stays unambiguous and a server can
+# normalise it to UTC without knowing anything about the device.
 TIMESTAMP_FORMAT = '%Y-%m-%d %H:%M:%S%z'
 
 # How often the heartbeat is sent (seconds); currently once per hour
@@ -1609,7 +1621,7 @@ class WifiMessageHandler(MessageHandlerTemplate):
             oradio_log.debug("WiFi not available; not sending %s message", msg_type)
             return
 
-        # UTC timestamped here rather than at POST time, so the message reports
+        # Timestamped here rather than at POST time, so the message reports
         # when its event happened and not when the sender got to it. For an
         # incident the event is when it was raised, which is earlier still:
         # it has already crossed the incident bus and its queue to get here,
@@ -1618,8 +1630,15 @@ class WifiMessageHandler(MessageHandlerTemplate):
         # guard above already rejects one without the other, and testing the
         # value narrows the type for free, and does so in a way that is not
         # stripped by 'python -O'.
+        #
+        # Both branches end in local time carrying its offset. IncidentMessage
+        # stores epoch seconds, so it is read as UTC and then converted with
+        # astimezone(); datetime.now() is already local and astimezone() only
+        # attaches the offset it was missing.
         if incident is not None:
-            generated = datetime.fromtimestamp(incident.timestamp, tz=timezone.utc).astimezone().strftime(TIMESTAMP_FORMAT)
+            generated = datetime.fromtimestamp(
+                incident.timestamp, tz=timezone.utc
+            ).astimezone().strftime(TIMESTAMP_FORMAT)
         else:
             generated = datetime.now().astimezone().strftime(TIMESTAMP_FORMAT)
 
