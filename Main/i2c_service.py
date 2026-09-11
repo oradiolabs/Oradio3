@@ -41,7 +41,14 @@ from messaging import (
 
 ##### LOCAL constants #####################################
 I2C_RETRIES = 3
-I2C_BACKOFF = 1     # seconds
+
+# Seconds between attempts. Sized for the bus, not for a network: an I2C
+# transaction takes tens of microseconds, and a device that NACKed because it
+# was busy is ready again within a millisecond or two. Ten gives it room
+# without making a failing transfer cost its caller most of a second -- which
+# matters because get_power_status() sits on the start-up path and the
+# backlight reads the light sensor in a loop.
+I2C_BACKOFF = 0.01  # seconds
 
 ORADIO_DEVICES = {
     0x4D: {"name": "MCP3021 - A/D Converter"},
@@ -160,40 +167,78 @@ class I2CService:
         """
         Read a single byte from a device register.
         - Thread-safe with a lock.
+        - Read with retries and backoff.
         - Logs the operation and any errors.
+
+        Retried unconditionally, with no way to opt out. A register read has no
+        side effect, so repeating one cannot make anything worse: the only cost
+        of a retry that was not needed is a few microseconds on the bus. That
+        is what separates reads from writes here -- see write_byte() for the
+        case where repeating a transfer is not free.
 
         Args:
             device (int): I2C device address.
             register (int): Register address on the device.
 
         Returns:
-            int | None: Byte value read from the device, or None on error.
+            int | None: Byte value read from the device, or None when the bus
+                is unavailable or every attempt failed.
         """
         if self._bus is None:
             oradio_log.error("I2C bus not available")
             Incidents.publish(IncidentMessage(I2C_SOURCE, I2C_BUS_FAILED))
             return None
 
-        with self._lock:
-            try:
-                value = self._bus.read_byte_data(device, register)
-                return value
-            except (OSError, ValueError, TypeError) as ex_err:
-                oradio_log.error("I2C read: device=0x%02X, register=0x%02X -> %s", device, register, ex_err)
-                Incidents.publish(IncidentMessage(I2C_SOURCE, I2C_READ_FAILED))
+        for attempt in range(1, I2C_RETRIES + 1):
+            with self._lock:
+                try:
+                    return self._bus.read_byte_data(device, register)
+                except (OSError, ValueError, TypeError) as ex_err:
+                    oradio_log.warning(
+                        "I2C read byte failed (attempt %d/%d): device=0x%02X, register=0x%02X -> %s",
+                        attempt, I2C_RETRIES, device, register, ex_err
+                    )
+
+            # No wait after the last attempt: there is nothing left to wait for.
+            if attempt < I2C_RETRIES:
+                # Avoid hammering the I2C bus
+                sleep(I2C_BACKOFF)
+
+        # All retries exhausted. The incident is published here rather than per
+        # attempt, so a single flaky transfer that the next attempt fixes does
+        # not reach the incident bus at all.
+        oradio_log.error(
+            "Failed reading byte from device=0x%02X, register=0x%02X after %d attempts",
+            device, register, I2C_RETRIES
+        )
+        Incidents.publish(IncidentMessage(I2C_SOURCE, I2C_READ_FAILED))
         return None
 
-    def write_byte(self, device: int, register: int, value: int) -> bool:
+    def write_byte(self, device: int, register: int, value: int, retry: bool = True) -> bool:
         """
         Write a single byte to a device register.
         - Thread-safe with a lock.
-        - Write with retries and backoff.
+        - Write with retries and backoff, unless the caller opts out.
         - Logs the operation and any errors.
+
+        Retries are opt-out because a write, unlike a read, is not always safe
+        to repeat. Setting a DAC output or a configuration register twice gives
+        the same result; writing a trigger register twice starts two
+        transactions. A failed write can mean the device never took it, in
+        which case a retry is exactly right, or that it took it and the
+        acknowledgement was lost, in which case the retry is a second command.
+        Only the caller knows which register it is talking to, so only the
+        caller can decide.
 
         Args:
             device (int): I2C device address.
             register (int): Register address on the device.
             value (int): Byte value to write.
+            retry (bool): True (default) for registers where writing the same
+                value again is harmless. False for a register whose write is
+                an action rather than a value, such as the HUSB238 GO_COMMAND
+                trigger; those get one attempt, and repeating the operation
+                becomes a decision made where the protocol is understood.
 
         Returns:
             bool: True once the write is acknowledged. False if the bus is
@@ -206,7 +251,9 @@ class I2CService:
             Incidents.publish(IncidentMessage(I2C_SOURCE, I2C_BUS_FAILED))
             return False
 
-        for attempt in range(1, I2C_RETRIES + 1):
+        attempts = I2C_RETRIES if retry else 1
+
+        for attempt in range(1, attempts + 1):
             with self._lock:
                 try:
                     self._bus.write_byte_data(device, register, value)
@@ -214,14 +261,18 @@ class I2CService:
                 except (OSError, ValueError, TypeError) as ex_err:
                     oradio_log.warning(
                         "I2C write byte failed (attempt %d/%d): device=0x%02X, register=0x%02X, value=0x%02X -> %s",
-                        attempt, I2C_RETRIES, device, register, value, ex_err
+                        attempt, attempts, device, register, value, ex_err
                     )
-            # Avoid hammering the I2C bus
-            sleep(I2C_BACKOFF)
-        # All retries exhausted
+
+            # No wait after the last attempt: there is nothing left to wait for.
+            if attempt < attempts:
+                # Avoid hammering the I2C bus
+                sleep(I2C_BACKOFF)
+
+        # All attempts exhausted
         oradio_log.error(
-            "Failed writing byte to device=0x%02X, register=0x%02X, value=0x%02X after %d attempts",
-            device, register, value, I2C_RETRIES
+            "Failed writing byte to device=0x%02X, register=0x%02X, value=0x%02X after %d attempt(s)",
+            device, register, value, attempts
         )
         Incidents.publish(IncidentMessage(I2C_SOURCE, I2C_WRITE_FAILED))
         return False
@@ -232,7 +283,11 @@ class I2CService:
         """
         Read a block of bytes from a device register.
         - Thread-safe with a lock.
+        - Read with retries and backoff.
         - Logs the operation and any errors.
+
+        Retried unconditionally, for the same reason as read_byte(): a read has
+        no side effect, so a repeat costs only bus time.
 
         Args:
             device (int): I2C device address.
@@ -240,7 +295,9 @@ class I2CService:
             length (int): Number of bytes to read, max 32.
 
         Returns:
-            list | None: List of byte values read from the device, or None on error.
+            list | None: List of byte values read from the device, or None when
+                the bus is unavailable, the block exceeds 32 bytes, or every
+                attempt failed.
         """
         if self._bus is None:
             oradio_log.error("I2C bus not available")
@@ -248,20 +305,33 @@ class I2CService:
             return None
 
         if length > 32:
+            # A caller bug, not a bus fault: no attempt is made and no retry
+            # would change the answer.
             oradio_log.error("SMBus block read supports a maximum of 32 bytes")
             Incidents.publish(IncidentMessage(I2C_SOURCE, I2C_READ_FAILED))
             return None
 
-        with self._lock:
-            try:
-                data = self._bus.read_i2c_block_data(device, register, length)
-                return data
-            except (OSError, ValueError, TypeError) as ex_err:
-                oradio_log.error(
-                    "I2C read block ERROR: device=0x%02X, register=0x%02X, length=%d -> %s",
-                    device, register, length, ex_err
-                )
-                Incidents.publish(IncidentMessage(I2C_SOURCE, I2C_READ_FAILED))
+        for attempt in range(1, I2C_RETRIES + 1):
+            with self._lock:
+                try:
+                    return self._bus.read_i2c_block_data(device, register, length)
+                except (OSError, ValueError, TypeError) as ex_err:
+                    oradio_log.warning(
+                        "I2C read block failed (attempt %d/%d): device=0x%02X, register=0x%02X, length=%d -> %s",
+                        attempt, I2C_RETRIES, device, register, length, ex_err
+                    )
+
+            # No wait after the last attempt: there is nothing left to wait for.
+            if attempt < I2C_RETRIES:
+                # Avoid hammering the I2C bus
+                sleep(I2C_BACKOFF)
+
+        # All retries exhausted
+        oradio_log.error(
+            "Failed reading block from device=0x%02X, register=0x%02X, length=%d after %d attempts",
+            device, register, length, I2C_RETRIES
+        )
+        Incidents.publish(IncidentMessage(I2C_SOURCE, I2C_READ_FAILED))
         return None
 
     def write_block(self, device: int, register: int, data: list) -> bool:
@@ -270,6 +340,10 @@ class I2CService:
         - Thread-safe with a lock.
         - Write with retries and backoff.
         - Logs the operation and any errors.
+
+        No retry opt-out, unlike write_byte(): the only block write on this
+        board sets the MCP4725 DAC output, which is a value and not an action.
+        Add one here the day a block write goes to a trigger register.
 
         Args:
             device (int): I2C device address.
@@ -300,8 +374,12 @@ class I2CService:
                         "I2C write block failed (attempt %d/%d): device=0x%02X, register=0x%02X, data=%s -> %s",
                         attempt, I2C_RETRIES, device, register, data, ex_err
                     )
-            # Avoid hammering the I2C bus
-            sleep(I2C_BACKOFF)
+
+            # No wait after the last attempt: there is nothing left to wait for.
+            if attempt < I2C_RETRIES:
+                # Avoid hammering the I2C bus
+                sleep(I2C_BACKOFF)
+
         # All retries exhausted
         oradio_log.error(
             "Failed writing block to device=0x%02X, register=0x%02X, data=%s after %d attempts",
