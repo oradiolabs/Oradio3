@@ -111,7 +111,6 @@ from constants import (
 
 WEB_PRESET_STATES = {"StatePreset1", "StatePreset2", "StatePreset3"}
 PLAY_STATES = {"StatePlay", "StatePreset1", "StatePreset2", "StatePreset3"}
-PLAY_WEBSERVICE_STATES = {"StatePlay", "StatePreset1", "StatePreset2", "StatePreset3", "StateIdle"}
 
 ################## Signal Primitives ######################
 
@@ -199,6 +198,34 @@ else:
 
 web_service_active = threading.Event() # Track status web_service
 web_service_active.clear() # Start-up state is no Web service
+
+def announcements_allowed() -> bool:
+    """
+    Whether the Oradio may speak an announcement right now.
+
+    For sounds the user did not ask for. A button press, a knob turn and
+    inserting or pulling the USB stick are all things the user did, and their
+    confirmation sound plays whatever state the Oradio is in. An event that
+    arrives on its own -- WiFi coming back an hour later, a connection attempt
+    failing -- is the Oradio speaking unprompted, and an Oradio that is off
+    must stay silent.
+
+    So the line is not "is the Oradio on" but "did the user cause this".
+    Callers that confirm a physical action deliberately do not consult this.
+
+    Off is StateIdle: StateStop arms a transition to it four seconds after the
+    stop sound, and that is where the Oradio sits until someone touches it
+    again. Idle is therefore not a state in which unprompted sound is welcome.
+
+    The exception is the web interface. While it is open the user is actively
+    configuring the Oradio, usually its WiFi, and the announcements are the
+    feedback on what they just did -- so they are wanted even though the state
+    machine is idle.
+
+    Returns:
+        True while the Oradio is playing or the web interface is open.
+    """
+    return state_machine.state in PLAY_STATES or web_service_active.is_set()
 
 # Any incident starting throttling monitor is reported to and handled by IncidentHandler
 oradio_log.info("Start throttling monitor")
@@ -463,6 +490,9 @@ class StateMachine:
     def _state_usb_absent(self):
         leds.control_blinking_led(LED_STOP, 0.7)
         mpd_control.stop()
+
+        # Unguarded for the same reason as on_usb_present(): pulling the stick
+        # is a user action, so it is answered even when the Oradio is off.
         play_sound(SOUND_STOP)
         play_sound(SOUND_USB_ABSENT)
         if web_service_active.is_set():
@@ -529,6 +559,10 @@ def on_usb_present():
     if usb_present.is_set():
         return
     usb_present.set()
+
+    # No announcements_allowed() check, on purpose: pushing a stick in is a
+    # user action, and the confirmation that it was accepted is wanted whether
+    # the Oradio is playing or off.
     play_sound(SOUND_USB_PRESENT)
     # Ensure MPD database is updated
     mpd_control.update_database()
@@ -543,15 +577,23 @@ def on_usb_present():
 def on_wifi_connected():
     oradio_log.info("Wifi is connected acknowledged")
 
-    if state_machine.state in PLAY_WEBSERVICE_STATES:  # If in play states,
-        threading.Timer(
-            4, play_sound, args=(SOUND_WIFI,)
-        ).start()
+    # Checked when the timer fires, not when it is armed: four seconds is long
+    # enough for the user to have pressed stop in between, and the Oradio would
+    # then announce itself after going quiet.
+    def _announce() -> None:
+        if announcements_allowed():
+            play_sound(SOUND_WIFI)
+        else:
+            oradio_log.debug("Oradio is off: not announcing WiFi connected")
+
+    threading.Timer(4, _announce).start()
 
 def on_wifi_fail_connect():
     oradio_log.info("Wifi fail connect acknowledged")
-    if state_machine.state in PLAY_WEBSERVICE_STATES:  # If in play states,
+    if announcements_allowed():
         play_sound(SOUND_NO_WIFI)
+    else:
+        oradio_log.debug("Oradio is off: not announcing WiFi connect failure")
 
 def on_wifi_access_point():
     oradio_log.info("Configured as access point acknowledged")
