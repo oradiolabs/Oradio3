@@ -123,6 +123,13 @@ SOFTWARE_VERSION_FILE = "/var/log/oradio_sw_version.log"
 # one -- oradio_install.sh sets no timezone, so it comes from whatever the
 # imager wrote. With the offset the value stays unambiguous and a server can
 # normalise it to UTC without knowing anything about the device.
+#
+# Part of the agreed RMS contract: the server parses the offset. Changing this
+# format is a change on both sides, not a local tidy-up.
+#
+# Note that log_service does NOT carry an offset: its lines are local and
+# naive. The wall clock still lines up with this field, which is what makes
+# reading them together work, but only this field says which zone that is.
 TIMESTAMP_FORMAT = '%Y-%m-%d %H:%M:%S%z'
 
 # How often the heartbeat is sent (seconds); currently once per hour
