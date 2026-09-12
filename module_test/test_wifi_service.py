@@ -261,7 +261,16 @@ def _install_stubs() -> None:
     logger.propagate = False
     _stub_module("log_service", oradio_log=logger)
 
-    _stub_module("utilities", run_shell_script=lambda cmd: (True, ""))
+    # DeferredStarter is the real one, not a stand-in. WifiService.start() IS a DeferredStarter now, so a
+    # fake would leave the behaviour these tests are about untested. Loaded from the real module before the
+    # stub takes its place in sys.modules; the class object survives the replacement.
+    from utilities import DeferredStarter  # pylint: disable=import-outside-toplevel
+
+    _stub_module(
+        "utilities",
+        run_shell_script=lambda cmd: (True, ""),
+        DeferredStarter=DeferredStarter,
+    )
 
     _stub_module(
         "messaging",
@@ -477,7 +486,7 @@ class TestStart(WifiServiceTestCase):
         self.service.start(wait=0)
 
         self.assertEqual(self.listener.safe_start_timeouts, [])
-        self.assertFalse(self.service._starting)        # pylint: disable=protected-access
+        self.assertFalse(self.service._starter.is_starting())        # pylint: disable=protected-access
         self.assert_no_incidents()
 
         # The claim was released, so a later start still works
@@ -495,13 +504,13 @@ class TestDeferredStart(WifiServiceTestCase):
         self.service.start(wait=WAIT_TIMEOUT)
 
         self.assertEqual(self.listener.safe_start_timeouts, [])
-        self.assertTrue(self.service._starting)         # pylint: disable=protected-access
+        self.assertTrue(self.service._starter.is_starting())         # pylint: disable=protected-access
 
         self.nm_up = True
 
         self.assertTrue(wait_until(self.listener.is_alive))
         self.wait_for_burst()
-        self.assertTrue(wait_until(lambda: not self.service._starting))  # pylint: disable=protected-access
+        self.assertTrue(wait_until(lambda: not self.service._starter.is_starting()))  # pylint: disable=protected-access
         self.assert_no_incidents()
 
     def test_second_start_while_deferred_does_not_add_a_waiter(self) -> None:
@@ -528,7 +537,7 @@ class TestDeferredStart(WifiServiceTestCase):
 
         sleep(0.1)
         self.assertEqual(self.listener.safe_start_timeouts, [])
-        self.assertTrue(wait_until(lambda: not self.service._starting))  # pylint: disable=protected-access
+        self.assertTrue(wait_until(lambda: not self.service._starter.is_starting()))  # pylint: disable=protected-access
         self.assert_no_incidents()
 
     def test_giving_up_on_networkmanager_publishes_an_incident(self) -> None:
@@ -538,7 +547,7 @@ class TestDeferredStart(WifiServiceTestCase):
         self.service.start(wait=0.05)
 
         self.assertTrue(wait_until(lambda: INCIDENTS.values() == [wifi_service.WIFI_DBUS_FAILED]))
-        self.assertTrue(wait_until(lambda: not self.service._starting))  # pylint: disable=protected-access
+        self.assertTrue(wait_until(lambda: not self.service._starter.is_starting()))  # pylint: disable=protected-access
         self.assertEqual(self.listener.safe_start_timeouts, [])
 
 
