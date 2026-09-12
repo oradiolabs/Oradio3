@@ -202,8 +202,11 @@ class MPDControl(MPDService):
         # Remove any dummy entries left by a prior interrupted playlist creation.
         self._sanitize_playlists()
 
-        # Verify presets playlists/directories exist.
-        self._validate_presets()
+        # NOTE: validate_presets() is deliberately NOT called here. presets.json
+        # and the playlists it names live on the USB stick, which is not
+        # guaranteed to be mounted at the time oradio_control imports this
+        # module -- see the deferred library scan there. Validating too early
+        # reports every preset as broken and never retracts it.
 
         # Reused across play_song() calls when idle, to avoid spawning a new
         # OS thread per call in the common (sequential) case. See play_song().
@@ -280,15 +283,19 @@ class MPDControl(MPDService):
                         "Startup cleanup: removed stale dummy entry from playlist '%s'", name,
                     )
 
-    def _validate_presets(self) -> None:
+    def validate_presets(self) -> None:
         """
         Verify each configured preset resolves to an existing playlist or
-        directory, and publish an incident (once, at startup) for any that
-        don't -- e.g. a preset pointing at a playlist that was since deleted,
-        or a presets.json that failed to load (see utilities.load_presets(),
-        which degrades to empty listnames on missing/corrupt files rather
-        than raising, so a broken preset would otherwise be silent until a
-        user actually pressed that preset button).
+        directory, and publish an incident for any that don't -- e.g. a preset
+        pointing at a playlist that was since deleted, or a presets.json that
+        failed to load (see utilities.load_presets(), which degrades to empty
+        listnames on missing/corrupt files rather than raising, so a broken
+        preset would otherwise be silent until a user actually pressed that
+        preset button).
+
+        Public and caller-driven: run it when the library is actually there,
+        which is at first mount and on every USB insertion after that, not at
+        construction time.
         """
         presets = load_presets()
         playlists = self._execute("listplaylists") or []

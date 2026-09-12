@@ -42,7 +42,7 @@ import nmcli
 ##### Oradio modules ######################################
 from singleton import singleton
 from log_service import oradio_log
-from utilities import run_shell_script
+from utilities import run_shell_script, DeferredStarter
 from messaging import (
     Commands,
     Incidents,
@@ -221,19 +221,24 @@ class WifiService:
         # waiting for a state that is never coming. Cleared by wifi_connect() on each new access-point request.
         self._ap_failed = Event()
 
-        # Serialises start(). Its checks and the claim they guard have to be one step, or two callers arriving
-        # together both find the listener down and both try to start it. Only oradio_control calls start() in the
-        # running Oradio, so the second caller is today either a stand-alone menu or a stop()/start() cycle; the
-        # lock is what keeps that from mattering. Held for the decision only, never across the start itself, so a
-        # caller is not blocked behind another caller's safe_start(). Always taken before ThreadTemplate's own
-        # lifecycle lock, never the other way round.
-        self._start_lock = Lock()
-
-        # True from the moment a start() claims the start until that start has finished -- whether it ran here or
-        # was handed to the deferred thread, and whether it succeeded, aborted or gave up. It is what makes the
-        # window between releasing _start_lock and the listener thread actually being alive safe: without it a
-        # second start() in that window sees a listener that is not alive yet and starts a second one.
-        self._starting = False
+        # Serialises start() and owns the wait for NetworkManager.
+        #
+        # This class used to carry its own copy of that logic; DeferredStarter is that logic, lifted out so the
+        # other subsystems facing a late dependency can use it too. What it keeps doing here is unchanged: hold the
+        # claim from the moment a start is taken until it has finished -- whether it ran inline or on the deferred
+        # thread, and whether it succeeded, aborted or gave up. That claim is what makes the window between
+        # deciding to start and the listener thread actually being alive safe, because a second start() in that
+        # window would otherwise see a listener that is not alive yet and start a second one.
+        #
+        # on_timeout fires only when NM never appeared, which is the case worth an incident: masked, disabled or
+        # failed to start. A stop() that cancelled the wait is not, hence the _stopping check.
+        self._starter = DeferredStarter(
+            "WiFi event listener",
+            nm_available,
+            self._start_listener,
+            on_timeout=self._report_nm_missing,
+            poll_interval=NM_POLL_INTERVAL,
+        )
 
     def start(self, wait: float = NM_WAIT_TIMEOUT) -> None:
         """
@@ -256,99 +261,39 @@ class WifiService:
             wait: Seconds to keep waiting for NetworkManager in the background. Pass 0 to skip starting entirely
                   when NM is absent, which suits tests and stand-alone runs.
         """
-        # The lock covers the decision and the claim, not the work: everything below it can block (safe_start
-        # waits up to LISTENER_START_TIMEOUT), and holding the lock through that would make a concurrent start()
-        # wait it out rather than return at once on the _starting check.
-        with self._start_lock:
-            if self.nm_listener.is_alive():
-                oradio_log.debug("WiFi event listener thread already running")
-                return
+        # The listener being up is checked here rather than left to the starter: DeferredStarter knows whether it
+        # has run do_start, not whether the thread it started is still alive. A listener that crashed and was
+        # cleaned up should be startable again without a stop() in between.
+        if self.nm_listener.is_alive():
+            oradio_log.debug("WiFi event listener thread already running")
+            return
 
-            if self._starting:
-                oradio_log.debug("WiFi event listener start already in progress")
-                return
+        # A previous stop() may have set this; clear it so a restart works.
+        self._stopping.clear()
 
-            # A previous stop() may have set this; clear it so a restart works
-            self._stopping.clear()
+        self._starter.start(wait)
 
-            # Claimed here, released by _clear_starting() once this start has run its course.
-            self._starting = True
-
-        # False until the deferred thread has taken the claim over; it releases it in that case, and the finally
-        # below releases it in every other.
-        handed_over = False
-        try:
-            if nm_available():
-                self._start_listener()
-                return
-
-            if wait <= 0:
-                oradio_log.info("NetworkManager not running; WiFi listener not started")
-                return
-
-            oradio_log.info("NetworkManager not up yet; deferring WiFi listener start")
-            # Daemon thread: exits automatically when the process does.
-            Thread(target=self._start_when_nm_ready, args=(wait,), daemon=True).start()
-            handed_over = True
-        finally:
-            if not handed_over:
-                self._clear_starting()
-
-    def _clear_starting(self) -> None:
+    def _report_nm_missing(self) -> None:
         """
-        Release the start claim taken by start().
+        Report that NetworkManager never appeared within the wait.
 
-        Called from whichever context finished the start: start() itself, or the deferred thread it handed over to.
+        Called by the starter when the wait runs out. Silent if stop() cancelled it: a shutdown is not a fault,
+        and the incident would be about a listener nobody wants any more.
         """
-        with self._start_lock:
-            self._starting = False
+        if self._stopping.is_set():
+            return
 
-    def _start_when_nm_ready(self, timeout) -> None:
-        """
-        Wait for NetworkManager to appear, then start the listener.
-
-        Runs on a background thread. Polls rather than watching D-Bus NameOwnerChanged, because receiving that
-        signal would itself need a running GLib main loop -- which is what the listener provides and is precisely
-        what does not exist yet at this point.
-
-        Args:
-            timeout: Maximum seconds to wait before giving up and reporting.
-        """
-        started = monotonic()
-        deadline = started + timeout
-
-        # try/finally so every way out of this thread -- listener started, aborted by stop(), or timed out --
-        # releases the claim start() handed over. Leaving it set would make start() a permanent no-op for the
-        # rest of the process.
-        try:
-            while monotonic() < deadline:
-                # Checked before sleeping and after waking, so stop() takes effect within one poll interval at worst.
-                if self._stopping.is_set():
-                    oradio_log.debug("Deferred WiFi listener start aborted by stop()")
-                    return
-                if nm_available():
-                    oradio_log.info(
-                        "NetworkManager available after %.1fs; starting WiFi listener",
-                        monotonic() - started,
-                    )
-                    self._start_listener()
-                    return
-                sleep(NM_POLL_INTERVAL)
-
-            if not self._stopping.is_set():
-                # NM never appeared: masked, disabled or failed to start. Unlike the transient absence above, that is
-                # worth an incident.
-                oradio_log.error("NetworkManager did not appear within %.0fs", timeout)
-                Incidents.publish(IncidentMessage(WIFI_SOURCE, WIFI_DBUS_FAILED))
-        finally:
-            self._clear_starting()
+        # NM never appeared: masked, disabled or failed to start. Unlike a transient absence at boot, that is worth
+        # an incident.
+        oradio_log.error("NetworkManager did not appear within %.0fs", NM_WAIT_TIMEOUT)
+        Incidents.publish(IncidentMessage(WIFI_SOURCE, WIFI_DBUS_FAILED))
 
     def _start_listener(self) -> None:
         """
         Bring up the listener thread, run the startup scan burst if it has not run yet, and publish state.
 
         Called once NetworkManager is known to be available, either directly from start() or from the deferred
-        _start_when_nm_ready() thread.
+        deferred thread.
         """
         started_now = self.nm_listener.safe_start(LISTENER_START_TIMEOUT)
 
@@ -485,6 +430,13 @@ class WifiService:
         evidence of what is on air now.
         """
         self._stopping.set()
+
+        # abort() first, then reset(): the deferred thread is on its way out before its claim is cleared
+        # underneath it. reset() is what lets the next start() run do_start again -- without it the starter
+        # would remember this cycle's start and treat the next one as already done.
+        self._starter.abort()
+        self._starter.reset()
+
         self.nm_listener.safe_stop()
 
         # After safe_stop(), so the burst thread has already seen the listener go down and broken out of its

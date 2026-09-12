@@ -136,12 +136,13 @@ THROTTLING_THROTTLED    = "RPi throttled"
 THROTTLING_STOPPED      = "RPi throttling monitor stopped"
 
 # USB
-USB_SOURCE       = "USB message"
-USB_ABSENT       = "USB drive absent"
-USB_PRESENT      = "USB drive present"
-USB_FILE_FAILED  = "USB file import failed"
-USB_START_FAILED = "USB service failed to start"
-USB_STOPPED      = "USB service stopped"
+USB_SOURCE               = "USB message"
+USB_ABSENT               = "USB drive absent"
+USB_PRESENT              = "USB drive present"
+USB_FILE_FAILED          = "USB file import failed"
+USB_WIFI_DEFERRED_FAILED = "USB wifi credentials not applied: NetworkManager never came up"
+USB_START_FAILED         = "USB service failed to start"
+USB_STOPPED              = "USB service stopped"
 
 # Volume
 VOLUME_SOURCE       = "Volume message"

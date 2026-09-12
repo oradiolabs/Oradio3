@@ -31,6 +31,7 @@ import json
 import socket
 import subprocess
 from pathlib import Path
+from time import monotonic
 from typing import TypeVar
 from collections.abc import Callable
 from threading import Thread, Event, Lock
@@ -54,6 +55,12 @@ DNS_TIMEOUT = 0.5   # seconds; short on purpose - callers should fail fast
 SERIAL_OTP_ROW = "28:"
 
 JOIN_TIMEOUT = 5.0  # seconds; timeout for thread to start/stop
+
+# DeferredStarter defaults. The timeout is generous on purpose: the cost of
+# waiting is a background thread doing nothing, while the cost of giving up too
+# early is a subsystem that stays down for the rest of the boot.
+DEFERRED_START_TIMEOUT = 60.0   # seconds to keep waiting for the dependency
+DEFERRED_POLL_INTERVAL = 1.0    # seconds between availability checks
 
 T = TypeVar("T")
 
@@ -350,6 +357,250 @@ class ThreadTemplate:
         """
         # Pass is intentional, see doc string
         pass    # pylint: disable=unnecessary-pass
+
+class DeferredStarter:  # pylint: disable=too-many-instance-attributes
+    """
+    Start a subsystem whose system dependency may not be up yet.
+
+    oradio.service is ordered After=basic.target and nothing else, so
+    oradio_control routinely reaches a subsystem's start() before MPD,
+    NetworkManager or the USB mount exist. Starting anyway makes the start fail
+    on a dependency that was merely late, and that failure is permanent:
+    nothing retries it for the rest of the boot.
+
+    This generalises the pattern WifiService.start() already implements, so
+    every other subsystem can use it too:
+
+        available now -> run the start on the caller's thread, return True
+        not up yet    -> hand it to a background thread that polls until the
+                         dependency appears or the timeout expires
+        never         -> log once and call on_timeout, so the fault is
+                         reported exactly once instead of per attempt
+
+    The point is that nothing on the user-facing path ever waits. The start-up
+    tune, the buttons and the volume knob do not care whether the music library
+    has been scanned yet, so the scan happens beside them rather than in front
+    of them.
+
+    Idempotent: a start already in progress, or already completed, is a no-op.
+    Construct one instance per subsystem; it is not reusable across
+    dependencies.
+    """
+    def __init__(
+        self,
+        name: str,
+        is_available: Callable[[], bool],
+        do_start: Callable[[], None],
+        on_timeout: Callable[[], None] | None = None,
+        poll_interval: float = DEFERRED_POLL_INTERVAL,
+    ) -> None:
+        """
+        Args:
+            name:          Human-readable subsystem name, used in log lines only.
+            is_available:  Cheap, non-blocking predicate answering "is the
+                           dependency there yet". Called once per poll interval,
+                           so it must not block or the poll loop inherits that.
+            do_start:      The actual start action. Runs at most once.
+            on_timeout:    Called if the dependency never appears. Publish the
+                           incident here, not in do_start, so an outage is
+                           reported once rather than once per poll.
+            poll_interval: Seconds between is_available() checks.
+        """
+        self._name = name
+        self._is_available = is_available
+        self._do_start = do_start
+        self._on_timeout = on_timeout
+        self._poll_interval = poll_interval
+
+        # Guards _starting and _done only. Never held across _do_start(), which
+        # may block: holding it there would make a concurrent start() wait the
+        # work out instead of returning at once on the _starting check.
+        self._lock = Lock()
+        self._starting = False
+        self._done = False
+
+        # Set by abort(). Also doubles as the poll loop's sleep, so an abort
+        # takes effect immediately rather than after a full poll interval.
+        self._aborting = Event()
+
+    def is_done(self) -> bool:
+        """Return True once do_start has run to completion."""
+        with self._lock:
+            return self._done
+
+    def is_starting(self) -> bool:
+        """
+        Return True while a start is claimed but not finished.
+
+        Covers both shapes of "in progress": running on the caller's thread,
+        and waiting in the background for the dependency to appear.
+        """
+        with self._lock:
+            return self._starting
+
+    def reset(self) -> None:
+        """
+        Forget that a start ever completed, so a later start() runs again.
+
+        For subsystems with a stop/start lifecycle: after a stop, the work
+        do_start did is undone and has to happen again on the way back up.
+        Without this, _done would make every later start() a no-op.
+
+        Does not cancel a start already in flight -- call abort() for that,
+        and call it first, so the deferred thread is on its way out before its
+        claim is cleared underneath it.
+        """
+        with self._lock:
+            self._done = False
+
+    def start(self, wait: float = DEFERRED_START_TIMEOUT) -> bool:
+        """
+        Start now if the dependency is up, otherwise wait for it in the background.
+
+        Args:
+            wait: Seconds to keep waiting in the background. Pass 0 to skip
+                  starting entirely when the dependency is absent, which suits
+                  tests, stand-alone runs and "try again now" call sites.
+
+        Returns:
+            True if do_start ran on this thread. False if the start was
+            deferred, skipped, already in progress, or already done -- so a
+            caller can fall back to its own handling without racing this one.
+        """
+        with self._lock:
+            if self._done:
+                oradio_log.debug("%s already started", self._name)
+                return False
+
+            if self._starting:
+                oradio_log.debug("%s start already in progress", self._name)
+                return False
+
+            # A previous abort() may have set this; clear it so a restart works.
+            self._aborting.clear()
+
+            # Claimed here, released by _clear_starting() once this start has
+            # run its course -- here, or on the deferred thread.
+            self._starting = True
+
+        # False until the deferred thread has taken the claim over; it releases
+        # it in that case, and the finally below releases it in every other.
+        handed_over = False
+
+        try:
+            if self._is_available():
+                self._run()
+                return True
+
+            if wait <= 0:
+                oradio_log.info("%s: dependency not available; not started", self._name)
+                return False
+
+            oradio_log.info("%s: dependency not up yet; deferring start", self._name)
+
+            # Daemon thread: exits automatically when the process does.
+            Thread(
+                target=self._wait_and_start, args=(wait,),
+                daemon=True, name=f"defer-{self._name}",
+            ).start()
+            handed_over = True
+            return False
+
+        finally:
+            if not handed_over:
+                self._clear_starting()
+
+    def abort(self) -> None:
+        """
+        Cancel a deferred start still waiting in the background.
+
+        Call this from the owning subsystem's stop(), so a shutdown does not
+        leave a thread that brings the subsystem up again a minute later.
+        """
+        self._aborting.set()
+
+    def _clear_starting(self) -> None:
+        """
+        Release the start claim taken by start().
+
+        Called from whichever context finished the start: start() itself, or
+        the deferred thread it handed over to. Leaving it set would make
+        start() a permanent no-op for the rest of the process.
+        """
+        with self._lock:
+            self._starting = False
+
+    def _run(self) -> None:
+        """
+        Run the start action once and record that it succeeded.
+
+        Exceptions are caught rather than propagated: on the caller's thread
+        this is module initialisation, where an escape takes the process down
+        and hands it to oradio-crash.service, and on the deferred thread
+        nothing would observe it at all. A failed start leaves _done False, so
+        a later start() can retry it.
+        """
+        try:
+            self._do_start()
+        except Exception as ex_err:     # pylint: disable=broad-exception-caught
+            oradio_log.error("%s: start failed: %s", self._name, ex_err)
+            return
+
+        with self._lock:
+            self._done = True
+
+        oradio_log.info("%s started", self._name)
+
+    def _wait_and_start(self, timeout: float) -> None:
+        """
+        Wait for the dependency to appear, then start.
+
+        Runs on a background thread. Polls rather than subscribing to anything,
+        because the dependencies this covers announce themselves in three
+        different ways (a listening socket, a D-Bus name, a mount point) and a
+        poll is the only check that works for all of them.
+
+        Args:
+            timeout: Maximum seconds to wait before giving up and reporting.
+        """
+        started = monotonic()
+        deadline = started + timeout
+
+        # try/finally so every way out of this thread -- started, aborted or
+        # timed out -- releases the claim start() handed over.
+        try:
+            while monotonic() < deadline:
+                # Checked before waiting and after waking, so abort() takes
+                # effect within one poll interval at worst.
+                if self._aborting.is_set():
+                    oradio_log.debug("Deferred start of %s aborted", self._name)
+                    return
+
+                if self._is_available():
+                    oradio_log.info(
+                        "%s: dependency available after %.1fs",
+                        self._name, monotonic() - started,
+                    )
+                    self._run()
+                    return
+
+                # Waiting on the Event rather than sleep() makes abort()
+                # immediate instead of costing a full poll interval.
+                self._aborting.wait(self._poll_interval)
+
+            oradio_log.warning(
+                "%s: dependency did not appear within %.0fs; giving up",
+                self._name, timeout,
+            )
+
+            if self._on_timeout is not None:
+                try:
+                    self._on_timeout()
+                except Exception as ex_err:     # pylint: disable=broad-exception-caught
+                    oradio_log.error("%s: timeout handler failed: %s", self._name, ex_err)
+
+        finally:
+            self._clear_starting()
 
 def get_serial() -> str:
     """Extract serial from Raspberry Pi."""

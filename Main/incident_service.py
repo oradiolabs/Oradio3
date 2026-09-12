@@ -43,7 +43,7 @@ from messaging import (
     RMS_SOURCE, RMS_START_FAILED, RMS_POST_FAILED,
     SOUND_SOURCE, SOUND_MISSING_DIR, SOUND_PLAYBACK_FAILED,
     THROTTLING_SOURCE, THROTTLING_START_FAILED, THROTTLING_THROTTLED, THROTTLING_STOPPED,
-    USB_SOURCE, USB_FILE_FAILED, USB_START_FAILED, USB_STOPPED,
+    USB_SOURCE, USB_FILE_FAILED, USB_WIFI_DEFERRED_FAILED, USB_START_FAILED, USB_STOPPED,
     VOLUME_SOURCE, VOLUME_START_FAILED, VOLUME_SET_FAILED, VOLUME_STOPPED,
     WEB_SOURCE, WEB_SERVER_FAILED, WEB_START_FAILED, WEB_STOP_FAILED,
     WIFI_SOURCE, WIFI_DBUS_FAILED, WIFI_NMCLI_FAILED, WIFI_CONNECT_FAILED, WIFI_DISCONNECT_FAILED,
@@ -347,7 +347,14 @@ class IncidentHandler(MessageHandlerTemplate):
         Args:
             incident: Incident message received from the incident bus.
         """
-        if incident.message == USB_FILE_FAILED:
+        if incident.message == USB_WIFI_DEFERRED_FAILED:
+            # MITIGATION TO BE IMPLEMENTED:
+            #   Report to RMS that wifi credentials on the USB drive could not
+            #   be applied. Nothing to repair from here: the file is valid and
+            #   still on the drive, NetworkManager simply never became
+            #   available. Re-inserting the drive retries the import.
+            oradio_log.debug("Mitigation to be implemented")
+        elif incident.message == USB_FILE_FAILED:
             # MITIGATION TO BE IMPLEMENTED:
             #   Report usb file import failed + status to RMS
             oradio_log.debug("Mitigation to be implemented")

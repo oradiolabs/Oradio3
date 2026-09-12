@@ -25,7 +25,9 @@ Created on January 17, 2025
       - Prevents log writes from slowing down main program
       - Centralizes log records from multiple threads/processes
     - StreamHandler: Logs messages to console, with ANSI color per level
-    - FileHandler: Logs to a file, uncolored and without rotation of its own
+    - FileHandler: Logs to a file, with the same ANSI color per level as the console and without
+      rotation of its own. The color is deliberate: it makes the log readable with cat. Anything
+      that parses the file has to strip the escapes first, since they precede the timestamp.
     Rotation is owned entirely by logrotate (/etc/logrotate.d/oradio), not by this module. Two rotation
     owners on one file is a race, and logrotate's threshold would win regardless: it uses copytruncate,
     which resets the file size before any in-process byte counter could ever reach its own limit. The

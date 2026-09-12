@@ -22,6 +22,7 @@ Created on Januari 31, 2025
 
 """
 import threading
+from os.path import ismount
 from time import sleep
 
 from log_service import oradio_log
@@ -35,7 +36,7 @@ from rms_service import RMService, INCIDENT
 from usb_service import USBService
 from web_service import WebService
 from wifi_service import WifiService
-from utilities import has_internet
+from utilities import has_internet, DeferredStarter
 # from system_sounds import play_sound    # For better readability. pylint: disable=wrong-import-order
 from system_sounds import play_sound
 from incident_service import IncidentHandler
@@ -82,6 +83,7 @@ from messaging import (
 
 ##### GLOBAL constants ####################################
 from constants import (
+    USB_MOUNT_POINT,
     MESSAGE_NO_ERROR,
     SOUND_START,
     SOUND_STOP,
@@ -239,15 +241,36 @@ oradio_log.info("Start MPD event monitoring")
 mpd_monitor = MPDMonitor()
 mpd_monitor.start()
 
-# Initialise MPD client
+# Initialise MPD client.
+# Returns promptly even when mpd.service is not up yet: MPDService trips its
+# circuit breaker and every command fails fast until MPD answers again.
 oradio_log.info("Initialising MPDControl")
 #REVIEW Onno:
 # Each thread/process should have its own MPDControl instance.
 # A global instance may cause concurrent access conflicts with the MPD service.
 # MPDControl includes built-in safeguards against improper use, so this works.
 mpd_control = MPDControl()
-# Update MPD database - happens in separate thread
-mpd_control.update_database()
+
+# Preset validation and the first database scan both need MPD reachable AND the
+# USB stick mounted. oradio.service is ordered After=basic.target only, and
+# usb-drive-boot.service has nothing ordered after it, so at this point neither
+# is guaranteed. Running them anyway reports every preset as broken and scans an
+# empty library, and neither is ever retracted.
+#
+# Deferring costs nothing on the path that matters: the start-up tune, the
+# buttons and the volume knob do not wait for the library to be scanned.
+
+def _mpd_library_ready() -> bool:
+    """True once MPD answers and the music directory is actually mounted."""
+    return mpd_control.is_available() and ismount(USB_MOUNT_POINT)
+
+def _scan_mpd_library() -> None:
+    """Validate the presets and update the database, once the library is there."""
+    mpd_control.validate_presets()
+    mpd_control.update_database()
+
+mpd_library = DeferredStarter("MPD library scan", _mpd_library_ready, _scan_mpd_library)
+mpd_library.start()
 
 usb_present = threading.Event()
 usb_present.set() # USB present to go over start-up sequence (will be updated after first message of USB service
@@ -499,11 +522,20 @@ class StateMachine:
             oradio_web_service.stop()
 
     def _state_startup(self):
-        leds.control_blinking_led(LED_STOP, 1)
-        oradio_log.debug("Starting-up")
-        mpd_control.pause()
+        # The tune goes FIRST, before anything else in this handler.
+        #
+        # It is what tells the user the Oradio is alive, and the window between
+        # it and the first touch is the budget the rest of the system starts up
+        # in. Every call placed ahead of it spends that budget instead of using
+        # it: mpd_control.pause() below talks to a service that may not be
+        # listening yet, and leds.control_blinking_led() goes over i2c.
+        #
+        # play_sound() is fire-and-forget -- it launches aplay detached and
+        # returns -- so this costs the rest of the handler nothing.
+        play_sound(SOUND_START)
 
-        # FOR ANALYSIS: Get time since power-on
+        # FOR ANALYSIS: Get time since power-on. Read straight after the launch
+        # above, so it measures when the tune actually started.
         try:
             with open("/proc/uptime", encoding="utf-8") as file:
                 uptime = float(file.readline().split()[0])
@@ -511,7 +543,10 @@ class StateMachine:
         except (FileNotFoundError, ValueError, IndexError) as ex_err:
             oradio_log.warning("Could not read uptime: %s", ex_err)
 
-        play_sound(SOUND_START)
+        leds.control_blinking_led(LED_STOP, 1)
+        oradio_log.debug("Starting-up")
+        mpd_control.pause()
+
         oradio_log.debug("Startup: scheduling transition to Idle in 5 s")
         self._arm_delayed_transition("StartupToIdle", 5.0, "StateIdle")
 
@@ -564,7 +599,11 @@ def on_usb_present():
     # user action, and the confirmation that it was accepted is wanted whether
     # the Oradio is playing or off.
     play_sound(SOUND_USB_PRESENT)
-    # Ensure MPD database is updated
+
+    # The stick may have arrived after the boot-time scan gave up, and it may
+    # carry a different presets.json than the last one. Re-validate as well as
+    # re-scan; both return immediately if MPD is still not up.
+    mpd_control.validate_presets()
     mpd_control.update_database()
     # Transition to Idle after USB is inserted
     if state_machine.state != "StateStartUp":

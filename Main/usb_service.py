@@ -39,6 +39,8 @@ from watchdog.events import FileSystemEventHandler
 from singleton import singleton
 from log_service import oradio_log
 from wifi_service import networkmanager_add
+from wifi_listener import nm_available
+from utilities import DeferredStarter    # pylint: disable=ungrouped-imports
 from messaging import (
     Commands,
     Incidents,
@@ -48,6 +50,7 @@ from messaging import (
     USB_ABSENT,
     USB_PRESENT,
     USB_FILE_FAILED,
+    USB_WIFI_DEFERRED_FAILED,
     USB_START_FAILED,
     USB_STOPPED,
 )
@@ -98,14 +101,67 @@ class USBObserver(FileSystemEventHandler):
         a WiFi credential import each time the marker file is recreated.
         """
         super().__init__()
+
+        # The deferred import currently waiting for NetworkManager, if any.
+        # Held so an ejected drive can cancel it, and replaced per insertion:
+        # each one is its own attempt with its own outcome.
+        self._wifi_import: DeferredStarter | None = None
+
         if path.ismount(USB_MOUNT_POINT):
             Commands.publish(CommandMessage(USB_SOURCE, USB_PRESENT))
             # Drive is already mounted: attempt to import any WiFi credentials
-            self._import_usb_wifi_networks()
+            self._start_wifi_import()
         else:
             Commands.publish(CommandMessage(USB_SOURCE, USB_ABSENT))
 
 ##### Helpers #############################################
+
+    def _start_wifi_import(self) -> None:
+        """
+        Import the WiFi credentials, once NetworkManager can accept them.
+
+        Deferred rather than attempted straight away, because the moment this
+        runs is exactly the moment NetworkManager is least likely to be up: a
+        drive that was already inserted at power-on triggers this from
+        USBObserver.__init__(), which oradio_control reaches within seconds of
+        boot. And that is the case the file exists for -- first-time set-up,
+        credentials on a stick, switch the Oradio on.
+
+        Attempting anyway fails in a way that looks like the user's fault: the
+        profile is not added, an incident is published, and nothing retries
+        even though the drive is still mounted and NetworkManager arrives a
+        few seconds later. The file is kept, so re-inserting the drive works
+        -- but nobody tells the user that.
+
+        A fresh DeferredStarter per insertion, so an attempt that timed out
+        does not make the next insertion a no-op. Safe if the drive is pulled
+        while this is still waiting: _import_usb_wifi_networks() returns
+        quietly when the file is not there, and _cancel_wifi_import() stops
+        the wait anyway.
+        """
+        self._cancel_wifi_import()
+
+        self._wifi_import = DeferredStarter(
+            "USB wifi credential import",
+            nm_available,
+            self._import_usb_wifi_networks,
+            on_timeout=lambda: Incidents.publish(
+                IncidentMessage(USB_SOURCE, USB_WIFI_DEFERRED_FAILED)
+            ),
+        )
+        self._wifi_import.start()
+
+    def _cancel_wifi_import(self) -> None:
+        """
+        Stop a deferred import that is still waiting for NetworkManager.
+
+        Called when the drive goes away: the credentials it carried are gone
+        with it, and an import that completed minutes later would report on a
+        drive nobody has any more.
+        """
+        if self._wifi_import is not None:
+            self._wifi_import.abort()
+            self._wifi_import = None
 
     @staticmethod
     def _validate_network(network: dict[str, object], index: int) -> str | None:
@@ -268,7 +324,7 @@ class USBObserver(FileSystemEventHandler):
             try:
                 oradio_log.debug("USB inserted")
                 Commands.publish(CommandMessage(USB_SOURCE, USB_PRESENT))
-                self._import_usb_wifi_networks()
+                self._start_wifi_import()
             # An unhandled exception here would propagate into watchdog's
             # dispatch loop and silently kill the observer thread.
             except Exception as ex_err:  # pylint: disable=broad-exception-caught
@@ -289,6 +345,7 @@ class USBObserver(FileSystemEventHandler):
         if not event.is_directory and event.src_path == USB_STATEFILE:
             try:
                 oradio_log.debug("USB removed")
+                self._cancel_wifi_import()
                 Commands.publish(CommandMessage(USB_SOURCE, USB_ABSENT))
             # An unhandled exception here would propagate into watchdog's
             # dispatch loop and silently kill the observer thread.
