@@ -404,6 +404,17 @@ class WifiEventListener(ThreadTemplate):    # pylint: disable=too-many-instance-
         # keeper is attached to the default main context -- so stopping the thread does not clear them.
         self._device_matches: list = []         # SignalMatch per device-scoped add_signal_receiver()
         self._nm_matches: list = []             # SignalMatch per bus-daemon add_signal_receiver()
+
+        # Last WiFi state announced on the command bus, or None before the first one. Kept so publish_state() can
+        # drop a repeat: NetworkManager's connectivity can flap between FULL and LIMITED without the association
+        # changing, and every repeat reaching the bus is another spoken "connected to wifi" from oradio_control.
+        # Touched only on the GLib main loop thread, like everything else that decides what to publish.
+        self._published_state: str | None = None
+
+        # True once "associated but no internet" has been reported, cleared when connectivity comes good. Separate
+        # from _published_state because that case publishes no bus state at all -- it is neither connected nor
+        # disconnected -- so it needs its own memory of having been said.
+        self._no_internet_reported = False
         self._keeper_source: int | None = None  # GLib source id of the keeper timeout
 
         # Rebuild-after-NM-restart state, all touched only on the GLib main loop thread.
@@ -484,6 +495,31 @@ class WifiEventListener(ThreadTemplate):    # pylint: disable=too-many-instance-
                 )
             )
 
+            # Watch NetworkManager's own Connectivity assessment.
+            #
+            # The device StateChanged signal below says the association is up; it does not say the internet is
+            # reachable. NM decides that separately, by probing after activation, and the probe finishes some time
+            # AFTER the device reports CONNECTED. A connectivity read taken in the StateChanged handler therefore
+            # often still says LIMITED on a link that is about to be fine -- and nothing ever revisited it, so the
+            # Oradio could stay "not connected" for the rest of the session while wifi worked. That is what this
+            # subscription fixes: the probe result arrives as an event rather than having to be guessed at the one
+            # moment it is least likely to be ready.
+            #
+            # Registered in _nm_matches, not _device_matches: the match is on NM_OBJECT_PATH, which is a
+            # well-known path that does not change when NM restarts, so a rebuild must not tear it down.
+            #
+            # arg0 narrows the match to NM's own interface. Other interfaces publish PropertiesChanged on the same
+            # object, and waking the main loop for those costs a callback that can only return.
+            self._nm_matches.append(
+                self.bus.add_signal_receiver(
+                    self._nm_connectivity_changed,
+                    dbus_interface=DBUS_PROPS_IFACE,
+                    signal_name="PropertiesChanged",
+                    path=NM_OBJECT_PATH,
+                    arg0=NM_IFACE,
+                )
+            )
+
             # Resolve the device, subscribe to it and seed the list. Everything device-scoped is in there rather
             # than inlined here, because an NM restart invalidates all of it at once and recovery redoes exactly
             # this.
@@ -552,6 +588,12 @@ class WifiEventListener(ThreadTemplate):    # pylint: disable=too-many-instance-
             self._loop.quit()
         stopped = super().safe_stop(timeout)
         self._unsubscribe()
+
+        # Nothing is watching the radio any more, so what was last announced says nothing about what the next
+        # start will find. Cleared here rather than in setup(), so a stop() that is never followed by a start()
+        # does not leave a stale answer behind either.
+        self.forget_published_state()
+
         return stopped
 
     def _remove_matches(self, matches) -> None:
@@ -819,6 +861,71 @@ class WifiEventListener(ThreadTemplate):    # pylint: disable=too-many-instance-
 
         return False
 
+    def publish_state(self, state: str) -> None:
+        """
+        Announce a WiFi state on the command bus, unless it is the one already announced.
+
+        The single way this class tells the rest of the Oradio what the WiFi is doing. Everything that decides a
+        state ends here, so the decision and the announcement cannot drift apart, and so the "is this new?" test
+        exists once instead of at every call site.
+
+        Repeats are dropped because a repeat is not free: subscribers act on the message, and on_wifi_connected()
+        in oradio_control speaks an announcement. NetworkManager's connectivity flaps between FULL and LIMITED
+        without the association changing, so without this an unstable uplink talks.
+
+        Args:
+            state: WIFI_CONNECTED, WIFI_DISCONNECTED or WIFI_ACCESS_POINT.
+        """
+        if state == self._published_state:
+            oradio_log.debug("WiFi state unchanged (%s); not republishing", state)
+            return
+
+        self._published_state = state
+        oradio_log.debug("Publish wifi service message: %s", state)
+        Commands.publish(CommandMessage(WIFI_SOURCE, state))
+
+    def forget_published_state(self) -> None:
+        """
+        Drop the memory of what was last announced, so the next state is announced again.
+
+        Called when this listener stops. The radio has not changed, but nothing is watching it any more, and the
+        next start has to tell the bus what it finds rather than assume the world stood still. The no-internet
+        memory goes with it, for the same reason.
+        """
+        self._published_state = None
+        self._no_internet_reported = False
+
+    # invalidated is part of the PropertiesChanged signature and must be accepted; NM sends Connectivity by value,
+    # so it is always empty here.
+    def _nm_connectivity_changed(self, interface, changed, invalidated) -> None:  # pylint: disable=unused-argument
+        """
+        React to NetworkManager finishing (or revising) its internet probe.
+
+        Signal handler for PropertiesChanged on the NetworkManager object. Runs on the GLib main loop thread.
+
+        Delegates the decision to _publish_current_state() rather than mapping the connectivity code here: that
+        function already holds the rule for turning "what NM thinks" into a bus message, including the cases this
+        signal says nothing about -- no association at all, or hosting the access point. A second copy of that
+        mapping would be a second thing to keep in step.
+
+        Args:
+            interface:   Interface whose properties changed. Matched on by arg0, checked again because a signal
+                         match is a filter and not a guarantee.
+            changed:     Mapping of changed property names to values.
+            invalidated: Property names whose value changed without being included, unused here.
+        """
+        if str(interface) != NM_IFACE or "Connectivity" not in changed:
+            return
+
+        oradio_log.debug("NetworkManager connectivity changed to %s", int(changed["Connectivity"]))
+
+        try:
+            self._publish_current_state()
+        # An unhandled exception here would propagate into the GLib main loop, which logs it and carries on with
+        # the callback removed -- leaving a listener that is running but no longer reacting.
+        except Exception as ex_err:     # pylint: disable=broad-exception-caught
+            oradio_log.error("Failed to handle connectivity change: %s", ex_err)
+
     def _publish_current_state(self) -> None:
         """
         Publish the WiFi state as it is right now, rather than as a transition.
@@ -830,20 +937,29 @@ class WifiEventListener(ThreadTemplate):    # pylint: disable=too-many-instance-
 
         if not active:
             oradio_log.debug("Republishing state after rebuild: disconnected")
-            Commands.publish(CommandMessage(WIFI_SOURCE, WIFI_DISCONNECTED))
+            self.publish_state(WIFI_DISCONNECTED)
             return
 
         if active == ACCESS_POINT_SSID:
             oradio_log.debug("Republishing state after rebuild: access point")
-            Commands.publish(CommandMessage(WIFI_SOURCE, WIFI_ACCESS_POINT))
+            self.publish_state(WIFI_ACCESS_POINT)
             return
 
         if self.get_connectivity() == NM_CONNECTIVITY_FULL:
-            oradio_log.debug("Republishing state after rebuild: connected")
-            Commands.publish(CommandMessage(WIFI_SOURCE, WIFI_CONNECTED))
+            self._no_internet_reported = False
+            self.publish_state(WIFI_CONNECTED)
         else:
-            oradio_log.debug("Republishing state after rebuild: connected without internet")
-            Incidents.publish(IncidentMessage(WIFI_SOURCE, WIFI_CONNECT_FAILED))
+            # Associated, but NM says there is no usable route. Deliberately not a bus state: the Oradio is
+            # neither connected nor disconnected, and saying either would be wrong. The bus therefore keeps
+            # whatever it was last told, which is also what makes the return to FULL a suppressed repeat rather
+            # than a second spoken announcement.
+            #
+            # One incident per outage, not one per signal: NM revises this property as its probe retries, so an
+            # uplink that is down for an hour would otherwise report itself all hour.
+            if not self._no_internet_reported:
+                self._no_internet_reported = True
+                oradio_log.debug("Associated without internet access")
+                Incidents.publish(IncidentMessage(WIFI_SOURCE, WIFI_CONNECT_FAILED))
 
     def _verify_device_path(self) -> bool:
         """
@@ -1285,8 +1401,7 @@ class WifiEventListener(ThreadTemplate):    # pylint: disable=too-many-instance-
 
                 if active == ACCESS_POINT_SSID:
                     # Connected to the Oradio's own access point (AP mode); connectivity check is not relevant here
-                    oradio_log.debug("Publish wifi service message: %s", WIFI_ACCESS_POINT)
-                    Commands.publish(CommandMessage(WIFI_SOURCE, WIFI_ACCESS_POINT))
+                    self.publish_state(WIFI_ACCESS_POINT)
                 else:
                     # Read NM's connectivity assessment — it has already probed for internet access so no separate
                     # round-trip is needed here
@@ -1294,7 +1409,7 @@ class WifiEventListener(ThreadTemplate):    # pylint: disable=too-many-instance-
                     if connectivity == NM_CONNECTIVITY_FULL:
                         # External network with confirmed internet access
                         oradio_log.debug("Wifi connected to internet")
-                        Commands.publish(CommandMessage(WIFI_SOURCE, WIFI_CONNECTED))
+                        self.publish_state(WIFI_CONNECTED)
                     else:
                         # PORTAL, LIMITED, NONE, or unreadable: IP may be assigned but no usable internet route
                         oradio_log.debug("Wifi not connected to internet")
@@ -1304,7 +1419,7 @@ class WifiEventListener(ThreadTemplate):    # pylint: disable=too-many-instance-
                 # The radio is no longer associated with anything, so it is certainly not hosting.
                 self._hosting_ap = False
                 oradio_log.debug("Wifi disconnected")
-                Commands.publish(CommandMessage(WIFI_SOURCE, WIFI_DISCONNECTED))
+                self.publish_state(WIFI_DISCONNECTED)
 
             else:   # NM_FAILED — NetworkManager could not complete the connection
                 self._hosting_ap = False

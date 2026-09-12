@@ -46,7 +46,6 @@ from utilities import run_shell_script, DeferredStarter
 from messaging import (
     Commands,
     Incidents,
-    CommandMessage,
     IncidentMessage,
     WIFI_SOURCE,
     WIFI_CONNECTED,
@@ -348,7 +347,10 @@ class WifiService:
 
         # Publish the current state immediately so subscribers don't have to wait for the first state-change signal
         # from NetworkManager
-        Commands.publish(CommandMessage(WIFI_SOURCE, self.get_state()))
+        # Through the listener, so this seeds its idea of what has been announced. Publishing around it would
+        # leave the listener believing nothing had been said, and the first real state change would then look
+        # like a repeat of a message the bus never saw -- or worse, be dropped as one.
+        self.nm_listener.publish_state(self.get_state())
 
     def _build_network_list(self) -> None:
         """

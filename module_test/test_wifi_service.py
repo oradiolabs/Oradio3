@@ -159,6 +159,7 @@ class FakeListener:    # pylint: disable=too-many-instance-attributes
         self.safe_start_timeouts: list[float] = []  # One entry per safe_start() call, holding its timeout
         self.safe_stop_calls = 0
         self.scan_calls = 0
+        self.published_states: list[str] = []    # One entry per publish_state() call
 
         # What get_connectivity() reports. None mirrors a listener that is not running, which is what the
         # real one returns when it has no D-Bus properties object to ask.
@@ -170,6 +171,22 @@ class FakeListener:    # pylint: disable=too-many-instance-attributes
     def is_alive(self) -> bool:
         """Whether the fake thread is running."""
         return self._alive
+
+    def publish_state(self, state: str) -> None:
+        """
+        Record a state and publish it, as the real listener does.
+
+        Publishing here and not only recording, because this is the one path by which a WiFi state reaches
+        the bus: a fake that only recorded would make every assertion about what subscribers were told pass
+        by omission. The repeat-suppression of the real one is deliberately NOT copied -- a test that wants
+        to see two identical publishes should see two.
+        """
+        self.published_states.append(state)
+        COMMANDS.publish(StubMessage("wifi", state))
+
+    def forget_published_state(self) -> None:
+        """Match the real listener's stop-time reset."""
+        self.published_states.clear()
 
     def get_connectivity(self) -> int | None:
         """Report whatever the test set, as the real listener reports NM's assessment."""
