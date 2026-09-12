@@ -50,6 +50,7 @@ from messaging import (
     USB_ABSENT,
     USB_PRESENT,
     USB_FILE_FAILED,
+    USB_FSCK_FAILED,
     USB_WIFI_DEFERRED_FAILED,
     USB_START_FAILED,
     USB_STOPPED,
@@ -62,6 +63,17 @@ from constants import USB_MOUNT_POINT
 ##### LOCAL constants #####################################
 # Directory watched by the observer for filesystem events
 USB_STATEPATH = "/run"
+
+# Written by usb-drive.sh when fsck.vfat reported damage it could not repair,
+# and removed again once the incident has been published. Holds fsck's own
+# output, so the incident carries what was wrong rather than only that
+# something was.
+#
+# A file rather than a direct call because the repair runs in a shell script
+# started by udev, which has no way to reach the incident bus. The observer
+# below already watches this directory for USB_STATEFILE, so the notification
+# costs nothing extra.
+USB_FSCK_ERROR_FILE = "/run/usb_fsck_error"
 
 # Marker file managed by udev to signal USB drive presence:
 #   created  → ORADIO USB drive has been mounted
@@ -108,6 +120,10 @@ class USBObserver(FileSystemEventHandler):
         self._wifi_import: DeferredStarter | None = None
 
         if path.ismount(USB_MOUNT_POINT):
+            # Checked here as well as in on_created(): at boot the drive is
+            # mounted by usb-drive-boot.service long before this observer
+            # exists, so the created event for the marker file is never seen.
+            self.report_fsck_error()
             Commands.publish(CommandMessage(USB_SOURCE, USB_PRESENT))
             # Drive is already mounted: attempt to import any WiFi credentials
             self._start_wifi_import()
@@ -308,6 +324,42 @@ class USBObserver(FileSystemEventHandler):
 
 ##### Public API ##########################################
 
+    def report_fsck_error(self) -> None:
+        """
+        Publish an incident if usb-drive.sh left one behind, then clear it.
+
+        fsck.vfat runs before every mount of a dirty filesystem, which on an
+        Oradio is every boot -- the power is pulled to switch it off, so the
+        dirty bit is routine. Clearing that flag is not worth reporting. This
+        is the other case: fsck exited above 1, meaning it found damage it
+        could not put right, and that is worth knowing about because a drive
+        in that state tends to get worse.
+
+        The file is removed after reading, so one occurrence is one incident.
+        Failing to remove it would mean reporting the same damage on every
+        subsequent mount, so that failure is itself logged.
+        """
+        if not path.isfile(USB_FSCK_ERROR_FILE):
+            return
+
+        try:
+            with open(USB_FSCK_ERROR_FILE, encoding="utf-8", errors="replace") as file:
+                detail = file.read().strip()
+        except OSError as ex_err:
+            detail = f"could not read {USB_FSCK_ERROR_FILE}: {ex_err}"
+
+        oradio_log.error("USB filesystem check reported unrepaired errors: %s", detail)
+
+        # details= explicitly: the automatic capture would record this
+        # watchdog thread's call stack, which says nothing. What fsck said
+        # is the whole story.
+        Incidents.publish(IncidentMessage(USB_SOURCE, USB_FSCK_FAILED, details=detail))
+
+        try:
+            remove(USB_FSCK_ERROR_FILE)
+        except OSError as ex_err:
+            oradio_log.error("Could not remove '%s': %s", USB_FSCK_ERROR_FILE, ex_err)
+
     def on_created(self, event) -> None:
         """
         Handle watchdog callback when USB_STATEFILE is created.
@@ -323,6 +375,7 @@ class USBObserver(FileSystemEventHandler):
         if not event.is_directory and event.src_path == USB_STATEFILE:
             try:
                 oradio_log.debug("USB inserted")
+                self.report_fsck_error()
                 Commands.publish(CommandMessage(USB_SOURCE, USB_PRESENT))
                 self._start_wifi_import()
             # An unhandled exception here would propagate into watchdog's

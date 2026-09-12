@@ -18,6 +18,7 @@ ACTION="${1:-}"
 BY_LABEL="/dev/disk/by-label/ORADIO"		# Stable symlink; survives device renumbering
 MOUNTPOINT="PLACEHOLDER_USB_MOUNT_POINT"	# Location where USB is mounted
 MONITOR="/run/usb_present"					# RAM-based flag file; present = mounted
+FSCK_ERROR="/run/usb_fsck_error"			# Written when fsck could not repair; read and removed by usb_service
 LOCK="/run/usb_mount.lock"					# Prevents concurrent runs from duplicate udev events
 LOCK_WAIT=30								# Seconds to wait for the lock before giving up
 
@@ -221,6 +222,20 @@ case "$ACTION" in
 				log "Info: fsck repaired '$PARTITION' ($(since_start)ms)"
 			else
 				log "Error: fsck.vfat rc=$fsck_rc on '$PARTITION': $fsck_out"
+
+				# Hand the failure to the Python side, which owns the incident bus.
+				# Same mechanism as $MONITOR: a file under /run that usb_service's
+				# watchdog is already watching. Written before the mount below, so
+				# the damage is reported ahead of the drive being announced.
+				#
+				# The output goes in the file rather than just a marker, so the
+				# incident can carry what fsck actually said. usb_service removes
+				# the file after reading it, so each occurrence is reported once.
+				{
+					echo "partition: $PARTITION"
+					echo "fsck.vfat rc=$fsck_rc"
+					echo "$fsck_out"
+				} > "$FSCK_ERROR" || log "Warning: could not write '$FSCK_ERROR'"
 			fi
 		fi
 
