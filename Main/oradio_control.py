@@ -29,6 +29,7 @@ from log_service import oradio_log
 from backlight_service import Backlighting
 from volume_control import VolumeControl
 from mpd_control import MPDControl
+from mpd_service import mpd_is_ready
 from mpd_monitor import MPDMonitor     # Optional: MPD events monitoring in the background
 from led_control import LEDControl
 from touch_buttons import TouchButtons
@@ -118,26 +119,63 @@ PLAY_STATES = {"StatePlay", "StatePreset1", "StatePreset2", "StatePreset3"}
 
 # -----------------------
 
+def log_startup_step(step: str) -> None:
+    """
+    Log seconds since power-on at a named point in the start-up sequence.
+
+    Everything below this line runs at module level, one statement after the
+    other, and most of it logs nothing at all -- so a slow step shows up in the
+    log as a silence rather than as a duration. These markers turn that silence
+    into data: 'grep STARTUP oradio.log' prints the whole sequence with the
+    cost of each step as the difference between two lines.
+
+    Measured against /proc/uptime rather than a monotonic clock started here,
+    so the numbers can be compared with systemd's own: subtract the service
+    start time from 'journalctl -b -u oradio' and what remains is Python.
+    Comparing the first marker with that time gives the cost of the imports,
+    which happen before any of this runs.
+
+    Args:
+        step: Short label for what has just finished.
+    """
+    try:
+        with open("/proc/uptime", encoding="utf-8") as file:
+            uptime = float(file.readline().split()[0])
+    except (FileNotFoundError, ValueError, IndexError) as ex_err:
+        oradio_log.warning("Could not read uptime: %s", ex_err)
+        return
+
+    oradio_log.info("STARTUP %-26s at %6.2fs", step, uptime)
+
+# First marker, before anything else runs: everything up to here is interpreter
+# start-up and module imports.
+log_startup_step("imports done")
+
 # Start Remote Service before any incidents can happen, as othewise those incidents may nog be reported
 remote_monitor = RMService()
 remote_monitor.start()
+log_startup_step("remote monitor")
 
 """ Resource-owning modules have an explicit start/stop allowing it to possibly be restarted when failing. """  # pylint: disable=pointless-string-statement
 
 # Any incident starting backlight is reported to and handled by IncidentHandler
 oradio_log.info("Start backlighting")
 Backlighting().start()
+log_startup_step("backlighting")
 
 # Instantiate led control
 leds = LEDControl()
+log_startup_step("led control")
 
 # Any incident starting volume control is reported to and handled by IncidentHandler
 oradio_log.info("Start volumen control")
 VolumeControl().start()
+log_startup_step("volume control")
 
 # Instantiate and start the wifi service for monitoring wifi state
 oradio_wifi_service = WifiService()
 oradio_wifi_service.start()
+log_startup_step("wifi service")
 
 # Seconds between checks while waiting for WiFi to carry the power supply
 # incident. Long on purpose: nothing else is happening, and a tight loop would
@@ -146,6 +184,7 @@ POWER_INCIDENT_WIFI_POLL = 10
 
 # Get power supply info
 power_status = get_power_status()
+log_startup_step("power status")
 
 # Verify the power contract.
 #
@@ -237,19 +276,51 @@ RPiThrottlingMonitor().start()
 oradio_log.info("Start log health monitor")
 LogHealthMonitor().start()
 
-oradio_log.info("Start MPD event monitoring")
-mpd_monitor = MPDMonitor()
-mpd_monitor.start()
-
 # Initialise MPD client.
-# Returns promptly even when mpd.service is not up yet: MPDService trips its
-# circuit breaker and every command fails fast until MPD answers again.
+# Returns promptly even when mpd.service is not up yet: MPDService no longer
+# connects in its constructor, and every command fails fast while the circuit
+# breaker is open.
+#
+# The monitor and the library scan below decide when to start on
+# mpd_is_ready(), which asks the server directly instead of going through this
+# object: two poll loops connecting on one shared MPDClient corrupt it. It waits
+# for MPD's greeting, not just for the socket, so the work it releases does not
+# then sit on MPDService's lock waiting for a server that is not answering.
 oradio_log.info("Initialising MPDControl")
 #REVIEW Onno:
 # Each thread/process should have its own MPDControl instance.
 # A global instance may cause concurrent access conflicts with the MPD service.
 # MPDControl includes built-in safeguards against improper use, so this works.
 mpd_control = MPDControl()
+log_startup_step("mpd control")
+
+# Start the MPD event monitor once MPD is actually there.
+#
+# MPDMonitor.start() blocks until its worker reports ready, and ready means the
+# full database snapshot has been built. Against an mpd.service that is still
+# coming up that measured 6.4 seconds, all of it in front of the start-up tune
+# -- and the tune needs neither the monitor nor MPD.
+#
+# Nothing between here and the tune needs it either: the monitor exists to
+# notice what MPD does later, so starting it a few seconds late costs nothing
+# beyond a few early events nobody was listening for yet.
+oradio_log.info("Start MPD event monitoring")
+mpd_monitor = MPDMonitor()
+
+#
+# inline=False because MPDMonitor.start() blocks until its worker has built the
+# database snapshot.
+mpd_monitor_starter = DeferredStarter(
+    "MPD event monitor",
+    mpd_is_ready,
+    mpd_monitor.start,
+    inline=False,
+)
+mpd_monitor_starter.start()
+
+# Marks the hand-off, not the monitor being up: the start is deferred, so this
+# is the point at which start-up stopped waiting for it.
+log_startup_step("mpd monitor deferred")
 
 # Preset validation and the first database scan both need MPD reachable AND the
 # USB stick mounted. oradio.service is ordered After=basic.target only, and
@@ -262,15 +333,16 @@ mpd_control = MPDControl()
 
 def _mpd_library_ready() -> bool:
     """True once MPD answers and the music directory is actually mounted."""
-    return mpd_control.is_available() and ismount(USB_MOUNT_POINT)
+    return mpd_is_ready() and ismount(USB_MOUNT_POINT)
 
-def _scan_mpd_library() -> None:
-    """Validate the presets and update the database, once the library is there."""
-    mpd_control.validate_presets()
-    mpd_control.update_database()
-
-mpd_library = DeferredStarter("MPD library scan", _mpd_library_ready, _scan_mpd_library)
+mpd_library = DeferredStarter(
+    "MPD library scan",
+    _mpd_library_ready,
+    mpd_control.initialise_library,
+    inline=False,
+)
 mpd_library.start()
+log_startup_step("mpd library scan")
 
 usb_present = threading.Event()
 usb_present.set() # USB present to go over start-up sequence (will be updated after first message of USB service
@@ -415,8 +487,37 @@ class StateMachine:
                 pass
         self._delayed_timers.clear()
 
-    def _arm_delayed_transition(self, key: str, delay_s: float, target_state: str):
-        """Schedule an interruptible delayed transition; replaces any existing with same key."""
+    def _arm_delayed_transition(self, key: str, delay_s: float, target_state: str,
+                                from_state: str | None = None):
+        """
+        Schedule an interruptible delayed transition; replaces any existing with same key.
+
+        Args:
+            key:          Identifies the timer, so re-arming replaces it.
+            delay_s:      Seconds before the transition fires.
+            target_state: Where to go when it fires.
+            from_state:   Arm only while the machine is still in this state.
+
+        from_state exists because the handler that arms a timer runs on a
+        worker thread, started by transition() after it cancelled the previous
+        timers. A button pressed in between is committed by transition() on its
+        own thread -- and then this call arms a timer the cancel already came
+        too early for, which a few seconds later throws away what the user just
+        asked for. Pressing a preset while the start-up LED blinked started the
+        music and then stopped it again when the blinking ended.
+
+        This narrows that window from seconds to microseconds rather than
+        closing it: state and timers are not committed under one lock, so a
+        transition landing between the check and the arm below still wins.
+        Closing it properly means giving the state machine a lock that spans
+        both, which is a larger change than this guard.
+        """
+        if from_state is not None and self.state != from_state:
+            oradio_log.debug(
+                "Not arming %s: state moved from %s to %s", key, from_state, self.state
+            )
+            return
+
         old = self._delayed_timers.pop(key, None)
         if old is not None:
             try:
@@ -499,7 +600,7 @@ class StateMachine:
         play_sound(SOUND_STOP)
         # Schedule interruptible transition to Idle after 4 seconds (non-blocking)
         oradio_log.debug("Stop: scheduling transition to Idle in 4 s (interruptible)")
-        self._arm_delayed_transition("StopToIdle", 4.0, "StateIdle")
+        self._arm_delayed_transition("StopToIdle", 4.0, "StateIdle", from_state="StateStop")
         # handler returns immediately; task_lock released, UI remains responsive
 
     def _state_play_song_webif(self):
@@ -527,8 +628,8 @@ class StateMachine:
         # It is what tells the user the Oradio is alive, and the window between
         # it and the first touch is the budget the rest of the system starts up
         # in. Every call placed ahead of it spends that budget instead of using
-        # it: mpd_control.pause() below talks to a service that may not be
-        # listening yet, and leds.control_blinking_led() goes over i2c.
+        # it: leds.control_blinking_led() below goes over i2c, and anything
+        # else added here would come before the user hears anything.
         #
         # play_sound() is fire-and-forget -- it launches aplay detached and
         # returns -- so this costs the rest of the handler nothing.
@@ -545,10 +646,26 @@ class StateMachine:
 
         leds.control_blinking_led(LED_STOP, 1)
         oradio_log.debug("Starting-up")
-        mpd_control.pause()
+
+        # No mpd_control.pause() here.
+        #
+        # It was meant to silence an MPD that might still be playing, which
+        # cannot be the case: this process has just started and has not told it
+        # to play anything. Every boot logged "Ignore pause: not currently
+        # playing" -- the command never had anything to do.
+        #
+        # What it did do was cost time. It is the first MPD command of the run,
+        # so it pays the connect, and the timer below is armed only after it
+        # returns. On a cold boot MPD is not up yet at this point, which made
+        # the LED blink for the connect plus five seconds instead of five, and
+        # delayed the Oradio reaching Idle by the same amount.
+        #
+        # Nothing in this handler talks to MPD now. If the certainty is ever
+        # wanted back, it belongs in initialise_library() on the background
+        # thread, where it holds nothing up.
 
         oradio_log.debug("Startup: scheduling transition to Idle in 5 s")
-        self._arm_delayed_transition("StartupToIdle", 5.0, "StateIdle")
+        self._arm_delayed_transition("StartupToIdle", 5.0, "StateIdle", from_state="StateStartUp")
 
     def _state_idle(self):
 # REVIEW: Is this only there because transitioning through StateIdle is used by on_webservice_plX_changed() ?
@@ -600,11 +717,10 @@ def on_usb_present():
     # the Oradio is playing or off.
     play_sound(SOUND_USB_PRESENT)
 
-    # The stick may have arrived after the boot-time scan gave up, and it may
-    # carry a different presets.json than the last one. Re-validate as well as
-    # re-scan; both return immediately if MPD is still not up.
-    mpd_control.validate_presets()
-    mpd_control.update_database()
+    # The stick may have arrived after the boot-time set-up gave up, and it may
+    # carry a different presets.json than the last one, so the library is
+    # prepared again. Returns immediately if MPD is still not up.
+    mpd_control.initialise_library()
     # Transition to Idle after USB is inserted
     if state_machine.state != "StateStartUp":
         state_machine.transition("StateIdle")
@@ -846,18 +962,22 @@ def sync_usb_presence_from_service():
 # Instantiate and start the USB service monitoring USB present/absent
 oradio_usb_service = USBService()
 oradio_usb_service.start()
+log_startup_step("usb service")
 
 # REVIEW Onno: sync_usb_presence_from_service is overbodig, want USB status komt via de command queue
 sync_usb_presence_from_service()
 
 # Subscribe to incidents bus so incidents published are mitigated
 incident_handler = IncidentHandler()
+log_startup_step("incident handler")
 
 # Instantiate and start handling buttons
 touch_buttons = TouchButtons()
+log_startup_step("touch buttons")
 
 # Instantiate and start the web service for managing the access point
 oradio_web_service = WebService()
+log_startup_step("web service")
 
 # Instantiate the state machine
 state_machine = StateMachine()
@@ -867,6 +987,21 @@ state_machine.set_services(oradio_web_service)
 
 # start the state_machine transition
 state_machine.transition("StateStartUp")
+
+# Warm the web stack now the Oradio is up and the tune is playing.
+#
+# WebService.start() runs on the command handler thread while holding the state
+# machine lock, and its first call imports uvicorn and FastAPI -- about six
+# seconds cold. A long press would freeze every other button, knob and event
+# for that long, at the worst possible moment: a user configuring wifi on a new
+# device presses it within seconds of switching on.
+#
+# A plain thread, not a DeferredStarter: there is no dependency to wait for.
+# Daemon, so it never holds up a shutdown, and started without delay because
+# the window it protects is exactly the first half-minute.
+threading.Thread(
+    target=oradio_web_service.preload, daemon=True, name="web-stack-warmup"
+).start()
 
 # Subscribe to and dispatch all command messages (starts its own worker thread)
 oradio_command_handler = OradioCommandHandler(Commands.subscribe())

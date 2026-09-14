@@ -60,6 +60,12 @@ from rms_service import (
     _post_message,
     _selection_order,
 )
+# requests is imported by rms_service on its first POST, not at module import,
+# so that its 1.6s cold import stays off the Oradio's start-up path. These tests
+# patch rms_service.post and raise rms_service.RequestException, so the real
+# names have to be in place first.
+rms_service._load_requests()  # pylint: disable=protected-access
+
 
 UNSUPPORTED = "Unsupported platform"
 

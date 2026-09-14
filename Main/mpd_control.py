@@ -199,14 +199,14 @@ class MPDControl(MPDService):
         # Initialise the parent MPDService with crossfade.
         super().__init__(crossfade=MPD_CROSSFADE)
 
-        # Remove any dummy entries left by a prior interrupted playlist creation.
-        self._sanitize_playlists()
-
-        # NOTE: validate_presets() is deliberately NOT called here. presets.json
-        # and the playlists it names live on the USB stick, which is not
-        # guaranteed to be mounted at the time oradio_control imports this
-        # module -- see the deferred library scan there. Validating too early
-        # reports every preset as broken and never retracts it.
+        # NOTE: nothing that talks to MPD happens here. Playlist clean-up,
+        # preset validation and the database scan all live in
+        # initialise_library(), which the caller runs once MPD is answering and
+        # the USB drive is mounted -- see the deferred library scan in
+        # oradio_control. Doing any of it here would put the connect burst on
+        # the path to the start-up tune, and would validate presets against a
+        # stick that is not there yet, reporting every one of them as broken
+        # and never retracting it.
 
         # Reused across play_song() calls when idle, to avoid spawning a new
         # OS thread per call in the common (sequential) case. See play_song().
@@ -262,6 +262,24 @@ class MPDControl(MPDService):
                 oradio_log.warning(
                     "Removed stale dummy entry at index %d from playlist '%s'", i, playlist,
                 )
+
+    def initialise_library(self) -> None:
+        """
+        Bring the music library up, once MPD and the USB drive are both there.
+
+        One entry point rather than three calls at the caller, because the
+        order and the contents of this are MPD's business: the caller knows
+        WHEN the library can be prepared, not WHAT preparing it involves.
+
+        Deliberately not done in __init__. Every step here issues MPD commands,
+        so on a cold boot they pay the connect burst against an mpd.service that
+        is still coming up, and they need the USB drive mounted as well --
+        neither of which is true at the moment oradio_control constructs this,
+        and none of which the start-up tune or a button press waits for.
+        """
+        self._sanitize_playlists()
+        self.validate_presets()
+        self.update_database()
 
     def _sanitize_playlists(self) -> None:
         """

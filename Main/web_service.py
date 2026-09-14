@@ -40,15 +40,14 @@ Created on December 23, 2024
         https://superfastpython.com/multiprocessing-in-python/
 """
 import time
+from typing import Any
 from pathlib import Path
 from multiprocessing import Queue
 from threading import Thread, RLock
-import uvicorn
 
 ##### Oradio modules ######################################
 from log_service import oradio_log, ORADIO_LOG_LEVEL
 from utilities import run_shell_script
-from web_server import api_app
 from wifi_service import WifiService, get_wifi_connection
 from messaging import (
     safe_get,
@@ -108,6 +107,56 @@ _IPTABLES_REDIRECT_RULE = (
 
 # dnsmasq config file that resolves all hostnames to the captive portal address.
 _DNS_REDIRECT_CONF = Path("/etc/NetworkManager/dnsmasq-shared.d/redirect.conf")
+
+##### Deferred web stack ##################################
+# uvicorn and the FastAPI application are imported on first use instead of at
+# module import, and they are the reason this indirection exists at all.
+#
+# Measured cold on the device, they cost 6.0 of the 11 seconds the Oradio spends
+# importing before a single line of its own start-up code runs: fastapi 2.6s,
+# building the app in web_server 1.5s, pydantic 0.6s, uvicorn 0.4s. Everything
+# else the Oradio does at start-up -- every subsystem, every thread -- adds up
+# to 0.7s. So this is more than half the time between power-on and the tune,
+# spent on a captive portal that opens after a long press: minutes later, or
+# never.
+#
+# Module globals rather than parameters, so the code below reads the same as it
+# did when they were ordinary imports. They are None until _load_web_stack()
+# fills them in.
+# Lower-case on purpose: these stand in for imported names, not for constants.
+# Typed Any because None has neither a Config nor a state attribute, and without
+# it every use below is a type error.
+uvicorn: Any = None      # pylint: disable=invalid-name
+api_app: Any = None      # pylint: disable=invalid-name
+
+def _load_web_stack() -> bool:
+    """
+    Import uvicorn and the FastAPI app, once, on first use.
+
+    Returns:
+        True when both are available. False when the import failed, which is
+        reported as an incident: moving the import off the start-up path also
+        moves the moment a missing package is noticed, from "the Oradio will
+        not start" to "the portal does not open", and the second is only
+        useful if it says so out loud.
+    """
+    global uvicorn, api_app   # pylint: disable=global-statement
+
+    if uvicorn is not None and api_app is not None:
+        return True
+
+    try:
+        # pylint: disable=import-outside-toplevel
+        import uvicorn as uvicorn_module
+        from web_server import api_app as api_app_object
+    except ImportError as ex_err:
+        oradio_log.error("Failed to import the web stack: %s", ex_err)
+        Incidents.publish(IncidentMessage(WEB_SOURCE, WEB_SERVER_FAILED))
+        return False
+
+    uvicorn = uvicorn_module
+    api_app = api_app_object
+    return True
 
 class UvicornServerThread:
     """
@@ -283,18 +332,21 @@ class WebService:
 
         self.wifi_service = WifiService()
 
-        # Give the FastAPI app a reference to the queue so route handlers can
-        # enqueue requests without importing this module.
-        api_app.state.queue = self.request_queue
+        # Guards _create_server(). The warm-up thread oradio_control starts
+        # after the tune and a long press arriving before it finished both call
+        # it, and without this they would each build a server object -- two
+        # UvicornServerThreads over one port. The second caller waits and then
+        # finds the work done.
+        self._create_lock = RLock()
 
-        # Pre-assign to None so state, start(), and stop() can check for
-        # initialisation failure with a simple None guard rather than hasattr.
+        # Left None until start() needs it. Building it here would import the
+        # web stack, and this constructor runs at Oradio start-up while the
+        # portal it serves may never be opened -- see _load_web_stack() above.
+        #
+        # state(), start() and stop() already guard on None, so the only thing
+        # that changes for them is that None now also means "not started yet"
+        # rather than only "failed to initialise".
         self.uvicorn_server = None
-        try:
-            self.uvicorn_server = UvicornServerThread(api_app)
-        except Exception as ex_err:     # pylint: disable=broad-exception-caught
-            oradio_log.error("Failed to initialize UvicornServerThread: %s", ex_err)
-            Incidents.publish(IncidentMessage(WEB_SOURCE, WEB_SERVER_FAILED))
 
         # Daemon thread: drains request_queue and dispatches to service methods.
         # Exits automatically when the main process exits.
@@ -517,6 +569,69 @@ class WebService:
             return WEB_IDLE
         return WEB_ACTIVE if self.uvicorn_server.is_running else WEB_IDLE
 
+    def _create_server(self) -> bool:
+        """
+        Import the web stack and build the Uvicorn server, on first start.
+
+        Split out of __init__ so the import cost is paid when the user opens
+        the portal rather than at every Oradio start-up. Runs once: start()
+        only calls it while uvicorn_server is None, and a failure leaves it
+        None so the next start() tries again -- an ImportError is usually a
+        broken install, but a caller pressing the button twice deserves the
+        second attempt rather than a permanent refusal.
+
+        Returns:
+            True when the server is ready to be started. False when the web
+            stack could not be imported or the server could not be built;
+            both are logged here, and start() publishes the incident.
+        """
+        with self._create_lock:
+            # Re-checked inside the lock: a caller that queued behind the
+            # warm-up gets its result instead of repeating it.
+            if self.uvicorn_server is not None:
+                return True
+
+            if not _load_web_stack():
+                return False
+
+            # Give the FastAPI app a reference to the queue so route handlers
+            # can enqueue requests without importing this module.
+            api_app.state.queue = self.request_queue
+
+            try:
+                self.uvicorn_server = UvicornServerThread(api_app)
+            except Exception as ex_err:     # pylint: disable=broad-exception-caught
+                oradio_log.error("Failed to initialize UvicornServerThread: %s", ex_err)
+                return False
+
+            return True
+
+    def preload(self) -> bool:
+        """
+        Do everything start() can do ahead of time, so a long press does not.
+
+        Importing uvicorn and the FastAPI app costs about six seconds cold --
+        more than half of what the whole Oradio start-up costs -- and start()
+        runs on the command handler thread while holding the state machine
+        lock. Paying it there means the Oradio ignores every button, knob and
+        event for those seconds, right after the user asked it for something.
+
+        So it is paid here instead, on a thread nobody is waiting on, once the
+        Oradio is up. Safe to call more than once: _create_server() is a no-op
+        after the first success.
+
+        Also moves the moment a broken install is noticed back to start-up: a
+        missing package now publishes its incident shortly after boot rather
+        than the first time someone reaches for the portal.
+
+        Returns:
+            True when the web stack is loaded and the server object is built.
+        """
+        if self.uvicorn_server is not None:
+            return True
+
+        return self._create_server()
+
     def start(self) -> bool:
         """
         Start the Captive Portal service.
@@ -533,9 +648,9 @@ class WebService:
            point, via wifi_service.await_access_point(), which owns the
            timing for that path.
 
-        Two hard preconditions (uninitialised uvicorn_server, already running)
-        return immediately since there is nothing meaningful to accumulate
-        status over in either case. Once past those, each remaining step is
+        Two hard preconditions (the web stack failing to load, already
+        running) return immediately since there is nothing meaningful to
+        accumulate status over in either case. Once past those, each remaining step is
         skipped (via the status guard) if an earlier one already failed, so
         later steps never run against a known-bad state -- but there is still
         only one return statement for the whole step sequence, matching stop().
@@ -549,13 +664,9 @@ class WebService:
         Returns:
             bool: True if the portal started successfully, False otherwise.
         """
-        if self.uvicorn_server is None:
-            oradio_log.error("Uvicorn server not initialized")
-            Incidents.publish(IncidentMessage(WEB_SOURCE, WEB_START_FAILED))
-            return False
-
         # Check running state before committing to any side-effecting steps.
-        if self.uvicorn_server.is_running:
+        # uvicorn_server is None until the first start, and None is not running.
+        if self.uvicorn_server is not None and self.uvicorn_server.is_running:
             oradio_log.debug("Web service already running")
             return True
 
@@ -564,7 +675,20 @@ class WebService:
 
         status = True
 
-        if not self._ensure_port_redirect() or not self._ensure_dns_redirect():
+        # Import the web stack and build the server, AFTER the access point has
+        # been asked for. Both take time and neither waits on the other, so
+        # doing this second hides part of the import behind the radio switching
+        # mode -- which step 5 waits for anyway.
+        #
+        # On a warmed-up Oradio this is instant: the import already happened on
+        # the background thread oradio_control starts after the tune. This
+        # ordering is what keeps a long press that arrives before that finished
+        # from paying the full cost in series.
+        if self.uvicorn_server is None and not self._create_server():
+            Incidents.publish(IncidentMessage(WEB_SOURCE, WEB_START_FAILED))
+            status = False
+
+        if status and (not self._ensure_port_redirect() or not self._ensure_dns_redirect()):
             Incidents.publish(IncidentMessage(WEB_SOURCE, WEB_START_FAILED))
             status = False
 

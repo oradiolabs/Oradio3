@@ -386,13 +386,18 @@ class DeferredStarter:  # pylint: disable=too-many-instance-attributes
     Construct one instance per subsystem; it is not reusable across
     dependencies.
     """
-    def __init__(
+    # Six arguments against a max-args of 5. Three are the subsystem itself
+    # (name, predicate, action) and three are policy with sensible defaults;
+    # bundling any of them into a config object would hide the one thing a
+    # reader needs to see at the call site, which is what gets started when.
+    def __init__(     # pylint: disable=too-many-arguments,too-many-positional-arguments
         self,
         name: str,
         is_available: Callable[[], bool],
         do_start: Callable[[], None],
         on_timeout: Callable[[], None] | None = None,
         poll_interval: float = DEFERRED_POLL_INTERVAL,
+        inline: bool = True,
     ) -> None:
         """
         Args:
@@ -405,12 +410,30 @@ class DeferredStarter:  # pylint: disable=too-many-instance-attributes
                            incident here, not in do_start, so an outage is
                            reported once rather than once per poll.
             poll_interval: Seconds between is_available() checks.
+            inline:        True (default) lets start() check is_available() on
+                           the calling thread and, if it says yes, run do_start()
+                           there too -- the cheapest path when the dependency is
+                           already up.
+
+                           False sends both to the background thread, always.
+                           Pass it when either can block: a predicate that opens
+                           a network connection costs seconds on a cold boot,
+                           and the caller pays them before start() has even
+                           decided whether to defer -- which is the wait the
+                           deferral exists to remove.
+
+                           Set here and not on start(), because whether these
+                           two can block is a property of this pair and not of
+                           an individual call. On start() two call sites for the
+                           same starter could disagree, and the one that forgot
+                           would block a thread that must not.
         """
         self._name = name
         self._is_available = is_available
         self._do_start = do_start
         self._on_timeout = on_timeout
         self._poll_interval = poll_interval
+        self._inline = inline
 
         # Guards _starting and _done only. Never held across _do_start(), which
         # may block: holding it there would make a concurrent start() wait the
@@ -458,14 +481,15 @@ class DeferredStarter:  # pylint: disable=too-many-instance-attributes
         Start now if the dependency is up, otherwise wait for it in the background.
 
         Args:
-            wait: Seconds to keep waiting in the background. Pass 0 to skip
-                  starting entirely when the dependency is absent, which suits
-                  tests, stand-alone runs and "try again now" call sites.
+            wait:   Seconds to keep waiting in the background. Pass 0 to skip
+                    starting entirely when the dependency is absent, which suits
+                    tests, stand-alone runs and "try again now" call sites.
 
         Returns:
-            True if do_start ran on this thread. False if the start was
-            deferred, skipped, already in progress, or already done -- so a
-            caller can fall back to its own handling without racing this one.
+            True if do_start ran on this thread, which an inline=False starter
+            never does. False if the start was deferred, skipped, already in
+            progress, or already done -- so a caller can fall back to its own
+            handling without racing this one.
         """
         with self._lock:
             if self._done:
@@ -488,15 +512,22 @@ class DeferredStarter:  # pylint: disable=too-many-instance-attributes
         handed_over = False
 
         try:
-            if self._is_available():
-                self._run()
-                return True
+            if self._inline:
+                if self._is_available():
+                    self._run()
+                    return True
 
-            if wait <= 0:
-                oradio_log.info("%s: dependency not available; not started", self._name)
-                return False
+                if wait <= 0:
+                    oradio_log.info("%s: dependency not available; not started", self._name)
+                    return False
 
-            oradio_log.info("%s: dependency not up yet; deferring start", self._name)
+                oradio_log.info("%s: dependency not up yet; deferring start", self._name)
+            else:
+                if wait <= 0:
+                    oradio_log.info("%s: not started; waiting is disabled", self._name)
+                    return False
+
+                oradio_log.info("%s: deferring start without checking here", self._name)
 
             # Daemon thread: exits automatically when the process does.
             Thread(

@@ -30,8 +30,9 @@ Created on January 10, 2025
     - current: the directory/playlist in the playback queue
 """
 from typing import Any
+import socket
 from time import monotonic, sleep
-from threading import Lock  # Safeguard against concurrent access; callers using one thread or process per instance do not require it.
+from threading import RLock  # Safeguard against concurrent access; callers using one thread or process per instance do not require it.
 # Use MPDConnectionError because mpd2 raises a different ConnectionError than Python's built-in one
 from mpd import MPDClient, CommandError, ProtocolError, ConnectionError as MPDConnectionError
 
@@ -63,7 +64,52 @@ MPD_CONNECT_DEADLINE = 4    # seconds
 # again. Without it, one command against a down MPD costs MPD_RETRIES bursts --
 # roughly twelve seconds -- and MPDControl issues several in a row.
 MPD_COOLDOWN = 5    # seconds
+
+# Connect and read timeout for mpd_is_ready(). Short: it asks a local server to
+# say hello, and a local answer that takes longer than this is a no.
+MPD_PROBE_TIMEOUT = 0.5     # seconds
+
+# Enough for "OK MPD <version>\n" and nothing more. The probe reads once and
+# closes; it is not a client and must not consume anything a client would want.
+MPD_GREETING_BYTES = 64
 LOCK_TIMEOUT = 5    # seconds
+
+def mpd_is_ready(timeout: float = MPD_PROBE_TIMEOUT) -> bool:
+    """
+    Whether MPD is answering, without touching any MPDClient.
+
+    Connects, reads MPD's greeting and closes. The greeting is the point: a
+    successful TCP connect only proves the socket is bound, which happens well
+    before mpd is serving commands. A probe that stops there reports ready too
+    early, and the work it releases then holds MPDService's lock while every
+    command inside it waits on a server that is not answering yet -- so a
+    button press queued behind it waits out LOCK_TIMEOUT and comes back
+    empty-handed. Reading "OK MPD <version>" proves the other side is past
+    that point.
+
+    Deliberately NOT a method on MPDService: the question is about the server,
+    and answering it through a shared MPDService means two callers opening a
+    connection on one MPDClient at the same time, which corrupts the client.
+
+    Its own short-lived socket, so it shares nothing and has no side effects --
+    what DeferredStarter asks of a predicate.
+
+    Args:
+        timeout: Seconds to wait for the connection and for the greeting.
+
+    Returns:
+        True when MPD answered with its greeting.
+    """
+    try:
+        with socket.create_connection((MPD_HOST, MPD_PORT), timeout=timeout) as probe:
+            probe.settimeout(timeout)
+            greeting = probe.recv(MPD_GREETING_BYTES)
+    except OSError:
+        return False
+
+    # b"OK MPD 0.23.15\n". Matched on the prefix only: the version varies and
+    # nothing here cares which one it is.
+    return greeting.startswith(b"OK MPD")
 
 class MPDService:
     """
@@ -90,7 +136,16 @@ class MPDService:
             crossfade (int | None): Optional crossfade duration in seconds.
                                     If None, crossfade will not be configured.
         """
-        self._lock = Lock()
+        # RLock, not Lock: _execute() holds this while handling a connection
+        # error, and the _connect_client() it calls from there sets the
+        # crossfade through _execute() again. With a plain Lock that inner call
+        # waits LOCK_TIMEOUT seconds on a lock its own thread already holds,
+        # once per command -- which is what a start-up against an MPD that is
+        # not up yet turns into minutes of "Timeout waiting for MPD lock".
+        #
+        # Re-entrancy applies to the holding thread only; other threads still
+        # queue, so the protection this lock exists for is unchanged.
+        self._lock = RLock()
         self._crossfade = crossfade
         self._client = MPDClient()
 
@@ -101,7 +156,18 @@ class MPDService:
         self._unavailable_until = 0.0
         self._outage_reported = False
 
-        self._connect_client()
+        # No connect here.
+        #
+        # _execute() connects on its first command and reconnects whenever the
+        # link drops, so connecting in the constructor buys nothing except the
+        # wait: on a cold boot oradio_control reaches this before mpd.service
+        # is accepting connections, and every caller then pays MPD_RETRIES
+        # attempts with MPD_BACKOFF between them -- measured at 4.1 seconds,
+        # sitting on the path to the start-up tune.
+        #
+        # Constructing an MPDService is now free, and the cost of an absent MPD
+        # is paid by whoever issues the first command, where the circuit
+        # breaker bounds it.
 
 ##### Helpers #############################################
 
@@ -151,9 +217,9 @@ class MPDService:
         caller returns at once rather than repeating it.
         """
         # Half-open: while the breaker is open, do not pay for another burst.
-        # is_available() closing again on time is what makes this a delay
+        # _is_available() closing again on time is what makes this a delay
         # rather than a permanent give-up.
-        if not self.is_available():
+        if not self._is_available():
             oradio_log.debug("MPD marked unavailable; skipping connect attempt")
             return
 
@@ -240,7 +306,7 @@ class MPDService:
         # returning None -- and MPDControl issues several in a row, which on a
         # cold boot is the difference between the start-up tune playing at 8s
         # and at 40s.
-        if not self.is_available():
+        if not self._is_available():
             oradio_log.debug("MPD unavailable; skipping command '%s'", command)
             return None
 
@@ -286,7 +352,7 @@ class MPDService:
                     # The reconnect gave up and opened the breaker. Burning the
                     # remaining attempts against a server that is not there
                     # only costs the caller time.
-                    if not self.is_available():
+                    if not self._is_available():
                         return None
 
             except Exception as ex_unexpected:  # pylint: disable=broad-exception-caught
@@ -305,19 +371,23 @@ class MPDService:
         Incidents.publish(IncidentMessage(MPD_SOURCE, MPD_EXECUTE_FAILED))
         return None
 
-##### Public API ##########################################
-
-    def is_available(self) -> bool:
+    def _is_available(self) -> bool:
         """
         Return False while the circuit breaker is open, i.e. while a recent
         connect burst failed and the cooldown has not expired.
 
-        Callers use this to decide whether work that only makes sense against
-        a live MPD is worth starting at all -- see the deferred library scan in
-        oradio_control. It is a hint, not a guarantee: MPD can go away between
-        this returning True and the next command.
+        Private: it answers a question about the breaker, not about MPD. It is
+        True for a server that has never been contacted, because nothing has
+        failed yet -- so a caller asking "is MPD up" and reaching for this gets
+        a yes before a single connection was attempted.
+
+        The module-level mpd_is_ready() answers "is MPD up" without a
+        client at all. This one exists to keep the fail-fast path inside this
+        class cheap.
         """
         return monotonic() >= self._unavailable_until
+
+##### Public API ##########################################
 
     def get_stats(self) -> dict[str, Any]:
         """

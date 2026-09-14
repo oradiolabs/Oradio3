@@ -61,6 +61,13 @@ Created on February 8, 2025
     The command runs to completion; how long it takes is the sender's
     responsibility.
 """
+# Annotations are strings, not objects: Response is filled in by
+# _load_requests() at first use, so a signature naming it would otherwise be
+# evaluated against None when this module is imported.
+from __future__ import annotations
+
+from typing import Any, TYPE_CHECKING
+
 import re
 import json
 import uuid
@@ -74,7 +81,6 @@ from dataclasses import dataclass
 from platform import python_version
 from queue import Queue as JobQueue, Empty, Full
 from multiprocessing import Queue, Lock
-from requests import post, RequestException, Response, Timeout
 
 ##### Oradio modules ######################################
 from singleton import singleton
@@ -100,6 +106,64 @@ from constants import (
     RMS_SERVER_URL,
     RMS_SERVER_KEY,
 )
+
+##### Deferred HTTP client ################################
+# requests is imported on first POST instead of at module import.
+#
+# Measured cold on the device it costs 1.6 seconds, and those seconds sit on the
+# path between power-on and the start-up tune, where the whole rest of the
+# Oradio's start-up adds up to 0.7. Nothing is posted until WiFi is connected
+# and the sender thread has a job, so the import happens there instead: off the
+# main thread, in parallel with everything else, and not before the tune.
+#
+# Module globals rather than parameters, so the code below reads the same as it
+# did when they were ordinary imports, and so the module_test suite can keep
+# patching rms_service.post. They are None until _load_requests() fills them in.
+# Response is needed for annotations only, never at runtime, so it is imported
+# for the type checker alone. The rest stand in for names this module calls or
+# raises, and are typed Any because None is neither callable nor an exception
+# class -- without it every use of them is a type error.
+#
+# Lower-case on purpose: they stand in for imported names, not for constants,
+# and renaming them would mean renaming every use and breaking the patch targets
+# the module_test suite already relies on.
+if TYPE_CHECKING:
+    from requests import Response
+
+post: Any = None                 # pylint: disable=invalid-name
+RequestException: Any = None     # pylint: disable=invalid-name
+Timeout: Any = None              # pylint: disable=invalid-name
+
+def _load_requests() -> bool:
+    """
+    Import the requests names this module uses, once, on first POST.
+
+    Also called by module_test before patching rms_service.post: a test that
+    exercises the POST path needs the real names in place first.
+
+    Returns:
+        True when the import succeeded. False when it did not, which is logged
+        but NOT published as an incident -- publishing one would queue a
+        message that this very function is needed to send.
+    """
+    global post, RequestException, Timeout   # pylint: disable=global-statement
+
+    if post is not None:
+        return True
+
+    try:
+        # pylint: disable=import-outside-toplevel
+        from requests import post as post_function
+        from requests import RequestException as request_exception
+        from requests import Timeout as timeout_exception
+    except ImportError as ex_err:
+        oradio_log.error("Failed to import requests: %s", ex_err)
+        return False
+
+    post = post_function
+    RequestException = request_exception
+    Timeout = timeout_exception
+    return True
 
 ##### LOCAL constants #####################################
 # RMS message type identifiers
@@ -912,7 +976,8 @@ def _rms_response_problem(response: Response) -> str | None:
 
     return None
 
-def _attempt_post(data, headers: dict, context: str) -> tuple[Response | None, str | None]:
+# The extra exit is the deferred import failing; the rest were already here.
+def _attempt_post(data, headers: dict, context: str) -> tuple[Response | None, str | None]:  # pylint: disable=too-many-return-statements
     """
     Make one POST attempt and classify the outcome.
 
@@ -944,6 +1009,9 @@ def _attempt_post(data, headers: dict, context: str) -> tuple[Response | None, s
             outage and so publishes no incident.
     """
     try:
+        if not _load_requests():
+            return None, "requests is not available"
+
         response = post(
             url=RMS_SERVER_URL,
             headers=headers,
