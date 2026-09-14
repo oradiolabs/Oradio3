@@ -86,13 +86,9 @@ SERVER_READY_TIMEOUT = 15
 # succeeded, so the value is generous; waiting longer costs nothing on success,
 # since _wait_for_wifi_state() returns as soon as the state arrives.
 #
-# This no longer has anything to say about the access point coming up on start().
-# It used to: that path can be delayed by wifi_service building its network list,
-# so this value had to be kept above wifi_service.AP_LIST_READY_TIMEOUT -- an
-# ordering that lived in prose in two files and had to be re-derived by hand
-# whenever the scan burst was retuned. wifi_service.await_access_point() now owns
-# that wait and answers with a bool, so the only timing left here is the reconnect
-# above, which the burst does not affect at all and which can be tuned on its own.
+# Covers the reconnect on stop() and nothing else. The access point coming up on
+# start() is wifi_service.await_access_point()'s wait, so this value can be
+# tuned on its own without checking anything in wifi_service.
 RECONNECT_TIMEOUT = 45
 
 SOCKET_TIMEOUT = 3   # WebSocket ping interval/timeout in seconds; safe for small devices and networks

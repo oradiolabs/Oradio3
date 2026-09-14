@@ -29,6 +29,7 @@ Created on January 10, 2025
     - mpdlist/mpdlists: the combination of directories and playlists
     - current: the directory/playlist in the playback queue
 """
+from threading import Lock
 from os import path
 from unicodedata import normalize, category
 
@@ -193,8 +194,11 @@ class MPDControl(MPDService):
     """
     def __init__(self) -> None:
         """
-        Initialise the MPDControl client, connect to the MPD server, and
-        sanitise any playlists left dirty by a previously interrupted run.
+        Initialise the MPDControl client.
+
+        Creates objects and nothing else: no connection is opened and no MPD
+        command is sent. Preparing the music library is initialise_library(),
+        which the caller runs when MPD and the USB drive are both there.
         """
         # Initialise the parent MPDService with crossfade.
         super().__init__(crossfade=MPD_CROSSFADE)
@@ -207,6 +211,9 @@ class MPDControl(MPDService):
         # the path to the start-up tune, and would validate presets against a
         # stick that is not there yet, reporting every one of them as broken
         # and never retracting it.
+
+        # Serialises initialise_library() against itself; see there.
+        self._library_lock = Lock()
 
         # Reused across play_song() calls when idle, to avoid spawning a new
         # OS thread per call in the common (sequential) case. See play_song().
@@ -276,10 +283,18 @@ class MPDControl(MPDService):
         is still coming up, and they need the USB drive mounted as well --
         neither of which is true at the moment oradio_control constructs this,
         and none of which the start-up tune or a button press waits for.
+
+        Serialised against itself: the deferred library scan runs this on its
+        own thread at start-up, and inserting a drive runs it again from the
+        USB watchdog thread. MPDService's lock serialises the individual
+        commands but not the sequence, so without this the two interleave --
+        one clearing playlists while the other validates presets against them,
+        which reports presets as broken that are not.
         """
-        self._sanitize_playlists()
-        self.validate_presets()
-        self.update_database()
+        with self._library_lock:
+            self._sanitize_playlists()
+            self.validate_presets()
+            self.update_database()
 
     def _sanitize_playlists(self) -> None:
         """

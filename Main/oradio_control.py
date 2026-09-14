@@ -939,24 +939,6 @@ class OradioCommandHandler(MessageHandlerTemplate):
     def _handle_message(self, message: CommandMessage) -> None:
         handle_message(message)
 
-#-------------USB presence sync at start -up---------------------------------------
-
-def sync_usb_presence_from_service():
-    """
-    One time sync at start-up
-    """
-    state = oradio_usb_service.get_state()
-    oradio_log.info("USB service raw state: %r", state)
-
-    if state == USB_PRESENT:
-        usb_present.set()
-        oradio_log.info("USB presence synced: present")
-    elif state == USB_ABSENT:
-        usb_present.clear()
-        oradio_log.info("USB presence synced: absent")
-    else:
-        oradio_log.warning("Unexpected USB service state: %r", state)
-
 # ------------------Start-up - instantiate and define other modules ---------------
 
 # Instantiate and start the USB service monitoring USB present/absent
@@ -964,8 +946,14 @@ oradio_usb_service = USBService()
 oradio_usb_service.start()
 log_startup_step("usb service")
 
-# REVIEW Onno: sync_usb_presence_from_service is overbodig, want USB status komt via de command queue
-sync_usb_presence_from_service()
+# No explicit sync of usb_present here: Commands.subscribe() below replays the
+# last message from every source, so the USB service's own USB_PRESENT or
+# USB_ABSENT reaches the handler as soon as it subscribes, and sets the event
+# through the same path every later change takes.
+#
+# Reading the service directly as well gave two answers to one question --
+# get_state() reporting the mount right now, the replay reporting what was last
+# published -- with nothing deciding which wins when they differ.
 
 # Subscribe to incidents bus so incidents published are mitigated
 incident_handler = IncidentHandler()
