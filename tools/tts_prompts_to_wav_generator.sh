@@ -70,6 +70,7 @@ declare -A PROMPTS=(
 	["USBPresent_melding.wav"]="USB-geheugenstick is aanwezig."
 	["WifiConnected_melding.wav"]="Verbonden met wifi."
 	["WifiNotConnected_melding.wav"]="Geen WIEFIE verbinding."
+	["ServiceRequired_melding.wav"]="Er is een storing in de Oradio. Neem contact op met de serviceafdeling."
 )
 
 #---------- Config ----------
