@@ -82,6 +82,10 @@ class RPiThrottlingMonitor(ThreadTemplate):
     safe_stop(), crash detection, etc.), so this class only needs to
     implement the throttling-specific behaviour.
     """
+
+    # Restart itself if it crashes; see ThreadTemplate.restart_on_crash.
+    # Polls vcgencmd; nothing it holds needs releasing and the Oradio never stops it on purpose.
+    restart_on_crash = True
     def __init__(self) -> None:
         """
         Initialise the throttling monitor.
@@ -181,7 +185,7 @@ class RPiThrottlingMonitor(ThreadTemplate):
             # Update the cache so the next iteration has a baseline.
             self._last_active_flags = active_flags
 
-    def teardown(self) -> None:
+    def on_stopped(self) -> None:
         """Report incident: Oradio never intentionally stops throttling monitoring."""
         Incidents.publish(IncidentMessage(THROTTLING_SOURCE, THROTTLING_STOPPED))
 

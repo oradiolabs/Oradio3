@@ -87,6 +87,10 @@ class VolumeControl(ThreadTemplate):
     by mutating self._interval from within do_work().
     """
 
+    # Restart itself if it crashes; see ThreadTemplate.restart_on_crash.
+    # Without it the volume knob stops working, which the user notices immediately.
+    restart_on_crash = True
+
     def __init__(self) -> None:
         """
         Initialise the ThreadTemplate base, default volume levels and the
@@ -319,7 +323,7 @@ class VolumeControl(ThreadTemplate):
 
             self._interval = min(self._interval + POLLING_STEP, POLLING_MAX_INTERVAL)
 
-    def teardown(self) -> None:
+    def on_stopped(self) -> None:
         """Report incident: Oradio never intentionally stops volume control."""
         Incidents.publish(IncidentMessage(VOLUME_SOURCE, VOLUME_STOPPED))
 

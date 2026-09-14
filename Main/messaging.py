@@ -724,6 +724,10 @@ class MessageHandlerTemplate(ThreadTemplate):
     sentinel unblocks the pending get(), the worker's loop condition is already
     false and it exits on the next check instead of blocking on get() again.
     """
+
+    # Restart itself if it crashes; see ThreadTemplate.restart_on_crash.
+    # A dead handler means the Oradio stops reacting to anything at all. Holds nothing per run.
+    restart_on_crash = True
     def __init__(self, queue: Queue) -> None:
         """
         Initialize the message handler and start the worker thread.

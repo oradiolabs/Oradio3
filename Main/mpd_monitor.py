@@ -74,6 +74,10 @@ class _MPDMonitorWorker(ThreadTemplate):
         feature, and MPDService deliberately doesn't grow a public
         arbitrary-command method just to serve this one caller.
     """
+
+    # Restart itself if it crashes; see ThreadTemplate.restart_on_crash.
+    # setup() rebuilds the snapshot from scratch. It costs seconds, which the backoff already allows for.
+    restart_on_crash = True
     def __init__(self, mpd_service: MPDService) -> None:
         """
         Args:

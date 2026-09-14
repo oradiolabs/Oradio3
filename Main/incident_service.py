@@ -486,7 +486,21 @@ class IncidentHandler(MessageHandlerTemplate):
         Args:
             message: The received message from the queue.
         """
-        oradio_log.debug("Incident message received: %r", message)
+        # Warning, not debug: an incident is by definition something that went
+        # wrong, and this is the only line in the log that names it. At debug it
+        # disappears the moment the level is raised, taking with it the context
+        # for every "Mitigation to be implemented" that follows.
+        #
+        # Source and message, not the whole message object: repr() of an
+        # IncidentMessage includes the captured stack, which turns one entry
+        # into a paragraph and makes the log unreadable exactly when someone is
+        # trying to read it.
+        oradio_log.warning("Incident from '%s': %s", message.source, message.message)
+
+        # The stack stays at debug, on its own line, so it can be found when it
+        # is wanted and skipped when it is not.
+        if message.details:
+            oradio_log.debug("Incident details: %s", message.details)
 
         # Post incident (if connected to internet)
         self._rms.send_message(INCIDENT, message)

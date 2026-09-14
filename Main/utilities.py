@@ -56,6 +56,20 @@ SERIAL_OTP_ROW = "28:"
 
 JOIN_TIMEOUT = 5.0  # seconds; timeout for thread to start/stop
 
+# Self-restart budget for ThreadTemplate workers that opt in (restart_on_crash).
+#
+# A budget rather than "always retry": a worker whose dependency is gone crashes
+# again the moment it is restarted, and an unbounded loop turns a dead sensor
+# into a busy core and a log nobody can read.
+#
+# And a budget that decays rather than one per process: three crashes on a
+# Tuesday must not leave a subsystem unrecoverable for the rest of the week. The
+# window is what makes "three in a row" mean a persistent fault instead of three
+# unrelated hiccups hours apart.
+CRASH_RESTART_LIMIT   = 3       # restarts allowed within the window, so four attempts in all
+CRASH_RESTART_WINDOW  = 900.0   # seconds a crash keeps counting against the budget
+CRASH_RESTART_BACKOFF = 5.0     # seconds before an attempt, so a fast-failing loop stays slow
+
 # DeferredStarter defaults. The timeout is generous on purpose: the cost of
 # waiting is a background thread doing nothing, while the cost of giving up too
 # early is a subsystem that stays down for the rest of the boot.
@@ -86,6 +100,15 @@ class ThreadTemplate:
     race and orphan a Thread object.
     """
 
+    # Opt-in self-restart. False by default: the base class cannot know whether
+    # a subclass survives having setup() run again, nor whether restarting it
+    # is even meaningful -- a worker that exists for the duration of one song
+    # is not the same as a poller that should never stop.
+    #
+    # Before setting this True, check that teardown() gives back exactly what
+    # setup() takes. Whatever it misses is held twice after a restart.
+    restart_on_crash: bool = False
+
     def __init__(self, *, interval: float = 1.0, name: str | None = None) -> None:
         """
         Initializes the worker.
@@ -106,6 +129,10 @@ class ThreadTemplate:
         # stays correct on interpreters without one.
         self._exception_lock = Lock()
         self._exception: Exception | None = None
+
+        # Monotonic timestamps of crashes inside CRASH_RESTART_WINDOW. Only
+        # touched by run(), on the worker thread.
+        self._crash_times: list[float] = []
 
         # Guards the check-then-mutate sequences in safe_start()/safe_stop()
         # that read and write self._thread. Without this, two concurrent
@@ -201,33 +228,102 @@ class ThreadTemplate:
         rather than propagated, since exceptions raised inside a thread's run()
         are never seen by the caller of start().
         """
-        try:
-            self.setup()
+        # One pass per attempt. Without restart_on_crash this runs exactly once
+        # and behaves as it always did.
+        while True:
+            try:
+                self.setup()
 
-            # Signal readiness only after setup() completes successfully.
-            self._started_event.set()
+                # Signal readiness only after setup() completes successfully.
+                self._started_event.set()
 
-            while not self._stop_event.is_set():
-                self.do_work()
-                # Doubles as the sleep interval AND the interruptible
-                # wait -- stop() setting the event wakes this up
-                # immediately instead of waiting out the full interval.
-                self._stop_event.wait(self._interval)
+                while not self._stop_event.is_set():
+                    self.do_work()
+                    # Doubles as the sleep interval AND the interruptible
+                    # wait -- stop() setting the event wakes this up
+                    # immediately instead of waiting out the full interval.
+                    self._stop_event.wait(self._interval)
 
-        # Broad catch is intentional: setup() and do_work() are overridden by
-        # subclasses, so we can't predict what they might raise.
-        except Exception as exc:      # pylint: disable=broad-exception-caught
-            with self._exception_lock:
-                self._exception = exc
-            oradio_log.error("%s crashed", self._name)
-            # Unblock safe_start() even if setup() itself crashed, so callers
-            # waiting on safe_start() don't hang for the full timeout.
-            self._started_event.set()
+            # Broad catch is intentional: setup() and do_work() are overridden by
+            # subclasses, so we can't predict what they might raise.
+            except Exception as exc:      # pylint: disable=broad-exception-caught
+                with self._exception_lock:
+                    self._exception = exc
+                oradio_log.error("%s crashed", self._name)
+                # Unblock safe_start() even if setup() itself crashed, so callers
+                # waiting on safe_start() don't hang for the full timeout.
+                self._started_event.set()
+                crashed = True
+            else:
+                crashed = False
 
-        finally:
-            # Always run teardown, even if setup()/do_work() raised,
-            # so resources acquired in setup() still get released.
+            # teardown() belongs to one attempt, so it runs between attempts as
+            # well as after the last one: whatever setup() took has to be given
+            # back before setup() takes it again.
             self.teardown()
+
+            if not self._restart_after_crash(crashed):
+                break
+
+        # Out of the loop: this worker has ended and is not coming back, which
+        # is what on_stopped() is for. Reporting it inside the loop would
+        # announce a stop that the next attempt is about to undo.
+        self.on_stopped()
+
+
+    def _restart_after_crash(self, crashed: bool) -> bool:
+        """
+        Decide whether run() should try again, and wait out the backoff if so.
+
+        Args:
+            crashed: True when the attempt that just ended raised.
+
+        Returns:
+            True when the loop should run setup() again.
+
+        Says no to a clean exit, to a stop that was asked for, and to a class
+        that did not opt in -- so for everything except an opted-in worker that
+        crashed, this is where run() ends, exactly as it did before.
+
+        Says no once the budget is spent, and leaves the recorded exception
+        in place, so the worker ends the way an unguarded crash always did and
+        on_stopped() reports it. The budget decays: a crash stops counting
+        after CRASH_RESTART_WINDOW, so a subsystem that failed three times this
+        morning can still recover this afternoon.
+        """
+        if not crashed or not self.restart_on_crash or self._stop_event.is_set():
+            return False
+
+        now = monotonic()
+        self._crash_times = [t for t in self._crash_times if now - t < CRASH_RESTART_WINDOW]
+        self._crash_times.append(now)
+
+        if len(self._crash_times) > CRASH_RESTART_LIMIT:
+            oradio_log.error(
+                "%s used its restart budget (%d allowed within %.0fs) and is not coming back",
+                self._name, CRASH_RESTART_LIMIT, CRASH_RESTART_WINDOW,
+            )
+            return False
+
+        oradio_log.warning(
+            "%s crashed (%d of %d within %.0fs); restarting in %.0fs",
+            self._name, len(self._crash_times), CRASH_RESTART_LIMIT,
+            CRASH_RESTART_WINDOW, CRASH_RESTART_BACKOFF,
+        )
+
+        # Waiting on the stop event, not sleeping: a stop() during the backoff
+        # takes effect at once instead of after the full delay, and returns
+        # True, which the check below turns into "do not restart".
+        if self._stop_event.wait(CRASH_RESTART_BACKOFF):
+            return False
+
+        # A fresh attempt, so the recorded exception is from the previous one.
+        # Cleared here rather than in setup(), so crashed stays True for anyone
+        # reading it during the backoff.
+        with self._exception_lock:
+            self._exception = None
+
+        return True
 
     def safe_stop(self, timeout: float = JOIN_TIMEOUT) -> bool:
         """Signals the worker to stop and waits for it to finish.
@@ -350,10 +446,34 @@ class ThreadTemplate:
 
     def teardown(self) -> None:
         """
-        Called once after the loop exits, whether it exited
-        cleanly or due to an exception. Override for cleanup
-        (closing connections, releasing resources, etc.). Default
-        implementation does nothing.
+        Called after the loop exits, whether it exited cleanly or due to an
+        exception. Override for cleanup: closing connections, releasing
+        resources, putting hardware back in a known state.
+
+        Scoped to one run of the loop, not to the object. Anything here must be
+        safe to do more than once over the lifetime of the instance, and must
+        undo exactly what setup() did -- a restart runs setup() again, and
+        whatever teardown() failed to release is then held twice.
+
+        For "this worker has ended and that is worth reporting", override
+        on_stopped() instead. Default implementation does nothing.
+        """
+        # Pass is intentional, see doc string
+        pass    # pylint: disable=unnecessary-pass
+
+    def on_stopped(self) -> None:
+        """
+        Called once when the worker has ended and is not coming back.
+
+        For reporting, not for cleanup: publishing an incident because a
+        subsystem the Oradio never stops on purpose has stopped anyway. Runs
+        after teardown().
+
+        Separate from teardown() because teardown() belongs to a run of the
+        loop and this belongs to the object. A worker that restarts itself
+        tears down between attempts; an incident published there would announce
+        a stop that the next attempt is about to undo. Default implementation
+        does nothing.
         """
         # Pass is intentional, see doc string
         pass    # pylint: disable=unnecessary-pass

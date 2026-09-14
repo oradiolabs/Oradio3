@@ -86,6 +86,10 @@ class _BacklightWorker(ThreadTemplate):
     that the LEDs' actual brightness does not change while the worker is
     stopped.
     """
+
+    # Restart itself if it crashes; see ThreadTemplate.restart_on_crash.
+    # Without it the backlight freezes at its last value. setup() re-applies that value, so a restart does not flash.
+    restart_on_crash = True
     def __init__(self, backlighting: "Backlighting") -> None:
         super().__init__(interval=ADJUST_INTERVAL, name="BacklightWorker")
         self._backlighting = backlighting
@@ -113,7 +117,7 @@ class _BacklightWorker(ThreadTemplate):
             self._prev_dac_value = dac_value
             self._backlighting.write_dac(dac_value)
 
-    def teardown(self) -> None:
+    def on_stopped(self) -> None:
         """Report incident: Oradio never intentionally stops backlighting."""
         Incidents.publish(IncidentMessage(BACKLIGHTING_SOURCE, BACKLIGHTING_STOPPED))
 

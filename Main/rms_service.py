@@ -1379,6 +1379,10 @@ class _RmsSender(ThreadTemplate):
     _post_message(), so a send already under way gives up when
     the service stops instead of holding shutdown open.
     """
+
+    # Restart itself if it crashes; see ThreadTemplate.restart_on_crash.
+    # The job queue lives on the instance, not the run, so a restart resumes with the messages still queued.
+    restart_on_crash = True
     def __init__(self, serial: str, is_wifi_connected: Callable[[], bool]) -> None:
         """
         Initialise the sender. The thread is started by safe_start().

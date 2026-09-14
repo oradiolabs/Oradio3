@@ -361,6 +361,10 @@ class WifiEventListener(ThreadTemplate):    # pylint: disable=too-many-instance-
     not be reported. Use the inherited crashed / exception properties to detect this from the outside.
     """
 
+    # Restart itself if it crashes; see ThreadTemplate.restart_on_crash.
+    # setup() calls _unsubscribe() before it subscribes, so a restart cannot stack receivers.
+    restart_on_crash = True
+
     def __init__(self) -> None:
         """
         Set up the listener's initial state.

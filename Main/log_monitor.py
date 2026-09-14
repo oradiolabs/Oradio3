@@ -55,6 +55,10 @@ class LogHealthMonitor(ThreadTemplate):
     safe_stop(), crash detection, etc.), so this class only needs to
     implement the log-health-specific behaviour.
     """
+
+    # Restart itself if it crashes; see ThreadTemplate.restart_on_crash.
+    # Polls the logger's own health; losing it means losing the warning that logging is failing.
+    restart_on_crash = True
     def __init__(self) -> None:
         """
         Initialise the log health monitor.
@@ -142,7 +146,7 @@ class LogHealthMonitor(ThreadTemplate):
             )
             self._last_dropped = current_dropped
 
-    def teardown(self) -> None:
+    def on_stopped(self) -> None:
         """Report incident: Oradio never intentionally stops log health monitoring."""
         Incidents.publish(IncidentMessage(LOG_SOURCE, LOG_STOPPED))
 
