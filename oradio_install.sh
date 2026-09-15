@@ -139,11 +139,32 @@ exec > >(tee -a "$LOGFILE_INSTALL") 2>&1
 # script hangs here forever instead of exiting.
 trap 'exec 1>&3 2>&4; wait' EXIT
 
-# Script is for Raspberry Pi OS Lite (64bit)
-TARGETOS="Debian GNU/Linux 13 (trixie)"
-OSVERSION=$(lsb_release -a 2>/dev/null | grep "Description:" | cut -d$'\t' -f2)
-if [ "$OSVERSION" != "$TARGETOS" ]; then
-	echo -e "${RED}Aborting: Invalid OS version: $OSVERSION${NC}"
+# Script is for Raspberry Pi OS Lite (64bit), Debian 13 (trixie).
+#
+# Same test as the bootstrap 'install' script, which stops before it removes
+# anything. This one is the backstop for a direct run: 'git pull' followed by
+# 'bash oradio_install.sh' skips the bootstrap entirely.
+#
+# /etc/os-release rather than lsb_release: lsb-release is not on a Lite image by
+# default, so a missing package would read as a missing OS and abort a perfectly
+# good install. os-release ships with the base system.
+TARGET_CODENAME="trixie"
+
+if [ -r /etc/os-release ]; then
+	# Sourced in a subshell, so os-release's NAME, VERSION and friends cannot land
+	# in this script's namespace. A tab separates the two fields because
+	# PRETTY_NAME contains spaces.
+	# shellcheck disable=SC1091  # provided by the base system, not by this repository
+	read -r OS_CODENAME OS_PRETTY < <(. /etc/os-release && printf '%s\t%s\n' "${VERSION_CODENAME:-}" "${PRETTY_NAME:-unknown}")
+else
+	OS_CODENAME=""
+	OS_PRETTY="unknown (no /etc/os-release)"
+fi
+
+if [ "$OS_CODENAME" != "$TARGET_CODENAME" ]; then
+	echo -e "${RED}Aborting: Oradio3 requires Debian 13 (${TARGET_CODENAME})${NC}"
+	echo -e "${RED}This system reports: ${OS_PRETTY}${NC}"
+	echo -e "${YELLOW}Reflash the card with a ${TARGET_CODENAME} image and install again.${NC}"
 	# Stop with error flag
 	exit 1
 fi
@@ -863,6 +884,7 @@ install_script "$RESOURCES_PATH/oradio-crash.sh" /usr/local/sbin/oradio-crash.sh
 install_resource "$RESOURCES_PATH/oradio-crash.service" /etc/systemd/system/oradio-crash.service
 # Configure the oradio prestart script
 install_script "$RESOURCES_PATH/oradio-prestart.sh" /usr/local/sbin/oradio-prestart.sh
+install_script "$RESOURCES_PATH/oradio-poststop.sh" /usr/local/sbin/oradio-poststop.sh
 # Configure the oradio service to start on boot
 install_resource "$RESOURCES_PATH/oradio.service" /etc/systemd/system/oradio.service 'systemctl enable oradio.service'
 # Progress report
