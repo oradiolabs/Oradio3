@@ -41,12 +41,12 @@ from messaging import (
     MPD_SOURCE, MPD_CONNECT_FAILED, MPD_EXECUTE_FAILED, MPD_MONITOR_FAILED, MPD_PRESET_INVALID,
     LOG_SOURCE, LOG_START_FAILED, LOG_QUEUE_OVERFLOW, LOG_QUEUE_RECOVERED, LOG_LISTENER_DEAD, LOG_STOPPED,
     RMS_SOURCE, RMS_START_FAILED, RMS_POST_FAILED,
-    SOUND_SOURCE, SOUND_MISSING_DIR, SOUND_PLAYBACK_FAILED,
+    SOUND_SOURCE, SOUND_MISSING_DIR, SOUND_MISSING_FILE, SOUND_PLAYBACK_FAILED,
     THROTTLING_SOURCE, THROTTLING_START_FAILED, THROTTLING_THROTTLED, THROTTLING_STOPPED,
-    USB_SOURCE, USB_FILE_FAILED, USB_FSCK_FAILED, USB_WIFI_DEFERRED_FAILED, USB_START_FAILED, USB_STOPPED,
+    USB_SOURCE, USB_FILE_FAILED, USB_FSCK_FAILED, USB_WIFI_DEFERRED_FAILED, USB_EVENT_FAILED, USB_START_FAILED, USB_STOPPED,
     VOLUME_SOURCE, VOLUME_START_FAILED, VOLUME_SET_FAILED, VOLUME_STOPPED,
     WEB_SOURCE, WEB_SERVER_FAILED, WEB_START_FAILED, WEB_STOP_FAILED,
-    WIFI_SOURCE, WIFI_DBUS_FAILED, WIFI_NMCLI_FAILED, WIFI_CONNECT_FAILED, WIFI_DISCONNECT_FAILED,
+    WIFI_SOURCE, WIFI_DBUS_FAILED, WIFI_NMCLI_FAILED, WIFI_CONNECT_FAILED, WIFI_DISCONNECT_FAILED, WIFI_AP_FAILED,
 )
 
 ##### LOCAL constants #####################################
@@ -62,6 +62,27 @@ class IncidentHandler(MessageHandlerTemplate):
 
     Dispatches each message to a source-specific handler method;
     unrecognised sources are logged as errors.
+
+    Every incident is reported to RMS by _handle_message() before the dispatch,
+    so no handler below has to do that. What a handler adds is the action that
+    follows the report -- which for a good many incidents is nothing at all.
+
+    The notes in those handlers say which is which:
+
+      NO MITIGATION             Reporting it IS the mitigation. There is
+                                nothing the Oradio can do about it from here.
+
+      OPEN QUESTION             The subsystem already tried to recover and
+                                failed -- ThreadTemplate.restart_on_crash spent
+                                its budget before this incident was raised.
+                                Retrying here would be a second mechanism
+                                fighting the first. What is undecided is what
+                                the Oradio should DO about a subsystem that
+                                stays down.
+
+      MITIGATION TO BE          Genuinely unimplemented: a subsystem that does
+      IMPLEMENTED               not restart itself, or a fault that needs a
+                                different repair than a restart.
     """
     def __init__(self) -> None:
         """
@@ -108,16 +129,14 @@ class IncidentHandler(MessageHandlerTemplate):
             incident: Incident message received from the incident bus.
         """
         if incident.message == BACKLIGHTING_START_FAILED:
-            # MITIGATION TO BE IMPLEMENTED:
-            #   Report backlighting start failed + status to RMS
+            # OPEN QUESTION, not a retry:
             #   Do NOT retry the worker here: _BacklightWorker opts into
             #   restart_on_crash, so this incident only arrives once its
             #   budget is spent. The open question is what the Oradio should
             #   do about a backlight that stays down, not whether to try again.
             oradio_log.debug("Mitigation to be implemented")
         elif incident.message == BACKLIGHTING_STOPPED:
-            # MITIGATION TO BE IMPLEMENTED:
-            #   Report backlighting stopped + status to RMS
+            # OPEN QUESTION, not a retry:
             #   Do NOT retry the worker here; see BACKLIGHTING_START_FAILED above.
             oradio_log.debug("Mitigation to be implemented")
         else:
@@ -135,13 +154,11 @@ class IncidentHandler(MessageHandlerTemplate):
         """
         if incident.message == GPIO_PINS_FAILED:
             # MITIGATION TO BE IMPLEMENTED:
-            #   Report GPIO pins setup failed + status to RMS
             #   Can GPIO be reset? IF yes add and try, if not power cycle
             #   If retry_count < MAX_RETRIES: call gpio_cleanup() and restart Oradio
             oradio_log.debug("Mitigation to be implemented")
         elif incident.message == GPIO_BUTTONS_FAILED:
             # MITIGATION TO BE IMPLEMENTED:
-            #   Report GPIO buttons setup failed + status to RMS
             #   Can GPIO be reset? IF yes add and try, if not power cycle
             #   If retry_count < MAX_RETRIES: call gpio_cleanup() and restart Oradio
             oradio_log.debug("Mitigation to be implemented")
@@ -160,19 +177,16 @@ class IncidentHandler(MessageHandlerTemplate):
         """
         if incident.message == I2C_BUS_FAILED:
             # MITIGATION TO BE IMPLEMENTED:
-            #   Report I2C bus access failed + status to RMS
             #   Can I2C be reset? IF yes add and try, if not power cycle
             #   If retry_count < MAX_RETRIES: restart Oradio
             oradio_log.debug("Mitigation to be implemented")
         elif incident.message == I2C_READ_FAILED:
             # MITIGATION TO BE IMPLEMENTED:
-            #   Report I2C read failed + status to RMS
             #   Can I2C be reset? IF yes add and try, if not power cycle
             #   If retry_count < MAX_RETRIES: restart Oradio
             oradio_log.debug("Mitigation to be implemented")
         elif incident.message == I2C_WRITE_FAILED:
             # MITIGATION TO BE IMPLEMENTED:
-            #   Report I2C write failed + status to RMS
             #   Can I2C be reset? IF yes add and try, if not power cycle
             #   If retry_count < MAX_RETRIES: restart Oradio
             oradio_log.debug("Mitigation to be implemented")
@@ -191,12 +205,10 @@ class IncidentHandler(MessageHandlerTemplate):
         """
         if incident.message == LED_BLINK_START_FAILED:
             # MITIGATION TO BE IMPLEMENTED:
-            #   Report LED worker start failure + status to RMS
             #   If retry_count < MAX_RETRIES: retry the blink worker
             oradio_log.debug("Mitigation to be implemented")
         elif incident.message == LED_BLINK_STOP_FAILED:
             # MITIGATION TO BE IMPLEMENTED:
-            #   Report LED worker stop failure + status to RMS
             #   If retry_count < MAX_RETRIES: retry the blink worker
             oradio_log.debug("Mitigation to be implemented")
         else:
@@ -213,27 +225,25 @@ class IncidentHandler(MessageHandlerTemplate):
             incident: Incident message received from the incident bus.
         """
         if incident.message == LOG_START_FAILED:
-            # MITIGATION TO BE IMPLEMENTED:
-            #   Report log monitor failure + status to RMS
+            # OPEN QUESTION, not a retry:
             #   Do NOT retry the worker here: LogHealthMonitor opts into
             #   restart_on_crash, so this incident means its budget is spent.
             oradio_log.debug("Mitigation to be implemented")
         elif incident.message == LOG_QUEUE_OVERFLOW:
             # MITIGATION TO BE IMPLEMENTED:
-            #   Report log records dropped + status to RMS
             #   Wait to give log service chance to recover
             oradio_log.debug("Mitigation to be implemented")
         elif incident.message == LOG_QUEUE_RECOVERED:
-            # MITIGATION TO BE IMPLEMENTED:
-            #   Report log service recovered + status to RMS
+            # NO MITIGATION: reporting it IS the mitigation.
+            #   The log service recovered on its own. Reporting it is the point:
+            #   it closes the LOG_QUEUE_OVERFLOW that preceded it.
             oradio_log.debug("Mitigation to be implemented")
         elif incident.message == LOG_LISTENER_DEAD:
             # MITIGATION TO BE IMPLEMENTED:
-            #   Report broken logging service + status to RMS
+            #   Nothing beyond the report _handle_message already sends.
             oradio_log.debug("Mitigation to be implemented")
         elif incident.message == LOG_STOPPED:
-            # MITIGATION TO BE IMPLEMENTED:
-            #   Report log monitor stopped + status to RMS
+            # OPEN QUESTION, not a retry:
             #   Do NOT retry the worker here; see LOG_START_FAILED above.
             oradio_log.debug("Mitigation to be implemented")
         else:
@@ -251,22 +261,18 @@ class IncidentHandler(MessageHandlerTemplate):
         """
         if incident.message == MPD_CONNECT_FAILED:
             # MITIGATION TO BE IMPLEMENTED:
-            #   Report MPD connect failure + status to RMS
             #   If retry_count < MAX_RETRIES: retry reconnect
             oradio_log.debug("Mitigation to be implemented")
         elif incident.message == MPD_EXECUTE_FAILED:
             # MITIGATION TO BE IMPLEMENTED:
-            #   Report MPD execute failure + status to RMS
             #   If retry_count < MAX_RETRIES: retry execute
             oradio_log.debug("Mitigation to be implemented")
         elif incident.message == MPD_MONITOR_FAILED:
             # MITIGATION TO BE IMPLEMENTED:
-            #   Report MPD monitor failure + status to RMS
             #   If retry_count < MAX_RETRIES: retry start
             oradio_log.debug("Mitigation to be implemented")
         elif incident.message == MPD_PRESET_INVALID:
             # MITIGATION TO BE IMPLEMENTED:
-            #   Report broken preset mapping + status to RMS
             #   Notify web interface so the user can reassign the preset
             oradio_log.debug("Mitigation to be implemented")
         else:
@@ -283,16 +289,17 @@ class IncidentHandler(MessageHandlerTemplate):
             incident: Incident message received from the incident bus.
         """
         if incident.message == RMS_START_FAILED:
-            # MITIGATION TO BE IMPLEMENTED:
-            #   Report RMS start failure + status to RMS -- which is exactly
+            # OPEN QUESTION, not a retry:
             #   what cannot be done, since the sender that would post it is the
             #   thing that failed. _RmsSender opts into restart_on_crash, so by
             #   the time this arrives its budget is spent and the Oradio has no
             #   way left to tell anyone. Only the log file carries it.
             oradio_log.debug("Mitigation to be implemented")
         elif incident.message == RMS_POST_FAILED:
-            # MITIGATION TO BE IMPLEMENTED:
-            #   Report RMS post failure + status to RMS
+            # NO MITIGATION: reporting it IS the mitigation.
+            #   Nothing to repair and nothing that can be sent: the sender that
+            #   would carry it is the one that failed. The log file keeps it, and
+            #   the next successful POST is the recovery.
             oradio_log.debug("Mitigation to be implemented")
         else:
             oradio_log.error("Unhandled Remote monitoring incident: '%s'", incident.message)
@@ -307,13 +314,20 @@ class IncidentHandler(MessageHandlerTemplate):
         Args:
             incident: Incident message received from the incident bus.
         """
-        if incident.message == SOUND_MISSING_DIR:
-            # MITIGATION TO BE IMPLEMENTED:
-            #   Report system sound directory missing + status to RMS
+        if incident.message == SOUND_MISSING_FILE:
+            # NO MITIGATION: reporting it IS the mitigation.
+            #   A sound file that is not on disk is a broken installation, the
+            #   same as SOUND_MISSING_DIR below. Reinstalling is the fix and
+            #   only a person can do that.
+            oradio_log.debug("Mitigation to be implemented")
+        elif incident.message == SOUND_MISSING_DIR:
+            # NO MITIGATION: reporting it IS the mitigation.
+            #   A missing sound directory is a broken installation, not a runtime
+            #   fault. Reinstalling is the fix and only a person can do that.
             oradio_log.debug("Mitigation to be implemented")
         elif incident.message == SOUND_PLAYBACK_FAILED:
             # MITIGATION TO BE IMPLEMENTED:
-            #   Report system sound playback failed + status to RMS
+            #   Nothing beyond the report _handle_message already sends.
             oradio_log.debug("Mitigation to be implemented")
         else:
             oradio_log.error("Unhandled system sound incident: '%s'", incident.message)
@@ -330,17 +344,15 @@ class IncidentHandler(MessageHandlerTemplate):
         """
         if incident.message == THROTTLING_THROTTLED:
             # MITIGATION TO BE IMPLEMENTED:
-            #   Report RPi throttled to RMS
+            #   Nothing beyond the report _handle_message already sends.
             oradio_log.debug("Mitigation to be implemented")
         elif incident.message == THROTTLING_START_FAILED:
-            # MITIGATION TO BE IMPLEMENTED:
-            #   Report throttling monitor start failed + status to RMS
+            # OPEN QUESTION, not a retry:
             #   Do NOT retry the worker here: RPiThrottlingMonitor opts into
             #   restart_on_crash, so this incident means its budget is spent.
             oradio_log.debug("Mitigation to be implemented")
         elif incident.message == THROTTLING_STOPPED:
-            # MITIGATION TO BE IMPLEMENTED:
-            #   Report throttling monitor stopped + status to RMS
+            # OPEN QUESTION, not a retry:
             #   Do NOT retry the worker here; see THROTTLING_START_FAILED above.
             oradio_log.debug("Mitigation to be implemented")
         else:
@@ -356,34 +368,36 @@ class IncidentHandler(MessageHandlerTemplate):
         Args:
             incident: Incident message received from the incident bus.
         """
-        if incident.message == USB_FSCK_FAILED:
+        if incident.message == USB_EVENT_FAILED:
             # MITIGATION TO BE IMPLEMENTED:
-            #   Report to RMS that fsck.vfat found damage on the USB drive it
-            #   could not repair, with its output in the incident details.
-            #   Nothing to repair from here -- fsck has already had its turn,
-            #   and anything further needs the drive in a PC. The value is
-            #   knowing: a drive reaching this state tends to do it again, and
-            #   the alternative is a user whose music quietly disappears.
+            #   The observer survived, but this insert or remove was not acted
+            #   on: the Oradio still believes whatever drive state it had
+            #   before. Re-reading USBService.get_state() and republishing it
+            #   would resynchronise without waiting for the user to pull the
+            #   drive and put it back.
+            oradio_log.debug("Mitigation to be implemented")
+        elif incident.message == USB_FSCK_FAILED:
+            # NO MITIGATION: reporting it IS the mitigation.
+            #   fsck has already had its turn, and anything further needs the
+            #   drive in a PC. The value is knowing: a drive reaching this state
+            #   tends to do it again.
             oradio_log.debug("Mitigation to be implemented")
         elif incident.message == USB_WIFI_DEFERRED_FAILED:
-            # MITIGATION TO BE IMPLEMENTED:
-            #   Report to RMS that wifi credentials on the USB drive could not
-            #   be applied. Nothing to repair from here: the file is valid and
-            #   still on the drive, NetworkManager simply never became
-            #   available. Re-inserting the drive retries the import.
+            # NO MITIGATION: reporting it IS the mitigation.
+            #   The file is valid and still on the drive; NetworkManager simply
+            #   never became available. Re-inserting the drive retries the
+            #   import.
             oradio_log.debug("Mitigation to be implemented")
         elif incident.message == USB_FILE_FAILED:
             # MITIGATION TO BE IMPLEMENTED:
-            #   Report usb file import failed + status to RMS
+            #   Nothing beyond the report _handle_message already sends.
             oradio_log.debug("Mitigation to be implemented")
         elif incident.message == USB_START_FAILED:
             # MITIGATION TO BE IMPLEMENTED:
-            #   Report usb file import failed + status to RMS
             #   If retry_count < MAX_RETRIES: retry starting usb service
             oradio_log.debug("Mitigation to be implemented")
         elif incident.message == USB_STOPPED:
             # MITIGATION TO BE IMPLEMENTED:
-            #   Report usb service stopped + status to RMS
             #   If retry_count < MAX_RETRIES: retry starting usb service
             oradio_log.debug("Mitigation to be implemented")
         else:
@@ -400,19 +414,17 @@ class IncidentHandler(MessageHandlerTemplate):
             incident: Incident message received from the incident bus.
         """
         if incident.message == VOLUME_START_FAILED:
-            # MITIGATION TO BE IMPLEMENTED:
-            #   Report volume control start failed + status to RMS
+            # OPEN QUESTION, not a retry:
             #   Do NOT retry the worker here: VolumeControl opts into
             #   restart_on_crash, so this incident means its budget is spent.
             #   A volume knob that stays dead is worth telling the user about.
             oradio_log.debug("Mitigation to be implemented")
         elif incident.message == VOLUME_SET_FAILED:
             # MITIGATION TO BE IMPLEMENTED:
-            #   Report volume amixer control failure + status to RMS
+            #   Nothing beyond the report _handle_message already sends.
             oradio_log.debug("Mitigation to be implemented")
         elif incident.message == VOLUME_STOPPED:
-            # MITIGATION TO BE IMPLEMENTED:
-            #   Report volume control stopped + status to RMS
+            # OPEN QUESTION, not a retry:
             #   Do NOT retry the worker here; see VOLUME_START_FAILED above.
             oradio_log.debug("Mitigation to be implemented")
         else:
@@ -430,17 +442,14 @@ class IncidentHandler(MessageHandlerTemplate):
         """
         if incident.message == WEB_SERVER_FAILED:
             # MITIGATION TO BE IMPLEMENTED:
-            #   Report web service failed to start to RMS
             #   If retry_count < MAX_RETRIES: retry start
             oradio_log.debug("Mitigation to be implemented")
         elif incident.message == WEB_START_FAILED:
             # MITIGATION TO BE IMPLEMENTED:
-            #   Report web server failed to start to RMS
             #   If retry_count < MAX_RETRIES: retry start
             oradio_log.debug("Mitigation to be implemented")
         elif incident.message == WEB_STOP_FAILED:
             # MITIGATION TO BE IMPLEMENTED:
-            #   Report web server failed to stop to RMS
             #   If retry_count < MAX_RETRIES: retry stop
             oradio_log.debug("Mitigation to be implemented")
         else:
@@ -456,17 +465,26 @@ class IncidentHandler(MessageHandlerTemplate):
         Args:
             incident: Incident message received from the incident bus.
         """
-        if incident.message == WIFI_DBUS_FAILED:
-            # MITIGATION TO BE IMPLEMENTED:
-            #   Report wifi D-Bus failure to RMS
+        if incident.message == WIFI_AP_FAILED:
+            # OPEN QUESTION, not a retry:
+            #   The user long-pressed and no network appeared on their phone.
+            #   WebService.start() already gave up, so retrying the access
+            #   point here would race whatever it does next. What is undecided
+            #   is whether the Oradio should say something -- this is the one
+            #   failure the user is standing in front of, waiting for.
+            oradio_log.debug("Mitigation to be implemented")
+        elif incident.message == WIFI_DBUS_FAILED:
+            # NO MITIGATION: reporting it IS the mitigation.
+            #   NetworkManager never appeared. WifiService already waited for it
+            #   and gave up; there is nothing here that could make it arrive.
             oradio_log.debug("Mitigation to be implemented")
         elif incident.message == WIFI_NMCLI_FAILED:
             # MITIGATION TO BE IMPLEMENTED:
-            #   Report wifi nmcli failure to RMS
+            #   Nothing beyond the report _handle_message already sends.
             oradio_log.debug("Mitigation to be implemented")
         elif incident.message == WIFI_CONNECT_FAILED:
             # MITIGATION TO BE IMPLEMENTED:
-            #   Report wifi internet connection failure to RMS
+            #   Nothing beyond the report _handle_message already sends.
 # REVIEW Onno:
 #   WIFI_CONNECT_FAILED wordt als incident gerapporteerd, hier nu als command doorgestuurd.
 #   Te kiezen: is het een command of een incident?
@@ -474,7 +492,7 @@ class IncidentHandler(MessageHandlerTemplate):
             oradio_log.debug("Mitigation to be implemented")
         elif incident.message == WIFI_DISCONNECT_FAILED:
             # MITIGATION TO BE IMPLEMENTED:
-            #   Report wifi disconnect failure to RMS
+            #   Nothing beyond the report _handle_message already sends.
             oradio_log.debug("Mitigation to be implemented")
         else:
             oradio_log.error("Unhandled wifi incident: '%s'", incident.message)
