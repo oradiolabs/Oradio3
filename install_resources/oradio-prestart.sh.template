@@ -84,6 +84,57 @@ have_card() { grep -q 'DigiAMP' /proc/asound/cards 2>/dev/null; }
 wait_for "i2c"  have_i2c
 wait_for "gpio" have_gpio
 wait_for "card" have_card
+
+# Restore the ALSA controls, but only when they are not there already.
+#
+# /etc/asound.conf declares the softvol controls volume_control.py sets at
+# construction, and on a boot they have to be restored before it gets that far.
+# On a service restart they are already there: the card never went away, and the
+# restore has nothing to do.
+#
+# Skipping it then is not just tidiness. alsactl restores every control the card
+# offers, and three on the PCM512x -- Max Overclock PLL, DSP and DAC -- only
+# accept a write while the DAC is idle. mpd keeps the card open across a service
+# restart, so a restore with nothing to do writes three errors anyway:
+#
+#   Cannot write control 'numid=18,...,name='Max Overclock PLL'' : Device or resource busy
+#
+# oradio.service points the whole unit's stderr at the traceback log, which is
+# the file oradio-poststop.sh keeps as evidence after a crash. One that always
+# holds three errors is a poorer signal than one that is usually empty. On the
+# path where the restore does run the card is idle, so there is nothing to
+# complain about.
+#
+# Not by editing /var/lib/alsa/asound.state: that file belongs to alsa-utils,
+# holds the controls the Oradio does need in the same nested format, and a
+# botched edit makes alsactl reject all of it -- no softvol controls, a failing
+# amixer, and no sound at all.
+#
+# sudo rather than a '+' ExecStartPre= of its own: alsactl needs root for
+# asound.state and the card lock, but this script must NOT, or the access tests
+# above would check root's rights instead of the ones the Python process gets.
+# Elevating the single command that needs it keeps both.
+readonly REQUIRED_CONTROLS=("VolumeMPD" "VolumeSysSound")
+
+restore_alsa_controls() {
+	local control
+	for control in "${REQUIRED_CONTROLS[@]}"; do
+		# Read-only and unprivileged: asking whether a control exists needs no
+		# rights, which is why this check sits on the pi side of the fence.
+		if ! amixer -c 0 cget name="$control" >/dev/null 2>&1; then
+			log "prestart: '$control' missing, restoring ALSA controls"
+			# Errors go to stderr and so to the traceback log, where a restore
+			# that actually failed belongs. A missing DAC must not fail the unit,
+			# hence the tolerated status.
+			sudo /usr/sbin/alsactl --no-ucm restore \
+				|| log "prestart: WARNING alsactl restore failed"
+			return
+		fi
+	done
+	log "prestart: ALSA controls already present, skipping restore"
+}
+
+restore_alsa_controls
  
 # Read uptime with a redirect rather than $(cut ...): no fork on the critical path.
 read -r uptime_s _ < /proc/uptime

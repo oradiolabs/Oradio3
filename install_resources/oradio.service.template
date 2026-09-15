@@ -60,7 +60,8 @@ UMask=0002
 # systemd's own start/stop lines. Deliberate - the journal is Storage=volatile
 # and is lost on every reboot, so the log file is the only record that survives.
 #
-# Every ExecStartPre below inherits this, so alsactl's errors land here too.
+# Every ExecStartPre below inherits this, so oradio-prestart.sh's stderr and
+# anything it runs land here too.
 StandardOutput=append:PLACEHOLDER_LOGFILE_TRACEBACK
 StandardError=append:PLACEHOLDER_LOGFILE_TRACEBACK
 
@@ -72,41 +73,19 @@ ExecStartPre=-+/usr/bin/chown PLACEHOLDER_USER:PLACEHOLDER_GROUP PLACEHOLDER_LOG
 
 # ---- Hardware gate. The two lines below are a pair; order is load-bearing. ----
 
-# Waits for i2c, gpio and the sound card, and truncates the traceback log.
+# Waits for i2c, gpio and the sound card, truncates the traceback log, and
+# restores the ALSA controls when they are not there yet -- the softvol controls
+# /etc/asound.conf declares and volume_control.py sets at construction.
+#
+# That restore elevates itself with sudo for the one command that needs root,
+# rather than being an ExecStartPre= of its own with '+'. Running this whole
+# script as root would make the access tests below check root's rights instead
+# of the ones the Python process gets, which is the only reason they are worth
+# running at all.
 # No '+' prefix: runs as PLACEHOLDER_USER, so it tests the access the Python
 # process will actually get. Always exits 0.
 ExecStartPre=/usr/local/sbin/oradio-prestart.sh
 
-# Creates the softvol controls that /etc/asound.conf depends on, and that
-# volume_control.py sets at construction.
-#
-# '+' is required: alsactl cannot run as PLACEHOLDER_USER - asound.state, its
-# lock and the card lock are all root-only.
-#
-# Ordered after the script above, which guarantees the card exists by now.
-# Running alsactl here rather than waiting for alsa-restore.service keeps udev
-# off the audio path: alsactl restore is synchronous, so when it returns the
-# controls are there. alsa-restore.service running again later is harmless.
-#
-# '--no-ucm' skips the Use Case Manager lookup. The DigiAMP+ ships no UCM
-# profile, so without it alsactl writes a "failed to import hw:0 use case
-# configuration" error to the traceback log on every boot - harmless, but it
-# devalues that file as a signal that something actually went wrong.
-#
-# '-' so a missing DAC lets Oradio start and report the fault. The failure stays
-# visible: stderr goes to the traceback log per StandardError= above.
-#
-# No incident is raised here, and none is needed. An ExecStartPre= cannot reach
-# the incident bus anyway -- it runs before the process that owns it -- but more
-# to the point, a failed restore is not yet a fault the Oradio can report on.
-# What matters is whether the controls it creates are usable, and the first
-# thing that finds out is volume_control.py setting a volume through amixer at
-# construction: that raises VOLUME_SET_FAILED, seconds later and with the real
-# symptom rather than the suspicion.
-#
-# So a broken audio path is reported once, by the component that discovered it,
-# instead of twice from two different angles.
-ExecStartPre=-+/usr/sbin/alsactl --no-ucm restore
 
 # Execute service in user environment.
 User=PLACEHOLDER_USER
