@@ -693,7 +693,7 @@ class MPDControl(MPDService):
             # NOTE: MPD's own playlist commands read-modify-write the .m3u file
             # to disk synchronously on each call, so this extra round-trip
             # shouldn't be necessary per MPD's documented behavior. It's kept
-            # here because removing it was previously observed to cause stale
+            # here because removing it was observed to cause stale
             # reads -- possibly USB/filesystem write-cache timing rather than
             # an MPD-side cache. Left in place until that's confirmed; see if
             # it can be dropped after testing direct-from-disk reads

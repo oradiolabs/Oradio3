@@ -176,9 +176,9 @@ class _NonBlockingQueueHandler(QueueHandler):
     QueueHandler variant that never blocks the caller and never drops
     messages silently.
 
-    The stdlib QueueHandler already uses put_nowait() by default, so it was
-    already non-blocking -- but a dropped record (queue full) was previously
-    swallowed via logging's default handleError() path with no clear signal.
+    The stdlib QueueHandler already uses put_nowait() by default, so it is
+    non-blocking on its own -- but it swallows a dropped record (queue full)
+    through logging's default handleError() path, with no clear signal.
     This subclass counts drops and periodically writes a notice to its
     fallback sinks (disk, syslog), so a saturated queue is visible even
     when running headless with no console attached.

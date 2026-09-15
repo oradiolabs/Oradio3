@@ -387,8 +387,8 @@ class ThreadTemplate:
         """
         Whether the underlying thread currently exists and is running.
 
-        Mirrors threading.Thread.is_alive() since ThreadTemplate no longer
-        inherits from Thread.
+        Mirrors threading.Thread.is_alive(). ThreadTemplate holds a Thread
+        rather than being one, so callers ask this instead.
         """
         return self._thread is not None and self._thread.is_alive()
 

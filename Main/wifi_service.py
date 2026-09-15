@@ -222,10 +222,9 @@ class WifiService:
 
         # Serialises start() and owns the wait for NetworkManager.
         #
-        # This class used to carry its own copy of that logic; DeferredStarter is that logic, lifted out so the
-        # other subsystems facing a late dependency can use it too. What it keeps doing here is unchanged: hold the
-        # claim from the moment a start is taken until it has finished -- whether it ran inline or on the deferred
-        # thread, and whether it succeeded, aborted or gave up. That claim is what makes the window between
+        # DeferredStarter holds the claim from the moment a start is taken until it has finished -- whether it
+        # ran inline or on the deferred thread, and whether it succeeded, aborted or gave up. It is shared with
+        # every other subsystem that faces a late dependency. That claim is what makes the window between
         # deciding to start and the listener thread actually being alive safe, because a second start() in that
         # window would otherwise see a listener that is not alive yet and start a second one.
         #

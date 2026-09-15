@@ -586,7 +586,7 @@ if __name__ == '__main__':
             # retry=False: GO_COMMAND is a trigger, not a value. A write that
             # errored may still have reached the HUSB238, and an I2C-level
             # retry would then put a second Get Source Capabilities on the
-            # wire. Repeating is the caller's call, and _request_capabilities()
+            # wire. Repeating is the caller's call, and _request_src_cap()
             # is already retried by its own caller when PD_RESPONSE reports a
             # transient failure.
             if not self._i2c_service.write_byte(
@@ -903,7 +903,7 @@ if __name__ == '__main__':
 
             # Trigger the GO command to request the PDO just written.
             #
-            # retry=False for the same reason as in _request_capabilities():
+            # retry=False for the same reason as in _request_src_cap():
             # this write starts a PD transaction, and a repeat that the caller
             # did not ask for is a second request to the source. SRC_PDO above
             # keeps its retries -- that one is a value, and writing it twice

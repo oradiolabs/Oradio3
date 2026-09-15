@@ -234,9 +234,8 @@ if __name__ == "__main__":
         Lets the operator start/stop polling, simulate dropped-record
         counts, and inspect log_service's live health signals, to verify
         that the correct log messages and incident events are produced.
-        Since the monitor no longer self-starts, start/stop are exposed
-        as explicit menu options rather than assumed to already be
-        running.
+        The monitor does not self-start, so start/stop are explicit menu
+        options rather than assumed to already be running.
         """
         input_selection = (
             "Select a function, input the number.\n"

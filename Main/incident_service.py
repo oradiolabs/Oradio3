@@ -110,12 +110,15 @@ class IncidentHandler(MessageHandlerTemplate):
         if incident.message == BACKLIGHTING_START_FAILED:
             # MITIGATION TO BE IMPLEMENTED:
             #   Report backlighting start failed + status to RMS
-            #   If retry_count < MAX_RETRIES: retry starting Backlighting
+            #   Do NOT retry the worker here: _BacklightWorker opts into
+            #   restart_on_crash, so this incident only arrives once its
+            #   budget is spent. The open question is what the Oradio should
+            #   do about a backlight that stays down, not whether to try again.
             oradio_log.debug("Mitigation to be implemented")
         elif incident.message == BACKLIGHTING_STOPPED:
             # MITIGATION TO BE IMPLEMENTED:
             #   Report backlighting stopped + status to RMS
-            #   If retry_count < MAX_RETRIES: retry starting backlighting
+            #   Do NOT retry the worker here; see BACKLIGHTING_START_FAILED above.
             oradio_log.debug("Mitigation to be implemented")
         else:
             oradio_log.error("Unhandled backlighting incident: '%s'", incident.message)
@@ -212,7 +215,8 @@ class IncidentHandler(MessageHandlerTemplate):
         if incident.message == LOG_START_FAILED:
             # MITIGATION TO BE IMPLEMENTED:
             #   Report log monitor failure + status to RMS
-            #   If retry_count < MAX_RETRIES: retry reconnect
+            #   Do NOT retry the worker here: LogHealthMonitor opts into
+            #   restart_on_crash, so this incident means its budget is spent.
             oradio_log.debug("Mitigation to be implemented")
         elif incident.message == LOG_QUEUE_OVERFLOW:
             # MITIGATION TO BE IMPLEMENTED:
@@ -230,7 +234,7 @@ class IncidentHandler(MessageHandlerTemplate):
         elif incident.message == LOG_STOPPED:
             # MITIGATION TO BE IMPLEMENTED:
             #   Report log monitor stopped + status to RMS
-            #   If retry_count < MAX_RETRIES: retry starting log monitor
+            #   Do NOT retry the worker here; see LOG_START_FAILED above.
             oradio_log.debug("Mitigation to be implemented")
         else:
             oradio_log.error("Unhandled log incident: '%s'", incident.message)
@@ -280,7 +284,11 @@ class IncidentHandler(MessageHandlerTemplate):
         """
         if incident.message == RMS_START_FAILED:
             # MITIGATION TO BE IMPLEMENTED:
-            #   Report RMS start failure + status to RMS
+            #   Report RMS start failure + status to RMS -- which is exactly
+            #   what cannot be done, since the sender that would post it is the
+            #   thing that failed. _RmsSender opts into restart_on_crash, so by
+            #   the time this arrives its budget is spent and the Oradio has no
+            #   way left to tell anyone. Only the log file carries it.
             oradio_log.debug("Mitigation to be implemented")
         elif incident.message == RMS_POST_FAILED:
             # MITIGATION TO BE IMPLEMENTED:
@@ -327,12 +335,13 @@ class IncidentHandler(MessageHandlerTemplate):
         elif incident.message == THROTTLING_START_FAILED:
             # MITIGATION TO BE IMPLEMENTED:
             #   Report throttling monitor start failed + status to RMS
-            #   If retry_count < MAX_RETRIES: retry starting throttling monitor
+            #   Do NOT retry the worker here: RPiThrottlingMonitor opts into
+            #   restart_on_crash, so this incident means its budget is spent.
             oradio_log.debug("Mitigation to be implemented")
         elif incident.message == THROTTLING_STOPPED:
             # MITIGATION TO BE IMPLEMENTED:
             #   Report throttling monitor stopped + status to RMS
-            #   If retry_count < MAX_RETRIES: retry starting throttling monitor
+            #   Do NOT retry the worker here; see THROTTLING_START_FAILED above.
             oradio_log.debug("Mitigation to be implemented")
         else:
             oradio_log.error("Unhandled throttling incident: '%s'", incident.message)
@@ -393,7 +402,9 @@ class IncidentHandler(MessageHandlerTemplate):
         if incident.message == VOLUME_START_FAILED:
             # MITIGATION TO BE IMPLEMENTED:
             #   Report volume control start failed + status to RMS
-            #   If retry_count < MAX_RETRIES: retry starting volume control
+            #   Do NOT retry the worker here: VolumeControl opts into
+            #   restart_on_crash, so this incident means its budget is spent.
+            #   A volume knob that stays dead is worth telling the user about.
             oradio_log.debug("Mitigation to be implemented")
         elif incident.message == VOLUME_SET_FAILED:
             # MITIGATION TO BE IMPLEMENTED:
@@ -402,7 +413,7 @@ class IncidentHandler(MessageHandlerTemplate):
         elif incident.message == VOLUME_STOPPED:
             # MITIGATION TO BE IMPLEMENTED:
             #   Report volume control stopped + status to RMS
-            #   If retry_count < MAX_RETRIES: retry starting volume control
+            #   Do NOT retry the worker here; see VOLUME_START_FAILED above.
             oradio_log.debug("Mitigation to be implemented")
         else:
             oradio_log.error("Unhandled volume incident: '%s'", incident.message)
