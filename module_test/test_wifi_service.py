@@ -301,6 +301,7 @@ def _install_stubs() -> None:
         WIFI_ACCESS_POINT="wifi access point",
         WIFI_DBUS_FAILED="wifi dbus failed",
         WIFI_DISCONNECT_FAILED="wifi disconnect failed",
+        WIFI_AP_FAILED="wifi access point failed",
     )
 
     _stub_module("nmcli", connection=StubNmcliConnection())
