@@ -266,6 +266,11 @@ class Backlighting:
             oradio_log.debug("Backlight worker thread not running")
             return
 
+        # Logged, not reported. Nothing in the running Oradio calls this:
+        # oradio_control only ever calls start(), and the stop() paths here --
+        # off(), maximum() and the menu below -- exist for the stand-alone
+        # entry point. An incident from a code path the product cannot reach
+        # would be noise in RMS and a false lead for whoever reads it.
         if not self._worker.safe_stop():
             oradio_log.error("Backlight worker thread did not stop cleanly")
         else:

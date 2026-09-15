@@ -95,6 +95,17 @@ ExecStartPre=/usr/local/sbin/oradio-prestart.sh
 #
 # '-' so a missing DAC lets Oradio start and report the fault. The failure stays
 # visible: stderr goes to the traceback log per StandardError= above.
+#
+# No incident is raised here, and none is needed. An ExecStartPre= cannot reach
+# the incident bus anyway -- it runs before the process that owns it -- but more
+# to the point, a failed restore is not yet a fault the Oradio can report on.
+# What matters is whether the controls it creates are usable, and the first
+# thing that finds out is volume_control.py setting a volume through amixer at
+# construction: that raises VOLUME_SET_FAILED, seconds later and with the real
+# symptom rather than the suspicion.
+#
+# So a broken audio path is reported once, by the component that discovered it,
+# instead of twice from two different angles.
 ExecStartPre=-+/usr/sbin/alsactl --no-ucm restore
 
 # Execute service in user environment.
