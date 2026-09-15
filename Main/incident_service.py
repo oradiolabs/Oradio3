@@ -24,12 +24,19 @@ Created on May 15, 2026
     Unknown incidents are logged for further investigation.
 """
 from collections.abc import Callable
+from typing import Any
 from time import monotonic
 
 ##### Oradio modules ######################################
 from log_service import oradio_log
 from rms_service import RMService, INCIDENT
 from mpd_service import mpd_is_ready
+from mpd_monitor import MPDMonitor
+from usb_service import USBObserver
+from backlight_service import Backlighting
+from volume_control import VolumeControl
+from log_monitor import LogHealthMonitor
+from rpi_monitor import RPiThrottlingMonitor
 from utilities import (
     restart_service,
     SERVICE_RESTART_LIMIT,
@@ -154,26 +161,96 @@ class IncidentHandler(MessageHandlerTemplate):
         The budget decays, so a service that misbehaved this morning can still
         be recovered this afternoon.
         """
+        if not self._within_restart_budget(service_name):
+            return False
+
+        return restart_service(service_name)
+
+    def _within_restart_budget(self, name: str) -> bool:
+        """
+        Whether something may be restarted again, and record it if so.
+
+        Args:
+            name: What is being restarted, for the log line and the tally.
+
+        Returns:
+            True when the caller may go ahead.
+
+        Shared by the two kinds of repair this handler does -- a systemd unit
+        and a subsystem of its own -- because the reason for a budget is the
+        same either way: a thing that fails for something a restart cannot fix
+        will fail again the moment it comes back, and an unbounded loop turns
+        one fault into a cycle of restarts with an incident on every turn.
+
+        The budget decays, so something that misbehaved this morning can still
+        be recovered this afternoon.
+        """
         now = monotonic()
-        history = [t for t in self._service_restarts.get(service_name, [])
+        history = [t for t in self._service_restarts.get(name, [])
                    if now - t < SERVICE_RESTART_WINDOW]
 
         if len(history) >= SERVICE_RESTART_LIMIT:
             oradio_log.error(
                 "Not restarting %s again: %d restarts within %.0fs did not help",
-                service_name, len(history), SERVICE_RESTART_WINDOW,
+                name, len(history), SERVICE_RESTART_WINDOW,
             )
-            self._service_restarts[service_name] = history
+            self._service_restarts[name] = history
             return False
 
         history.append(now)
-        self._service_restarts[service_name] = history
+        self._service_restarts[name] = history
 
         oradio_log.warning(
             "Restarting %s (%d of %d within %.0fs)",
-            service_name, len(history), SERVICE_RESTART_LIMIT, SERVICE_RESTART_WINDOW,
+            name, len(history), SERVICE_RESTART_LIMIT, SERVICE_RESTART_WINDOW,
         )
-        return restart_service(service_name)
+        return True
+
+    def _restart_subsystem(self, name: str, factory: Callable[[], Any]) -> None:
+        """
+        Restart an Oradio subsystem that failed to start, and say so if it worked.
+
+        Args:
+            name:    Subsystem name, for the log line and the restart budget.
+            factory: Returns the subsystem. Every caller passes a @singleton
+                     class, so calling it hands back the live instance rather
+                     than building a second one.
+
+        The counterpart of _restart_service_within_budget() for the things the
+        Oradio starts itself. A '<x> failed to start' incident means safe_start()
+        returned False -- the worker never ran, so ThreadTemplate's own
+        restart_on_crash never saw it and nothing has tried again.
+
+        stop() first, because a start that failed can leave a thread object
+        behind that start() would refuse to replace.
+
+        Deliberately silent towards oradio_control, unlike the mpd.service path.
+        Restarting mpd discards the playback queue, so the state machine is left
+        describing music that is no longer playing and has to be told. None of
+        the subsystems here does that: the state machine tracks neither the
+        backlight nor the volume worker nor a monitor, and the music keeps
+        playing throughout. Sending it to Idle would stop the music for a fault
+        the listener never noticed -- the opposite of what a repair is for.
+
+        A subsystem that comes back invisibly should stay invisible, exactly as
+        ThreadTemplate's own restart_on_crash does. The incident is already on
+        its way to RMS; that is the record.
+        """
+        if not self._within_restart_budget(name):
+            return
+
+        try:
+            subsystem = factory()
+            subsystem.stop()
+            subsystem.start()
+        # Broad catch: these are other modules' start paths, reached at the
+        # worst possible moment, and an exception here would kill the handler
+        # thread and with it every mitigation after this one.
+        except Exception as ex_err:      # pylint: disable=broad-exception-caught
+            oradio_log.error("Restarting %s failed: %s", name, ex_err)
+            return
+
+        oradio_log.info("%s restarted", name)
 
 ##### Helpers #############################################
 
@@ -188,12 +265,12 @@ class IncidentHandler(MessageHandlerTemplate):
             incident: Incident message received from the incident bus.
         """
         if incident.message == BACKLIGHTING_START_FAILED:
-            # OPEN QUESTION, not a retry:
-            #   Do NOT retry the worker here: _BacklightWorker opts into
-            #   restart_on_crash, so this incident only arrives once its
-            #   budget is spent. The open question is what the Oradio should
-            #   do about a backlight that stays down, not whether to try again.
-            oradio_log.debug("Mitigation to be implemented")
+            # MITIGATION: start it again.
+            #
+            # safe_start() returned False, so the worker never ran and
+            # ThreadTemplate's restart_on_crash never saw it. Nothing has
+            # tried again; this is the first attempt.
+            self._restart_subsystem("backlighting", Backlighting)
         elif incident.message == BACKLIGHTING_STOPPED:
             # OPEN QUESTION, not a retry:
             #   Do NOT retry the worker here; see BACKLIGHTING_START_FAILED above.
@@ -284,10 +361,12 @@ class IncidentHandler(MessageHandlerTemplate):
             incident: Incident message received from the incident bus.
         """
         if incident.message == LOG_START_FAILED:
-            # OPEN QUESTION, not a retry:
-            #   Do NOT retry the worker here: LogHealthMonitor opts into
-            #   restart_on_crash, so this incident means its budget is spent.
-            oradio_log.debug("Mitigation to be implemented")
+            # MITIGATION: start it again.
+            #
+            # safe_start() returned False, so the worker never ran and
+            # ThreadTemplate's restart_on_crash never saw it. Nothing has
+            # tried again; this is the first attempt.
+            self._restart_subsystem("log health monitor", LogHealthMonitor)
         elif incident.message == LOG_QUEUE_OVERFLOW:
             # MITIGATION TO BE IMPLEMENTED:
             #   Wait to give log service chance to recover
@@ -318,10 +397,18 @@ class IncidentHandler(MessageHandlerTemplate):
         Args:
             incident: Incident message received from the incident bus.
         """
-        if incident.message in (MPD_CONNECT_FAILED, MPD_EXECUTE_FAILED, MPD_MONITOR_FAILED):
+        if incident.message == MPD_MONITOR_FAILED:
+            # MITIGATION: start the monitor again.
+            #
+            # Not a restart of mpd: this is published when MPDMonitor's own
+            # worker fails to start, which says nothing about whether the server
+            # is answering. safe_start() returned False, so the worker never ran
+            # and ThreadTemplate's restart_on_crash never saw it.
+            self._restart_subsystem("MPD monitor", MPDMonitor)
+        elif incident.message in (MPD_CONNECT_FAILED, MPD_EXECUTE_FAILED):
             # MITIGATION: restart mpd.service.
             #
-            # All three say the same thing by the time they get here: mpd is not
+            # Both say the same thing by the time they get here: mpd is not
             # answering. MPDService has its own retries and a circuit breaker in
             # front of them, so these are published only once that gave up --
             # reconnecting again here would repeat work that has already failed.
@@ -353,10 +440,11 @@ class IncidentHandler(MessageHandlerTemplate):
                 # machine owns its own state, and it is the only place that
                 # knows what StatePresetN should mean now.
                 #
-                # One command for every repair this service makes, not one per
-                # subsystem: they all leave the same problem behind -- the
-                # Oradio believing something that was true before the repair --
-                # and oradio_control answers all of them the same way.
+                # One source and one message for every repair that DOES leave
+                # the Oradio believing something stale, so oradio_control needs
+                # a single handler rather than one per subsystem. The subsystem
+                # restarts elsewhere in this file stay silent on purpose: they
+                # do not invalidate anything the state machine tracks.
                 Commands.publish(CommandMessage(INCIDENT_SOURCE, INCIDENT_RECOVERED))
         elif incident.message == MPD_PRESET_INVALID:
             # MITIGATION TO BE IMPLEMENTED:
@@ -438,10 +526,12 @@ class IncidentHandler(MessageHandlerTemplate):
             #   Nothing beyond the report _handle_message already sends.
             oradio_log.debug("Mitigation to be implemented")
         elif incident.message == THROTTLING_START_FAILED:
-            # OPEN QUESTION, not a retry:
-            #   Do NOT retry the worker here: RPiThrottlingMonitor opts into
-            #   restart_on_crash, so this incident means its budget is spent.
-            oradio_log.debug("Mitigation to be implemented")
+            # MITIGATION: start it again.
+            #
+            # safe_start() returned False, so the worker never ran and
+            # ThreadTemplate's restart_on_crash never saw it. Nothing has
+            # tried again; this is the first attempt.
+            self._restart_subsystem("throttling monitor", RPiThrottlingMonitor)
         elif incident.message == THROTTLING_STOPPED:
             # OPEN QUESTION, not a retry:
             #   Do NOT retry the worker here; see THROTTLING_START_FAILED above.
@@ -483,14 +573,24 @@ class IncidentHandler(MessageHandlerTemplate):
             # MITIGATION TO BE IMPLEMENTED:
             #   Nothing beyond the report _handle_message already sends.
             oradio_log.debug("Mitigation to be implemented")
-        elif incident.message == USB_START_FAILED:
-            # MITIGATION TO BE IMPLEMENTED:
-            #   If retry_count < MAX_RETRIES: retry starting usb service
-            oradio_log.debug("Mitigation to be implemented")
-        elif incident.message == USB_STOPPED:
-            # MITIGATION TO BE IMPLEMENTED:
-            #   If retry_count < MAX_RETRIES: retry starting usb service
-            oradio_log.debug("Mitigation to be implemented")
+        elif incident.message in (USB_START_FAILED, USB_STOPPED):
+            # MITIGATION: start the observer again.
+            #
+            # START_FAILED is a safe_start() that returned False; STOPPED is the
+            # health check finding the watchdog observer thread gone. Neither is
+            # a crash inside a ThreadTemplate worker -- USBService does not use
+            # one -- so nothing else has tried.
+            #
+            # Worth trying: without the observer the Oradio never notices a
+            # drive being inserted or removed again, which looks to the user
+            # like a stick that simply does not work.
+            #
+            # STILL TO DO: an observer that was gone for a while may have missed
+            # a mount or unmount, so usb_present can be wrong after this. The
+            # repair for that is republishing USBService.get_state(), not the
+            # INCIDENT_RECOVERED the mpd path sends -- see USB_EVENT_FAILED
+            # above, which has the same problem from a different direction.
+            self._restart_subsystem("USB observer", USBObserver)
         else:
             oradio_log.error("Unhandled USB incident: '%s'", incident.message)
 
@@ -505,11 +605,12 @@ class IncidentHandler(MessageHandlerTemplate):
             incident: Incident message received from the incident bus.
         """
         if incident.message == VOLUME_START_FAILED:
-            # OPEN QUESTION, not a retry:
-            #   Do NOT retry the worker here: VolumeControl opts into
-            #   restart_on_crash, so this incident means its budget is spent.
-            #   A volume knob that stays dead is worth telling the user about.
-            oradio_log.debug("Mitigation to be implemented")
+            # MITIGATION: start it again.
+            #
+            # safe_start() returned False, so the worker never ran and
+            # ThreadTemplate's restart_on_crash never saw it. Nothing has
+            # tried again; this is the first attempt.
+            self._restart_subsystem("volume control", VolumeControl)
         elif incident.message == VOLUME_SET_FAILED:
             # OPEN QUESTION, not a retry:
             #   amixer could not set a softvol control, which usually means the
