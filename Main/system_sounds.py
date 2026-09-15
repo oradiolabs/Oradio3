@@ -32,6 +32,7 @@ from messaging import (
 
 ##### GLOBAL constants ####################################
 from constants import (
+    SYSTEM_SOUND_SINK,
     SOUNDS_PATH,
     SOUND_START,
     SOUND_STOP,
@@ -55,9 +56,6 @@ from constants import (
 )
 
 ##### LOCAL constants #####################################
-
-# ALSA device for playing system sounds
-SYSTEM_SOUND_SINK = "SysSound_in"
 
 # Directory containing system sound files
 SOUND_FILES = {

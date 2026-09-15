@@ -23,6 +23,14 @@ from pathlib import Path
 ##### SHARED WITH INSTALLER ###############################
 # Values below are read from constants.env, which install_oradio3.sh
 # also sources. Edit that file, not this one.
+#
+# These are here for a different reason than the rest of this module. The rest
+# holds constants that more than one module uses; a value only one module needs
+# is a local constant and belongs in that module. The values below may well have
+# a single Python consumer -- what they share is a shell script or a config file
+# that needs the same value, and _load_env() below is the only reader of
+# constants.env in the codebase. Putting them in their own module would mean
+# duplicating that reader, or reaching into _ENV from outside.
 def _load_env(path):
     values = {}
     for line in Path(path).read_text(encoding="utf-8").splitlines():
@@ -64,6 +72,18 @@ LED_PRESET1 = "LedPreset1"
 LED_PRESET2 = "LedPreset2"
 LED_PRESET3 = "LedPreset3"
 LED_NAMES   = [LED_PLAY, LED_STOP, LED_PRESET1, LED_PRESET2, LED_PRESET3]
+
+# Blink cycle for "the Oradio cannot run": no usable power supply, no USB drive
+# to play from, an unrecoverable state, or a crash a reboot did not fix. Shared
+# with oradio-crash.sh, which blinks the same pin once this process is gone --
+# see constants.env for why it lives there rather than in either file.
+ERROR_BLINK_CYCLE = float(_ENV["ERROR_BLINK_CYCLE"])
+
+
+# BCM pin of the STOP/OFF LED. In constants.env because oradio-crash.sh drives
+# the same pin once this process is gone; the other four LEDs are Python-only
+# and stay in gpio_service.
+LED_STOP_PIN = int(_ENV["LED_STOP_PIN"])
 
 ##### #BUTTON definitions see UML «button_name» ###########
 BUTTON_PLAY        = "ButtonPlay"
@@ -114,6 +134,19 @@ WEB_SERVER_PORT = 8000
 # Requests from fastapi to web service
 REQUEST_CONNECT = "connect to wifi network"
 REQUEST_STOP    = "stop web service"
+
+##### SOUND ###############################################
+
+# ALSA input PCM for spoken prompts and tones. In constants.env because
+# asound.conf defines it and oradio-crash.sh plays through it.
+SYSTEM_SOUND_SINK = _ENV["SYSTEM_SOUND_SINK"]
+
+##### WEB SERVICE #########################################
+
+# dnsmasq config that points every hostname at the captive portal. In
+# constants.env because oradio-crash.sh removes it after a crash that stopped
+# web_service from doing so itself.
+DNS_REDIRECT_CONF = _ENV["DNS_REDIRECT_CONF"]
 
 ##### USB #################################################
 USB_MOUNT_POINT = _ENV["USB_MOUNT_POINT"]

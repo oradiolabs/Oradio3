@@ -224,10 +224,17 @@ class LEDControl:
         oradio_log.error("Invalid LED name: %s", led_name)
         return False
 
-    def control_blinking_led(self, led_name: str, cycle_time: float | None = 2) -> None:
+    def control_blinking_led(self, led_name: str, cycle_time: float) -> None:
         """
         Start blinking a specified LED at the given cycle time.
-        If cycle_time is None or <= 0, the LED is turned off instead.
+        No default: every rate the user sees means something, and a caller that
+        omitted one would blink at a number nobody named. The meanings are named
+        by the caller -- ERROR_BLINK_CYCLE in constants, STARTUP_BLINK_CYCLE and
+        WEBSERVICE_BLINK_CYCLE in oradio_control.
+
+        If cycle_time is None or <= 0, the LED is turned off instead -- kept for
+        callers that compute a rate. To simply switch a LED off, turn_off_led()
+        says so directly.
 
         The LED is on for the first half of each cycle and off for the second:
 

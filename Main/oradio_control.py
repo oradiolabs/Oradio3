@@ -84,6 +84,7 @@ from messaging import (
 
 ##### GLOBAL constants ####################################
 from constants import (
+    ERROR_BLINK_CYCLE,
     USB_MOUNT_POINT,
     MESSAGE_NO_ERROR,
     SOUND_START,
@@ -114,6 +115,22 @@ from constants import (
 
 WEB_PRESET_STATES = {"StatePreset1", "StatePreset2", "StatePreset3"}
 PLAY_STATES = {"StatePlay", "StatePreset1", "StatePreset2", "StatePreset3"}
+
+# Blink cycle for "the Oradio is busy and will be ready shortly".
+#
+# Slower than ERROR_BLINK_CYCLE on purpose: the rate is what tells the two
+# apart, so the user learns one meaning per speed rather than having to work out
+# which state the Oradio is in.
+#
+# Local, unlike ERROR_BLINK_CYCLE: nothing outside this module blinks "busy".
+# The crash handler cannot -- by the time it runs, the Oradio is not going to be
+# ready shortly -- so there is no second reader and nothing to share.
+STARTUP_BLINK_CYCLE = 1.0
+
+# Blink cycle for "the web interface is open". The slowest of the three, because
+# it is the only one that is not about something being wrong: the Oradio plays
+# or idles as usual while someone configures it from a phone.
+WEBSERVICE_BLINK_CYCLE = 2.0
 
 ################## Signal Primitives ######################
 
@@ -196,7 +213,7 @@ log_startup_step("power status")
 # established.
 if power_status is False:
     # Blink STOP/OFF led to indicate Oradio has an error
-    leds.control_blinking_led(LED_STOP, 0.7)
+    leds.control_blinking_led(LED_STOP, ERROR_BLINK_CYCLE)
 
     # Inform the user to use the original power supply
     play_sound(SOUND_POWER_ERROR)
@@ -396,7 +413,7 @@ class StateMachine:
             return
 
         oradio_log.debug("Starting WebService: %r", web_service)
-        leds.control_blinking_led(LED_PLAY)
+        leds.control_blinking_led(LED_PLAY, WEBSERVICE_BLINK_CYCLE)
         web_service.start()
 
     # --- transition() helpers ---
@@ -564,7 +581,7 @@ class StateMachine:
 
     def _state_play(self):
         if web_service_active.is_set():
-            leds.control_blinking_led(LED_PLAY)
+            leds.control_blinking_led(LED_PLAY, WEBSERVICE_BLINK_CYCLE)
         else:
             leds.turn_on_led(LED_PLAY)
         mpd_control.play()
@@ -575,21 +592,21 @@ class StateMachine:
         mpd_control.play(preset="Preset1")
         play_sound(SOUND_PRESET1)
         if web_service_active.is_set():
-            leds.control_blinking_led(LED_PLAY)
+            leds.control_blinking_led(LED_PLAY, WEBSERVICE_BLINK_CYCLE)
 
     def _state_preset2(self):
         leds.turn_on_led(LED_PRESET2)
         mpd_control.play(preset="Preset2")
         play_sound(SOUND_PRESET2)
         if web_service_active.is_set():
-            leds.control_blinking_led(LED_PLAY)
+            leds.control_blinking_led(LED_PLAY, WEBSERVICE_BLINK_CYCLE)
 
     def _state_preset3(self):
         leds.turn_on_led(LED_PRESET3)
         mpd_control.play(preset="Preset3")
         play_sound(SOUND_PRESET3)
         if web_service_active.is_set():
-            leds.control_blinking_led(LED_PLAY)
+            leds.control_blinking_led(LED_PLAY, WEBSERVICE_BLINK_CYCLE)
 
     def _state_stop(self):
         leds.oneshot_on_led(LED_STOP, 4)
@@ -605,14 +622,14 @@ class StateMachine:
 
     def _state_play_song_webif(self):
         if web_service_active.is_set():
-            leds.control_blinking_led(LED_PLAY)
+            leds.control_blinking_led(LED_PLAY, WEBSERVICE_BLINK_CYCLE)
         else:
             leds.turn_on_led(LED_PLAY)
         mpd_control.play()
         play_sound(SOUND_PLAY)
 
     def _state_usb_absent(self):
-        leds.control_blinking_led(LED_STOP, 0.7)
+        leds.control_blinking_led(LED_STOP, ERROR_BLINK_CYCLE)
         mpd_control.stop()
 
         # Unguarded for the same reason as on_usb_present(): pulling the stick
@@ -644,7 +661,7 @@ class StateMachine:
         except (FileNotFoundError, ValueError, IndexError) as ex_err:
             oradio_log.warning("Could not read uptime: %s", ex_err)
 
-        leds.control_blinking_led(LED_STOP, 1)
+        leds.control_blinking_led(LED_STOP, STARTUP_BLINK_CYCLE)
         oradio_log.debug("Starting-up")
 
         # No mpd_control.pause() here.
@@ -671,7 +688,7 @@ class StateMachine:
 # REVIEW: Is this only there because transitioning through StateIdle is used by on_webservice_plX_changed() ?
 #         If yes, then fix on_webservice_plX_changed() to not abuse StateIdle to do something which should be handled in the StatePresetX state.
         if web_service_active.is_set():
-            leds.control_blinking_led(LED_PLAY)
+            leds.control_blinking_led(LED_PLAY, WEBSERVICE_BLINK_CYCLE)
 
         if mpd_control.is_webradio():
             mpd_control.stop()
@@ -680,7 +697,7 @@ class StateMachine:
         oradio_log.debug("In Idle state, wait for next step")
 
     def _state_error(self):
-        leds.control_blinking_led(LED_STOP, 1)
+        leds.control_blinking_led(LED_STOP, ERROR_BLINK_CYCLE)
 
     def _state_unknown(self):
         oradio_log.error("Unknown state requested: %s", self.state)
@@ -764,7 +781,7 @@ def on_webservice_active():
     if web_service_active.is_set(): # check already taken the actions
         return
     web_service_active.set()
-    leds.control_blinking_led(LED_PLAY)
+    leds.control_blinking_led(LED_PLAY, WEBSERVICE_BLINK_CYCLE)
     play_sound(SOUND_AP_START)
     # handle Webradio
     if mpd_control.is_webradio():
@@ -779,7 +796,7 @@ def on_webservice_idle():
     if state_machine.state == "StatePlay":
         leds.turn_on_led(LED_PLAY)
     else:
-        leds.control_blinking_led(LED_PLAY, 0)
+        leds.turn_off_led(LED_PLAY)
     play_sound(SOUND_AP_STOP)
 
 def on_webservice_playing_song():
@@ -866,7 +883,6 @@ HANDLERS = {
     USB_SOURCE: {
         USB_ABSENT: on_usb_absent,
         USB_PRESENT: on_usb_present,
-        # "USB error": on_usb_error,
     },
     WIFI_SOURCE: {
         WIFI_DISCONNECTED: on_wifi_not_connected,

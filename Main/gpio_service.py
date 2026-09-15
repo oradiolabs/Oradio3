@@ -45,6 +45,7 @@ from messaging import (
 
 ##### GLOBAL constants ####################################
 from constants import (
+    LED_STOP_PIN,
     LED_NAMES, LED_PLAY, LED_STOP,
     LED_PRESET1, LED_PRESET2, LED_PRESET3,
     BUTTON_NAMES, BUTTON_PLAY, BUTTON_STOP,
@@ -56,7 +57,7 @@ from constants import (
 # LED GPIO PINS
 LEDS: dict[str, int] = {
     LED_PLAY   : 15,
-    LED_STOP   : 23,
+    LED_STOP   : LED_STOP_PIN,
     LED_PRESET1: 24,
     LED_PRESET2: 25,
     LED_PRESET3: 7,
@@ -325,7 +326,7 @@ class GPIOService:
             return
 
         # Safe to acquire self._lock here (via get_button_state) because
-        # gpio_cleanup() no longer holds it while calling GPIO.cleanup():
+        # gpio_cleanup() does not hold it while calling GPIO.cleanup():
         # that call blocks until this callback thread exits, so holding
         # the lock across it would deadlock. See gpio_cleanup()'s docstring.
         pressed = self.get_button_state(button_name)

@@ -68,6 +68,7 @@ from messaging import (
 
 ##### GLOBAL constants ####################################
 from constants import (
+    DNS_REDIRECT_CONF,
     ACCESS_POINT_HOST,
     ACCESS_POINT_SSID,
     WEB_SERVER_HOST,
@@ -102,7 +103,7 @@ _IPTABLES_REDIRECT_RULE = (
 )
 
 # dnsmasq config file that resolves all hostnames to the captive portal address.
-_DNS_REDIRECT_CONF = Path("/etc/NetworkManager/dnsmasq-shared.d/redirect.conf")
+_DNS_REDIRECT_CONF = Path(DNS_REDIRECT_CONF)
 
 ##### Deferred web stack ##################################
 # uvicorn and the FastAPI application are imported on first use instead of at

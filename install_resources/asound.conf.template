@@ -178,9 +178,14 @@ ctl.SoftVolSysSound {
 }
 
 #######################################################################################
-# Input PCM exposed to SysSound
+# Input PCM exposed to SysSound.
+#
+# The name comes from SYSTEM_SOUND_SINK in constants.env, which system_sounds.py
+# and oradio-crash.sh also read. Renaming it here alone would leave both of them
+# playing into a PCM that no longer exists, and ALSA only says so at the moment
+# of play.
 #######################################################################################
-pcm.SysSound_in {
+pcm.PLACEHOLDER_SYSTEM_SOUND_SINK {
 	type plug
 	slave.pcm "SoftVolSysSound"
 }
