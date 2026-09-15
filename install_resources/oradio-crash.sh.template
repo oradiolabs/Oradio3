@@ -17,9 +17,14 @@
 # @status:        Development
 # @Purpose:       Handle Oradio service crashes
 #
-# Started by oradio-crash.service, pulled in by 'OnFailure=' in
-# oradio.service. It therefore runs ONLY after an abnormal exit: a regular
-# 'systemctl stop' or a reboot never gets here.
+# Started by oradio-crash.service, pulled in by 'OnFailure=' in oradio.service.
+# It therefore runs ONLY after an abnormal exit: a regular 'systemctl stop' or
+# a reboot never gets here.
+#
+# And only after the LAST abnormal exit. oradio.service retries once before it
+# gives up, and its RestartMode=direct keeps the unit out of FAILED while that
+# retry is pending -- so OnFailure= does not reach this script until the cheaper
+# recovery has been tried and failed.
 #
 # Runs as root, in its own job, so systemctl calls are safe here.
 # Output does NOT go to the journal: oradio-crash.service redirects both
@@ -32,16 +37,45 @@
 # Stop script on command errors, unset variables and failed pipes
 set -o errexit -o nounset -o pipefail
 
-# Do not reboot if Oradio crashed within this many seconds of boot: see below
-readonly MIN_UPTIME_TO_REBOOT=300
-
-# Uptime is sampled here, not at the reboot guard below, because the RMS upload
-# in between can take minutes on a slow link. Sampling afterwards would add that
-# upload time to the measured uptime and lift an early crash over the threshold,
-# which is exactly the crash loop the guard exists to stop. Read from
-# /proc/uptime and truncated to whole seconds.
+# Uptime at the moment of the crash, for the report. Sampled here, not further
+# down, because the RMS upload in between can take minutes on a slow link.
+# Read from /proc/uptime and truncated to whole seconds.
 read -r uptime _ < /proc/uptime
 readonly uptime_at_crash="${uptime%.*}"
+
+# Marker recording that this handler already rebooted the Oradio once.
+#
+# In /var/lib and not with the logfiles: it has to survive the reboot it is
+# about to trigger, and it has to survive a user clearing the logging directory,
+# or the second crash would be treated as a first one and reboot again.
+readonly REBOOT_STAMP="/var/lib/oradio/crash-reboot.stamp"
+
+# How long a reboot by this handler keeps counting. A crash inside this window
+# is the second of a pair and gets the spoken message; a crash after it is
+# treated as a fresh fault and gets its own reboot.
+#
+# Fifteen minutes: long enough that a fault which only shows once the user
+# touches the radio still counts as the second crash, short enough that a
+# genuinely unrelated crash next week does not.
+readonly REBOOT_STAMP_VALID_MIN=15
+
+# Spoken when a reboot has already been tried and the Oradio crashed again.
+# There is nothing left for the software to do at that point, so the only useful
+# act is telling the person in the room.
+readonly SERVICE_SOUND="PLACEHOLDER_SOUNDS_PATH/ServiceRequired_melding.wav"
+
+# How long to blink before leaving the LED on. The blinking is what catches
+# someone's eye; the steady LED afterwards is what is still there when they come
+# back later. Bounded because this script IS the last thing running for this
+# fault -- blinking forever would mean never exiting, and oradio-crash.service
+# would kill it at TimeoutStartSec anyway.
+readonly LED_BLINK_SECONDS=30
+
+# Cycle time from constants.env. One value, in one place, so the rate the user
+# learns to recognise cannot come to mean two different things. The LED is on
+# for the first half of each cycle.
+LED_BLINK_HALF_CYCLE="$(awk "BEGIN{print PLACEHOLDER_ERROR_BLINK_CYCLE/2}")"
+readonly LED_BLINK_HALF_CYCLE
 
 # Collect the logfiles in the logging directory as curl -F arguments, using the
 # filename as form field name. The glob is *.log* so rotated logs come along
@@ -76,19 +110,41 @@ done
 serial="$(vcgencmd otp_dump | grep "^28:" | cut -c 4- | tr -d "[:space:]")" || serial="Unknown"
 [ -n "$serial" ] || serial="Unknown"
 
-# Reboot guard. A crash shortly after boot is the signature of a crash loop:
-# rebooting would only repeat it, indefinitely, one RMS report per cycle.
-# Leave the unit failed instead, so the Oradio stays visibly dead and the reports
-# stop. Uses the uptime sampled at the top of this script, before the upload.
-# The decision is taken here rather than after the upload so it can go into the
-# marker below: the uploaded copy then states what the Oradio did next, which is
-# the one thing RMS could otherwise never learn from that copy.
-if [ "$uptime_at_crash" -lt "$MIN_UPTIME_TO_REBOOT" ]; then
+# Reboot guard: one reboot per fault, not a loop.
+#
+# A first crash gets a reboot -- it clears whatever state the process was in and
+# is almost always enough. A second crash shortly after that reboot means the
+# reboot did not help, and repeating it would only produce an endless cycle with
+# one RMS report per turn. So instead the Oradio says out loud that it needs
+# service and stays visibly dead, which is the honest outcome: the software has
+# run out of things to try.
+#
+# The marker is what tells the two apart, and it lives in /var/lib precisely
+# because it has to outlive the reboot it records.
+#
+# Decided here, before the upload, so the uploaded copy of this log already
+# states what the Oradio did next -- the one thing RMS could otherwise never
+# learn from that copy.
+if find "$REBOOT_STAMP" -mmin "-${REBOOT_STAMP_VALID_MIN}" 2>/dev/null | grep -q .; then
 	will_reboot=0
-	reboot_decision="crash ${uptime_at_crash}s after boot, within ${MIN_UPTIME_TO_REBOOT}s: NOT rebooting, unit left failed"
+	reboot_decision="second crash within ${REBOOT_STAMP_VALID_MIN}min of a crash reboot: NOT rebooting, asking for service instead"
 else
 	will_reboot=1
 	reboot_decision="crash ${uptime_at_crash}s after boot: rebooting after this upload"
+
+	# Written with the decision, not with the reboot it leads to.
+	#
+	# The reboot happens after the RMS upload, which takes up to CURL_TIMEOUT,
+	# minutes on a slow link. A second crash inside that window would find no
+	# marker, decide to reboot as well, and the pair would keep taking turns
+	# instead of escalating. So the marker records that a reboot has been decided
+	# and is under way, which is what a crash arriving mid-handling needs to know.
+	#
+	# Failing to write it is reported rather than fatal: the reboot below is still
+	# the right thing to do, and the cost is that a second crash reboots again
+	# instead of asking for service.
+	mkdir -p "$(dirname "$REBOOT_STAMP")" && touch "$REBOOT_STAMP" \
+		|| echo "Could not write ${REBOOT_STAMP}; a second crash will reboot again"
 fi
 readonly will_reboot reboot_decision
 
@@ -153,15 +209,83 @@ body="${response%$'\n'*}"
 [ "$curl_exit" -eq 0 ] || echo "RMS report failed (curl exit ${curl_exit}, HTTP ${http_code})"
 echo "RMS response: HTTP ${http_code}, body: ${body:-<none>}"
 
-# Execute the decision taken before the upload. Nothing is re-evaluated here:
-# re-reading /proc/uptime would measure the upload as if it were runtime.
-if [ "$will_reboot" -eq 0 ]; then
-	echo "Recovery: ${reboot_decision}"
-	exit 0
+# Clean up state the crashed process would have removed itself.
+
+# Written by web_service.py while the captive portal is up, and removed by its
+# stop(). A crash skips that stop, so the file is left behind and survives the
+# reboot. Harmless in client mode -- NetworkManager only reads this directory
+# for a shared connection -- but it is state from a run that no longer exists.
+# From constants.env, which web_service.py reads for the same path.
+#
+# Only this one file: everything else web_service.py sets up is runtime and
+# gone after the reboot, and the WiFi returns to the saved client connection on
+# its own. Removed whichever way the decision went, because it is stale in both.
+if [ -e "PLACEHOLDER_DNS_REDIRECT_CONF" ]; then
+	rm -f "PLACEHOLDER_DNS_REDIRECT_CONF" && echo "Removed leftover PLACEHOLDER_DNS_REDIRECT_CONF" \
+		|| echo "Could not remove PLACEHOLDER_DNS_REDIRECT_CONF"
 fi
 
-# For now reboot the Oradio
+# Execute the decision taken before the upload. Nothing is re-evaluated here:
+# re-reading /proc/uptime would measure the upload as if it were runtime.
 echo "Recovery: ${reboot_decision}"
+
+if [ "$will_reboot" -eq 0 ]; then
+	# A reboot has already been tried and did not help. Say so out loud using
+	# ALSA sink for system sounds from constants.env. Nobody is watching a log.
+	# An Oradio that is silently dead looks the same as one that is switched off.
+	#
+	# Blocking, not detached: this script is the last thing running for this
+	# fault, and exiting would take the sound with it.
+	# Started in the background so the blinking below runs with it rather than
+	# after it: the message lasts about four seconds and the blinking thirty, so
+	# the sound finishes well inside the loop and someone in the room hears and
+	# sees the same thing at the same moment.
+	#
+	# Safe only because of that margin. If the blinking is ever shortened below
+	# the length of the message, this has to go back to being blocking, or the
+	# script exits and takes the sound with it.
+	if [ -r "$SERVICE_SOUND" ]; then
+		aplay -D "PLACEHOLDER_SYSTEM_SOUND_SINK" "$SERVICE_SOUND" \
+			|| echo "Could not play ${SERVICE_SOUND} on PLACEHOLDER_SYSTEM_SOUND_SINK" &
+	else
+		echo "Service message not played: ${SERVICE_SOUND} is missing or unreadable"
+	fi
+
+	# And the same message visually, for a room nobody was in when it spoke.
+	#
+	# pinctrl writes the pad register directly, so the BCM pin of the STOP/OFF LED
+	# from constants.env keeps whatever it was left on after the command exits.
+	# That is the whole reason for using it here rather than the GPIO library the
+	# Oradio uses: nothing survives this script to hold a line open, and a LED that
+	# goes dark the moment the handler exits would say nothing at all.
+	if command -v pinctrl >/dev/null 2>&1; then
+		blink_until=$(( SECONDS + LED_BLINK_SECONDS ))
+		while [ "$SECONDS" -lt "$blink_until" ]; do
+			pinctrl set "PLACEHOLDER_LED_STOP_PIN" op dh || break
+			sleep "$LED_BLINK_HALF_CYCLE"
+			pinctrl set "PLACEHOLDER_LED_STOP_PIN" op dl || break
+			sleep "$LED_BLINK_HALF_CYCLE"
+		done
+
+		# Left ON, not off: the blinking ends but the fault does not, and this
+		# is the only sign left once the sound has finished and the blinking has
+		# stopped. It stays lit until the next boot, which is correct -- nothing
+		# is going to fix itself in between.
+		pinctrl set "PLACEHOLDER_LED_STOP_PIN" op dh \
+			|| echo "Could not leave GPIO PLACEHOLDER_LED_STOP_PIN on"
+	else
+		echo "LED not used: pinctrl is not installed"
+	fi
+
+	# Collect the backgrounded aplay. Without pinctrl there is no blink loop to
+	# have outlasted it, so this is also what keeps the sound from being cut off
+	# on a device where the LED cannot be used.
+	wait
+
+	# The marker is deliberately NOT removed. It ages out by itself, and until it
+	# does, a third crash lands here again rather than starting a reboot cycle.
+	exit 0
+fi
 
 # Ensure buffered data is written to files
 sync

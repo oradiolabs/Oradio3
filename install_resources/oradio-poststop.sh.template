@@ -1,0 +1,85 @@
+#!/usr/bin/env bash
+#
+#  ####   #####     ##    #####      #     ####
+# #    #  #    #   #  #   #    #     #    #    #
+# #    #  #    #  #    #  #    #     #    #    #
+# #    #  #####   ######  #    #     #    #    #
+# #    #  #   #   #    #  #    #     #    #    #
+#  ####   #    #  #    #  #####      #     ####
+#
+# Created on September 15, 2026
+# @author:        Henk Stevens & Olaf Mastenbroek & Onno Janssen
+# @copyright:     Stichting Oradio
+# @license:       GNU General Public License (GPL)
+# @organization:  Stichting Oradio
+# @version:       1
+# @email:         info@stichtingoradio.nl
+# @status:        Development
+# @Purpose:       Keep the traceback of a run that failed, for oradio.service.
+#
+# Runs as ExecStopPost=, so systemd calls it every time the unit stops -- after
+# a clean stop and after a crash alike. $SERVICE_RESULT tells the two apart, and
+# only a failure is worth keeping anything for.
+#
+# ExecStopPost= belongs to the stop transition, so this finishes before the unit
+# reaches FAILED and before OnFailure= starts oradio-crash.sh. The files are
+# therefore already in place when that handler collects them.
+#
+# Two generations are kept:
+#   traceback1.log  the run that just failed
+#   traceback2.log  the failure before it
+#
+# Which, with Restart=on-failure, is exactly the pair worth having: the crash
+# and the restart attempt that failed after it. Both end in .log so the crash
+# handler's *.log* glob picks them up with no change there.
+#
+# Runs as the service user, without ExecStopPost='s '+' prefix, so every file it
+# touches keeps the ownership the rest of the Oradio expects. The moves below
+# need write access to the logging directory, not to the files, and the service
+# user has it.
+#
+# Always exits 0. A failure to preserve a log must not turn a crash into two
+# problems, and systemd would log this unit's own failure as another fault on a
+# service that is already down.
+
+# Stop script on command errors, unset variables and failed pipes
+set -o errexit -o nounset -o pipefail
+
+readonly TRACEBACK="PLACEHOLDER_LOGFILE_TRACEBACK"
+readonly TRACEBACK1="${TRACEBACK%.log}1.log"
+readonly TRACEBACK2="${TRACEBACK%.log}2.log"
+
+log() { printf '%(%F %T)T %s\n' -1 "$*" >>"PLACEHOLDER_LOGFILE_BOOT"; }
+
+# Defaulted because systemd only sets this for ExecStopPost=; running the script
+# by hand, or from anywhere else, must not abort under nounset.
+result="${SERVICE_RESULT:-unknown}"
+
+if [ "$result" = "success" ]; then
+	exit 0
+fi
+
+# Nothing was written, so there is nothing to keep. Reported rather than passed
+# over silently: a crash that left no traceback at all is itself a finding, and
+# on the next boot this line is the only sign the file was empty rather than
+# missing.
+if [ ! -s "$TRACEBACK" ]; then
+	log "poststop: ${result} with an empty ${TRACEBACK}"
+	exit 0
+fi
+
+# Shift the older generation out first, or the move below would overwrite it.
+if [ -f "$TRACEBACK1" ]; then
+	mv -f "$TRACEBACK1" "$TRACEBACK2" 2>/dev/null \
+		|| log "poststop: WARNING cannot move $TRACEBACK1 to $TRACEBACK2"
+fi
+
+# Moved, not copied: oradio-prestart.sh truncates TRACEBACK on the way back in,
+# so leaving it in place would only mean writing it twice.
+if mv -f "$TRACEBACK" "$TRACEBACK1" 2>/dev/null; then
+	log "poststop: ${result}, traceback kept as ${TRACEBACK1}"
+else
+	log "poststop: WARNING ${result} but cannot move $TRACEBACK to $TRACEBACK1"
+fi
+
+exit 0

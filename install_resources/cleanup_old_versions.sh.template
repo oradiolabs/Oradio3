@@ -441,6 +441,27 @@ remove_line_from_file "$HOME/.bashrc" "bash $ORADIO_ROOT/oradio_install.sh --con
 # that was interrupted mid-install:
 #   systemctl show getty@tty1 -p ExecStart | grep -o autologin
 
+##### Next release: crash handler state directory ##########
+# oradio-crash.sh keeps one file, /var/lib/oradio/crash-reboot.stamp, recording
+# that it has already rebooted the Oradio once for the current fault. A crash
+# inside the stamp's window gets the spoken service message instead of a second
+# reboot.
+#
+# Nothing to remove: the directory and the file are current, and deleting the
+# stamp would tell the handler a reboot it already took never happened.
+#
+# The stale one is the marker left by a crash from BEFORE this install. It ages
+# out on its own within minutes, and the installer reboots anyway, so it cannot
+# outlive the install by enough to matter -- which is why it is not cleared
+# here either.
+#
+# This heading exists so the next reader knows where it lives. If the stamp ever
+# moves or is dropped, the old path gets a remove_file below and this note goes.
+
+# NOT cleaned up here: /var/lib/oradio itself. It holds current state, and an
+# empty directory left behind by a future rename costs nothing -- but the file
+# inside it would, so that is what a future section has to name.
+
 ##### Apply unit removals ##################################
 # One reload for the whole run, after every section has had its say. Reported
 # rather than fatal, like every other step: systemd picks the removals up at

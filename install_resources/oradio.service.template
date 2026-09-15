@@ -9,13 +9,36 @@
 Description=Oradio
 After=basic.target
 
-# Crash handling. There is no automatic restart (Restart=no below), so any
-# abnormal exit puts this unit straight into the FAILED state and OnFailure=
-# starts the crash action.
+# Crash handling, in two tiers.
+#
+# Tier one is systemd's own: Restart=on-failure below brings the service back
+# after an abnormal exit. Most of what kills the process is transient at the
+# process level -- an unhandled exception, a wedged worker -- and a fresh start
+# is both faster and less disruptive than a reboot.
+#
+# Tier two is this handler. StartLimitBurst below caps the number of starts
+# inside StartLimitIntervalSec; once that cap is passed systemd stops trying and
+# puts the unit in FAILED.
+#
+# OnFailure= is tied to the unit reaching FAILED, which RestartMode=direct below
+# keeps it from doing while a restart is still coming. The handler therefore
+# runs once, after the cap is spent.
 #
 # The OnFailure handler is a separate job, so it may call systemctl without
 # deadlocking against oradio's own stop transition.
 OnFailure=oradio-crash.service
+
+# Two starts allowed per interval: the original one plus the single retry.
+# A third would mean the retry crashed too, which is the point at which trying
+# again stops being useful and the crash handler takes over.
+#
+# The interval has to outlast the crash it is counting. A process that starts,
+# runs for ten minutes and dies has not "started twice in a row" in any useful
+# sense, so a long window would treat an unrelated crash hours later as part of
+# the same burst. Fifteen minutes is long enough to catch a genuine restart loop
+# and short enough that two separate faults on one afternoon are counted apart.
+StartLimitIntervalSec=900
+StartLimitBurst=2
 
 [Service]
 # Long-running process; systemd considers the unit started once ExecStart forks.
@@ -78,13 +101,49 @@ ExecStartPre=-+/usr/sbin/alsactl --no-ucm restore
 User=PLACEHOLDER_USER
 Group=PLACEHOLDER_GROUP
 
+# Keeps the traceback of a run that failed, as traceback1.log, and the failure
+# before it as traceback2.log.
+#
+# ExecStopPost=, not ExecStartPost=: with Type=simple the latter fires as soon
+# as ExecStart has forked, which is the Oradio starting, not ending. This runs
+# on every stop and uses $SERVICE_RESULT to tell a crash from a clean one.
+#
+# Part of the stop transition, so it completes before the unit reaches FAILED
+# and before OnFailure= starts the crash handler -- the files are in place by
+# the time that handler collects them for the upload.
+#
+# No '+': runs as the service user, like oradio-prestart.sh. By this point the
+# ExecStartPre chown above has made traceback.log pi:pi, and moving a file needs
+# write access to the directory rather than to the file, which the service user
+# has. Running it as root would instead risk recreating boot.log as root:root
+# when the logging directory has been cleared -- the very failure that chown is
+# there to prevent.
+ExecStopPost=/usr/local/sbin/oradio-poststop.sh
+
 # Start Oradio
 WorkingDirectory=PLACEHOLDER_MAIN_PATH
 ExecStart=/home/PLACEHOLDER_USER/.venv/bin/python3 oradio_control.py
 
-# No automatic restart: recovery is the crash action script's job, reached via
-# OnFailure= above. A regular stop or reboot triggers nothing further.
-Restart=no
+# Restart only on an abnormal exit. A clean exit is the Oradio being asked to
+# stop, and bringing it back then would fight whoever asked.
+#
+# NOTE: this means a deliberate `systemctl restart` does NOT reach the crash
+# handler -- the stop half is clean, so OnFailure= never fires and no crash
+# report is written. Anything that wants the handler involved has to fail, not
+# stop.
+Restart=on-failure
+
+# Go straight from deactivating to activating on an automatic restart, without
+# passing through FAILED. OnFailure= is tied to FAILED, so this is what confines
+# the crash handler to the crash systemd has stopped recovering from. Without it
+# the handler would run beside the first crash as well, and reboot the machine
+# five seconds before the restart that was already scheduled.
+RestartMode=direct
+
+# Long enough for the process to have let go of what it held -- the i2c bus, the
+# MPD socket, the D-Bus names -- and short enough that a user who is listening
+# hears a gap rather than a silence.
+RestartSec=5
 
 [Install]
 WantedBy=multi-user.target

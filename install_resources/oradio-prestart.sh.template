@@ -54,6 +54,9 @@ log() { printf '%(%F %T)T %s\n' -1 "$*" >>"PLACEHOLDER_LOGFILE_BOOT"; }
 # Clear the traceback log for this run. Tolerated rather than assumed: a silent
 # failure would leave stale tracebacks looking current. In practice this only
 # fails if the '+' chown in oradio.service did not run or did not take.
+#
+# Nothing is preserved here. oradio-poststop.sh has already moved the traceback
+# aside if the run that just ended failed.
 : >"PLACEHOLDER_LOGFILE_TRACEBACK" 2>/dev/null || log "prestart: WARNING cannot truncate PLACEHOLDER_LOGFILE_TRACEBACK"
 
 wait_for() {
