@@ -53,6 +53,7 @@ from messaging import (
     WIFI_ACCESS_POINT,
     WIFI_DBUS_FAILED,
     WIFI_DISCONNECT_FAILED,
+    WIFI_AP_FAILED,
 )
 from wifi_listener import (
     AP_SCAN_SWEEPS,
@@ -597,12 +598,18 @@ class WifiService:
                 return True
 
             # Checked after the state, so an access point that came up despite a reported failure counts as up.
+            #
+            # Both exits raise an incident. The user asked for the access point with a long press and is waiting
+            # for a network to appear on their phone; without one nothing else in the Oradio will notice, and the
+            # symptom -- "I held the button and nothing happened" -- is the kind that never reaches anyone.
             if self._ap_failed.is_set():
                 oradio_log.error("Access point failed to start")
+                Incidents.publish(IncidentMessage(WIFI_SOURCE, WIFI_AP_FAILED))
                 return False
 
             if monotonic() >= deadline:
                 oradio_log.error("Access point not up within %.0fs", timeout)
+                Incidents.publish(IncidentMessage(WIFI_SOURCE, WIFI_AP_FAILED))
                 return False
 
             sleep(AP_STATE_POLL_INTERVAL)

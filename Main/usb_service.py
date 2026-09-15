@@ -54,6 +54,7 @@ from messaging import (
     USB_WIFI_DEFERRED_FAILED,
     USB_START_FAILED,
     USB_STOPPED,
+    USB_EVENT_FAILED,
 )
 
 ##### GLOBAL constants ####################################
@@ -380,8 +381,15 @@ class USBObserver(FileSystemEventHandler):
                 self._start_wifi_import()
             # An unhandled exception here would propagate into watchdog's
             # dispatch loop and silently kill the observer thread.
+            #
+            # Caught AND reported: swallowing it keeps the observer alive, which
+            # is the point, but it also means the Oradio carries on believing
+            # the drive state it had before. Nothing downstream can tell that
+            # this handler gave up halfway, so the incident is the only way it
+            # is ever known.
             except Exception as ex_err:  # pylint: disable=broad-exception-caught
                 oradio_log.error("Error handling USB inserted event: %s", ex_err)
+                Incidents.publish(IncidentMessage(USB_SOURCE, USB_EVENT_FAILED))
 
     def on_deleted(self, event) -> None:
         """
@@ -402,8 +410,15 @@ class USBObserver(FileSystemEventHandler):
                 Commands.publish(CommandMessage(USB_SOURCE, USB_ABSENT))
             # An unhandled exception here would propagate into watchdog's
             # dispatch loop and silently kill the observer thread.
+            #
+            # Caught AND reported: swallowing it keeps the observer alive, which
+            # is the point, but it also means the Oradio carries on believing
+            # the drive state it had before. Nothing downstream can tell that
+            # this handler gave up halfway, so the incident is the only way it
+            # is ever known.
             except Exception as ex_err:  # pylint: disable=broad-exception-caught
                 oradio_log.error("Error handling USB removed event: %s", ex_err)
+                Incidents.publish(IncidentMessage(USB_SOURCE, USB_EVENT_FAILED))
 
 class USBService:
     """

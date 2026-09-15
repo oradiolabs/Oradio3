@@ -19,6 +19,7 @@ Created on January 30, 2025
 """
 import subprocess
 from pathlib import Path
+from threading import Thread, Lock
 
 ##### Oradio modules ######################################
 from log_service import oradio_log
@@ -27,6 +28,7 @@ from messaging import (
     IncidentMessage,
     SOUND_SOURCE,
     SOUND_MISSING_DIR,
+    SOUND_MISSING_FILE,
     SOUND_PLAYBACK_FAILED,
 )
 
@@ -88,6 +90,77 @@ if not Path(SOUNDS_PATH).is_dir():
     oradio_log.critical("System sounds directory not found: %s", SOUNDS_PATH)
     Incidents.publish(IncidentMessage(SOUND_SOURCE, SOUND_MISSING_DIR))
 
+# One incident per outage, not one per sound.
+#
+# Everything the Oradio says goes through here, so a broken audio path would
+# otherwise raise an incident for every button press and every announcement --
+# turning one fault into a stream that buries the rest. The latch clears on the
+# first sound that plays, which is also the recovery signal.
+#
+# Guarded by a lock: watcher threads are one per sound and several can finish at
+# once, and without it two of them can both read False and both report.
+_failure_lock = Lock()
+_failure_reported = False   # pylint: disable=invalid-name  # mutable state, not a constant
+
+
+def _report_playback_failure() -> None:
+    """Publish a playback incident, unless one is already outstanding."""
+    global _failure_reported   # pylint: disable=global-statement
+
+    with _failure_lock:
+        if _failure_reported:
+            return
+        _failure_reported = True
+
+    Incidents.publish(IncidentMessage(SOUND_SOURCE, SOUND_PLAYBACK_FAILED))
+
+
+def _clear_playback_failure() -> None:
+    """Note that sound is working again, so the next failure is reported."""
+    global _failure_reported   # pylint: disable=global-statement
+
+    with _failure_lock:
+        if not _failure_reported:
+            return
+        _failure_reported = False
+
+    oradio_log.info("System sound playback working again")
+
+
+def _watch_playback(process: subprocess.Popen, sound_file: str) -> None:
+    """
+    Wait for one aplay to finish and report it if it failed.
+
+    Runs on its own thread so play_sound() keeps returning immediately: the
+    Oradio plays prompts from the state machine and from button handlers, and
+    neither can afford to wait out a sound.
+
+    Args:
+        process:    The launched aplay.
+        sound_file: Path played, for the log line.
+    """
+    try:
+        _, stderr = process.communicate()
+    except Exception as ex_err:      # pylint: disable=broad-exception-caught
+        oradio_log.error("Failed to collect sound playback result: %s", ex_err)
+        return
+
+    if process.returncode == 0:
+        _clear_playback_failure()
+        return
+
+    # aplay's own words: "Device or resource busy", "unknown PCM", "wrong
+    # encoding". Without them the incident says only that something failed,
+    # which is the difference between a fault someone can act on and one they
+    # can only observe.
+    message = stderr.decode(errors="replace").strip() if stderr else "no output"
+    oradio_log.error(
+        "Sound playback of '%s' failed (exit %d): %s",
+        sound_file, process.returncode, message,
+    )
+    _report_playback_failure()
+
+
 def play_sound(sound_key: str) -> None:
     """
     Launch a fire-and-forget subprocess that plays the given system sound.
@@ -108,31 +181,51 @@ def play_sound(sound_key: str) -> None:
         oradio_log.error("Invalid sound key: %s", sound_key)
         return
 
-    # Verify the file exists before attempting playback
+    # Verify the file exists before attempting playback.
+    #
+    # An error, not a debug line: every entry in SOUND_FILES ships with the
+    # Oradio, so a missing one is a broken installation rather than a passing
+    # condition -- and the only symptom otherwise is a prompt the user never
+    # hears.
     if not Path(sound_file).is_file():
-        oradio_log.debug("Sound file does not exist or is not a file: %s", sound_file)
+        oradio_log.error("Sound file does not exist or is not a file: %s", sound_file)
+        Incidents.publish(IncidentMessage(SOUND_SOURCE, SOUND_MISSING_FILE))
         return
 
     # Launch aplay as a detached process. Passing a list with shell=False avoids
     # shell-injection risks from special characters in the file path.
     # start_new_session=True detaches the child from the parent process group,
     # preventing zombie processes and ensuring playback survives a parent exit.
+    #
+    # stderr goes to a pipe rather than to DEVNULL, and _watch_playback() below
+    # reads it. Launching aplay succeeds as long as the binary can be executed;
+    # everything that actually goes wrong -- a busy sink, an unknown device, an
+    # unsupported format -- happens afterwards and is reported on stderr with a
+    # non-zero exit. Discarding it made "play_sound was called and nothing was
+    # heard" a fault with no trace at all.
     try:
-        subprocess.Popen(       # pylint: disable=consider-using-with
+        process = subprocess.Popen(       # pylint: disable=consider-using-with
             ["aplay", "-D", SYSTEM_SOUND_SINK, sound_file],
             shell=False,
             stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
+            stderr=subprocess.PIPE,
             stdin=subprocess.DEVNULL,
             start_new_session=True,
             close_fds=True
         )
     except OSError as ex_err:
         oradio_log.error("Failed to launch sound playback for '%s': %s", sound_file, ex_err)
-        Incidents.publish(IncidentMessage(SOUND_SOURCE, SOUND_PLAYBACK_FAILED))
+        _report_playback_failure()
         return
 
     oradio_log.debug("System sound process launched: %s", sound_file)
+
+    # Still fire-and-forget for the caller: the watcher waits, this returns.
+    # Daemon, so a sound in flight never holds up a shutdown.
+    Thread(
+        target=_watch_playback, args=(process, sound_file),
+        daemon=True, name="sound-watch",
+    ).start()
 
 ##### Stand-alone entry point #############################
 
@@ -141,7 +234,6 @@ if __name__ == '__main__':
     # Imports only relevant when stand-alone
     import time
     import random
-    from threading import Thread
     from utilities import input_prompt
     from constants import RED, YELLOW, NC           # pylint: disable=ungrouped-imports
 

@@ -128,6 +128,7 @@ POWER_ERROR  = "Unsupported power supply"
 SOUND_SOURCE          = "System sound message"
 SOUND_MISSING_DIR     = "System sounds directory missing"
 SOUND_PLAYBACK_FAILED = "System sound playback incident"
+SOUND_MISSING_FILE    = "System sound file missing"
 
 # Throttling
 THROTTLING_SOURCE       = "RPi throttling message"
@@ -144,6 +145,7 @@ USB_FSCK_FAILED          = "USB filesystem check reported errors it could not re
 USB_WIFI_DEFERRED_FAILED = "USB wifi credentials not applied: NetworkManager never came up"
 USB_START_FAILED         = "USB service failed to start"
 USB_STOPPED              = "USB service stopped"
+USB_EVENT_FAILED         = "USB insert or remove event could not be handled"
 
 # Volume
 VOLUME_SOURCE       = "Volume message"
@@ -176,6 +178,7 @@ WIFI_DBUS_FAILED       = "D-Bus event handler failed"
 WIFI_NMCLI_FAILED      = "NetworkManager wrapper failed"
 WIFI_CONNECT_FAILED    = "Wifi failed to connect"
 WIFI_DISCONNECT_FAILED = "Wifi failed to disconnect"
+WIFI_AP_FAILED         = "Wifi access point did not come up"
 
 ##### Incident detail capture #############################
 # Incidents whose details are suppressed: (source, message) pairs for which a
