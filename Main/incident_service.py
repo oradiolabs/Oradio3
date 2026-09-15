@@ -24,10 +24,17 @@ Created on May 15, 2026
     Unknown incidents are logged for further investigation.
 """
 from collections.abc import Callable
+from time import monotonic
 
 ##### Oradio modules ######################################
 from log_service import oradio_log
 from rms_service import RMService, INCIDENT
+from mpd_service import mpd_is_ready
+from utilities import (
+    restart_service,
+    SERVICE_RESTART_LIMIT,
+    SERVICE_RESTART_WINDOW,
+)
 from messaging import (
     Commands,
     Incidents,
@@ -46,6 +53,7 @@ from messaging import (
     USB_SOURCE, USB_FILE_FAILED, USB_FSCK_FAILED, USB_WIFI_DEFERRED_FAILED, USB_EVENT_FAILED, USB_START_FAILED, USB_STOPPED,
     VOLUME_SOURCE, VOLUME_START_FAILED, VOLUME_SET_FAILED, VOLUME_STOPPED,
     WEB_SOURCE, WEB_SERVER_FAILED, WEB_START_FAILED, WEB_STOP_FAILED,
+    INCIDENT_SOURCE, INCIDENT_RECOVERED,
     WIFI_SOURCE, WIFI_DBUS_FAILED, WIFI_NMCLI_FAILED, WIFI_CONNECT_FAILED, WIFI_DISCONNECT_FAILED, WIFI_AP_FAILED,
 )
 
@@ -55,6 +63,14 @@ TEST_SOURCE = "Test message"
 
 # Placeholder source name used to exercise the unrecognised-incident code path
 UNEXPECTED = "Unexpected source"
+
+# systemd unit the Oradio plays its music through, restarted below as the
+# mitigation for an mpd that stopped answering.
+#
+# Local: nothing else names the unit. mpd_service.py reaches the same server
+# over MPD_HOST:MPD_PORT and never has to know how it was started, which is
+# what keeps this handler the only place that can restart it.
+MPD_SERVICE = "mpd.service"
 
 class IncidentHandler(MessageHandlerTemplate):
     """
@@ -114,7 +130,50 @@ class IncidentHandler(MessageHandlerTemplate):
             TEST_SOURCE:         self._handle_test_incident,
         }
 
+        # Timestamps of service restarts this handler performed, per unit.
+        # Only touched from the worker thread that runs _handle_message().
+        self._service_restarts: dict[str, list[float]] = {}
+
         super().__init__(self._queue)
+
+    def _restart_service_within_budget(self, service_name: str) -> bool:
+        """
+        Restart a system service, unless it has been restarted too often lately.
+
+        Args:
+            service_name: Unit to restart, e.g. "mpd.service".
+
+        Returns:
+            True when the service was restarted and is active again.
+
+        Same shape as ThreadTemplate's crash budget, and for the same reason: a
+        service that fails because of something a restart cannot fix will fail
+        again the moment it comes back, and an unbounded loop turns one fault
+        into a cycle of restarts with an incident on every turn.
+
+        The budget decays, so a service that misbehaved this morning can still
+        be recovered this afternoon.
+        """
+        now = monotonic()
+        history = [t for t in self._service_restarts.get(service_name, [])
+                   if now - t < SERVICE_RESTART_WINDOW]
+
+        if len(history) >= SERVICE_RESTART_LIMIT:
+            oradio_log.error(
+                "Not restarting %s again: %d restarts within %.0fs did not help",
+                service_name, len(history), SERVICE_RESTART_WINDOW,
+            )
+            self._service_restarts[service_name] = history
+            return False
+
+        history.append(now)
+        self._service_restarts[service_name] = history
+
+        oradio_log.warning(
+            "Restarting %s (%d of %d within %.0fs)",
+            service_name, len(history), SERVICE_RESTART_LIMIT, SERVICE_RESTART_WINDOW,
+        )
+        return restart_service(service_name)
 
 ##### Helpers #############################################
 
@@ -259,18 +318,46 @@ class IncidentHandler(MessageHandlerTemplate):
         Args:
             incident: Incident message received from the incident bus.
         """
-        if incident.message == MPD_CONNECT_FAILED:
-            # MITIGATION TO BE IMPLEMENTED:
-            #   If retry_count < MAX_RETRIES: retry reconnect
-            oradio_log.debug("Mitigation to be implemented")
-        elif incident.message == MPD_EXECUTE_FAILED:
-            # MITIGATION TO BE IMPLEMENTED:
-            #   If retry_count < MAX_RETRIES: retry execute
-            oradio_log.debug("Mitigation to be implemented")
-        elif incident.message == MPD_MONITOR_FAILED:
-            # MITIGATION TO BE IMPLEMENTED:
-            #   If retry_count < MAX_RETRIES: retry start
-            oradio_log.debug("Mitigation to be implemented")
+        if incident.message in (MPD_CONNECT_FAILED, MPD_EXECUTE_FAILED, MPD_MONITOR_FAILED):
+            # MITIGATION: restart mpd.service.
+            #
+            # All three say the same thing by the time they get here: mpd is not
+            # answering. MPDService has its own retries and a circuit breaker in
+            # front of them, so these are published only once that gave up --
+            # reconnecting again here would repeat work that has already failed.
+            #
+            # What has not been tried is restarting the server itself, and a
+            # wedged mpd is exactly what that fixes. The cost is a few seconds of
+            # silence; the database is on disk and MPDControl reconnects on its
+            # next command.
+            #
+            # Not for MPD_PRESET_INVALID below: that one is about what is on the
+            # USB drive, and restarting mpd will not change it.
+            #
+            # Checked first, because an incident can arrive after the fault it
+            # describes is over. MPDService's retry burst takes seconds, so a
+            # burst that began before an earlier restart can open the circuit
+            # breaker after that restart already fixed things -- and the budget
+            # would be spent restarting a server that is answering.
+            if mpd_is_ready():
+                oradio_log.info("mpd is answering again; no restart needed")
+            elif self._restart_service_within_budget(MPD_SERVICE):
+                # Bringing mpd back is only half of it. Whatever the Oradio was
+                # playing is gone with the old process, and the state machine
+                # still believes it is playing: the LED is on, the state says
+                # StatePresetN, and mpd has an empty queue. Pressing the same
+                # preset again does not help, because the state machine reads a
+                # repeat as "next song".
+                #
+                # Telling oradio_control rather than reaching into it: the state
+                # machine owns its own state, and it is the only place that
+                # knows what StatePresetN should mean now.
+                #
+                # One command for every repair this service makes, not one per
+                # subsystem: they all leave the same problem behind -- the
+                # Oradio believing something that was true before the repair --
+                # and oradio_control answers all of them the same way.
+                Commands.publish(CommandMessage(INCIDENT_SOURCE, INCIDENT_RECOVERED))
         elif incident.message == MPD_PRESET_INVALID:
             # MITIGATION TO BE IMPLEMENTED:
             #   Notify web interface so the user can reassign the preset
@@ -569,7 +656,7 @@ class IncidentHandler(MessageHandlerTemplate):
 if __name__ == '__main__':
 
     # Imports only relevant when stand-alone
-    from utilities import input_prompt
+    from utilities import input_prompt      # pylint: disable=ungrouped-imports
     from constants import YELLOW, NC                # pylint: disable=ungrouped-imports
 
     # Most modules use similar code in stand-alone

@@ -31,7 +31,7 @@ import json
 import socket
 import subprocess
 from pathlib import Path
-from time import monotonic
+from time import monotonic, sleep
 from typing import TypeVar
 from collections.abc import Callable
 from threading import Thread, Event, Lock
@@ -69,6 +69,19 @@ JOIN_TIMEOUT = 5.0  # seconds; timeout for thread to start/stop
 CRASH_RESTART_LIMIT   = 3       # restarts allowed within the window, so four attempts in all
 CRASH_RESTART_WINDOW  = 900.0   # seconds a crash keeps counting against the budget
 CRASH_RESTART_BACKOFF = 5.0     # seconds before an attempt, so a fast-failing loop stays slow
+
+# How long restart_service() waits for a unit to report active again, and how
+# often it asks. Generous: mpd re-reads its database on start, which on a full
+# USB drive is seconds rather than milliseconds.
+SERVICE_RESTART_TIMEOUT = 20.0  # seconds
+SERVICE_POLL_INTERVAL   = 0.5   # seconds
+
+# Budget for restarting a system service as a mitigation, used by
+# incident_service. Smaller and slower-decaying than the crash budget above: a
+# service restart is disruptive -- mpd stops the music, NetworkManager drops the
+# connection -- so it is worth fewer attempts over a longer window.
+SERVICE_RESTART_LIMIT  = 2       # restarts allowed within the window
+SERVICE_RESTART_WINDOW = 1800.0  # seconds a restart keeps counting
 
 # DeferredStarter defaults. The timeout is generous on purpose: the cost of
 # waiting is a background thread doing nothing, while the cost of giving up too
@@ -790,6 +803,56 @@ def is_service_active(service_name) -> bool:
     except (FileNotFoundError, PermissionError, subprocess.SubprocessError, OSError) as ex_err:
         oradio_log.error("Error checking %s service, error-status: %s", service_name, ex_err)
         return False
+
+def restart_service(service_name: str, timeout: float = SERVICE_RESTART_TIMEOUT) -> bool:
+    """
+    Restart a systemd service and wait for it to report active again.
+
+    Args:
+        service_name: Unit to restart, e.g. "mpd.service".
+        timeout:      Seconds to wait for the unit to become active afterwards.
+
+    Returns:
+        True when the unit is active again.
+
+    The restart itself is quick to ask for and slow to take effect, so this
+    waits: a caller that returned immediately would tell the rest of the Oradio
+    that the service is back while it is still starting, and the first command
+    after that would fail for a reason that is no longer true.
+
+    Needs root, which the Oradio user has through the passwordless sudo the
+    installer configures -- the same route is_service_active() above already
+    takes.
+    """
+    oradio_log.info("Restarting %s", service_name)
+
+    try:
+        result = subprocess.run(
+            ["sudo", "systemctl", "restart", service_name],
+            capture_output=True, text=True, check=False,
+        )
+    except (FileNotFoundError, PermissionError, subprocess.SubprocessError, OSError) as ex_err:
+        oradio_log.error("Could not restart %s: %s", service_name, ex_err)
+        return False
+
+    if result.returncode != 0:
+        oradio_log.error(
+            "Restarting %s failed: %s", service_name, result.stderr.strip() or "no output"
+        )
+        return False
+
+    # 'systemctl restart' returns once the job is queued, not once the service
+    # is serving, so ask separately until it says so.
+    deadline = monotonic() + timeout
+    while monotonic() < deadline:
+        if is_service_active(service_name):
+            oradio_log.info("%s is active again", service_name)
+            return True
+        sleep(SERVICE_POLL_INTERVAL)
+
+    oradio_log.error("%s did not become active within %.0fs", service_name, timeout)
+    return False
+
 
 def has_internet():
     """

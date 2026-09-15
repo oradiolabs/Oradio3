@@ -70,6 +70,13 @@ _MAX_QUEUE_SIZE = 1000
 _CAPTURE_FRAMES_TO_SKIP = 3
 
 ##### Messaging constants #################################
+
+# The incident service reports incidents on the INCIDENT topic. This is a
+# command telling oradio_control that a repair has happened and that whatever
+# it believed before is now stale.
+INCIDENT_SOURCE    = "Incident message"
+INCIDENT_RECOVERED = "Incident recovered, start again from a known state"
+
 # Backlighting
 BACKLIGHTING_SOURCE       = "Backlighting message"
 BACKLIGHTING_START_FAILED = "Backlighting failed to start"

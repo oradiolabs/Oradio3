@@ -47,6 +47,8 @@ from power_service import get_power_status
 
 # Moved from constants
 from messaging import (
+    INCIDENT_SOURCE,
+    INCIDENT_RECOVERED,
     Commands,
     CommandMessage,
     IncidentMessage,
@@ -127,10 +129,41 @@ PLAY_STATES = {"StatePlay", "StatePreset1", "StatePreset2", "StatePreset3"}
 # ready shortly -- so there is no second reader and nothing to share.
 STARTUP_BLINK_CYCLE = 1.0
 
+# How long the STOP LED blinks on reaching Idle after the incident service
+# repaired something. Long enough to catch an eye in the room, short enough that
+# it is over before anyone walks up to press a button.
+INCIDENT_BLINK_SECONDS = 3.0
+
 # Blink cycle for "the web interface is open". The slowest of the three, because
 # it is the only one that is not about something being wrong: the Oradio plays
 # or idles as usual while someone configures it from a phone.
 WEBSERVICE_BLINK_CYCLE = 2.0
+
+def run_later(delay: float, function, *args) -> None:
+    """
+    Run function(*args) after delay seconds, without waiting for it.
+
+    Args:
+        delay:    Seconds to wait before calling.
+        function: What to call.
+        *args:    Positional arguments for it.
+
+    One construct for every "do this in a moment" in this module, so a reader
+    does not have to work out whether three slightly different Timer spellings
+    mean three different things. They did not.
+
+    Fire and forget: nothing is kept, so nothing can be cancelled. A delay that
+    has to be called off is a different thing and has its own machinery --
+    see _arm_delayed_transition(), which stores its Timer for exactly that.
+
+    Daemon by convention rather than by need: the Oradio is killed, not asked to
+    exit, so the interpreter never waits on threads anyway. It costs nothing and
+    keeps this the same as every other helper thread here.
+    """
+    timer = threading.Timer(delay, function, args=args)
+    timer.daemon = True
+    timer.start()
+
 
 ################## Signal Primitives ######################
 
@@ -256,6 +289,16 @@ else:
 
 web_service_active = threading.Event() # Track status web_service
 web_service_active.clear() # Start-up state is no Web service
+
+# Set by on_incident_recovered() and read once by _state_idle().
+#
+# A flag rather than blinking from the handler itself, because run_state_method()
+# calls turn_off_all_leds() immediately before every state handler: a blink
+# started in the handler would be switched off by the transition it just asked
+# for. Idle is the only destination on_incident_recovered() uses, so reading it
+# there catches every case.
+incident_recovered = threading.Event()
+incident_recovered.clear()
 
 def announcements_allowed() -> bool:
     """
@@ -471,7 +514,7 @@ class StateMachine:
 
             if not connected:
                 oradio_log.info("Webradio blocked: no Internet")
-                threading.Timer(2, play_sound, args=(SOUND_NO_INTERNET,)).start()
+                run_later(2, play_sound, SOUND_NO_INTERNET)
                 return True
         return False
 
@@ -685,6 +728,22 @@ class StateMachine:
         self._arm_delayed_transition("StartupToIdle", 5.0, "StateIdle", from_state="StateStartUp")
 
     def _state_idle(self):
+        # Say that something was wrong, now that the Oradio is back in a state
+        # it can be left in.
+        #
+        # ERROR_BLINK_CYCLE, the rate the user already knows as trouble, rather
+        # than a fourth rate for "there was trouble but it is over": the LED
+        # stopping after a few seconds is what says the fault is behind us, and
+        # a vocabulary of four speeds is one nobody learns.
+        #
+        # run_later() and not a sleep: run_state_method() holds task_lock while
+        # this runs, so waiting here would be three seconds in which no button
+        # could change anything.
+        if incident_recovered.is_set():
+            incident_recovered.clear()
+            leds.control_blinking_led(LED_STOP, ERROR_BLINK_CYCLE)
+            run_later(INCIDENT_BLINK_SECONDS, leds.turn_off_led, LED_STOP)
+
 # REVIEW: Is this only there because transitioning through StateIdle is used by on_webservice_plX_changed() ?
 #         If yes, then fix on_webservice_plX_changed() to not abuse StateIdle to do something which should be handled in the StatePresetX state.
         if web_service_active.is_set():
@@ -758,7 +817,7 @@ def on_wifi_connected():
         else:
             oradio_log.debug("Oradio is off: not announcing WiFi connected")
 
-    threading.Timer(4, _announce).start()
+    run_later(4, _announce)
 
 def on_wifi_fail_connect():
     oradio_log.info("Wifi fail connect acknowledged")
@@ -788,6 +847,32 @@ def on_webservice_active():
         state_machine.transition("StateIdle")
         oradio_log.info("Stopped WebRadio playback on Webservice entry")
 
+def on_incident_recovered():
+    """
+    Start again from Idle after the incident service repaired something.
+
+    The single handler for everything the incident service repairs. One and not
+    one per subsystem, because they all leave the same problem behind -- the
+    Oradio believing something that was true before the repair -- and because
+    this is where an announcement like "the Oradio fixed a problem" would go if
+    one is ever wanted.
+
+    The case it was built for is mpd: restarting it takes the playback queue
+    with it, so a state machine sitting in StatePresetN is describing music that
+    is no longer playing -- the LED is on, the state says a preset, and mpd has
+    nothing queued. Pressing that same preset again does not fix it either,
+    because transition() reads a repeat of the current state as "next song".
+
+    Idle and not StateStartUp, which is a claim about the Oradio's age rather
+    than a set of LEDs: on_usb_absent() and on_webservice_idle() both skip their
+    work while the state is StateStartUp, so entering it mid-life would make
+    them ignore events that are real.
+    """
+    oradio_log.info("Incident recovered: starting again from Idle")
+    incident_recovered.set()
+    state_machine.transition("StateIdle")
+
+
 def on_webservice_idle():
     oradio_log.info("WebService idle is acknowledged")
     if not web_service_active.is_set(): # check already taken the actions
@@ -811,34 +896,34 @@ def on_webservice_playing_song():
 def on_webservice_pl1_changed():
     state_machine.transition("StateIdle")
     state_machine.transition("StatePreset1")
-    threading.Timer(2, play_sound, args=(SOUND_NEW_PRESET,)).start()
+    run_later(2, play_sound, SOUND_NEW_PRESET)
     oradio_log.debug("WebService on_webservice_pl1_changed acknowledged")
 
 def on_webservice_pl2_changed():
     state_machine.transition("StateIdle")
     state_machine.transition("StatePreset2")
-    threading.Timer(2, play_sound, args=(SOUND_NEW_PRESET,)).start()
+    run_later(2, play_sound, SOUND_NEW_PRESET)
     oradio_log.debug("WebService on_webservice_pl2_changed acknowledged")
 
 def on_webservice_pl3_changed():
     state_machine.transition("StateIdle")
     state_machine.transition("StatePreset3")
-    threading.Timer(2, play_sound, args=(SOUND_NEW_PRESET,)).start()
+    run_later(2, play_sound, SOUND_NEW_PRESET)
     oradio_log.debug("WebService on_webservice_pl3_changed acknowledged")
 
 def on_web_pl1_webradio_changed():
 #REVIEW Onno: Er is geen indicatie voor welke preset de webradio is ingesteld
-    threading.Timer(2, play_sound, args=(SOUND_NEW_WEBRADIO,)).start()
+    run_later(2, play_sound, SOUND_NEW_WEBRADIO)
     oradio_log.debug("WebService on_web_pl_webradio_changed acknowledged")
 
 def on_web_pl2_webradio_changed():
 #REVIEW Onno: Er is geen indicatie voor welke preset de webradio is ingesteld
-    threading.Timer(2, play_sound, args=(SOUND_NEW_WEBRADIO,)).start()
+    run_later(2, play_sound, SOUND_NEW_WEBRADIO)
     oradio_log.debug("WebService on_web_pl_webradio_changed acknowledged")
 
 def on_web_pl3_webradio_changed():
 #REVIEW Onno: Er is geen indicatie voor welke preset de webradio is ingesteld
-    threading.Timer(2, play_sound, args=(SOUND_NEW_WEBRADIO,)).start()
+    run_later(2, play_sound, SOUND_NEW_WEBRADIO)
     oradio_log.debug("WebService on_web_pl_webradio_changed acknowledged")
 
 # ----------------- Touch buttons -----------------
@@ -889,6 +974,9 @@ HANDLERS = {
         WIFI_CONNECTED: on_wifi_connected,
         WIFI_ACCESS_POINT: on_wifi_access_point,
         WIFI_CONNECT_FAILED: on_wifi_fail_connect,
+    },
+    INCIDENT_SOURCE: {
+        INCIDENT_RECOVERED: on_incident_recovered,
     },
     WEB_SOURCE: {
         WEB_IDLE: on_webservice_idle,
