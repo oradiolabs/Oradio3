@@ -326,8 +326,12 @@ class IncidentHandler(MessageHandlerTemplate):
             #   fault. Reinstalling is the fix and only a person can do that.
             oradio_log.debug("Mitigation to be implemented")
         elif incident.message == SOUND_PLAYBACK_FAILED:
-            # MITIGATION TO BE IMPLEMENTED:
-            #   Nothing beyond the report _handle_message already sends.
+            # NO MITIGATION: reporting it IS the mitigation.
+            #   Replaying is pointless: the prompt belonged to a moment that has
+            #   passed, and a second attempt on a broken audio path fails the
+            #   same way. system_sounds raises this once per outage and clears
+            #   it on the first sound that plays, so the pair of events is the
+            #   whole story -- with aplay's own words in the log line.
             oradio_log.debug("Mitigation to be implemented")
         else:
             oradio_log.error("Unhandled system sound incident: '%s'", incident.message)
@@ -420,8 +424,16 @@ class IncidentHandler(MessageHandlerTemplate):
             #   A volume knob that stays dead is worth telling the user about.
             oradio_log.debug("Mitigation to be implemented")
         elif incident.message == VOLUME_SET_FAILED:
-            # MITIGATION TO BE IMPLEMENTED:
-            #   Nothing beyond the report _handle_message already sends.
+            # OPEN QUESTION, not a retry:
+            #   amixer could not set a softvol control, which usually means the
+            #   controls are not there -- alsactl restore failed at boot. See
+            #   the note at that ExecStartPre= in oradio.service: this incident
+            #   is deliberately the one place a broken audio path is reported,
+            #   raised by the component that discovered it.
+            #
+            #   Retrying will not create a control that does not exist. What is
+            #   undecided is what the Oradio should do with a volume knob that
+            #   cannot move.
             oradio_log.debug("Mitigation to be implemented")
         elif incident.message == VOLUME_STOPPED:
             # OPEN QUESTION, not a retry:
