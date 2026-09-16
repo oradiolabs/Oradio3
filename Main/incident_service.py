@@ -341,13 +341,16 @@ class IncidentHandler(MessageHandlerTemplate):
             incident: Incident message received from the incident bus.
         """
         if incident.message == LED_BLINK_START_FAILED:
-            # MITIGATION TO BE IMPLEMENTED:
-            #   If retry_count < MAX_RETRIES: retry the blink worker
-            oradio_log.debug("Mitigation to be implemented")
+            # NO MITIGATION: reporting it IS the mitigation.
+            #   The blink worker lives for one blink request. Restarting it would revive
+            #   a worker nobody is waiting for; the next control_blinking_led() builds a
+            #   new one regardless.
+            pass
         elif incident.message == LED_BLINK_STOP_FAILED:
-            # MITIGATION TO BE IMPLEMENTED:
-            #   If retry_count < MAX_RETRIES: retry the blink worker
-            oradio_log.debug("Mitigation to be implemented")
+            # NO MITIGATION: reporting it IS the mitigation.
+            #   Same as LED_BLINK_START_FAILED above: a per-request worker, with nothing
+            #   worth reviving.
+            pass
         else:
             oradio_log.error("Unhandled LED incident: '%s'", incident.message)
 
@@ -369,14 +372,16 @@ class IncidentHandler(MessageHandlerTemplate):
             # tried again; this is the first attempt.
             self._restart_subsystem("log health monitor", LogHealthMonitor)
         elif incident.message == LOG_QUEUE_OVERFLOW:
-            # MITIGATION TO BE IMPLEMENTED:
-            #   Wait to give log service chance to recover
-            oradio_log.debug("Mitigation to be implemented")
+            # NO MITIGATION: reporting it IS the mitigation.
+            #   The log service drains the queue again once the burst is over, and says
+            #   so with LOG_QUEUE_RECOVERED. A listener that will never drain it is a
+            #   different incident -- LOG_LISTENER_DEAD -- and that one is repaired.
+            pass
         elif incident.message == LOG_QUEUE_RECOVERED:
             # NO MITIGATION: reporting it IS the mitigation.
             #   The log service recovered on its own. Reporting it is the point:
             #   it closes the LOG_QUEUE_OVERFLOW that preceded it.
-            oradio_log.debug("Mitigation to be implemented")
+            pass
         elif incident.message == LOG_LISTENER_DEAD:
             # MITIGATION: start the queue listener again.
             #
@@ -505,7 +510,7 @@ class IncidentHandler(MessageHandlerTemplate):
             #   Nothing to repair and nothing that can be sent: the sender that
             #   would carry it is the one that failed. The log file keeps it, and
             #   the next successful POST is the recovery.
-            oradio_log.debug("Mitigation to be implemented")
+            pass
         else:
             oradio_log.error("Unhandled Remote monitoring incident: '%s'", incident.message)
 
@@ -524,12 +529,12 @@ class IncidentHandler(MessageHandlerTemplate):
             #   A sound file that is not on disk is a broken installation, the
             #   same as SOUND_MISSING_DIR below. Reinstalling is the fix and
             #   only a person can do that.
-            oradio_log.debug("Mitigation to be implemented")
+            pass
         elif incident.message == SOUND_MISSING_DIR:
             # NO MITIGATION: reporting it IS the mitigation.
             #   A missing sound directory is a broken installation, not a runtime
             #   fault. Reinstalling is the fix and only a person can do that.
-            oradio_log.debug("Mitigation to be implemented")
+            pass
         elif incident.message == SOUND_PLAYBACK_FAILED:
             # NO MITIGATION: reporting it IS the mitigation.
             #   Replaying is pointless: the prompt belonged to a moment that has
@@ -537,7 +542,7 @@ class IncidentHandler(MessageHandlerTemplate):
             #   same way. system_sounds raises this once per outage and clears
             #   it on the first sound that plays, so the pair of events is the
             #   whole story -- with aplay's own words in the log line.
-            oradio_log.debug("Mitigation to be implemented")
+            pass
         else:
             oradio_log.error("Unhandled system sound incident: '%s'", incident.message)
 
@@ -563,9 +568,13 @@ class IncidentHandler(MessageHandlerTemplate):
             # until the user acts buys nothing and costs every second of it.
             Commands.publish(CommandMessage(INCIDENT_SOURCE, INCIDENT_POWER_ERROR))
         elif incident.message == THROTTLING_THROTTLED:
-            # MITIGATION TO BE IMPLEMENTED:
-            #   Nothing beyond the report _handle_message already sends.
-            oradio_log.debug("Mitigation to be implemented")
+            # NO MITIGATION: reporting it IS the mitigation.
+            #   The Pi is protecting itself against heat or load and recovers on its
+            #   own. Under-voltage is raised separately as POWER_UNDERVOLTAGE, because
+            #   that one does not pass, and is not the Pi protecting itself but the
+            #   supply failing to deliver. The decoded flags travel with the incident,
+            #   so RMS learns which protection kicked in.
+            pass
         elif incident.message == THROTTLING_START_FAILED:
             # MITIGATION: start it again.
             #
@@ -603,13 +612,13 @@ class IncidentHandler(MessageHandlerTemplate):
             #   fsck has already had its turn, and anything further needs the
             #   drive in a PC. The value is knowing: a drive reaching this state
             #   tends to do it again.
-            oradio_log.debug("Mitigation to be implemented")
+            pass
         elif incident.message == USB_WIFI_DEFERRED_FAILED:
             # NO MITIGATION: reporting it IS the mitigation.
             #   The file is valid and still on the drive; NetworkManager simply
             #   never became available. Re-inserting the drive retries the
             #   import.
-            oradio_log.debug("Mitigation to be implemented")
+            pass
         elif incident.message == USB_FILE_FAILED:
             # MITIGATION TO BE IMPLEMENTED:
             #   Nothing beyond the report _handle_message already sends.
@@ -721,7 +730,7 @@ class IncidentHandler(MessageHandlerTemplate):
             # NO MITIGATION: reporting it IS the mitigation.
             #   NetworkManager never appeared. WifiService already waited for it
             #   and gave up; there is nothing here that could make it arrive.
-            oradio_log.debug("Mitigation to be implemented")
+            pass
         elif incident.message == WIFI_NMCLI_FAILED:
             # MITIGATION TO BE IMPLEMENTED:
             #   Nothing beyond the report _handle_message already sends.
