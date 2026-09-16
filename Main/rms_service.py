@@ -74,6 +74,7 @@ import uuid
 import subprocess
 from time import sleep
 from pathlib import Path
+from collections import deque
 from collections.abc import Callable
 from threading import Timer, Event, Thread
 from datetime import datetime, timezone
@@ -170,6 +171,14 @@ def _load_requests() -> bool:
 HEARTBEAT = 'HEARTBEAT'
 SYS_INFO  = 'SYS_INFO'
 INCIDENT  = 'INCIDENT'
+
+# How many incidents are held while WiFi is down.
+#
+# Enough for a bad start-up -- every subsystem failing in the seconds before the
+# radio connects -- and small enough that an Oradio that never reaches a network
+# cannot grow this without end. Past the limit the oldest is dropped, which is
+# the report furthest from the present.
+PENDING_INCIDENTS_MAX = 50
 
 # Path to the JSON file written by the deployment pipeline with version info
 SOFTWARE_VERSION_FILE = "/var/log/oradio_sw_version.log"
@@ -1618,6 +1627,10 @@ class WifiMessageHandler(MessageHandlerTemplate):
         # has been processed yet at construction time.
         self._wifi_connected = False
 
+        # Incidents raised while WiFi is down, waiting for it to come back.
+        # See _hold_incident() for why only incidents wait, and why bounded.
+        self._pending_incidents: deque[IncidentMessage] = deque(maxlen=PENDING_INCIDENTS_MAX)
+
         # Posts run here instead of on whichever thread called
         # send_message(). Started before the base class starts its own
         # worker, so the queue is being drained from the moment the first
@@ -1629,6 +1642,51 @@ class WifiMessageHandler(MessageHandlerTemplate):
 
         # Initialise base class and start the worker thread
         super().__init__(queue)
+
+    def _hold_incident(self, incident: IncidentMessage) -> None:
+        """
+        Keep an incident until WiFi can carry it.
+
+        Args:
+            incident: The incident that could not be sent.
+
+        Bounded, and the oldest goes first when it is full: an Oradio that never
+        reaches a network must not grow this without end, and if something has
+        to be lost it should be the report furthest from the present.
+
+        Dropping one is itself reported, because a silent loss here would hide
+        exactly the kind of run -- many incidents, no network -- that someone
+        would most want to know about.
+        """
+        if len(self._pending_incidents) == self._pending_incidents.maxlen:
+            oradio_log.warning(
+                "Incident backlog full (%d); dropping the oldest to make room",
+                self._pending_incidents.maxlen,
+            )
+
+        self._pending_incidents.append(incident)
+        oradio_log.debug(
+            "WiFi not available; holding incident (%d waiting)",
+            len(self._pending_incidents),
+        )
+
+    def _flush_incidents(self) -> None:
+        """
+        Send everything that was waiting for WiFi, oldest first.
+
+        Called when WiFi comes back. The list is emptied before sending so an
+        incident raised by the sending itself cannot be appended to a list this
+        loop is still walking.
+        """
+        if not self._pending_incidents:
+            return
+
+        waiting = list(self._pending_incidents)
+        self._pending_incidents.clear()
+
+        oradio_log.info("WiFi available; sending %d held incident(s)", len(waiting))
+        for incident in waiting:
+            self.send_message(INCIDENT, incident)
 
     @property
     def wifi_connected(self) -> bool:
@@ -1649,6 +1707,7 @@ class WifiMessageHandler(MessageHandlerTemplate):
 
         elif message.message == WIFI_CONNECTED:
             self._wifi_connected = True
+            self._flush_incidents()
             Heartbeat.start_heartbeat(HEARTBEAT_REPEAT, self.send_message, args=(HEARTBEAT,))
             # Immediately report hardware/software identity on every new connection
             self.send_message(SYS_INFO)
@@ -1679,9 +1738,11 @@ class WifiMessageHandler(MessageHandlerTemplate):
         sender reaches the message, which for a queued message is not
         exactly the moment the incident was raised.
 
-        Only queued while WiFi is currently known to be connected; if not,
-        nothing is sent and a debug line is logged instead, since a POST
-        with no network can only fail.
+        Only queued while WiFi is currently known to be connected, since a POST
+        with no network can only fail. Without it a heartbeat or system-info
+        message is dropped -- it describes now, and a stale one says nothing --
+        while an incident is held until WiFi returns, because it describes a
+        moment and carries its own timestamp.
 
         Args:
             msg_type: HEARTBEAT, SYS_INFO, or INCIDENT.
@@ -1697,7 +1758,22 @@ class WifiMessageHandler(MessageHandlerTemplate):
             return
 
         if not self._wifi_connected:
-            oradio_log.debug("WiFi not available; not sending %s message", msg_type)
+            # Incidents wait; heartbeats and system info do not.
+            #
+            # An incident describes something that happened at a moment, and it
+            # carries its own timestamp -- so sending it later still reports it
+            # correctly. A heartbeat or a system-info message describes now, and
+            # a stale one is worse than none.
+            #
+            # This matters most at start-up. Everything that fails while the
+            # hardware is being set up -- GPIO, the I2C bus, the backlight, the
+            # volume control -- is raised in the seconds before WiFi connects,
+            # so without this the incidents nobody can afford to lose are
+            # exactly the ones that were dropped.
+            if incident is not None:
+                self._hold_incident(incident)
+            else:
+                oradio_log.debug("WiFi not available; not sending %s message", msg_type)
             return
 
         # Timestamped here rather than at POST time, so the message reports
