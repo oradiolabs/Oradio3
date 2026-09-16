@@ -29,10 +29,12 @@ Created on January 17, 2025
 """
 import json
 import socket
+import os
 import subprocess
+import sys
 from pathlib import Path
 from time import monotonic, sleep
-from typing import TypeVar
+from typing import NoReturn, TypeVar
 from collections.abc import Callable
 from threading import Thread, Event, Lock
 
@@ -782,6 +784,52 @@ def get_serial() -> str:
             return serial or "Unknown"
 
     return "Unknown"
+
+def fatal_exit(message: str, stacklevel: int = 6, *, exc: BaseException | None = None, code: int = 1) -> NoReturn:
+    """
+    Log a fatal error, flush all buffers, and terminate the process.
+
+    Intended for unrecoverable infrastructure failures such as queue
+    corruption, invalid internal state, or IPC failure.
+
+    Uses os._exit instead of sys.exit to terminate immediately from any thread.
+    This includes daemon threads, where sys.exit() would only terminate the calling thread.
+
+    Args:
+        message:    Human-readable description of the fatal error.
+        stacklevel: Logging stacklevel passed to oradio_log.critical().
+                    The default reports the caller of whatever wrapper invoked
+                    this; a direct caller wants 4. Checked by making the log
+                    line name the caller rather than log_service or this
+                    module, and worth checking again if the call chain changes.
+        exc:        Optional exception associated with the failure; when provided,
+                    the full traceback is included in the log entry.
+        code:       Process exit status code (default: 1).
+
+    Exiting non-zero is also how Python reaches tier three of the recovery:
+    systemd restarts oradio.service once, and if that start fails too the crash
+    handler reboots, reports to RMS, and on a further failure plays the service
+    message and blinks the STOP LED. So a caller reaching for this is not giving
+    up -- it is asking for the strongest repair available, which is more than
+    any code in this process can do for a peripheral that stopped answering.
+
+    """
+    # exc_info=True causes the logging framework to capture the current
+    # exception context; passing the exception object directly also works
+    # in Python 3.5+ but the bool form is more conventional.
+    oradio_log.critical(message, stacklevel=stacklevel, exc_info=exc is not None)
+
+    # Flush the logging framework before exiting so no records are lost.
+    oradio_log.shutdown()
+
+    # Flush console buffers before terminating.
+    sys.stderr.flush()
+    sys.stdout.flush()
+
+    # Bypass Python's normal shutdown sequence so the exit is immediate
+    # from any thread, including daemon threads.
+    os._exit(code)
+
 
 def is_service_active(service_name) -> bool:
     """

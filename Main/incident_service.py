@@ -38,6 +38,7 @@ from volume_control import VolumeControl
 from log_monitor import LogHealthMonitor
 from rpi_monitor import RPiThrottlingMonitor
 from utilities import (
+    fatal_exit,
     restart_service,
     SERVICE_RESTART_LIMIT,
     SERVICE_RESTART_WINDOW,
@@ -289,16 +290,33 @@ class IncidentHandler(MessageHandlerTemplate):
         Args:
             incident: Incident message received from the incident bus.
         """
-        if incident.message == GPIO_PINS_FAILED:
-            # MITIGATION TO BE IMPLEMENTED:
-            #   Can GPIO be reset? IF yes add and try, if not power cycle
-            #   If retry_count < MAX_RETRIES: call gpio_cleanup() and restart Oradio
-            oradio_log.debug("Mitigation to be implemented")
-        elif incident.message == GPIO_BUTTONS_FAILED:
-            # MITIGATION TO BE IMPLEMENTED:
-            #   Can GPIO be reset? IF yes add and try, if not power cycle
-            #   If retry_count < MAX_RETRIES: call gpio_cleanup() and restart Oradio
-            oradio_log.debug("Mitigation to be implemented")
+        if incident.message in (GPIO_PINS_FAILED, GPIO_BUTTONS_FAILED):
+            # MITIGATION: end the process and let tier three repair it.
+            #
+            # GPIO carries both the buttons and the LEDs, so without it the user
+            # can neither tell the Oradio anything nor see what it is doing. The
+            # music may still be playing, but nothing can change it: this is as
+            # unusable as the Oradio gets while still running.
+            #
+            # Nothing in this process can fix that. GPIO.setup() has already
+            # failed, and there is no OS-level reset below RPi.GPIO -- it writes
+            # the pin registers through /dev/gpiomem, and gpio_cleanup() is the
+            # whole of what can be undone from here.
+            #
+            # Exiting non-zero hands it to the recovery that does have stronger
+            # remedies: systemd restarts the service, which runs GPIO.setup()
+            # from scratch, and if that fails too the crash handler reboots --
+            # a power-on reset of the pinctrl blocks, which is the strongest
+            # reset there is. A third failure plays the service message and
+            # leaves the STOP LED blinking.
+            #
+            # No budget here: systemd's StartLimitBurst is the budget, and
+            # counting again in a process that is about to end would not
+            # survive to count a second time.
+            fatal_exit(
+                f"GPIO failure leaves the Oradio unusable: {incident.message}",
+                stacklevel=4,
+            )
         else:
             oradio_log.error("Unhandled GPIO incident: '%s'", incident.message)
 

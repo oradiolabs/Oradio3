@@ -24,7 +24,6 @@ Created on May 28, 2026
     between threads and, on Linux systems using the fork start method,
     between processes.
 """
-import os
 import sys
 import time
 import uuid
@@ -32,7 +31,7 @@ import traceback
 from enum import Enum
 from queue import Full
 from threading import Thread
-from typing import Any, NoReturn
+from typing import Any
 from datetime import datetime, timezone
 from dataclasses import dataclass, field
 from multiprocessing import Lock, Queue
@@ -40,7 +39,7 @@ from multiprocessing import Lock, Queue
 ##### Oradio modules ######################################
 from singleton import singleton
 from log_service import oradio_log
-from utilities import ThreadTemplate
+from utilities import ThreadTemplate, fatal_exit
 
 ##### GLOBAL constants ####################################
 from constants import (
@@ -216,40 +215,6 @@ DETAILS_NOT_CAPTURED = frozenset({
 })
 
 ##### Helpers #############################################
-
-def _fatal_exit(message: str, stacklevel: int = 6, *, exc: BaseException | None = None, code: int = 1) -> NoReturn:
-    """
-    Log a fatal error, flush all buffers, and terminate the process.
-
-    Intended for unrecoverable infrastructure failures such as queue
-    corruption, invalid internal state, or IPC failure.
-
-    Uses os._exit instead of sys.exit to terminate immediately from any thread.
-    This includes daemon threads, where sys.exit() would only terminate the calling thread.
-
-    Args:
-        message:    Human-readable description of the fatal error.
-        stacklevel: Logging stacklevel passed to oradio_log.critical().
-                    The default value reports the original caller.
-        exc:        Optional exception associated with the failure; when provided,
-                    the full traceback is included in the log entry.
-        code:       Process exit status code (default: 1).
-    """
-    # exc_info=True causes the logging framework to capture the current
-    # exception context; passing the exception object directly also works
-    # in Python 3.5+ but the bool form is more conventional.
-    oradio_log.critical(message, stacklevel=stacklevel, exc_info=exc is not None)
-
-    # Flush the logging framework before exiting so no records are lost.
-    oradio_log.shutdown()
-
-    # Flush console buffers before terminating.
-    sys.stderr.flush()
-    sys.stdout.flush()
-
-    # Bypass Python's normal shutdown sequence so the exit is immediate
-    # from any thread, including daemon threads.
-    os._exit(code)
 
 def _capture_details() -> str:
     """
@@ -473,13 +438,13 @@ class PubSubManager:
             Subscriber queue.
         """
         if topic not in self._subscribers:
-            _fatal_exit(f"Unknown topic: {topic!r}")
+            fatal_exit(f"Unknown topic: {topic!r}")
 
         if sources is not None:
             if not isinstance(sources, tuple) or not all(isinstance(s, str) for s in sources):
-                _fatal_exit(f"sources must be a tuple of strings or None, got: {sources!r}")
+                fatal_exit(f"sources must be a tuple of strings or None, got: {sources!r}")
             if not sources:
-                _fatal_exit("sources must not be empty; pass None to receive all messages")
+                fatal_exit("sources must not be empty; pass None to receive all messages")
 
         # Convert to frozenset once for O(1) membership tests at publish time.
         source_filter: frozenset[str] | None = frozenset(sources) if sources is not None else None
@@ -514,7 +479,7 @@ class PubSubManager:
             queue: The Queue returned by the matching subscribe() call.
         """
         if topic not in self._subscribers:
-            _fatal_exit(f"Unknown topic: {topic!r}")
+            fatal_exit(f"Unknown topic: {topic!r}")
 
         with self._lock:
             # Identity comparison (is), not equality: we want the exact Queue
@@ -541,7 +506,7 @@ class PubSubManager:
             message: Message to publish.
         """
         if topic not in self._subscribers:
-            _fatal_exit(f"Unknown topic: {topic!r}")
+            fatal_exit(f"Unknown topic: {topic!r}")
 
         with self._lock:
             # Update the cache inside the lock so it stays consistent with
@@ -604,10 +569,10 @@ class Commands:
             message: Message to publish.
         """
         if not isinstance(message, CommandMessage):
-            _fatal_exit(f"Wrong message type for Commands.publish: {message!r}", stacklevel=5)
+            fatal_exit(f"Wrong message type for Commands.publish: {message!r}", stacklevel=5)
 
         if not message.is_valid():
-            _fatal_exit(f"Invalid CommandMessage rejected: {message!r}", stacklevel=5)
+            fatal_exit(f"Invalid CommandMessage rejected: {message!r}", stacklevel=5)
 
         _pubsub.publish(Topic.COMMAND, message)
 
@@ -653,10 +618,10 @@ class Incidents:
             message: Message to publish.
         """
         if not isinstance(message, IncidentMessage):
-            _fatal_exit(f"Wrong message type for Incidents.publish: {message!r}", stacklevel=5)
+            fatal_exit(f"Wrong message type for Incidents.publish: {message!r}", stacklevel=5)
 
         if not message.is_valid():
-            _fatal_exit(f"Invalid IncidentMessage rejected: {message!r}", stacklevel=5)
+            fatal_exit(f"Invalid IncidentMessage rejected: {message!r}", stacklevel=5)
 
         _pubsub.publish(Topic.INCIDENT, message)
 
@@ -678,18 +643,18 @@ def safe_get(queue: Queue) -> Any:
         The next object retrieved from the queue.
     """
     if not hasattr(queue, "get"):
-        _fatal_exit(f"Object has no get() method: {type(queue).__name__!r}")
+        fatal_exit(f"Object has no get() method: {type(queue).__name__!r}")
 
     try:
         return queue.get()
 
     except (OSError, EOFError, BrokenPipeError) as ex_err:
         # Queue is closed, corrupted, or the underlying pipe is gone.
-        _fatal_exit("Queue is closed/broken — failed to get message", exc=ex_err)
+        fatal_exit("Queue is closed/broken — failed to get message", exc=ex_err)
 
     except AssertionError as ex_err:
         # Rare internal multiprocessing queue failure.
-        _fatal_exit("Queue internal error on get", exc=ex_err)
+        fatal_exit("Queue internal error on get", exc=ex_err)
 
 def safe_put(queue: Queue, message: object) -> None:
     """
@@ -707,15 +672,15 @@ def safe_put(queue: Queue, message: object) -> None:
     except Full:
         # A full queue indicates a runaway producer or stalled consumer —
         # treat it as a critical infrastructure failure.
-        _fatal_exit(f"Queue overflow while publishing message: {message}")
+        fatal_exit(f"Queue overflow while publishing message: {message}")
 
     except (OSError, EOFError, ValueError) as ex_err:
         # Queue is closed, corrupted, or the underlying pipe is gone.
-        _fatal_exit(f"Queue is closed/broken - failed to put message: {message}", exc=ex_err)
+        fatal_exit(f"Queue is closed/broken - failed to put message: {message}", exc=ex_err)
 
     except AssertionError as ex_err:
         # Rare internal multiprocessing queue failure.
-        _fatal_exit(f"Queue internal error on put message: {message}", exc=ex_err)
+        fatal_exit(f"Queue internal error on put message: {message}", exc=ex_err)
 
 ##### Template ############################################
 
@@ -760,9 +725,9 @@ class MessageHandlerTemplate(ThreadTemplate):
         super().__init__(interval=0, name=self.__class__.__name__)
 
         if not self.safe_start():
-            _fatal_exit("Failed to start message handler thread")
+            fatal_exit("Failed to start message handler thread")
         if self.crashed:
-            _fatal_exit("Message handler thread crashed during startup", exc=self.exception)
+            fatal_exit("Message handler thread crashed during startup", exc=self.exception)
         oradio_log.debug("Message handler thread started")
 
     def stop(self) -> None:
