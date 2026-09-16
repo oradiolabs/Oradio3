@@ -211,7 +211,13 @@ class I2CService:
             "Failed reading byte from device=0x%02X, register=0x%02X after %d attempts",
             device, register, I2C_RETRIES
         )
-        Incidents.publish(IncidentMessage(I2C_SOURCE, I2C_READ_FAILED))
+        # The address travels with the incident, so RMS shows WHICH chip stopped
+        # answering. Without it every i2c failure reads the same, and a dead
+        # light sensor is a different fault from a dead volume ADC.
+        Incidents.publish(IncidentMessage(
+            I2C_SOURCE, I2C_READ_FAILED,
+            details=f"read byte device=0x{device:02X} register=0x{register:02X}",
+        ))
         return None
 
     def write_byte(self, device: int, register: int, value: int, retry: bool = True) -> bool:
@@ -274,7 +280,10 @@ class I2CService:
             "Failed writing byte to device=0x%02X, register=0x%02X, value=0x%02X after %d attempt(s)",
             device, register, value, attempts
         )
-        Incidents.publish(IncidentMessage(I2C_SOURCE, I2C_WRITE_FAILED))
+        Incidents.publish(IncidentMessage(
+            I2C_SOURCE, I2C_WRITE_FAILED,
+            details=f"write byte device=0x{device:02X} register=0x{register:02X}",
+        ))
         return False
 
 ##### Block operations ####################################
@@ -308,7 +317,10 @@ class I2CService:
             # A caller bug, not a bus fault: no attempt is made and no retry
             # would change the answer.
             oradio_log.error("SMBus block read supports a maximum of 32 bytes")
-            Incidents.publish(IncidentMessage(I2C_SOURCE, I2C_READ_FAILED))
+            Incidents.publish(IncidentMessage(
+                I2C_SOURCE, I2C_READ_FAILED,
+                details=f"block read of {length} bytes exceeds the SMBus limit of 32",
+            ))
             return None
 
         for attempt in range(1, I2C_RETRIES + 1):
@@ -331,7 +343,10 @@ class I2CService:
             "Failed reading block from device=0x%02X, register=0x%02X, length=%d after %d attempts",
             device, register, length, I2C_RETRIES
         )
-        Incidents.publish(IncidentMessage(I2C_SOURCE, I2C_READ_FAILED))
+        Incidents.publish(IncidentMessage(
+            I2C_SOURCE, I2C_READ_FAILED,
+            details=f"read block device=0x{device:02X} register=0x{register:02X} length={length}",
+        ))
         return None
 
     def write_block(self, device: int, register: int, data: list) -> bool:

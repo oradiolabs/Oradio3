@@ -331,20 +331,53 @@ class IncidentHandler(MessageHandlerTemplate):
             incident: Incident message received from the incident bus.
         """
         if incident.message == I2C_BUS_FAILED:
-            # MITIGATION TO BE IMPLEMENTED:
-            #   Can I2C be reset? IF yes add and try, if not power cycle
-            #   If retry_count < MAX_RETRIES: restart Oradio
-            oradio_log.debug("Mitigation to be implemented")
+            # MITIGATION: end the process and let tier three repair it.
+            #
+            # The bus is gone, not one device on it. Four chips hang off it --
+            # the power-delivery controller, the backlight DAC, the light sensor
+            # and the volume ADC -- so the volume knob is dead, the backlight is
+            # stuck and the Oradio cannot read its own supply. What is left is
+            # music nobody can adjust.
+            #
+            # Nothing here can bring it back: I2CService has already found
+            # /dev/i2c-1 missing or unusable, and there is no userspace reset
+            # for the bcm2835 controller. Unbinding and rebinding its driver
+            # through sysfs exists, but it is the weaker remedy -- the reboot
+            # below is a power-on reset of the controller, which is as complete
+            # as a reset gets.
+            #
+            # So the same escalation as GPIO: systemd restarts the service,
+            # which reopens the bus from scratch; if that fails the crash
+            # handler reboots; a third failure plays the service message and
+            # leaves the STOP LED blinking.
+            fatal_exit(
+                f"I2C bus failure leaves the Oradio unusable: {incident.message}",
+                stacklevel=4,
+            )
         elif incident.message == I2C_READ_FAILED:
-            # MITIGATION TO BE IMPLEMENTED:
-            #   Can I2C be reset? IF yes add and try, if not power cycle
-            #   If retry_count < MAX_RETRIES: restart Oradio
-            oradio_log.debug("Mitigation to be implemented")
+            # NO MITIGATION: reporting it IS the mitigation.
+            #   One device did not answer a read, not the bus: I2CService has
+            #   already retried with backoff, and the three other chips are
+            #   still reachable. The Oradio keeps playing and the buttons keep
+            #   working -- what is lost is one function, which is not worth
+            #   ending the process for.
+            #
+            #   The device address travels with the incident, so RMS shows
+            #   which chip it was. If the field data ever shows one failing
+            #   often enough to matter, that is the evidence to act on.
+            pass
         elif incident.message == I2C_WRITE_FAILED:
-            # MITIGATION TO BE IMPLEMENTED:
-            #   Can I2C be reset? IF yes add and try, if not power cycle
-            #   If retry_count < MAX_RETRIES: restart Oradio
-            oradio_log.debug("Mitigation to be implemented")
+            # NO MITIGATION: reporting it IS the mitigation.
+            #   One device did not answer a write, not the bus: I2CService has
+            #   already retried with backoff, and the three other chips are
+            #   still reachable. The Oradio keeps playing and the buttons keep
+            #   working -- what is lost is one function, which is not worth
+            #   ending the process for.
+            #
+            #   The device address travels with the incident, so RMS shows
+            #   which chip it was. If the field data ever shows one failing
+            #   often enough to matter, that is the evidence to act on.
+            pass
         else:
             oradio_log.error("Unhandled I2C incident: '%s'", incident.message)
 
