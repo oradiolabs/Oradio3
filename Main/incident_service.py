@@ -28,7 +28,7 @@ from typing import Any
 from time import monotonic
 
 ##### Oradio modules ######################################
-from log_service import oradio_log
+from log_service import oradio_log, INFO
 from rms_service import RMService, INCIDENT
 from mpd_service import mpd_is_ready
 from mpd_monitor import MPDMonitor
@@ -378,9 +378,38 @@ class IncidentHandler(MessageHandlerTemplate):
             #   it closes the LOG_QUEUE_OVERFLOW that preceded it.
             oradio_log.debug("Mitigation to be implemented")
         elif incident.message == LOG_LISTENER_DEAD:
-            # MITIGATION TO BE IMPLEMENTED:
-            #   Nothing beyond the report _handle_message already sends.
-            oradio_log.debug("Mitigation to be implemented")
+            # MITIGATION: start the queue listener again.
+            #
+            # A dead listener is silent rather than noisy: records keep going
+            # into the queue and nothing takes them out, until it is full and
+            # every later record is dropped. QueueListener does not supervise
+            # its own thread, so nothing recovers from this on its own.
+            #
+            # Worth repairing even though the user never notices: from here on
+            # the Oradio has no record of what went wrong next, which is exactly
+            # what the next incident will be read with.
+            #
+            # No INCIDENT_RECOVERED: the state machine tracks nothing about
+            # logging. LOG_QUEUE_RECOVERED arrives by itself once the listener
+            # drains the backlog, and that is the confirmation this worked.
+            # Every line below goes through health_notice(), which writes
+            # straight to the fallback sinks. Ordinary logging cannot report
+            # this: the queue is full because nothing is draining it, so a
+            # record saying so is dropped like every other -- the explanation
+            # would disappear into the problem it describes.
+            if self._within_restart_budget("log queue listener"):
+                if oradio_log.restart_listener():
+                    oradio_log.health_notice("log queue listener restarted", INFO)
+                else:
+                    oradio_log.health_notice("log queue listener could not be restarted")
+            else:
+                # The budget message from _within_restart_budget() was dropped
+                # with the rest. Said again here, where it can be read.
+                oradio_log.health_notice(
+                    "giving up on the log queue listener; nothing will be logged "
+                    "from here on and no further notice will follow"
+                )
+
         elif incident.message == LOG_STOPPED:
             # OPEN QUESTION, not a retry:
             #   Do NOT retry the worker here; see LOG_START_FAILED above.

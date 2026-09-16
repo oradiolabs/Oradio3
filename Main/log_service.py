@@ -378,9 +378,81 @@ class SafeLogger:
         thread = self._listener._thread     # pylint: disable=protected-access
         return thread is not None and thread.is_alive()
 
+    def health_notice(self, msg: str, level: int = ERROR) -> None:
+        """
+        Write a notice straight to the fallback sinks, bypassing the queue.
+
+        Args:
+            msg:   What to record.
+            level: Severity for the fallback handlers.
+
+        For the one thing ordinary logging cannot report: that logging itself
+        has failed. A record about a dead listener goes into the queue nothing
+        is draining, so it is dropped -- the explanation disappears into the
+        problem it describes.
+
+        The queue handler's own drop notice is not a substitute. It reports a
+        count, not what the dropped records said, so "gave up restarting the
+        listener" would leave no trace at all.
+        """
+        _emit_fallback(self._fallback_handlers, level, f"[SafeLogger] {msg}")
+
+    def restart_listener(self) -> bool:
+        """
+        Start the queue listener again after its dispatch thread has died.
+
+        Returns:
+            True when a listener thread is running afterwards.
+
+        The queue keeps accepting records whatever happens to the listener, so a
+        dead one is not noisy -- it is silent. Records go in, nothing takes them
+        out, and once the queue is full every later record is dropped. Nothing
+        recovers from that on its own: QueueListener has no supervision of its
+        own thread.
+
+        Deliberately NOT stop() before start(). QueueListener.stop() enqueues a
+        sentinel with put_nowait(), and the queue this is called about is full
+        precisely because nothing has been draining it -- so stop() raises
+        queue.Full and the listener is never restarted. That is not an edge
+        case: a full queue is the normal state of a dead listener.
+
+        start() on its own replaces _thread with a live one and leaves the dead
+        object unreferenced, which is exactly right -- there is nothing to join
+        and nothing to signal. The first thing the new thread does is drain the
+        backlog, which is also what makes queue_full go away and LOG_QUEUE_
+        RECOVERED arrive on its own.
+
+        The handlers are not rebuilt. If one of them is what killed the thread
+        -- an emit() that blocked forever -- the new thread will die the same
+        way, which is why the caller is expected to keep count and stop asking.
+        """
+        try:
+            self._listener.start()
+        # Broad catch: this runs to repair logging, and an exception escaping
+        # here would be reported through the very thing that is broken.
+        except Exception as ex_err:      # pylint: disable=broad-exception-caught
+            self.health_notice(f"restart_listener failed: {ex_err}")
+            return False
+
+        return self.listener_alive
+
     def shutdown(self):
-        """Shutdown logging queue listener and fallback sinks."""
-        self._listener.stop()
+        """
+        Shutdown logging queue listener and fallback sinks.
+
+        The stop is tolerated because it cannot be relied on: stop() enqueues a
+        sentinel with put_nowait(), so on a queue that is full -- which is the
+        state a dead listener leaves behind -- it raises queue.Full. Registered
+        with atexit, that exception is printed and then swallowed, and the
+        handler close below never runs.
+        """
+        try:
+            self._listener.stop()
+        # Broad catch: nothing here is worth failing an exit over, and the
+        # sinks below still have to be closed.
+        except Exception as ex_err:      # pylint: disable=broad-exception-caught
+            self.health_notice(f"listener did not stop cleanly: {ex_err}", WARNING)
+
         for handler in self._fallback_handlers:
             handler.close()
 
