@@ -32,7 +32,7 @@ from log_service import oradio_log
 from rms_service import RMService, INCIDENT
 from mpd_service import mpd_is_ready
 from mpd_monitor import MPDMonitor
-from usb_service import USBObserver
+from usb_service import USBObserver, republish_usb_state
 from backlight_service import Backlighting
 from volume_control import VolumeControl
 from log_monitor import LogHealthMonitor
@@ -562,13 +562,13 @@ class IncidentHandler(MessageHandlerTemplate):
             incident: Incident message received from the incident bus.
         """
         if incident.message == USB_EVENT_FAILED:
-            # MITIGATION TO BE IMPLEMENTED:
-            #   The observer survived, but this insert or remove was not acted
-            #   on: the Oradio still believes whatever drive state it had
-            #   before. Re-reading USBService.get_state() and republishing it
-            #   would resynchronise without waiting for the user to pull the
-            #   drive and put it back.
-            oradio_log.debug("Mitigation to be implemented")
+            # MITIGATION: republish the drive state.
+            #
+            # The observer survived, but this insert or remove was not acted on,
+            # so the Oradio still believes whatever it believed before. Reading
+            # the mount point and publishing that resynchronises the two without
+            # waiting for the user to pull the drive and put it back.
+            republish_usb_state()
         elif incident.message == USB_FSCK_FAILED:
             # NO MITIGATION: reporting it IS the mitigation.
             #   fsck has already had its turn, and anything further needs the
@@ -597,12 +597,15 @@ class IncidentHandler(MessageHandlerTemplate):
             # drive being inserted or removed again, which looks to the user
             # like a stick that simply does not work.
             #
-            # STILL TO DO: an observer that was gone for a while may have missed
-            # a mount or unmount, so usb_present can be wrong after this. The
-            # repair for that is republishing USBService.get_state(), not the
-            # INCIDENT_RECOVERED the mpd path sends -- see USB_EVENT_FAILED
-            # above, which has the same problem from a different direction.
+            # And then republish, because an observer that was gone for a while
+            # may have missed a mount or unmount: the restart brings the
+            # watching back but not what happened while nobody was watching.
+            #
+            # Unconditional, even when the restart failed: the state is just as
+            # likely to be stale either way, and reading a mount point costs
+            # nothing.
             self._restart_subsystem("USB observer", USBObserver)
+            republish_usb_state()
         else:
             oradio_log.error("Unhandled USB incident: '%s'", incident.message)
 

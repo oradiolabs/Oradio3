@@ -420,6 +420,33 @@ class USBObserver(FileSystemEventHandler):
                 oradio_log.error("Error handling USB removed event: %s", ex_err)
                 Incidents.publish(IncidentMessage(USB_SOURCE, USB_EVENT_FAILED))
 
+def republish_usb_state() -> str:
+    """
+    Publish the drive state as it is right now, and return it.
+
+    Returns:
+        USB_PRESENT or USB_ABSENT, whichever was published.
+
+    For the cases where the Oradio's idea of the drive may have drifted from the
+    drive itself: an insert or remove event the handler could not finish, or an
+    observer that was gone for a while and missed one. Both leave the Oradio
+    describing a moment that has passed, and nothing else corrects it -- the
+    next event only arrives when the user touches the drive again.
+
+    A module function and not a USBService method, even though get_state() is
+    one: it needs nothing from an instance, and the caller that needs it most is
+    incident_service, which has no reason to own a USBService.
+
+    Reads the mount point rather than any cached value, so it reports what is
+    true rather than what was last believed, and publishes through the same
+    command every other change takes.
+    """
+    state = USB_PRESENT if path.ismount(USB_MOUNT_POINT) else USB_ABSENT
+    oradio_log.info("Republishing USB state: %s", state)
+    Commands.publish(CommandMessage(USB_SOURCE, state))
+    return state
+
+
 class USBService:
     """
     High-level USB monitoring service.
