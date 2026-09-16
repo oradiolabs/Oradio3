@@ -196,7 +196,14 @@ class RPiThrottlingMonitor(ThreadTemplate):
         if value & HISTORICAL_MASK:
             reasons = self._decode_flags(value, HISTORICAL_MASK)
             oradio_log.warning("RPi HEALTH WARNING (since boot): %s", ", ".join(reasons))
-            Incidents.publish(IncidentMessage(THROTTLING_SOURCE, THROTTLING_THROTTLED))
+            # The decoded flags as details, so RMS learns WHICH protection kicked
+            # in. Without them the incident says only 'RPi throttled', and the
+            # difference between a hot room and a failing clock is exactly what
+            # someone reading it needs.
+            Incidents.publish(
+                IncidentMessage(THROTTLING_SOURCE, THROTTLING_THROTTLED,
+                                details=", ".join(reasons))
+            )
 
     def do_work(self) -> None:
         """
@@ -225,7 +232,10 @@ class RPiThrottlingMonitor(ThreadTemplate):
                 # One or more throttling conditions just became active.
                 reasons = self._decode_flags(value, ACTIVE_MASK)
                 oradio_log.warning("RPi throttling ENTERED: %s", ", ".join(reasons))
-                Incidents.publish(IncidentMessage(THROTTLING_SOURCE, THROTTLING_THROTTLED))
+                Incidents.publish(
+                    IncidentMessage(THROTTLING_SOURCE, THROTTLING_THROTTLED,
+                                    details=", ".join(reasons))
+                )
             else:
                 # All throttling conditions have cleared.
                 oradio_log.info("RPi throttling CLEARED")
