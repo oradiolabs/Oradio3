@@ -49,6 +49,7 @@ from power_service import get_power_status
 from messaging import (
     INCIDENT_SOURCE,
     INCIDENT_RECOVERED,
+    INCIDENT_POWER_ERROR,
     Commands,
     CommandMessage,
     IncidentMessage,
@@ -244,6 +245,12 @@ log_startup_step("power status")
 # the supply may be fine, and refusing to run on an unanswered I2C transaction
 # would cost a working device to guard against a fault that was never
 # established.
+#
+# The runtime counterpart is on_incident_power_error(), for a supply that turns
+# out not to keep up once the Oradio is running. Same fault, same remedy, and
+# the same thing for the user to see and hear -- but a different mechanism,
+# because StateMachine does not exist yet at this point in start-up and building
+# it here would mean starting the whole Oradio on a supply that cannot run it.
 if power_status is False:
     # Blink STOP/OFF led to indicate Oradio has an error
     leds.control_blinking_led(LED_STOP, ERROR_BLINK_CYCLE)
@@ -847,6 +854,30 @@ def on_webservice_active():
         state_machine.transition("StateIdle")
         oradio_log.info("Stopped WebRadio playback on Webservice entry")
 
+def on_incident_power_error():
+    """
+    Stop for good after the supply stayed below the minimum.
+
+    Nothing the Oradio can do raises the voltage, and every second it keeps
+    drawing current is a second the SD card is at risk. Replacing the supply
+    cuts the power anyway, so playing on until the user acts buys nothing.
+
+    StateError rather than a dead-end loop: transition() refuses every request
+    once that state is active, and _state_error() blinks the STOP LED at
+    ERROR_BLINK_CYCLE. The process stays alive, so the LED keeps blinking and
+    incidents keep reaching RMS.
+
+    The start-up counterpart is the power_status check near the top of this
+    module, which blinks the same LED at the same rate and plays the same sound
+    but then sleeps rather than using StateError -- the state machine does not
+    exist that early. Two mechanisms, one outcome; change one and check the
+    other.
+    """
+    oradio_log.error("Supply voltage too low: stopping")
+    play_sound(SOUND_POWER_ERROR)
+    state_machine.transition("StateError")
+
+
 def on_incident_recovered():
     """
     Start again from Idle after the incident service repaired something.
@@ -977,6 +1008,7 @@ HANDLERS = {
     },
     INCIDENT_SOURCE: {
         INCIDENT_RECOVERED: on_incident_recovered,
+        INCIDENT_POWER_ERROR: on_incident_power_error,
     },
     WEB_SOURCE: {
         WEB_IDLE: on_webservice_idle,

@@ -76,6 +76,7 @@ _CAPTURE_FRAMES_TO_SKIP = 3
 # it believed before is now stale.
 INCIDENT_SOURCE    = "Incident message"
 INCIDENT_RECOVERED = "Incident recovered, start again from a known state"
+INCIDENT_POWER_ERROR = "Power supply cannot keep up, stop and stay stopped"
 
 # Backlighting
 BACKLIGHTING_SOURCE       = "Backlighting message"
@@ -141,6 +142,7 @@ SOUND_MISSING_FILE    = "System sound file missing"
 THROTTLING_SOURCE       = "RPi throttling message"
 THROTTLING_START_FAILED = "RPi throttling monitor failed to start"
 THROTTLING_THROTTLED    = "RPi throttled"
+POWER_UNDERVOLTAGE      = "Supply voltage sustained below the minimum"
 THROTTLING_STOPPED      = "RPi throttling monitor stopped"
 
 # USB

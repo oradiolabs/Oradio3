@@ -20,6 +20,7 @@ Created on December 31, 2025
     Monitors the throttled state of a Raspberry Pi and logs state changes.
     Supports a test mode for forced throttling to validate logging.
 """
+from time import monotonic
 from subprocess import check_output
 
 ##### Oradio modules ######################################
@@ -32,6 +33,7 @@ from messaging import (
     THROTTLING_SOURCE,
     THROTTLING_START_FAILED,
     THROTTLING_THROTTLED,
+    POWER_UNDERVOLTAGE,
     THROTTLING_STOPPED,
 )
 
@@ -59,6 +61,38 @@ THROTTLE_FLAGS = {
 # Used to detect real-time transitions without being confused by the sticky
 # historical flags in the upper word.
 ACTIVE_MASK = 0x1 | 0x2 | 0x4 | 0x8
+
+# Bit 0 on its own: the supply is not delivering.
+#
+# Separated from the rest of ACTIVE_MASK because it is a different fault with a
+# different remedy. Bits 1-3 mean the Pi is protecting itself against heat or
+# load and will recover on its own; bit 0 means the power supply cannot keep up,
+# which nothing on the Oradio can fix and which risks corrupting the SD card
+# while it lasts.
+UNDERVOLTAGE_MASK = 0x1
+
+# Sticky counterpart of UNDERVOLTAGE_MASK: bit 16 latches when the voltage has
+# been too low at any point, and stays set until the next reboot.
+#
+# Needed because bit 0 only reports the voltage AT the poll. This monitor looks
+# once a second, so a dip that starts and ends in between leaves bit 0 clear and
+# would otherwise go unseen. Bit 16 catches it -- once: after it latches it can
+# no longer distinguish a second dip from the first.
+UNDERVOLTAGE_STICKY_MASK = 0x10000
+
+# How many under-voltage events within UNDERVOLTAGE_WINDOW mean a supply that
+# cannot keep up.
+#
+# Events within a window rather than polls in a row, because a supply sitting
+# right on the edge does not stay low: it dips, recovers, dips again. Counting
+# consecutive polls would reset on every recovery and never report the worst
+# case there is -- a supply that is under-volting half the time.
+#
+# Starting values, not measured ones: nobody has seen how often bit 0 appears in
+# the field. Every event is logged with the raw word, so these can be retuned on
+# observation rather than on this guess.
+UNDERVOLTAGE_EVENTS = 3
+UNDERVOLTAGE_WINDOW = 60.0  # seconds
 
 # Bit mask covering only the sticky "historical event" flags (bits 16–19).
 # Used at startup to surface throttling events that occurred before the
@@ -103,6 +137,8 @@ class RPiThrottlingMonitor(ThreadTemplate):
         # setup() at the start of every run, so a restart always produces
         # a fresh log entry if the system is already throttled.
         self._last_active_flags = 0
+        self._undervoltage_events: list[float] = []
+        self._undervoltage_sticky = False
 
 ##### Helpers #############################################
 
@@ -146,6 +182,16 @@ class RPiThrottlingMonitor(ThreadTemplate):
         """
         self._last_active_flags = 0
 
+        # Reset with the rest: a restart_on_crash restart must not inherit a
+        # half-finished count from the attempt that died.
+        #
+        # The sticky flag is read fresh below, so starting from False here makes
+        # an already-latched bit 16 register as one missed dip on the first
+        # poll. That is the right reading: it did happen, and nothing else in
+        # this run would ever report it.
+        self._undervoltage_events = []
+        self._undervoltage_sticky = False
+
         value = self.get_throttle_value()
         if value & HISTORICAL_MASK:
             reasons = self._decode_flags(value, HISTORICAL_MASK)
@@ -171,6 +217,8 @@ class RPiThrottlingMonitor(ThreadTemplate):
         # Mask to current-state bits only; ignore historical sticky flags.
         active_flags = value & ACTIVE_MASK
 
+        self._check_undervoltage(value)
+
         # Only act when the active flags have changed since the last poll.
         if active_flags != self._last_active_flags:
             if active_flags:
@@ -184,6 +232,64 @@ class RPiThrottlingMonitor(ThreadTemplate):
 
             # Update the cache so the next iteration has a baseline.
             self._last_active_flags = active_flags
+
+    def _check_undervoltage(self, value: int) -> None:
+        """
+        Count under-voltage events and report a supply that cannot keep up.
+
+        Args:
+            value: The raw get_throttled word for this poll.
+
+        An event is the voltage being low at this poll (bit 0), or bit 16 having
+        latched since the last one -- a dip that began and ended between two
+        polls and that bit 0 never saw.
+
+        Counted in a window rather than consecutively, because the case that
+        matters most is the one consecutive counting misses: a supply right on
+        the edge dips, recovers and dips again, and a counter that resets on
+        every recovery never reaches its threshold however bad the supply is.
+
+        Reported once per episode. The event list is not cleared afterwards, so
+        it ages out through the window instead -- a supply that stays marginal
+        does not produce a second incident every time it crosses the threshold
+        again.
+
+        Raised separately from THROTTLING_THROTTLED because the two need
+        different answers. Throttling for heat or load passes; a supply below
+        the minimum does not, and the Oradio cannot do anything about it except
+        stop drawing current and say so.
+        """
+        now = monotonic()
+        sticky = bool(value & UNDERVOLTAGE_STICKY_MASK)
+
+        # Bit 16 only ever goes from clear to set, and only once per boot, so
+        # this fires for the first missed dip and never again.
+        missed_dip = sticky and not self._undervoltage_sticky
+        self._undervoltage_sticky = sticky
+
+        if not value & UNDERVOLTAGE_MASK and not missed_dip:
+            return
+
+        self._undervoltage_events = [
+            t for t in self._undervoltage_events if now - t < UNDERVOLTAGE_WINDOW
+        ]
+        self._undervoltage_events.append(now)
+
+        # Logged for every event, at the raw word: this is the evidence the two
+        # constants should eventually be tuned on, and the only record of a
+        # supply that dips without ever reaching the threshold.
+        oradio_log.warning(
+            "Under-voltage event %d of %d within %.0fs (%s, get_throttled=0x%X)",
+            len(self._undervoltage_events), UNDERVOLTAGE_EVENTS, UNDERVOLTAGE_WINDOW,
+            "between polls" if missed_dip else "at this poll", value,
+        )
+
+        if len(self._undervoltage_events) == UNDERVOLTAGE_EVENTS:
+            oradio_log.error(
+                "Supply voltage dropped %d times within %.0fs",
+                UNDERVOLTAGE_EVENTS, UNDERVOLTAGE_WINDOW,
+            )
+            Incidents.publish(IncidentMessage(THROTTLING_SOURCE, POWER_UNDERVOLTAGE))
 
     def on_stopped(self) -> None:
         """Report incident: Oradio never intentionally stops throttling monitoring."""
@@ -249,7 +355,7 @@ class RPiThrottlingMonitor(ThreadTemplate):
 
 if __name__ == "__main__":
 
-    from time import sleep
+    from time import sleep          # pylint: disable=ungrouped-imports
     from constants import YELLOW, NC
     from utilities import input_prompt              # pylint: disable=ungrouped-imports
     from messaging import DebugMessageHandler       # pylint: disable=ungrouped-imports

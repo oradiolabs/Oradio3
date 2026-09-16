@@ -57,10 +57,11 @@ from messaging import (
     RMS_SOURCE, RMS_START_FAILED, RMS_POST_FAILED,
     SOUND_SOURCE, SOUND_MISSING_DIR, SOUND_MISSING_FILE, SOUND_PLAYBACK_FAILED,
     THROTTLING_SOURCE, THROTTLING_START_FAILED, THROTTLING_THROTTLED, THROTTLING_STOPPED,
+    POWER_UNDERVOLTAGE,
     USB_SOURCE, USB_FILE_FAILED, USB_FSCK_FAILED, USB_WIFI_DEFERRED_FAILED, USB_EVENT_FAILED, USB_START_FAILED, USB_STOPPED,
     VOLUME_SOURCE, VOLUME_START_FAILED, VOLUME_SET_FAILED, VOLUME_STOPPED,
     WEB_SOURCE, WEB_SERVER_FAILED, WEB_START_FAILED, WEB_STOP_FAILED,
-    INCIDENT_SOURCE, INCIDENT_RECOVERED,
+    INCIDENT_SOURCE, INCIDENT_RECOVERED, INCIDENT_POWER_ERROR,
     WIFI_SOURCE, WIFI_DBUS_FAILED, WIFI_NMCLI_FAILED, WIFI_CONNECT_FAILED, WIFI_DISCONNECT_FAILED, WIFI_AP_FAILED,
 )
 
@@ -521,7 +522,18 @@ class IncidentHandler(MessageHandlerTemplate):
         Args:
             incident: Incident message received from the incident bus.
         """
-        if incident.message == THROTTLING_THROTTLED:
+        if incident.message == POWER_UNDERVOLTAGE:
+            # MITIGATION: stop, say so, and stay stopped.
+            #
+            # Nothing here can raise the supply voltage, and continuing to draw
+            # current while it is too low is what risks corrupting the SD card.
+            #
+            # The same answer as an unsupported PD contract at start-up, because
+            # it is the same fault and the same remedy: the supply has to be
+            # replaced, and replacing it cuts the power anyway -- so playing on
+            # until the user acts buys nothing and costs every second of it.
+            Commands.publish(CommandMessage(INCIDENT_SOURCE, INCIDENT_POWER_ERROR))
+        elif incident.message == THROTTLING_THROTTLED:
             # MITIGATION TO BE IMPLEMENTED:
             #   Nothing beyond the report _handle_message already sends.
             oradio_log.debug("Mitigation to be implemented")
