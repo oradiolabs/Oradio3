@@ -275,13 +275,22 @@ class USBObserver(FileSystemEventHandler):
         except (JSONDecodeError, OSError) as ex_err:
             # Covers malformed JSON and filesystem errors (permissions, I/O)
             oradio_log.error("Failed to read or parse '%s': error: %s", USB_WIFI_FILE, ex_err)
-            Incidents.publish(IncidentMessage(USB_SOURCE, USB_FILE_FAILED))
+            # The reason travels with the incident: six different faults share
+            # this message, and "the wifi file is wrong" is not something anyone
+            # can act on without knowing which way it is wrong.
+            Incidents.publish(IncidentMessage(
+                USB_SOURCE, USB_FILE_FAILED,
+                details=f"unreadable or malformed JSON: {ex_err}",
+            ))
             return
 
         # The root object must contain a "networks" key whose value is a list
         if "networks" not in data or not isinstance(data["networks"], list):
             oradio_log.error("'networks' must be a list")
-            Incidents.publish(IncidentMessage(USB_SOURCE, USB_FILE_FAILED))
+            Incidents.publish(IncidentMessage(
+                USB_SOURCE, USB_FILE_FAILED,
+                details="'networks' is missing or is not a list",
+            ))
             return
 
         # Validate every entry first; track whether all pass so we know if it
@@ -294,7 +303,9 @@ class USBObserver(FileSystemEventHandler):
                 # errors in this pass rather than stopping at the first failure
                 all_valid = False
                 oradio_log.error(err_msg)
-                Incidents.publish(IncidentMessage(USB_SOURCE, USB_FILE_FAILED))
+                Incidents.publish(IncidentMessage(
+                    USB_SOURCE, USB_FILE_FAILED, details=err_msg,
+                ))
             else:
                 # Strip surrounding whitespace from SSID; passwords are left
                 # untouched because internal spaces are valid in WPA keys
@@ -307,7 +318,14 @@ class USBObserver(FileSystemEventHandler):
                 else:
                     all_valid = False
                     oradio_log.error("Failed to add '%s' to NetworkManager", ssid)
-                    Incidents.publish(IncidentMessage(USB_SOURCE, USB_FILE_FAILED))
+                    # Not about the file at all: this entry was valid and
+                    # NetworkManager refused it. Said so in the details, because
+                    # it is the one of these six that the user cannot fix by
+                    # editing anything.
+                    Incidents.publish(IncidentMessage(
+                        USB_SOURCE, USB_FILE_FAILED,
+                        details=f"NetworkManager refused to add '{ssid}'",
+                    ))
 
         if all_valid:
             # Remove the credentials file to prevent re-import and to avoid

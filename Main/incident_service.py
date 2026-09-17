@@ -704,9 +704,21 @@ class IncidentHandler(MessageHandlerTemplate):
             #   import.
             pass
         elif incident.message == USB_FILE_FAILED:
-            # MITIGATION TO BE IMPLEMENTED:
-            #   Nothing beyond the report _handle_message already sends.
-            oradio_log.debug("Mitigation to be implemented")
+            # NO MITIGATION: only the user can fix the file.
+            #   Wifi_invoer.json on the drive could not be used: malformed JSON, a
+            #   'networks' key that is not a list, or an entry without a usable SSID and
+            #   password. The user wrote that file, and only the user can correct it.
+            #
+            #   The file is deliberately left on the drive -- it is only removed once
+            #   every network in it was accepted -- so correcting it and putting the
+            #   drive back in is the whole repair.
+            #
+            #   One of the six does not fit that description: NetworkManager refusing a
+            #   valid entry. That is an nmcli failure wearing a USB incident's name, and
+            #   the same reasoning as WIFI_NMCLI_FAILED applies -- one call that did not
+            #   work, not NetworkManager being broken. The details say which of the six
+            #   it was.
+            pass
         elif incident.message in (USB_START_FAILED, USB_STOPPED):
             # MITIGATION: start the observer again.
             #
