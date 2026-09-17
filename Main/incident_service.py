@@ -99,24 +99,30 @@ class IncidentHandler(MessageHandlerTemplate):
     RMS before that dispatch, so no handler has to. What a handler adds is
     whatever should happen next -- and for most incidents that is nothing.
 
-    Each branch below opens with a label saying which of four cases it is:
+    Every branch below opens with one of two labels:
 
       MITIGATION                Something is done: a service or subsystem is
                                 restarted, state is republished, or the process
                                 is ended so systemd and the crash handler can
                                 take over.
 
-      NO MITIGATION             Reporting it IS the mitigation. Either the fault
-                                has already been retried where it belongs, or
-                                nothing the Oradio can do would change it.
+      NO MITIGATION             Reporting it IS the mitigation, for one of three
+                                reasons. The fault was already retried where it
+                                belongs, so trying again here would be a second
+                                mechanism fighting the first. Or nothing the
+                                Oradio can do would change it -- a file the user
+                                wrote, a supply that cannot deliver. Or the
+                                subsystem that raised it deals with it itself,
+                                which is the better place when the decision
+                                needs context this handler does not have:
+                                WebService counts failed portal starts because
+                                only it knows what a long press was meant to do,
+                                and volume_control counts failed amixer calls
+                                because only it knows that one knob turn is a
+                                dozen of them.
 
-      OPEN QUESTION             The subsystem tried and failed, and retrying
-                                here would be a second mechanism fighting the
-                                first. Undecided is what the Oradio should DO
-                                about a subsystem that stays down.
-
-      MITIGATION TO BE          Genuinely unimplemented.
-      IMPLEMENTED
+    A new branch gets one of those two. There is no "to be implemented" left,
+    and adding one back would be hiding a decision rather than recording it.
 
     A note on the *_STOPPED incidents, which are all NO MITIGATION for the same
     reason: nothing in the operational Oradio calls stop() on those workers, and
@@ -754,23 +760,23 @@ class IncidentHandler(MessageHandlerTemplate):
             # tried again; this is the first attempt.
             self._restart_subsystem("volume control", VolumeControl)
         elif incident.message == VOLUME_SET_FAILED:
-            # OPEN QUESTION, pending a measurement:
-            #   amixer could not set a softvol control. Usually that means the
-            #   controls are not there at all -- alsactl restore failed at boot,
-            #   see the note at that ExecStartPre= in oradio.service -- and then
-            #   the volume knob does nothing, which the user notices at once.
+            # NO MITIGATION: volume_control escalates this itself.
+            #   amixer could not set a softvol control. Usually that means the controls
+            #   are not there at all -- alsactl restore failed at boot, see the note at
+            #   that ExecStartPre= in oradio.service -- and then the volume knob does
+            #   nothing, which the user notices at once.
             #
-            #   Not acted on yet, because the incident cannot yet tell a broken
-            #   installation from one missed call: _set_volume() runs ten to
-            #   fifteen times per knob turn with no retry in front of it. It now
-            #   carries how many failures fell inside SET_FAILURE_WINDOW, which
-            #   is the measurement this is waiting on.
+            #   Handled where it is raised. _set_volume() runs ten to fifteen times per
+            #   knob turn with no retry in front of it, so a single miss says nothing;
+            #   it counts failures inside SET_FAILURE_WINDOW and calls fatal_exit() past
+            #   SET_FAILURE_LIMIT. Only a process restart re-runs oradio-prestart.sh,
+            #   whose conditional alsactl restore is the one thing that recreates
+            #   missing controls.
             #
-            #   When a threshold is known, the escalation is fatal_exit(): only a
-            #   process restart re-runs oradio-prestart.sh, whose conditional
-            #   alsactl restore is the one thing that recreates missing controls.
-            #   A subsystem restart would only repeat the same amixer call.
-            oradio_log.debug("Mitigation to be implemented")
+            #   The limit is set generously on purpose, because nobody has measured how
+            #   often amixer misses in the field. The count travels with every incident,
+            #   which is the measurement it should eventually be tuned on.
+            pass
         elif incident.message == VOLUME_STOPPED:
             # NO MITIGATION: see the class docstring on *_STOPPED.
             #   The volume knob stops responding, which the user notices at once. The

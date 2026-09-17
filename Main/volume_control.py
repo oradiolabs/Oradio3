@@ -31,7 +31,7 @@ from time import monotonic
 from singleton import singleton
 from log_service import oradio_log
 from i2c_service import I2CService
-from utilities import run_shell_script, ThreadTemplate
+from utilities import run_shell_script, ThreadTemplate, fatal_exit
 from messaging import (
     Commands,
     Incidents,
@@ -62,6 +62,18 @@ VOLUME_CONTROL_MASTER    = "Digital Playback Volume"
 # turn that misses once reads as 1 and a control that is simply not there reads
 # as every call since.
 SET_FAILURE_WINDOW = 60.0  # seconds
+
+# Failures inside that window before the Oradio asks to be restarted.
+#
+# Deliberately generous, because nobody has measured this yet. One knob turn is
+# ten to fifteen amixer calls, so a control that is simply not there produces a
+# full turn's worth at once and this is reached on the second turn -- while a
+# turn that misses once or twice, which is the case that must not escalate,
+# stays an order of magnitude below it.
+#
+# Every failure is logged with its count either way. Once the field data says
+# how often amixer really misses, this is the number to bring down.
+SET_FAILURE_LIMIT = 20
 
 # Default source volume levels
 DEFAULT_VOLUME_MPD       = "100%"
@@ -234,6 +246,24 @@ class VolumeControl(ThreadTemplate):
             VOLUME_SOURCE, VOLUME_SET_FAILED,
             details=f"control={control} failures={len(recent)} within {SET_FAILURE_WINDOW:.0f}s: {response}",
         ))
+
+        if len(recent) >= SET_FAILURE_LIMIT:
+            # Only a process restart can repair this. oradio-prestart.sh checks
+            # whether the softvol controls exist and runs alsactl restore when
+            # they do not, which is the one thing that recreates them -- and the
+            # usual reason they are missing is that very restore failing at boot.
+            # Restarting this subsystem would only repeat the same amixer call.
+            #
+            # fatal_exit() gets there by the ladder that already exists: systemd
+            # restarts the service, and the crash handler reboots if that start
+            # fails too. The music stops, which is the right trade at this point
+            # -- a volume knob that does nothing makes the Oradio nearly unusable
+            # anyway, and by now it has failed SET_FAILURE_LIMIT times.
+            fatal_exit(
+                f"Volume control unusable: {len(recent)} amixer failures within "
+                f"{SET_FAILURE_WINDOW:.0f}s",
+                stacklevel=4,
+            )
 
     def _calculate_sys_sound_volume(self, master_volume: int) -> int:
         """
