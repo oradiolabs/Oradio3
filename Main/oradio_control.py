@@ -97,6 +97,7 @@ from constants import (
     SOUND_PRESET1,
     SOUND_PRESET2,
     SOUND_PRESET3,
+    SOUND_PRESET_EMPTY,
     SOUND_USB_PRESENT,
     SOUND_USB_ABSENT,
     SOUND_AP_START,
@@ -660,22 +661,28 @@ class StateMachine:
 
     def _state_preset1(self):
         leds.turn_on_led(LED_PRESET1)
-        mpd_control.play(preset="Preset1")
-        play_sound(SOUND_PRESET1)
+        if mpd_control.play(preset="Preset1"):
+            play_sound(SOUND_PRESET1)
+        else:
+            play_sound(SOUND_PRESET_EMPTY)
         if web_service_active.is_set():
             leds.control_blinking_led(LED_PLAY, WEBSERVICE_BLINK_CYCLE)
 
     def _state_preset2(self):
         leds.turn_on_led(LED_PRESET2)
-        mpd_control.play(preset="Preset2")
-        play_sound(SOUND_PRESET2)
+        if mpd_control.play(preset="Preset2"):
+            play_sound(SOUND_PRESET2)
+        else:
+            play_sound(SOUND_PRESET_EMPTY)
         if web_service_active.is_set():
             leds.control_blinking_led(LED_PLAY, WEBSERVICE_BLINK_CYCLE)
 
     def _state_preset3(self):
         leds.turn_on_led(LED_PRESET3)
-        mpd_control.play(preset="Preset3")
-        play_sound(SOUND_PRESET3)
+        if mpd_control.play(preset="Preset3"):
+            play_sound(SOUND_PRESET3)
+        else:
+            play_sound(SOUND_PRESET_EMPTY)
         if web_service_active.is_set():
             leds.control_blinking_led(LED_PLAY, WEBSERVICE_BLINK_CYCLE)
 

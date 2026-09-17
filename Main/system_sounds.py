@@ -55,6 +55,7 @@ from constants import (
     SOUND_NEW_WEBRADIO,
     SOUND_POWER_ERROR,
     SOUND_ORADIO_ERROR,
+    SOUND_PRESET_EMPTY,
 )
 
 ##### LOCAL constants #####################################
@@ -82,6 +83,7 @@ SOUND_FILES = {
     SOUND_NEW_WEBRADIO: f"{SOUNDS_PATH}/NewPlaylistWebradio_melding.wav",
     SOUND_POWER_ERROR:  f"{SOUNDS_PATH}/OradioPowerError_melding.wav",
     SOUND_ORADIO_ERROR: f"{SOUNDS_PATH}/ServiceRequired_melding.wav",
+    SOUND_PRESET_EMPTY: f"{SOUNDS_PATH}/PresetEmpty_melding.wav",
 }
 
 # Critical error at import time if the sounds directory is missing, so the problem

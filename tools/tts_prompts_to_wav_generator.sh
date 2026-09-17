@@ -66,6 +66,7 @@ declare -A PROMPTS=(
 	["Preset1_melding.wav"]="één"
 	["Preset2_melding.wav"]="twee."
 	["Preset3_melding.wav"]="drie!"
+	["PresetEmpty_melding.wav"]="Deze knop heeft geen muziek. Kies een speellijst in de webinterface."
 	["USBAbsent_melding.wav"]="USB geheugenstick is verwijderd."
 	["USBPresent_melding.wav"]="USB-geheugenstick is aanwezig."
 	["WifiConnected_melding.wav"]="Verbonden met wifi."

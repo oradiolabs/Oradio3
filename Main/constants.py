@@ -117,6 +117,7 @@ SOUND_NEW_PRESET   = "NewPlaylistPreset"
 SOUND_NEW_WEBRADIO = "NewPlaylistWebradio"
 SOUND_POWER_ERROR  = "OradioPowerError"
 SOUND_ORADIO_ERROR = "ServiceRequired"
+SOUND_PRESET_EMPTY = "PresetEmpty"
 
 ##### REMOTE SERVER #######################################
 RMS_SERVER_URL = _ENV["RMS_SERVER_URL"]

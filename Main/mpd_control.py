@@ -38,13 +38,6 @@ from singleton import singleton
 from log_service import oradio_log
 from utilities import load_presets, ThreadTemplate
 from mpd_service import MPDService
-from messaging import (
-    Incidents,
-    IncidentMessage,
-    MPD_SOURCE,
-    MPD_PRESET_INVALID,
-)
-
 ##### GLOBAL constants ####################################
 from constants import USB_MUSIC
 
@@ -316,15 +309,25 @@ class MPDControl(MPDService):
                         "Startup cleanup: removed stale dummy entry from playlist '%s'", name,
                     )
 
-    def validate_presets(self) -> None:
+    def validate_presets(self) -> list[str]:
         """
-        Verify each configured preset resolves to an existing playlist or
-        directory, and publish an incident for any that don't -- e.g. a preset
-        pointing at a playlist that was since deleted, or a presets.json that
-        failed to load (see utilities.load_presets(), which degrades to empty
-        listnames on missing/corrupt files rather than raising, so a broken
-        preset would otherwise be silent until a user actually pressed that
-        preset button).
+        Report which configured presets do not resolve to a playlist or directory.
+
+        Returns:
+            The preset keys that point at nothing, in configured order. Empty
+            when every preset is usable.
+
+        Catches a preset pointing at a playlist that was since deleted, and a
+        presets.json that failed to load -- see utilities.load_presets(), which
+        degrades to empty listnames on missing or corrupt files rather than
+        raising, so a broken preset would otherwise be silent until someone
+        pressed that button.
+
+        Returns the answer rather than publishing an incident, so the two places
+        that have to tell the user -- the button press and the web interface --
+        both ask the same question of the same code. An incident would only have
+        told whoever reads RMS, and there is nothing for them to do: the owner
+        of the Oradio fixes this by picking another playlist.
 
         Public and caller-driven: run it when the library is actually there,
         which is at first mount and on every USB insertion after that, not at
@@ -338,13 +341,16 @@ class MPDControl(MPDService):
         }
         directories = set(self.get_directories())
 
+        invalid = []
         for preset, listname in presets.items():
             if not listname:
                 oradio_log.warning("Preset '%s' has no listname configured", preset)
-                Incidents.publish(IncidentMessage(MPD_SOURCE, MPD_PRESET_INVALID))
+                invalid.append(preset)
             elif listname not in playlist_names and listname not in directories:
                 oradio_log.warning("Preset '%s' points to missing playlist/directory '%s'", preset, listname)
-                Incidents.publish(IncidentMessage(MPD_SOURCE, MPD_PRESET_INVALID))
+                invalid.append(preset)
+
+        return invalid
 
     def _current_uri(self) -> str | None:
         """Return the URI of the currently playing song."""
@@ -405,7 +411,11 @@ class MPDControl(MPDService):
 
 ##### Playback functions ##################################
 
-    def play(self, preset: str | None = None) -> None:
+    # Seven returns against a max of 6. Each is a distinct outcome of "should
+    # this call have started music", and the caller now needs that answer --
+    # collapsing them behind a status variable would hide which case a reader
+    # is in, in a method whose whole job is telling those cases apart.
+    def play(self, preset: str | None = None) -> bool:  # pylint: disable=too-many-return-statements
         """
         Start or resume playback.
 
@@ -418,6 +428,12 @@ class MPDControl(MPDService):
         Behaviour when the queue is empty (preset used as fallback):
             - If preset is None, DEFAULT_PRESET is used.
             - Preset resolves to nothing → do nothing.
+
+        Returns:
+            True when music is playing as a result of this call. False means the
+            preset pointed at nothing, which the caller has to tell the user
+            about: without it the Oradio confirms the preset and then falls
+            silent, which reads as "it worked" when it did not.
             - Preset resolves to a playlist → load and play from the first song.
             - Preset resolves to a directory → add all songs, shuffle, and play.
 
@@ -433,12 +449,12 @@ class MPDControl(MPDService):
 
             if state == "play":
                 oradio_log.debug("Playing current playlist")
-                return
+                return True
 
             if state == "pause":
                 oradio_log.debug("Resuming current playlist")
                 _ = self._execute("play")
-                return
+                return True
 
             playlist = status.get("lastloadedplaylist")
 
@@ -453,13 +469,13 @@ class MPDControl(MPDService):
                 _ = self._execute("shuffle")
                 _ = self._execute("play")
 
-            return
+            return True
 
         # Validate and use preset if provided.
         if preset:
             if not isinstance(preset, str) or not preset.strip():
                 oradio_log.error("Invalid preset provided: %r", preset)
-                return
+                return True
             preset = preset.strip()
         else:
             preset = DEFAULT_PRESET
@@ -472,8 +488,7 @@ class MPDControl(MPDService):
 
         if not listname:
             oradio_log.warning("Preset '%s' does not resolve to a playlist", preset)
-            Incidents.publish(IncidentMessage(MPD_SOURCE, MPD_PRESET_INVALID))
-            return
+            return False
 
         playlists = self._execute("listplaylists") or []
         playlist_names = [
@@ -492,7 +507,7 @@ class MPDControl(MPDService):
             oradio_log.debug("Added directory '%s' and shuffled", listname)
         else:
             oradio_log.warning("Playlist or directory '%s' not found for preset '%s'", listname, preset)
-            return
+            return False
 
         # Disable MPD's own random mode; shuffle was applied at load time for directories.
         _ = self._execute("random", 0)
@@ -502,6 +517,7 @@ class MPDControl(MPDService):
 
         _ = self._execute("play")
         oradio_log.debug("Playback started for: %s", listname)
+        return True
 
     def play_song(self, song: str) -> None:
         """
