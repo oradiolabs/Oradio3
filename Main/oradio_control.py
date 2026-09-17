@@ -463,8 +463,29 @@ class StateMachine:
             return
 
         oradio_log.debug("Starting WebService: %r", web_service)
+
+        # Blink first, because the start below takes seconds: the radio has to
+        # switch to access-point mode and the server has to come up. Without it
+        # the user holds the button, hears the click and sees nothing happen.
         leds.control_blinking_led(LED_PLAY, WEBSERVICE_BLINK_CYCLE)
-        web_service.start()
+
+        if web_service.start():
+            return
+
+        # The portal did not come up, and WebService.start() has already fallen
+        # back to normal operation -- and asked for a restart if this was the
+        # second failure in a row. Nothing is left to repair here.
+        #
+        # What is left is the LED. It was set blinking above to say "coming up",
+        # and web_service_active is never set on a failed start, so nothing else
+        # would ever turn it off: the Oradio would sit there promising a portal
+        # that is not there. Restored the same way on_webservice_idle() does it,
+        # since this is the same end state reached by a different route.
+        oradio_log.warning("WebService did not start; restoring the play LED")
+        if self.state == "StatePlay":
+            leds.turn_on_led(LED_PLAY)
+        else:
+            leds.turn_off_led(LED_PLAY)
 
     # --- transition() helpers ---
 
