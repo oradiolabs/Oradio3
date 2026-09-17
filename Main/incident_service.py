@@ -740,16 +740,22 @@ class IncidentHandler(MessageHandlerTemplate):
             # tried again; this is the first attempt.
             self._restart_subsystem("volume control", VolumeControl)
         elif incident.message == VOLUME_SET_FAILED:
-            # OPEN QUESTION, not a retry:
-            #   amixer could not set a softvol control, which usually means the
-            #   controls are not there -- alsactl restore failed at boot. See
-            #   the note at that ExecStartPre= in oradio.service: this incident
-            #   is deliberately the one place a broken audio path is reported,
-            #   raised by the component that discovered it.
+            # OPEN QUESTION, pending a measurement:
+            #   amixer could not set a softvol control. Usually that means the
+            #   controls are not there at all -- alsactl restore failed at boot,
+            #   see the note at that ExecStartPre= in oradio.service -- and then
+            #   the volume knob does nothing, which the user notices at once.
             #
-            #   Retrying will not create a control that does not exist. What is
-            #   undecided is what the Oradio should do with a volume knob that
-            #   cannot move.
+            #   Not acted on yet, because the incident cannot yet tell a broken
+            #   installation from one missed call: _set_volume() runs ten to
+            #   fifteen times per knob turn with no retry in front of it. It now
+            #   carries how many failures fell inside SET_FAILURE_WINDOW, which
+            #   is the measurement this is waiting on.
+            #
+            #   When a threshold is known, the escalation is fatal_exit(): only a
+            #   process restart re-runs oradio-prestart.sh, whose conditional
+            #   alsactl restore is the one thing that recreates missing controls.
+            #   A subsystem restart would only repeat the same amixer call.
             oradio_log.debug("Mitigation to be implemented")
         elif incident.message == VOLUME_STOPPED:
             # NO MITIGATION: see the class docstring on *_STOPPED.

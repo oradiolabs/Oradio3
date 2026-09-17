@@ -26,6 +26,8 @@ Created on January 27, 2025
     polling it themselves and without being flooded during a single turn.
 """
 ##### Oradio modules ######################################
+from time import monotonic
+
 from singleton import singleton
 from log_service import oradio_log
 from i2c_service import I2CService
@@ -53,6 +55,13 @@ VOL_MAX   = "100%"      # 207
 VOLUME_CONTROL_MPD       = "VolumeMPD"
 VOLUME_CONTROL_SYS_SOUND = "VolumeSysSound"
 VOLUME_CONTROL_MASTER    = "Digital Playback Volume"
+
+# Window over which failed amixer calls are counted, for the log line and the
+# incident details. A measurement, not a threshold: nothing acts on the count
+# yet. Long enough that the calls of one knob turn fall inside it, so a single
+# turn that misses once reads as 1 and a control that is simply not there reads
+# as every call since.
+SET_FAILURE_WINDOW = 60.0  # seconds
 
 # Default source volume levels
 DEFAULT_VOLUME_MPD       = "100%"
@@ -107,6 +116,10 @@ class VolumeControl(ThreadTemplate):
         # ThreadTemplate's own state exists before any subsequent hardware
         # I/O below could plausibly fail partway through.
         super().__init__(name="VolumeControl")
+
+        # Timestamps of failed amixer calls inside SET_FAILURE_WINDOW. Before
+        # the first _set_volume() below, which already uses it.
+        self._set_failures: list[float] = []
 
         # Set default MPD volume
         self._set_volume(VOLUME_CONTROL_MPD, DEFAULT_VOLUME_MPD)
@@ -180,10 +193,47 @@ class VolumeControl(ThreadTemplate):
         cmd = f"amixer -c 0 cset name='{control}' {volume}"
         result, response = run_shell_script(cmd)
         if not result:
-            oradio_log.error("Error setting volume: %s", response)
-            Incidents.publish(IncidentMessage(VOLUME_SOURCE, VOLUME_SET_FAILED))
+            self._count_set_failure(control, response)
         else:
+            self._set_failures.clear()
             oradio_log.debug("Volume of '%s' set to: %s", control, volume)
+
+    def _count_set_failure(self, control: str, response: str) -> None:
+        """
+        Record a failed amixer call and report it.
+
+        Args:
+            control:  The ALSA control that could not be set.
+            response: What amixer said.
+
+        Counted rather than simply reported, because this runs on every step of
+        a knob turn -- a single turn is ten to fifteen calls -- and there is no
+        retry in front of it. One miss during a turn says nothing; a run of them
+        says the control is not there, which usually means alsactl restore
+        failed at boot and the softvol controls were never created.
+
+        The count is what the incident carries, and it is the measurement this
+        is here for: nobody knows yet how often amixer misses in the field. Once
+        that is known, a threshold can be put in front of the escalation that
+        this cannot yet justify -- ending the process, so oradio-prestart.sh
+        runs its conditional alsactl restore and recreates the controls.
+
+        Until then every failure is still reported, exactly as before. What is
+        added is the count, so a stream of them can be told from a single one.
+        """
+        self._set_failures.append(monotonic())
+        window_start = monotonic() - SET_FAILURE_WINDOW
+        recent = [t for t in self._set_failures if t >= window_start]
+        self._set_failures = recent
+
+        oradio_log.error(
+            "Error setting volume of '%s': %s (%d failure(s) within %.0fs)",
+            control, response, len(recent), SET_FAILURE_WINDOW,
+        )
+        Incidents.publish(IncidentMessage(
+            VOLUME_SOURCE, VOLUME_SET_FAILED,
+            details=f"control={control} failures={len(recent)} within {SET_FAILURE_WINDOW:.0f}s: {response}",
+        ))
 
     def _calculate_sys_sound_volume(self, master_volume: int) -> int:
         """
