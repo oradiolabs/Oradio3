@@ -120,7 +120,6 @@ MPD_SOURCE         = "MPD message"
 MPD_CONNECT_FAILED = "MPD failed to connect"
 MPD_EXECUTE_FAILED = "MPD failed to execute"
 MPD_MONITOR_FAILED = "MPD monitor incident"
-MPD_PRESET_INVALID = "MPD preset incident"
 
 # Remote Monitoring
 RMS_SOURCE       = "RMS message"

@@ -54,7 +54,7 @@ from messaging import (
     GPIO_SOURCE, GPIO_PINS_FAILED, GPIO_BUTTONS_FAILED,
     I2C_SOURCE, I2C_BUS_FAILED, I2C_READ_FAILED, I2C_WRITE_FAILED,
     LED_SOURCE, LED_BLINK_START_FAILED, LED_BLINK_STOP_FAILED,
-    MPD_SOURCE, MPD_CONNECT_FAILED, MPD_EXECUTE_FAILED, MPD_MONITOR_FAILED, MPD_PRESET_INVALID,
+    MPD_SOURCE, MPD_CONNECT_FAILED, MPD_EXECUTE_FAILED, MPD_MONITOR_FAILED,
     LOG_SOURCE, LOG_START_FAILED, LOG_QUEUE_OVERFLOW, LOG_QUEUE_RECOVERED, LOG_LISTENER_DEAD, LOG_STOPPED,
     RMS_SOURCE, RMS_START_FAILED, RMS_POST_FAILED,
     SOUND_SOURCE, SOUND_MISSING_DIR, SOUND_MISSING_FILE, SOUND_PLAYBACK_FAILED,
@@ -527,9 +527,6 @@ class IncidentHandler(MessageHandlerTemplate):
             # silence; the database is on disk and MPDControl reconnects on its
             # next command.
             #
-            # Not for MPD_PRESET_INVALID below: that one is about what is on the
-            # USB drive, and restarting mpd will not change it.
-            #
             # Checked first, because an incident can arrive after the fault it
             # describes is over. MPDService's retry burst takes seconds, so a
             # burst that began before an earlier restart can open the circuit
@@ -555,10 +552,6 @@ class IncidentHandler(MessageHandlerTemplate):
                 # restarts elsewhere in this file stay silent on purpose: they
                 # do not invalidate anything the state machine tracks.
                 Commands.publish(CommandMessage(INCIDENT_SOURCE, INCIDENT_RECOVERED))
-        elif incident.message == MPD_PRESET_INVALID:
-            # MITIGATION TO BE IMPLEMENTED:
-            #   Notify web interface so the user can reassign the preset
-            oradio_log.debug("Mitigation to be implemented")
         else:
             oradio_log.error("Unhandled MPD incident: '%s'", incident.message)
 

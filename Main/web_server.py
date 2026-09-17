@@ -512,6 +512,12 @@ async def oradio3_page(request: Request):
     context = {
         "oldssid"    : oldssid,
         "presets"    : load_presets(),
+        # Which of those presets point at nothing, so the page can say so
+        # instead of showing a playlist name that no longer exists. Asked of
+        # mpd_control rather than worked out here or in the browser: it is the
+        # same question the button press asks, and one definition of "invalid"
+        # is the point.
+        "invalid"    : mpd_control.validate_presets(),
         "directories": mpd_control.get_directories(),
         "playlists"  : mpd_control.get_playlists(),
         "hw_serial"  : get_serial(),

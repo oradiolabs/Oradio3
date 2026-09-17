@@ -146,7 +146,7 @@ Design choices:
 								type="text"
 								id="{{ preset }}"
 								name="{{ preset }}"
-								value="{{ presets[preset] }}"
+								value="{% if preset in invalid %}&lt;leeg&gt;{% else %}{{ presets[preset] }}{% endif %}"
 								placeholder="Kies een speellijst"
 							/>
 							<span class="custom-icon">&#x25BC;</span> <!-- ▼ icon -->
@@ -159,7 +159,20 @@ Design choices:
 				{% endfor %}
 
 				<!-- Show notifcation, if any -->
-				<div id="notification_presets" class="notification">
+				<!--
+					Rendered here when a preset points at nothing, rather than left to
+					Javascript: the page already knows, and the user opening this page is
+					the moment to say so. The inline display is needed because
+					.notification is hidden until showNotification() reveals it; saving a
+					preset calls hideNotification() and clears this, which is right -- by
+					then they are fixing it.
+				-->
+				<div id="notification_presets" class="notification"{% if invalid %} style="display: block"{% endif %}>
+				{% if invalid %}
+					<span class="error">
+						{% if invalid|length == 1 %}Een knop heeft geen geldige speellijst{% else %}{{ invalid|length }} knoppen hebben geen geldige speellijst{% endif %}
+					</span>
+				{% endif %}
 					<!-- Will be filled by Javascript -->
 				</div>
 
