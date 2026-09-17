@@ -83,31 +83,42 @@ MPD_SERVICE = "mpd.service"
 
 class IncidentHandler(MessageHandlerTemplate):
     """
-    Handle Incident messages and perform incident-specific mitigation.
+    Receive incidents and do whatever can still be done about them.
 
-    Dispatches each message to a source-specific handler method;
-    unrecognised sources are logged as errors.
+    Each incident is dispatched to a handler for its source; an unrecognised
+    source is logged as an error. _handle_message() reports every incident to
+    RMS before that dispatch, so no handler has to. What a handler adds is
+    whatever should happen next -- and for most incidents that is nothing.
 
-    Every incident is reported to RMS by _handle_message() before the dispatch,
-    so no handler below has to do that. What a handler adds is the action that
-    follows the report -- which for a good many incidents is nothing at all.
+    Each branch below opens with a label saying which of four cases it is:
 
-    The notes in those handlers say which is which:
+      MITIGATION                Something is done: a service or subsystem is
+                                restarted, state is republished, or the process
+                                is ended so systemd and the crash handler can
+                                take over.
 
-      NO MITIGATION             Reporting it IS the mitigation. There is
-                                nothing the Oradio can do about it from here.
+      NO MITIGATION             Reporting it IS the mitigation. Either the fault
+                                has already been retried where it belongs, or
+                                nothing the Oradio can do would change it.
 
-      OPEN QUESTION             The subsystem already tried to recover and
-                                failed -- ThreadTemplate.restart_on_crash spent
-                                its budget before this incident was raised.
-                                Retrying here would be a second mechanism
-                                fighting the first. What is undecided is what
-                                the Oradio should DO about a subsystem that
-                                stays down.
+      OPEN QUESTION             The subsystem tried and failed, and retrying
+                                here would be a second mechanism fighting the
+                                first. Undecided is what the Oradio should DO
+                                about a subsystem that stays down.
 
-      MITIGATION TO BE          Genuinely unimplemented: a subsystem that does
-      IMPLEMENTED               not restart itself, or a fault that needs a
-                                different repair than a restart.
+      MITIGATION TO BE          Genuinely unimplemented.
+      IMPLEMENTED
+
+    A note on the *_STOPPED incidents, which are all NO MITIGATION for the same
+    reason: nothing in the operational Oradio calls stop() on those workers, and
+    none of their do_work() bodies has a path that raises -- an I2C failure
+    comes back as None, not as an exception. So a *_STOPPED means an exception
+    nobody foresaw, repeated until ThreadTemplate.restart_on_crash gave up. A
+    further restart from here would meet the same one.
+
+    Their value is what they carry: ThreadTemplate.stop_reason(), the exception
+    that ended the last attempt and how often it recurred. The note on each of
+    those branches says only what is lost while that worker stays down.
     """
     def __init__(self) -> None:
         """
@@ -274,9 +285,10 @@ class IncidentHandler(MessageHandlerTemplate):
             # tried again; this is the first attempt.
             self._restart_subsystem("backlighting", Backlighting)
         elif incident.message == BACKLIGHTING_STOPPED:
-            # OPEN QUESTION, not a retry:
-            #   Do NOT retry the worker here; see BACKLIGHTING_START_FAILED above.
-            oradio_log.debug("Mitigation to be implemented")
+            # NO MITIGATION: see the class docstring on *_STOPPED.
+            #   The backlight holds its last brightness. The Oradio plays on and every
+            #   button works.
+            pass
         else:
             oradio_log.error("Unhandled backlighting incident: '%s'", incident.message)
 
@@ -467,9 +479,11 @@ class IncidentHandler(MessageHandlerTemplate):
                 )
 
         elif incident.message == LOG_STOPPED:
-            # OPEN QUESTION, not a retry:
-            #   Do NOT retry the worker here; see LOG_START_FAILED above.
-            oradio_log.debug("Mitigation to be implemented")
+            # NO MITIGATION: see the class docstring on *_STOPPED.
+            #   What stops is the watching. LOG_QUEUE_OVERFLOW and LOG_LISTENER_DEAD can
+            #   no longer be raised, so a logging failure after this one passes
+            #   unnoticed.
+            pass
         else:
             oradio_log.error("Unhandled log incident: '%s'", incident.message)
 
@@ -634,9 +648,10 @@ class IncidentHandler(MessageHandlerTemplate):
             # tried again; this is the first attempt.
             self._restart_subsystem("throttling monitor", RPiThrottlingMonitor)
         elif incident.message == THROTTLING_STOPPED:
-            # OPEN QUESTION, not a retry:
-            #   Do NOT retry the worker here; see THROTTLING_START_FAILED above.
-            oradio_log.debug("Mitigation to be implemented")
+            # NO MITIGATION: see the class docstring on *_STOPPED.
+            #   Nothing user-visible is lost; what stops is the watching. A later under-
+            #   voltage or over-temperature goes unreported.
+            pass
         else:
             oradio_log.error("Unhandled throttling incident: '%s'", incident.message)
 
@@ -728,9 +743,10 @@ class IncidentHandler(MessageHandlerTemplate):
             #   cannot move.
             oradio_log.debug("Mitigation to be implemented")
         elif incident.message == VOLUME_STOPPED:
-            # OPEN QUESTION, not a retry:
-            #   Do NOT retry the worker here; see VOLUME_START_FAILED above.
-            oradio_log.debug("Mitigation to be implemented")
+            # NO MITIGATION: see the class docstring on *_STOPPED.
+            #   The volume knob stops responding, which the user notices at once. The
+            #   Oradio keeps playing at whatever level it was on.
+            pass
         else:
             oradio_log.error("Unhandled volume incident: '%s'", incident.message)
 

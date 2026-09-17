@@ -148,7 +148,9 @@ class LogHealthMonitor(ThreadTemplate):
 
     def on_stopped(self) -> None:
         """Report incident: Oradio never intentionally stops log health monitoring."""
-        Incidents.publish(IncidentMessage(LOG_SOURCE, LOG_STOPPED))
+        Incidents.publish(
+            IncidentMessage(LOG_SOURCE, LOG_STOPPED, details=self.stop_reason())
+        )
 
 ##### Public API ##########################################
 

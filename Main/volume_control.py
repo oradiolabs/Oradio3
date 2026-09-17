@@ -325,7 +325,9 @@ class VolumeControl(ThreadTemplate):
 
     def on_stopped(self) -> None:
         """Report incident: Oradio never intentionally stops volume control."""
-        Incidents.publish(IncidentMessage(VOLUME_SOURCE, VOLUME_STOPPED))
+        Incidents.publish(
+            IncidentMessage(VOLUME_SOURCE, VOLUME_STOPPED, details=self.stop_reason())
+        )
 
 ##### Public API ##########################################
 

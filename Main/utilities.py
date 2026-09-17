@@ -476,6 +476,31 @@ class ThreadTemplate:
         # Pass is intentional, see doc string
         pass    # pylint: disable=unnecessary-pass
 
+    def stop_reason(self) -> str:
+        """
+        Why this worker ended, for the details of a *_STOPPED incident.
+
+        Returns:
+            A short description: the last exception and how often it recurred,
+            or a note that the stop was asked for.
+
+        Worth passing explicitly rather than letting IncidentMessage capture a
+        stack. That capture happens where the incident is raised -- in
+        on_stopped(), on the way out -- so it describes the tear-down and not
+        the failure that caused it. The exception below is the one that ended
+        the last attempt, which is what someone reading the incident wants.
+
+        The count matters too: with restart_on_crash the worker has already
+        tried and failed several times, so "4 times" says this was persistent
+        rather than a one-off.
+        """
+        exc = self.exception
+        if exc is None:
+            return "stopped on request"
+
+        attempts = len(self._crash_times)
+        return f"{type(exc).__name__}: {exc} (after {attempts} crash(es))"
+
     def on_stopped(self) -> None:
         """
         Called once when the worker has ended and is not coming back.

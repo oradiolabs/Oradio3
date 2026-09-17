@@ -303,7 +303,9 @@ class RPiThrottlingMonitor(ThreadTemplate):
 
     def on_stopped(self) -> None:
         """Report incident: Oradio never intentionally stops throttling monitoring."""
-        Incidents.publish(IncidentMessage(THROTTLING_SOURCE, THROTTLING_STOPPED))
+        Incidents.publish(
+            IncidentMessage(THROTTLING_SOURCE, THROTTLING_STOPPED, details=self.stop_reason())
+        )
 
 ##### Public API ##########################################
 

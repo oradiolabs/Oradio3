@@ -119,7 +119,9 @@ class _BacklightWorker(ThreadTemplate):
 
     def on_stopped(self) -> None:
         """Report incident: Oradio never intentionally stops backlighting."""
-        Incidents.publish(IncidentMessage(BACKLIGHTING_SOURCE, BACKLIGHTING_STOPPED))
+        Incidents.publish(
+            IncidentMessage(BACKLIGHTING_SOURCE, BACKLIGHTING_STOPPED, details=self.stop_reason())
+        )
 
 @singleton
 class Backlighting:
