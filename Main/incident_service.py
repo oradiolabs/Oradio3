@@ -564,12 +564,21 @@ class IncidentHandler(MessageHandlerTemplate):
             incident: Incident message received from the incident bus.
         """
         if incident.message == RMS_START_FAILED:
-            # OPEN QUESTION, not a retry:
-            #   what cannot be done, since the sender that would post it is the
-            #   thing that failed. _RmsSender opts into restart_on_crash, so by
-            #   the time this arrives its budget is spent and the Oradio has no
-            #   way left to tell anyone. Only the log file carries it.
-            oradio_log.debug("Mitigation to be implemented")
+            # MITIGATION: start the RMS service again.
+            #
+            # The construction of the sender or its worker thread failed, so
+            # nothing this Oradio has to say can leave it. That is worth
+            # repairing precisely because the user will never notice: the music
+            # plays, the buttons work, and the only thing missing is the one
+            # channel through which a fault could be seen from anywhere else.
+            #
+            # The incident itself does not reach RMS: _handle_message() tried to
+            # send it through the service that just failed to start. The log
+            # file keeps it, and the next crash upload carries it along.
+            #
+            # Restart the subsystem as this one leaves an Oradio that works but
+            # cannot report, which blocks remote incident monitoring.
+            self._restart_subsystem("RMS service", RMService)
         elif incident.message == RMS_POST_FAILED:
             # NO MITIGATION: reporting it IS the mitigation.
             #   Nothing to repair and nothing that can be sent: the sender that
