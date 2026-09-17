@@ -40,6 +40,7 @@ Created on December 23, 2024
         https://superfastpython.com/multiprocessing-in-python/
 """
 import time
+from time import monotonic
 from typing import Any
 from pathlib import Path
 from multiprocessing import Queue
@@ -48,7 +49,7 @@ from threading import Thread, RLock
 ##### Oradio modules ######################################
 from singleton import singleton
 from log_service import oradio_log, ORADIO_LOG_LEVEL
-from utilities import run_shell_script
+from utilities import run_shell_script, fatal_exit
 from wifi_service import WifiService, get_wifi_connection
 from messaging import (
     safe_get,
@@ -91,6 +92,20 @@ SERVER_READY_TIMEOUT = 15
 # Covers the reconnect on stop() and nothing else. The access point coming up on
 # start() is wifi_service.await_access_point()'s wait, so this value can be
 # tuned on its own without checking anything in wifi_service.
+# Failed portal attempts in a row, and how long one keeps counting, before the
+# Oradio asks to be restarted.
+#
+# The user experience this serves: a long press that does not produce a network
+# on their phone, and a second long press that does not either. By then they are
+# standing in front of it knowing something is wrong, so the music stopping and
+# the Oradio coming back up is an answer rather than a surprise.
+#
+# Consecutive, and only while the window lasts. Two failed attempts a week apart
+# are two separate disappointments, not a pattern -- and a reboot nobody asked
+# for is worse than a portal that did not open.
+PORTAL_ATTEMPT_LIMIT  = 2
+PORTAL_ATTEMPT_WINDOW = 300.0  # seconds
+
 RECONNECT_TIMEOUT = 45
 
 SOCKET_TIMEOUT = 3   # WebSocket ping interval/timeout in seconds; safe for small devices and networks
@@ -328,6 +343,10 @@ class WebService:
         # Shared queue: FastAPI route handlers post plain dicts here;
         # _check_server_messages() reads and dispatches them.
         self.request_queue = Queue()
+
+        # Timestamps of failed start() calls inside PORTAL_ATTEMPT_WINDOW.
+        # See _handle_failed_start().
+        self._failed_starts: list[float] = []
 
         self.wifi_service = WifiService()
 
@@ -775,8 +794,62 @@ class WebService:
         # a "success" state announced after a failed start().
         if status:
             Commands.publish(CommandMessage(WEB_SOURCE, self.state))
+            self._failed_starts = []
+        else:
+            self._handle_failed_start()
 
         return status
+
+    def _handle_failed_start(self) -> None:
+        """
+        Fall back to normal operation, and ask to be restarted on a repeat.
+
+        Called when start() could not bring the portal up. Two things have to
+        happen, and in this order.
+
+        First the fall-back. A failed start leaves whatever it managed before it
+        gave up: the radio possibly in access-point mode, an iptables redirect,
+        a dnsmasq config, a half-started server. None of it does the user any
+        good, and the access point in particular leaves the Oradio off the
+        household network and unable to reach RMS. stop() undoes exactly those
+        steps and each of them is idempotent, so reusing it is both the smallest
+        and the most complete way back to normal operation.
+
+        Then the count. One failed long press is a disappointment; a second one
+        soon after is the user standing in front of an Oradio that will not do
+        what they asked, twice. At that point restarting is the better answer --
+        it rebuilds everything the portal needs from scratch, and it frees a
+        uvicorn thread that would not stop, which nothing inside this process
+        can do.
+
+        fatal_exit() rather than a reboot: systemd restarts the service first,
+        which is quicker and enough for almost everything, and the crash handler
+        only reboots if that start fails too. The music stops either way, which
+        is the point -- by the second attempt the user already knows something
+        is wrong, and an Oradio visibly starting over is an answer.
+        """
+        now = monotonic()
+        self._failed_starts = [
+            t for t in self._failed_starts if now - t < PORTAL_ATTEMPT_WINDOW
+        ]
+        self._failed_starts.append(now)
+
+        oradio_log.warning(
+            "Captive portal did not start (attempt %d of %d within %.0fs); "
+            "falling back to normal operation",
+            len(self._failed_starts), PORTAL_ATTEMPT_LIMIT, PORTAL_ATTEMPT_WINDOW,
+        )
+
+        # Best effort: stop() reports its own failures, and a tear-down that
+        # cannot finish must not stop the count below from being acted on.
+        self.stop()
+
+        if len(self._failed_starts) >= PORTAL_ATTEMPT_LIMIT:
+            fatal_exit(
+                f"Captive portal failed {len(self._failed_starts)} times within "
+                f"{PORTAL_ATTEMPT_WINDOW:.0f}s; restarting the Oradio",
+                stacklevel=4,
+            )
 
     def stop(self) -> bool:
         """

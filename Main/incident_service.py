@@ -796,9 +796,11 @@ class IncidentHandler(MessageHandlerTemplate):
             if self._within_restart_budget("web message listener"):
                 WebService().ensure_listener()
         elif incident.message == WEB_START_FAILED:
-            # MITIGATION TO BE IMPLEMENTED:
-            #   If retry_count < MAX_RETRIES: retry start
-            oradio_log.debug("Mitigation to be implemented")
+            # NO MITIGATION: the portal path handles it.
+            #   WebService.start() falls back to normal operation on every failure and
+            #   asks to be restarted on a second one within its window -- see
+            #   _handle_failed_start(). Nothing to add here.
+            pass
         elif incident.message == WEB_STOP_FAILED:
             # MITIGATION TO BE IMPLEMENTED:
             #   If retry_count < MAX_RETRIES: retry stop
@@ -817,13 +819,11 @@ class IncidentHandler(MessageHandlerTemplate):
             incident: Incident message received from the incident bus.
         """
         if incident.message == WIFI_AP_FAILED:
-            # OPEN QUESTION, not a retry:
-            #   The user long-pressed and no network appeared on their phone.
-            #   WebService.start() already gave up, so retrying the access
-            #   point here would race whatever it does next. What is undecided
-            #   is whether the Oradio should say something -- this is the one
-            #   failure the user is standing in front of, waiting for.
-            oradio_log.debug("Mitigation to be implemented")
+            # NO MITIGATION: the portal path handles it.
+            #   The same event from the other side: WebService.start() waits on
+            #   await_access_point(), so an access point that does not come up is a
+            #   portal that does not start, and that path already falls back and counts.
+            pass
         elif incident.message == WIFI_DBUS_FAILED:
             # NO MITIGATION: reporting it IS the mitigation.
             #   NetworkManager never appeared. WifiService already waited for it
