@@ -29,7 +29,7 @@ Created on January 10, 2025
     - mpdlist/mpdlists: the combination of directories and playlists
     - current: the directory/playlist in the playback queue
 """
-from threading import Lock
+from threading import RLock
 from os import path
 from unicodedata import normalize, category
 
@@ -205,8 +205,14 @@ class MPDControl(MPDService):
         # stick that is not there yet, reporting every one of them as broken
         # and never retracting it.
 
-        # Serialises initialise_library() against itself; see there.
-        self._library_lock = Lock()
+        # Serialises everything that reads or rewrites the library state:
+        # initialise_library() against itself, and validate_presets() against
+        # both -- the web interface calls that one directly while a USB
+        # insertion may be running the scan.
+        #
+        # Reentrant, because initialise_library() holds it and then calls
+        # validate_presets(), which takes it again.
+        self._library_lock = RLock()
 
         # Reused across play_song() calls when idle, to avoid spawning a new
         # OS thread per call in the common (sequential) case. See play_song().
@@ -332,25 +338,32 @@ class MPDControl(MPDService):
         Public and caller-driven: run it when the library is actually there,
         which is at first mount and on every USB insertion after that, not at
         construction time.
+
+        Takes _library_lock, so an answer is never given while the library is
+        being rewritten underneath it. Without that, the web interface asking
+        this during a USB scan can catch _sanitize_playlists() mid-way and
+        report presets as broken that are not -- the very interleaving
+        initialise_library() takes the lock to prevent.
         """
-        presets = load_presets()
-        playlists = self._execute("listplaylists") or []
-        playlist_names = {
-            p.get("playlist") for p in playlists
-            if isinstance(p, dict) and p.get("playlist")
-        }
-        directories = set(self.get_directories())
+        with self._library_lock:
+            presets = load_presets()
+            playlists = self._execute("listplaylists") or []
+            playlist_names = {
+                p.get("playlist") for p in playlists
+                if isinstance(p, dict) and p.get("playlist")
+            }
+            directories = set(self.get_directories())
 
-        invalid = []
-        for preset, listname in presets.items():
-            if not listname:
-                oradio_log.warning("Preset '%s' has no listname configured", preset)
-                invalid.append(preset)
-            elif listname not in playlist_names and listname not in directories:
-                oradio_log.warning("Preset '%s' points to missing playlist/directory '%s'", preset, listname)
-                invalid.append(preset)
+            invalid = []
+            for preset, listname in presets.items():
+                if not listname:
+                    oradio_log.warning("Preset '%s' has no listname configured", preset)
+                    invalid.append(preset)
+                elif listname not in playlist_names and listname not in directories:
+                    oradio_log.warning("Preset '%s' points to missing playlist/directory '%s'", preset, listname)
+                    invalid.append(preset)
 
-        return invalid
+            return invalid
 
     def _current_uri(self) -> str | None:
         """Return the URI of the currently playing song."""
