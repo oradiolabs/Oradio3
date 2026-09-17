@@ -794,10 +794,19 @@ class DeferredStarter:  # pylint: disable=too-many-instance-attributes
             self._clear_starting()
 
 def get_serial() -> str:
-    """Extract serial from Raspberry Pi."""
+    """
+    Extract serial from Raspberry Pi.
+
+    Returns:
+        The serial number, or "Unknown" when it could not be read.
+
+    Every failure is logged as an error. The serial is how RMS tells one
+    Oradio from another: a device reporting as "Unknown" is not a missing
+    detail but a device whose incidents cannot be attributed to it, and that
+    has to be visible on the device rather than guessed at from the far end.
+    """
     cmd = "vcgencmd otp_dump"
     result, response = run_shell_script(cmd)
-
     if not result:
         oradio_log.error("Error during <%s> to get serial number, error: %s", cmd, response)
         return "Unknown"
@@ -806,9 +815,14 @@ def get_serial() -> str:
     for line in response.splitlines():
         if line.startswith(SERIAL_OTP_ROW):
             serial = line[len(SERIAL_OTP_ROW):].strip()
-            return serial or "Unknown"
+            if serial:
+                return serial
+            oradio_log.error("Serial row '%s' in <%s> output is empty", SERIAL_OTP_ROW, cmd)
+            return "Unknown"
 
+    oradio_log.error("No serial row '%s' in <%s> output", SERIAL_OTP_ROW, cmd)
     return "Unknown"
+
 
 def fatal_exit(message: str, stacklevel: int = 6, *, exc: BaseException | None = None, code: int = 1) -> NoReturn:
     """
