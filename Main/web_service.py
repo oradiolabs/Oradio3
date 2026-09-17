@@ -46,6 +46,7 @@ from multiprocessing import Queue
 from threading import Thread, RLock
 
 ##### Oradio modules ######################################
+from singleton import singleton
 from log_service import oradio_log, ORADIO_LOG_LEVEL
 from utilities import run_shell_script
 from wifi_service import WifiService, get_wifi_connection
@@ -286,6 +287,7 @@ class UvicornServerThread:
                 not self._server.should_exit
             )
 
+@singleton
 class WebService:
     """
     Manage the Captive Portal web interface over WiFi or a hosted access point.
@@ -478,6 +480,42 @@ class WebService:
                 oradio_log.error("Timeout waiting for WiFi state in %s", target_states)
                 return False
             time.sleep(1)
+        return True
+
+    def ensure_listener(self) -> bool:
+        """
+        Make sure the message-listener thread is running, and start it if not.
+
+        Returns:
+            True when a listener thread is alive afterwards.
+
+        The listener is what turns an API request into an action. Without it the
+        portal still answers and still accepts what the user submits, and
+        nothing whatever happens with it -- a failure that looks to the user
+        like a web page that does not work, with no error to point at.
+
+        Nothing else brings it back: it is started once in __init__ and
+        deliberately has no stopping condition, so there is no loop watching it.
+
+        Safe to call when it is already running -- that is the common case, and
+        it returns at once. A new thread is only created when the old one is
+        gone, and it picks up the same queue where the old one left off, so
+        requests that arrived meanwhile are still waiting in it.
+        """
+        if self.server_listener is not None and self.server_listener.is_alive():
+            return True
+
+        oradio_log.warning("Web message listener is not running; starting it again")
+        try:
+            self.server_listener = Thread(target=self._check_server_messages, daemon=True)
+            self.server_listener.start()
+        # Broad catch: a thread that cannot be created is the fault being
+        # repaired, and it must not take the incident handler down with it.
+        except Exception as ex_err:      # pylint: disable=broad-exception-caught
+            oradio_log.error("Could not restart the web message listener: %s", ex_err)
+            return False
+
+        oradio_log.info("Web message listener restarted")
         return True
 
     def _check_server_messages(self) -> None:

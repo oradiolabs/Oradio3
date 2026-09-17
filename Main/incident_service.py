@@ -33,6 +33,7 @@ from rms_service import RMService, INCIDENT
 from mpd_service import mpd_is_ready
 from mpd_monitor import MPDMonitor
 from usb_service import USBObserver, republish_usb_state
+from web_service import WebService
 from backlight_service import Backlighting
 from volume_control import VolumeControl
 from log_monitor import LogHealthMonitor
@@ -776,9 +777,24 @@ class IncidentHandler(MessageHandlerTemplate):
             incident: Incident message received from the incident bus.
         """
         if incident.message == WEB_SERVER_FAILED:
-            # MITIGATION TO BE IMPLEMENTED:
-            #   If retry_count < MAX_RETRIES: retry start
-            oradio_log.debug("Mitigation to be implemented")
+            # MITIGATION: make sure the message listener is running.
+            #
+            # Raised from two places. One is the lazy import of the web stack
+            # failing, which repairs itself: _create_server() imports again on
+            # the next long press. The other is the message-listener thread
+            # failing to start, and nothing repairs that -- it is started once
+            # in __init__ and has no stopping condition, so there is no loop
+            # watching it.
+            #
+            # Worth repairing because of how it fails: the portal still answers
+            # and still accepts what the user submits, and nothing happens with
+            # it. To the user that is a web page that does not work, with no
+            # error to point at.
+            #
+            # ensure_listener() returns at once when the thread is alive, which
+            # is the case for the import failure, so one call covers both.
+            if self._within_restart_budget("web message listener"):
+                WebService().ensure_listener()
         elif incident.message == WEB_START_FAILED:
             # MITIGATION TO BE IMPLEMENTED:
             #   If retry_count < MAX_RETRIES: retry start
