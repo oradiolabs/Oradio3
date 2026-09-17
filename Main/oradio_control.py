@@ -619,28 +619,41 @@ class StateMachine:
         self._delayed_timers[key] = timer
         timer.start()
 
-    def transition(self, requested_state: str) -> None:
-        """Request a transition; applies guards and spawns the handler."""
+    def transition(self, requested_state: str) -> bool:
+        """
+        Ask for a state, and say whether a handler will run for it.
+
+        Returns:
+            True when a state worker was spawned, so the handler for the
+            requested state will set the LEDs and announce what happened. False
+            when a guard above answered instead -- next song, a blocked
+            webradio, StateError -- and nothing further will touch them.
+
+            _press_preset() needs that answer: it starts the LED blinking before
+            calling this, and on False there is no handler coming to turn it
+            solid again.
+Request a transition; applies guards and spawns the handler."""
         if self.state == "StateError":
             oradio_log.warning("Ignoring transition to %s because StateError is active", requested_state)
-            return
+            return False
 
         oradio_log.debug("Request Transitioning from %s to %s", self.state, requested_state)
 
         self._cancel_all_delayed()
 
         if self._same_state_next_song(requested_state):
-            return
+            return False
 
         if self._stop_webservice_if_needed(requested_state):
-            return
+            return False
 
         if self._block_webradio_without_internet(requested_state):
-            return
+            return False
 
         self._commit_or_usb_absent(requested_state)
 
         self._spawn_state_worker()
+        return True
 
     def run_state_method(self, state_to_handle: str) -> None:
         """Dispatch state handling to the right handler."""
@@ -659,30 +672,92 @@ class StateMachine:
         mpd_control.play()
         play_sound(SOUND_PLAY)
 
-    def _state_preset1(self):
-        leds.turn_on_led(LED_PRESET1)
-        if mpd_control.play(preset="Preset1"):
-            play_sound(SOUND_PRESET1)
-        else:
+    def _play_preset(self, preset: str, led: str, sound: str) -> None:
+        """
+        Play a preset and say what happened, waiting for the library if needed.
+
+        Args:
+            preset: Preset key to play, e.g. "Preset1".
+            led:    That preset's LED.
+            sound:  Its confirmation announcement.
+
+        The LED blinks first, at the rate this module already uses for "busy".
+        play() can take seconds -- it waits on MPDService's lock, which the
+        library scan holds -- and a button that does nothing visible for that
+        long reads as a button that did not work.
+
+        Three outcomes, and the middle one is why this exists:
+
+          playing        LED solid, the preset is announced.
+          empty preset   The announcement that says so. The user can fix this
+                         in the web interface.
+          not ready yet  Neither. The press arrived while the library was still
+                         being scanned, and saying the preset is empty would be
+                         wrong -- it is fine, there is just nothing to play from
+                         yet. Handed to a thread that waits for the scan and
+                         asks again.
+        """
+        leds.control_blinking_led(led, STARTUP_BLINK_CYCLE)
+
+        result = mpd_control.play(preset=preset)
+        if result:
+            leds.turn_on_led(led)
+            play_sound(sound)
+            return
+
+        if result is False:
+            leds.turn_on_led(led)
             play_sound(SOUND_PRESET_EMPTY)
+            return
+
+        oradio_log.info("Preset '%s' pressed before the library was ready", preset)
+        threading.Thread(
+            target=self._retry_preset, args=(preset, led, sound),
+            daemon=True, name=f"preset-retry-{preset}",
+        ).start()
+
+    def _retry_preset(self, preset: str, led: str, sound: str) -> None:
+        """
+        Play a preset that was pressed before the library was ready.
+
+        Args:
+            preset: Preset key the user pressed.
+            led:    That preset's LED.
+            sound:  Its confirmation announcement.
+
+        Runs on its own thread so the command handler is free while it waits.
+        The LED keeps blinking throughout, which is the whole point: the user
+        pressed a button and can see it is still being worked on.
+
+        Cancelled by the user rather than by a timer. If they press anything
+        else the state machine leaves this preset, and the check below drops the
+        retry -- so a press that has been overtaken cannot start music nobody
+        asked for any more. No timeout for the same reason: waiting longer costs
+        nothing while they are still asking for this preset.
+        """
+        mpd_control.wait_for_library()
+
+        if self.state != f"State{preset}":
+            oradio_log.debug("Dropping retry of '%s': state is now %s", preset, self.state)
+            return
+
+        with sm_lock:
+            if self.state != f"State{preset}":
+                return
+            self._play_preset(preset, led, sound)
+
+    def _state_preset1(self):
+        self._play_preset("Preset1", LED_PRESET1, SOUND_PRESET1)
         if web_service_active.is_set():
             leds.control_blinking_led(LED_PLAY, WEBSERVICE_BLINK_CYCLE)
 
     def _state_preset2(self):
-        leds.turn_on_led(LED_PRESET2)
-        if mpd_control.play(preset="Preset2"):
-            play_sound(SOUND_PRESET2)
-        else:
-            play_sound(SOUND_PRESET_EMPTY)
+        self._play_preset("Preset2", LED_PRESET2, SOUND_PRESET2)
         if web_service_active.is_set():
             leds.control_blinking_led(LED_PLAY, WEBSERVICE_BLINK_CYCLE)
 
     def _state_preset3(self):
-        leds.turn_on_led(LED_PRESET3)
-        if mpd_control.play(preset="Preset3"):
-            play_sound(SOUND_PRESET3)
-        else:
-            play_sound(SOUND_PRESET_EMPTY)
+        self._play_preset("Preset3", LED_PRESET3, SOUND_PRESET3)
         if web_service_active.is_set():
             leds.control_blinking_led(LED_PLAY, WEBSERVICE_BLINK_CYCLE)
 
@@ -989,9 +1064,9 @@ def on_web_pl3_webradio_changed():
 # Thread-safety for transitions (shared with volume callbacks)
 sm_lock = threading.RLock()
 
-def _go(state: str) -> None:
+def _go(state: str) -> bool:
     with sm_lock:
-        state_machine.transition(state)
+        return state_machine.transition(state)
 
 # --- Touch button policy wiring ---
 def _on_play_pressed() -> None:
@@ -1000,14 +1075,43 @@ def _on_play_pressed() -> None:
 def _on_stop_pressed() -> None:
     _go("StateStop")
 
+def _press_preset(state: str, led: str) -> None:
+    """
+    Acknowledge a preset press, then ask for the state.
+
+    Args:
+        state: State to transition to, e.g. "StatePreset1".
+        led:   That preset's LED.
+
+    The blink starts here and not in the state handler, because the wait starts
+    here. transition() asks MPD two questions before it ever spawns the handler
+    -- is this the same state again, and is this preset a webradio -- and both
+    go through MPDService's lock, which the library scan holds for seconds after
+    a boot or a USB insertion. A button that does nothing visible for that long
+    reads as a button that did not work.
+
+    The handler starts the same blink again rather than inheriting this one:
+    run_state_method() turns every LED off before it runs, so without that the
+    LED would go dark for the length of play(). The hand-over is one blink
+    cycle at most and invisible at this rate.
+    """
+    leds.control_blinking_led(led, STARTUP_BLINK_CYCLE)
+
+    if not _go(state):
+        # A guard answered instead of the handler -- the next song is playing,
+        # or a webradio was blocked. Either way this preset is still the current
+        # state and its LED belongs on, and nothing else is coming to say so.
+        leds.turn_on_led(led)
+
+
 def _on_preset1_pressed() -> None:
-    _go("StatePreset1")
+    _press_preset("StatePreset1", LED_PRESET1)
 
 def _on_preset2_pressed() -> None:
-    _go("StatePreset2")
+    _press_preset("StatePreset2", LED_PRESET2)
 
 def _on_preset3_pressed() -> None:
-    _go("StatePreset3")
+    _press_preset("StatePreset3", LED_PRESET3)
 
 def _on_play_long_pressed() -> None:
     # Long-press Play starts the web service (guarded by SM + lock)

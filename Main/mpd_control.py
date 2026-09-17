@@ -29,7 +29,7 @@ Created on January 10, 2025
     - mpdlist/mpdlists: the combination of directories and playlists
     - current: the directory/playlist in the playback queue
 """
-from threading import RLock
+from threading import Event, RLock
 from os import path
 from unicodedata import normalize, category
 
@@ -214,9 +214,36 @@ class MPDControl(MPDService):
         # validate_presets(), which takes it again.
         self._library_lock = RLock()
 
+        # Set the first time initialise_library() completes, and never cleared.
+        # A preset pressed before that has nothing to play from, so this is what
+        # such a press waits on. See wait_for_library().
+        self._library_ready = Event()
+
         # Reused across play_song() calls when idle, to avoid spawning a new
         # OS thread per call in the common (sequential) case. See play_song().
         self._song_monitor = _SongFinishMonitor(self)
+
+    def wait_for_library(self, timeout: float | None = None) -> bool:
+        """
+        Block until the music library has been prepared at least once.
+
+        Args:
+            timeout: Seconds to wait, or None to wait indefinitely.
+
+        Returns:
+            True if the library is ready, False if the wait timed out.
+
+        For the press that arrives too early. A preset pressed while the library
+        is still being scanned finds MPD with nothing in it, and play() cannot
+        tell the user's preset is fine -- it only sees a name that resolves to
+        nothing. Waiting for this and trying again is the difference between
+        music that starts a few seconds late and music that never starts.
+
+        Never cleared once set: the library is rebuilt on every USB insertion,
+        but a rebuild replaces a library that already works, so a press during
+        one has something to play and does not need to wait.
+        """
+        return self._library_ready.wait(timeout)
 
     def update_database(self) -> None:
         """
@@ -294,6 +321,10 @@ class MPDControl(MPDService):
             self._sanitize_playlists()
             self.validate_presets()
             self.update_database()
+
+        # Only after the scan, and only on the way out: a preset waiting on this
+        # wants a library it can play from, not one that is being rebuilt.
+        self._library_ready.set()
 
     def _sanitize_playlists(self) -> None:
         """
@@ -424,11 +455,12 @@ class MPDControl(MPDService):
 
 ##### Playback functions ##################################
 
-    # Seven returns against a max of 6. Each is a distinct outcome of "should
-    # this call have started music", and the caller now needs that answer --
-    # collapsing them behind a status variable would hide which case a reader
-    # is in, in a method whose whole job is telling those cases apart.
-    def play(self, preset: str | None = None) -> bool:  # pylint: disable=too-many-return-statements
+    # Seven returns and thirteen branches, against maxima of 6 and 12. Each is a
+    # distinct outcome of "should this call have started music", and the caller
+    # now needs that answer -- collapsing them behind a status variable would
+    # hide which case a reader is in, in a method whose whole job is telling
+    # those cases apart.
+    def play(self, preset: str | None = None) -> bool | None:  # pylint: disable=too-many-return-statements,too-many-branches
         """
         Start or resume playback.
 
@@ -443,10 +475,17 @@ class MPDControl(MPDService):
             - Preset resolves to nothing → do nothing.
 
         Returns:
-            True when music is playing as a result of this call. False means the
-            preset pointed at nothing, which the caller has to tell the user
-            about: without it the Oradio confirms the preset and then falls
-            silent, which reads as "it worked" when it did not.
+            True when music is playing as a result of this call.
+
+            False when the preset pointed at nothing, which the caller has to
+            tell the user about: without it the Oradio confirms the preset and
+            then falls silent, which reads as "it worked" when it did not.
+
+            None when the library is not ready yet, which looks identical from
+            in here -- an empty MPD resolves every name to nothing -- but is not
+            the user's problem and will pass. Telling them their preset is empty
+            would be wrong, so the caller waits and asks again instead. See
+            wait_for_library().
             - Preset resolves to a playlist → load and play from the first song.
             - Preset resolves to a directory → add all songs, shuffle, and play.
 
@@ -519,6 +558,14 @@ class MPDControl(MPDService):
             _ = self._execute("shuffle")
             oradio_log.debug("Added directory '%s' and shuffled", listname)
         else:
+            # Told apart here and not above, because the two are the same
+            # symptom: an MPD that has not been given a library yet answers
+            # every question with nothing, exactly like a preset that points at
+            # a deleted folder.
+            if not self._library_ready.is_set():
+                oradio_log.info("Library not ready yet; '%s' cannot be resolved", preset)
+                return None
+
             oradio_log.warning("Playlist or directory '%s' not found for preset '%s'", listname, preset)
             return False
 
