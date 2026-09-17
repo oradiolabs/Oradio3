@@ -89,7 +89,6 @@ from messaging import (
 from constants import (
     ERROR_BLINK_CYCLE,
     USB_MOUNT_POINT,
-    MESSAGE_NO_ERROR,
     SOUND_START,
     SOUND_STOP,
     SOUND_PLAY,
@@ -211,7 +210,6 @@ log_startup_step("remote monitor")
 """ Resource-owning modules have an explicit start/stop allowing it to possibly be restarted when failing. """  # pylint: disable=pointless-string-statement
 
 # Any incident starting backlight is reported to and handled by IncidentHandler
-oradio_log.info("Start backlighting")
 Backlighting().start()
 log_startup_step("backlighting")
 
@@ -220,7 +218,6 @@ leds = LEDControl()
 log_startup_step("led control")
 
 # Any incident starting volume control is reported to and handled by IncidentHandler
-oradio_log.info("Start volumen control")
 VolumeControl().start()
 log_startup_step("volume control")
 
@@ -295,18 +292,20 @@ else:
     # Power contract is ok: log and continue
     oradio_log.info("Power supply: %sV @ %sA", power_status["voltage_v"], power_status["current_a"])
 
+# Whether the captive portal is up, as last published by WebService.
+#
+# An Event and not a bool because it is written on the command handler thread
+# and read on the state workers. Nothing ever waits on it -- there is no
+# .wait() anywhere -- so the type is doing the smaller half of its job, but it
+# says "shared across threads" at a glance, which a bool does not.
+#
+# Kept here rather than asking WebService.state on every read, for two reasons.
+# It is what was last announced, so the LEDs and the announcements agree with
+# each other even if the service moved on in between. And on_webservice_active()
+# and on_webservice_idle() use it to drop a repeat of a message they already
+# acted on, which needs their own record of what they did.
 web_service_active = threading.Event() # Track status web_service
 web_service_active.clear() # Start-up state is no Web service
-
-# Set by on_incident_recovered() and read once by _state_idle().
-#
-# A flag rather than blinking from the handler itself, because run_state_method()
-# calls turn_off_all_leds() immediately before every state handler: a blink
-# started in the handler would be switched off by the transition it just asked
-# for. Idle is the only destination on_incident_recovered() uses, so reading it
-# there catches every case.
-incident_recovered = threading.Event()
-incident_recovered.clear()
 
 def announcements_allowed() -> bool:
     """
@@ -337,12 +336,12 @@ def announcements_allowed() -> bool:
     return state_machine.state in PLAY_STATES or web_service_active.is_set()
 
 # Any incident starting throttling monitor is reported to and handled by IncidentHandler
-oradio_log.info("Start throttling monitor")
 RPiThrottlingMonitor().start()
+log_startup_step("throttling monitor")
 
 # Any incident starting log monitor is reported to and handled by IncidentHandler
-oradio_log.info("Start log health monitor")
 LogHealthMonitor().start()
+log_startup_step("log health monitor")
 
 # Initialise MPD client.
 # Returns promptly even when mpd.service is not up yet: MPDService no longer
@@ -354,11 +353,6 @@ LogHealthMonitor().start()
 # object: two poll loops connecting on one shared MPDClient corrupt it. It waits
 # for MPD's greeting, not just for the socket, so the work it releases does not
 # then sit on MPDService's lock waiting for a server that is not answering.
-oradio_log.info("Initialising MPDControl")
-#REVIEW Onno:
-# Each thread/process should have its own MPDControl instance.
-# A global instance may cause concurrent access conflicts with the MPD service.
-# MPDControl includes built-in safeguards against improper use, so this works.
 mpd_control = MPDControl()
 log_startup_step("mpd control")
 
@@ -372,10 +366,9 @@ log_startup_step("mpd control")
 # Nothing between here and the tune needs it either: the monitor exists to
 # notice what MPD does later, so starting it a few seconds late costs nothing
 # beyond a few early events nobody was listening for yet.
-oradio_log.info("Start MPD event monitoring")
 mpd_monitor = MPDMonitor()
+log_startup_step("mpd monitor")
 
-#
 # inline=False because MPDMonitor.start() blocks until its worker has built the
 # database snapshot.
 mpd_monitor_starter = DeferredStarter(
@@ -412,6 +405,15 @@ mpd_library = DeferredStarter(
 mpd_library.start()
 log_startup_step("mpd library scan")
 
+# Whether a usable USB drive is in, as last published by USBService.
+#
+# Same shape as web_service_active above, and deliberately not USBService's own
+# get_state(): that reads the mount point at the moment of asking, and having
+# both meant two answers to one question with nothing deciding which won when
+# they differed. This one is what the rest of the module has been told.
+#
+# Starts set so the start-up sequence runs; the USB service's first message
+# replaces it within a second, via the cache replay Commands.subscribe() does.
 usb_present = threading.Event()
 usb_present.set() # USB present to go over start-up sequence (will be updated after first message of USB service
 
@@ -560,10 +562,16 @@ class StateMachine:
                 self.state = "StateUSBAbsent"
                 oradio_log.debug("State set to StateUSBAbsent")
 
-    def _spawn_state_worker(self) -> None:
-        """Run the state handler in a separate daemon thread."""
+    def _spawn_state_worker(self, *, recovered: bool = False) -> None:
+        """
+        Run the state handler in a separate daemon thread.
+
+        Args:
+            recovered: Passed on to the handler; see transition().
+        """
         threading.Thread(
-            target=self.run_state_method, args=(self.state,), daemon=True
+            target=self.run_state_method, args=(self.state,),
+            kwargs={"recovered": recovered}, daemon=True,
         ).start()
 
     # ---- delayed-transition helpers ----
@@ -619,9 +627,23 @@ class StateMachine:
         self._delayed_timers[key] = timer
         timer.start()
 
-    def transition(self, requested_state: str) -> bool:
+    def transition(self, requested_state: str, *, reenter: bool = False,
+                   recovered: bool = False) -> bool:
         """
         Ask for a state, and say whether a handler will run for it.
+
+        Args:
+            requested_state: State to move to.
+            reenter:         Run the handler again even when the Oradio is
+                             already in that state. Asking for the state you are
+                             in normally means "next song"; the web interface
+                             changing that preset's playlist means "load what I
+                             just chose", and only the caller knows which.
+            recovered:        Say that something was wrong, once the new state
+                             is settled. Passed rather than left in a module
+                             flag: it belongs to this one transition, and a flag
+                             would have to be found somewhere else to know that
+                             a transition announces anything.
 
         Returns:
             True when a state worker was spawned, so the handler for the
@@ -632,7 +654,9 @@ class StateMachine:
             _press_preset() needs that answer: it starts the LED blinking before
             calling this, and on False there is no handler coming to turn it
             solid again.
-Request a transition; applies guards and spawns the handler."""
+
+        Request a transition; applies guards and spawns the handler.
+        """
         if self.state == "StateError":
             oradio_log.warning("Ignoring transition to %s because StateError is active", requested_state)
             return False
@@ -641,7 +665,7 @@ Request a transition; applies guards and spawns the handler."""
 
         self._cancel_all_delayed()
 
-        if self._same_state_next_song(requested_state):
+        if not reenter and self._same_state_next_song(requested_state):
             return False
 
         if self._stop_webservice_if_needed(requested_state):
@@ -652,15 +676,40 @@ Request a transition; applies guards and spawns the handler."""
 
         self._commit_or_usb_absent(requested_state)
 
-        self._spawn_state_worker()
+        self._spawn_state_worker(recovered=recovered)
         return True
 
-    def run_state_method(self, state_to_handle: str) -> None:
-        """Dispatch state handling to the right handler."""
+    def run_state_method(self, state_to_handle: str, *, recovered: bool = False) -> None:
+        """
+        Dispatch state handling to the right handler.
+
+        Args:
+            state_to_handle: The state whose handler to run.
+            recovered:       Blink the STOP LED once the handler is done, to say
+                             the incident service repaired something.
+
+        The blink goes here and not in the handler because turn_off_all_leds()
+        above would switch it off again: it runs immediately before every
+        handler, so anything the handler starts on its own behalf survives, and
+        anything started before it does not.
+        """
         with self.task_lock:
             leds.turn_off_all_leds()
             handler = self._handlers.get(state_to_handle, self._state_unknown)
             handler()
+
+            if recovered:
+                # ERROR_BLINK_CYCLE, the rate the user already knows as trouble,
+                # rather than a fourth rate for "there was trouble but it is
+                # over": the LED stopping after a few seconds is what says the
+                # fault is behind us, and a vocabulary of four speeds is one
+                # nobody learns.
+                #
+                # run_later() and not a sleep: task_lock is held here, so
+                # waiting would be three seconds in which no button could change
+                # anything.
+                leds.control_blinking_led(LED_STOP, ERROR_BLINK_CYCLE)
+                run_later(INCIDENT_BLINK_SECONDS, leds.turn_off_led, LED_STOP)
 
     # --- State handlers ---
 
@@ -838,24 +887,6 @@ Request a transition; applies guards and spawns the handler."""
         self._arm_delayed_transition("StartupToIdle", 5.0, "StateIdle", from_state="StateStartUp")
 
     def _state_idle(self):
-        # Say that something was wrong, now that the Oradio is back in a state
-        # it can be left in.
-        #
-        # ERROR_BLINK_CYCLE, the rate the user already knows as trouble, rather
-        # than a fourth rate for "there was trouble but it is over": the LED
-        # stopping after a few seconds is what says the fault is behind us, and
-        # a vocabulary of four speeds is one nobody learns.
-        #
-        # run_later() and not a sleep: run_state_method() holds task_lock while
-        # this runs, so waiting here would be three seconds in which no button
-        # could change anything.
-        if incident_recovered.is_set():
-            incident_recovered.clear()
-            leds.control_blinking_led(LED_STOP, ERROR_BLINK_CYCLE)
-            run_later(INCIDENT_BLINK_SECONDS, leds.turn_off_led, LED_STOP)
-
-# REVIEW: Is this only there because transitioning through StateIdle is used by on_webservice_plX_changed() ?
-#         If yes, then fix on_webservice_plX_changed() to not abuse StateIdle to do something which should be handled in the StatePresetX state.
         if web_service_active.is_set():
             leds.control_blinking_led(LED_PLAY, WEBSERVICE_BLINK_CYCLE)
 
@@ -980,7 +1011,6 @@ def on_incident_power_error():
     play_sound(SOUND_POWER_ERROR)
     state_machine.transition("StateError")
 
-
 def on_incident_recovered():
     """
     Start again from Idle after the incident service repaired something.
@@ -1003,9 +1033,7 @@ def on_incident_recovered():
     them ignore events that are real.
     """
     oradio_log.info("Incident recovered: starting again from Idle")
-    incident_recovered.set()
-    state_machine.transition("StateIdle")
-
+    state_machine.transition("StateIdle", recovered=True)
 
 def on_webservice_idle():
     oradio_log.info("WebService idle is acknowledged")
@@ -1027,40 +1055,48 @@ def on_webservice_playing_song():
         )  #  and if player is switched of, switch it on, otherwise keep state
     oradio_log.debug("WebService playing song acknowledged")
 
+def _webservice_preset_changed(preset: str, sound: str) -> None:
+    """
+    Play a preset the web interface just changed, and announce the change.
+
+    Args:
+        preset: The preset that changed, e.g. "Preset1".
+        sound:  The announcement for what it now holds.
+
+    reenter=True rather than a trip through StateIdle. Asking for the state the
+    Oradio is already in means "next song", which is not what the user did --
+    they picked something new for this button and want to hear it. Idle was the
+    old way around that guard, and it made StateIdle mean two things: a state
+    the Oradio rests in, and a way to force a re-entry.
+
+    The preset's own handler announces which button this is -- "één", "twee",
+    "drie" -- and this adds what changed about it two seconds later, once that
+    has been heard.
+    """
+    state_machine.transition(f"State{preset}", reenter=True)
+    run_later(2, play_sound, sound)
+    oradio_log.debug("WebService changed %s", preset)
+
 def on_webservice_pl1_changed():
-    state_machine.transition("StateIdle")
-    state_machine.transition("StatePreset1")
-    run_later(2, play_sound, SOUND_NEW_PRESET)
-    oradio_log.debug("WebService on_webservice_pl1_changed acknowledged")
+    _webservice_preset_changed("Preset1", SOUND_NEW_PRESET)
 
 def on_webservice_pl2_changed():
-    state_machine.transition("StateIdle")
-    state_machine.transition("StatePreset2")
-    run_later(2, play_sound, SOUND_NEW_PRESET)
-    oradio_log.debug("WebService on_webservice_pl2_changed acknowledged")
+    _webservice_preset_changed("Preset2", SOUND_NEW_PRESET)
 
 def on_webservice_pl3_changed():
-    state_machine.transition("StateIdle")
-    state_machine.transition("StatePreset3")
-    run_later(2, play_sound, SOUND_NEW_PRESET)
-    oradio_log.debug("WebService on_webservice_pl3_changed acknowledged")
+    _webservice_preset_changed("Preset3", SOUND_NEW_PRESET)
 
 def on_web_pl1_webradio_changed():
-#REVIEW Onno: Er is geen indicatie voor welke preset de webradio is ingesteld
-    run_later(2, play_sound, SOUND_NEW_WEBRADIO)
-    oradio_log.debug("WebService on_web_pl_webradio_changed acknowledged")
+    _webservice_preset_changed("Preset1", SOUND_NEW_WEBRADIO)
 
 def on_web_pl2_webradio_changed():
-#REVIEW Onno: Er is geen indicatie voor welke preset de webradio is ingesteld
-    run_later(2, play_sound, SOUND_NEW_WEBRADIO)
-    oradio_log.debug("WebService on_web_pl_webradio_changed acknowledged")
+    _webservice_preset_changed("Preset2", SOUND_NEW_WEBRADIO)
 
 def on_web_pl3_webradio_changed():
-#REVIEW Onno: Er is geen indicatie voor welke preset de webradio is ingesteld
-    run_later(2, play_sound, SOUND_NEW_WEBRADIO)
-    oradio_log.debug("WebService on_web_pl_webradio_changed acknowledged")
+    _webservice_preset_changed("Preset3", SOUND_NEW_WEBRADIO)
 
 # ----------------- Touch buttons -----------------
+
 # Thread-safety for transitions (shared with volume callbacks)
 sm_lock = threading.RLock()
 
@@ -1103,7 +1139,6 @@ def _press_preset(state: str, led: str) -> None:
         # state and its LED belongs on, and nothing else is coming to say so.
         leds.turn_on_led(led)
 
-
 def _on_preset1_pressed() -> None:
     _press_preset("StatePreset1", LED_PRESET1)
 
@@ -1117,6 +1152,7 @@ def _on_play_long_pressed() -> None:
     # Long-press Play starts the web service (guarded by SM + lock)
     with sm_lock:
         state_machine.start_webservice()
+
 # --- end wiring ---
 
 # 2)-----The Handler map, defining message content and the handler funtion---
@@ -1170,7 +1206,6 @@ def handle_message(message: CommandMessage) -> None:
     """
     command_source = message.source
     state          = message.message
-    error          = MESSAGE_NO_ERROR if message.data is None else message.data
 
     handlers = HANDLERS.get(command_source)
     if handlers is None:
@@ -1184,18 +1219,6 @@ def handle_message(message: CommandMessage) -> None:
             "Unhandled state '%s' for message source '%s'.", state, command_source
         )
 
-#REVIEW:
-#   errors, tegenwoording incidents, worden niet  via de Command bus doorgegeven, gaan naar de incident handler.
-#   CommandMessage kent een data veld met mogelijk extra info bij message.
-#   Het is dus logischer om data hierboven aan de handler mee te geven en in handler te verwerken.
-    if error != MESSAGE_NO_ERROR and isinstance(error, str):
-        if handler := handlers.get(error):
-            handler()
-        else:
-            oradio_log.warning(
-                "Unhandled error '%s' for message source '%s'.", error, command_source
-            )
-
 # 3)----------- Process the messages---------
 
 class OradioCommandHandler(MessageHandlerTemplate):
@@ -1205,6 +1228,13 @@ class OradioCommandHandler(MessageHandlerTemplate):
         handle_message(message)
 
 # ------------------Start-up - instantiate and define other modules ---------------
+
+# Everything below is down here because it has to be: state_machine needs the
+# StateMachine class, oradio_command_handler needs OradioCommandHandler, and
+# both are defined above.
+#The subsystems that could sit with the others near the top -- the USB service,
+# the incident handler -- stay with them instead, so the start-up order reads
+# in one place rather than two.
 
 # Instantiate and start the USB service monitoring USB present/absent
 oradio_usb_service = USBService()
