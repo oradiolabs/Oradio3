@@ -64,7 +64,7 @@ from messaging import (
     VOLUME_SOURCE, VOLUME_START_FAILED, VOLUME_SET_FAILED, VOLUME_STOPPED,
     WEB_SOURCE, WEB_SERVER_FAILED, WEB_START_FAILED, WEB_STOP_FAILED,
     INCIDENT_SOURCE, INCIDENT_RECOVERED, INCIDENT_POWER_ERROR,
-    WIFI_SOURCE, WIFI_DBUS_FAILED, WIFI_NMCLI_FAILED, WIFI_CONNECT_FAILED, WIFI_DISCONNECT_FAILED, WIFI_AP_FAILED,
+    WIFI_SOURCE, WIFI_DBUS_FAILED, WIFI_NMCLI_FAILED, WIFI_DISCONNECT_FAILED, WIFI_AP_FAILED,
 )
 
 ##### LOCAL constants #####################################
@@ -81,6 +81,14 @@ UNEXPECTED = "Unexpected source"
 # over MPD_HOST:MPD_PORT and never has to know how it was started, which is
 # what keeps this handler the only place that can restart it.
 MPD_SERVICE = "mpd.service"
+
+# systemd unit that owns the radio. Restarted below when it cannot be reached
+# over D-Bus at all.
+#
+# Local for the same reason as MPD_SERVICE: wifi_service and wifi_listener reach
+# NetworkManager through nmcli and D-Bus and never have to know how it was
+# started, which keeps this handler the only place that can restart it.
+NM_SERVICE = "NetworkManager.service"
 
 class IncidentHandler(MessageHandlerTemplate):
     """
@@ -838,26 +846,43 @@ class IncidentHandler(MessageHandlerTemplate):
             #   portal that does not start, and that path already falls back and counts.
             pass
         elif incident.message == WIFI_DBUS_FAILED:
-            # NO MITIGATION: reporting it IS the mitigation.
-            #   NetworkManager never appeared. WifiService already waited for it
-            #   and gave up; there is nothing here that could make it arrive.
-            pass
+            # MITIGATION: restart NetworkManager.
+            #
+            # NetworkManager could not be reached over D-Bus, so the Oradio has
+            # no working WiFi handling at all: no state changes, no access
+            # point, no reporting to RMS once the current connection drops.
+            #
+            # A restart starts it if it is gone and rebuilds its bus names if
+            # they are wedged. Safe to do from here: WifiEventListener listens
+            # for NameOwnerChanged and rebuilds its subscriptions when NM comes
+            # back, which is the case this was written for.
+            #
+            # The connection drops for a moment, which would be a reason not to
+            # do this if there were a working connection to protect. Without
+            # D-Bus there is not.
+            self._restart_service_within_budget(NM_SERVICE)
         elif incident.message == WIFI_NMCLI_FAILED:
-            # MITIGATION TO BE IMPLEMENTED:
-            #   Nothing beyond the report _handle_message already sends.
-            oradio_log.debug("Mitigation to be implemented")
-        elif incident.message == WIFI_CONNECT_FAILED:
-            # MITIGATION TO BE IMPLEMENTED:
-            #   Nothing beyond the report _handle_message already sends.
-# REVIEW Onno:
-#   WIFI_CONNECT_FAILED wordt als incident gerapporteerd, hier nu als command doorgestuurd.
-#   Te kiezen: is het een command of een incident?
-            Commands.publish(CommandMessage(WIFI_SOURCE, WIFI_CONNECT_FAILED))
-            oradio_log.debug("Mitigation to be implemented")
+            # NO MITIGATION: reporting it IS the mitigation.
+            #   Raised by nmcli_try(), the wrapper around every nmcli call, so this is
+            #   one command that did not work -- usually about what it was asked to do:
+            #   a network that is not there, a wrong password, a connection that
+            #   disappeared between listing it and using it. Restarting NetworkManager
+            #   for that is the wrong tool and would break a connection that is working
+            #   fine. WIFI_DBUS_FAILED above is the one that says NM itself is the
+            #   problem.
+            pass
         elif incident.message == WIFI_DISCONNECT_FAILED:
-            # MITIGATION TO BE IMPLEMENTED:
-            #   Nothing beyond the report _handle_message already sends.
-            oradio_log.debug("Mitigation to be implemented")
+            # NO MITIGATION: a race, and covered further down the path.
+            #   A race, not a fault: get_wifi_connection() found an active connection
+            #   and nmcli could not bring it down, which happens when it went away in
+            #   between. Beyond that only a broken nmcli.
+            #
+            #   Covered downstream either way. wifi_disconnect() is called on the way
+            #   into access-point mode and from WebService.stop(); a disconnect that
+            #   does not happen means the access point does not come up,
+            #   await_access_point() fails, and WebService._handle_failed_start() falls
+            #   back and counts it.
+            pass
         else:
             oradio_log.error("Unhandled wifi incident: '%s'", incident.message)
 

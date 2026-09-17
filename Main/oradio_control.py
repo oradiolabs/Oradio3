@@ -1010,9 +1010,6 @@ def _on_play_long_pressed() -> None:
 
 # 2)-----The Handler map, defining message content and the handler funtion---
 
-# REVIEW Onno:
-#   WIFI_CONNECT_FAILED wordt als incident gerapporteerd, daar nu als command doorgestuurd.
-#   Te kiezen: is het een command of een incident?
 HANDLERS = {
     VOLUME_SOURCE: {
         VOLUME_CHANGED: on_volume_changed,

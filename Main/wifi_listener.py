@@ -963,7 +963,13 @@ class WifiEventListener(ThreadTemplate):    # pylint: disable=too-many-instance-
             if not self._no_internet_reported:
                 self._no_internet_reported = True
                 oradio_log.debug("Associated without internet access")
-                Incidents.publish(IncidentMessage(WIFI_SOURCE, WIFI_CONNECT_FAILED))
+                # A command, not an incident: the access point refused the
+                # connection, which is something the user retries -- with a
+                # different password, or once the router is back. Nothing about
+                # the Oradio is broken, so there is nothing for RMS to act on
+                # and nothing for incident_service to mitigate; oradio_control
+                # is the only interested party.
+                Commands.publish(CommandMessage(WIFI_SOURCE, WIFI_CONNECT_FAILED))
 
     def _verify_device_path(self) -> bool:
         """
@@ -1417,7 +1423,7 @@ class WifiEventListener(ThreadTemplate):    # pylint: disable=too-many-instance-
                     else:
                         # PORTAL, LIMITED, NONE, or unreadable: IP may be assigned but no usable internet route
                         oradio_log.debug("Wifi not connected to internet")
-                        Incidents.publish(IncidentMessage(WIFI_SOURCE, WIFI_CONNECT_FAILED))
+                        Commands.publish(CommandMessage(WIFI_SOURCE, WIFI_CONNECT_FAILED))
 
             elif new_state == NM_DISCONNECTED:
                 # The radio is no longer associated with anything, so it is certainly not hosting.
@@ -1428,7 +1434,7 @@ class WifiEventListener(ThreadTemplate):    # pylint: disable=too-many-instance-
             else:   # NM_FAILED — NetworkManager could not complete the connection
                 self._hosting_ap = False
                 oradio_log.debug("Wifi could not complete connection: %s", new_state)
-                Incidents.publish(IncidentMessage(WIFI_SOURCE, WIFI_CONNECT_FAILED))
+                Commands.publish(CommandMessage(WIFI_SOURCE, WIFI_CONNECT_FAILED))
 
         # Broad catch is intentional: this callback must never take down the GLib main loop or the listener thread
         # over a single bad signal delivery.
