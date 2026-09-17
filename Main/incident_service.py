@@ -802,9 +802,22 @@ class IncidentHandler(MessageHandlerTemplate):
             #   _handle_failed_start(). Nothing to add here.
             pass
         elif incident.message == WEB_STOP_FAILED:
-            # MITIGATION TO BE IMPLEMENTED:
-            #   If retry_count < MAX_RETRIES: retry stop
-            oradio_log.debug("Mitigation to be implemented")
+            # NO MITIGATION: the leftovers are inert or handled by the next start.
+            #   One teardown step did not finish. Each of the three things that can be
+            #   left behind is dealt with elsewhere, so there is nothing to add here.
+            #
+            #   The iptables rule: _ensure_port_redirect() is idempotent and takes a
+            #   rule that is already there, so the next portal start uses it as-is.
+            #
+            #   The dnsmasq config: NetworkManager only reads that directory for a
+            #   shared connection, so in client mode it sits there doing nothing.
+            #
+            #   A uvicorn thread that would not stop: it holds the port, so the next
+            #   long press fails -- and WebService._handle_failed_start() falls back,
+            #   counts it, and asks for a restart on the second attempt, which is the
+            #   only thing that frees a thread Python cannot kill. The user pays two
+            #   long presses for that, and there is no shorter route.
+            pass
         else:
             oradio_log.error("Unhandled web incident: '%s'", incident.message)
 
