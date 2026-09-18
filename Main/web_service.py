@@ -48,7 +48,7 @@ from threading import Thread, RLock
 
 ##### Oradio modules ######################################
 from singleton import singleton
-from log_service import oradio_log, ORADIO_LOG_LEVEL
+from log_service import oradio_log
 from utilities import run_shell_script, fatal_exit
 from wifi_service import WifiService, get_wifi_connection
 from messaging import (
@@ -184,7 +184,7 @@ class UvicornServerThread:
     Config object is built once in __init__ and reused across restarts because
     it is immutable after construction.
     """
-    def __init__(self, app, host=WEB_SERVER_HOST, port=WEB_SERVER_PORT, level=ORADIO_LOG_LEVEL):
+    def __init__(self, app, host=WEB_SERVER_HOST, port=WEB_SERVER_PORT, level=None):
         """
         Initialise the manager without starting the server.
 
@@ -192,10 +192,21 @@ class UvicornServerThread:
             app:         ASGI application instance to serve.
             host (str):  Network interface to bind.
             port (int):  TCP port to listen on.
-            level (str): Uvicorn log level string. Accepted values (passed
-                         through to Uvicorn): "trace", "debug", "info",
-                         "warning", "error", "critical".
+            level:       Uvicorn log level, as a logging level number or one of
+                         the strings Uvicorn accepts ("trace", "debug", "info",
+                         "warning", "error", "critical"). None takes the level
+                         oradio_log is running at.
         """
+        # Resolved here rather than as a default argument. A default is bound
+        # once, at import, so it would hold the start-up level for the life of
+        # the process -- and this class is built lazily, the first time someone
+        # opens the portal, which can be long after oradio_log.set_level() was
+        # called. uvicorn.Config.configure_logging() runs inside Config() below
+        # and sets the uvicorn loggers from log_level, so a stale value here
+        # does not merely go unused: it puts them back where they started.
+        if level is None:
+            level = oradio_log.level
+
         self._config = uvicorn.Config(
             app,
             host=host,

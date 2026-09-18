@@ -64,6 +64,19 @@ from constants import (
 ORADIO_LOGGER    = "oradio"
 ORADIO_LOG_LEVEL = DEBUG
 
+# Uvicorn's own loggers, routed into this logger's queue handler.
+#
+# One tuple for both the wiring in __init__ and set_level(), so a level change
+# during a support session reaches the web server too. Two lists would be two
+# chances to add a logger to one and forget the other, and the symptom of that
+# is a logger stuck at the level it had at start-up: silent, and only noticed
+# when the portal logs you need turn out to be missing.
+#
+# "uvicorn.asgi" is included even though it would reach the handler by
+# propagation anyway: uvicorn.Config.configure_logging() sets its level too, so
+# it must be in the set that gets moved, or it stays behind.
+UVICORN_LOGGERS = ("uvicorn", "uvicorn.error", "uvicorn.access", "uvicorn.asgi")
+
 # Log file constants
 ORADIO_LOG_PATH     = (Path(__file__).parent.parent / "logging").resolve()
 ORADIO_LOG_FILE_STR = str(ORADIO_LOG_PATH / 'oradio.log')
@@ -304,11 +317,13 @@ class SafeLogger:
         self._logger.addHandler(self._queue_handler)
 
         # Uvicorn integration
-        for logger_name in ("uvicorn", "uvicorn.error", "uvicorn.access"):
+        for logger_name in UVICORN_LOGGERS:
             uv_logger = logging.getLogger(logger_name)
             uv_logger.setLevel(level)
             if self._queue_handler not in uv_logger.handlers:
                 uv_logger.addHandler(self._queue_handler)
+            # propagate=False also keeps the child loggers from reaching the
+            # handler twice: each one carries it directly now.
             uv_logger.propagate = False
 
 ##### Convenience logging methods #########################
@@ -344,9 +359,32 @@ class SafeLogger:
         """Log a message with CRITICAL severity level."""
         self._safe_log(CRITICAL, msg, *args, **kwargs)
     def set_level(self, level) -> None:
-        """Set the logging level for the logger and its queue handler."""
+        """
+        Set the logging level for the Oradio logger, its queue handler and the
+        Uvicorn loggers routed into it.
+
+        The Uvicorn loggers are moved along because they are the web server's
+        only voice: left behind, they would keep the level they were given at
+        start-up, and raising the level to DEBUG during a support session would
+        light up everything except the captive portal -- the part most support
+        calls are about.
+        """
         self._logger.setLevel(level)
         self._queue_handler.setLevel(level)
+        for logger_name in UVICORN_LOGGERS:
+            logging.getLogger(logger_name).setLevel(level)
+
+    @property
+    def level(self) -> int:
+        """
+        Current level of the Oradio logger.
+
+        Read by anything that has to hand the level to a library rather than
+        log through this wrapper (Uvicorn's Config). Reading the module
+        constant instead would give the start-up level, not the level in force
+        now.
+        """
+        return self._logger.level
 
     @property
     def dropped_count(self) -> int:
