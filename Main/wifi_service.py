@@ -221,6 +221,10 @@ class WifiService:
         # waiting for a state that is never coming. Cleared by wifi_connect() on each new access-point request.
         self._ap_failed = Event()
 
+        # Set when the user picks a network in the web interface, and taken by
+        # whoever reports the outcome. See take_user_connect().
+        self._user_connect = Event()
+
         # Serialises start() and owns the wait for NetworkManager.
         #
         # DeferredStarter holds the claim from the moment a start is taken until it has finished -- whether it
@@ -516,6 +520,11 @@ class WifiService:
 
         # Cleared before anything can fail, so a waiter that arrives late sees this request's outcome rather than
         # the previous one's.
+        if ssid != ACCESS_POINT_SSID:
+            # A real network, which in production only ever comes from the user
+            # choosing one in the web interface. See take_user_connect().
+            self._user_connect.set()
+
         if ssid == ACCESS_POINT_SSID:
             self._ap_failed.clear()
 
@@ -563,6 +572,28 @@ class WifiService:
         else:
             # Connection is up; WifiEventListener will publish the new state
             oradio_log.info("Connected with '%s'", network)
+
+    def take_user_connect(self) -> bool:
+        """
+        Whether the connection just reported follows a network the user picked.
+
+        Returns:
+            True once after each wifi_connect() to a real network, and False
+            every other time.
+
+        Taken rather than read, so the first report of an outcome consumes it and
+        anything after that is treated as what it is: the radio going about its
+        business. The Oradio reconnects on its own after the portal closes, after
+        a router reboot, after coming back into range, and announcing every one
+        of those would be the Oradio talking about itself.
+
+        It matters only for the announcements. The WiFi state itself is
+        published either way -- the LEDs, RMS and everything else still need to
+        know where the radio stands.
+        """
+        was_set = self._user_connect.is_set()
+        self._user_connect.clear()
+        return was_set
 
     def await_access_point(self, timeout: float = AP_START_BUDGET) -> bool:
         """
