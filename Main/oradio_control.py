@@ -133,6 +133,17 @@ STARTUP_BLINK_CYCLE = 1.0
 # How long the STOP LED blinks on reaching Idle after the incident service
 # repaired something. Long enough to catch an eye in the room, short enough that
 # it is over before anyone walks up to press a button.
+# What belongs to each preset button: its LED and its announcement.
+#
+# One table because all three follow from the preset name, and passing them
+# alongside it made every caller repeat what this already knows -- and made two
+# functions that need the same thing look like they needed different things.
+PRESETS = {
+    "Preset1": (LED_PRESET1, SOUND_PRESET1),
+    "Preset2": (LED_PRESET2, SOUND_PRESET2),
+    "Preset3": (LED_PRESET3, SOUND_PRESET3),
+}
+
 INCIDENT_BLINK_SECONDS = 3.0
 
 # Blink cycle for "the web interface is open". The slowest of the three, because
@@ -721,14 +732,12 @@ class StateMachine:
         mpd_control.play()
         play_sound(SOUND_PLAY)
 
-    def _play_preset(self, preset: str, led: str, sound: str) -> None:
+    def _play_preset(self, preset: str) -> None:
         """
         Play a preset and say what happened, waiting for the library if needed.
 
         Args:
             preset: Preset key to play, e.g. "Preset1".
-            led:    That preset's LED.
-            sound:  Its confirmation announcement.
 
         The LED blinks first, at the rate this module already uses for "busy".
         play() can take seconds -- it waits on MPDService's lock, which the
@@ -746,6 +755,7 @@ class StateMachine:
                          yet. Handed to a thread that waits for the scan and
                          asks again.
         """
+        led, sound = PRESETS[preset]
         leds.control_blinking_led(led, STARTUP_BLINK_CYCLE)
 
         result = mpd_control.play(preset=preset)
@@ -761,18 +771,16 @@ class StateMachine:
 
         oradio_log.info("Preset '%s' pressed before the library was ready", preset)
         threading.Thread(
-            target=self._retry_preset, args=(preset, led, sound),
+            target=self._retry_preset, args=(preset,),
             daemon=True, name=f"preset-retry-{preset}",
         ).start()
 
-    def _retry_preset(self, preset: str, led: str, sound: str) -> None:
+    def _retry_preset(self, preset: str) -> None:
         """
         Play a preset that was pressed before the library was ready.
 
         Args:
             preset: Preset key the user pressed.
-            led:    That preset's LED.
-            sound:  Its confirmation announcement.
 
         Runs on its own thread so the command handler is free while it waits.
         The LED keeps blinking throughout, which is the whole point: the user
@@ -793,20 +801,20 @@ class StateMachine:
         with sm_lock:
             if self.state != f"State{preset}":
                 return
-            self._play_preset(preset, led, sound)
+            self._play_preset(preset)
 
     def _state_preset1(self):
-        self._play_preset("Preset1", LED_PRESET1, SOUND_PRESET1)
+        self._play_preset("Preset1")
         if web_service_active.is_set():
             leds.control_blinking_led(LED_PLAY, WEBSERVICE_BLINK_CYCLE)
 
     def _state_preset2(self):
-        self._play_preset("Preset2", LED_PRESET2, SOUND_PRESET2)
+        self._play_preset("Preset2")
         if web_service_active.is_set():
             leds.control_blinking_led(LED_PLAY, WEBSERVICE_BLINK_CYCLE)
 
     def _state_preset3(self):
-        self._play_preset("Preset3", LED_PRESET3, SOUND_PRESET3)
+        self._play_preset("Preset3")
         if web_service_active.is_set():
             leds.control_blinking_led(LED_PLAY, WEBSERVICE_BLINK_CYCLE)
 
@@ -947,7 +955,22 @@ def on_usb_present():
 # Messages when after the closure of the Oradio AP Webservice the Wifi connection is/not made
 
 def on_wifi_connected():
+    """
+    Note that WiFi is up, and say so if the user is waiting to hear it.
+
+    Announced only after the user picked a network in the web interface. The
+    Oradio reconnects on its own after the portal closes, after a router reboot
+    and after coming back into range, and announcing each of those is the Oradio
+    talking about itself to someone who did not ask.
+
+    Taken here rather than when the timer fires: this is the moment the outcome
+    arrived, and four seconds later another attempt could have replaced it.
+    """
     oradio_log.info("Wifi is connected acknowledged")
+
+    if not oradio_wifi_service.take_user_connect():
+        oradio_log.debug("WiFi connected on its own: nothing to announce")
+        return
 
     # Checked when the timer fires, not when it is armed: four seconds is long
     # enough for the user to have pressed stop in between, and the Oradio would
@@ -960,19 +983,51 @@ def on_wifi_connected():
 
     run_later(4, _announce)
 
+
 def on_wifi_fail_connect():
+    """
+    Note that connecting failed, and say so if the user is waiting to hear it.
+
+    Same rule as on_wifi_connected() above, for the same reason: this is only
+    news to someone who just picked a network and is standing there waiting to
+    find out whether it worked. A radio that drops off the household network by
+    itself is not their doing and not theirs to fix from here.
+    """
     oradio_log.info("Wifi fail connect acknowledged")
+
+    if not oradio_wifi_service.take_user_connect():
+        oradio_log.debug("WiFi failure without a user request: nothing to announce")
+        return
+
     if announcements_allowed():
         play_sound(SOUND_NO_WIFI)
     else:
         oradio_log.debug("Oradio is off: not announcing WiFi connect failure")
 
 def on_wifi_access_point():
+    """
+    Note that the Oradio is hosting its own access point.
+
+    Logged and nothing else: the user is holding a phone looking for the
+    network, and on_webservice_active() is what tells them it is there -- once
+    the portal behind it can actually be reached. Saying it here as well would
+    announce a network that is not serving anything yet.
+    """
     oradio_log.info("Configured as access point acknowledged")
 
 def on_wifi_not_connected():
+    """
+    Note that WiFi is down.
+
+    Logged and nothing else, deliberately. A radio that loses the household
+    network did not do anything the user asked for, and there is nothing they
+    can do about it from here -- the same reason on_wifi_fail_connect() stays
+    quiet unless they just picked a network themselves.
+
+    Handled at all so handle_message() does not log an unhandled state on every
+    WiFi change.
+    """
     oradio_log.info("Wifi is NOT connected acknowledged")
-#    on_wifi_fail_connect() # do same actions as on_wifi_fail_connect
 
 # -------------------WEB---------------------------
 
@@ -1055,13 +1110,12 @@ def on_webservice_playing_song():
         )  #  and if player is switched of, switch it on, otherwise keep state
     oradio_log.debug("WebService playing song acknowledged")
 
-def _webservice_preset_changed(preset: str, sound: str) -> None:
+def _webservice_playlist_changed(preset: str) -> None:
     """
-    Play a preset the web interface just changed, and announce the change.
+    Play the playlist the web interface just put on a preset, and say so.
 
     Args:
         preset: The preset that changed, e.g. "Preset1".
-        sound:  The announcement for what it now holds.
 
     reenter=True rather than a trip through StateIdle. Asking for the state the
     Oradio is already in means "next song", which is not what the user did --
@@ -1069,31 +1123,68 @@ def _webservice_preset_changed(preset: str, sound: str) -> None:
     old way around that guard, and it made StateIdle mean two things: a state
     the Oradio rests in, and a way to force a re-entry.
 
-    The preset's own handler announces which button this is -- "één", "twee",
+    The preset's own handler announces which button this is -- "een", "twee",
     "drie" -- and this adds what changed about it two seconds later, once that
-    has been heard.
+    has been heard. That is why this does not announce the preset itself and
+    _webservice_webradio_changed() does: the two end up in different states, and
+    only one of them has a handler that says which button it belongs to.
     """
     state_machine.transition(f"State{preset}", reenter=True)
-    run_later(2, play_sound, sound)
-    oradio_log.debug("WebService changed %s", preset)
+    run_later(2, play_sound, SOUND_NEW_PRESET)
+    oradio_log.debug("WebService changed the playlist on %s", preset)
+
+
+def _webservice_webradio_changed(preset: str) -> None:
+    """
+    Say which preset the web interface just put a web radio on.
+
+    Args:
+        preset: The preset that changed, e.g. "Preset1".
+
+    Announced and then silent, where a changed playlist above starts playing.
+    Not a stylistic difference: the web interface is only reachable while the
+    Oradio hosts the access point, and hosting it means there is no route to the
+    internet. The web radio that was just chosen cannot be played, so there is
+    nothing to start -- and whatever was playing belongs to how this button used
+    to be set, so leaving it running would answer a question nobody asked.
+
+    StateIdle rather than stopping MPD from here: it is the state that means
+    "nothing playing, waiting for the next thing", and _state_idle() already
+    knows to stop a web radio and pause a playlist.
+
+    Announced here rather than by a state handler, unlike a changed playlist:
+    this ends in StateIdle, which belongs to no particular button. Going to
+    StatePresetN instead would not work -- transition() blocks a web-radio preset
+    when there is no internet, which is exactly the situation, and the user would
+    hear "no internet" instead of which button they just set.
+
+    The preset announcement was missing entirely, so a user setting web radios
+    on several buttons heard the same "new web radio" three times with nothing
+    saying which was which.
+    """
+    state_machine.transition("StateIdle")
+    play_sound(PRESETS[preset][1])
+    run_later(2, play_sound, SOUND_NEW_WEBRADIO)
+    oradio_log.debug("WebService changed the web radio on %s", preset)
+
 
 def on_webservice_pl1_changed():
-    _webservice_preset_changed("Preset1", SOUND_NEW_PRESET)
+    _webservice_playlist_changed("Preset1")
 
 def on_webservice_pl2_changed():
-    _webservice_preset_changed("Preset2", SOUND_NEW_PRESET)
+    _webservice_playlist_changed("Preset2")
 
 def on_webservice_pl3_changed():
-    _webservice_preset_changed("Preset3", SOUND_NEW_PRESET)
+    _webservice_playlist_changed("Preset3")
 
 def on_web_pl1_webradio_changed():
-    _webservice_preset_changed("Preset1", SOUND_NEW_WEBRADIO)
+    _webservice_webradio_changed("Preset1")
 
 def on_web_pl2_webradio_changed():
-    _webservice_preset_changed("Preset2", SOUND_NEW_WEBRADIO)
+    _webservice_webradio_changed("Preset2")
 
 def on_web_pl3_webradio_changed():
-    _webservice_preset_changed("Preset3", SOUND_NEW_WEBRADIO)
+    _webservice_webradio_changed("Preset3")
 
 # ----------------- Touch buttons -----------------
 
@@ -1111,13 +1202,12 @@ def _on_play_pressed() -> None:
 def _on_stop_pressed() -> None:
     _go("StateStop")
 
-def _press_preset(state: str, led: str) -> None:
+def _press_preset(preset: str) -> None:
     """
     Acknowledge a preset press, then ask for the state.
 
     Args:
-        state: State to transition to, e.g. "StatePreset1".
-        led:   That preset's LED.
+        preset: Preset key the user pressed, e.g. "Preset1".
 
     The blink starts here and not in the state handler, because the wait starts
     here. transition() asks MPD two questions before it ever spawns the handler
@@ -1131,22 +1221,23 @@ def _press_preset(state: str, led: str) -> None:
     LED would go dark for the length of play(). The hand-over is one blink
     cycle at most and invisible at this rate.
     """
+    led, _ = PRESETS[preset]
     leds.control_blinking_led(led, STARTUP_BLINK_CYCLE)
 
-    if not _go(state):
+    if not _go(f"State{preset}"):
         # A guard answered instead of the handler -- the next song is playing,
         # or a webradio was blocked. Either way this preset is still the current
         # state and its LED belongs on, and nothing else is coming to say so.
         leds.turn_on_led(led)
 
 def _on_preset1_pressed() -> None:
-    _press_preset("StatePreset1", LED_PRESET1)
+    _press_preset("Preset1")
 
 def _on_preset2_pressed() -> None:
-    _press_preset("StatePreset2", LED_PRESET2)
+    _press_preset("Preset2")
 
 def _on_preset3_pressed() -> None:
-    _press_preset("StatePreset3", LED_PRESET3)
+    _press_preset("Preset3")
 
 def _on_play_long_pressed() -> None:
     # Long-press Play starts the web service (guarded by SM + lock)
