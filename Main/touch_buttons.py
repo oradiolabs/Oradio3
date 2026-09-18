@@ -109,7 +109,7 @@ class TouchButtons:
             message=msg_text,
             data=[data] if data is not None else None,
         )
-        oradio_log.debug("Send TouchButton message: %s", command)
+        oradio_log.info("Send TouchButton message: %s", command)
         Commands.publish(command)
 
     def _button_event_callback(self, button_data: dict) -> bool | None:

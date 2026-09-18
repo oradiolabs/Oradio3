@@ -164,7 +164,7 @@ def _wifi_up(network) -> bool:
     Returns:
         True if activation succeeded, False otherwise.
     """
-    oradio_log.debug("Activate '%s'", network)
+    oradio_log.info("Activate '%s'", network)
     is_ok, _ = nmcli_try(nmcli.connection.up, network)
     return is_ok
 
@@ -178,7 +178,7 @@ def _wifi_down(network) -> bool:
     Returns:
         True if deactivation succeeded, False otherwise.
     """
-    oradio_log.debug("Disconnect from: '%s'", network)
+    oradio_log.info("Disconnect from: '%s'", network)
     is_ok, _ = nmcli_try(nmcli.connection.down, network)
     return is_ok
 
@@ -625,7 +625,7 @@ class WifiService:
 
         while True:
             if self.get_state() == WIFI_ACCESS_POINT:
-                oradio_log.debug("Access point up after %.1fs", monotonic() - started)
+                oradio_log.info("Access point up after %.1fs", monotonic() - started)
                 return True
 
             # Checked after the state, so an access point that came up despite a reported failure counts as up.
@@ -664,7 +664,7 @@ class WifiService:
         same one (see WifiEventListener.list_ready).
         """
         if self.nm_listener.list_ready.is_set():
-            oradio_log.debug("Network list already built; starting access point")
+            oradio_log.info("Network list already built; starting access point")
             return
 
         oradio_log.info("Waiting for initial network scan to complete")
@@ -796,12 +796,12 @@ def networkmanager_add(network, password=None) -> bool:
 
     if network in networkmanager_list():
         # Profile exists; update credentials in place
-        oradio_log.debug("Modify '%s' in NetworkManager", network)
+        oradio_log.info("Modify '%s' in NetworkManager", network)
         is_ok, _ = nmcli_try(nmcli.connection.modify, network, options)
         return is_ok
 
     # Profile does not exist; create a new one
-    oradio_log.debug("Add '%s' to NetworkManager", network)
+    oradio_log.info("Add '%s' to NetworkManager", network)
     is_ok, _ = nmcli_try(nmcli.connection.add, "wifi", options, "*", network, True)
     return is_ok
 
@@ -818,7 +818,7 @@ def networkmanager_del(network) -> bool:
     Returns:
         True if deletion succeeded, False otherwise.
     """
-    oradio_log.debug("Remove '%s' from NetworkManager", network)
+    oradio_log.info("Remove '%s' from NetworkManager", network)
     is_ok, _ = nmcli_try(nmcli.connection.delete, network)
     return is_ok
 

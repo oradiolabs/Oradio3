@@ -132,7 +132,7 @@ async def keep_alive_middleware(request: Request, call_next):
             task.cancel()
             api_app.state.timer_task = None
             api_app.state.timer_deadline = None
-            oradio_log.debug("Keep-alive timer stopped for request %s", request.url.path)
+            oradio_log.trace("Keep-alive timer stopped for request %s", request.url.path)
 
     # Process the request
     response = await call_next(request)
@@ -145,7 +145,7 @@ async def keep_alive_middleware(request: Request, call_next):
         # next poll iteration; only create a new task when none is running.
         if not getattr(api_app.state, "timer_task", None) or api_app.state.timer_task.done():
             api_app.state.timer_task = create_task(stop_task())
-        oradio_log.debug("Keep-alive timer restarted for request %s", request.url.path)
+        oradio_log.trace("Keep-alive timer restarted for request %s", request.url.path)
 
     return response
 
@@ -460,7 +460,7 @@ async def execute(request: ExecuteRequest):
         JSONResponse with status 400 if the command name is unknown or a
         required argument is missing.
     """
-    oradio_log.debug("Executing '%s' with args '%s'", request.cmd, request.args)
+    oradio_log.info("Executing '%s' with args '%s'", request.cmd, request.args)
 
     commands = {
         "play"       : play_song,
@@ -502,7 +502,7 @@ async def oradio3_page(request: Request):
     Returns:
         A TemplateResponse rendering oradio3.html with the assembled context.
     """
-    oradio_log.debug("Serving Oradio3 page")
+    oradio_log.info("Serving Oradio3 page")
 
     # Last WiFi network connected before the access point was started (empty string if none).
     oldssid = get_saved_network()
@@ -575,11 +575,11 @@ async def keep_alive():
     # Arm the timer on the first ping.
     if not api_app.state.timer_started:
         api_app.state.timer_started = True
-        oradio_log.debug("Keep-alive timer started on first ping")
+        oradio_log.trace("Keep-alive timer started on first ping")
 
     if api_app.state.timer_deadline:
         remaining = (api_app.state.timer_deadline - now).total_seconds()
-        oradio_log.debug("Keep-alive timer reset, %f seconds remaining", remaining)
+        oradio_log.trace("Keep-alive timer reset, %f seconds remaining", remaining)
 
     # Advance the deadline.
     api_app.state.timer_deadline = now + timedelta(seconds=KEEP_ALIVE_TIMEOUT)
@@ -607,7 +607,7 @@ async def catch_all(request: Request):
     Returns:
         A 302 RedirectResponse to {oradioap_url}/oradio3.
     """
-    oradio_log.debug("Catchall triggered for path: %s", request.url.path)
+    oradio_log.trace("Catchall triggered for path: %s", request.url.path)
 
     return RedirectResponse(url=oradioap_url + "/oradio3", status_code=302)
 

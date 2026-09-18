@@ -36,6 +36,28 @@ Created on January 17, 2025
     a sparse file padded with NULs. That append behavior is also what makes it safe for several Oradio
     processes to share the log: each record reaches the file in a single write() because emit() flushes
     per record.
+
+    Levels. The scheme below is written around INFO as the level to run at; the default is DEBUG for
+    now, while the fleet is being watched (see ORADIO_LOG_LEVEL). Each level has a job of its own:
+    - INFO  says what the Oradio does. Anything that changes its behaviour, and anything that explains
+            why it did not change, belongs here: a state transition, an accepted button press, a
+            playlist that starts, wifi that comes or goes, a shell script that runs, a command from
+            RMS. Read on their own, the INFO lines are the path the code took, which is what the
+            warnings and errors between them have to be read against. One line per event, written
+            where a module decides something rather than where it carries the decision out.
+    - DEBUG is the detail inside such a step: what was tried, skipped, retried or chosen, and the
+            values behind it. Turned on while the Oradio runs, for as long as it takes to find a
+            fault, and turned off again afterwards.
+    - TRACE is per-sample and per-item output: every position of the volume knob, every keep-alive
+            ping, every entry of a list being filtered. It is kept out of DEBUG so that DEBUG stays
+            readable at the moment someone is actually reading it.
+    A line that fires on a timer, per item of a collection or per sample of a sensor is TRACE however
+    interesting it is on its own. The test for INFO is not whether a line is useful but whether its
+    absence would leave a hole in the story: if the next INFO line still follows from the previous
+    one without it, it is not INFO.
+
+    Incidents are deliberately not part of this scheme. They travel over the incident bus rather than
+    through the log, so no level can suppress one, and incident_service logs them at WARNING.
 @Reference:
     https://docs.python.org/3/howto/logging.html
 """
@@ -61,6 +83,21 @@ from constants import (
 
 ##### LOCAL constants #####################################
 # Logger identifier and default level
+#
+# DEBUG on purpose, and temporarily. The level scheme in the module docstring is
+# written around INFO: INFO is meant to carry the path the code took, with DEBUG
+# raised only for the length of a support session. Running at DEBUG for a while
+# first is what checks that claim -- a DEBUG log contains its own INFO log, so
+#
+#   grep ' - INFO - ' oradio.log
+#
+# shows exactly what the fleet would have reported at INFO, with the DEBUG lines
+# still beside it to say what a gap in that story would have cost. Anything that
+# turns out to be missing is a line that belongs at INFO, not a reason to keep
+# the default here.
+#
+# Switch to INFO once the fleet has gone a few weeks without a fault that the
+# INFO lines alone could not place. That is one edit, on the line below.
 ORADIO_LOGGER    = "oradio"
 ORADIO_LOG_LEVEL = DEBUG
 
@@ -83,7 +120,15 @@ ORADIO_LOG_FILE_STR = str(ORADIO_LOG_PATH / 'oradio.log')
 
 # Shared record body. Each sink prepends its own context: file/console add a
 # timestamp, syslog adds the tag journald parses into SYSLOG_IDENTIFIER.
-LOG_BODY          = "%(filename)s:%(lineno)d - %(levelname)s - %(message)s"
+#
+# The thread name comes first, before the source location, because the Oradio is
+# one process running a dozen or so threads at once -- the wifi listener, the MPD
+# monitor, the volume manager, the web listener, the RMS sender -- and their lines
+# interleave. Reading the INFO log as the path the code took means telling those
+# lanes apart, and filename:lineno does not: two threads can sit in the same
+# function. Worth the width on every line, because the alternative is reasoning
+# about which lane each line belongs to while reading.
+LOG_BODY          = "%(threadName)s - %(filename)s:%(lineno)d - %(levelname)s - %(message)s"
 LOG_FORMAT        = "%(asctime)s - " + LOG_BODY
 SYSLOG_LOG_FORMAT = "oradio[%(process)d]: " + LOG_BODY
 

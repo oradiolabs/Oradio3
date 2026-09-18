@@ -208,7 +208,7 @@ class VolumeControl(ThreadTemplate):
             self._count_set_failure(control, response)
         else:
             self._set_failures.clear()
-            oradio_log.debug("Volume of '%s' set to: %s", control, volume)
+            oradio_log.trace("Volume of '%s' set to: %s", control, volume)
 
     def _count_set_failure(self, control: str, response: str) -> None:
         """

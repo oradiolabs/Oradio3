@@ -885,7 +885,7 @@ class WifiEventListener(ThreadTemplate):    # pylint: disable=too-many-instance-
             return
 
         self._published_state = state
-        oradio_log.debug("Publish wifi service message: %s", state)
+        oradio_log.info("Publish wifi service message: %s", state)
         Commands.publish(CommandMessage(WIFI_SOURCE, state))
 
     def forget_published_state(self) -> None:
@@ -962,7 +962,7 @@ class WifiEventListener(ThreadTemplate):    # pylint: disable=too-many-instance-
             # uplink that is down for an hour would otherwise report itself all hour.
             if not self._no_internet_reported:
                 self._no_internet_reported = True
-                oradio_log.debug("Associated without internet access")
+                oradio_log.info("Associated without internet access")
                 # A command, not an incident: the access point refused the
                 # connection, which is something the user retries -- with a
                 # different password, or once the router is back. Nothing about
@@ -1073,7 +1073,7 @@ class WifiEventListener(ThreadTemplate):    # pylint: disable=too-many-instance-
         with self._ap_lock:
             stored = len(self._access_points)
 
-        oradio_log.debug(
+        oradio_log.trace(
             "Seeded %d access points (%d networks)", stored, len(self.get_access_points())
         )
 
@@ -1422,7 +1422,7 @@ class WifiEventListener(ThreadTemplate):    # pylint: disable=too-many-instance-
                         self.publish_state(WIFI_CONNECTED)
                     else:
                         # PORTAL, LIMITED, NONE, or unreadable: IP may be assigned but no usable internet route
-                        oradio_log.debug("Wifi not connected to internet")
+                        oradio_log.info("Wifi not connected to internet")
                         Commands.publish(CommandMessage(WIFI_SOURCE, WIFI_CONNECT_FAILED))
 
             elif new_state == NM_DISCONNECTED:
@@ -1433,7 +1433,7 @@ class WifiEventListener(ThreadTemplate):    # pylint: disable=too-many-instance-
 
             else:   # NM_FAILED — NetworkManager could not complete the connection
                 self._hosting_ap = False
-                oradio_log.debug("Wifi could not complete connection: %s", new_state)
+                oradio_log.info("Wifi could not complete connection: %s", new_state)
                 Commands.publish(CommandMessage(WIFI_SOURCE, WIFI_CONNECT_FAILED))
 
         # Broad catch is intentional: this callback must never take down the GLib main loop or the listener thread

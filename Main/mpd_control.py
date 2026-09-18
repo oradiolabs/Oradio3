@@ -170,10 +170,10 @@ class _SongFinishMonitor(ThreadTemplate):
         for song in playlist:
             if isinstance(song, dict) and int(song.get("id", -1)) == self._song_id:
                 self._control._execute("deleteid", self._song_id)  # pylint: disable=protected-access
-                oradio_log.debug("Removed song id %s from playlist", self._song_id)
+                oradio_log.trace("Removed song id %s from playlist", self._song_id)
                 break
         else:
-            oradio_log.debug("Song id %s already removed", self._song_id)
+            oradio_log.trace("Song id %s already removed", self._song_id)
 
         if not self._suppress_resume:
             self._control._resume_queue_if_not_empty()   # pylint: disable=protected-access
@@ -500,24 +500,24 @@ class MPDControl(MPDService):
             state  = status.get("state", "").lower()
 
             if state == "play":
-                oradio_log.debug("Playing current playlist")
+                oradio_log.info("Playing current playlist")
                 return True
 
             if state == "pause":
-                oradio_log.debug("Resuming current playlist")
+                oradio_log.info("Resuming current playlist")
                 _ = self._execute("play")
                 return True
 
             playlist = status.get("lastloadedplaylist")
 
             if state == "stop" and playlist:
-                oradio_log.debug("Play first song of playlist '%s'", playlist)
+                oradio_log.info("Play first song of playlist '%s'", playlist)
                 _ = self._execute("play", 0)
             else:
                 # songs_in_queue is not empty, so safe to read the first entry.
                 parent_dir = path.dirname(songs_in_queue[0].get("file"))
                 directory  = path.basename(parent_dir)
-                oradio_log.debug("Play random song of directory '%s'", directory)
+                oradio_log.info("Play random song of directory '%s'", directory)
                 _ = self._execute("shuffle")
                 _ = self._execute("play")
 
@@ -531,7 +531,7 @@ class MPDControl(MPDService):
             preset = preset.strip()
         else:
             preset = DEFAULT_PRESET
-            oradio_log.debug("No current playlist, using default preset '%s'", preset)
+            oradio_log.info("No current playlist, using default preset '%s'", preset)
 
         _ = self._execute("clear")
 
@@ -576,7 +576,7 @@ class MPDControl(MPDService):
         _ = self._execute("repeat", 1)
 
         _ = self._execute("play")
-        oradio_log.debug("Playback started for: %s", listname)
+        oradio_log.info("Playback started for: %s", listname)
         return True
 
     def play_song(self, song: str) -> None:
@@ -604,7 +604,7 @@ class MPDControl(MPDService):
             oradio_log.error("Invalid song: %s", song)
             return
 
-        oradio_log.debug("Attempting to play song: %s", song)
+        oradio_log.info("Attempting to play song: %s", song)
 
         # If a previous play_song() song is still playing, stop it and
         # remove it from the queue before inserting this one. Must happen
@@ -646,7 +646,7 @@ class MPDControl(MPDService):
         oradio_log.debug("Started playback at index %d for song id %s", target_index, inserted_song_id)
 
         self._song_monitor.monitor(int(inserted_song_id))
-        oradio_log.debug("Monitor removal for song id: %s", inserted_song_id)
+        oradio_log.trace("Monitor removal for song id: %s", inserted_song_id)
 
     def _resume_queue_if_not_empty(self) -> None:
         """
@@ -669,11 +669,11 @@ class MPDControl(MPDService):
         state  = status.get("state", "").lower()
 
         if state != "play":
-            oradio_log.debug("Ignore pause: not currently playing (state=%s)", state)
+            oradio_log.info("Ignore pause: not currently playing (state=%s)", state)
             return
 
         _ = self._execute("pause")
-        oradio_log.debug("Playback paused")
+        oradio_log.info("Playback paused")
 
     def next(self) -> None:
         """
@@ -686,15 +686,15 @@ class MPDControl(MPDService):
         state  = status.get("state", "").lower()
 
         if state != "play":
-            oradio_log.debug("Ignore next: not currently playing (state=%s)", state)
+            oradio_log.info("Ignore next: not currently playing (state=%s)", state)
             return
 
         if self.is_webradio():
-            oradio_log.debug("Ignore next: current item is a web radio")
+            oradio_log.info("Ignore next: current item is a web radio")
             return
 
         _ = self._execute("next")
-        oradio_log.debug("Skipped to next song")
+        oradio_log.info("Skipped to next song")
 
     def stop(self) -> None:
         """
@@ -705,11 +705,11 @@ class MPDControl(MPDService):
         state  = status.get("state", "").lower()
 
         if state != "play":
-            oradio_log.debug("Ignore stop: not currently playing (state=%s)", state)
+            oradio_log.info("Ignore stop: not currently playing (state=%s)", state)
             return
 
         _ = self._execute("stop")
-        oradio_log.debug("Playback stopped")
+        oradio_log.info("Playback stopped")
 
     def clear(self) -> None:
         """
@@ -907,12 +907,12 @@ class MPDControl(MPDService):
         result = []
         for directory in directories:
             if not isinstance(directory, dict):
-                oradio_log.debug("Skipping invalid directory entry: %s", directory)
+                oradio_log.trace("Skipping invalid directory entry: %s", directory)
                 continue
 
             name = directory.get("directory")
             if not name or not isinstance(name, str) or not name.strip():
-                oradio_log.debug("Skipping empty or invalid directory name: %s", directory)
+                oradio_log.trace("Skipping empty or invalid directory name: %s", directory)
                 continue
 
             result.append(name.strip())
@@ -944,12 +944,12 @@ class MPDControl(MPDService):
         result = []
         for playlist in playlists:
             if not isinstance(playlist, dict):
-                oradio_log.debug("Skipping invalid playlist entry: %s", playlist)
+                oradio_log.trace("Skipping invalid playlist entry: %s", playlist)
                 continue
 
             name = playlist.get("playlist")
             if not name or not name.strip():
-                oradio_log.debug("Skipping empty playlist entry: %s", playlist)
+                oradio_log.trace("Skipping empty playlist entry: %s", playlist)
                 continue
 
             result.append({

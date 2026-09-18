@@ -476,7 +476,7 @@ class StateMachine:
             play_sound(SOUND_AP_START)
             return
 
-        oradio_log.debug("Starting WebService: %r", web_service)
+        oradio_log.info("Starting WebService: %r", web_service)
 
         # Blink first, because the start below takes seconds: the radio has to
         # switch to access-point mode and the server has to come up. Without it
@@ -565,7 +565,7 @@ class StateMachine:
         if usb_present.is_set():
             self.prev_state = self.state
             self.state = requested_state
-            oradio_log.debug("State changed: %s → %s", self.prev_state, self.state)
+            oradio_log.info("State changed: %s → %s", self.prev_state, self.state)
         else:
             oradio_log.info("Transition to %s blocked (USB absent)", requested_state)
             if self.state != "StateUSBAbsent":
@@ -621,7 +621,7 @@ class StateMachine:
         both, which is a larger change than this guard.
         """
         if from_state is not None and self.state != from_state:
-            oradio_log.debug(
+            oradio_log.info(
                 "Not arming %s: state moved from %s to %s", key, from_state, self.state
             )
             return
@@ -672,7 +672,7 @@ class StateMachine:
             oradio_log.warning("Ignoring transition to %s because StateError is active", requested_state)
             return False
 
-        oradio_log.debug("Request Transitioning from %s to %s", self.state, requested_state)
+        oradio_log.info("Request Transitioning from %s to %s", self.state, requested_state)
 
         self._cancel_all_delayed()
 
@@ -795,7 +795,7 @@ class StateMachine:
         mpd_control.wait_for_library()
 
         if self.state != f"State{preset}":
-            oradio_log.debug("Dropping retry of '%s': state is now %s", preset, self.state)
+            oradio_log.info("Dropping retry of '%s': state is now %s", preset, self.state)
             return
 
         with sm_lock:
@@ -826,7 +826,7 @@ class StateMachine:
             mpd_control.pause()
         play_sound(SOUND_STOP)
         # Schedule interruptible transition to Idle after 4 seconds (non-blocking)
-        oradio_log.debug("Stop: scheduling transition to Idle in 4 s (interruptible)")
+        oradio_log.info("Stop: scheduling transition to Idle in 4 s (interruptible)")
         self._arm_delayed_transition("StopToIdle", 4.0, "StateIdle", from_state="StateStop")
         # handler returns immediately; task_lock released, UI remains responsive
 
@@ -891,7 +891,7 @@ class StateMachine:
         # wanted back, it belongs in initialise_library() on the background
         # thread, where it holds nothing up.
 
-        oradio_log.debug("Startup: scheduling transition to Idle in 5 s")
+        oradio_log.info("Startup: scheduling transition to Idle in 5 s")
         self._arm_delayed_transition("StartupToIdle", 5.0, "StateIdle", from_state="StateStartUp")
 
     def _state_idle(self):

@@ -220,7 +220,7 @@ def play_sound(sound_key: str) -> None:
         _report_playback_failure()
         return
 
-    oradio_log.debug("System sound process launched: %s", sound_file)
+    oradio_log.info("System sound process launched: %s", sound_file)
 
     # Still fire-and-forget for the caller: the watcher waits, this returns.
     # Daemon, so a sound in flight never holds up a shutdown.

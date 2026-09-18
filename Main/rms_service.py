@@ -452,7 +452,7 @@ def _run_remote_command(command: str) -> None:
     Args:
         command: Shell command as received from the RMS server.
     """
-    oradio_log.debug("Run command '%s' from RMS server", command)
+    oradio_log.info("Run command '%s' from RMS server", command)
 
     try:
         # Append, so the header below and the command's own writes are
@@ -508,7 +508,7 @@ def _run_remote_command(command: str) -> None:
     where = "discarded" if output is None else f"in '{REMOTE_COMMAND_LOG}'"
 
     if returncode == 0:
-        oradio_log.debug("Command '%s' finished; output %s", command, where)
+        oradio_log.info("Command '%s' finished; output %s", command, where)
     elif returncode is not None:
         oradio_log.error(
             "shell script '%s' exit code: %d; output %s", command, returncode, where

@@ -393,7 +393,7 @@ class USBObserver(FileSystemEventHandler):
         # Ignore directory events and any files other than the specific marker file
         if not event.is_directory and event.src_path == USB_STATEFILE:
             try:
-                oradio_log.debug("USB inserted")
+                oradio_log.info("USB inserted")
                 self.report_fsck_error()
                 Commands.publish(CommandMessage(USB_SOURCE, USB_PRESENT))
                 self._start_wifi_import()
@@ -423,7 +423,7 @@ class USBObserver(FileSystemEventHandler):
         # Ignore directory events and any files other than the specific marker file
         if not event.is_directory and event.src_path == USB_STATEFILE:
             try:
-                oradio_log.debug("USB removed")
+                oradio_log.info("USB removed")
                 self._cancel_wifi_import()
                 Commands.publish(CommandMessage(USB_SOURCE, USB_ABSENT))
             # An unhandled exception here would propagate into watchdog's
