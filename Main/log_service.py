@@ -39,6 +39,19 @@ Created on January 17, 2025
 
     Levels. The scheme below is written around INFO as the level to run at; the default is DEBUG for
     now, while the fleet is being watched (see ORADIO_LOG_LEVEL). Each level has a job of its own:
+    - CRITICAL says the Oradio cannot go on. fatal_exit() logs at this level on its way out, so a
+            CRITICAL line is normally the last one before the process ends and systemd takes over.
+            One use does not fit: system_sounds logs a missing sounds directory here, and the
+            Oradio carries on without announcements. That is an ERROR by this scheme.
+    - ERROR says something the Oradio needed did not happen, and it has not recovered on its own: a
+            command that failed after its retries, a device that did not answer, a file that could
+            not be read. Most are followed by an incident, which is how the fault reaches RMS.
+    - WARNING says something unexpected happened and was handled: a fallback taken, a value that
+            could not be read and a default used instead, a retry that is about to be made. The
+            Oradio still does what was asked. incident_service also logs every incident it
+            receives at this level -- deliberately below the ERROR the source usually wrote for
+            the same fault, because the source's line says what failed and this one only says
+            that it was received.
     - INFO  says what the Oradio does. Anything that changes its behaviour, and anything that explains
             why it did not change, belongs here: a state transition, an accepted button press, a
             playlist that starts, wifi that comes or goes, a shell script that runs, a command from
