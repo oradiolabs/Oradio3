@@ -905,6 +905,11 @@ class StateMachine:
         oradio_log.debug("In Idle state, wait for next step")
 
     def _state_error(self):
+        """
+        This state is a fault the Oradio cannot run through.
+        Stop the music and blink the STOP LED indicating the error.
+        """
+        mpd_control.stop()
         leds.control_blinking_led(LED_STOP, ERROR_BLINK_CYCLE)
 
     def _state_unknown(self):

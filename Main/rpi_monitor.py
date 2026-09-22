@@ -302,7 +302,24 @@ class RPiThrottlingMonitor(ThreadTemplate):
             Incidents.publish(IncidentMessage(THROTTLING_SOURCE, POWER_UNDERVOLTAGE))
 
     def on_stopped(self) -> None:
-        """Report incident: Oradio never intentionally stops throttling monitoring."""
+        """
+        Report the monitor ending, unless it was told to.
+
+        There is one deliberate stop: the incident service ends this monitor
+        once a supply that cannot keep up has been reported and the Oradio has
+        gone to StateError. Past that point it would only keep polling a failing
+        supply once a second and logging an under-voltage event every time, and
+        reporting its own stop as an incident would be a second report of the
+        one fault that caused it.
+
+        Every other way out is a crash past restart_on_crash's budget, which is
+        what THROTTLING_STOPPED is for. stop_reason() tells the two apart: no
+        exception means the stop was asked for.
+        """
+        if self.exception is None:
+            oradio_log.info("Throttling monitor stopped on request")
+            return
+
         Incidents.publish(
             IncidentMessage(THROTTLING_SOURCE, THROTTLING_STOPPED, details=self.stop_reason())
         )

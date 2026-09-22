@@ -125,8 +125,10 @@ class IncidentHandler(MessageHandlerTemplate):
     and adding one back would be hiding a decision rather than recording it.
 
     A note on the *_STOPPED incidents, which are all NO MITIGATION for the same
-    reason: nothing in the operational Oradio calls stop() on those workers, and
-    none of their do_work() bodies has a path that raises -- an I2C failure
+    reason: nothing in the operational Oradio calls stop() on those workers --
+    with one exception, the throttling monitor after an under-voltage, whose
+    on_stopped() stays quiet about it -- and none of their do_work() bodies has
+    a path that raises -- an I2C failure
     comes back as None, not as an exception. So a *_STOPPED means an exception
     nobody foresaw, repeated until ThreadTemplate.restart_on_crash gave up. A
     further restart from here would meet the same one.
@@ -648,7 +650,14 @@ class IncidentHandler(MessageHandlerTemplate):
             # it is the same fault and the same remedy: the supply has to be
             # replaced, and replacing it cuts the power anyway -- so playing on
             # until the user acts buys nothing and costs every second of it.
+            #
+            # oradio_control stops the music by going to StateError. The
+            # throttling monitor is stopped here: its job was to find this, and
+            # from now on it would only poll a failing supply once a second and
+            # log another under-voltage event each time, until someone pulls the
+            # plug. Its on_stopped() stays quiet about a stop it was asked for.
             Commands.publish(CommandMessage(INCIDENT_SOURCE, INCIDENT_POWER_ERROR))
+            RPiThrottlingMonitor().stop()
         elif incident.message == THROTTLING_THROTTLED:
             # NO MITIGATION: reporting it IS the mitigation.
             #   The Pi is protecting itself against heat or load and recovers on its
