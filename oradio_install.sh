@@ -678,8 +678,6 @@ else # Execute if this script IS automatically started after reboot
 	# finish the one already in progress.
 	if [ -f "$CONTINUE_UNIT_FILE" ]; then
 		sudo systemctl disable "$CONTINUE_UNIT" || echo -e "${YELLOW}Warning: could not disable $CONTINUE_UNIT${NC}"
-		sudo rm -f "$CONTINUE_UNIT_FILE" || echo -e "${YELLOW}Warning: could not remove $CONTINUE_UNIT_FILE${NC}"
-		sudo systemctl daemon-reload
 	fi
 
 ########## REBOOT RUN END ##########
@@ -906,6 +904,9 @@ fi
 # Progress report
 echo -e "${GREEN}Installation completed. Rebooting to start Oradio3 in ${REBOOT_DELAY}s. Use ctrl-c to interrupt.${NC}"
 sleep "$REBOOT_DELAY"
+
+# Unit is disabled; remove its file now that we're about to reboot
+sudo rm -f "$CONTINUE_UNIT_FILE"
 
 # Ensure buffered data is written to files
 sync
