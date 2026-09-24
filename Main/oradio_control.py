@@ -506,17 +506,17 @@ class StateMachine:
 
     # --- transition() helpers ---
 
-    def _same_state_next_song(self, requested_state: str) -> bool:
+    def _same_state_pressed_again(self, requested_state: str) -> bool:
         """
-        Advance to the next song when the state the Oradio is in is asked for again.
+        Act on the state the Oradio is already in being asked for again.
 
         Args:
             requested_state: The state just requested.
 
         Returns:
-            True when this was handled as "next song", so no state handler is
-            needed. False lets the transition run, which re-enters the state and
-            plays the preset from the start.
+            True when the press was handled here, so no state handler is needed.
+            False lets the transition run, which re-enters the state and plays
+            the preset from the start.
 
         Asked of the preset where there is one, and not of the current song. A web
         radio has no next song, and the question is whether this button holds one
@@ -532,9 +532,20 @@ class StateMachine:
             return False
 
         preset = requested_state[len("State"):] if requested_state in PRESETS_BY_STATE else None
-        if mpd_control.is_webradio(preset=preset):
-            oradio_log.debug("Same web radio preset pressed again: starting it over")
-            return False
+
+        if preset and mpd_control.is_webradio(preset=preset):
+            # Handled here rather than by letting the transition re-enter the
+            # state, so that pressing the same button twice sounds the same
+            # whatever is behind it. A playlist answers "next song" and a web
+            # radio has no next song, but neither should announce the button
+            # number again -- the user already heard it when they first pressed.
+            if self._webradio_without_internet(preset):
+                oradio_log.info("Web radio preset pressed again, still no internet")
+                play_sound(SOUND_NO_INTERNET)
+            else:
+                oradio_log.debug("Same web radio preset pressed again: starting it over")
+                mpd_control.play(preset=preset)
+            return True
 
         mpd_control.next()
         play_sound(SOUND_NEXT)
@@ -711,7 +722,7 @@ class StateMachine:
 
         self._cancel_all_delayed()
 
-        if not reenter and self._same_state_next_song(requested_state):
+        if not reenter and self._same_state_pressed_again(requested_state):
             return False
 
         if self._stop_webservice_if_needed(requested_state):
