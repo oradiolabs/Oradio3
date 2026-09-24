@@ -12,7 +12,7 @@
 # @copyright:     Stichting Oradio
 # @license:       GNU General Public License (GPL)
 # @organization:  Stichting Oradio
-# @version:       1
+# @version:       2
 # @email:         info@stichtingoradio.nl
 # @status:        Development
 # @Purpose:       Remove artefacts left behind by earlier Oradio versions
@@ -49,8 +49,19 @@
 # To find what a release dropped, compare the install targets of the two tags:
 #   diff <(git show v1.0.5:oradio_install.sh | grep -oE 'install_(resource|script) [^ ]+ [^ ]+') \
 #        <(git show v1.0.6:oradio_install.sh | grep -oE 'install_(resource|script) [^ ]+ [^ ]+')
+# That only covers oradio_install.sh. optimize_boot_time.sh writes system files
+# of its own, so compare the paths it touches as well:
+#   diff <(git show v1.0.5:install_resources/optimize_boot_time.sh | grep -oE '(/etc|/usr|/lib|/var|/boot)/[A-Za-z0-9_./@-]+' | sort -u) \
+#        <(git show v1.0.6:install_resources/optimize_boot_time.sh | grep -oE '(/etc|/usr|/lib|/var|/boot)/[A-Za-z0-9_./@-]+' | sort -u)
+# And check what third-party installers (curl | sh) wrote outside their
+# package: purging the package does not remove those files.
+#
 # Watch for renames and moves: a file that changed directory is still a
 # leftover under its old path.
+#
+# Also watch for package-owned files an earlier release edited in place (sed on
+# a unit in /lib/systemd/system, say). Those are not leftovers this script can
+# delete -- the package owns them -- but 'dpkg -V <package>' shows them.
 #
 # USAGE
 #   cleanup_old_versions.sh [--dry-run]
@@ -257,10 +268,24 @@ function remove_logfiles {
 
 # Delete one exact line from a text file, if it is there.
 #
-# grep -vxF into a temporary file rather than 'sed -i': the lines this removes
-# are full shell commands containing '/', '$' and '.', every one of which would
-# have to be escaped for sed, and getting that wrong on a user's .bashrc is not
-# a mistake worth risking. -x -F means whole line, literal, no pattern at all.
+# grep -vxF rather than 'sed -i': the lines this removes are full shell
+# commands containing '/', '$' and '.', every one of which would have to be
+# escaped for sed, and getting that wrong on a user's .bashrc is not a mistake
+# worth risking. -x -F means whole line, literal, no pattern at all.
+#
+# The result is written back INTO the original file ('cat >'), not moved over
+# it. A mv would replace the file with a new one carrying the default umask and
+# owner -- a 600 .bashrc would come back 664 -- and would replace a symlinked
+# .bashrc with a regular file. Writing in place keeps inode, mode, owner and
+# link.
+#
+# grep exits 1 when it selects no lines at all, which here is a success: the
+# file held nothing but the line being removed and is now empty. Only 2 and up
+# is a real error.
+#
+# Privilege is decided here rather than by set_privilege_for(): writing in
+# place needs write access to the file itself, and the temporary file needs
+# write access to the directory. Both are tested.
 #
 # Args:
 #   $1  File to edit.
@@ -269,12 +294,22 @@ function remove_line_from_file {
 	[ -f "$1" ] || return 0
 	grep -qxF "$2" "$1" || return 0
 
-	set_privilege_for "$1"
+	if [ -w "$1" ] && [ -w "$(dirname "$1")" ]; then
+		SUDO=()
+	else
+		SUDO=(sudo)
+	fi
 	# Single quotes on purpose: $1 and $2 are the inner shell's positional
 	# parameters, passed after the '_' below, not this function's.
 	# shellcheck disable=SC2016
 	do_step "remove '$2' from $1" \
-		"${SUDO[@]}" bash -c 'grep -vxF "$2" "$1" >"$1.cleanup-tmp" && mv "$1.cleanup-tmp" "$1"' _ "$1" "$2"
+		"${SUDO[@]}" bash -c '
+			tmp="$1.cleanup-tmp"
+			{ grep -vxF "$2" "$1" >"$tmp" || [ $? -eq 1 ]; } \
+				&& cat "$tmp" >"$1" \
+				&& rm -f "$tmp" \
+				|| { rm -f "$tmp"; exit 1; }
+		' _ "$1" "$2"
 }
 
 # Purge a package if its files are on disk.
@@ -309,7 +344,8 @@ fi
 
 ##### v1.0.5 (2026-07-24): USB mounting rewritten ##########
 # usb-prepare.service, usb-mount@.service and usb-mount.sh were replaced by
-# usb-drive-boot.service, usb-drive@.service and usb-drive.sh. The udev rules
+# usb-drive@.service and usb-drive.sh (usb-drive-boot.service followed in
+# v1.0.6; it replaces nothing that is still on disk). The udev rules
 # in /etc/udev/rules.d/99-local.rules were rewritten to point at the new
 # template, and that file IS overwritten by the installer, so nothing here
 # needs to touch it -- but the old units and script are still on disk, and
@@ -319,19 +355,12 @@ remove_unit usb-prepare.service
 remove_unit usb-mount@.service
 remove_file /usr/local/bin/usb-mount.sh
 
-# NOT cleaned up here, but handled: 'usb-storage.quirks=0781:5583:u' in
-# /boot/firmware/cmdline.txt, added by v1.0.1 to v1.0.4 and never since.
-#
-# It is stripped by optimize_boot_time.sh, which lists usb-storage.quirks in
-# CMDLINE_REMOVE. cmdline.txt has exactly one owner on purpose: two scripts
-# rebuilding the same line would leave the result depending on which ran last,
-# and that script is the one that refuses to write a line without root=.
-
 ##### v1.0.6 (2026-08-18): USB tuning and log upload dropped
-# Three unrelated things landed in the same release:
+# Four unrelated things landed in the same release:
 #
-# usb_low_idle_power.service was enabled and set the USB autosuspend policy.
-# 'Remove USB drive tuning' dropped it; on an upgraded device it is still
+# usb_low_idle_power.service set the USB power control of port 1-1. It is
+# WantedBy=oradio.service, so it runs every time Oradio starts. 'Remove usb
+# low idle power service' dropped it; on an upgraded device it is still
 # enabled and still applying a policy nothing else knows about.
 #
 # send_log_files_to_rms.sh uploaded the logging directory to the Remote
@@ -347,13 +376,40 @@ remove_unit usb_low_idle_power.service
 remove_file /usr/local/bin/send_log_files_to_rms.sh
 remove_file /usr/local/bin/usb-drive.sh
 
+# optimize_boot_time.sh renamed its module blacklist from
+# raspi-boot-blacklist.conf to oradio-boot-blacklist.conf, and wrote the new
+# file from a different list. The old file is still read by modprobe, and it
+# holds 'blacklist fuse' -- which the current script leaves out on purpose,
+# because blocking FUSE breaks USB automounting and ntfs-3g. It also still
+# blacklists cramfs, squashfs and configfs. Everything the old file blocked
+# that is still wanted is in the new file.
+#
+# Effective from the next module load or reboot. No initramfs to rebuild:
+# config.txt sets auto_initramfs=0.
+remove_file /etc/modprobe.d/raspi-boot-blacklist.conf
+
 # NOT cleaned up here: /lib/systemd/system/mpd.service. Until v1.0.6 the
 # installer overwrote it; since then the Oradio settings live in the drop-in
-# /etc/systemd/system/mpd.service.d/oradio.conf instead. The leftover is the
-# stock Debian unit, and /lib/systemd/system is owned by the mpd package:
-# deleting it leaves 'systemctl start mpd' with no unit at all. dpkg rewrites
-# the file on the next mpd package upgrade anyway, which is the right way for
-# it to be restored.
+# /etc/systemd/system/mpd.service.d/oradio.conf instead.
+#
+# The leftover is NOT the stock Debian unit: it is Oradio's own pre-v1.0.6
+# version (Type=simple, 'mpd --no-daemon /etc/mpd.conf', not ordered after
+# network.target), where the package ships Type=notify with 'mpd --systemd'.
+# So an upgraded device runs mpd under a different unit than a fresh one, with
+# the same drop-in on top.
+#
+# It is still not deleted: the file is owned by the mpd package, and deleting
+# it leaves 'systemctl start mpd' with no unit at all. Restoring it means
+# reinstalling mpd, and 'apt-get install --reinstall' installs the candidate
+# version -- an upgrade whenever one is available, which is a decision for the
+# installer, not for a cleanup script. dpkg rewrites the file on the next mpd
+# upgrade; until then, check a device with:
+#   dpkg -V mpd
+#
+# The same goes for /lib/systemd/system/ssh.service, which
+# optimize_boot_time.sh in v1.0.1 to v1.0.5 edited in place (After= replaced by
+# After=basic.target). Lower impact: the current script moves SSH to
+# ssh.socket and disables ssh.service. 'dpkg -V openssh-server' shows it.
 
 ##### v1.0.7 (2026-09-07): crash handler renamed ###########
 # oradio-crash-action.{service,sh} became oradio-crash.{service,sh}, and the
@@ -367,6 +423,16 @@ remove_file /usr/local/bin/usb-drive.sh
 remove_unit oradio-crash-action.service
 remove_file /usr/local/sbin/oradio-crash-action.sh
 remove_logfiles crash-action.log
+
+# NOT cleaned up here, but handled: 'usb-storage.quirks=0781:5583:u' in
+# /boot/firmware/cmdline.txt, added by v1.0.1 to v1.0.6 and dropped in v1.0.7
+# ('Remove USB drive tuning').
+#
+# It is stripped by optimize_boot_time.sh, which lists usb-storage.quirks in
+# CMDLINE_REMOVE and runs after this script. cmdline.txt has exactly one owner
+# on purpose: two scripts rebuilding the same line would leave the result
+# depending on which ran last, and that script is the one that refuses to
+# write a line without root=.
 
 # The shared 'apt-get update' stamp moved from /var/lib/apt, which belongs to
 # apt, into /var/lib/oradio, which does not. The old file is inert -- nothing
@@ -392,20 +458,29 @@ remove_file /var/lib/apt/last_update_stamp
 remove_unit librespot.service
 remove_file /usr/local/bin/spotify_event_handler.sh
 
-# raspotify was only ever installed to get librespot; oradio_install.sh masked
-# the raspotify unit and used the binary.
+# raspotify was only ever installed to get librespot; oradio_install.sh kept
+# the raspotify unit out of the way and used the binary. How it did that
+# depends on the release that first installed it: v1.0.1 to v1.0.5 ran
+# 'systemctl stop' and 'disable', v1.0.6 and v1.0.7 'mask --now' -- and only
+# when raspotify was missing, so a device installed before v1.0.6 still has it
+# disabled, not masked. remove_unit handles both.
 #
-# The mask goes first, and it has to be done separately: masking writes a
-# symlink to /dev/null into /etc/systemd/system, which dpkg does not own and
-# apt therefore leaves behind. Purging alone would strip the package and keep a
-# dangling mask, so systemd would go on listing raspotify.service as masked
-# with nothing behind it -- and silently mask it again if it were ever
-# reinstalled for some other reason.
+# Done before the purge rather than left to it: whether the package's own
+# postrm clears a mask depends on the raspotify version the device happens to
+# have, and a dangling mask would make systemd go on listing raspotify.service
+# with nothing behind it.
 remove_unit raspotify.service
 
-# Purge rather than remove, so its config and the apt source its installer
-# added go too.
+# Purge rather than remove, so the package's config goes too.
 purge_package raspotify
+
+# The apt source and signing key. raspotify's install.sh wrote these itself,
+# outside the package, so the purge above leaves them. Left in place, every
+# 'apt-get update' keeps fetching from a repository Oradio no longer uses --
+# and oradio_install.sh aborts when that update fails, so the day that
+# repository or its key goes away, a leftover here stops every install.
+remove_file /etc/apt/sources.list.d/raspotify.list
+remove_file /usr/share/keyrings/raspotify_key.asc
 
 # The flag files librespot's --onevent handler wrote, and the directory holding
 # them. Owned by the Oradio user, removed here because nothing else will.
@@ -414,17 +489,22 @@ remove_dir "$ORADIO_ROOT/Spotify"
 remove_logfiles spotify.log
 
 # NOT cleaned up here: the VolumeSpotCon1 and VolumeSpotCon2 softvol controls
-# stored in /var/lib/alsa/asound.state. They are recreated from that file by
-# 'alsactl restore' and are harmless once /etc/asound.conf stops declaring the
-# chain -- restore simply skips controls it cannot place. Editing asound.state
-# by hand risks the controls Oradio does need (VolumeMPD, VolumeSysSound), and
-# the file is rewritten from the live card at shutdown anyway.
+# stored in /var/lib/alsa/asound.state. Softvol controls are user controls, and
+# 'alsactl restore' recreates user controls from the state file even when
+# /etc/asound.conf no longer declares them. alsa-state.service then saves them
+# again at shutdown, so they do not age out: they stay on an upgraded device
+# indefinitely.
+#
+# They are harmless -- two extra mixer controls nothing reads or sets -- and
+# the alternative is worse: editing asound.state by hand risks the controls
+# Oradio does need (VolumeMPD, VolumeSysSound), and a botched edit makes
+# alsactl reject the whole file.
 
 ##### Next release: install resume mechanism replaced ######
 # oradio_install.sh used to resume after its mid-install reboot by appending a
 # line to ~/.bashrc and switching the console to auto-login. It now enables a
-# one-shot systemd unit instead, which it removes itself in the '--continue'
-# pass.
+# one-shot systemd unit instead, which the '--continue' pass disables and the
+# end of a successful install deletes.
 #
 # The .bashrc line is the part that has to go. It fires in EVERY interactive
 # shell, so on a device where the second pass never ran, every login since has
@@ -440,6 +520,12 @@ remove_line_from_file "$HOME/.bashrc" "bash $ORADIO_ROOT/oradio_install.sh --con
 # tell an installer leftover from a preference. Check it by hand on a device
 # that was interrupted mid-install:
 #   systemctl show getty@tty1 -p ExecStart | grep -o autologin
+#
+# NOT cleaned up here either: /etc/systemd/system/oradio-install-continue.service
+# left behind by an install that stopped with errors after its '--continue'
+# pass. It is disabled by then, so inert. And this script runs INSIDE that unit
+# during the '--continue' pass, so removing it here would pull the unit file
+# out from under the running install.
 
 ##### Next release: crash handler state directory ##########
 # oradio-crash.sh keeps one file, /var/lib/oradio/crash-reboot.stamp, recording
