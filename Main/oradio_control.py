@@ -116,7 +116,6 @@ from constants import (
 
 ########## LOCAL constants ################################
 
-WEB_PRESET_STATES = {"StatePreset1", "StatePreset2", "StatePreset3"}
 PLAY_STATES = {"StatePlay", "StatePreset1", "StatePreset2", "StatePreset3"}
 
 # Blink cycle for "the Oradio is busy and will be ready shortly".
@@ -520,9 +519,22 @@ class StateMachine:
             return True
         return False
 
-    def _block_webradio_without_internet(self, requested_state: str) -> bool:
+    def _webradio_without_internet(self, preset: str) -> bool:
         """
-        Block WebRadio presets when no internet; return True if blocked.
+        Whether this preset is a web radio the Oradio currently cannot reach.
+
+        Args:
+            preset: Preset key, e.g. "Preset1".
+
+        Returns:
+            True when it is a web radio and there is no usable internet.
+
+        Asked by _play_preset() rather than used to refuse the transition. The
+        press is a real request: the button the user pressed becomes the
+        active one, its LED comes on, the previous one goes out and whatever
+        was playing stops. Only the music cannot follow, and the Oradio says
+        so. Refusing the transition left the old preset's LED on next to the
+        new one and the old music playing under the announcement.
 
         Asks NetworkManager rather than resolving a name. NM keeps a
         connectivity assessment it refreshes by probing, so this is one D-Bus
@@ -541,24 +553,17 @@ class StateMachine:
         has nothing to do with the connection, so the DNS probe gets the last
         word there.
         """
-        if requested_state in WEB_PRESET_STATES:
-            preset_key = requested_state[len("State"):]
+        # Preset check first, as before: a preset that is not a webradio needs
+        # no connectivity answer at all.
+        if not mpd_control.is_webradio(preset=preset):
+            return False
 
-            # Preset check first, as before: a preset that is not a webradio
-            # needs no connectivity answer at all.
-            if not mpd_control.is_webradio(preset=preset_key):
-                return False
+        connected = oradio_wifi_service.has_connectivity()
+        if connected is None:
+            oradio_log.debug("NetworkManager could not be asked; falling back to a DNS probe")
+            connected = has_internet()
 
-            connected = oradio_wifi_service.has_connectivity()
-            if connected is None:
-                oradio_log.debug("NetworkManager could not be asked; falling back to a DNS probe")
-                connected = has_internet()
-
-            if not connected:
-                oradio_log.info("Webradio blocked: no Internet")
-                run_later(2, play_sound, SOUND_NO_INTERNET)
-                return True
-        return False
+        return not connected
 
     def _commit_or_usb_absent(self, requested_state: str) -> None:
         """Commit the target state if USB present; else force USBAbsent."""
@@ -659,12 +664,13 @@ class StateMachine:
         Returns:
             True when a state worker was spawned, so the handler for the
             requested state will set the LEDs and announce what happened. False
-            when a guard above answered instead -- next song, a blocked
-            webradio, StateError -- and nothing further will touch them.
+            when a guard above answered instead -- next song, StateError -- and
+            nothing further will touch them.
 
-            _press_preset() needs that answer: it starts the LED blinking before
-            calling this, and on False there is no handler coming to turn it
-            solid again.
+            Nothing acts on it today: the one guard a preset press can hit is
+            "next song", which leaves the state and the LEDs as they were. It is
+            here so a caller that does set something up before asking can put it
+            back, which is how the preset LED used to work.
 
         Request a transition; applies guards and spawns the handler.
         """
@@ -680,9 +686,6 @@ class StateMachine:
             return False
 
         if self._stop_webservice_if_needed(requested_state):
-            return False
-
-        if self._block_webradio_without_internet(requested_state):
             return False
 
         self._commit_or_usb_absent(requested_state)
@@ -744,18 +747,45 @@ class StateMachine:
         library scan holds -- and a button that does nothing visible for that
         long reads as a button that did not work.
 
-        Three outcomes, and the middle one is why this exists:
+        Four outcomes. Three of them announce the button first -- "een", "twee",
+        "drie" -- because the user pressed it and deserves to know it was heard,
+        and only then say what came of it:
 
-          playing        LED solid, the preset is announced.
-          empty preset   The announcement that says so. The user can fix this
-                         in the web interface.
-          not ready yet  Neither. The press arrived while the library was still
-                         being scanned, and saying the preset is empty would be
-                         wrong -- it is fine, there is just nothing to play from
-                         yet. Handed to a thread that waits for the scan and
-                         asks again.
+          playing        LED solid, nothing further to say.
+          empty preset   Two seconds later, the announcement that this button
+                         has no music. The user can fix that in the web
+                         interface.
+          no internet    Two seconds later, the announcement that there is no
+                         internet. The button holds a web radio and the Oradio
+                         cannot reach it -- which is always the case while the
+                         captive portal is up, since hosting it means being off
+                         the household network.
+          not ready yet  The one that says nothing at all. The press arrived
+                         while the library was still being scanned, and both
+                         "no music" and "no internet" would be wrong -- the
+                         preset is fine, there is just nothing to play from yet.
+                         Handed to a thread that waits for the scan and asks
+                         again.
         """
         led, sound = PRESETS[preset]
+
+        # Asked before playing, because the answer is "not now" rather than
+        # "not ever": starting a stream with no route out leaves MPD retrying a
+        # URL it cannot reach, and it would begin playing by itself the moment
+        # the portal closes and WiFi comes back -- music nobody asked for.
+        if self._webradio_without_internet(preset):
+            oradio_log.info("Preset '%s' is a webradio and there is no internet", preset)
+            mpd_control.stop()
+            leds.turn_on_led(led)
+            play_sound(sound)
+            run_later(2, play_sound, SOUND_NO_INTERNET)
+            return
+
+        # Blinking from here and no earlier. This is the one call that can take
+        # seconds -- it waits on MPDService's lock, which the library scan holds
+        # after a boot or a USB insertion -- and everything above it answers at
+        # once. When play() answers at once too, the blink is replaced by a
+        # solid LED before a cycle has passed and nobody sees it.
         leds.control_blinking_led(led, STARTUP_BLINK_CYCLE)
 
         result = mpd_control.play(preset=preset)
@@ -766,7 +796,8 @@ class StateMachine:
 
         if result is False:
             leds.turn_on_led(led)
-            play_sound(SOUND_PRESET_EMPTY)
+            play_sound(sound)
+            run_later(2, play_sound, SOUND_PRESET_EMPTY)
             return
 
         oradio_log.info("Preset '%s' pressed before the library was ready", preset)
@@ -1207,42 +1238,14 @@ def _on_play_pressed() -> None:
 def _on_stop_pressed() -> None:
     _go("StateStop")
 
-def _press_preset(preset: str) -> None:
-    """
-    Acknowledge a preset press, then ask for the state.
-
-    Args:
-        preset: Preset key the user pressed, e.g. "Preset1".
-
-    The blink starts here and not in the state handler, because the wait starts
-    here. transition() asks MPD two questions before it ever spawns the handler
-    -- is this the same state again, and is this preset a webradio -- and both
-    go through MPDService's lock, which the library scan holds for seconds after
-    a boot or a USB insertion. A button that does nothing visible for that long
-    reads as a button that did not work.
-
-    The handler starts the same blink again rather than inheriting this one:
-    run_state_method() turns every LED off before it runs, so without that the
-    LED would go dark for the length of play(). The hand-over is one blink
-    cycle at most and invisible at this rate.
-    """
-    led, _ = PRESETS[preset]
-    leds.control_blinking_led(led, STARTUP_BLINK_CYCLE)
-
-    if not _go(f"State{preset}"):
-        # A guard answered instead of the handler -- the next song is playing,
-        # or a webradio was blocked. Either way this preset is still the current
-        # state and its LED belongs on, and nothing else is coming to say so.
-        leds.turn_on_led(led)
-
 def _on_preset1_pressed() -> None:
-    _press_preset("Preset1")
+    _go("StatePreset1")
 
 def _on_preset2_pressed() -> None:
-    _press_preset("Preset2")
+    _go("StatePreset2")
 
 def _on_preset3_pressed() -> None:
-    _press_preset("Preset3")
+    _go("StatePreset3")
 
 def _on_play_long_pressed() -> None:
     # Long-press Play starts the web service (guarded by SM + lock)
