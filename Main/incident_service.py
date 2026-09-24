@@ -40,6 +40,7 @@ from log_monitor import LogHealthMonitor
 from rpi_monitor import RPiThrottlingMonitor
 from utilities import (
     fatal_exit,
+    is_service_activating,
     restart_service,
     SERVICE_RESTART_LIMIT,
     SERVICE_RESTART_WINDOW,
@@ -540,8 +541,19 @@ class IncidentHandler(MessageHandlerTemplate):
             # burst that began before an earlier restart can open the circuit
             # breaker after that restart already fixed things -- and the budget
             # would be spent restarting a server that is answering.
+            #
+            # Still starting is not broken either. A command issued early in a
+            # cold boot -- a preset pressed while the start-up LED blinks --
+            # can reach mpd.service before it has opened its port. Every
+            # connect attempt is refused, the burst gives up within seconds
+            # and MPD_CONNECT_FAILED is published. Restarting mpd then would
+            # throw away the start it is in the middle of. Nothing is lost by
+            # not restarting: MPDService reconnects on its next command, and
+            # the preset waits for the library (wait_for_library) meanwhile.
             if mpd_is_ready():
                 oradio_log.info("mpd is answering again; no restart needed")
+            elif is_service_activating(MPD_SERVICE):
+                oradio_log.info("mpd is still starting; no restart needed")
             elif self._restart_service_within_budget(MPD_SERVICE):
                 # Bringing mpd back is only half of it. Whatever the Oradio was
                 # playing is gone with the old process, and the state machine

@@ -891,6 +891,33 @@ def is_service_active(service_name) -> bool:
         oradio_log.error("Error checking %s service, error-status: %s", service_name, ex_err)
         return False
 
+def is_service_activating(service_name: str) -> bool:
+    """
+    Check if a systemd service is still starting up.
+
+    Args:
+        service_name (str): Name of the service
+    Returns:
+        bool: True if systemd reports the unit as 'activating', False otherwise
+            (including when it could not be asked).
+
+    For a unit with Type=notify, such as mpd.service, 'activating' lasts until
+    the daemon tells systemd it is ready -- which is exactly the window in which
+    it accepts a connection but does not answer yet. A server in that state is
+    not broken, and restarting it only starts the wait over.
+    """
+    try:
+        result = subprocess.run(
+            ["sudo", "systemctl", "is-active", service_name],
+            capture_output=True,
+            text=True,
+            check=False
+        )
+        return result.stdout.strip() == "activating"
+    except (FileNotFoundError, PermissionError, subprocess.SubprocessError, OSError) as ex_err:
+        oradio_log.error("Error checking %s service, error-status: %s", service_name, ex_err)
+        return False
+
 def restart_service(service_name: str, timeout: float = SERVICE_RESTART_TIMEOUT) -> bool:
     """
     Restart a systemd service and wait for it to report active again.
