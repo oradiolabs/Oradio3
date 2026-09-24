@@ -809,6 +809,18 @@ class StateMachine:
         """
         led, sound = PRESETS[preset]
 
+        # Blink first, before anything here talks to MPD. Not only play() can
+        # take seconds: the web radio check below asks MPD for the preset's
+        # playlist too, and on a cold boot that waits for mpd.service to come
+        # up -- measured at 7.6 s with every LED dark, because the state
+        # machine has just turned them all off. The blink is the answer to
+        # "was my press heard" and must not wait for any of that.
+        #
+        # Every path below ends in turn_on_led(), which stops this worker
+        # first, so when MPD answers at once the blink is replaced by a solid
+        # LED before a cycle has passed and nobody sees it.
+        leds.control_blinking_led(led, STARTUP_BLINK_CYCLE)
+
         # Asked before playing, because the answer is "not now" rather than
         # "not ever": starting a stream with no route out leaves MPD retrying a
         # URL it cannot reach, and it would begin playing by itself the moment
@@ -820,13 +832,6 @@ class StateMachine:
             play_sound(sound)
             run_later(2, play_sound, SOUND_NO_INTERNET)
             return
-
-        # Blinking from here and no earlier. This is the one call that can take
-        # seconds -- it waits on MPDService's lock, which the library scan holds
-        # after a boot or a USB insertion -- and everything above it answers at
-        # once. When play() answers at once too, the blink is replaced by a
-        # solid LED before a cycle has passed and nobody sees it.
-        leds.control_blinking_led(led, STARTUP_BLINK_CYCLE)
 
         result = mpd_control.play(preset=preset)
         if result:
