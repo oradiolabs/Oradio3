@@ -143,6 +143,10 @@ PRESETS = {
     "Preset3": (LED_PRESET3, SOUND_PRESET3),
 }
 
+# The subset of PLAY_STATES that has a preset behind it, so a question about
+# "this button" can be asked of the preset rather than of whatever is playing.
+PRESETS_BY_STATE = {f"State{preset}" for preset in PRESETS}
+
 INCIDENT_BLINK_SECONDS = 3.0
 
 # Blink cycle for "the web interface is open". The slowest of the three, because
@@ -503,14 +507,39 @@ class StateMachine:
     # --- transition() helpers ---
 
     def _same_state_next_song(self, requested_state: str) -> bool:
-        """If already in the same PLAY_* state, advance to next song and return True."""
-        if self.state == requested_state and requested_state in PLAY_STATES:
-            if not mpd_control.is_webradio():
-                mpd_control.next()
-                play_sound(SOUND_NEXT)
-                oradio_log.debug("Next song")
-                return True
-        return False
+        """
+        Advance to the next song when the state the Oradio is in is asked for again.
+
+        Args:
+            requested_state: The state just requested.
+
+        Returns:
+            True when this was handled as "next song", so no state handler is
+            needed. False lets the transition run, which re-enters the state and
+            plays the preset from the start.
+
+        Asked of the preset where there is one, and not of the current song. A web
+        radio has no next song, and the question is whether this button holds one
+        -- which is still true when nothing is playing, as after a stream that was
+        refused for want of internet. Reading the current song instead answered
+        "not a web radio" exactly then, and the Oradio skipped to a next song that
+        does not exist.
+
+        StatePlay has no preset behind it, so there the current song is the only
+        thing there is to ask about.
+        """
+        if self.state != requested_state or requested_state not in PLAY_STATES:
+            return False
+
+        preset = requested_state[len("State"):] if requested_state in PRESETS_BY_STATE else None
+        if mpd_control.is_webradio(preset=preset):
+            oradio_log.debug("Same web radio preset pressed again: starting it over")
+            return False
+
+        mpd_control.next()
+        play_sound(SOUND_NEXT)
+        oradio_log.debug("Next song")
+        return True
 
     def _stop_webservice_if_needed(self, requested_state: str) -> bool:
         """Stop AP webservice if transitioning to Stop; return True if handled."""
