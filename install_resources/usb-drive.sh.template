@@ -4,23 +4,46 @@
 #
 # Invoked three ways, with the action as the first argument:
 #   boot    - usb-drive-boot.service, once per boot. The stick may not exist yet,
-#             and may never exist. Absence is NOT an error.
-#   add     - usb-drive@add.service, started from a udev rule. udev only fires
-#             the rule for a partition it has already labelled ORADIO, so
-#             absence here means something went wrong and IS an error.
-#   remove  - usb-drive@remove.service, started from a udev rule on any sd*
-#             partition removal. Tears down the mount if one is present.
+#             and may never exist.
+#   add     - usb-drive@add-<SEQNUM>.service, from a udev add/change event for a
+#             partition labelled ORADIO. Waits up to DEVICE_WAIT for it.
+#   remove  - usb-drive@remove-<SEQNUM>.service, from a udev remove event on any
+#             sd* partition.
+#
+# All three do the same thing: make the mount match reality (issue #544).
+#   - mounted from the stick that is plugged in now  -> nothing to do
+#   - mounted from anything else (stick gone, or a
+#     leftover from its previous insertion)          -> detach
+#   - ORADIO stick present and not mounted           -> fsck if dirty, mount
+# "The stick" is identified by partition AND kernel diskseq, recorded at mount
+# time in $IDENTITY, because a re-inserted stick usually gets the same name.
+# The action only decides how long to wait for a stick to appear. Nothing
+# depends on events arriving, or winning the lock, in order.
 #
 # Stop on errors (-e), catch unset variables (-u), catch failures in a pipeline (-o pipefail)
 set -euo pipefail
 
+# udev starts one unit instance per event (usb-drive@add-<SEQNUM>.service), so
+# the instance name carries a suffix. Only the part before the first '-' is the
+# action. See 99-local.rules for why every event needs its own instance.
 ACTION="${1:-}"
+ACTION="${ACTION%%-*}"
 BY_LABEL="/dev/disk/by-label/ORADIO"		# Stable symlink; survives device renumbering
 MOUNTPOINT="PLACEHOLDER_USB_MOUNT_POINT"	# Location where USB is mounted
 MONITOR="/run/usb_present"					# RAM-based flag file; present = mounted
 FSCK_ERROR="/run/usb_fsck_error"			# Written when fsck could not repair; read and removed by usb_service
 LOCK="/run/usb_mount.lock"					# Prevents concurrent runs from duplicate udev events
-LOCK_WAIT=30								# Seconds to wait for the lock before giving up
+IDENTITY="/run/usb_mounted"					# Which physical stick is mounted: "<partition> <diskseq>"
+
+# Seconds to wait for the lock before giving up. Must cover a full fsck of a
+# large stick plus a mount, because the instance still waiting is usually the
+# one carrying the LAST event, and losing that one is exactly issue #544.
+# TimeoutStartSec in usb-drive@.service covers LOCK_WAIT + FSCK_TIMEOUT.
+LOCK_WAIT=100
+
+# Upper bound on fsck.vfat. A stick pulled mid-check can leave fsck waiting on
+# usb-storage error recovery for a long time while it holds the lock.
+FSCK_TIMEOUT=60
 
 # Seconds to poll for the ORADIO partition before giving up. Does not delay the
 # boot: usb-drive-boot.service has DefaultDependencies=no and no Before=, so
@@ -137,7 +160,10 @@ fat_dirty() {
 find_oradio_part() {
 	local wait_s="$1"
 	local deadline p
-	deadline=$(( T_START + wait_s * 1000 ))
+	# Measured from now, not from T_START: an instance that queued behind the
+	# lock (a long fsck, say) would otherwise arrive with its deadline already
+	# spent and get a single probe of a stick that is still settling.
+	deadline=$(( $(now_ms) + wait_s * 1000 ))
 
 	while :; do
 		for p in /dev/sd[a-z][0-9]*; do
@@ -149,7 +175,7 @@ find_oradio_part() {
 		done
 
 		if [ -b "$BY_LABEL" ]; then
-			printf '%s\n' "$BY_LABEL"
+			readlink -f "$BY_LABEL"
 			return 0
 		fi
 
@@ -158,189 +184,201 @@ find_oradio_part() {
 	done
 }
 
-# Acquire an exclusive lock for the duration of this script.
-# Prevents a rapid remove/add or duplicate udev event from running two instances
-# at once. The wait is bounded: if an earlier instance is wedged, fail visibly in
-# the log rather than hanging until systemd's timeout kills us.
+# Identity of the physical stick behind a partition node: "<node> <diskseq>".
 #
-# The boot path can hold this while polling for a stick that is not there. That
-# is intentional: if the stick appears during that window the boot instance
-# mounts it, and a udev-triggered instance queueing behind the lock will find it
-# already mounted and exit 0.
+# The kernel name alone is not enough. Pull the stick and put it back and it is
+# very often /dev/sda1 again, while a mount left over from the first insertion
+# still says /dev/sda1 too - the node exists, the source matches, and the mount
+# is dead. diskseq is a per-boot counter the kernel assigns on every disk
+# attach, so it tells the two apart. Kernels without it (pre-5.15) fall back to
+# the ctime of the devtmpfs node, which is also set when the node is recreated.
+part_identity() {
+	local node name sys seq
+	node="$(readlink -f "$1")"
+	name="$(basename "$node")"
+	sys="$(readlink -f "/sys/class/block/$name" 2>/dev/null || true)"
+	seq=""
+	if [ -n "$sys" ] && [ -r "$sys/../diskseq" ]; then
+		seq="$(cat "$sys/../diskseq" 2>/dev/null || true)"
+	fi
+	[ -n "$seq" ] || seq="ctime$(stat -c %Z "$node" 2>/dev/null || echo 0)"
+	printf '%s %s' "$node" "$seq"
+}
+
+# Detach the mount without touching the device.
+#
+# Only ever called when the mounted stick is gone (or is a different attach of
+# it), so a clean umount has nothing to write to: it cannot clear the FAT dirty
+# bit, and on a half-gone device it can sit in usb-storage error recovery while
+# this script holds the lock. A lazy unmount detaches immediately and lets MPD
+# drop its open file in its own time. No lsof here for the same reason - it
+# stats every open file and can block on exactly this dead filesystem.
+detach_mount() {
+	local reason="$1"
+
+	# The updater reads the .swu straight off the stick. Stop it so it releases
+	# its handles; re-inserting the stick restarts the install from the top.
+	if systemctl is-active --quiet oradio3-update.service; then
+		log "Warning: oradio3-update.service active; stopping it before unmount"
+		timeout 30 systemctl stop oradio3-update.service \
+			|| log "Error: could not stop oradio3-update.service within 30s"
+	fi
+
+	log "Info: detaching '$MOUNTPOINT' ($reason) ($(since_start)ms)"
+	umount -l "$MOUNTPOINT" 2>/dev/null || true
+	if mountpoint -q "$MOUNTPOINT" 2>/dev/null; then
+		log "Error: failed to detach '$MOUNTPOINT'"
+		return 1
+	fi
+	rm -f "$MONITOR" "$IDENTITY"
+	rmdir "$MOUNTPOINT" 2>/dev/null || true
+	log "Success: '$MOUNTPOINT' detached ($(since_start)ms)"
+}
+
+# fsck if dirty, mount, record identity, raise the flag for usb_service.
+mount_partition() {
+	local part="$1" fstype fsck_out fsck_rc opts mount_err kmark
+
+	fstype="$(blkid -p -o value -s TYPE "$part" 2>/dev/null || true)"
+	log "Info: found ORADIO at '$part' type '${fstype:-unknown}' ($(since_start)ms)"
+	# A stick reformatted as exfat or ntfs and relabelled ORADIO passes the label
+	# match and then fails the vfat mount with a message that does not say why.
+	if [ -n "$fstype" ] && [ "$fstype" != "vfat" ]; then
+		log "Error: '$part' is '$fstype', not vfat; refusing to mount"
+		return 1
+	fi
+
+	# Hot-unplug always leaves the dirty bit set, so on a re-insert this runs
+	# every time. Bounded: see FSCK_TIMEOUT.
+	if fat_dirty "$part"; then
+		log "Warning: dirty bit set on '$part'; running fsck ($(since_start)ms)"
+		set +e
+		fsck_out="$(timeout "$FSCK_TIMEOUT" fsck.vfat -a "$part" 2>&1)"
+		fsck_rc=$?
+		set -e
+		if (( fsck_rc <= 1 )); then
+			log "Info: fsck repaired '$part' ($(since_start)ms)"
+		elif [ ! -b "$part" ]; then
+			# Pulled mid-check. Not damage, and not worth an incident: the
+			# remove event for it is already queued.
+			log "Info: '$part' disappeared during fsck (rc=$fsck_rc)"
+			return 0
+		else
+			log "Error: fsck.vfat rc=$fsck_rc on '$part': $fsck_out"
+			# Hand the failure to usb_service, which owns the incident bus.
+			{
+				echo "partition: $part"
+				echo "fsck.vfat rc=$fsck_rc"
+				echo "$fsck_out"
+			} > "$FSCK_ERROR" || log "Warning: could not write '$FSCK_ERROR'"
+		fi
+	fi
+
+	mkdir -p "$MOUNTPOINT"
+
+	# Mount options chosen to reduce risk of data loss on FAT volumes:
+	#   rw, users (implies noexec,nosuid,nodev), uid=0, gid=100 (users),
+	#   fmask=111, dmask=000, utf8=1, noatime, nodiratime,
+	#   flush (write FAT metadata promptly), sync (no deferred writeback)
+	opts="rw,users,uid=0,gid=100,fmask=111,dmask=000,utf8=1,noatime,nodiratime,flush,sync"
+
+	kmark="$(kmsg_mark)"
+	if ! mount_err=$(mount -t vfat -o "$opts" "$part" "$MOUNTPOINT" 2>&1); then
+		log "Error: mounting '$part' failed: $mount_err"
+		log_kernel_messages "$kmark" "$(basename "$part")"
+		return 1
+	fi
+
+	part_identity "$part" > "$IDENTITY"
+
+	# The flag must be CREATED, not merely touched: usb_service reacts to
+	# IN_CREATE, and touching a leftover flag produces no event at all - the
+	# insert would go unannounced. A leftover flag is only possible after a
+	# path that bypassed detach_mount(), so removing it first is cheap insurance.
+	rm -f "$MONITOR"
+	touch "$MONITOR"
+	log "Success: mounted '$part' at '$MOUNTPOINT' as '$(cat "$IDENTITY")' ($(since_start)ms)"
+
+	# A successful mount is not a healthy filesystem - see log_kernel_messages.
+	log_kernel_messages "$kmark" "$(basename "$part")"
+
+	# Hand any software update package to the update service.
+	# --no-block: installing takes minutes and ends in a reboot, and we hold $LOCK.
+	if compgen -G "$MOUNTPOINT/*.swu" >/dev/null; then
+		log "Software update package found; starting oradio3-update.service"
+		systemctl start --no-block oradio3-update.service \
+			|| log "Error: could not start oradio3-update.service"
+	fi
+}
+
+# Acquire an exclusive lock for the duration of this script.
+#
+# Every run below is a reconcile against what is true NOW - which stick is
+# plugged in, what is mounted - and never against what the triggering event
+# said. That is what makes the lock's non-FIFO ordering harmless: when a
+# remove for the previous insertion wins the lock after the add for the next
+# one, it sees the new stick mounted and present and leaves it alone.
 exec 9>"$LOCK"
 if ! flock -x -w "$LOCK_WAIT" 9; then
-	log "Error: timed out after ${LOCK_WAIT}s waiting for '$LOCK'"
+	log "Error: timed out after ${LOCK_WAIT}s waiting for '$LOCK' (action '$ACTION')"
 	exit 1
 fi
+log "Info: action '$ACTION' has the lock ($(since_start)ms)"
 
 case "$ACTION" in
-	# boot: opportunistic mount at startup, stick may legitimately be absent.
-	# add:  udev saw a partition labelled ORADIO, so it must be findable.
-	boot | add)
-		if ! PARTITION="$(find_oradio_part "$DEVICE_WAIT")"; then
-			if [ "$ACTION" = "boot" ]; then
-				# No stick fitted, or it is still enumerating and the udev rule
-				# will catch it later. Exit 0 so the unit does not sit in
-				# 'failed' for the rest of the session over a normal condition.
-				log "Info: no ORADIO partition within ${DEVICE_WAIT}s; nothing to mount ($(since_start)ms)"
-				exit 0
-			fi
-			log "Error: udev reported ORADIO but no partition found within ${DEVICE_WAIT}s"
-			exit 1
-		fi
-
-		# Report what the partition actually is. A stick reformatted as exfat or
-		# ntfs and relabelled ORADIO passes the label match above and then fails
-		# the vfat mount below with a message that does not say why.
-		FSTYPE="$(blkid -p -o value -s TYPE "$PARTITION" 2>/dev/null || true)"
-		log "Info: found ORADIO at '$PARTITION' type '${FSTYPE:-unknown}' ($(since_start)ms)"
-		if [ -n "$FSTYPE" ] && [ "$FSTYPE" != "vfat" ]; then
-			log "Error: '$PARTITION' is '$FSTYPE', not vfat; refusing to mount"
-			exit 1
-		fi
-
-		# Guard: skip if already mounted. Benign - the boot path and the udev
-		# path both run on a normal boot, and whichever loses the race lands
-		# here - so exit 0 and leave the mount alone rather than failing.
-		if mountpoint -q "$MOUNTPOINT" 2>/dev/null; then
-			log "Info: '$MOUNTPOINT' already mounted; nothing to do ($(since_start)ms)"
-			exit 0
-		fi
-
-		# Repair a dirty filesystem before mounting. Safe here and only here: the
-		# device is unmounted at this point. Skipped when the flag is clear, so the
-		# normal case pays one sector read rather than a full FAT walk.
-		if fat_dirty "$PARTITION"; then
-			log "Warning: dirty bit set on '$PARTITION'; running fsck ($(since_start)ms)"
-			set +e
-			fsck_out="$(fsck.vfat -a "$PARTITION" 2>&1)"
-			fsck_rc=$?
-			set -e
-			# fsck.fat exit status is a bit field: 1 means errors were corrected,
-			# which is the expected outcome here and not a failure.
-			if (( fsck_rc <= 1 )); then
-				log "Info: fsck repaired '$PARTITION' ($(since_start)ms)"
-			else
-				log "Error: fsck.vfat rc=$fsck_rc on '$PARTITION': $fsck_out"
-
-				# Hand the failure to the Python side, which owns the incident bus.
-				# Same mechanism as $MONITOR: a file under /run that usb_service's
-				# watchdog is already watching. Written before the mount below, so
-				# the damage is reported ahead of the drive being announced.
-				#
-				# The output goes in the file rather than just a marker, so the
-				# incident can carry what fsck actually said. usb_service removes
-				# the file after reading it, so each occurrence is reported once.
-				{
-					echo "partition: $PARTITION"
-					echo "fsck.vfat rc=$fsck_rc"
-					echo "$fsck_out"
-				} > "$FSCK_ERROR" || log "Warning: could not write '$FSCK_ERROR'"
-			fi
-		fi
-
-		# Ensure mount point directory exists
-		mkdir -p "$MOUNTPOINT"
-
-		# Mount options chosen to reduce risk of data loss on FAT volumes:
-		#   rw			read/write mode
-		#   users		allows non-root users to unmount (implies noexec,nosuid,nodev)
-		#   uid=0		files owned by root
-		#   gid=100		files belong to the "users" group
-		#   fmask=111	file permissions: read+write (no execute)
-		#   dmask=000	directory permissions: read+write+execute
-		#   utf8=1		UTF-8 filename encoding
-		#   noatime		suppress access-time updates on files
-		#   nodiratime	suppress access-time updates on directories
-		#   flush		write FAT metadata promptly (reduces corruption window)
-		#   sync		write file data immediately (no deferred writeback)
-		OPTS="rw,users,uid=0,gid=100,fmask=111,dmask=000,utf8=1,noatime,nodiratime,flush,sync"
-
-		KMSG_MARK="$(kmsg_mark)"
-
-		# Capture mount's diagnostics in a variable - no fixed path in the
-		# world-writable /tmp, and no stale text from an earlier run.
-		if ! mount_err=$(mount -t vfat -o "$OPTS" "$PARTITION" "$MOUNTPOINT" 2>&1); then
-			log "Error: mounting '$PARTITION' failed: $mount_err"
-			log_kernel_messages "$KMSG_MARK" "$(basename "$PARTITION")"
-			exit 1
-		fi
-
-		# Create flag triggering the Python watchdog
-		touch "$MONITOR"
-		log "Success: mounted '$PARTITION' at '$MOUNTPOINT' ($(since_start)ms)"
-
-		# A successful mount is not a healthy filesystem - see log_kernel_messages.
-		# Anything reported here happened despite the dirty-bit repair above, so it
-		# is a fault fsck could not fix rather than a routine unclean unmount.
-		log_kernel_messages "$KMSG_MARK" "$(basename "$PARTITION")"
-
-		# Hand any software update package to the update service.
-		# --no-block: installing takes minutes and ends in a reboot.
-		# Waiting would deadlock: we hold $LOCK, which the remove path needs.
-		if compgen -G "$MOUNTPOINT/*.swu" >/dev/null; then
-			log "Software update package found; starting oradio3-update.service"
-			if ! systemctl start --no-block oradio3-update.service; then
-				log "Error: could not start oradio3-update.service"
-			fi
-		fi
-		;;
-
-	# Runs when a USB device labelled ORADIO is physically removed.
-	#
-	# The udev rule that starts this does NOT filter on ID_FS_LABEL: on a remove
-	# event udev has nothing to probe and replays what the add event stored,
-	# which is missing precisely when the add event could not read the stick. So
-	# this fires for any sd* partition removal and the guard below sorts it out.
-	remove)
-		# Guard: nothing to do if already unmounted
-		# (a prior remove event already cleaned up, or this was another device)
-		if ! mountpoint -q "$MOUNTPOINT" 2>/dev/null; then
-			log "Info: '$MOUNTPOINT' already unmounted"
-			exit 0
-		fi
-
-		# The updater reads the .swu straight off the stick, which is already
-		# gone by the time this event fires - its reads are failing either way.
-		# Stop it anyway: it releases its file handles, so the clean umount below
-		# can succeed instead of falling through to the lazy one.
-		# Re-inserting the stick restarts the install from the top.
-		if systemctl is-active --quiet oradio3-update.service; then
-			log "Warning: oradio3-update.service active; stopping it before unmount"
-			if ! timeout 30 systemctl stop oradio3-update.service; then
-				log "Error: could not stop oradio3-update.service within 30s"
-			fi
-		fi
-
-		# Clean unmount first. A lazy unmount detaches the tree without letting the
-		# filesystem finish its teardown, which on vfat leaves the dirty bit set -
-		# so record it rather than falling through silently, and name the holders.
-		if ! umount "$MOUNTPOINT" 2>/dev/null; then
-			log "Warning: clean unmount of '$MOUNTPOINT' failed; holders:"
-			lsof -t "$MOUNTPOINT" 2>/dev/null | while read -r pid; do
-				log "  pid $pid $(tr -d '\0' < "/proc/$pid/cmdline" 2>/dev/null || true)"
-			done
-			log "Falling back to lazy unmount"
-			umount -l "$MOUNTPOINT" || true
-		fi
-
-		# Verify unmount actually happened
-		if mountpoint -q "$MOUNTPOINT" 2>/dev/null; then
-			log "Error: failed to unmount '$MOUNTPOINT'"
-			exit 1
-		fi
-
-		# Now it is safe to clean up. rmdir is best-effort: a stray file written
-		# into the directory while nothing was mounted must not turn a successful
-		# unmount into a failed unit.
-		rm -f "$MONITOR"
-		rmdir "$MOUNTPOINT" 2>/dev/null || log "Info: '$MOUNTPOINT' not empty; leaving directory in place"
-		log "Success: unmounted '$MOUNTPOINT' ($(since_start)ms)"
-		;;
-
-	# Catch unexpected or missing action argument
+	# boot:   usb-drive-boot.service; stick may legitimately be absent.
+	# add:    udev saw an ORADIO label; wait for a slow stick to settle.
+	# remove: a partition went away; look, do not wait - if a new stick is
+	#         already in, it is found on the single pass.
+	boot | add) WAIT="$DEVICE_WAIT" ;;
+	remove)     WAIT=0 ;;
 	*)
 		log "Error: unknown action: '$ACTION'"
 		exit 1
 		;;
 esac
+
+PARTITION="$(find_oradio_part "$WAIT" || true)"
+
+if mountpoint -q "$MOUNTPOINT" 2>/dev/null; then
+	WANT=""
+	[ -n "$PARTITION" ] && WANT="$(part_identity "$PARTITION")"
+	HAVE="$(cat "$IDENTITY" 2>/dev/null || true)"
+
+	if [ -z "$HAVE" ] && [ -n "$PARTITION" ] \
+		&& [ "$(readlink -f "$(findmnt -n -o SOURCE --mountpoint "$MOUNTPOINT")")" = "$PARTITION" ]; then
+		# Mounted by something that does not record an identity (USB_sync.sh's
+		# remount). The source is the partition that is here now; adopt it.
+		part_identity "$PARTITION" > "$IDENTITY"
+		HAVE="$WANT"
+	fi
+
+	if [ -n "$WANT" ] && [ "$WANT" = "$HAVE" ]; then
+		# The mounted stick is the one plugged in. Also the normal outcome of
+		# duplicate add/change events and of the boot/udev double run.
+		[ -e "$MONITOR" ] || touch "$MONITOR"
+		log "Info: '$MOUNTPOINT' already mounted from '$HAVE'; nothing to do ($(since_start)ms)"
+		exit 0
+	fi
+
+	# Mounted, but not from the stick that is here: stick gone, or re-inserted
+	# and this mount is left over from the previous attach. The old code exited
+	# 0 here with "already mounted" - mounted, announced, and no music.
+	detach_mount "mounted '${HAVE:-unknown}', present '${WANT:-none}'" || exit 1
+else
+	# Nothing mounted: any flag is stale. Removing it tells usb_service the
+	# truth; if a stick is present, the mount below raises it again.
+	if [ -e "$MONITOR" ]; then
+		log "Info: removing stale '$MONITOR'"
+		rm -f "$MONITOR" "$IDENTITY"
+	fi
+fi
+
+if [ -z "$PARTITION" ]; then
+	# Normal at boot without a stick, and normal for add in the repro for #544:
+	# the stick was pulled again before this instance got the lock.
+	log "Info: no ORADIO partition present; nothing to mount ($(since_start)ms)"
+	exit 0
+fi
+
+mount_partition "$PARTITION"

@@ -1,7 +1,9 @@
 # Placeholders will be modified by ../oradio_install.sh script
 
-# Started by name from 99-local.rules, as usb-drive@add.service or
-# usb-drive@remove.service. %i is the action passed straight to the script.
+# Started by name from 99-local.rules, as usb-drive@add-<SEQNUM>.service or
+# usb-drive@remove-<SEQNUM>.service: one instance per udev event, so no event
+# can be merged into an instance that is still running (issue #544). %i is
+# passed to the script, which uses the part before the first '-' as the action.
 #
 # ROLE: this is the correctness path, not the speed path. It handles every
 # insertion and removal while the system is up, and at boot it is the backstop
@@ -18,6 +20,10 @@
 Description=USB drive handler (ORADIO)
 # Ensures udev infrastructure is ready before this service runs
 After=systemd-udevd.service
+
+# One instance per event would otherwise leave every failed run loaded until
+# the next reboot. The log file keeps the record; the unit need not.
+CollectMode=inactive-or-failed
 
 [Service]
 # Service runs a single task and then exits.
@@ -44,14 +50,16 @@ StandardError=append:PLACEHOLDER_LOGFILE_USB
 # already runs as root in both units and does the chown itself, at the top,
 # before its lock. One copy for both units.
 
-# %i expands to the instance name from the template: "add" or "remove".
+# %i expands to the instance name, e.g. "add-4711" or "remove-4712".
 ExecStart=/usr/local/sbin/usb-drive.sh %i
 
 # Type=oneshot defaults to TimeoutStartSec=infinity, NOT to the 90s default that
 # other service types get. Without this, a hung mount on a failing stick blocks
 # the unit forever - and it holds the script's lock while it does, so every
 # later add/remove queues behind it.
-TimeoutStartSec=120
+# Covers usb-drive.sh's worst case: LOCK_WAIT (100s) queued behind another
+# instance, then FSCK_TIMEOUT (60s), then the mount.
+TimeoutStartSec=240
 
 # No RemainAfterExit: the unit must be startable again for the next event. It
 # also means the instance unloads once it exits, which is why it does not appear

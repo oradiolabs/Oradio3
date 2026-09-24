@@ -74,6 +74,24 @@ MPD_PROBE_TIMEOUT = 0.5     # seconds
 MPD_GREETING_BYTES = 64
 LOCK_TIMEOUT = 5    # seconds
 
+# Socket timeout for every command on the MPDClient (issue #544).
+#
+# python-mpd2's default is None: block forever. MPD answers from one event loop,
+# and some commands (stop, clear, load) wait there for its player and decoder
+# threads. A decoder stuck in a read from a USB stick that was pulled - or from
+# a mount left over from the stick's previous insertion - holds that loop, and
+# with no timeout the calling thread waits with it. The caller is the command
+# handler, holding the state-machine lock, so every button press after that
+# queues behind it and the Oradio is dead until power is pulled.
+#
+# Generous, because it must never fire on a healthy MPD: loading or adding a
+# large directory on a Pi 3A+ is the slowest thing asked of it.
+#
+# Does NOT apply to "idle", which mpd_monitor issues through this same client
+# and which legitimately blocks until something happens: python-mpd2 switches
+# the socket to idletimeout (None) for the idle reply and back afterwards.
+MPD_COMMAND_TIMEOUT = 15    # seconds
+
 def mpd_is_ready(timeout: float = MPD_PROBE_TIMEOUT) -> bool:
     """
     Whether MPD is answering, without touching any MPDClient.
@@ -148,6 +166,8 @@ class MPDService:
         self._lock = RLock()
         self._crossfade = crossfade
         self._client = MPDClient()
+        # Applies to connect() and to every command read. See MPD_COMMAND_TIMEOUT.
+        self._client.timeout = MPD_COMMAND_TIMEOUT
 
         # Circuit breaker state. _unavailable_until is a monotonic timestamp:
         # while now() is below it the breaker is open and commands fail fast.
@@ -178,6 +198,20 @@ class MPDService:
             return True
         except (MPDConnectionError, BrokenPipeError, OSError):
             return False
+
+    def _drop_connection(self) -> None:
+        """
+        Close the connection without asking MPD anything.
+
+        For a connection that can no longer be trusted: after a timed-out
+        command its reply may still be on the way. disconnect() only closes the
+        local socket, so it cannot block on the server that just failed to
+        answer.
+        """
+        try:
+            self._client.disconnect()
+        except Exception:   # pylint: disable=broad-exception-caught
+            pass            # Already closed or half-open; either way it is gone
 
     def _open_circuit(self) -> None:
         """
@@ -339,6 +373,25 @@ class MPDService:
                     )
                 else:
                     oradio_log.error("MPD command '%s' failed: %s", command, ex_cmd)
+                return None
+
+            except TimeoutError:
+                # MPD accepted the command and never answered. Not retried:
+                # each retry would hold the caller - usually the state machine
+                # - for another MPD_COMMAND_TIMEOUT against a server that is
+                # wedged, not flaky.
+                #
+                # The connection is dropped, not reused: the reply may still
+                # arrive, and the next command would read it as its own.
+                # Opening the breaker makes the commands right behind this one
+                # fail fast instead of each paying the timeout again.
+                oradio_log.error(
+                    "MPD did not answer '%s' within %ds; dropping connection",
+                    command, MPD_COMMAND_TIMEOUT,
+                )
+                self._drop_connection()
+                self._open_circuit()
+                Incidents.publish(IncidentMessage(MPD_SOURCE, MPD_EXECUTE_FAILED))
                 return None
 
             except (MPDConnectionError, ProtocolError, BrokenPipeError, ConnectionResetError) as ex_err:

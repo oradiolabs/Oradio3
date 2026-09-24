@@ -34,8 +34,15 @@
 # ever appears to have fixed the problem on the sticks you happen to have.
 #
 # Duplicate triggering is expected and safe: a single insert can produce an add plus one or more change events, and
-# usb-drive.sh takes a flock and exits 0 if the mount point is already mounted.
-ACTION=="add|change", SUBSYSTEM=="block", ENV{DEVTYPE}=="partition", ENV{ID_FS_LABEL}=="ORADIO", RUN+="/usr/bin/systemctl --no-block start usb-drive@add.service"
+# usb-drive.sh takes a flock and exits 0 when the stick that is plugged in is the one already mounted.
+#
+# ONE UNIT INSTANCE PER EVENT (issue #544). The instance name carries the udev SEQNUM. With a fixed name such as
+# usb-drive@add.service, a start request for an instance that is still activating is a no-op in systemd: the event is
+# silently dropped. Every re-insert of a hot-unplugged stick runs fsck (hot-unplug always leaves the FAT dirty bit
+# set), so the previous instance is very often still running when the next insert arrives - and that insert was then
+# never mounted and never announced. usb-drive.sh strips everything from the first '-', so the script still sees
+# plain "add" or "remove". Order between instances does not matter: every run reconciles against the current state.
+ACTION=="add|change", SUBSYSTEM=="block", ENV{DEVTYPE}=="partition", ENV{ID_FS_LABEL}=="ORADIO", RUN+="/usr/bin/systemctl --no-block start usb-drive@add-%E{SEQNUM}.service"
 
 
 # ---------------------------------------------------------------------------
@@ -49,8 +56,10 @@ ACTION=="add|change", SUBSYSTEM=="block", ENV{DEVTYPE}=="partition", ENV{ID_FS_L
 # no remove runs, and the mount is left pointing at a device that is gone. On the next insert usb-drive.sh sees the
 # stale mount point, logs "already mounted; nothing to do" and exits 0. There is no music and no error until reboot.
 #
-# Firing on unrelated partitions costs nothing: usb-drive.sh's remove path opens with a mountpoint check and exits 0
-# when there is nothing mounted. Broad and idempotent beats precise and fragile on a teardown path.
+# Firing on unrelated partitions costs nothing: usb-drive.sh only detaches the mount when the stick it was mounted from
+# (partition + kernel diskseq) is no longer there, so a remove for another device - or a late remove for the previous
+# insertion of the same stick - leaves a good mount alone. Broad and idempotent beats precise and fragile on a teardown
+# path.
 #
 # KERNEL=="sd*" bounds the scope. With DEVTYPE=="partition" already excluding whole-disk nodes, this leaves partitions
 # on SCSI-style disks - on a Pi 3A+ that means USB storage, as there is no SATA. Its main job is keeping mmcblk0p1 and
@@ -60,4 +69,4 @@ ACTION=="add|change", SUBSYSTEM=="block", ENV{DEVTYPE}=="partition", ENV{ID_FS_L
 # KERNEL= is used rather than a more direct test like ENV{ID_BUS}=="usb" for the same reason the label match was
 # dropped: ID_BUS is another database property replayed from the add event. KERNEL= comes straight out of the uevent
 # and is present on every event regardless of whether any probing succeeded.
-ACTION=="remove", SUBSYSTEM=="block", ENV{DEVTYPE}=="partition", KERNEL=="sd*", RUN+="/usr/bin/systemctl --no-block start usb-drive@remove.service"
+ACTION=="remove", SUBSYSTEM=="block", ENV{DEVTYPE}=="partition", KERNEL=="sd*", RUN+="/usr/bin/systemctl --no-block start usb-drive@remove-%E{SEQNUM}.service"

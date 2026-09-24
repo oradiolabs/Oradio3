@@ -120,18 +120,33 @@ class USBObserver(FileSystemEventHandler):
         # each one is its own attempt with its own outcome.
         self._wifi_import: DeferredStarter | None = None
 
+        # What this handler last published. Lets resync() tell whether an
+        # insert or removal slipped past between the check below and the
+        # observer actually watching.
+        self._published: str | None = None
+
         if path.ismount(USB_MOUNT_POINT):
             # Checked here as well as in on_created(): at boot the drive is
             # mounted by usb-drive-boot.service long before this observer
             # exists, so the created event for the marker file is never seen.
-            self.report_fsck_error()
-            Commands.publish(CommandMessage(USB_SOURCE, USB_PRESENT))
-            # Drive is already mounted: attempt to import any WiFi credentials
-            self._start_wifi_import()
+            self._publish_present()
         else:
-            Commands.publish(CommandMessage(USB_SOURCE, USB_ABSENT))
+            self._publish_absent()
 
 ##### Helpers #############################################
+
+    def _publish_present(self) -> None:
+        """Report fsck damage, announce the drive, and import WiFi credentials."""
+        self.report_fsck_error()
+        Commands.publish(CommandMessage(USB_SOURCE, USB_PRESENT))
+        self._published = USB_PRESENT
+        self._start_wifi_import()
+
+    def _publish_absent(self) -> None:
+        """Cancel a pending WiFi import and announce the drive is gone."""
+        self._cancel_wifi_import()
+        Commands.publish(CommandMessage(USB_SOURCE, USB_ABSENT))
+        self._published = USB_ABSENT
 
     def _start_wifi_import(self) -> None:
         """
@@ -379,6 +394,26 @@ class USBObserver(FileSystemEventHandler):
         except OSError as ex_err:
             oradio_log.error("Could not remove '%s': %s", USB_FSCK_ERROR_FILE, ex_err)
 
+    def resync(self) -> None:
+        """
+        Publish the drive state again if it changed while nobody was watching.
+
+        __init__() reads the mount point before the observer is started, so an
+        insert or removal in between produces an inotify event nobody receives
+        (issue #544: "insert while Oradio is booting"). Called once the observer
+        is running: from then on every later change is seen, and this closes
+        the gap before it. Does nothing when the state is unchanged, so the
+        normal start-up publishes nothing extra.
+        """
+        state = USB_PRESENT if path.ismount(USB_MOUNT_POINT) else USB_ABSENT
+        if state == self._published:
+            return
+        oradio_log.info("USB state changed during observer start-up: %s", state)
+        if state == USB_PRESENT:
+            self._publish_present()
+        else:
+            self._publish_absent()
+
     def on_created(self, event) -> None:
         """
         Handle watchdog callback when USB_STATEFILE is created.
@@ -394,9 +429,7 @@ class USBObserver(FileSystemEventHandler):
         if not event.is_directory and event.src_path == USB_STATEFILE:
             try:
                 oradio_log.info("USB inserted")
-                self.report_fsck_error()
-                Commands.publish(CommandMessage(USB_SOURCE, USB_PRESENT))
-                self._start_wifi_import()
+                self._publish_present()
             # An unhandled exception here would propagate into watchdog's
             # dispatch loop and silently kill the observer thread.
             #
@@ -424,8 +457,7 @@ class USBObserver(FileSystemEventHandler):
         if not event.is_directory and event.src_path == USB_STATEFILE:
             try:
                 oradio_log.info("USB removed")
-                self._cancel_wifi_import()
-                Commands.publish(CommandMessage(USB_SOURCE, USB_ABSENT))
+                self._publish_absent()
             # An unhandled exception here would propagate into watchdog's
             # dispatch loop and silently kill the observer thread.
             #
@@ -519,13 +551,16 @@ class USBService:
             # Schedule the singleton handler on the directory that contains the
             # USB marker file. recursive=False limits events to the top-level
             # directory, avoiding unnecessary inotify overhead from subdirectories.
-            observer.schedule(USBObserver(), path=USB_STATEPATH, recursive=False)
+            handler = USBObserver()
+            observer.schedule(handler, path=USB_STATEPATH, recursive=False)
 
             try:
                 observer.start()
                 self.observer = observer
                 oradio_log.info("USB observer started")
                 self._schedule_health_check()
+                # Watching now; catch anything that happened before we were.
+                handler.resync()
             except Exception as ex_err:  # pylint: disable=broad-exception-caught
                 oradio_log.error("USB observer failed to start: %s", ex_err)
                 Incidents.publish(IncidentMessage(USB_SOURCE, USB_START_FAILED))

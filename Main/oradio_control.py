@@ -1021,7 +1021,18 @@ def on_usb_present():
     # The stick may have arrived after the boot-time set-up gave up, and it may
     # carry a different presets.json than the last one, so the library is
     # prepared again. Returns immediately if MPD is still not up.
-    mpd_control.initialise_library()
+    #
+    # On its own thread, like the boot-time scan (issue #544). This handler runs
+    # on the one command-handler thread that also serves every button press, and
+    # preparing the library is a string of MPD commands - several of them
+    # writing playlist files to the stick that was just inserted. Run inline,
+    # anything that slows those down makes the buttons wait, and anything that
+    # stops them makes the Oradio unresponsive until power is pulled.
+    # initialise_library() serialises itself, so overlapping inserts are safe.
+    threading.Thread(
+        target=mpd_control.initialise_library,
+        daemon=True, name="usb-library-init",
+    ).start()
     # Transition to Idle after USB is inserted
     if state_machine.state != "StateStartUp":
         state_machine.transition("StateIdle")
