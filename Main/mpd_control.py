@@ -317,6 +317,17 @@ class MPDControl(MPDService):
         one clearing playlists while the other validates presets against them,
         which reports presets as broken that are not.
         """
+        # The breaker may still be open from a connect burst that gave up while
+        # MPD was starting: a preset pressed during the start-up blink, before
+        # mpd.service opened its port, is refused on every attempt.
+        # This runs because mpd_is_ready() said yes, but with the breaker open
+        # every command below failed fast: no playlists, no directories, no
+        # database update. _library_ready was set anyway, and the preset that
+        # was waiting for it then heard "this button has no playlist" for a
+        # playlist that is there.
+        if not self._close_circuit_if_answering():
+            oradio_log.warning("MPD not answering; the library scan will find nothing")
+
         with self._library_lock:
             self._sanitize_playlists()
             self.validate_presets()

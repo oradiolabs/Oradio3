@@ -424,6 +424,35 @@ class MPDService:
         Incidents.publish(IncidentMessage(MPD_SOURCE, MPD_EXECUTE_FAILED))
         return None
 
+    def _close_circuit_if_answering(self) -> bool:
+        """
+        Close an open breaker early when MPD is demonstrably answering now.
+
+        Returns:
+            True when commands will be attempted again (the breaker was closed
+            or has been closed here), False when it stays open.
+
+        For callers that were released BECAUSE MPD answers -- the deferred
+        library scan, whose predicate is mpd_is_ready(). The breaker is only
+        this client's memory of a failed burst, and that memory can be up to
+        MPD_COOLDOWN seconds out of date. Left alone, every command such a
+        caller issues fails fast against a server that is right there, and the
+        work silently does nothing.
+
+        The probe is what makes this safe: it reads MPD's greeting without
+        touching this client, so closing the breaker on its word never costs a
+        connect burst against a server that is still down.
+        """
+        if self._is_available():
+            return True
+
+        if not mpd_is_ready():
+            return False
+
+        oradio_log.info("MPD answers the probe; closing the breaker before its cooldown ends")
+        self._unavailable_until = 0.0
+        return True
+
     def _is_available(self) -> bool:
         """
         Return False while the circuit breaker is open, i.e. while a recent
