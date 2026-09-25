@@ -199,6 +199,23 @@ class MPDService:
         except (MPDConnectionError, BrokenPipeError, OSError):
             return False
 
+    def _has_socket(self) -> bool:
+        """
+        Return True if the client holds a socket, without asking MPD anything.
+
+        A local check, unlike _is_connected(): fileno() is public API and
+        raises "Not connected" exactly when python-mpd2 has no socket -- before
+        the first connect, and after anything closed it. It says nothing about
+        whether MPD is still on the other end; a connection MPD dropped still
+        has a socket here, and the command that finds out is handled by the
+        retry in _execute().
+        """
+        try:
+            self._client.fileno()
+            return True
+        except MPDConnectionError:
+            return False
+
     def _drop_connection(self) -> None:
         """
         Close the connection without asking MPD anything.
@@ -360,6 +377,17 @@ class MPDService:
                         attempt, MPD_RETRIES, command,
                     )
                 else:
+                    # No socket yet: connect first rather than send the command
+                    # into python-mpd2's "Not connected" placeholder. That is
+                    # the normal first command of every instance (the
+                    # constructor does not connect). Done under the lock, so two
+                    # threads never connect the same client at once.
+                    if allow_reconnect and not self._has_socket():
+                        self._connect_client()
+                        if not self._has_socket():
+                            # The burst failed and opened the breaker, or the
+                            # breaker was already open. Either is logged there.
+                            return None
                     return function(*args, **kwargs)
 
             except CommandError as ex_cmd:
@@ -367,7 +395,7 @@ class MPDService:
                 ignored_errors = ["Not playing"]
                 msg = str(ex_cmd)
                 if any(err in msg for err in ignored_errors):
-                    oradio_log.warning(
+                    oradio_log.debug(
                         "Ignoring expected CommandError: '%s' for command '%s'",
                         msg, command,
                     )
