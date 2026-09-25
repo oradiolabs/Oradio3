@@ -224,9 +224,10 @@ input {
 # Pi 3A+ has no swap. 32 MB holds the current and next song with margin for
 # MP3 (about 1-2.5 MB per minute). Remove this block to disable the cache.
 #
-input_cache {
-		size			"32 MB"
-}
+# DO NOT USE! Tested with different sizes (8, 16, 32), but MPD hangs when set.
+#input_cache {
+#		size			"32 MB"
+#}
 
 # Decoder #####################################################################
 #
