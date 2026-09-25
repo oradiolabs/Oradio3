@@ -50,6 +50,15 @@ FSCK_TIMEOUT=60
 # nothing is ordered after it.
 DEVICE_WAIT=5
 
+# USB autosuspend for the ORADIO stick only. The kernel defaults power/control
+# to 'on' (never suspend) for every USB device except hubs; this sets 'auto' on
+# the stick's own USB device, found by walking up sysfs from the mounted
+# partition. Hub, Ethernet dongle and keyboard keep the kernel default.
+# Idle time in ms before the stick is suspended. Set to 0 to disable the feature.
+AUTOSUSPEND_DELAY_MS=30000
+# Idle time in ms before the stick's SCSI disk may suspend; must be >= 0.
+SCSI_AUTOSUSPEND_DELAY_MS=5000
+
 # Fix PLACEHOLDER_LOGFILE_USB ownership. Both units redirect StandardOutput= here, and systemd
 # does that open as root, so a PLACEHOLDER_LOGFILE_USB that was deleted comes back root:root on
 # the next boot. Nothing then repairs it: logrotate runs under 'su PLACEHOLDER_USER' and cannot
@@ -235,6 +244,66 @@ detach_mount() {
 	log "Success: '$MOUNTPOINT' detached ($(since_start)ms)"
 }
 
+# Allow runtime suspend of the USB device behind this partition.
+#
+# Scope is deliberately this one stick: the sysfs walk starts at the ORADIO
+# partition and stops at the first ancestor with idVendor, which is the stick's
+# own usb_device - never the hub above it. A re-inserted stick is a new device
+# with power/control back at 'on', which is fine: every mount comes through here.
+#
+# The USB device can only suspend once everything below it is runtime-idle,
+# so the disk layer needs three settings as well (verified on a Pi 3A+):
+#  - sdX/events_poll_msecs = 0: sticks report 'removable', so the kernel polls
+#    them for media change (TEST UNIT READY every 2 s by default). Each poll
+#    restarts the idle timer, so the disk never sleeps. Physical removal is
+#    reported by the USB layer, so a stick loses nothing without this polling.
+#  - sdX/device/power/autosuspend_delay_ms: the block layer starts it at -1,
+#    which means never. The long wait lives on the USB device; this one is short.
+#  - sdX/device/power/control = auto.
+#
+# Failures are logged, never fatal: a stick that cannot suspend still plays.
+# Write a sysfs attribute; log instead of failing, so a stick that cannot
+# suspend still mounts and plays.
+set_attr() {
+	if [ ! -w "$1" ]; then
+		log "Warning: autosuspend: '$1' not writable"
+	elif ! echo "$2" > "$1" 2>/dev/null; then
+		log "Warning: autosuspend: could not write '$2' to '$1'"
+	fi
+}
+
+enable_autosuspend() {
+	local part="$1" sys dev disk
+	(( AUTOSUSPEND_DELAY_MS > 0 )) || return 0
+
+	sys="$(readlink -f "/sys/class/block/$(basename "$(readlink -f "$part")")" 2>/dev/null || true)"
+	[ -n "$sys" ] || { log "Warning: autosuspend: no sysfs node for '$part'"; return 0; }
+
+	dev="$sys"
+	while [ "$dev" != "/" ] && [ ! -f "$dev/idVendor" ]; do
+		dev="$(dirname "$dev")"
+	done
+	if [ ! -w "$dev/power/control" ]; then
+		log "Warning: autosuspend: no USB device found above '$part'"
+		return 0
+	fi
+
+	# A partition sits one level below its disk; a stick without a partition
+	# table has the filesystem on the disk itself.
+	if [ -f "$sys/partition" ]; then disk="$(dirname "$sys")"; else disk="$sys"; fi
+	set_attr "$disk/events_poll_msecs" 0
+	set_attr "$disk/device/power/autosuspend_delay_ms" "$SCSI_AUTOSUSPEND_DELAY_MS"
+	set_attr "$disk/device/power/control" auto
+
+	echo "$AUTOSUSPEND_DELAY_MS" > "$dev/power/autosuspend_delay_ms" 2>/dev/null \
+		|| log "Warning: autosuspend: could not set delay on '$dev'"
+	if echo auto > "$dev/power/control" 2>/dev/null; then
+		log "Info: autosuspend enabled for $(cat "$dev/idVendor"):$(cat "$dev/idProduct") at '$dev' (${AUTOSUSPEND_DELAY_MS}ms)"
+	else
+		log "Warning: autosuspend: could not set '$dev/power/control'"
+	fi
+}
+
 # fsck if dirty, mount, record identity, raise the flag for usb_service.
 mount_partition() {
 	local part="$1" fstype fsck_out fsck_rc opts mount_err kmark
@@ -301,6 +370,8 @@ mount_partition() {
 
 	# A successful mount is not a healthy filesystem - see log_kernel_messages.
 	log_kernel_messages "$kmark" "$(basename "$part")"
+
+	enable_autosuspend "$part"
 
 	# Hand any software update package to the update service.
 	# --no-block: installing takes minutes and ends in a reboot, and we hold $LOCK.
