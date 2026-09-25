@@ -34,7 +34,7 @@ import subprocess
 import sys
 from pathlib import Path
 from time import monotonic, sleep
-from typing import NoReturn, TypeVar
+from typing import Any, NoReturn, TypeVar
 from collections.abc import Callable
 from threading import Thread, Event, Lock
 
@@ -57,6 +57,10 @@ DNS_TIMEOUT = 0.5   # seconds; short on purpose - callers should fail fast
 SERIAL_OTP_ROW = "28:"
 
 JOIN_TIMEOUT = 5.0  # seconds; timeout for thread to start/stop
+
+# Keys whose values must never reach the log, and what is written instead.
+SECRET_KEYS = frozenset({"pswd"})
+SECRET_MASK = "********"
 
 # Self-restart budget for ThreadTemplate workers that opt in (restart_on_crash).
 #
@@ -822,6 +826,30 @@ def get_serial() -> str:
 
     oradio_log.error("No serial row '%s' in <%s> output", SERIAL_OTP_ROW, cmd)
     return "Unknown"
+
+def mask_secrets(data: Any) -> Any:
+    """
+    Return a copy of data that is safe to log: secret values replaced by SECRET_MASK.
+
+    Args:
+        data: Typically a message or argument dict. Anything that is not a dict
+              is returned unchanged.
+
+    Returns:
+        A shallow copy of the dict with each non-empty value under a key in
+        SECRET_KEYS replaced by SECRET_MASK; the original is left untouched.
+
+    The log file is uploaded to RMS with every incident, so a password written
+    to it leaves the device. Empty values (None, "") are kept as they are: that
+    a network was joined without a password is worth seeing, and says nothing
+    about any password.
+    """
+    if not isinstance(data, dict):
+        return data
+    return {
+        key: SECRET_MASK if key in SECRET_KEYS and value else value
+        for key, value in data.items()
+    }
 
 
 def fatal_exit(message: str, stacklevel: int = 6, *, exc: BaseException | None = None, code: int = 1) -> NoReturn:

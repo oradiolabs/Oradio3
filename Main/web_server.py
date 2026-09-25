@@ -38,7 +38,7 @@ from starlette.responses import RedirectResponse
 
 #### Oradio modules #######################################
 from log_service import oradio_log
-from utilities import get_serial, load_presets, store_presets
+from utilities import get_serial, load_presets, store_presets, mask_secrets
 from wifi_service import get_wifi_networks, get_saved_network
 from mpd_control import MPDControl
 from messaging import (
@@ -460,7 +460,7 @@ async def execute(request: ExecuteRequest):
         JSONResponse with status 400 if the command name is unknown or a
         required argument is missing.
     """
-    oradio_log.info("Executing '%s' with args '%s'", request.cmd, request.args)
+    oradio_log.info("Executing '%s' with args '%s'", request.cmd, mask_secrets(request.args))
 
     commands = {
         "play"       : play_song,

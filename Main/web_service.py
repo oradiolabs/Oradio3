@@ -49,7 +49,7 @@ from threading import Thread, RLock
 ##### Oradio modules ######################################
 from singleton import singleton
 from log_service import oradio_log
-from utilities import run_shell_script, fatal_exit
+from utilities import run_shell_script, fatal_exit, mask_secrets
 from wifi_service import WifiService, get_wifi_connection
 from messaging import (
     safe_get,
@@ -588,7 +588,7 @@ class WebService:
         """
         while True:
             message = safe_get(self.request_queue)
-            oradio_log.debug("Message received: '%s'", message)
+            oradio_log.debug("Message received: '%s'", mask_secrets(message))
 
             try:
                 # Guard against wrong message type
@@ -617,7 +617,7 @@ class WebService:
             # Broad catch is intentional: this loop must never die, since
             # nothing else drains request_queue or restarts this thread.
             except Exception as ex_err:  # pylint: disable=broad-exception-caught
-                oradio_log.error("Error handling server message '%s': %s", message, ex_err)
+                oradio_log.error("Error handling server message '%s': %s", mask_secrets(message), ex_err)
                 Incidents.publish(IncidentMessage(WEB_SOURCE, WEB_SERVER_FAILED))
 
 ##### Public API ##########################################
