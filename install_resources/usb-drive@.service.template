@@ -2,8 +2,8 @@
 
 # Started by name from 99-local.rules, as usb-drive@add-<SEQNUM>.service or
 # usb-drive@remove-<SEQNUM>.service: one instance per udev event, so no event
-# can be merged into an instance that is still running (issue #544). %i is
-# passed to the script, which uses the part before the first '-' as the action.
+# can be merged into an instance that is still running. %i is passed to the
+# script, which uses the part before the first '-' as the action.
 #
 # ROLE: this is the correctness path, not the speed path. It handles every
 # insertion and removal while the system is up, and at boot it is the backstop

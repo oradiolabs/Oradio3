@@ -10,7 +10,7 @@
 #   remove  - usb-drive@remove-<SEQNUM>.service, from a udev remove event on any
 #             sd* partition.
 #
-# All three do the same thing: make the mount match reality (issue #544).
+# All three do the same thing: make the mount match reality.
 #   - mounted from the stick that is plugged in now  -> nothing to do
 #   - mounted from anything else (stick gone, or a
 #     leftover from its previous insertion)          -> detach
@@ -37,7 +37,7 @@ IDENTITY="/run/usb_mounted"					# Which physical stick is mounted: "<partition> 
 
 # Seconds to wait for the lock before giving up. Must cover a full fsck of a
 # large stick plus a mount, because the instance still waiting is usually the
-# one carrying the LAST event, and losing that one is exactly issue #544.
+# one carrying the LAST event, which should no be lost.
 # TimeoutStartSec in usb-drive@.service covers LOCK_WAIT + FSCK_TIMEOUT.
 LOCK_WAIT=100
 
@@ -375,7 +375,7 @@ else
 fi
 
 if [ -z "$PARTITION" ]; then
-	# Normal at boot without a stick, and normal for add in the repro for #544:
+	# Normal at boot without a stick, and normal for add:
 	# the stick was pulled again before this instance got the lock.
 	log "Info: no ORADIO partition present; nothing to mount ($(since_start)ms)"
 	exit 0

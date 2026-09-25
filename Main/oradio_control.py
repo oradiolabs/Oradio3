@@ -45,7 +45,7 @@ from log_monitor import LogHealthMonitor
 from rpi_monitor import RPiThrottlingMonitor
 from power_service import get_power_status
 
-# Moved from constants
+# Message identifiers
 from messaging import (
     INCIDENT_SOURCE,
     INCIDENT_RECOVERED,
@@ -164,8 +164,8 @@ def run_later(delay: float, function, *args) -> None:
         *args:    Positional arguments for it.
 
     One construct for every "do this in a moment" in this module, so a reader
-    does not have to work out whether three slightly different Timer spellings
-    mean three different things. They did not.
+    does not have to work out whether slightly different Timer spellings mean
+    different things.
 
     Fire and forget: nothing is kept, so nothing can be cancelled. A delay that
     has to be called off is a different thing and has its own machinery --
@@ -358,8 +358,8 @@ LogHealthMonitor().start()
 log_startup_step("log health monitor")
 
 # Initialise MPD client.
-# Returns promptly even when mpd.service is not up yet: MPDService no longer
-# connects in its constructor, and every command fails fast while the circuit
+# Returns promptly even when mpd.service is not up yet: MPDService does not
+# connect in its constructor, and every command fails fast while the circuit
 # breaker is open.
 #
 # The monitor and the library scan below decide when to start on
@@ -573,8 +573,8 @@ class StateMachine:
         press is a real request: the button the user pressed becomes the
         active one, its LED comes on, the previous one goes out and whatever
         was playing stops. Only the music cannot follow, and the Oradio says
-        so. Refusing the transition left the old preset's LED on next to the
-        new one and the old music playing under the announcement.
+        so. Refusing the transition would leave the old preset's LED on next to
+        the new one and the old music playing under the announcement.
 
         Asks NetworkManager rather than resolving a name. NM keeps a
         connectivity assessment it refreshes by probing, so this is one D-Bus
@@ -587,13 +587,13 @@ class StateMachine:
         stream started there plays a login page instead of audio. NM reports
         that as PORTAL and this blocks it.
 
-        has_internet() survives as the fallback for one case: NM could not be
+        has_internet() is the fallback for one case: NM could not be
         asked at all, because the event listener is not running. Refusing to
         play on "we could not tell" would take music away over a fault that
         has nothing to do with the connection, so the DNS probe gets the last
         word there.
         """
-        # Preset check first, as before: a preset that is not a webradio needs
+        # Preset check first: a preset that is not a webradio needs
         # no connectivity answer at all.
         if not mpd_control.is_webradio(preset=preset):
             return False
@@ -707,10 +707,9 @@ class StateMachine:
             when a guard above answered instead -- next song, StateError -- and
             nothing further will touch them.
 
-            Nothing acts on it today: the one guard a preset press can hit is
-            "next song", which leaves the state and the LEDs as they were. It is
-            here so a caller that does set something up before asking can put it
-            back, which is how the preset LED used to work.
+            No caller acts on it: the one guard a preset press can hit is "next
+            song", which leaves the state and the LEDs as they were. It is here
+            so a caller that sets something up before asking can put it back.
 
         Request a transition; applies guards and spawns the handler.
         """
@@ -812,8 +811,8 @@ class StateMachine:
         # Blink first, before anything here talks to MPD. Not only play() can
         # take seconds: the web radio check below asks MPD for the preset's
         # playlist too, and on a cold boot that waits for mpd.service to come
-        # up -- measured at 7.6 s with every LED dark, because the state
-        # machine has just turned them all off. The blink is the answer to
+        # up -- seconds with every LED dark, because the state machine has just
+        # turned them all off. The blink is the answer to
         # "was my press heard" and must not wait for any of that.
         #
         # Every path below ends in turn_on_led(), which stops this worker
@@ -950,22 +949,16 @@ class StateMachine:
         leds.control_blinking_led(LED_STOP, STARTUP_BLINK_CYCLE)
         oradio_log.debug("Starting-up")
 
-        # No mpd_control.pause() here.
+        # No MPD command here. There is nothing to silence: this process has
+        # just started and has not told MPD to play anything.
         #
-        # It was meant to silence an MPD that might still be playing, which
-        # cannot be the case: this process has just started and has not told it
-        # to play anything. Every boot logged "Ignore pause: not currently
-        # playing" -- the command never had anything to do.
-        #
-        # What it did do was cost time. It is the first MPD command of the run,
-        # so it pays the connect, and the timer below is armed only after it
-        # returns. On a cold boot MPD is not up yet at this point, which made
-        # the LED blink for the connect plus five seconds instead of five, and
-        # delayed the Oradio reaching Idle by the same amount.
-        #
-        # Nothing in this handler talks to MPD now. If the certainty is ever
-        # wanted back, it belongs in initialise_library() on the background
-        # thread, where it holds nothing up.
+        # Keeping MPD out of this handler also keeps the connect out of it. The
+        # first MPD command of the run pays the connect, and on a cold boot MPD
+        # is not up yet at this point, so a command here would hold up the
+        # timer below -- the LED would blink for the connect plus five seconds,
+        # and the Oradio would reach Idle that much later. Anything MPD needs
+        # at start-up belongs in initialise_library() on the background thread,
+        # where it holds nothing up.
 
         oradio_log.info("Startup: scheduling transition to Idle in 5 s")
         self._arm_delayed_transition("StartupToIdle", 5.0, "StateIdle", from_state="StateStartUp")
@@ -1027,12 +1020,12 @@ def on_usb_present():
     # carry a different presets.json than the last one, so the library is
     # prepared again. Returns immediately if MPD is still not up.
     #
-    # On its own thread, like the boot-time scan (issue #544). This handler runs
-    # on the one command-handler thread that also serves every button press, and
-    # preparing the library is a string of MPD commands - several of them
-    # writing playlist files to the stick that was just inserted. Run inline,
-    # anything that slows those down makes the buttons wait, and anything that
-    # stops them makes the Oradio unresponsive until power is pulled.
+    # On its own thread, like the boot-time scan. This handler runs on the one
+    # command-handler thread that also serves every button press, and preparing
+    # the library is a string of MPD commands - several of them writing playlist
+    # files to the stick that was just inserted.
+    # Run inline, anything that slows those down makes the buttons wait, and
+    # anything that stops them makes the Oradio unresponsive until power is pulled.
     # initialise_library() serialises itself, so overlapping inserts are safe.
     threading.Thread(
         target=mpd_control.initialise_library,

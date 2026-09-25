@@ -74,7 +74,7 @@ MPD_PROBE_TIMEOUT = 0.5     # seconds
 MPD_GREETING_BYTES = 64
 LOCK_TIMEOUT = 5    # seconds
 
-# Socket timeout for every command on the MPDClient (issue #544).
+# Socket timeout for every command on the MPDClient.
 #
 # python-mpd2's default is None: block forever. MPD answers from one event loop,
 # and some commands (stop, clear, load) wait there for its player and decoder

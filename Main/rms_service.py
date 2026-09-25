@@ -117,9 +117,9 @@ from constants import (
 # and the sender thread has a job, so the import happens there instead: off the
 # main thread, in parallel with everything else, and not before the tune.
 #
-# Module globals rather than parameters, so the code below reads the same as it
-# did when they were ordinary imports, and so the module_test suite can keep
-# patching rms_service.post. They are None until _load_requests() fills them in.
+# Module globals rather than parameters, so the code below uses them as it
+# would use imported names, and so the module_test suite can patch
+# rms_service.post. They are None until _load_requests() fills them in.
 # Response is needed for annotations only, never at runtime, so it is imported
 # for the type checker alone. The rest stand in for names this module calls or
 # raises, and are typed Any because None is neither callable nor an exception

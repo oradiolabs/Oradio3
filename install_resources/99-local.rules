@@ -36,12 +36,12 @@
 # Duplicate triggering is expected and safe: a single insert can produce an add plus one or more change events, and
 # usb-drive.sh takes a flock and exits 0 when the stick that is plugged in is the one already mounted.
 #
-# ONE UNIT INSTANCE PER EVENT (issue #544). The instance name carries the udev SEQNUM. With a fixed name such as
-# usb-drive@add.service, a start request for an instance that is still activating is a no-op in systemd: the event is
-# silently dropped. Every re-insert of a hot-unplugged stick runs fsck (hot-unplug always leaves the FAT dirty bit
-# set), so the previous instance is very often still running when the next insert arrives - and that insert was then
-# never mounted and never announced. usb-drive.sh strips everything from the first '-', so the script still sees
-# plain "add" or "remove". Order between instances does not matter: every run reconciles against the current state.
+# One unit instance per event. The instance name carries the udev SEQNUM. With a fixed name such as usb-drive@add.service,
+# a start request for an instance that is still activating is a no-op in systemd: the event is silently dropped. Every
+# re-insert of a hot-unplugged stick runs fsck (hot-unplug always leaves the FAT dirty bit set), so the previous instance
+# is very often still running when the next insert arrives - and that insert was then never mounted and never announced.
+# usb-drive.sh strips everything from the first '-', so the script still sees plain "add" or "remove". Order between
+# instances does not matter: every run reconciles against the current state.
 ACTION=="add|change", SUBSYSTEM=="block", ENV{DEVTYPE}=="partition", ENV{ID_FS_LABEL}=="ORADIO", RUN+="/usr/bin/systemctl --no-block start usb-drive@add-%E{SEQNUM}.service"
 
 

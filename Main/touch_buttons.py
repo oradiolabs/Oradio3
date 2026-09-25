@@ -15,7 +15,8 @@ Created on April 28, 2025
 @version:       4
 @email:         oradioinfo@stichtingoradio.nl
 @status:        Development
-@summary:       Oradio touch buttons module with debounce, per-button callbacks, and selftest
+@summary:       Oradio touch buttons module with debounce and per-button callbacks.
+    The module test is module_test/touch_buttons_test.py.
 """
 from threading import Timer
 from time import monotonic

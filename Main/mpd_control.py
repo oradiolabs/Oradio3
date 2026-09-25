@@ -51,7 +51,7 @@ DEFAULT_PRESET = "Preset1"  # Used when Play is pressed and the queue is empty
 # entries left behind by an interrupted create sequence.
 _PLAYLIST_DUMMY_URI = "https://dummy.mp3"
 
-# Poll interval for _SongFinishMonitor, matches the previous manual sleep(0.5).
+# Poll interval for _SongFinishMonitor.
 _MONITOR_POLL_INTERVAL = 0.5  # seconds
 
 class _SongFinishMonitor(ThreadTemplate):
@@ -468,7 +468,7 @@ class MPDControl(MPDService):
 
     # Seven returns and thirteen branches, against maxima of 6 and 12. Each is a
     # distinct outcome of "should this call have started music", and the caller
-    # now needs that answer -- collapsing them behind a status variable would
+    # needs that answer -- collapsing them behind a status variable would
     # hide which case a reader is in, in a method whose whole job is telling
     # those cases apart.
     def play(self, preset: str | None = None) -> bool | None:  # pylint: disable=too-many-return-statements,too-many-branches

@@ -381,7 +381,7 @@ class SafeLogger:
             if self._queue_handler not in uv_logger.handlers:
                 uv_logger.addHandler(self._queue_handler)
             # propagate=False also keeps the child loggers from reaching the
-            # handler twice: each one carries it directly now.
+            # handler twice: each one carries it directly.
             uv_logger.propagate = False
 
 ##### Convenience logging methods #########################

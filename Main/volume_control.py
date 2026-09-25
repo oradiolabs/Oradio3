@@ -230,8 +230,8 @@ class VolumeControl(ThreadTemplate):
         this cannot yet justify -- ending the process, so oradio-prestart.sh
         runs its conditional alsactl restore and recreates the controls.
 
-        Until then every failure is still reported, exactly as before. What is
-        added is the count, so a stream of them can be told from a single one.
+        Until then every failure is reported. The count is what lets a stream
+        of them be told from a single one.
         """
         self._set_failures.append(monotonic())
         window_start = monotonic() - SET_FAILURE_WINDOW

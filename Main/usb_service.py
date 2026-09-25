@@ -38,8 +38,7 @@ from watchdog.events import FileSystemEventHandler
 ##### Oradio modules ######################################
 from singleton import singleton
 from log_service import oradio_log
-from wifi_service import networkmanager_add
-from wifi_listener import nm_available
+from wifi_service import networkmanager_add, nm_available
 from utilities import DeferredStarter    # pylint: disable=ungrouped-imports
 from messaging import (
     Commands,
@@ -399,11 +398,10 @@ class USBObserver(FileSystemEventHandler):
         Publish the drive state again if it changed while nobody was watching.
 
         __init__() reads the mount point before the observer is started, so an
-        insert or removal in between produces an inotify event nobody receives
-        (issue #544: "insert while Oradio is booting"). Called once the observer
-        is running: from then on every later change is seen, and this closes
-        the gap before it. Does nothing when the state is unchanged, so the
-        normal start-up publishes nothing extra.
+        insert or removal in between produces an inotify event nobody receives.
+        Called once the observer is running: from then on every later change
+        is seen, and this closes the gap before it. Does nothing when the state
+        is unchanged, so the normal start-up publishes nothing extra.
         """
         state = USB_PRESENT if path.ismount(USB_MOUNT_POINT) else USB_ABSENT
         if state == self._published:
