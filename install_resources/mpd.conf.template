@@ -211,6 +211,23 @@ input {
 #		proxy_password "password"
 }
 
+# Input cache #################################################################
+#
+# Load whole song files from the USB stick into RAM instead of reading them in
+# small chunks while playing. The stick then sees one burst per song and is
+# idle for the rest of it, so USB autosuspend (usb-drive.sh) can also save
+# power during playback, not only when the radio is silent.
+#
+# The size is a maximum: MPD allocates as needed, keeps played songs until the
+# cache is full and then evicts the oldest, so expect it to reach this size.
+# It is process memory, not page cache: the kernel cannot reclaim it and the
+# Pi 3A+ has no swap. 32 MB holds the current and next song with margin for
+# MP3 (about 1-2.5 MB per minute). Remove this block to disable the cache.
+#
+input_cache {
+		size			"32 MB"
+}
+
 # Decoder #####################################################################
 #
 
