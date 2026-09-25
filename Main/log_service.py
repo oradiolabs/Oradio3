@@ -594,7 +594,7 @@ if __name__ == '__main__':
                 sleep(0.1)  # Slight delay to simulate work
 
         threads = [
-            Thread(target=worker, args=(thread,), daemon=True)
+            Thread(target=worker, args=(thread,), name=f"log-test-{thread}", daemon=True)
             for thread in range(thread_count)
         ]
 

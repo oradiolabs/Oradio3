@@ -285,7 +285,7 @@ if __name__ == '__main__':
                     while time.time() - start < duration:
                         play_sound(random.choice(sound_keys))
                         time.sleep(random.uniform(0.1, 0.5))
-                threads = [Thread(target=rnd) for _ in range(5)]
+                threads = [Thread(target=rnd, name=f"sound-stress-{idx}") for idx in range(5)]
                 for thread in threads:
                     thread.start()
                 for thread in threads:

@@ -652,7 +652,7 @@ if __name__ == '__main__':
     request_queue: Queue = Queue()
 
     # Spawn the message monitor before starting uvicorn so no messages are missed.
-    message_listener = Thread(target=_check_requests, args=(request_queue,))
+    message_listener = Thread(target=_check_requests, args=(request_queue,), name="RequestMonitor")
     message_listener.start()
 
     # timer_started is already False from the module-level initialisation above.

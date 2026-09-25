@@ -243,7 +243,7 @@ class UvicornServerThread:
             oradio_log.info("Starting Uvicorn server...")
             self._server = uvicorn.Server(self._config)
 
-            self._thread = Thread(target=self._server.run, daemon=True)
+            self._thread = Thread(target=self._server.run, name="UvicornServer", daemon=True)
             try:
                 self._thread.start()
                 oradio_log.info("Uvicorn server started")
@@ -379,7 +379,9 @@ class WebService:
 
         # Daemon thread: drains request_queue and dispatches to service methods.
         # Exits automatically when the main process exits.
-        self.server_listener = Thread(target=self._check_server_messages, daemon=True)
+        self.server_listener = Thread(
+            target=self._check_server_messages, name="WebMessageListener", daemon=True
+        )
 
         try:
             self.server_listener.start()
@@ -537,7 +539,9 @@ class WebService:
 
         oradio_log.warning("Web message listener is not running; starting it again")
         try:
-            self.server_listener = Thread(target=self._check_server_messages, daemon=True)
+            self.server_listener = Thread(
+                target=self._check_server_messages, name="WebMessageListener", daemon=True
+            )
             self.server_listener.start()
         # Broad catch: a thread that cannot be created is the fault being
         # repaired, and it must not take the incident handler down with it.
@@ -606,10 +610,10 @@ class WebService:
                         # Tear down the Captive Portal after handing off to the
                         # new network. Runs on its own thread so a slow stop()
                         # doesn't block this loop from draining new messages.
-                        Thread(target=self.stop, daemon=True).start()
+                        Thread(target=self.stop, name="web-service-stop", daemon=True).start()
 
                 elif request == REQUEST_STOP:
-                    Thread(target=self.stop, daemon=True).start()
+                    Thread(target=self.stop, name="web-service-stop", daemon=True).start()
 
                 else:
                     oradio_log.warning("Unrecognised request: %s", request)

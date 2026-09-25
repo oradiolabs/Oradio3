@@ -168,6 +168,7 @@ class TouchButtons:
         if prev:
             prev.cancel()
         timer = Timer(LONG_PRESS_DURATION, self._long_press_timeout, args=(button_name,))
+        timer.name = f"long-press-{button_name}"
         timer.daemon = True
         self.long_press_timers[button_name] = timer
         timer.start()

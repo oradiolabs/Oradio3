@@ -947,6 +947,7 @@ if __name__ == '__main__':
                     Thread(
                         target=Commands.publish,
                         args=(CommandMessage("worker", "command message from thread"),),
+                        name="test-publish-command",
                         daemon=True,
                     ).start()
                     print(f"{GREEN}Success publishing COMMAND message from THREAD{NC}\n")
@@ -957,6 +958,7 @@ if __name__ == '__main__':
                     Thread(
                         target=Incidents.publish,
                         args=(IncidentMessage("worker", "incident message from thread"),),
+                        name="test-publish-incident",
                         daemon=True,
                     ).start()
                     print(f"{GREEN}Success publishing INCIDENT message from THREAD{NC}\n")

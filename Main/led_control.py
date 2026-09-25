@@ -202,6 +202,7 @@ class LEDControl:
                 self.turn_on_led(led_name)
                 oradio_log.debug("%s turned on, will turn off after %s seconds", led_name, period)
                 oneshot_timer = Timer(period, self.turn_off_led, args=(led_name,))
+                oneshot_timer.name = f"led-oneshot-{led_name}"
                 oneshot_timer.start()
             else:
                 oradio_log.error("Invalid LED name: %s", led_name)

@@ -545,6 +545,9 @@ class USBService:
                 return
 
             observer = Observer()
+            # watchdog's Observer is a Thread without a name; USBObserver's
+            # on_created/on_deleted callbacks run (and log) on this thread.
+            observer.name = "USBObserver"
 
             # Schedule the singleton handler on the directory that contains the
             # USB marker file. recursive=False limits events to the top-level
@@ -591,6 +594,7 @@ class USBService:
         health check. Must be called with self._lock held.
         """
         self._health_timer = Timer(HEALTH_CHECK_INTERVAL, self._check_health)
+        self._health_timer.name = "usb-health-check"
         self._health_timer.daemon = True
         self._health_timer.start()
 

@@ -1283,6 +1283,8 @@ class Heartbeat(Timer):
             kwargs (dict, optional): Keyword arguments forwarded to *function*.
         """
         super().__init__(interval, function, args=args, kwargs=kwargs)
+        # Timer takes no name argument; set it after construction
+        self.name = "RmsHeartbeat"
 
     def run(self) -> None:
         """

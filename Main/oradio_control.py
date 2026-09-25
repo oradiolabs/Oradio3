@@ -176,6 +176,7 @@ def run_later(delay: float, function, *args) -> None:
     keeps this the same as every other helper thread here.
     """
     timer = threading.Timer(delay, function, args=args)
+    timer.name = f"run-later-{getattr(function, '__name__', 'call')}"
     timer.daemon = True
     timer.start()
 
@@ -628,6 +629,7 @@ class StateMachine:
         threading.Thread(
             target=self.run_state_method, args=(self.state,),
             kwargs={"recovered": recovered}, daemon=True,
+            name=f"state-worker-{self.state}",
         ).start()
 
     # ---- delayed-transition helpers ----
@@ -679,6 +681,7 @@ class StateMachine:
                 oradio_log.debug("Failed to cancel previous timer: %s", err)
 
         timer = threading.Timer(delay_s, lambda: self.transition(target_state))
+        timer.name = f"delayed-{target_state}"
         timer.daemon = True
         self._delayed_timers[key] = timer
         timer.start()

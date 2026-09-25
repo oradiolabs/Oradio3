@@ -347,7 +347,7 @@ class WifiService:
             oradio_log.debug("Startup scan burst already running or run; keeping the existing network list")
         else:
             self.nm_listener.list_building.set()
-            Thread(target=self._build_network_list, daemon=True).start()
+            Thread(target=self._build_network_list, name="wifi-network-list", daemon=True).start()
 
         # Publish the current state immediately so subscribers don't have to wait for the first state-change signal
         # from NetworkManager
@@ -542,7 +542,7 @@ class WifiService:
             return  # networkmanager_add already published the error; no point continuing
 
         # Offload the blocking activation to a daemon thread so the caller is not stalled by it
-        Thread(target=self._wifi_connect_thread, args=(ssid,), daemon=True).start()
+        Thread(target=self._wifi_connect_thread, args=(ssid,), name="wifi-connect", daemon=True).start()
         oradio_log.info("Connecting to '%s' started", ssid)
 
     def _wifi_connect_thread(self, network) -> None:
