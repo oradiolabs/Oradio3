@@ -1107,7 +1107,14 @@ def load_presets() -> dict[str, str]:
 def store_presets(presets: dict[str, str]) -> None:
     """
     Save the provided presets dictionary to the presets.json file in the USB_SYSTEM folder.
-
+    Note:
+    The first time write to a file on USB, a new metadata-cache file is created, as page-cache for next time writes
+    Depending on the option async/sync/flush a file will be written directly or delayed. The async option is best choice.
+    The async option will put the data in the page-cache first during a write(), and returns directly to caller.
+    However the kernel writes the data in the background at a later moment (can be several seconds).
+    It looks like the data is written immediately, but data is still in the cache.
+    To force the data to be written from the page-cache to the actual USB-stick an os.fysnc() is required.
+    When a with-block is ending, a close() is called, which implies an internal flush, but written to actual USB
     Args:
         presets (dict): Dictionary containing keys 'preset1', 'preset2', 'preset3' with playlist values.
     """
@@ -1128,11 +1135,13 @@ def store_presets(presets: dict[str, str]) -> None:
         raw_value = presets.get(key, "")
         data_to_save[key] = _normalize_listname(raw_value)
 
+    s = json.dumps(data_to_save, indent=4)
     # Write the JSON file
     try:
-        with open(PRESETS_FILE, "w", encoding="utf-8") as file:
-            json.dump(data_to_save, file, indent=4)
-        oradio_log.debug("Presets '%s' successfully saved to %s", data_to_save, PRESETS_FILE)
+        with open(PRESETS_FILE, "w", encoding="utf-8") as f:
+            f.write(s)
+            os.fsync(f.fileno())  # write page-cache data to physical UBS-device 
+            oradio_log.debug("Presets '%s' successfully saved to %s", data_to_save, PRESETS_FILE)
     except OSError as ex_err:
         oradio_log.error("Failed to write presets to '%s'. Error: %s", PRESETS_FILE, ex_err)
 

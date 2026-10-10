@@ -279,8 +279,10 @@ mount_partition() {
 	# Mount options chosen to reduce risk of data loss on FAT volumes:
 	#   rw, users (implies noexec,nosuid,nodev), uid=0, gid=100 (users),
 	#   fmask=111, dmask=000, utf8=1, noatime, nodiratime,
-	#   flush (write FAT metadata promptly), sync (no deferred writeback)
-	opts="rw,users,uid=0,gid=100,fmask=111,dmask=000,utf8=1,noatime,nodiratime,flush"
+	#   flush (write FAT metadata promptly),
+	#   sync (no deferred writeback),
+	#   async (writes through kernel-cache, returns quickly)
+	opts="rw,users,uid=0,gid=100,fmask=111,dmask=000,utf8=1,noatime,nodiratime,async"
 
 	kmark="$(kmsg_mark)"
 	if ! mount_err=$(mount -t vfat -o "$opts" "$part" "$MOUNTPOINT" 2>&1); then
