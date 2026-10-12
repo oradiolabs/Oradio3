@@ -77,7 +77,7 @@ from pathlib import Path
 from collections import deque
 from collections.abc import Callable
 from threading import Timer, Event, Thread
-from datetime import datetime, timezone
+from datetime import datetime, UTC
 from dataclasses import dataclass
 from platform import python_version
 from queue import Queue as JobQueue, Empty, Full
@@ -800,10 +800,13 @@ class _MultipartBody:
             for segment in self._segments
         )
 
-        self._chunks = self._iter_chunks()
         self._buffer = b""
         self._remaining = self.len
         self.shrunk: set[str] = set()
+        # Last: the generator reads _remaining and shrunk. Nothing in it runs
+        # until the first next(), but creating it after them keeps that true
+        # without relying on it.
+        self._chunks = self._iter_chunks()
 
     def read(self, amount: int = -1) -> bytes:
         """
@@ -1794,7 +1797,7 @@ class WifiMessageHandler(MessageHandlerTemplate):
         # attaches the offset it was missing.
         if incident is not None:
             generated = datetime.fromtimestamp(
-                incident.timestamp, tz=timezone.utc
+                incident.timestamp, tz=UTC
             ).astimezone().strftime(TIMESTAMP_FORMAT)
         else:
             generated = datetime.now().astimezone().strftime(TIMESTAMP_FORMAT)

@@ -28,7 +28,7 @@ from os import path
 from typing import Any
 from json import load, JSONDecodeError
 from asyncio import sleep, create_task, CancelledError
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta, UTC
 from pydantic import BaseModel
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
@@ -140,7 +140,7 @@ async def keep_alive_middleware(request: Request, call_next):
     # Restart the timer after the response is ready, again only for non-ping
     # requests once the timer has been armed.
     if request.url.path != "/keep_alive" and api_app.state.timer_started:
-        api_app.state.timer_deadline = datetime.now(timezone.utc) + timedelta(seconds=KEEP_ALIVE_TIMEOUT)
+        api_app.state.timer_deadline = datetime.now(UTC) + timedelta(seconds=KEEP_ALIVE_TIMEOUT)
         # If a task is already running, it will pick up the new deadline on its
         # next poll iteration; only create a new task when none is running.
         if not getattr(api_app.state, "timer_task", None) or api_app.state.timer_task.done():
@@ -544,7 +544,7 @@ async def stop_task():
     """
     try:
         while True:
-            remaining = (api_app.state.timer_deadline - datetime.now(timezone.utc)).total_seconds()
+            remaining = (api_app.state.timer_deadline - datetime.now(UTC)).total_seconds()
             if remaining <= 0:
                 break
             # Sleep in up to 200 ms increments so cancellation is picked up quickly.
@@ -570,7 +570,7 @@ async def keep_alive():
     Returns:
         JSONResponse({"status": "ok"}) always.
     """
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
 
     # Arm the timer on the first ping.
     if not api_app.state.timer_started:

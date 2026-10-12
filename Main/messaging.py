@@ -28,11 +28,11 @@ import sys
 import time
 import uuid
 import traceback
-from enum import Enum
+from enum import StrEnum
 from queue import Full
 from threading import Thread
 from typing import Any
-from datetime import datetime, timezone
+from datetime import datetime, UTC
 from dataclasses import dataclass, field
 from multiprocessing import Lock, Queue
 
@@ -240,12 +240,12 @@ def _capture_details() -> str:
     stack = traceback.extract_stack()[:-_CAPTURE_FRAMES_TO_SKIP]
     return "".join(traceback.format_list(stack)).rstrip()
 
-class Topic(str, Enum):
+class Topic(StrEnum):
     """
     Enumeration of supported pub-sub topics.
 
-    Inheriting from str allows enum members to behave like ordinary strings,
-    making them convenient for logging, JSON serialization, and dictionary keys.
+    A StrEnum, so members behave like ordinary strings, making them convenient
+    for logging, JSON serialization, and dictionary keys.
     """
     COMMAND  = "COMMAND"
     INCIDENT = "INCIDENT"
@@ -343,7 +343,7 @@ class IncidentMessage:
         Use datetime.fromtimestamp(msg.timestamp).astimezone() instead if a
         local-time rendering is needed.
         """
-        return datetime.fromtimestamp(self.timestamp, tz=timezone.utc).isoformat(timespec="seconds")
+        return datetime.fromtimestamp(self.timestamp, tz=UTC).isoformat(timespec="seconds")
 
     def report(self) -> str:
         """
