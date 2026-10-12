@@ -238,6 +238,11 @@ if [ -z "${USB_MOUNT_POINT:-}" ]; then
 	exit 1
 fi
 
+if [ -z "${USB_MOUNT_OPTIONS:-}" ]; then
+	echo -e "${RED}USB_MOUNT_OPTIONS not set in $CONSTANTS${NC}"
+	exit 1
+fi
+
 # Persistent log, on the SD card rather than the journal: journald is configured
 # with Storage=volatile and RuntimeMaxUse=8M, so an unattended run leaves no
 # trace after a reboot. Appended, not truncated, so a stick that needs repairing
@@ -340,19 +345,27 @@ function cleanup {
 	done
 	$removed || echo "No temporary files removed"
 
-	# Remount USB with original options if it was unmounted by this script.
-	# OPTIONS is always set once the device is known: either captured from the
-	# live mount, or the usb-drive.sh defaults when the stick was too damaged
-	# to be mounted at all
-	if  [[ -n "${OPTIONS:-}" && -n "${DEVICE:-}" && -b "${DEVICE:-}" && -n "${MOUNTPOINT:-}" ]]; then
+	# Already mounted (the remount below ran): force everything rclone wrote
+	# onto the stick before handing it back. The stick is mounted without sync,
+	# so without this the last of the sync could sit in memory for another
+	# half minute, and a stick pulled the moment this script reports done
+	# would be left inconsistent. Also on an interrupt, for what was written
+	# up to then.
+	if [[ -n "${MOUNTPOINT:-}" ]] && mountpoint -q "$MOUNTPOINT" 2>/dev/null; then
+		echo " - Flushing writes to USB..."
+		sync -f "$MOUNTPOINT" || echo -e "${RED}Failed to flush writes to $MOUNTPOINT${NC}"
+
+	# Mount the USB again if this script left it unmounted (an error or an
+	# interrupt between the unmount and the remount below). Always with the
+	# standard options from constants.env, the same set usb-drive.sh uses.
+	elif [[ -n "${DEVICE:-}" && -b "${DEVICE:-}" && -n "${MOUNTPOINT:-}" ]]; then
 
 		# Hold the usb-drive.sh lock across the remount too. Re-locking an fd
 		# this shell already holds returns immediately, so this is safe whether
 		# or not the lock was released before the sync
 		flock -x -w 10 9 2>/dev/null || true
 
-		sudo umount "$DEVICE" 2>/dev/null || true
-		if sudo mount -t vfat -o "$OPTIONS" "$DEVICE" "$MOUNTPOINT"; then
+		if sudo mount -t vfat -o "$USB_MOUNT_OPTIONS" "$DEVICE" "$MOUNTPOINT"; then
 			sudo touch "${USB_FLAG:-/run/usb_present}"
 			echo " - USB device successfully remounted"
 		else
@@ -460,10 +473,6 @@ USB_FLAG="/run/usb_present"
 # help: it tests mountpoint, which is false exactly because we unmounted
 USB_LOCK="/run/usb_mount.lock"
 
-# Used to restore the mount when the stick was never mounted to begin with and
-# there were no live options to capture. Keep in step with usb-drive.sh
-DEFAULT_MOUNT_OPTS="rw,users,uid=0,gid=100,fmask=111,dmask=000,utf8=1,sync,flush,noatime,nodiratime"
-
 # usb-drive.sh runs as root and creates the lock with 'exec 9>', leaving it
 # root-owned 0644. Opening it for writing as pi fails, so open it read-only:
 # flock() locks the open file description regardless of access mode, and an
@@ -484,12 +493,12 @@ fi
 # SD card holding /
 if mountpoint -q "$MOUNTPOINT"; then
 
-	# Save mount device and options so cleanup can remount with identical
-	# settings. The read itself is the condition: with '|| true' inside the
-	# process substitution, empty output leaves read returning 1 and set -e ends
+	# Save the mount device for the unmount, the checks and the remount.
+	# The read itself is the condition: with '|| true' inside the process
+	# substitution, empty output leaves read returning 1 and set -e ends
 	# the script before the checks below can explain why
-	if ! read -r DEVICE OPTIONS < <(findmnt -n -o SOURCE,OPTIONS -M "$MOUNTPOINT"); then
-		echo -e "${RED}Could not determine device and mount options for $MOUNTPOINT${NC}"
+	if ! read -r DEVICE < <(findmnt -n -o SOURCE -M "$MOUNTPOINT"); then
+		echo -e "${RED}Could not determine device for $MOUNTPOINT${NC}"
 		exit 1
 	fi
 
@@ -506,20 +515,12 @@ else
 		exit 1
 	fi
 
-	# No live mount to read them from, so cleanup restores the documented set
-	OPTIONS="$DEFAULT_MOUNT_OPTS"
 	echo "Found $DEVICE by label"
 fi
 
 # Ensure DEVICE is set and exists
 if [[ -z "${DEVICE:-}" || ! -b "${DEVICE:-}" ]]; then
 	echo -e "${RED}USB device not found or invalid${NC}"
-	exit 1
-fi
-
-# Ensure OPTIONS is set
-if [[ -z "${OPTIONS:-}" ]]; then
-	echo -e "${RED}Mount options could not be determined${NC}"
 	exit 1
 fi
 
@@ -612,14 +613,9 @@ else
 	echo "Skipping sector scan"
 fi
 
-# Remount with explicit options (ensures consistent permissions).
-# Note this drops the sync,flush,noatime,nodiratime that usb-drive.sh uses:
-# deliberate, because 'sync' would make a multi-gigabyte rclone write painfully
-# slow here. Cleanup restores the original options captured above — including
-# under --check-only, which costs one extra umount/mount cycle and keeps this
-# to a single code path
-OPTS="rw,users,uid=0,gid=100,fmask=111,dmask=000,utf8=1"
-if ! sudo mount -t vfat -o "$OPTS" "$DEVICE" "$MOUNTPOINT"; then
+# Remount with the standard options from constants.env for consistency.
+# Also under --check-only, which keeps this to a single code path.
+if ! sudo mount -t vfat -o "$USB_MOUNT_OPTIONS" "$DEVICE" "$MOUNTPOINT"; then
 	echo -e "${RED}Failed to mount $DEVICE to $MOUNTPOINT${NC}"
 	exit 1
 fi

@@ -87,7 +87,9 @@ cd "$SCRIPT_PATH" || { echo -e "${RED}Aborting: Failed to cd to $SCRIPT_PATH${NC
 while IFS= read -r LINE || [ -n "$LINE" ]; do
 	# Skip blanks and comments
 	[[ "$LINE" =~ ^[[:space:]]*(#|$) ]] && continue
-	if ! [[ "$LINE" =~ ^[A-Za-z_][A-Za-z0-9_]*=[A-Za-z0-9_./:@-]*$ ]]; then
+	# ',' and '=' are allowed in the value for USB_MOUNT_OPTIONS; neither has a
+	# special meaning in an unquoted bash assignment or in Main/constants.py
+	if ! [[ "$LINE" =~ ^[A-Za-z_][A-Za-z0-9_]*=[A-Za-z0-9_./:@,=-]*$ ]]; then
 		echo -e "${RED}Aborting: malformed line in constants.env: '$LINE'${NC}"
 		exit 1
 	fi
