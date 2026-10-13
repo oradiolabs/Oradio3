@@ -534,7 +534,7 @@ class PubSubManager:
                 # filtered-out messages never consume queue space.
                 if source_filter is not None and message.source not in source_filter:
                     continue
-                if topic is Topic.INCIDENT:
+                if topic is Topic.INCIDENT and isinstance(message, IncidentMessage):
                     self._put_incident(queue, message)
                 else:
                     # safe_put calls fatal_exit on queue failure; the lock is

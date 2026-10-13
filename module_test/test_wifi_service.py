@@ -929,7 +929,11 @@ class TestConnect(WifiServiceTestCase):
 
         self.service.wifi_connect(wifi_service.ACCESS_POINT_SSID, None)     # First request, parked in _wifi_up
         sleep(0.05)
-        self._patch(wifi_service, "_wifi_up", lambda ssid: (self.activated.append(ssid), True)[1])
+        def fast_wifi_up(ssid):
+            self.activated.append(ssid)
+            return True
+
+        self._patch(wifi_service, "_wifi_up", fast_wifi_up)
         self.service.wifi_connect(wifi_service.ACCESS_POINT_SSID, None)     # Newer request, succeeds
 
         release.set()
