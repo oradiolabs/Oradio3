@@ -50,7 +50,8 @@ Created on February 8, 2025
 
     Helper functions collect Raspberry Pi telemetry and software version
     information. Each outgoing message is POSTed once; a POST that fails is
-    logged and publishes an incident, which is reported on the bus but never
+    logged, and an outage (rather than a refused request) publishes an
+    incident, which is reported on the bus but never
     posted to RMS itself. Redirects are refused rather than followed, since
     a redirected POST arrives without its body, and a success is only
     accepted when the reply is RMS's own, so a captive portal answering in
@@ -61,9 +62,9 @@ Created on February 8, 2025
     The command runs to completion; how long it takes is the sender's
     responsibility.
 """
-# Annotations are strings, not objects: Response is filled in by
-# _load_requests() at first use, so a signature naming it would otherwise be
-# evaluated against None when this module is imported.
+# Annotations are strings, not objects: Response is imported for the type
+# checker only (see TYPE_CHECKING below), so a signature naming it would
+# otherwise fail with a NameError when this module is imported.
 from __future__ import annotations
 
 from typing import Any, TYPE_CHECKING
@@ -221,8 +222,8 @@ CONNECT_TIMEOUT = 5   # Per-attempt TCP/TLS connect timeout in seconds. Separate
                       # the sender thread for the full timeout.
 POST_TIMEOUT    = 30  # Per-attempt read timeout in seconds. Generous because RMS may run its
                       # notification and retention routines inside the POST before responding:
-                      # giving up early would treat a stored record as a failure and post it
-                      # again on the next attempt.
+                      # giving up early would treat a stored record as a failure and report
+                      # an outage that did not happen.
 
 ##### Log file attachment limits ##########################
 # Ceilings on what an INCIDENT attaches, so a runaway log cannot turn one incident into a
@@ -740,8 +741,8 @@ class _MultipartBody:
     PHP setup accepts.
 
     Single use: once read, a new instance is needed to send again. Building
-    one is cheap (no file is opened until it is read), so _post_message()
-    simply builds a fresh body per attempt.
+    one is cheap (no file is opened until it is read), so _post_once()
+    simply builds a fresh body per send.
 
     Attributes:
         len: Exact size of the body in bytes; read as Content-Length by
@@ -995,7 +996,8 @@ def _attempt_post(data, headers: dict, context: str) -> tuple[Response | None, s
     Make one POST attempt and classify the outcome.
 
     For a 3xx or 4xx, logs why the request was refused. The caller is left
-    with the one decision that is its own, namely whether to try again.
+    with the one decision that is its own, namely whether the outcome is
+    an outage worth an incident.
 
     A 2xx is not taken at face value. It is checked against
     _rms_response_problem() first, so a reply from something standing in
@@ -1006,8 +1008,8 @@ def _attempt_post(data, headers: dict, context: str) -> tuple[Response | None, s
     return the final status as though the record had been stored.
 
     Args:
-        data:    Body to send: either the form fields or an open, rewound
-                 multipart body to stream from.
+        data:    Body to send: either the form fields or a freshly built,
+                 unread multipart body to stream from.
         headers: Request headers, including the multipart Content-Type when
                  data is a prepared body.
         context: Short label used in log messages, e.g. "message".
@@ -1162,8 +1164,8 @@ def _post_message(
     """
     POST payload_info to the RMS server.
 
-    Shared across the message types handled by
-    WifiMessageHandler.send_message(): all POST to RMS_SERVER_URL under the
+    Shared across the message types posted by
+    _RmsSender._deliver(): all POST to RMS_SERVER_URL under the
     same CONNECT_TIMEOUT/POST_TIMEOUT policy. They differ only in whether
     log files are attached and in what happens with a successful response
     (a heartbeat acts on a returned command, the others do not), both of
@@ -1189,19 +1191,21 @@ def _post_message(
         payload_info:     Form fields to POST.
         attach_log_files: If True, attach the log files selected by
                            _collect_log_files(), rotated logs included, as a
-                           streamed multipart body. Built fresh per attempt,
-                           since a body is consumed by the attempt that
-                           sends it.
+                           streamed multipart body. Built fresh per send,
+                           since a body is consumed by the send that
+                           carries it.
         context:          Short label used in log messages, e.g.
                            "message" or "incident".
         abort:            Set while the service is shutting down. Checked
                            before the POST and used for the wait between
-                           rotation resends, so a send in progress gives up
-                           promptly instead of holding shutdown open.
+                           rotation resends, so a send that has not started
+                           yet, or is waiting to resend, gives up promptly
+                           instead of holding shutdown open. A POST already
+                           in flight is not interrupted.
 
     Returns:
         The successful requests.Response, or None if the request was
-        rejected with a 4xx, the POST failed, or the send was abandoned
+        refused with a 3xx or 4xx, the POST failed, or the send was abandoned
         because abort was set. When the logs were sent more than once, this
         is the response to the last send.
     """
@@ -1391,8 +1395,9 @@ class _RmsSender(ThreadTemplate):
     no polling delay between one message and the next.
 
     ThreadTemplate's stop event doubles as the abort signal handed to
-    _post_message(), so a send already under way gives up when
-    the service stops instead of holding shutdown open.
+    _post_message(), so once the service stops no new POST is started and
+    no rotation resend is made. A POST already in flight is not
+    interrupted: it runs until it completes or hits its timeouts.
     """
 
     # Restart itself if it crashes; see ThreadTemplate.restart_on_crash.
@@ -1511,8 +1516,8 @@ class _RmsSender(ThreadTemplate):
         like, so they run here, on this thread, and not at submit time.
 
         A message queued while WiFi was up is dropped if the link has gone
-        since. An INCIDENT is always posted, and always carries the current
-        log files. Only a HEARTBEAT response is examined for a pending
+        since -- an INCIDENT included. An INCIDENT is posted unless it is
+        RMS's own, and always carries the current log files. Only a HEARTBEAT response is examined for a pending
         command; RMS attaches one to no other message type.
 
         Args:
@@ -1600,7 +1605,8 @@ class WifiMessageHandler(MessageHandlerTemplate):
     """
     Handle WiFi state change messages and drive heartbeat and RMS reporting.
 
-    Subscribes to the COMMAND topic filtered to WiFi messages. On a
+    Consumes the COMMAND topic queue, filtered to WiFi messages, that
+    RMService.start() subscribes and hands in. On a
     WIFI_CONNECTED event the heartbeat timer is started and a one-time
     SYS_INFO message is sent to the RMS server. On a WIFI_DISCONNECTED
     event the heartbeat timer is stopped.
@@ -1608,8 +1614,9 @@ class WifiMessageHandler(MessageHandlerTemplate):
     send_message() also handles INCIDENT, used by other services (e.g.
     incident_service) via RMService.send_message() to report an
     IncidentMessage to RMS. All three message types require this handler
-    to exist (i.e. RMService.start() to have been called) and, for
-    SYS_INFO/INCIDENT, WiFi to currently be connected.
+    to exist (i.e. RMService.start() to have been called) and WiFi to be
+    connected: without it HEARTBEAT and SYS_INFO are dropped, and an
+    INCIDENT is held in a bounded backlog until WIFI_CONNECTED.
 
     None of them is posted here. This handler owns an _RmsSender and only
     queues messages onto it, so neither the WiFi worker thread nor any
@@ -1890,9 +1897,10 @@ class RMService:
         """
         Whether WiFi is connected, per the last WIFI_* message the handler saw.
 
-        Exposed because send_message() silently drops everything while WiFi is
-        down, so a caller that must not lose its message needs to be able to
-        wait for the link instead of firing into it. Reading this rather than
+        Exposed because send_message() drops heartbeats and system info while
+        WiFi is down, and holds incidents only in a bounded in-memory backlog,
+        so a caller that must not lose its message needs to be able to wait
+        for the link instead of firing into it. Reading this rather than
         the handler's own attribute keeps callers off _handler.
 
         This is the gate that decides whether a message is accepted, which is
@@ -2082,7 +2090,7 @@ if __name__ == "__main__":
         print(f"Queue depth now {queued} of {SEND_QUEUE_SIZE}")
 
         if queued == 0:
-            print(f"{YELLOW}Nothing queued: send_message() drops everything while WiFi is down{NC}\n")
+            print(f"{YELLOW}Nothing queued: WiFi is down, so the incidents are held until it returns{NC}\n")
         else:
             print(f"Expect around {FLOOD_COUNT - SEND_QUEUE_SIZE} 'RMS send queue full' "
                   "warnings in the log\n")

@@ -83,15 +83,6 @@ from constants import (
 # Seconds to wait for the Uvicorn server to become ready.
 SERVER_READY_TIMEOUT = 15
 
-# Seconds to wait for the WiFi interface to settle after the access point is torn
-# down on stop(): association, WPA handshake and DHCP against the user's router.
-# A false timeout here publishes WEB_STOP_FAILED for a reconnect that actually
-# succeeded, so the value is generous; waiting longer costs nothing on success,
-# since _wait_for_wifi_state() returns as soon as the state arrives.
-#
-# Covers the reconnect on stop() and nothing else. The access point coming up on
-# start() is wifi_service.await_access_point()'s wait, so this value can be
-# tuned on its own without checking anything in wifi_service.
 # Failed portal attempts in a row, and how long one keeps counting, before the
 # Oradio asks to be restarted.
 #
@@ -106,6 +97,15 @@ SERVER_READY_TIMEOUT = 15
 PORTAL_ATTEMPT_LIMIT  = 2
 PORTAL_ATTEMPT_WINDOW = 300.0  # seconds
 
+# Seconds to wait for the WiFi interface to settle after the access point is torn
+# down on stop(): association, WPA handshake and DHCP against the user's router.
+# A false timeout here publishes WEB_STOP_FAILED for a reconnect that actually
+# succeeded, so the value is generous; waiting longer costs nothing on success,
+# since _wait_for_wifi_state() returns as soon as the state arrives.
+#
+# Covers the reconnect on stop() and nothing else. The access point coming up on
+# start() is wifi_service.await_access_point()'s wait, so this value can be
+# tuned on its own without checking anything in wifi_service.
 RECONNECT_TIMEOUT = 45
 
 SOCKET_TIMEOUT = 3   # WebSocket ping interval/timeout in seconds; safe for small devices and networks
@@ -329,8 +329,8 @@ class WebService:
     Private helper methods handle each system operation (iptables, DNS, WiFi
     polling) in isolation so that start() and stop() read as straightforward
     sequences of steps rather than inline shell-script management code.
-    Each helper publishes its own error message on failure; callers do not
-    re-publish.
+    Each helper only logs and returns False on failure; start() and stop()
+    publish the incident.
 
     An internal daemon thread (_check_server_messages) drains a Queue that the
     FastAPI routes write to, and translates queue messages into service actions
@@ -340,16 +340,17 @@ class WebService:
         """
         Initialise the WebService and start the background message listener.
 
-        Sets up the shared queue, wires it into the FastAPI application state,
-        creates the Uvicorn wrapper, and starts the message-listener thread,
+        Sets up the shared queue and starts the message-listener thread,
         which runs for the full lifetime of the process and has no stop mechanism.
-        Logs an error and publishes WEB_SERVER_FAILED if either the Uvicorn
-        wrapper or the listener thread fails to initialise. Publishes WEB_IDLE
-        to the message bus so the controller starts from a known baseline.
+        The web stack and the Uvicorn wrapper are not created here but on first
+        use, see _create_server(); the queue is wired into the FastAPI
+        application state there. Logs an error and publishes WEB_SERVER_FAILED
+        if the listener thread fails to start. Publishes WEB_IDLE to the
+        message bus so the controller starts from a known baseline.
 
-        uvicorn_server is pre-assigned to None before initialisation so that
-        the state property and start/stop methods can safely check for
-        initialisation failure with a simple None guard.
+        uvicorn_server is left None until _create_server() succeeds, so the
+        state property and start/stop methods can check for it with a simple
+        None guard.
         """
         # Shared queue: FastAPI route handlers post plain dicts here;
         # _check_server_messages() reads and dispatches them.
@@ -583,7 +584,8 @@ class WebService:
         concurrent or overlapping calls from multiple such threads are safe.
 
         Dispatch is wrapped in a broad try/except: this thread has no
-        supervisor and is never restarted, so an uncaught exception here
+        supervisor of its own and is only restarted by ensure_listener() when
+        an incident asks for it, so an uncaught exception here
         would silently end all future message processing for the life of the
         process (the portal could be left stuck running or stuck stopped,
         with no incident reported). Catching, logging, publishing
@@ -717,9 +719,9 @@ class WebService:
            point, via wifi_service.await_access_point(), which owns the
            timing for that path.
 
-        Two hard preconditions (the web stack failing to load, already
-        running) return immediately since there is nothing meaningful to
-        accumulate status over in either case. Once past those, each remaining step is
+        One hard precondition (already running) returns immediately since
+        there is nothing meaningful to accumulate status over. Once past it,
+        each remaining step (including loading the web stack) is
         skipped (via the status guard) if an earlier one already failed, so
         later steps never run against a known-bad state -- but there is still
         only one return statement for the whole step sequence, matching stop().
@@ -854,7 +856,7 @@ class WebService:
 
         1. Disconnect the access point (if currently active) so connected
            clients are dropped before the server stops.
-        2. Stop the Uvicorn web server.
+        2. Stop the portal watchdog and the Uvicorn web server.
         3. Flush all buffered writes to the USB stick (sync_usb).
         4. Remove the iptables port-redirect rule.
         5. Remove the dnsmasq DNS redirect config file.
@@ -1003,7 +1005,7 @@ if __name__ == '__main__':
 
     print("\nStarting test program...\n")
 
-    # Subscribe to command and error topics so published messages are printed to console
+    # Subscribe to command and incident topics so published messages are printed to console
     command_handler = DebugMessageHandler(Commands.subscribe())
     incident_handler = DebugMessageHandler(Incidents.subscribe())
 

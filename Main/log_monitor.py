@@ -17,14 +17,15 @@ Created on July 13, 2026
 @email:         oradioinfo@stichtingoradio.nl
 @status:        Development
 @summary: Log Health Monitor
-    Monitors log_service's dropped-log-record counter and publishes an
-    incident whenever records have been dropped due to a saturated log
-    queue.
+    Monitors log_service's health and publishes an incident when the log
+    queue fills up (and again when it has drained), or when the queue
+    listener thread dies. The dropped-record counter is only logged.
 
     log_service must not import other Oradio modules (see the NOTE near
     the top of log_service.py), so it cannot publish incidents itself.
     Rather than log_service calling back into this module, this dedicated
-    monitor polls SafeLogger.dropped_count so it depends on both log_service
+    monitor polls SafeLogger's listener_alive, queue_full and dropped_count
+    so it depends on both log_service
     and messaging while neither of those depends on it.
 """
 
@@ -46,11 +47,12 @@ from messaging import (
 @singleton
 class LogHealthMonitor(ThreadTemplate):
     """
-    Singleton background monitor for log_service's dropped-record counter.
+    Singleton background monitor for log_service's health signals.
 
-    Polls SafeLogger.dropped_count and publishes an incident whenever the
-    count has increased since the last poll, once polling has been started
-    via start(). Built on ThreadTemplate, which provides the restartable
+    Polls SafeLogger.listener_alive, .queue_full and .dropped_count and
+    publishes an incident on each listener-death and queue full/drained
+    transition, once polling has been started via start(); a rising
+    dropped_count is only logged. Built on ThreadTemplate, which provides the restartable
     setup()/do_work()/teardown() background-thread machinery (safe_start(),
     safe_stop(), crash detection, etc.), so this class only needs to
     implement the log-health-specific behaviour.
@@ -275,7 +277,7 @@ if __name__ == "__main__":
 
     print("\nStarting test program...\n")
 
-    # Subscribe to error topics and start message handler
+    # Subscribe to the incident topic and start message handler
     incident_handler = DebugMessageHandler(Incidents.subscribe())
 
     # Allow for print output to propagate

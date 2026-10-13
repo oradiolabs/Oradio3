@@ -177,16 +177,17 @@ def play_song(args: dict[str, Any] | None):
 
 def get_networks(_args: dict[str, Any] | None):
     """
-    Return the list of currently visible WiFi networks.
+    Return the list of WiFi networks accumulated by the WiFi event listener.
 
     get_wifi_networks() separates "no networks" from "no list": [] means the neighbourhood really is empty, None
-    means the WiFi event listener is not running and there is nothing to report. Returning None straight through
+    means there is no maintained list -- the WiFi event listener is not running, or its NetworkManager subscription
+    is down -- and there is nothing to report. Returning None straight through
     would encode as JSON null with a 200, which the page cannot iterate and which reads to the user as an empty
     neighbourhood -- the one reading that invites them to retry forever. 503 says the subsystem is down, which is
     what actually happened and what the page should say.
 
-    Reaching this at all means the listener died while the access point it reports on is still serving this very
-    request, so it is logged as an error rather than passed over quietly.
+    Reaching this at all means the listener died, or lost NetworkManager, while the access point it reports on is
+    still serving this very request, so it is logged as an error rather than passed over quietly.
 
     Args:
         _args: Unused; accepted to match the command handler signature.
@@ -194,7 +195,7 @@ def get_networks(_args: dict[str, Any] | None):
     Returns:
         A list of {"ssid": str, "type": "open" | "closed"} dicts as
         returned by get_wifi_networks(), or a JSONResponse with status 503
-        if the WiFi event listener is not running.
+        if get_wifi_networks() has no list to report.
     """
     networks = get_wifi_networks()
 
@@ -212,7 +213,7 @@ def shutdown_webapp(_args: dict[str, Any] | None):
     Request a graceful web server shutdown via the service queue.
 
     Places a REQUEST_STOP message on api_app.state.queue so
-    the owning process can stop uvicorn cleanly.
+    WebService's message-listener thread can stop the portal cleanly.
 
     Args:
         _args: Unused; accepted to match the command handler signature.
@@ -224,7 +225,7 @@ def wifi_connect(args: dict[str, Any] | None):
     Send a WiFi connection request to the service queue.
 
     Places a REQUEST_CONNECT message containing the SSID and
-    optional password on api_app.state.queue for the owning process to act on.
+    optional password on api_app.state.queue for WebService's message-listener thread to act on.
 
     Args:
         args: dict containing:
@@ -690,7 +691,7 @@ class PortalWatchdog(ThreadTemplate):
                 oradio_log.error("Portal watchdog not armed: cannot request the stop")
             else:
                 safe_put(self._queue, {"request": REQUEST_STOP})
-            # End this run, the way WifiEventListener ends its own.
+            # End this run: ThreadTemplate's loop sees the event and exits.
             self._stop_event.set()
 
 # One watchdog per process; web_service reaches it through api_app.state.
@@ -746,7 +747,7 @@ if __name__ == '__main__':
         """
         Monitor the service request queue and print received messages.
 
-        Runs in a background process. Loops until the bare
+        Runs in a background thread. Loops until the bare
         REQUEST_STOP string sentinel is received.
 
         Args:

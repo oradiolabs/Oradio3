@@ -129,9 +129,6 @@ PLAY_STATES = {"StatePlay", "StatePreset1", "StatePreset2", "StatePreset3"}
 # ready shortly -- so there is no second reader and nothing to share.
 STARTUP_BLINK_CYCLE = 1.0
 
-# How long the STOP LED blinks on reaching Idle after the incident service
-# repaired something. Long enough to catch an eye in the room, short enough that
-# it is over before anyone walks up to press a button.
 # What belongs to each preset button: its LED and its announcement.
 #
 # One table because all three follow from the preset name, and passing them
@@ -147,6 +144,9 @@ PRESETS = {
 # "this button" can be asked of the preset rather than of whatever is playing.
 PRESETS_BY_STATE = {f"State{preset}" for preset in PRESETS}
 
+# How long the STOP LED blinks on reaching Idle after the incident service
+# repaired something. Long enough to catch an eye in the room, short enough that
+# it is over before anyone walks up to press a button.
 INCIDENT_BLINK_SECONDS = 3.0
 
 # Blink cycle for "the web interface is open". The slowest of the three, because
@@ -181,9 +181,7 @@ def run_later(delay: float, function, *args) -> None:
     timer.start()
 
 
-################## Signal Primitives ######################
-
-# -----------------------
+################## Start-up sequence ######################
 
 def log_startup_step(step: str) -> None:
     """
@@ -217,7 +215,10 @@ def log_startup_step(step: str) -> None:
 # start-up and module imports.
 log_startup_step("imports done")
 
-# Start Remote Service before any incidents can happen, as othewise those incidents may nog be reported
+# Start Remote Service first, so it already follows the WiFi state when the
+# power supply check below has to report through it. Other incidents reach RMS
+# only through IncidentHandler, which subscribes further down: of the incidents
+# published before that, only the most recent one per source is replayed to it.
 remote_monitor = RMService()
 remote_monitor.start()
 log_startup_step("remote monitor")
@@ -273,12 +274,11 @@ if power_status is False:
 
     # Report to RMS, but not before WiFi can carry it.
     #
-    # send_message() drops anything queued while WiFi is down, and nothing
-    # re-sends it. Firing it here would be firing into the dark: at this point
-    # in start-up WifiService has usually only just handed its own start to a
-    # background thread, so RMS has not seen a WIFI_CONNECTED message yet and
-    # the incident would be discarded a few lines before the Oradio stops
-    # doing anything else.
+    # send_message() holds an incident while WiFi is down and sends it once
+    # RMS sees WIFI_CONNECTED, so this wait is no longer what keeps the report
+    # from being lost. It still makes the order explicit: at this point in
+    # start-up WifiService has usually only just handed its own start to a
+    # background thread, and RMS has not seen a WIFI_CONNECTED message yet.
     #
     # Waiting has no cost. The Oradio is not going to serve this user again
     # either way, so the only thing left to accomplish is telling RMS why. An
@@ -707,8 +707,8 @@ class StateMachine:
         Returns:
             True when a state worker was spawned, so the handler for the
             requested state will set the LEDs and announce what happened. False
-            when a guard above answered instead -- next song, StateError -- and
-            nothing further will touch them.
+            when a guard above answered instead -- next song, stopping the web
+            service, StateError -- and nothing further will touch them.
 
             No caller acts on it: the one guard a preset press can hit is "next
             song", which leaves the state and the LEDs as they were. It is here
@@ -1182,9 +1182,9 @@ def on_incident_recovered():
     because transition() reads a repeat of the current state as "next song".
 
     Idle and not StateStartUp, which is a claim about the Oradio's age rather
-    than a set of LEDs: on_usb_absent() and on_webservice_idle() both skip their
-    work while the state is StateStartUp, so entering it mid-life would make
-    them ignore events that are real.
+    than a set of LEDs: on_usb_absent() and on_usb_present() both skip their
+    transition while the state is StateStartUp, so entering it mid-life would
+    make them ignore events that are real.
     """
     oradio_log.info("Incident recovered: starting again from Idle")
     state_machine.transition("StateIdle", recovered=True)
@@ -1253,9 +1253,9 @@ def _webservice_webradio_changed(preset: str) -> None:
 
     Announced here rather than by a state handler, unlike a changed playlist:
     this ends in StateIdle, which belongs to no particular button. Going to
-    StatePresetN instead would not work -- transition() blocks a web-radio preset
-    when there is no internet, which is exactly the situation, and the user would
-    hear "no internet" instead of which button they just set.
+    StatePresetN instead would not work -- _play_preset() finds a web radio with
+    no internet, which is exactly the situation, and the user would hear "no
+    internet" after the button number instead of what they just set.
 
     The preset announcement was missing entirely, so a user setting web radios
     on several buttons heard the same "new web radio" three times with nothing
@@ -1287,7 +1287,9 @@ def on_web_pl3_webradio_changed():
 
 # ----------------- Touch buttons -----------------
 
-# Thread-safety for transitions (shared with volume callbacks)
+# Serialises button-driven transitions with _retry_preset(). Not taken by the
+# other message handlers (they share the command handler thread with the
+# buttons) nor by the delayed-transition timers.
 sm_lock = threading.RLock()
 
 def _go(state: str) -> bool:
@@ -1420,7 +1422,8 @@ log_startup_step("incident handler")
 touch_buttons = TouchButtons()
 log_startup_step("touch buttons")
 
-# Instantiate and start the web service for managing the access point
+# Instantiate the web service for managing the access point (starts only its
+# message listener; the portal itself starts on a long press of Play)
 oradio_web_service = WebService()
 log_startup_step("web service")
 

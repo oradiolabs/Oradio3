@@ -32,7 +32,7 @@ Created on January 10, 2025
 from typing import Any
 import socket
 from time import monotonic, sleep
-from threading import RLock  # Safeguard against concurrent access; callers using one thread or process per instance do not require it.
+from threading import RLock  # Required: one instance (e.g. MPDControl) is shared by several threads
 # Use MPDConnectionError because mpd2 raises a different ConnectionError than Python's built-in one
 from mpd import MPDClient, CommandError, ProtocolError, ConnectionError as MPDConnectionError
 
@@ -54,7 +54,8 @@ MPD_BACKOFF  = 1    # seconds between retry attempts, to avoid hammering the MPD
 
 # Wall-clock cap on one connect burst. MPD_RETRIES x MPD_BACKOFF is the nominal
 # cost, but connect() can block as well, so the deadline is what actually
-# bounds the total. Kept short: on the start-up path a caller waiting here is
+# bounds the total. It is checked between attempts only: one attempt that
+# blocks can itself take up to MPD_COMMAND_TIMEOUT. Kept short: on the start-up path a caller waiting here is
 # holding up the state machine, and MPD arriving a second later is handled by
 # the breaker closing again rather than by waiting longer here.
 MPD_CONNECT_DEADLINE = 4    # seconds
@@ -133,9 +134,10 @@ class MPDService:
     """
     Thread-safe class for interacting with an MPD (Music Player Daemon) server.
 
-    Uses a Lock to prevent concurrent access from multiple threads. Callers
-    that use only one thread or process per instance do not require this guard,
-    but it is retained as a safeguard.
+    Uses an RLock to prevent concurrent access from multiple threads. This is
+    required, not a safeguard: python-mpd2's MPDClient is not thread-safe, and
+    MPDControl's single instance is used from the command handler, state
+    workers, the web interface and background threads.
 
     Features:
         - Automatic connection and reconnection to the MPD server.
@@ -148,7 +150,7 @@ class MPDService:
     """
     def __init__(self, crossfade: int | None = None) -> None:
         """
-        Initialise the MPDService and connect to the MPD server.
+        Initialise the MPDService. Does not connect: the first command does.
 
         Args:
             crossfade (int | None): Optional crossfade duration in seconds.
@@ -348,8 +350,11 @@ class MPDService:
 
         Returns:
             The command result on success, or None if:
+            - the circuit breaker is open, or a connect attempt failed,
             - the command name is not a valid MPD command,
-            - the command fails with a CommandError (expected or not), or
+            - the command fails with a CommandError (expected or not),
+            - MPD did not answer within MPD_COMMAND_TIMEOUT,
+            - an unexpected exception was raised, or
             - all retry attempts are exhausted.
         """
         # Fail fast while the breaker is open. Without this, one command
@@ -525,7 +530,7 @@ if __name__ == '__main__':
 
     print("\nStarting test program...\n")
 
-    # Subscribe to error topic so published messages are printed to console
+    # Subscribe to incident topic so published messages are printed to console
     incident_handler = DebugMessageHandler(Incidents.subscribe())
 
     # Instantiate MPD service and print current stats

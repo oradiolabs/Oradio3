@@ -82,7 +82,7 @@ class _MPDMonitorWorker(ThreadTemplate):
         """
         Args:
             mpd_service: The MPDService connection to issue idle/status/
-                listall commands against. Owned and connected by the
+                listall commands against. Owned by the
                 enclosing MPDMonitor, passed in rather than constructed
                 here, so MPDMonitor controls the connection's lifetime.
         """
@@ -235,7 +235,7 @@ class _MPDMonitorWorker(ThreadTemplate):
                 oradio_log.info("[%s] Removed: %d files", directory, len(files))
 
     def teardown(self) -> None:
-        """Called once when the monitoring loop stops, cleanly or via crash."""
+        """Called when a run of the monitoring loop ends, cleanly or via crash (also between restart attempts)."""
         oradio_log.debug("%s stopping", self.name)
 
 @singleton
@@ -257,8 +257,9 @@ class MPDMonitor:
           _MPDMonitorWorker.do_work()).
         - Logs database updates and playlist/player info.
         - A crashed worker (setup() or do_work() raising) is caught by
-          ThreadTemplate, logged, and published as an incident by
-          start(), rather than silently killing the thread.
+          ThreadTemplate, logged and restarted (restart_on_crash); a crash
+          during start-up is published as an incident by start(), rather
+          than silently killing the thread.
 
     Note:
         The MPD idle command blocks the MPDService connection shared
@@ -273,10 +274,10 @@ class MPDMonitor:
         """
         Initialise the MPD monitor.
 
-        Connects to MPD and creates (but does not start) the background
-        worker. Callers must call start() explicitly to begin monitoring,
-        and may stop()/start() again later since the worker is
-        restartable.
+        Creates its own MPDService (which connects on its first command)
+        and creates (but does not start) the background worker. Callers
+        must call start() explicitly to begin monitoring, and may
+        stop()/start() again later since the worker is restartable.
         """
         # Own connection to MPD, used both directly (e.g. the stand-alone
         # test harness below) and by the background worker.
@@ -406,16 +407,16 @@ if __name__ == "__main__":
 
     print("\nStarting test program...\n")
 
-    # Subscribe to error topic so published messages are printed to console.
+    # Subscribe to incident topic so published messages are printed to console.
     incident_handler = DebugMessageHandler(Incidents.subscribe())
 
-    # Construct the MPD monitor (connects to MPD; does not start monitoring yet).
+    # Construct the MPD monitor (does not connect to MPD or start monitoring yet).
     mpd_monitor = MPDMonitor()
 
     # Launch the interactive test menu; blocks until the user quits.
     interactive_menu(mpd_monitor)
 
-    # Stop receiving error messages.
+    # Stop receiving incident messages.
     Incidents.unsubscribe(incident_handler.get_queue())
 
     # Signal the handler thread to exit and confirm it has exited.

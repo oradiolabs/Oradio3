@@ -104,8 +104,8 @@ class RPiThrottlingMonitor(ThreadTemplate):
     """
     Singleton background monitor for Raspberry Pi throttling state.
 
-    Polls vcgencmd get_throttled at a configurable interval and logs a
-    warning (plus publishes an error message) whenever the active throttling
+    Polls vcgencmd get_throttled once a second and logs a
+    warning (plus publishes an incident message) whenever the active throttling
     state changes, once polling has been started via start(). A
     one-time-per-run boot-time check is also performed on each start() to
     surface any historical throttling events that occurred before the
@@ -215,7 +215,7 @@ class RPiThrottlingMonitor(ThreadTemplate):
 
         Each state transition is logged once:
         * Enter throttling – logs a warning with the active flag names
-          and publishes an error message.
+          and publishes an incident message.
         * Clear throttling – logs an info message indicating the
           condition resolved.
         """
@@ -445,8 +445,8 @@ if __name__ == "__main__":
             " 2-Stop throttling monitor\n"
             " 3-Force throttled (undervoltage)\n"
             " 4-Force throttled (frequency capped)\n"
-            " 5-Force throttled (thermal)\n"
-            " 6-Force throttled (temperature)\n"
+            " 5-Force throttled (currently throttled)\n"
+            " 6-Force throttled (soft temperature limit)\n"
             " 7-Force throttled (all)\n"
             " 8-Clear throttled\n"
             "Select: "
@@ -489,7 +489,7 @@ if __name__ == "__main__":
 
     print("\nStarting test program...\n")
 
-    # Subscribe to error topics and start message handler
+    # Subscribe to the incident topic and start message handler
     incident_handler = DebugMessageHandler(Incidents.subscribe())
 
     # Present menu with tests

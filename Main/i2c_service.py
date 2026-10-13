@@ -136,7 +136,7 @@ class I2CService:
     """
     Thread-safe class for I2C device communication.
     - Locks all SMBus operations to prevent concurrent access from multiple threads.
-    - Provides helpers for bytes, words, and block operations.
+    - Provides helpers for byte and block operations.
     - Logs errors for debugging.
     """
     def __init__(self) -> None:

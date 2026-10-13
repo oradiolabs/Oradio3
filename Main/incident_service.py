@@ -127,8 +127,10 @@ class IncidentHandler(MessageHandlerTemplate):
 
     A note on the *_STOPPED incidents, which are all NO MITIGATION for the same
     reason: nothing in the operational Oradio calls stop() on those workers --
-    with one exception, the throttling monitor after an under-voltage, whose
-    on_stopped() stays quiet about it -- and none of their do_work() bodies has
+    with two exceptions: the throttling monitor after an under-voltage, whose
+    on_stopped() stays quiet about it, and _restart_subsystem() below, whose
+    stop() of a worker left running by a timed-out start can publish a
+    *_STOPPED reading "stopped on request" -- and none of their do_work() bodies has
     a path that raises -- an I2C failure
     comes back as None, not as an exception. So a *_STOPPED means an exception
     nobody foresaw, repeated until ThreadTemplate.restart_on_crash gave up. A
@@ -140,10 +142,10 @@ class IncidentHandler(MessageHandlerTemplate):
     """
     def __init__(self) -> None:
         """
-        Subscribe to incident messages and call the base class constructor,
-        which subscribes to the incident bus and starts the worker thread.
+        Subscribe to the incident bus and call the base class constructor,
+        which starts the worker thread that reads the subscription queue.
         """
-        # Subscribe to incident messages and initialise base class and start the worker thread
+        # Subscribe to incident messages; the base class below starts the worker thread
         self._queue = Incidents.subscribe()
 
         # Used to post incidents to Remote Monitoring Service
@@ -423,14 +425,14 @@ class IncidentHandler(MessageHandlerTemplate):
         """
         if incident.message == LED_BLINK_START_FAILED:
             # NO MITIGATION: reporting it IS the mitigation.
-            #   The blink worker lives for one blink request. Restarting it would revive
-            #   a worker nobody is waiting for; the next control_blinking_led() builds a
-            #   new one regardless.
+            #   There is one blink worker per LED, created on its first blink and reused
+            #   after that. Restarting it here would start a blink nobody asked for; the
+            #   next control_blinking_led() calls safe_start() on the same worker anyway.
             pass
         elif incident.message == LED_BLINK_STOP_FAILED:
             # NO MITIGATION: reporting it IS the mitigation.
-            #   Same as LED_BLINK_START_FAILED above: a per-request worker, with nothing
-            #   worth reviving.
+            #   Same as LED_BLINK_START_FAILED above: the per-LED worker is retried by
+            #   the next blink or LED-off request, so there is nothing to revive here.
             pass
         else:
             oradio_log.error("Unhandled LED incident: '%s'", incident.message)
@@ -939,7 +941,7 @@ class IncidentHandler(MessageHandlerTemplate):
         # Warning, not debug: an incident is by definition something that went
         # wrong, and this is the only line in the log that names it. At debug it
         # disappears the moment the level is raised, taking with it the context
-        # for every "Mitigation to be implemented" that follows.
+        # for every mitigation log line that follows.
         #
         # Source and message, not the whole message object: repr() of an
         # IncidentMessage includes the captured stack, which turns one entry
@@ -952,7 +954,8 @@ class IncidentHandler(MessageHandlerTemplate):
         if message.details:
             oradio_log.debug("Incident details: %s", message.details)
 
-        # Post incident (if connected to internet)
+        # Report incident to RMS: queued at once when WiFi is connected,
+        # otherwise held by RMS until WiFi returns
         self._rms.send_message(INCIDENT, message)
 
         handler = self._dispatch.get(message.source)
@@ -1018,7 +1021,7 @@ if __name__ == '__main__':
 
     print("\nStarting test program...\n")
 
-    # Subscribe to incident topics so messages published are printed to console
+    # Subscribe to the incident topic so messages published are logged and dispatched
     incident_handler = IncidentHandler()
 
     # Present menu with tests

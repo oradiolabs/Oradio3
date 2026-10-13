@@ -143,7 +143,7 @@ class Backlighting:
         construction, courtesy of @singleton:
         - Writes OFF value to DAC EEPROM (persistent), ensuring LEDs are off at boot.
         - Initializes the light sensor hardware.
-        - Creates and starts the single, reusable background worker.
+        - Creates the single, reusable background worker; start() starts it.
         """
         # Get I2C r/w methods
         self._i2c_service = I2CService()
@@ -268,11 +268,12 @@ class Backlighting:
             oradio_log.debug("Backlight worker thread not running")
             return
 
-        # Logged, not reported. Nothing in the running Oradio calls this:
-        # oradio_control only ever calls start(), and the stop() paths here --
-        # off(), maximum() and the menu below -- exist for the stand-alone
-        # entry point. An incident from a code path the product cannot reach
-        # would be noise in RMS and a false lead for whoever reads it.
+        # Logged, not reported. oradio_control only ever calls start(); the
+        # running Oradio reaches this only through incident_service restarting
+        # a backlight that failed to start, which has already been reported.
+        # The other stop() paths here -- off(), maximum() and the menu below --
+        # exist for the stand-alone entry point. Another incident would be
+        # noise in RMS and a false lead for whoever reads it.
         if not self._worker.safe_stop():
             oradio_log.error("Backlight worker thread did not stop cleanly")
         else:

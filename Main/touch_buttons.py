@@ -44,7 +44,7 @@ from constants import (
 ##### LOCAL constants #####################################
 BUTTON_DEBOUNCE_TIME     = 500                              # ms — ignore rapid repeats within this window
 DEBOUNCE_SECONDS         = BUTTON_DEBOUNCE_TIME / 1000.0    # converted to seconds for monotonic() comparisons
-BOUNCE_MS                = 10                               # hardware debounce threshold passed to GPIO.add_event_detect
+BOUNCE_MS                = 10                               # unused here: gpio_service.BOUNCE_MS is what GPIO.add_event_detect gets
 LONG_PRESS_DURATION      = 6                                # seconds a button must be held to trigger a long-press event
 BUTTON_LONG_PRESSED      = "button long pressed"
 VALID_LONG_PRESS_BUTTONS = [BUTTON_PLAY]
@@ -92,7 +92,7 @@ class TouchButtons:
             button_data (dict): Must contain:
                 'name'  (str): One of BUTTON_PLAY, BUTTON_STOP,
                                BUTTON_PRESET1, BUTTON_PRESET2, BUTTON_PRESET3.
-                'state' (str): BUTTON_RELEASED or BUTTON_LONG_PRESSED.
+                'state' (str): BUTTON_PRESSED or BUTTON_LONG_PRESSED.
                 'data'  (Any, optional): Extra payload, e.g. a timestamp
                                attached by a module test for latency
                                measurement. Forwarded through as-is;

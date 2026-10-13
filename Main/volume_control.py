@@ -225,12 +225,12 @@ class VolumeControl(ThreadTemplate):
         failed at boot and the softvol controls were never created.
 
         The count is what the incident carries, and it is the measurement this
-        is here for: nobody knows yet how often amixer misses in the field. Once
-        that is known, a threshold can be put in front of the escalation that
-        this cannot yet justify -- ending the process, so oradio-prestart.sh
-        runs its conditional alsactl restore and recreates the controls.
+        is here for: nobody knows yet how often amixer misses in the field.
+        Reaching SET_FAILURE_LIMIT ends the process, so oradio-prestart.sh runs
+        its conditional alsactl restore and recreates the controls; the limit is
+        generous until that measurement says where it belongs.
 
-        Until then every failure is reported. The count is what lets a stream
+        Every failure is reported either way. The count is what lets a stream
         of them be told from a single one.
         """
         self._set_failures.append(monotonic())
@@ -441,7 +441,7 @@ class VolumeControl(ThreadTemplate):
 
         Thin wrapper around ThreadTemplate.safe_stop() that preserves this
         class's original public API. The stop incident itself is published
-        by teardown(), which always runs when the polling loop exits.
+        by on_stopped(), which runs once the worker has ended for good.
         """
         self.safe_stop()
 

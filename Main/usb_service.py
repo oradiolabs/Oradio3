@@ -21,7 +21,7 @@ Created on January 17, 2025
     auto-mounted USB drive. When a drive labelled ORADIO is mounted by the OS,
     a marker file is created; its creation and deletion drive state changes.
     Key features:
-        - Singleton watchdog observer (only one instance per process)
+        - Singleton watchdog event handler (only one instance per process)
         - USB insert/remove state published via the messaging bus
         - Optional import of WiFi credentials from a JSON file on the USB drive
     Requirements:
@@ -730,7 +730,7 @@ if __name__ == '__main__':
 
     print("\nStarting test program...\n")
 
-    # Subscribe to command and error topics so published messages are printed to console
+    # Subscribe to command and incident topics so published messages are printed to console
     command_handler = DebugMessageHandler(Commands.subscribe())
     incident_handler = DebugMessageHandler(Incidents.subscribe())
 

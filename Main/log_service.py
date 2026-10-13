@@ -19,11 +19,12 @@ Created on January 17, 2025
 @summary:
     Provides a single source of truth for logging across all modules.
     Features:
-    - Safe handlers to prevent recursive logging failures
+    - Safe logging wrapper (SafeLogger) so a logging failure never raises into the caller
     - QueueHandler:
       - Non-blocking log handling for multi-threaded applications
       - Prevents log writes from slowing down main program
-      - Centralizes log records from multiple threads/processes
+      - Centralizes log records from all threads of this process (other processes share
+        only the file, see below)
     - StreamHandler: Logs messages to console, with ANSI color per level
     - FileHandler: Logs to a file, with the same ANSI color per level as the console and without
       rotation of its own. The color is deliberate: it makes the log readable with cat. Anything
@@ -223,9 +224,11 @@ def _emit_fallback(fallback_handlers: list[logging.Handler], level: int, msg: st
     the first success, since each is an independent failure domain; e.g. a 
     full disk takes out the file handler but not syslog, while a journald
     that's misconfigured or absent takes out syslog but not the file.
-    FileHandler and SysLogHandler are both safe to call directly like this
-    from any thread. Falls back to stderr only if every sink fails, so
-    nothing is lost silently in any case.
+    Calling emit() directly bypasses the handler lock that handle() takes,
+    so a notice written to the file handler is not serialised against a
+    record the queue listener is writing to the same file at that moment.
+    Falls back to stderr only if every sink fails, so nothing is lost
+    silently in any case.
     """
     record = logging.LogRecord(
         name=ORADIO_LOGGER, level=level, pathname=__file__, lineno=0,

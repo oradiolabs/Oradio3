@@ -19,7 +19,8 @@ Created on December 23, 2024
 @summary:       WiFi event listener: watching what NetworkManager is doing.
     This module observes; wifi_service.py acts. It owns the D-Bus subscription, the accumulated list of access
     points, the scan pacing and the periodic keeper sweep. Nothing here decides to connect, disconnect or host
-    an access point; that is wifi_service's job, and it is the only module that imports this one.
+    an access point; that is wifi_service's job, and it is the only module that imports this one apart from
+    web_server, which takes WIFI_INTERFACE.
     Import rule: this module must never import from wifi_service.py. Anything both modules need lives here, which
     is why nmcli_try() and get_wifi_connection() sit in this file. One grep for "wifi_service" confirms the rule.
     The access-point list is accumulated from NetworkManager's AccessPointAdded D-Bus signals rather than by
@@ -192,8 +193,8 @@ NM_CONNECTIVITY_LIMITED = 3   # IP connectivity, but no internet route
 NM_CONNECTIVITY_FULL    = 4   # Full internet access confirmed
 
 # Build the nmcli exception tuple dynamically so it stays correct if the nmcli package adds or renames exception
-# classes in a future release. The starred expression unpacks nmcli_exceptions into a flat tuple suitable for use in
-# an except clause (requires Python 3.11+).
+# classes in a future release. The starred expression in nmcli_try's except clause unpacks nmcli_exceptions into a
+# flat tuple suitable for use there.
 nmcli_exceptions = tuple(
     exc for exc in vars(nmcli._exception).values()   # pylint: disable=protected-access
     if isinstance(exc, type) and issubclass(exc, Exception)
@@ -242,7 +243,7 @@ def nmcli_try(func, *args, ignore=(), **kwargs) -> tuple[bool, Any | None]:
     """
     Call an nmcli function, catching all known nmcli and OS errors.
 
-    On failure, logs the error and publishes WIFI_NMCLI_FAILED on the error bus.
+    On failure, logs the error and publishes WIFI_NMCLI_FAILED on the incident bus.
 
     Args:
         func:     The nmcli callable to invoke.
@@ -295,7 +296,7 @@ def get_wifi_connection() -> str | None:
     Return the SSID of the currently active WiFi connection, if any.
 
     Three D-Bus round-trips on the shared system bus, no subprocess, because this is called from the GLib callback
-    path (see _access_point_added) as well as from get_state().
+    path (see _wifi_state_changed) as well as from get_state().
 
     Resolves the device by name on every call, so it recovers by itself after a NetworkManager restart without
     waiting for the subscription rebuild.
@@ -356,9 +357,10 @@ class WifiEventListener(ThreadTemplate):    # pylint: disable=too-many-instance-
         * safe_stop() - quits the GLib loop, joins the thread, then undoes setup()'s registrations.
 
     If WIFI_INTERFACE is not managed by NetworkManager, is not a WiFi device, or the D-Bus connection fails, setup()
-    raises. ThreadTemplate then logs and records the crash, and the four internal handles (bus, _wifi_path,
-    _nm_props, _loop) are left as None. All other modules can still operate normally; WiFi state changes will simply
-    not be reported. Use the inherited crashed / exception properties to detect this from the outside.
+    raises. ThreadTemplate then logs and records the crash, and whichever of the four internal handles (bus,
+    _wifi_path, _nm_props, _loop) setup() had not yet reached are left as None. All other modules can still operate
+    normally; WiFi state changes will simply not be reported. Use the inherited crashed / exception properties to
+    detect this from the outside.
     """
 
     # Restart itself if it crashes; see ThreadTemplate.restart_on_crash.
@@ -374,7 +376,7 @@ class WifiEventListener(ThreadTemplate):    # pylint: disable=too-many-instance-
         """
         super().__init__(name="WifiEventListener")
 
-        # Set by setup(); all four stay None if it fails at any point:
+        # Set by setup(); any it has not yet reached stay None if it fails part-way:
         #   bus        — set once the system bus connection is open
         #   _wifi_path — set once the WiFi device is located on the bus
         #   _nm_props  — set once the NM Properties interface is obtained
@@ -412,7 +414,8 @@ class WifiEventListener(ThreadTemplate):    # pylint: disable=too-many-instance-
         # Last WiFi state announced on the command bus, or None before the first one. Kept so publish_state() can
         # drop a repeat: NetworkManager's connectivity can flap between FULL and LIMITED without the association
         # changing, and every repeat reaching the bus is another spoken "connected to wifi" from oradio_control.
-        # Touched only on the GLib main loop thread, like everything else that decides what to publish.
+        # Touched on the GLib main loop thread, and also from the caller's thread by WifiService._start_listener()
+        # (via publish_state) and by safe_stop() (via forget_published_state).
         self._published_state: str | None = None
 
         # True once "associated but no internet" has been reported, cleared when connectivity comes good. Separate
@@ -463,7 +466,7 @@ class WifiEventListener(ThreadTemplate):    # pylint: disable=too-many-instance-
         schedule the keeper sweep, and create the GLib main loop do_work() runs.
 
         Runs on the worker thread, once per safe_start(). Publishes WIFI_DBUS_FAILED and raises on any failure, so
-        ThreadTemplate records the crash and the handles above are left as None for other methods to degrade on.
+        ThreadTemplate records the crash and the handles not yet set are left as None for other methods to degrade on.
 
         Raises:
             DBusException: NetworkManager is unreachable, or WIFI_INTERFACE is not registered.
@@ -935,7 +938,8 @@ class WifiEventListener(ThreadTemplate):    # pylint: disable=too-many-instance-
         Publish the WiFi state as it is right now, rather than as a transition.
 
         Used after a rebuild, where there is no StateChanged signal to react to because the transitions happened
-        while nothing was listening. Mirrors the decisions in _wifi_state_changed for the connected case.
+        while nothing was listening, and by _nm_connectivity_changed on every Connectivity change. Mirrors the
+        decisions in _wifi_state_changed for the connected case.
         """
         active = get_wifi_connection()
 
@@ -972,9 +976,8 @@ class WifiEventListener(ThreadTemplate):    # pylint: disable=too-many-instance-
             if not self._no_internet_reported:
                 self._no_internet_reported = True
                 oradio_log.info("Associated without internet access")
-                # A command, not an incident: the access point refused the
-                # connection, which is something the user retries -- with a
-                # different password, or once the router is back. Nothing about
+                # A command, not an incident: an uplink without internet is
+                # something the user retries -- once the router is back. Nothing about
                 # the Oradio is broken, so there is nothing for RMS to act on
                 # and nothing for incident_service to mitigate; oradio_control
                 # is the only interested party.
@@ -1595,7 +1598,7 @@ if __name__ == '__main__':
                     # None case: no list, as distinct from a list that happens to be empty.
                     networks = get_wifi_networks()
                     if networks is None:
-                        print(f"\n{RED}Listener not running; no network list available{NC}\n")
+                        print(f"\n{RED}No network list available (listener not running or NM subscription down){NC}\n")
                     else:
                         print(f"\n{len(networks)} networks: {networks}\n")
                 case 5:
@@ -1639,7 +1642,7 @@ if __name__ == '__main__':
 
     print("\nStarting test program...\n")
 
-    # Subscribe to command and error topics so published messages are printed to console
+    # Subscribe to command and incident topics so published messages are printed to console
     command_handler = DebugMessageHandler(Commands.subscribe())
     incident_handler = DebugMessageHandler(Incidents.subscribe())
 

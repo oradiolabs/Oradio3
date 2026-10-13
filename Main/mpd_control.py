@@ -344,7 +344,7 @@ class MPDControl(MPDService):
         """
         Remove any dummy entries left in playlists by a previous interrupted run.
 
-        Called once during __init__ to ensure no playlist permanently contains
+        Called from initialise_library() to ensure no playlist permanently contains
         the sentinel URI from a prior failed create sequence.
         """
         for entry in self._execute("listplaylists") or []:
@@ -487,6 +487,8 @@ class MPDControl(MPDService):
         Behaviour when the queue is empty (preset used as fallback):
             - If preset is None, DEFAULT_PRESET is used.
             - Preset resolves to nothing → do nothing.
+            - Preset resolves to a playlist → load and play from the first song.
+            - Preset resolves to a directory → add all songs, shuffle, and play.
 
         Returns:
             True when music is playing as a result of this call.
@@ -500,8 +502,6 @@ class MPDControl(MPDService):
             the user's problem and will pass. Telling them their preset is empty
             would be wrong, so the caller waits and asks again instead. See
             wait_for_library().
-            - Preset resolves to a playlist → load and play from the first song.
-            - Preset resolves to a directory → add all songs, shuffle, and play.
 
         Args:
             preset: Optional preset name to load and play.

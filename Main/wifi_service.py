@@ -30,7 +30,6 @@ Created on December 23, 2024
     Documentation:
         https://networkmanager.dev/
         https://pypi.org/project/nmcli/
-        https://superfastpython.com/multiprocessing-in-python/
     Not supported:
         Connecting through a captive portal (detected but not handled).
         Connecting to VPN.
@@ -121,7 +120,7 @@ LISTENER_START_TIMEOUT = 20.0
 
 # Module-level state, shared by every thread in this process. A plain dict behind a threading Lock, so it is
 # thread-safe within one process only: a second process gets its own copy and never sees updates made here.
-_saved_network = {"network": ""}    # Last successfully connected WiFi SSID
+_saved_network = {"network": ""}    # WiFi SSID that was active when wifi_connect() last replaced it
 _saved_lock = Lock()                # Guards concurrent reads and writes
 
 ##### Helpers #############################################
@@ -193,7 +192,7 @@ class WifiService:
 
     Construction only sets up state; the background D-Bus listener thread is not started until start() is called.
 
-    Singleton, because oradio_control, web_service and rms_service each construct one and they must not diverge: the
+    Singleton, because oradio_control and web_service each construct one and they must not diverge: the
     network list, its readiness flag and the listener thread describe one radio, not one per caller. Keep any state
     added here on the singleton for the same reason: a per-instance copy is written by whichever module acted and
     read as absent by all the others.
@@ -295,8 +294,8 @@ class WifiService:
         """
         Bring up the listener thread, run the startup scan burst if it has not run yet, and publish state.
 
-        Called once NetworkManager is known to be available, either directly from start() or from the deferred
-        deferred thread.
+        Called once NetworkManager is known to be available, either directly from start() or from the
+        DeferredStarter's background thread.
         """
         started_now = self.nm_listener.safe_start(LISTENER_START_TIMEOUT)
 
@@ -506,7 +505,7 @@ class WifiService:
         """
         Add or update a network profile and start connecting in the background.
 
-        Saves the current connection (if any, and not the AP) so it can be restored later, then starts a
+        Saves the current connection (if any, and not the AP) so the web interface can show it, then starts a
         daemon Thread to activate the profile so the blocking nmcli call does not stall the caller.
 
         When ssid is the Oradio access point, that thread first confirms the network list is complete (see
@@ -528,7 +527,7 @@ class WifiService:
         if ssid == ACCESS_POINT_SSID:
             self._ap_failed.clear()
 
-        # Remember the last non-AP, non-empty connection so it can be restored later
+        # Remember the last non-AP, non-empty connection so the web interface can show it (see get_saved_network)
         if active and active != ACCESS_POINT_SSID:
             oradio_log.info("Remember connection '%s'", active)
             _set_saved_network(active)
@@ -1004,7 +1003,7 @@ if __name__ == '__main__':
 
     print("\nStarting test program...\n")
 
-    # Subscribe to command and error topics so published messages are printed to console
+    # Subscribe to command and incident topics so published messages are printed to console
     command_handler = DebugMessageHandler(Commands.subscribe())
     incident_handler = DebugMessageHandler(Incidents.subscribe())
 

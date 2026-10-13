@@ -570,8 +570,9 @@ if __name__ == '__main__':
         def _request_src_cap(self, is_final_attempt: bool = True) -> bool:
             """Issue a single Get_SRC_Cap request and wait for a definitive PD_RESPONSE.
 
-            I2CService retries a failed write and publishes its own incident
-            before returning False, so a GO_COMMAND that never reached the bus
+            I2CService makes a single attempt here (retry=False, see below)
+            and publishes its own incident before returning False, so a
+            GO_COMMAND that never reached the bus
             is reported here with its context instead of being polled for a
             response the source was never asked to give.
 
@@ -883,8 +884,9 @@ if __name__ == '__main__':
             left 0 (the HUSB238 has no mechanism to request a specific current - see
             module docstring).
 
-            I2CService retries a failed write and publishes its own incident
-            before returning False, so a request that never reached the bus is
+            I2CService retries a failed SRC_PDO write (but not the GO_COMMAND
+            trigger, see below) and publishes its own incident before returning
+            False, so a request that never reached the bus is
             reported as a write failure rather than as a negotiation that
             failed to settle.
 

@@ -47,7 +47,7 @@ from constants import (
 
 class TestTouchButtons:
     """
-    Subclass of TouchButtons for testing purposes.
+    Wrapper around TouchButtons for testing purposes.
 
     Composes a real TouchButtons instance with a TestGPIOService, and wires
     the GPIO edge-event callback to TouchButtons' internal handler so that
@@ -73,9 +73,9 @@ class TestTouchButtons:
 class TestGPIOService:
     """
     Class with additional methods for testing purposes only
-    Based on GPIOService baseclass
+    Composes a GPIOService instance
     Args:
-        The new class inherits from GPIOService, and extends it with extra test methods:
+        The new class wraps GPIOService, and adds extra test methods:
         * simulate_button_play_events_burst()
         * simulate_all_buttons_events_burst()
         * simulate_button_press_and_release()
@@ -316,13 +316,12 @@ def _all_button_burst_test(test_buttons: TestTouchButtons, burst_freq: float) ->
 def _btn_press_release_cb_test(test_buttons: TestTouchButtons) -> None:
     """
     Button press/release test for a user-selected button, with user
-    specified press-ON time. Stops when press-ON timing = 0
+    specified press-ON time. Stops after one press, or when press-ON timing = 0
     * input requested for button-name and press-timing used in callback simulation
     * resets all timing data
-    * stop the logging temporary, but setting log-level to CRITICAL
     When finished all long_press_timers are stopped
     Args:
-        buttons = instance of TestTouchButtons
+        test_buttons = instance of TestTouchButtons
     """
     test_buttons.timing_data._reset_timing_data()
     stop_test = False

@@ -157,13 +157,12 @@ class GPIOService:
         rather than getting a clean slate.
 
         Note:
-            Does not hold self._lock while calling GPIO.cleanup(), since
-            GPIO.cleanup() blocks until any in-flight edge-detection thread
-            exits, and that thread acquires self._lock via _edge_callback's
-            call to get_button_state(). Holding the lock here would deadlock
-            against a button edge in progress. The state reset below is
-            ordered after GPIO.cleanup() for the same reason: it must not
-            run while an edge event for the old state may still be in flight.
+            Does not hold self._lock while calling GPIO.cleanup(). The state
+            reset below is ordered after GPIO.cleanup() so no new edge event
+            is dispatched once it runs. With rpi-lgpio, GPIO.cleanup() only
+            unregisters the edge callbacks: it does not wait for one already
+            running on lgpio's notification thread, so an edge event that was
+            in flight can still observe the reset state.
 
         Warning:
             Calling this in production will disable all GPIO functionality
@@ -287,7 +286,7 @@ class GPIOService:
         were enabled first, a button press occurring between the two calls
         would invoke a None callback and be silently dropped, so this
         method returns early if no callback has been registered. Publishes
-        a GPIO_PINS_FAILED incident if edge detection cannot be enabled on a pin.
+        a GPIO_BUTTONS_FAILED incident if edge detection cannot be enabled on a pin.
         """
         if not callable(self.edge_event_callback):
             oradio_log.error("Cannot enable button events: callback not set")
@@ -325,10 +324,8 @@ class GPIOService:
             oradio_log.warning("Edge event on unknown channel %s — ignored", channel)
             return
 
-        # Safe to acquire self._lock here (via get_button_state) because
-        # gpio_cleanup() does not hold it while calling GPIO.cleanup():
-        # that call blocks until this callback thread exits, so holding
-        # the lock across it would deadlock. See gpio_cleanup()'s docstring.
+        # Acquires self._lock (via get_button_state); gpio_cleanup() does not
+        # hold it while calling GPIO.cleanup(). See gpio_cleanup()'s docstring.
         pressed = self.get_button_state(button_name)
         state = BUTTON_PRESSED if pressed else BUTTON_RELEASED
 

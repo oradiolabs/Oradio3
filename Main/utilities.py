@@ -26,6 +26,8 @@ Created on January 17, 2025
         * Loading and storing presets.json
         * Console input prompting with type conversion and a default fallback
         * Restartable background worker template (ThreadTemplate)
+        * Deferred start of a subsystem whose dependency is late (DeferredStarter)
+        * systemd service restart, fatal process exit, log secret masking, USB write flush
 """
 import json
 import socket
@@ -240,7 +242,7 @@ class ThreadTemplate:
         Internal thread entry point. Do not call directly -- use safe_start().
 
         Runs setup() once, then calls do_work() immediately, then repeatedly
-        again every interval seconds until stop() is called, then runs teardown().
+        again every interval seconds until safe_stop() is called, then runs teardown().
         (do_work() fires right after setup() rather than waiting out the first
         interval, so a poller doesn't sit idle before its first check.) Any
         exception raised by setup() or do_work() is caught, logged, and stored
@@ -259,7 +261,7 @@ class ThreadTemplate:
                 while not self._stop_event.is_set():
                     self.do_work()
                     # Doubles as the sleep interval AND the interruptible
-                    # wait -- stop() setting the event wakes this up
+                    # wait -- safe_stop() setting the event wakes this up
                     # immediately instead of waiting out the full interval.
                     self._stop_event.wait(self._interval)
 
@@ -330,7 +332,7 @@ class ThreadTemplate:
             CRASH_RESTART_WINDOW, CRASH_RESTART_BACKOFF,
         )
 
-        # Waiting on the stop event, not sleeping: a stop() during the backoff
+        # Waiting on the stop event, not sleeping: a safe_stop() during the backoff
         # takes effect at once instead of after the full delay, and returns
         # True, which the check below turns into "do not restart".
         if self._stop_event.wait(CRASH_RESTART_BACKOFF):
@@ -455,7 +457,7 @@ class ThreadTemplate:
 
     def do_work(self) -> None:
         """
-        Called repeatedly until stop() is called. Override this
+        Called repeatedly until safe_stop() is called. Override this
         with the actual unit of work the thread should perform.
 
         Raises:
@@ -532,8 +534,8 @@ class DeferredStarter:  # pylint: disable=too-many-instance-attributes
     on a dependency that was merely late, and that failure is permanent:
     nothing retries it for the rest of the boot.
 
-    This generalises the pattern WifiService.start() already implements, so
-    every other subsystem can use it too:
+    This generalises the pattern WifiService.start() first implemented, and
+    now uses through this class, so every other subsystem can use it too:
 
         available now -> run the start on the caller's thread, return True
         not up yet    -> hand it to a background thread that polls until the
@@ -983,8 +985,8 @@ def restart_service(service_name: str, timeout: float = SERVICE_RESTART_TIMEOUT)
         )
         return False
 
-    # 'systemctl restart' returns once the job is queued, not once the service
-    # is serving, so ask separately until it says so.
+    # 'systemctl restart' returns once systemd's job has finished, which is not
+    # necessarily once the service is serving, so ask separately until it says so.
     deadline = monotonic() + timeout
     while monotonic() < deadline:
         if is_service_active(service_name):
@@ -1004,13 +1006,12 @@ def has_internet():
     DNS lookups are high-priority traffic and typically wake the Wi-Fi radio from power-saving mode.
 
     Note:
-        socket.gethostbyname() always uses the process-wide default socket
-        timeout (set via socket.setdefaulttimeout()); it is not a
-        socket-object method, so a per-call timeout cannot be passed
-        directly. The previous default timeout is saved and restored
-        around the call so this function does not permanently change
-        timeout behaviour for other sockets created elsewhere in the
-        process.
+        socket.gethostbyname() is not a socket-object method, so a per-call
+        timeout cannot be passed. The process-wide default socket timeout is
+        set to DNS_TIMEOUT around the call and restored afterwards, but the
+        resolver itself (getaddrinfo) does not honour that timeout: how long
+        a failing lookup blocks is decided by /etc/resolv.conf, not by
+        DNS_TIMEOUT.
 
     Returns:
         bool: True if internet is reachable, False otherwise.
@@ -1041,7 +1042,7 @@ def run_shell_script(script):
     try:
         process = subprocess.run(
             script,
-            shell = True,           # Avoid exception, inspect returncode and stdout/stderr
+            shell = True,           # Run the string through /bin/sh: script is a shell command line
             capture_output = True,
             text = True,
             check = False           # Avoid exception, inspect returncode and stdout/stderr
@@ -1141,7 +1142,7 @@ def store_presets(presets: dict[str, str]) -> None:
     # arbitrary JSON input).
     data_to_save = {}
     for key in ["preset1", "preset2", "preset3"]:
-        # Fetch raw value from JSON, default to empty string if missing
+        # Fetch raw value from the given presets, default to empty string if missing
         raw_value = presets.get(key, "")
         data_to_save[key] = _normalize_listname(raw_value)
 

@@ -60,7 +60,7 @@ from constants import (
 
 ##### LOCAL constants #####################################
 
-# Directory containing system sound files
+# Sound key -> system sound file
 SOUND_FILES = {
     # Sounds
     SOUND_START: f"{SOUNDS_PATH}/StartUp.wav",
@@ -169,8 +169,10 @@ def play_sound(sound_key: str) -> None:
 
     The function returns as soon as the playback process is launched;
     it does not wait for playback to complete and provides no return value
-    to indicate success or failure. If the sound key is unknown or its file
-    is missing, the error is logged and the function returns silently.
+    to indicate success or failure. If the sound key is unknown, the error is
+    logged and the function returns. A missing file or a failed launch is
+    logged and also published as an incident; a playback that fails after
+    launch is reported by _watch_playback().
 
     Args:
         sound_key (str): One of the SOUND_* constants imported from constants
@@ -194,10 +196,11 @@ def play_sound(sound_key: str) -> None:
         Incidents.publish(IncidentMessage(SOUND_SOURCE, SOUND_MISSING_FILE))
         return
 
-    # Launch aplay as a detached process. Passing a list with shell=False avoids
+    # Launch aplay as a separate process. Passing a list with shell=False avoids
     # shell-injection risks from special characters in the file path.
-    # start_new_session=True detaches the child from the parent process group,
-    # preventing zombie processes and ensuring playback survives a parent exit.
+    # start_new_session=True detaches the child from the parent's session and
+    # process group. It does not by itself prevent zombies: the finished child
+    # is reaped by _watch_playback() below, via communicate().
     #
     # stderr goes to a pipe rather than to DEVNULL, and _watch_playback() below
     # reads it. Launching aplay succeeds as long as the binary can be executed;
@@ -301,7 +304,7 @@ if __name__ == '__main__':
                     print(f"{RED}Invalid input: need exactly 5 integers between 1 and {len(sound_keys)}.{NC}")
                     continue
                 seq = [sound_keys[i - 1] for i in indices]
-                print(f"Enqueuing sequence: {seq}\n")
+                print(f"Launching sequence: {seq}\n")
                 for k in seq:
                     play_sound(k)
 

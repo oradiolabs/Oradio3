@@ -15,9 +15,10 @@ Created on November 4, 2025
 @email:         oradioinfo@stichtingoradio.nl
 @status:        Development
 @summary:       Provides the singleton decorator.
-    Applying @singleton to a class makes it thread-safe such that only one
+    Applying @singleton to a class ensures, thread-safely, that only one
     instance is ever created, regardless of how many times the class is
-    instantiated. The decorator patches __new__ and __init__ in place, so
+    instantiated. Note: only object creation is locked; __init__ is not, so
+    the first construction must happen from a single thread. The decorator patches __new__ and __init__ in place, so
     subclassing and isinstance() checks continue to work normally.
 """
 from threading import Lock
@@ -77,4 +78,4 @@ def singleton(cls) -> object:
 ##### Stand-alone entry point #############################
 
 if __name__ == '__main__':
-    print("Running Singleton metaclass stand-alone is meaningless: do nothing")
+    print("Running singleton decorator stand-alone is meaningless: do nothing")

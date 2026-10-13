@@ -21,7 +21,7 @@ Created on December 23, 2024
 from pathlib import Path
 
 ##### SHARED WITH INSTALLER ###############################
-# Values below are read from constants.env, which install_oradio3.sh
+# Values below are read from constants.env, which oradio_install.sh
 # also sources. Edit that file, not this one.
 #
 # These are here for a different reason than the rest of this module. The rest
@@ -43,7 +43,7 @@ def _load_env(path):
     return values
 
 # constants.py lives in Main/, so the project root is two levels up.
-# This is the same directory install_oradio3.sh calls SCRIPT_PATH.
+# This is the same directory oradio_install.sh calls SCRIPT_PATH.
 _ROOT = Path(__file__).resolve().parent.parent
 _ENV = _load_env(_ROOT / "constants.env")
 
@@ -62,7 +62,8 @@ RED     = '\x1b[38;5;196m'
 MAGENTA = '\x1b[38;5;201m'
 NC      = '\x1b[0m'
 
-# Messages consist of 3 elements: source, state and error
+# Left over from the old 3-element (source, state, error) messages, which
+# messaging.py's CommandMessage/IncidentMessage replaced. No module uses it.
 MESSAGE_NO_ERROR = "None"
 
 ##### LED definitions see UML «led_name» ##################
@@ -123,7 +124,7 @@ SOUND_PRESET_EMPTY = "PresetEmpty"
 RMS_SERVER_URL = _ENV["RMS_SERVER_URL"]
 RMS_SERVER_KEY = _ENV["RMS_SERVER_KEY"]
 
-##### WIFI UTILS ##########################################
+##### WIFI SERVICE ########################################
 # Access point
 ACCESS_POINT_HOST = "108.156.60.1"  # wsj.com
 ACCESS_POINT_SSID = "OradioAP"
@@ -132,7 +133,7 @@ ACCESS_POINT_SSID = "OradioAP"
 # Web server address
 WEB_SERVER_HOST = "0.0.0.0"
 WEB_SERVER_PORT = 8000
-# Requests from fastapi to web service
+# Requests from web_server (FastAPI) to web_service
 REQUEST_CONNECT = "connect to wifi network"
 REQUEST_STOP    = "stop web service"
 

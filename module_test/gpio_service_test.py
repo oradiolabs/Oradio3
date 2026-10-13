@@ -20,7 +20,6 @@ Created on Januari 22, 2026
     For I/O pins related to buttons and leds
     * Testing LEDs ON/OFF
     * Testing BUTTONS touched
-    * Class extensions for button simulations
 
     Usage: python gpio_service_test.py
 

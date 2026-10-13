@@ -70,9 +70,10 @@ _CAPTURE_FRAMES_TO_SKIP = 3
 
 ##### Messaging constants #################################
 
-# The incident service reports incidents on the INCIDENT topic. This is a
-# command telling oradio_control that a repair has happened and that whatever
-# it believed before is now stale.
+# Commands the incident service publishes on the COMMAND topic, for
+# oradio_control. INCIDENT_RECOVERED tells it that a repair has happened and
+# that whatever it believed before is now stale; INCIDENT_POWER_ERROR tells it
+# to stop for good because the power supply cannot keep up.
 INCIDENT_SOURCE    = "Incident message"
 INCIDENT_RECOVERED = "Incident recovered, start again from a known state"
 INCIDENT_POWER_ERROR = "Power supply cannot keep up, stop and stay stopped"
@@ -460,7 +461,7 @@ class PubSubManager:
             for cached_message in self._last_messages[topic].values():
                 if source_filter is not None and cached_message.source not in source_filter:
                     continue
-                # safe_put calls _fatal_exit on queue failure; the lock is
+                # safe_put calls fatal_exit on queue failure; the lock is
                 # still held but os._exit is immediate so no deadlock can occur.
                 safe_put(queue, cached_message)
 
@@ -517,7 +518,7 @@ class PubSubManager:
                 # filtered-out messages never consume queue space.
                 if source_filter is not None and message.source not in source_filter:
                     continue
-                # safe_put calls _fatal_exit on queue failure; the lock is
+                # safe_put calls fatal_exit on queue failure; the lock is
                 # still held but os._exit is immediate so no deadlock can occur.
                 safe_put(queue, message)
 
@@ -736,7 +737,7 @@ class MessageHandlerTemplate(ThreadTemplate):
         Sends the instance's unique stop sentinel via safe_put to unblock the
         worker thread, then waits for the thread to terminate using
         ThreadTemplate's default safe_stop() timeout. If the thread does not
-        stop within that time, a warning is logged (by safe_stop() itself).
+        stop within that time, an error is logged (by safe_stop() itself).
 
         Note:
             This method is idempotent. Calling it multiple times has no additional effect.
@@ -755,8 +756,8 @@ class MessageHandlerTemplate(ThreadTemplate):
         # Wake the worker thread out of its blocking safe_get().
         safe_put(self._queue, self._stop_sentinel)
 
-        # Uses safe_stop()'s own default timeout; it already logs a
-        # warning on timeout, so no extra logging is needed here.
+        # Uses safe_stop()'s own default timeout; it already logs an
+        # error on timeout, so no extra logging is needed here.
         self.safe_stop()
 
     def do_work(self) -> None:
@@ -822,7 +823,7 @@ class DebugMessageHandler(MessageHandlerTemplate):
         # Optional identifier for distinguishing multiple handlers
         self._index = index
 
-        # Initialize base class (subscribes + starts worker thread)
+        # Initialize base class (starts worker thread; the caller has already subscribed)
         super().__init__(queue)
 
     def _handle_message(self, message) -> None:
@@ -870,8 +871,8 @@ if __name__ == '__main__':
         deliberately triggering the invalid-message fatal-exit path.
 
         DebugMessageHandler objects are stored in command_handlers / incident_handlers,
-        keyed by handler index, so individual handlers can be targeted by the stop
-        options (12 and 13).
+        keyed by handler index, so individual handlers can be targeted by the
+        unsubscribe options (12 and 13).
 
         Note: options 8 and 9 publish from a forked child process. On Linux
         (fork start method) these messages are received by the parent's
@@ -994,14 +995,14 @@ if __name__ == '__main__':
                     # Deliberately pass an IncidentMessage to Commands.publish
                     # to exercise the type-check fatal-exit path.
                     print("Publishing invalid COMMAND message...")
-                    # Deliberately passing the wrong message type, so ignore pypi check
+                    # Deliberately passing the wrong message type, so ignore mypy check
                     Commands.publish(IncidentMessage("worker", "incident message"))       # type: ignore[arg-type]
                     print(f"{RED}Failed catching error sending incident message to command queue{NC}\n")
                 case 11:
                     # Deliberately pass a CommandMessage to Incidents.publish
                     # to exercise the type-check fatal-exit path.
                     print("Publishing invalid INCIDENT message...")
-                    # Deliberately passing the wrong message type, so ignore pypi check
+                    # Deliberately passing the wrong message type, so ignore mypy check
                     Incidents.publish(CommandMessage("worker", "command message"))     # type: ignore[arg-type]
                     print(f"{RED}Failed catching error sending command message to incident queue{NC}\n")
                 case 12:
