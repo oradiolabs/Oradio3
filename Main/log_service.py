@@ -82,7 +82,7 @@ import faulthandler
 from sys import stderr
 from time import sleep
 from pathlib import Path
-from threading import Thread
+from threading import Lock, Thread
 from queue import Queue, Full
 from logging import DEBUG, INFO, WARNING, ERROR, CRITICAL
 from logging.handlers import QueueHandler, QueueListener, SysLogHandler
@@ -224,9 +224,9 @@ def _emit_fallback(fallback_handlers: list[logging.Handler], level: int, msg: st
     the first success, since each is an independent failure domain; e.g. a 
     full disk takes out the file handler but not syslog, while a journald
     that's misconfigured or absent takes out syslog but not the file.
-    Calling emit() directly bypasses the handler lock that handle() takes,
-    so a notice written to the file handler is not serialised against a
-    record the queue listener is writing to the same file at that moment.
+    emit() is called under the handler's own lock (the one handle() takes),
+    so a notice is serialised against a record the queue listener is
+    writing to the same handler at that moment and lines don't interleave.
     Falls back to stderr only if every sink fails, so nothing is lost
     silently in any case.
     """
@@ -237,7 +237,11 @@ def _emit_fallback(fallback_handlers: list[logging.Handler], level: int, msg: st
     delivered = False
     for handler in fallback_handlers:
         try:
-            handler.emit(record)
+            handler.acquire()
+            try:
+                handler.emit(record)
+            finally:
+                handler.release()
             delivered = True
         except Exception:     # pylint: disable=broad-exception-caught
             continue  # try the next independent sink
@@ -259,6 +263,9 @@ class _NonBlockingQueueHandler(QueueHandler):
     """
     def __init__(self, queue, fallback_handlers: list[logging.Handler] | None = None) -> None:
         super().__init__(queue)
+        # enqueue() runs on every logging thread, so the counter is guarded:
+        # an unguarded += from several threads can lose increments.
+        self._dropped_lock = Lock()
         self._dropped = 0
         self._fallback_handlers = fallback_handlers or []
 
@@ -267,20 +274,24 @@ class _NonBlockingQueueHandler(QueueHandler):
         try:
             self.queue.put_nowait(record)
         except Full:
-            self._dropped += 1
+            with self._dropped_lock:
+                self._dropped += 1
+                dropped = self._dropped
             # Report the first drop immediately, then periodically, so a
             # sustained overload doesn't spam the fallback sinks on every record.
-            if self._dropped == 1 or self._dropped % DROP_LOG_INTERVAL == 0:
+            # Uses the snapshot taken under the lock, and writes outside it.
+            if dropped == 1 or dropped % DROP_LOG_INTERVAL == 0:
                 _emit_fallback(
                     self._fallback_handlers, WARNING,
                     f"log queue full (maxsize={QUEUE_SIZE}); "
-                    f"dropped {self._dropped} record(s) so far"
+                    f"dropped {dropped} record(s) so far"
                 )
 
     @property
     def dropped(self) -> int:
         """Total number of records dropped due to a full queue."""
-        return self._dropped
+        with self._dropped_lock:
+            return self._dropped
 
 ##### Safe logger wrapper #################################
 
@@ -515,16 +526,31 @@ class SafeLogger:
         queue.Full and the listener is never restarted. That is not an edge
         case: a full queue is the normal state of a dead listener.
 
-        start() on its own replaces _thread with a live one and leaves the dead
-        object unreferenced, which is exactly right -- there is nothing to join
-        and nothing to signal. The first thing the new thread does is drain the
-        backlog, which is also what makes queue_full go away and LOG_QUEUE_
+        start() alone is not enough either. Since gh-132106 (present in the
+        Python 3.13 that Trixie ships) QueueListener.start() raises
+        RuntimeError("Listener already started") whenever _thread is not None
+        -- and after a crash _thread still points at the dead thread. So the
+        dead reference is cleared first, and only when that thread really is
+        dead: clearing it for a live (possibly stuck) thread would start a
+        second consumer next to it. There is nothing to join and nothing to
+        signal on a dead thread. The first thing the new thread does is drain
+        the backlog, which is also what makes queue_full go away and LOG_QUEUE_
         RECOVERED arrive on its own.
 
-        The handlers are not rebuilt. If one of them is what killed the thread
-        -- an emit() that blocked forever -- the new thread will die the same
-        way, which is why the caller is expected to keep count and stop asking.
+        The handlers are not rebuilt. If one of them is what killed the thread,
+        the new thread will die the same way, which is why the caller is
+        expected to keep count and stop asking.
         """
+        # pylint: disable=protected-access
+        thread = self._listener._thread
+        if thread is not None and thread.is_alive():
+            # Nothing to restart. Not an error: the caller's view was stale.
+            self.health_notice("restart_listener: listener thread is still running", WARNING)
+            return True
+        # Dead (or never started): drop the reference so start() accepts it.
+        self._listener._thread = None
+        # pylint: enable=protected-access
+
         try:
             self._listener.start()
         # Broad catch: this runs to repair logging, and an exception escaping

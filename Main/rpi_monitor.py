@@ -21,6 +21,7 @@ Created on December 31, 2025
     Supports a test mode for forced throttling to validate logging.
 """
 from time import monotonic
+from threading import Lock
 from subprocess import check_output
 
 ##### Oradio modules ######################################
@@ -99,6 +100,10 @@ UNDERVOLTAGE_WINDOW = 60.0  # seconds
 # monitor started, e.g. a brief brownout at boot time.
 HISTORICAL_MASK = 0xFFFF0000
 
+# Seconds vcgencmd may take before the poll counts as failed. It answers in
+# milliseconds; a hung firmware mailbox must not hang the poller with it.
+VCGENCMD_TIMEOUT = 5.0
+
 @singleton
 class RPiThrottlingMonitor(ThreadTemplate):
     """
@@ -139,6 +144,18 @@ class RPiThrottlingMonitor(ThreadTemplate):
         self._last_active_flags = 0
         self._undervoltage_events: list[float] = []
         self._undervoltage_sticky = False
+
+        # Serialises start() and stop(): start()'s is_alive() check and
+        # safe_start() are one step, so two concurrent start() calls cannot
+        # have the loser's safe_start() return False and be reported as
+        # THROTTLING_START_FAILED.
+        self._control_lock = Lock()
+
+        # Set by stop() before safe_stop(), cleared by start(). Tells
+        # on_stopped() that this end was asked for, even when the stop landed
+        # during a crash-restart backoff and the exception from the crash is
+        # still recorded.
+        self._stop_requested = False
 
 ##### Helpers #############################################
 
@@ -313,10 +330,13 @@ class RPiThrottlingMonitor(ThreadTemplate):
         one fault that caused it.
 
         Every other way out is a crash past restart_on_crash's budget, which is
-        what THROTTLING_STOPPED is for. stop_reason() tells the two apart: no
-        exception means the stop was asked for.
+        what THROTTLING_STOPPED is for. _stop_requested tells the two apart; no
+        exception is checked as well, for a run that ended without either.
+        The flag is needed because a stop() during the crash-restart backoff
+        leaves the exception from that crash in place, and would otherwise be
+        reported as the crash it cut short.
         """
-        if self.exception is None:
+        if self._stop_requested or self.exception is None:
             oradio_log.info("Throttling monitor stopped on request")
             return
 
@@ -342,9 +362,16 @@ class RPiThrottlingMonitor(ThreadTemplate):
         Returns:
             Integer bitmask where each set bit indicates a throttling
             condition as described in THROTTLE_FLAGS.
+
+        Raises:
+            subprocess.TimeoutExpired: vcgencmd did not answer within
+                VCGENCMD_TIMEOUT. Like any other failure here it propagates
+                to ThreadTemplate, which counts it as a crash.
         """
         # Call vcgencmd and parse the hex value after the "=" delimiter.
-        out = check_output(["vcgencmd", "get_throttled"], text=True).strip()
+        out = check_output(
+            ["vcgencmd", "get_throttled"], text=True, timeout=VCGENCMD_TIMEOUT
+        ).strip()
         return int(out.split("=")[1], 16)
 
     def start(self) -> None:
@@ -354,22 +381,29 @@ class RPiThrottlingMonitor(ThreadTemplate):
         Thin wrapper around ThreadTemplate.safe_start() that preserves this
         class's original public API. Idempotent: calling start() when the
         thread is already alive is a no-op.
+
+        Holds _control_lock throughout, so the is_alive() check and
+        safe_start() are atomic with respect to another start() or stop().
         """
-        if self.is_alive():
-            oradio_log.debug("Throttling monitor already running")
-            return
+        with self._control_lock:
+            if self.is_alive():
+                oradio_log.debug("Throttling monitor already running")
+                return
 
-        if not self.safe_start():
-            oradio_log.error("Throttling monitor failed to start")
-            Incidents.publish(IncidentMessage(THROTTLING_SOURCE, THROTTLING_START_FAILED))
-            return
+            # A new run: whatever stop() asked of the previous one is done.
+            self._stop_requested = False
 
-        if self.crashed:
-            oradio_log.error("Throttling monitor crashed during startup: %s", self.exception)
-            Incidents.publish(IncidentMessage(THROTTLING_SOURCE, THROTTLING_START_FAILED))
-            return
+            if not self.safe_start():
+                oradio_log.error("Throttling monitor failed to start")
+                Incidents.publish(IncidentMessage(THROTTLING_SOURCE, THROTTLING_START_FAILED))
+                return
 
-        oradio_log.info("Throttling monitor started")
+            if self.crashed:
+                oradio_log.error("Throttling monitor crashed during startup: %s", self.exception)
+                Incidents.publish(IncidentMessage(THROTTLING_SOURCE, THROTTLING_START_FAILED))
+                return
+
+            oradio_log.info("Throttling monitor started")
 
     def stop(self) -> None:
         """
@@ -377,8 +411,16 @@ class RPiThrottlingMonitor(ThreadTemplate):
 
         Thin wrapper around ThreadTemplate.safe_stop() that preserves this
         class's original public API.
+
+        Marks the stop as requested before signalling, so on_stopped() does not
+        report it as THROTTLING_STOPPED -- including when it lands during the
+        backoff after a crash, while that crash's exception is still recorded.
+        safe_stop() then still returns False and logs the crash; that is the
+        crash being reported, not this stop.
         """
-        self.safe_stop()
+        with self._control_lock:
+            self._stop_requested = True
+            self.safe_stop()
 
 ##### Stand-alone entry point #############################
 

@@ -264,14 +264,21 @@ class UvicornServerThread:
 
     def stop(self) -> bool:
         """
-        Stop the running server and wait for the thread to exit.
+        Stop the server and wait for the thread to exit.
+
+        Acts whenever the server thread is alive, not only when is_running:
+        after a start() that timed out the thread may still be coming up
+        (server.started not yet set), and returning "already stopped" then
+        would leave a server that starts listening with nothing to stop it.
+        Setting should_exit before Uvicorn reaches its main loop makes it
+        shut down as soon as startup completes.
 
         Returns:
             bool: True if stopped cleanly, False if the thread did not exit
                 within SERVER_READY_TIMEOUT seconds.
         """
         with self._lock:
-            if not self.is_running:
+            if self._thread is None or not self._thread.is_alive() or self._server is None:
                 oradio_log.debug("Uvicorn server already stopped")
                 return True
 
@@ -368,6 +375,27 @@ class WebService:
         # UvicornServerThreads over one port. The second caller waits and then
         # finds the work done.
         self._create_lock = RLock()
+
+        # Serialises start() and stop() against each other. stop() is called
+        # from several threads -- the listener's web-service-stop threads
+        # (watchdog timeout, shutdown, connect), the state machine's workers and
+        # _handle_failed_start() -- and the two used to interleave: a stop that
+        # had just found no access point would tear down iptables and DNS
+        # under a start that brought it up a moment later, leaving an access
+        # point with no portal behind it; two stops both deleted the same
+        # iptables rule and the second reported WEB_STOP_FAILED.
+        #
+        # RLock because start() calls stop() through _handle_failed_start().
+        # Held for seconds (stop() waits for the WiFi reconnect), so a start()
+        # arriving during a stop waits for it; that is the correct order.
+        self._lifecycle_lock = RLock()
+
+        # Incremented by every start() that gets past "already running". A stop
+        # requested on behalf of one portal session (watchdog, shutdown,
+        # connect) carries the session it was requested in, so it cannot stop a
+        # newer portal that a long press started while the request waited for
+        # _lifecycle_lock. See stop().
+        self._session = 0
 
         # Left None until start() needs it. Building it here would import the
         # web stack, and this constructor runs at Oradio start-up while the
@@ -580,8 +608,9 @@ class WebService:
         for up to RECONNECT_TIMEOUT seconds on top of that. Calling it
         inline here would leave this listener -- the only thing draining
         request_queue -- unresponsive to new messages for that entire
-        window. stop() is idempotent (guarded by is_running checks), so
-        concurrent or overlapping calls from multiple such threads are safe.
+        window. Overlapping stop() calls are serialised by _lifecycle_lock,
+        and each carries the portal session it was requested for, so a stop
+        that waited cannot take down a portal started after it was asked for.
 
         Dispatch is wrapped in a broad try/except: this thread has no
         supervisor of its own and is only restarted by ensure_listener() when
@@ -612,10 +641,10 @@ class WebService:
                         # Tear down the Captive Portal after handing off to the
                         # new network. Runs on its own thread so a slow stop()
                         # doesn't block this loop from draining new messages.
-                        Thread(target=self.stop, name="web-service-stop", daemon=True).start()
+                        self._stop_in_background()
 
                 elif request == REQUEST_STOP:
-                    Thread(target=self.stop, name="web-service-stop", daemon=True).start()
+                    self._stop_in_background()
 
                 else:
                     oradio_log.warning("Unrecognised request: %s", request)
@@ -625,6 +654,14 @@ class WebService:
             except Exception as ex_err:  # pylint: disable=broad-exception-caught
                 oradio_log.error("Error handling server message '%s': %s", mask_secrets(message), ex_err)
                 Incidents.publish(IncidentMessage(WEB_SOURCE, WEB_SERVER_FAILED))
+
+    def _stop_in_background(self) -> None:
+        """Run stop() for the current portal session on its own daemon thread."""
+        session = self._session
+        Thread(
+            target=self.stop, kwargs={"session": session},
+            name="web-service-stop", daemon=True,
+        ).start()
 
 ##### Public API ##########################################
 
@@ -734,12 +771,22 @@ class WebService:
 
         Returns:
             bool: True if the portal started successfully, False otherwise.
+
+        Serialised with stop() by _lifecycle_lock.
         """
+        with self._lifecycle_lock:
+            return self._start_locked()
+
+    def _start_locked(self) -> bool:
+        """start() itself; see there. Called with _lifecycle_lock held."""
         # Check running state before committing to any side-effecting steps.
         # uvicorn_server is None until the first start, and None is not running.
         if self.uvicorn_server is not None and self.uvicorn_server.is_running:
             oradio_log.debug("Web service already running")
             return True
+
+        # A new portal session: stop requests made for an earlier one no longer apply.
+        self._session += 1
 
         # wifi_connect is non-blocking; the AP transition is confirmed in step 5.
         self.wifi_service.wifi_connect(ACCESS_POINT_SSID, None)
@@ -848,9 +895,18 @@ class WebService:
                 stacklevel=4,
             )
 
-    def stop(self) -> bool:
+    def stop(self, session: int | None = None) -> bool:
         """
         Stop the Captive Portal service.
+
+        Args:
+            session: The portal session this stop was requested for, or None
+                     for "whatever is running now" (the state machine, the
+                     tear-down after a failed start). A stop for a session
+                     that has since been replaced by a new start() is dropped:
+                     it was meant for a portal that is already gone.
+
+        Serialised with start() by _lifecycle_lock.
 
         Reverses the steps performed by start() in order:
 
@@ -867,13 +923,31 @@ class WebService:
             failed. Since failures do not abort the sequence, a False here means
             teardown was attempted in full but at least one step did not
             complete, and one WEB_STOP_FAILED was published per failed step.
+            A dropped stale stop returns True.
         """
+        with self._lifecycle_lock:
+            if session is not None and session != self._session:
+                oradio_log.info(
+                    "Ignoring stop for portal session %d: session %d started since",
+                    session, self._session,
+                )
+                return True
+            return self._stop_locked()
+
+    def _stop_locked(self) -> bool:
+        """stop() itself; see there. Called with _lifecycle_lock held."""
         status = True
 
         # Disconnect WiFi first so clients are dropped gracefully before the
         # server stops accepting connections.
+        #
+        # Only the access point. On the REQUEST_CONNECT path wifi_connect() has
+        # just started activating the user's network on another thread, and by
+        # now that network may be the active one: a plain wifi_disconnect()
+        # re-reads "the active connection" and would take down exactly the
+        # network the user picked.
         if self.wifi_service.get_state() == WIFI_ACCESS_POINT:
-            self.wifi_service.wifi_disconnect()
+            self.wifi_service.wifi_disconnect(only=ACCESS_POINT_SSID)
 
         # Stop the portal watchdog; a no-op if it never ran or already fired.
         if api_app is not None:

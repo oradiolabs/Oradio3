@@ -16,12 +16,14 @@ Created on November 4, 2025
 @status:        Development
 @summary:       Provides the singleton decorator.
     Applying @singleton to a class ensures, thread-safely, that only one
-    instance is ever created, regardless of how many times the class is
-    instantiated. Note: only object creation is locked; __init__ is not, so
-    the first construction must happen from a single thread. The decorator patches __new__ and __init__ in place, so
-    subclassing and isinstance() checks continue to work normally.
+    instance is ever created and that its __init__ runs exactly once,
+    regardless of how many times, or from how many threads, the class is
+    instantiated. A thread that arrives while the first __init__ is still
+    running waits for it, so it never sees a half-built instance. The
+    decorator patches __new__ and __init__ in place, so subclassing and
+    isinstance() checks continue to work normally.
 """
-from threading import Lock
+from threading import Lock, RLock
 from functools import wraps
 
 def singleton(cls) -> object:
@@ -38,18 +40,49 @@ def singleton(cls) -> object:
     instance = None
     lock = Lock()
 
+    # Serialises the first __init__, one per decorated class. Per class, not
+    # global, so A.__init__ constructing singleton B cannot deadlock against
+    # another thread constructing B. An RLock because __init__ runs while it
+    # is held: a re-entrant construction of the same class on the same thread
+    # must not deadlock on itself (it then finds __init__ in progress and
+    # simply returns the instance, see init_once).
+    init_lock = RLock()
+
     # Saved so init_once can delegate to it after the first-run guard.
     original_init = cls.__init__
 
     @wraps(original_init)
     def init_once(self, *args, **kwargs):
-        """Run the original __init__ exactly once per singleton instance."""
-        # Read via __dict__ to avoid invoking a user-defined __getattr__.
+        """
+        Run the original __init__ exactly once per singleton instance.
+
+        The check and the call happen under init_lock, so two threads doing
+        the first construction at the same time cannot both run __init__, and
+        the second one returns only once the instance is fully built. If
+        __init__ raises, _initialized stays unset and the next construction
+        tries again.
+        """
+        # Fast path, read via __dict__ to avoid invoking a user-defined
+        # __getattr__. Set only after __init__ completed, so True is final.
         if self.__dict__.get("_initialized", False):
             return
-        original_init(self, *args, **kwargs)
-        # Write via __dict__ for the same reason.
-        self.__dict__["_initialized"] = True
+        with init_lock:
+            # Re-check now that we hold the lock: another thread may have
+            # finished __init__ while this one waited.
+            if self.__dict__.get("_initialized", False):
+                return
+            # Re-entered from inside our own __init__ on this thread: the
+            # instance is being built right now, so running __init__ a second
+            # time would only start it over halfway through.
+            if self.__dict__.get("_initializing", False):
+                return
+            self.__dict__["_initializing"] = True
+            try:
+                original_init(self, *args, **kwargs)
+                # Write via __dict__ for the same reason as the read above.
+                self.__dict__["_initialized"] = True
+            finally:
+                self.__dict__["_initializing"] = False
 
     def new_singleton(subcls, *_, **__):
         """

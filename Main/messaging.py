@@ -54,7 +54,18 @@ from constants import (
 
 ##### LOCAL constants #####################################
 # Bound queue size to detect runaway producers early.
+#
+# What a full queue means depends on the topic (see PubSubManager.publish()):
+# a full COMMAND queue is fatal -- the command handler serves every button,
+# and one that stopped draining is a dead Oradio, which a restart repairs. A
+# full INCIDENT queue is not: the incident handler blocks for seconds at a time
+# by design (restarting services, waiting for MPD), and a burst of incidents
+# arriving meanwhile is a reporting problem, not a reason to stop the music.
 _MAX_QUEUE_SIZE = 1000
+
+# A dropped incident is logged on the first drop for a queue and then once
+# every this many, so a sustained overflow does not flood the log in turn.
+_DROP_LOG_EVERY = 100
 
 # Frames to drop when auto-capturing a call stack. Three of them sit between
 # the caller and the capture: _capture_details() itself, the __post_init__ that
@@ -423,6 +434,10 @@ class PubSubManager:
         # just across threads within one process.
         self._lock = Lock()
 
+        # Incidents dropped per subscriber queue (keyed by id(queue)) because
+        # that queue was full. Guarded by _lock; see _put_incident().
+        self._dropped: dict[int, int] = {}
+
     def subscribe(self, topic: Topic, sources: tuple[str, ...] | None = None) -> Queue:
         """
         Register a new subscriber for a topic, optionally filtering messages by source.
@@ -491,6 +506,7 @@ class PubSubManager:
                 return
 
             self._subscribers[topic].remove(entry)
+            self._dropped.pop(id(queue), None)
 
         oradio_log.debug("Unsubscribed from topic %r", topic)
 
@@ -518,9 +534,46 @@ class PubSubManager:
                 # filtered-out messages never consume queue space.
                 if source_filter is not None and message.source not in source_filter:
                     continue
-                # safe_put calls fatal_exit on queue failure; the lock is
-                # still held but os._exit is immediate so no deadlock can occur.
-                safe_put(queue, message)
+                if topic is Topic.INCIDENT and isinstance(message, IncidentMessage):
+                    self._put_incident(queue, message)
+                else:
+                    # safe_put calls fatal_exit on queue failure; the lock is
+                    # still held but os._exit is immediate so no deadlock can occur.
+                    safe_put(queue, message)
+
+    def _put_incident(self, queue: Queue, message: IncidentMessage) -> None:
+        """
+        Deliver an incident, dropping it if this subscriber's queue is full.
+
+        Must be called with _lock held.
+
+        The newest incident is the one dropped: what is already queued is
+        older and will still be handled, and the cache in _last_messages keeps
+        the latest one per source regardless. Every other queue failure is as
+        fatal as for commands -- a broken queue is not a slow consumer.
+
+        Logging here is safe under _lock: log_service never publishes on the
+        bus, so it cannot re-enter publish().
+        """
+        try:
+            queue.put_nowait(message)
+        except Full:
+            count = self._dropped.get(id(queue), 0) + 1
+            self._dropped[id(queue)] = count
+            if count == 1 or count % _DROP_LOG_EVERY == 0:
+                oradio_log.error(
+                    "Incident queue full: dropped %d incident(s) so far, latest: %s",
+                    count, message,
+                )
+            return
+        except (OSError, EOFError, ValueError, AssertionError):
+            # Not a slow consumer: hand it to safe_put, which reports it and exits.
+            safe_put(queue, message)
+            return
+
+        dropped = self._dropped.pop(id(queue), 0)
+        if dropped:
+            oradio_log.warning("Incident queue draining again after %d dropped incident(s)", dropped)
 
 # Global PubSub manager (singleton — only one instance per process).
 _pubsub = PubSubManager()

@@ -30,6 +30,7 @@ Created on January 10, 2025
     - current: the directory/playlist in the playback queue
 """
 from threading import Event, RLock
+from functools import wraps
 from os import path
 from unicodedata import normalize, category
 
@@ -54,6 +55,28 @@ _PLAYLIST_DUMMY_URI = "https://dummy.mp3"
 # Poll interval for _SongFinishMonitor.
 _MONITOR_POLL_INTERVAL = 0.5  # seconds
 
+def _sequence(method):
+    """
+    Run an MPDControl method as one uninterrupted sequence of MPD commands.
+
+    MPDService's lock covers one command at a time. Most methods here are a
+    sequence -- read the queue, then act on what it said -- and MPDControl is
+    shared by the state machine's workers, the web interface, the library scan
+    and the song-finish monitor. Without this, a web play_song() could add its
+    song, a state worker could 'clear' the queue, and play_song() would then
+    look for its song id in a queue that no longer has it, or move and play
+    the wrong index.
+
+    Uses MPDControl._seq_lock, an RLock, because sequences call each other
+    (add() creates a playlist, the song monitor's teardown() calls play()).
+    Lock order: _library_lock, then _seq_lock, then MPDService's own lock.
+    """
+    @wraps(method)
+    def wrapper(self, *args, **kwargs):
+        with self._seq_lock:     # pylint: disable=protected-access
+            return method(self, *args, **kwargs)
+    return wrapper
+
 class _SongFinishMonitor(ThreadTemplate):
     """
     Background worker (built on ThreadTemplate) that watches a single
@@ -67,7 +90,9 @@ class _SongFinishMonitor(ThreadTemplate):
     the song from the queue; this runs exactly once, whether the loop ended
     naturally or via preempt(), mirroring the cleanup guarantee ThreadTemplate
     provides for any worker. On a natural finish (not a preemption), teardown()
-    also resumes queue playback if the queue still has other songs in it.
+    also resumes queue playback if the queue still has other songs in it --
+    unless an explicit playback action (stop, pause, clear, play of a preset)
+    happened since the song was started; see MPDControl._playback_intent.
 
     A single persistent instance is reused across songs via monitor():
     ThreadTemplate supports repeated safe_start()/safe_stop() cycles on the
@@ -88,8 +113,11 @@ class _SongFinishMonitor(ThreadTemplate):
         # stop was forced by preempt() (a new song is about to start right away)
         # rather than the song finishing naturally.
         self._suppress_resume = False
+        # MPDControl._playback_intent as it was when this song was started.
+        # teardown() resumes the queue only if it is still the same.
+        self._intent: int = 0
 
-    def monitor(self, song_id: int) -> None:
+    def monitor(self, song_id: int, intent: int) -> None:
         """
         Start (or restart) monitoring the given song id.
 
@@ -99,8 +127,10 @@ class _SongFinishMonitor(ThreadTemplate):
 
         Args:
             song_id: MPD song ID (queue entry) to monitor and remove.
+            intent:  MPDControl._playback_intent when the song was started.
         """
         self._song_id = song_id
+        self._intent = intent
         self._suppress_resume = False
         self.safe_start()
 
@@ -164,19 +194,34 @@ class _SongFinishMonitor(ThreadTemplate):
         """
         Remove the monitored song from the queue, if it is still present.
         On a natural finish (i.e. not stopped via preempt()), also resume
-        queue playback if the queue still has other songs.
+        queue playback if the queue still has other songs -- but only when no
+        explicit playback action (stop, pause, clear, play of a preset) came
+        in since the song was started: the user pressing Stop while the song
+        played its last half second must not have the queue start again.
         """
-        playlist = self._control._execute("playlistinfo") or []   # pylint: disable=protected-access
-        for song in playlist:
-            if isinstance(song, dict) and int(song.get("id", -1)) == self._song_id:
-                self._control._execute("deleteid", self._song_id)  # pylint: disable=protected-access
-                oradio_log.trace("Removed song id %s from playlist", self._song_id)
-                break
-        else:
-            oradio_log.trace("Song id %s already removed", self._song_id)
+        # One sequence: find the song, delete it, maybe resume. play_song()
+        # calls preempt() before taking this lock, so waiting for it here
+        # cannot hold up the preempt that is waiting for this teardown.
+        with self._control._seq_lock:    # pylint: disable=protected-access
+            playlist = self._control._execute("playlistinfo") or []   # pylint: disable=protected-access
+            for song in playlist:
+                if isinstance(song, dict) and int(song.get("id", -1)) == self._song_id:
+                    self._control._execute("deleteid", self._song_id)  # pylint: disable=protected-access
+                    oradio_log.trace("Removed song id %s from playlist", self._song_id)
+                    break
+            else:
+                oradio_log.trace("Song id %s already removed", self._song_id)
 
-        if not self._suppress_resume:
-            self._control._resume_queue_if_not_empty()   # pylint: disable=protected-access
+            # Checked under _seq_lock, which stop()/pause()/clear()/play()
+            # also hold while bumping the counter, so a Stop either lands
+            # before this check (and is seen) or after the resume (and stops it).
+            # The resume's own play() has no preset and does not bump.
+            if self._suppress_resume:
+                pass
+            elif self._control._playback_intent != self._intent:   # pylint: disable=protected-access
+                oradio_log.debug("Playback changed since song id %s started; not resuming queue", self._song_id)
+            else:
+                self._control._resume_queue_if_not_empty()   # pylint: disable=protected-access
 
 @singleton
 class MPDControl(MPDService):
@@ -213,6 +258,19 @@ class MPDControl(MPDService):
         # Reentrant, because initialise_library() holds it and then calls
         # validate_presets(), which takes it again.
         self._library_lock = RLock()
+
+        # Makes multi-command sequences atomic with respect to each other; see
+        # _sequence(). Taken after _library_lock, never before it.
+        self._seq_lock = RLock()
+
+        # Playback-intent generation, bumped (under _seq_lock) by every explicit
+        # playback action: stop(), pause(), clear() and play() with a preset.
+        # play_song() hands the value to its _SongFinishMonitor, whose
+        # teardown() resumes the queue only if it is unchanged -- so a song
+        # finishing just after the user pressed Stop does not restart music.
+        # play() without a preset does not bump: the monitor's own resume uses
+        # it, as do resumes that do not override a user's choice.
+        self._playback_intent = 0
 
         # Set the first time initialise_library() completes, and never cleared.
         # A preset pressed before that has nothing to play from, so this is what
@@ -270,6 +328,7 @@ class MPDControl(MPDService):
 
 ##### Helpers #############################################
 
+    @_sequence
     def _create_empty_playlist(self, playlist: str) -> None:
         """
         Create an empty MPD playlist.
@@ -340,6 +399,7 @@ class MPDControl(MPDService):
         # wants a library it can play from, not one that is being rebuilt.
         self._library_ready.set()
 
+    @_sequence
     def _sanitize_playlists(self) -> None:
         """
         Remove any dummy entries left in playlists by a previous interrupted run.
@@ -473,8 +533,10 @@ class MPDControl(MPDService):
     # distinct outcome of "should this call have started music", and the caller
     # needs that answer -- collapsing them behind a status variable would
     # hide which case a reader is in, in a method whose whole job is telling
-    # those cases apart.
-    def play(self, preset: str | None = None) -> bool | None:  # pylint: disable=too-many-return-statements,too-many-branches
+    # those cases apart. The statement count is one over for the same reason,
+    # plus the _playback_intent bump at the top.
+    @_sequence
+    def play(self, preset: str | None = None) -> bool | None:  # pylint: disable=too-many-return-statements,too-many-branches,too-many-statements
         """
         Start or resume playback.
 
@@ -506,6 +568,11 @@ class MPDControl(MPDService):
         Args:
             preset: Optional preset name to load and play.
         """
+        # An explicit preset is a user choice: a pending song-finish resume
+        # must not override it. See _playback_intent.
+        if preset is not None:
+            self._playback_intent += 1
+
         songs_in_queue = self._execute("playlistinfo") or []
 
         # No preset and queue filled: resume current playlist.
@@ -624,10 +691,25 @@ class MPDControl(MPDService):
         # remove it from the queue before inserting this one. Must happen
         # before reading "status"/"song" below, so current_index reflects
         # the queue as it is after that removal.
+        #
+        # Outside _seq_lock: preempt() waits for the monitor's teardown(),
+        # which takes _seq_lock itself.
+        #
+        # A preempt that timed out leaves the old monitor alive, still holding
+        # the old song id; carrying on would overwrite that id under it, so its
+        # teardown deletes the NEW song, and monitor() could not start anyway.
+        # Refused instead: the user presses play again.
         if self._song_monitor.is_alive():
             oradio_log.debug("Preempting previous play_song song for new song: %s", song)
-            _ = self._song_monitor.preempt()
+            if not self._song_monitor.preempt():
+                oradio_log.error("Previous song still being removed; not playing %s", song)
+                return
 
+        with self._seq_lock:
+            self._play_song_locked(song)
+
+    def _play_song_locked(self, song: str) -> None:
+        """play_song() after the preempt: insert, position and play. Called with _seq_lock held."""
         status = self._execute("status") or {}
         try:
             current_index = int(status.get("song", -1))
@@ -659,9 +741,10 @@ class MPDControl(MPDService):
         _ = self._execute("play", target_index)
         oradio_log.debug("Started playback at index %d for song id %s", target_index, inserted_song_id)
 
-        self._song_monitor.monitor(int(inserted_song_id))
+        self._song_monitor.monitor(int(inserted_song_id), self._playback_intent)
         oradio_log.trace("Monitor removal for song id: %s", inserted_song_id)
 
+    @_sequence
     def _resume_queue_if_not_empty(self) -> None:
         """
         Resume queue playback after a play_song() song has finished
@@ -674,11 +757,17 @@ class MPDControl(MPDService):
         else:
             oradio_log.debug("Queue empty after play_song song finished; nothing to resume")
 
+    @_sequence
     def pause(self) -> None:
         """
         Pause playback if a song is currently playing.
         Does nothing if playback is not active.
+
+        Always counts as an explicit playback action (see _playback_intent),
+        even when ignored, so a play_song() song finishing right after it
+        does not resume the queue.
         """
+        self._playback_intent += 1
         status = self._execute("status") or {}
         state  = status.get("state", "").lower()
 
@@ -689,6 +778,7 @@ class MPDControl(MPDService):
         _ = self._execute("pause")
         oradio_log.info("Playback paused")
 
+    @_sequence
     def next(self) -> None:
         """
         Skip to the next song in the current playlist or directory.
@@ -710,11 +800,17 @@ class MPDControl(MPDService):
         _ = self._execute("next")
         oradio_log.info("Skipped to next song")
 
+    @_sequence
     def stop(self) -> None:
         """
         Stop playback if a song is currently playing.
         Does nothing if playback is not active.
+
+        Always counts as an explicit playback action (see _playback_intent),
+        even when ignored, so a play_song() song finishing right after it
+        does not resume the queue.
         """
+        self._playback_intent += 1
         status = self._execute("status") or {}
         state  = status.get("state", "").lower()
 
@@ -729,10 +825,14 @@ class MPDControl(MPDService):
         """
         Clear the current MPD playlist or playback queue.
         Removes all songs from the current playlist/queue.
+        Counts as an explicit playback action (see _playback_intent).
         """
+        with self._seq_lock:
+            self._playback_intent += 1
         _ = self._execute("clear")
         oradio_log.debug("Current playback queue cleared")
 
+    @_sequence
     def add(self, playlist: str, song: str | None) -> None:
         """
         Create a playlist if it does not exist, and optionally add a song to it.
@@ -792,6 +892,7 @@ class MPDControl(MPDService):
 
             oradio_log.debug("Song '%s' added to playlist '%s'", song, playlist)
 
+    @_sequence
     def remove(self, playlist: str, song: str | None) -> None:
         """
         Remove a song from a playlist or delete the entire playlist.

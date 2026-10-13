@@ -32,7 +32,7 @@ from log_service import oradio_log, INFO
 from rms_service import RMService, INCIDENT
 from mpd_service import mpd_is_ready
 from mpd_monitor import MPDMonitor
-from usb_service import USBObserver, republish_usb_state
+from usb_service import USBService, republish_usb_state
 from web_service import WebService
 from backlight_service import Backlighting
 from volume_control import VolumeControl
@@ -345,6 +345,11 @@ class IncidentHandler(MessageHandlerTemplate):
             # No budget here: systemd's StartLimitBurst is the budget, and
             # counting again in a process that is about to end would not
             # survive to count a second time.
+            #
+            # This incident is already queued for RMS (_handle_message() sends
+            # before dispatching), and fatal_exit() waits for the RMS sender,
+            # up to FATAL_EXIT_HOOK_BUDGET, before it ends the process -- so it
+            # arrives as an INCIDENT, not only via the crash upload.
             fatal_exit(
                 f"GPIO failure leaves the Oradio unusable: {incident.message}",
                 stacklevel=4,
@@ -382,6 +387,9 @@ class IncidentHandler(MessageHandlerTemplate):
             # which reopens the bus from scratch; if that fails the crash
             # handler reboots; a third failure plays the service message and
             # leaves the STOP LED blinking.
+            #
+            # As for GPIO: fatal_exit() first waits (bounded) for the RMS
+            # sender, so this incident, already queued, reaches RMS.
             fatal_exit(
                 f"I2C bus failure leaves the Oradio unusable: {incident.message}",
                 stacklevel=4,
@@ -744,10 +752,17 @@ class IncidentHandler(MessageHandlerTemplate):
         elif incident.message in (USB_START_FAILED, USB_STOPPED):
             # MITIGATION: start the observer again.
             #
-            # START_FAILED is a safe_start() that returned False; STOPPED is the
-            # health check finding the watchdog observer thread gone. Neither is
-            # a crash inside a ThreadTemplate worker -- USBService does not use
-            # one -- so nothing else has tried.
+            # START_FAILED is USBService.start() failing to start the watchdog
+            # observer; STOPPED is the health check finding the observer thread
+            # gone. Neither is a crash inside a ThreadTemplate worker --
+            # USBService does not use one -- so nothing else has tried.
+            #
+            # The restart goes through USBService (a singleton, so this is the
+            # instance oradio_control started), not the USBObserver event
+            # handler, which has no start()/stop(). In both cases above
+            # USBService has usually already cleared its observer, so stop() is
+            # a no-op; if it was still running, stop() publishes USB_STOPPED
+            # once more, and the restart budget keeps that from looping.
             #
             # Worth trying: without the observer the Oradio never notices a
             # drive being inserted or removed again, which looks to the user
@@ -760,7 +775,7 @@ class IncidentHandler(MessageHandlerTemplate):
             # Unconditional, even when the restart failed: the state is just as
             # likely to be stale either way, and reading a mount point costs
             # nothing.
-            self._restart_subsystem("USB observer", USBObserver)
+            self._restart_subsystem("USB observer", USBService)
             republish_usb_state()
         else:
             oradio_log.error("Unhandled USB incident: '%s'", incident.message)
@@ -955,7 +970,9 @@ class IncidentHandler(MessageHandlerTemplate):
             oradio_log.debug("Incident details: %s", message.details)
 
         # Report incident to RMS: queued at once when WiFi is connected,
-        # otherwise held by RMS until WiFi returns
+        # otherwise held by RMS until WiFi returns. Before the dispatch, on
+        # purpose: a handler that ends in fatal_exit() relies on the incident
+        # already being queued, so the exit can wait for it to be posted.
         self._rms.send_message(INCIDENT, message)
 
         handler = self._dispatch.get(message.source)

@@ -138,6 +138,8 @@ class I2CService:
     - Locks all SMBus operations to prevent concurrent access from multiple threads.
     - Provides helpers for byte and block operations.
     - Logs errors for debugging.
+    - Publishes an incident once per failing device (and once for a missing
+      bus), not once per failed call; see _report_failure().
     """
     def __init__(self) -> None:
         """
@@ -147,19 +149,94 @@ class I2CService:
         self._lock = Lock()
         self._bus = None
 
+        # Devices whose last read or write failed, as ("read"|"write", address).
+        # An incident is published when a device starts failing and not again
+        # until it has answered once: the volume ADC is polled up to 20 times a
+        # second and the light sensor twice, so a chip that dies would
+        # otherwise put tens of incidents a second on the bus -- each one a
+        # POST to RMS with log files attached -- and fill the incident queue,
+        # which is fatal. Own lock, short-held; may be taken while _lock
+        # is held, never the other way round.
+        self._failing: set[tuple[str, int]] = set()
+        self._failing_lock = Lock()
+        self._bus_reported = False
+
         buses = find_i2c_buses()
         if not buses:
             oradio_log.error("No I2C buses found under /dev/")
             Incidents.publish(IncidentMessage(I2C_SOURCE, I2C_BUS_FAILED))
+            self._bus_reported = True
             return
 
         info = test_i2c_bus(buses[0])
         if not info["ok"]:
             oradio_log.error("I2C bus %d not accessible: %s", buses[0], info['error'])
             Incidents.publish(IncidentMessage(I2C_SOURCE, I2C_BUS_FAILED))
+            self._bus_reported = True
             return
 
         self._bus = SMBus(buses[0])
+
+##### Incident latching ###################################
+
+    def _is_failing(self, kind: str, device: int) -> bool:
+        """Whether this device's last read/write (kind) already failed and was reported."""
+        with self._failing_lock:
+            return (kind, device) in self._failing
+
+    def _attempt_log(self, kind: str, device: int):
+        """Per-attempt failures are warnings for a fresh fault, debug for a known one."""
+        return oradio_log.debug if self._is_failing(kind, device) else oradio_log.warning
+
+    def _report_failure(self, kind: str, device: int, incident: str, log_msg: str,
+                        *log_args, details: str | None = None) -> None:
+        """
+        Log a failed operation and publish the incident, once per fault.
+
+        Args:
+            kind:      "read" or "write".
+            device:    I2C address of the device.
+            incident:  I2C_READ_FAILED or I2C_WRITE_FAILED.
+            log_msg:   Log format string.
+            *log_args: Arguments for log_msg.
+            details:   Incident details.
+
+        The first failure is logged as an error and published. Later failures
+        of the same device and kind are logged at debug only, until
+        _report_success() clears the latch. RMS gets one incident per fault
+        instead of one per poll.
+        """
+        key = (kind, device)
+        with self._failing_lock:
+            first = key not in self._failing
+            self._failing.add(key)
+
+        if not first:
+            oradio_log.debug(log_msg + " (already reported)", *log_args)
+            return
+
+        oradio_log.error(log_msg, *log_args)
+        Incidents.publish(IncidentMessage(I2C_SOURCE, incident, details=details))
+
+    def _report_success(self, kind: str, device: int) -> None:
+        """Clear the failure latch for this device and kind, and log the recovery."""
+        key = (kind, device)
+        with self._failing_lock:
+            if key not in self._failing:
+                return
+            self._failing.discard(key)
+        oradio_log.info("I2C device 0x%02X answering %ss again", device, kind)
+
+    def _report_bus_missing(self) -> None:
+        """Log and publish I2C_BUS_FAILED for an unusable bus, once."""
+        with self._failing_lock:
+            first = not self._bus_reported
+            self._bus_reported = True
+        if first:
+            oradio_log.error("I2C bus not available")
+            Incidents.publish(IncidentMessage(I2C_SOURCE, I2C_BUS_FAILED))
+        else:
+            oradio_log.debug("I2C bus not available (already reported)")
 
 ##### Byte operations #####################################
 
@@ -185,19 +262,21 @@ class I2CService:
                 is unavailable or every attempt failed.
         """
         if self._bus is None:
-            oradio_log.error("I2C bus not available")
-            Incidents.publish(IncidentMessage(I2C_SOURCE, I2C_BUS_FAILED))
+            self._report_bus_missing()
             return None
 
         for attempt in range(1, I2C_RETRIES + 1):
             with self._lock:
                 try:
-                    return self._bus.read_byte_data(device, register)
+                    value = self._bus.read_byte_data(device, register)
                 except (OSError, ValueError, TypeError) as ex_err:
-                    oradio_log.warning(
+                    self._attempt_log("read", device)(
                         "I2C read byte failed (attempt %d/%d): device=0x%02X, register=0x%02X -> %s",
                         attempt, I2C_RETRIES, device, register, ex_err
                     )
+                else:
+                    self._report_success("read", device)
+                    return value
 
             # No wait after the last attempt: there is nothing left to wait for.
             if attempt < I2C_RETRIES:
@@ -206,18 +285,18 @@ class I2CService:
 
         # All retries exhausted. The incident is published here rather than per
         # attempt, so a single flaky transfer that the next attempt fixes does
-        # not reach the incident bus at all.
-        oradio_log.error(
-            "Failed reading byte from device=0x%02X, register=0x%02X after %d attempts",
-            device, register, I2C_RETRIES
-        )
+        # not reach the incident bus at all -- and once per fault, not per call
+        # (see _report_failure()).
+        #
         # The address travels with the incident, so RMS shows WHICH chip stopped
         # answering. Without it every i2c failure reads the same, and a dead
         # light sensor is a different fault from a dead volume ADC.
-        Incidents.publish(IncidentMessage(
-            I2C_SOURCE, I2C_READ_FAILED,
+        self._report_failure(
+            "read", device, I2C_READ_FAILED,
+            "Failed reading byte from device=0x%02X, register=0x%02X after %d attempts",
+            device, register, I2C_RETRIES,
             details=f"read byte device=0x{device:02X} register=0x{register:02X}",
-        ))
+        )
         return None
 
     def write_byte(self, device: int, register: int, value: int, retry: bool = True) -> bool:
@@ -253,8 +332,7 @@ class I2CService:
                 effect that will not happen.
         """
         if self._bus is None:
-            oradio_log.error("I2C bus not available")
-            Incidents.publish(IncidentMessage(I2C_SOURCE, I2C_BUS_FAILED))
+            self._report_bus_missing()
             return False
 
         attempts = I2C_RETRIES if retry else 1
@@ -263,12 +341,14 @@ class I2CService:
             with self._lock:
                 try:
                     self._bus.write_byte_data(device, register, value)
-                    return True
                 except (OSError, ValueError, TypeError) as ex_err:
-                    oradio_log.warning(
+                    self._attempt_log("write", device)(
                         "I2C write byte failed (attempt %d/%d): device=0x%02X, register=0x%02X, value=0x%02X -> %s",
                         attempt, attempts, device, register, value, ex_err
                     )
+                else:
+                    self._report_success("write", device)
+                    return True
 
             # No wait after the last attempt: there is nothing left to wait for.
             if attempt < attempts:
@@ -276,14 +356,12 @@ class I2CService:
                 sleep(I2C_BACKOFF)
 
         # All attempts exhausted
-        oradio_log.error(
+        self._report_failure(
+            "write", device, I2C_WRITE_FAILED,
             "Failed writing byte to device=0x%02X, register=0x%02X, value=0x%02X after %d attempt(s)",
-            device, register, value, attempts
-        )
-        Incidents.publish(IncidentMessage(
-            I2C_SOURCE, I2C_WRITE_FAILED,
+            device, register, value, attempts,
             details=f"write byte device=0x{device:02X} register=0x{register:02X}",
-        ))
+        )
         return False
 
 ##### Block operations ####################################
@@ -309,8 +387,7 @@ class I2CService:
                 attempt failed.
         """
         if self._bus is None:
-            oradio_log.error("I2C bus not available")
-            Incidents.publish(IncidentMessage(I2C_SOURCE, I2C_BUS_FAILED))
+            self._report_bus_missing()
             return None
 
         if length > 32:
@@ -326,12 +403,15 @@ class I2CService:
         for attempt in range(1, I2C_RETRIES + 1):
             with self._lock:
                 try:
-                    return self._bus.read_i2c_block_data(device, register, length)
+                    data = self._bus.read_i2c_block_data(device, register, length)
                 except (OSError, ValueError, TypeError) as ex_err:
-                    oradio_log.warning(
+                    self._attempt_log("read", device)(
                         "I2C read block failed (attempt %d/%d): device=0x%02X, register=0x%02X, length=%d -> %s",
                         attempt, I2C_RETRIES, device, register, length, ex_err
                     )
+                else:
+                    self._report_success("read", device)
+                    return data
 
             # No wait after the last attempt: there is nothing left to wait for.
             if attempt < I2C_RETRIES:
@@ -339,14 +419,12 @@ class I2CService:
                 sleep(I2C_BACKOFF)
 
         # All retries exhausted
-        oradio_log.error(
+        self._report_failure(
+            "read", device, I2C_READ_FAILED,
             "Failed reading block from device=0x%02X, register=0x%02X, length=%d after %d attempts",
-            device, register, length, I2C_RETRIES
-        )
-        Incidents.publish(IncidentMessage(
-            I2C_SOURCE, I2C_READ_FAILED,
+            device, register, length, I2C_RETRIES,
             details=f"read block device=0x{device:02X} register=0x{register:02X} length={length}",
-        ))
+        )
         return None
 
     def write_block(self, device: int, register: int, data: list) -> bool:
@@ -371,8 +449,7 @@ class I2CService:
                 failed.
         """
         if self._bus is None:
-            oradio_log.error("I2C bus not available")
-            Incidents.publish(IncidentMessage(I2C_SOURCE, I2C_BUS_FAILED))
+            self._report_bus_missing()
             return False
 
         if len(data) > 32:
@@ -383,12 +460,14 @@ class I2CService:
             with self._lock:
                 try:
                     self._bus.write_i2c_block_data(device, register, data)
-                    return True
                 except (OSError, ValueError, TypeError) as ex_err:
-                    oradio_log.warning(
+                    self._attempt_log("write", device)(
                         "I2C write block failed (attempt %d/%d): device=0x%02X, register=0x%02X, data=%s -> %s",
                         attempt, I2C_RETRIES, device, register, data, ex_err
                     )
+                else:
+                    self._report_success("write", device)
+                    return True
 
             # No wait after the last attempt: there is nothing left to wait for.
             if attempt < I2C_RETRIES:
@@ -396,11 +475,12 @@ class I2CService:
                 sleep(I2C_BACKOFF)
 
         # All retries exhausted
-        oradio_log.error(
+        self._report_failure(
+            "write", device, I2C_WRITE_FAILED,
             "Failed writing block to device=0x%02X, register=0x%02X, data=%s after %d attempts",
-            device, register, data, I2C_RETRIES
+            device, register, data, I2C_RETRIES,
+            details=f"write block device=0x{device:02X} register=0x{register:02X}",
         )
-        Incidents.publish(IncidentMessage(I2C_SOURCE, I2C_WRITE_FAILED))
         return False
 
 ##### Stand-alone entry point #############################
