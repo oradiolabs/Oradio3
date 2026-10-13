@@ -25,8 +25,12 @@ Created on January 29, 2025
     Blinking is implemented as a background worker per LED, built on
     ThreadTemplate (utilities.py), so each blink can be cleanly started,
     stopped and restarted, and reports crashes instead of dying silently.
+
+    LEDControl is called from several threads (state workers, the command
+    handler, Timer threads, the main thread); every public method runs under
+    one reentrant lock so their stop/start sequences cannot interleave.
 """
-from threading import Timer
+from threading import RLock, Timer, current_thread
 
 ##### Oradio modules ######################################
 from log_service import oradio_log
@@ -125,6 +129,11 @@ class LEDControl:
     * Turn all LEDs on or off
     * Blink a LED continuously
     * Turn a LED on for a fixed duration (one-shot)
+
+    Thread-safe: each public method holds self._lock (an RLock, since they
+    call each other) for its whole run, so e.g. control_blinking_led()'s
+    stop -> set_cycle_time -> safe_start cannot interleave with a
+    turn_off_led() for the same LED from another thread.
     """
     def __init__(self) -> None:
         """
@@ -135,6 +144,14 @@ class LEDControl:
         # map led_name → _BlinkWorker; populated lazily (see _get_blink_worker)
         # and each entry reused for every later blink request for that LED.
         self.blink_workers: dict[str, _BlinkWorker] = {}
+        # map led_name → pending one-shot off Timer; cancelled by any later
+        # turn_on_led/turn_off_led/control_blinking_led for that LED, so an
+        # old one-shot cannot switch off a LED someone has since set.
+        self._oneshot_timers: dict[str, Timer] = {}
+        # Blink workers whose crash has already been reported; see _stop_blink().
+        self._crash_reported: set[str] = set()
+        # Serialises all public methods; reentrant because they call each other.
+        self._lock = RLock()
         oradio_log.debug("LEDControl initialized: All LEDs OFF")
 
     def turn_off_led(self, led_name: str) -> None:
@@ -145,12 +162,14 @@ class LEDControl:
             led_name (str): Must be one of the names defined in LED_NAMES
                             (e.g. LED_PLAY, LED_STOP, LED_PRESET1, LED_PRESET2, LED_PRESET3).
         """
-        if led_name in LED_NAMES:
-            self._stop_blink(led_name)
-            self.leds_driver.set_led_off(led_name)
-            oradio_log.debug("%s turned off", led_name)
-        else:
-            oradio_log.error("Invalid LED name: %s", led_name)
+        with self._lock:
+            if led_name in LED_NAMES:
+                self._cancel_oneshot(led_name)
+                self._stop_blink(led_name)
+                self.leds_driver.set_led_off(led_name)
+                oradio_log.debug("%s turned off", led_name)
+            else:
+                oradio_log.error("Invalid LED name: %s", led_name)
 
     def turn_on_led(self, led_name: str) -> None:
         """
@@ -160,32 +179,38 @@ class LEDControl:
             led_name (str): Must be one of the names defined in LED_NAMES
                             (e.g. LED_PLAY, LED_STOP, LED_PRESET1, LED_PRESET2, LED_PRESET3).
         """
-        if led_name in LED_NAMES:
-            self.turn_off_led(led_name)
-            self.leds_driver.set_led_on(led_name)
-            oradio_log.debug("%s turned on", led_name)
-        else:
-            oradio_log.error("Invalid LED name: %s", led_name)
+        with self._lock:
+            if led_name in LED_NAMES:
+                self.turn_off_led(led_name)
+                self.leds_driver.set_led_on(led_name)
+                oradio_log.debug("%s turned on", led_name)
+            else:
+                oradio_log.error("Invalid LED name: %s", led_name)
 
     def turn_off_all_leds(self) -> None:
         """
         Stop all blink workers and turn every LED off.
         """
-        for led_name in LED_NAMES:
-            self.turn_off_led(led_name)
+        with self._lock:
+            for led_name in LED_NAMES:
+                self.turn_off_led(led_name)
         oradio_log.debug("All LEDs turned off and blinking stopped")
 
     def turn_on_all_leds(self) -> None:
         """
         Stop all blink workers and turn every LED on.
         """
-        for led_name in LED_NAMES:
-            self.turn_on_led(led_name)
+        with self._lock:
+            for led_name in LED_NAMES:
+                self.turn_on_led(led_name)
         oradio_log.debug("All LEDs turned ON and blinking stopped")
 
     def oneshot_on_led(self, led_name: str, period: float = 3) -> None:
         """
         Turn on a specific LED and turn it off automatically after a delay.
+
+        One pending one-shot per LED: a new one-shot, or any later
+        turn_on_led/turn_off_led/control_blinking_led for the LED, cancels it.
 
         The period is rounded to one decimal place before use, as finer
         resolution is not perceptible.
@@ -199,11 +224,15 @@ class LEDControl:
         if period > 0:
             period = round(period, 1)
             if led_name in LED_NAMES:
-                self.turn_on_led(led_name)
-                oradio_log.debug("%s turned on, will turn off after %s seconds", led_name, period)
-                oneshot_timer = Timer(period, self.turn_off_led, args=(led_name,))
-                oneshot_timer.name = f"led-oneshot-{led_name}"
-                oneshot_timer.start()
+                with self._lock:
+                    # turn_on_led() also cancels any previous one-shot for this LED.
+                    self.turn_on_led(led_name)
+                    oradio_log.debug("%s turned on, will turn off after %s seconds", led_name, period)
+                    oneshot_timer = Timer(period, self._oneshot_expired, args=(led_name,))
+                    oneshot_timer.name = f"led-oneshot-{led_name}"
+                    oneshot_timer.daemon = True
+                    self._oneshot_timers[led_name] = oneshot_timer
+                    oneshot_timer.start()
             else:
                 oradio_log.error("Invalid LED name: %s", led_name)
         else:
@@ -221,7 +250,8 @@ class LEDControl:
             False if the LED is OFF.
         """
         if led_name in LED_NAMES:
-            return bool(self.leds_driver.get_led_state(led_name))
+            with self._lock:
+                return bool(self.leds_driver.get_led_state(led_name))
         oradio_log.error("Invalid LED name: %s", led_name)
         return False
 
@@ -249,24 +279,50 @@ class LEDControl:
             cycle_time (float):   Duration in seconds of one complete on/off cycle.
                                   Pass None or a value <= 0 to stop blinking and turn the LED off.
         """
-        if cycle_time is not None and cycle_time > 0:
-            if led_name in LED_NAMES:
-                # Stop before reconfiguring: do_work() only picks up a new
-                # cycle_time on its next call, so a clean stop/start avoids
-                # running one stray cycle at the old duration.
-                self._stop_blink(led_name)
-                worker = self._get_blink_worker(led_name)
-                worker.set_cycle_time(cycle_time)
-                if worker.safe_start():
-                    oradio_log.debug("%s blinking started: %.3fs cycle", led_name, cycle_time)
+        with self._lock:
+            if cycle_time is not None and cycle_time > 0:
+                if led_name in LED_NAMES:
+                    self._cancel_oneshot(led_name)
+                    # Stop before reconfiguring: do_work() only picks up a new
+                    # cycle_time on its next call, so a clean stop/start avoids
+                    # running one stray cycle at the old duration.
+                    self._stop_blink(led_name)
+                    worker = self._get_blink_worker(led_name)
+                    worker.set_cycle_time(cycle_time)
+                    if worker.safe_start():
+                        # A fresh run: a later crash of it is a new one to report.
+                        self._crash_reported.discard(led_name)
+                        oradio_log.debug("%s blinking started: %.3fs cycle", led_name, cycle_time)
+                    else:
+                        oradio_log.error("%s blink worker failed to start", led_name)
+                        Incidents.publish(IncidentMessage(LED_SOURCE, LED_BLINK_START_FAILED))
                 else:
-                    oradio_log.error("%s blink worker failed to start", led_name)
-                    Incidents.publish(IncidentMessage(LED_SOURCE, LED_BLINK_START_FAILED))
+                    oradio_log.error("Invalid LED name: %s", led_name)
             else:
-                oradio_log.error("Invalid LED name: %s", led_name)
-        else:
+                self.turn_off_led(led_name)
+                oradio_log.debug("%s blinking stopped and turned off", led_name)
+
+    def _cancel_oneshot(self, led_name: str) -> None:
+        """
+        Cancel the pending one-shot off Timer for led_name, if any.
+        Called with self._lock held.
+        """
+        timer = self._oneshot_timers.pop(led_name, None)
+        if timer is not None:
+            timer.cancel()
+
+    def _oneshot_expired(self, led_name: str) -> None:
+        """
+        Timer callback of oneshot_on_led(): turn the LED off, but only if this
+        timer is still the LED's current one-shot. cancel() cannot stop a
+        Timer that already fired and is waiting for the lock, so the identity
+        check is what keeps a superseded one-shot from switching the LED off.
+        """
+        with self._lock:
+            if self._oneshot_timers.get(led_name) is not current_thread():
+                return
+            # turn_off_led() pops this timer via _cancel_oneshot().
             self.turn_off_led(led_name)
-            oradio_log.debug("%s blinking stopped and turned off", led_name)
 
     def _get_blink_worker(self, led_name: str) -> _BlinkWorker:
         """
@@ -279,11 +335,14 @@ class LEDControl:
         Returns:
             _BlinkWorker: The (possibly newly created) worker for led_name.
         """
-        worker = self.blink_workers.get(led_name)
-        if worker is None:
-            worker = _BlinkWorker(self.leds_driver, led_name)
-            self.blink_workers[led_name] = worker
-        return worker
+        # Under the lock so two first-time blinks of one LED can't each create
+        # a worker, leaving the loser blinking with no reference to stop it.
+        with self._lock:
+            worker = self.blink_workers.get(led_name)
+            if worker is None:
+                worker = _BlinkWorker(self.leds_driver, led_name)
+                self.blink_workers[led_name] = worker
+            return worker
 
     def _stop_blink(self, led_name: str) -> None:
         """
@@ -292,14 +351,27 @@ class LEDControl:
         (not removed) so it can be reused for a later blink request. The
         LED is left in the off state by the worker's own teardown() before
         this returns. A no-op if the LED has never been blinked, since no
-        worker exists for it yet.
+        worker exists for it yet. A worker that crashed (thread already dead)
+        counts as stopped; its crash is reported once, not on every call.
 
         Args:
             led_name (str): Must be one of the names defined in LED_NAMES
                             (e.g. LED_PLAY, LED_STOP, LED_PRESET1, LED_PRESET2, LED_PRESET3).
         """
-        worker = self.blink_workers.get(led_name)
-        if worker is not None and not worker.safe_stop():
+        with self._lock:
+            worker = self.blink_workers.get(led_name)
+            if worker is None or worker.safe_stop():
+                return
+            # A worker that crashed earlier keeps reporting crashed until its
+            # next safe_start(), and turn_off_all_leds() runs on every state
+            # transition. Its thread is dead, so it IS stopped (teardown() left
+            # the LED off): report that crash once, not on every later stop.
+            if worker.crashed and not worker.is_alive():
+                if led_name not in self._crash_reported:
+                    self._crash_reported.add(led_name)
+                    oradio_log.error("%s blink worker had crashed: %s", led_name, worker.exception)
+                    Incidents.publish(IncidentMessage(LED_SOURCE, LED_BLINK_STOP_FAILED))
+                return
             oradio_log.error("%s blink worker did not stop cleanly", led_name)
             Incidents.publish(IncidentMessage(LED_SOURCE, LED_BLINK_STOP_FAILED))
 

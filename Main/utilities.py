@@ -52,8 +52,10 @@ from constants import (
 
 ##### LOCAL constants #####################################
 DNS_HOST    = "google.com"
-DNS_TIMEOUT = 0.5   # seconds; short on purpose - callers should fail fast
-                    # rather than block on a flaky or just-woken WiFi radio.
+DNS_TIMEOUT = 0.5   # seconds has_internet() waits for the DNS lookup; short on
+                    # purpose - callers should fail fast rather than block on a
+                    # flaky or just-woken WiFi radio. Enforced by waiting on a
+                    # worker thread, since the resolver itself takes no timeout.
 
 # Row prefix used by `vcgencmd otp_dump` for the Raspberry Pi serial number.
 SERIAL_OTP_ROW = "28:"
@@ -142,7 +144,13 @@ class ThreadTemplate:
         self._name = name or self.__class__.__name__
 
         self._stop_event = Event()      # set by safe_stop(), checked by run()
-        self._started_event = Event()   # set once setup() finishes (or crashes)
+
+        # Set once setup() finishes (or crashes). Replaced by a fresh Event on
+        # every safe_start() rather than cleared, and each run is handed its
+        # own: a safe_stop() + safe_start() from another thread must not reset
+        # the event an earlier safe_start() is still waiting on, or that call
+        # reports a timeout for a thread that did start.
+        self._started_event = Event()
 
         # _exception is written from run() (the worker thread) and read from
         # the crashed/exception properties, typically from the main thread.
@@ -165,7 +173,7 @@ class ThreadTemplate:
         # instance, e.g. safe_stop() joining a thread that safe_start() is
         # in the middle of replacing.
         # Note: run() never calls safe_start()/safe_stop() on itself, and
-        # nothing below holds this lock while blocking on _started_event.wait()
+        # nothing below holds this lock while blocking on the started event
         # or _thread.join() -- see the comments in safe_start()/safe_stop() --
         # so there is no deadlock risk between the worker thread and callers.
         self._lifecycle_lock = Lock()
@@ -210,13 +218,19 @@ class ThreadTemplate:
 
             # Reset state left over from a previous run so this run starts clean.
             self._stop_event.clear()
-            self._started_event.clear()
+            started_event = Event()
+            self._started_event = started_event
             with self._exception_lock:
                 self._exception = None
 
             # A fresh Thread object every time -- Thread.start() itself refuses
-            # to run twice, so restartability requires a new one per run.
-            self._thread = Thread(target=self.run, name=self._name, daemon=True)
+            # to run twice, so restartability requires a new one per run. The
+            # run gets this call's started event, so it signals the caller
+            # that started it even if a later safe_start() has replaced
+            # self._started_event by then.
+            self._thread = Thread(
+                target=self.run, args=(started_event,), name=self._name, daemon=True
+            )
 
             try:
                 # Spawns the OS thread and schedules run(). Can raise
@@ -231,15 +245,20 @@ class ThreadTemplate:
         # Deliberately done outside `_lifecycle_lock`: waiting here can take
         # up to `timeout` seconds, and holding the lock that long would
         # needlessly block a concurrent safe_stop() from even signalling
-        # the thread to stop.
-        started_ok = self._started_event.wait(timeout)
+        # the thread to stop. Waits on the local reference, not on
+        # self._started_event, which a concurrent restart may have replaced.
+        started_ok = started_event.wait(timeout)
         if not started_ok:
             oradio_log.error("%s failed to start within %ss", self._name, timeout)
         return started_ok
 
-    def run(self) -> None:
+    def run(self, started_event: Event | None = None) -> None:
         """
         Internal thread entry point. Do not call directly -- use safe_start().
+
+        Args:
+            started_event: The Event the safe_start() that spawned this run
+                           waits on. Defaults to self._started_event.
 
         Runs setup() once, then calls do_work() immediately, then repeatedly
         again every interval seconds until safe_stop() is called, then runs teardown().
@@ -249,6 +268,9 @@ class ThreadTemplate:
         rather than propagated, since exceptions raised inside a thread's run()
         are never seen by the caller of start().
         """
+        if started_event is None:
+            started_event = self._started_event
+
         # One pass per attempt. Without restart_on_crash this runs exactly once
         # and behaves as it always did.
         while True:
@@ -256,7 +278,7 @@ class ThreadTemplate:
                 self.setup()
 
                 # Signal readiness only after setup() completes successfully.
-                self._started_event.set()
+                started_event.set()
 
                 while not self._stop_event.is_set():
                     self.do_work()
@@ -273,7 +295,7 @@ class ThreadTemplate:
                 oradio_log.error("%s crashed", self._name)
                 # Unblock safe_start() even if setup() itself crashed, so callers
                 # waiting on safe_start() don't hang for the full timeout.
-                self._started_event.set()
+                started_event.set()
                 crashed = True
             else:
                 crashed = False
@@ -549,6 +571,9 @@ class DeferredStarter:  # pylint: disable=too-many-instance-attributes
     of them.
 
     Idempotent: a start already in progress, or already completed, is a no-op.
+    The exception is a start that abort() has cancelled but whose deferred
+    thread has not exited yet: a start() in that window supersedes it, so a
+    stop() immediately followed by start() still brings the subsystem up.
     Construct one instance per subsystem; it is not reusable across
     dependencies.
     """
@@ -601,15 +626,30 @@ class DeferredStarter:  # pylint: disable=too-many-instance-attributes
         self._poll_interval = poll_interval
         self._inline = inline
 
-        # Guards _starting and _done only. Never held across _do_start(), which
-        # may block: holding it there would make a concurrent start() wait the
-        # work out instead of returning at once on the _starting check.
+        # Guards _starting, _done, _generation, _in_do_start and _aborting. Never held across
+        # _do_start(), which may block: holding it there would make a
+        # concurrent start() wait the work out instead of returning at once on
+        # the _starting check.
         self._lock = Lock()
         self._starting = False
         self._done = False
 
-        # Set by abort(). Also doubles as the poll loop's sleep, so an abort
-        # takes effect immediately rather than after a full poll interval.
+        # Incremented by every start() that claims a run. A run only releases
+        # the claim, or records _done, while it is still the current
+        # generation, so a run that start() superseded exits quietly instead
+        # of clearing the claim of the run that replaced it.
+        self._generation = 0
+
+        # True while a run is inside _do_start(). Such a run is past its abort
+        # check and will finish the start regardless, so it is not superseded:
+        # two _do_start() calls would then run side by side.
+        self._in_do_start = False
+
+        # Set by abort(). A fresh Event per run: the one a run was started
+        # with stays set after abort(), so that run still sees it and exits,
+        # while the run that superseded it starts with a clear one. Also
+        # doubles as the poll loop's sleep, so an abort takes effect
+        # immediately rather than after a full poll interval.
         self._aborting = Event()
 
     def is_done(self) -> bool:
@@ -662,15 +702,25 @@ class DeferredStarter:  # pylint: disable=too-many-instance-attributes
                 oradio_log.debug("%s already started", self._name)
                 return False
 
-            if self._starting:
+            # A run that abort() has cancelled before it reached _do_start() is
+            # on its way out, not in progress: it only has not reached its
+            # finally yet. Turning this
+            # start away would lose it, because the old run is about to exit
+            # without starting anything -- which is what a stop() followed at
+            # once by start() runs into. So it is superseded instead.
+            if self._starting and (not self._aborting.is_set() or self._in_do_start):
                 oradio_log.debug("%s start already in progress", self._name)
                 return False
 
-            # A previous abort() may have set this; clear it so a restart works.
-            self._aborting.clear()
+            # A fresh Event rather than clear(): the superseded run still holds
+            # the old one, which must stay set so that run exits.
+            self._aborting = Event()
+            aborting = self._aborting
 
             # Claimed here, released by _clear_starting() once this start has
             # run its course -- here, or on the deferred thread.
+            self._generation += 1
+            generation = self._generation
             self._starting = True
 
         # False until the deferred thread has taken the claim over; it releases
@@ -680,8 +730,7 @@ class DeferredStarter:  # pylint: disable=too-many-instance-attributes
         try:
             if self._inline:
                 if self._is_available():
-                    self._run()
-                    return True
+                    return self._run(generation, aborting)
 
                 if wait <= 0:
                     oradio_log.info("%s: dependency not available; not started", self._name)
@@ -697,7 +746,7 @@ class DeferredStarter:  # pylint: disable=too-many-instance-attributes
 
             # Daemon thread: exits automatically when the process does.
             Thread(
-                target=self._wait_and_start, args=(wait,),
+                target=self._wait_and_start, args=(wait, generation, aborting),
                 daemon=True, name=f"defer-{self._name}",
             ).start()
             handed_over = True
@@ -705,7 +754,7 @@ class DeferredStarter:  # pylint: disable=too-many-instance-attributes
 
         finally:
             if not handed_over:
-                self._clear_starting()
+                self._clear_starting(generation)
 
     def abort(self) -> None:
         """
@@ -713,23 +762,45 @@ class DeferredStarter:  # pylint: disable=too-many-instance-attributes
 
         Call this from the owning subsystem's stop(), so a shutdown does not
         leave a thread that brings the subsystem up again a minute later.
+        Also cancels an inline start whose is_available() check is still
+        running, as long as _do_start has not begun yet.
         """
-        self._aborting.set()
+        with self._lock:
+            self._aborting.set()
 
-    def _clear_starting(self) -> None:
+    def _clear_starting(self, generation: int) -> None:
         """
         Release the start claim taken by start().
+
+        Args:
+            generation: The run releasing its claim. A run that a later
+                        start() superseded no longer owns the claim, so it
+                        leaves it alone.
 
         Called from whichever context finished the start: start() itself, or
         the deferred thread it handed over to. Leaving it set would make
         start() a permanent no-op for the rest of the process.
         """
         with self._lock:
-            self._starting = False
+            if generation == self._generation:
+                self._starting = False
 
-    def _run(self) -> None:
+    def _run(self, generation: int, aborting: Event) -> bool:
         """
         Run the start action once and record that it succeeded.
+
+        Args:
+            generation: The run this start belongs to.
+            aborting:   That run's abort Event.
+
+        Returns:
+            True if do_start ran, False if the run was aborted first.
+
+        The abort is checked again here, under the lock, because the
+        is_available() check before this can take a while (a D-Bus call): an
+        abort() landing during it must not still bring the subsystem up after
+        its stop(). An abort() after this check, while _do_start runs, is too
+        late to prevent it; the owner's stop() has to undo it as usual.
 
         Exceptions are caught rather than propagated: on the caller's thread
         this is module initialisation, where an escape takes the process down
@@ -737,18 +808,35 @@ class DeferredStarter:  # pylint: disable=too-many-instance-attributes
         nothing would observe it at all. A failed start leaves _done False, so
         a later start() can retry it.
         """
+        with self._lock:
+            if aborting.is_set():
+                oradio_log.debug("Start of %s aborted before it ran", self._name)
+                return False
+            self._in_do_start = True
+
         try:
             self._do_start()
         except Exception as ex_err:     # pylint: disable=broad-exception-caught
             oradio_log.error("%s: start failed: %s", self._name, ex_err)
-            return
+            with self._lock:
+                self._in_do_start = False
+            return True
 
         with self._lock:
-            self._done = True
+            self._in_do_start = False
+            # Only the current run can get here (a run inside _do_start() is
+            # never superseded), but checked anyway: a superseded run does not
+            # speak for the current one. Not recorded either when abort() came
+            # in during _do_start(): the owner's stop() has called reset() to
+            # say this start is to be undone, and _done would make the next
+            # start() a no-op.
+            if generation == self._generation and not aborting.is_set():
+                self._done = True
 
         oradio_log.info("%s started", self._name)
+        return True
 
-    def _wait_and_start(self, timeout: float) -> None:
+    def _wait_and_start(self, timeout: float, generation: int, aborting: Event) -> None:
         """
         Wait for the dependency to appear, then start.
 
@@ -758,7 +846,10 @@ class DeferredStarter:  # pylint: disable=too-many-instance-attributes
         poll is the only check that works for all of them.
 
         Args:
-            timeout: Maximum seconds to wait before giving up and reporting.
+            timeout:    Maximum seconds to wait before giving up and reporting.
+            generation: The run this thread belongs to, see _clear_starting().
+            aborting:   That run's own abort Event. Held here rather than read
+                        from self, because a superseding start() replaces it.
         """
         started = monotonic()
         deadline = started + timeout
@@ -769,7 +860,7 @@ class DeferredStarter:  # pylint: disable=too-many-instance-attributes
             while monotonic() < deadline:
                 # Checked before waiting and after waking, so abort() takes
                 # effect within one poll interval at worst.
-                if self._aborting.is_set():
+                if aborting.is_set():
                     oradio_log.debug("Deferred start of %s aborted", self._name)
                     return
 
@@ -778,12 +869,17 @@ class DeferredStarter:  # pylint: disable=too-many-instance-attributes
                         "%s: dependency available after %.1fs",
                         self._name, monotonic() - started,
                     )
-                    self._run()
+                    self._run(generation, aborting)
                     return
 
                 # Waiting on the Event rather than sleep() makes abort()
                 # immediate instead of costing a full poll interval.
-                self._aborting.wait(self._poll_interval)
+                aborting.wait(self._poll_interval)
+
+            # An abort() during the last wait: a stop, not a missing dependency.
+            if aborting.is_set():
+                oradio_log.debug("Deferred start of %s aborted", self._name)
+                return
 
             oradio_log.warning(
                 "%s: dependency did not appear within %.0fs; giving up",
@@ -797,7 +893,7 @@ class DeferredStarter:  # pylint: disable=too-many-instance-attributes
                     oradio_log.error("%s: timeout handler failed: %s", self._name, ex_err)
 
         finally:
-            self._clear_starting()
+            self._clear_starting(generation)
 
 def get_serial() -> str:
     """
@@ -854,6 +950,52 @@ def mask_secrets(data: Any) -> Any:
     }
 
 
+# Total time fatal_exit() gives its exit hooks before it exits anyway. The one
+# registered today is RMS: posting the incident that led here, which carries the
+# log files. Long enough for one upload on a normal link; on a bad one the crash
+# handler (oradio-crash.service) still uploads the logs after the restart.
+FATAL_EXIT_HOOK_BUDGET = 20.0   # seconds
+
+_fatal_exit_hooks: list[Callable[[float], object]] = []
+_fatal_exit_hooks_lock = Lock()
+
+def register_fatal_exit_hook(hook: Callable[[float], object]) -> None:
+    """
+    Run hook(timeout) from fatal_exit(), before the process ends.
+
+    Args:
+        hook: Called with the seconds it may take at most. Must return within
+              that time; its return value is ignored and exceptions are logged.
+
+    For work that must not be lost to os._exit(): above all, getting the
+    incident that caused the exit to RMS. Without this the RMS post was queued
+    and the process was gone microseconds later, so a GPIO or I2C bus failure
+    never reached RMS as an incident at all.
+
+    Registering the same hook twice is a no-op. Not undone by anything: hooks
+    live as long as the process, which is all fatal_exit() needs.
+    """
+    with _fatal_exit_hooks_lock:
+        if hook not in _fatal_exit_hooks:
+            _fatal_exit_hooks.append(hook)
+
+def _run_fatal_exit_hooks(budget: float) -> None:
+    """Run the registered exit hooks within one shared time budget."""
+    with _fatal_exit_hooks_lock:
+        hooks = list(_fatal_exit_hooks)
+
+    deadline = monotonic() + budget
+    for hook in hooks:
+        remaining = deadline - monotonic()
+        if remaining <= 0:
+            oradio_log.error("Fatal exit: no time left for exit hook %s", getattr(hook, "__name__", hook))
+            break
+        try:
+            hook(remaining)
+        # Broad catch: a hook failing must not stop the process from exiting.
+        except Exception as ex_err:     # pylint: disable=broad-exception-caught
+            oradio_log.error("Fatal exit hook %s failed: %s", getattr(hook, "__name__", hook), ex_err)
+
 def fatal_exit(message: str, stacklevel: int = 6, *, exc: BaseException | None = None, code: int = 1) -> NoReturn:
     """
     Log a fatal error, flush all buffers, and terminate the process.
@@ -882,11 +1024,19 @@ def fatal_exit(message: str, stacklevel: int = 6, *, exc: BaseException | None =
     up -- it is asking for the strongest repair available, which is more than
     any code in this process can do for a peripheral that stopped answering.
 
+    Before exiting, runs the hooks registered with register_fatal_exit_hook(),
+    for at most FATAL_EXIT_HOOK_BUDGET seconds together -- in practice: waits
+    for the RMS sender to post what is queued, including the incident that
+    led here. Bounded, so a hung network cannot keep a broken process alive.
     """
     # exc_info=True causes the logging framework to capture the current
     # exception context; passing the exception object directly also works
     # in Python 3.5+ but the bool form is more conventional.
     oradio_log.critical(message, stacklevel=stacklevel, exc_info=exc is not None)
+
+    # After the critical line (so it is in the log files an RMS upload
+    # attaches), before the log shutdown (so the hooks can still log).
+    _run_fatal_exit_hooks(FATAL_EXIT_HOOK_BUDGET)
 
     # Flush the logging framework before exiting so no records are lost.
     oradio_log.shutdown()
@@ -1006,27 +1156,44 @@ def has_internet():
     DNS lookups are high-priority traffic and typically wake the Wi-Fi radio from power-saving mode.
 
     Note:
-        socket.gethostbyname() is not a socket-object method, so a per-call
-        timeout cannot be passed. The process-wide default socket timeout is
-        set to DNS_TIMEOUT around the call and restored afterwards, but the
-        resolver itself (getaddrinfo) does not honour that timeout: how long
-        a failing lookup blocks is decided by /etc/resolv.conf, not by
-        DNS_TIMEOUT.
+        The resolver (getaddrinfo, behind socket.gethostbyname()) takes no
+        timeout and ignores the default socket timeout; a failing lookup
+        blocks for as long as /etc/resolv.conf says, often 10-30 s. So the
+        lookup runs on a daemon worker thread and this waits at most
+        DNS_TIMEOUT for it. A lookup that takes longer counts as no internet;
+        its thread finishes on its own in the background and is then dropped.
+        The process-wide socket.setdefaulttimeout() is left alone: changing
+        it would affect every other thread's sockets too.
 
     Returns:
         bool: True if internet is reachable, False otherwise.
     """
-    previous_timeout = socket.getdefaulttimeout()
-    socket.setdefaulttimeout(DNS_TIMEOUT)
-    try:
-        _ = socket.gethostbyname(DNS_HOST)
-        oradio_log.info("Internet available")
-        return True
-    except (socket.gaierror, TimeoutError) as ex_err:
-        oradio_log.debug("Internet not available: %s", ex_err)
+    # Written by the worker, read here after join(). A one-item list rather
+    # than a nonlocal so the worker needs no closure over a rebinding name.
+    outcome: list[BaseException | None] = []
+
+    def _lookup() -> None:
+        """Resolve DNS_HOST and record None on success or the exception."""
+        try:
+            socket.gethostbyname(DNS_HOST)
+            outcome.append(None)
+        except (OSError, UnicodeError) as ex_err:
+            outcome.append(ex_err)
+
+    worker = Thread(target=_lookup, name="has-internet-dns", daemon=True)
+    worker.start()
+    worker.join(DNS_TIMEOUT)
+
+    if not outcome:
+        oradio_log.debug("Internet not available: DNS lookup took longer than %.1fs", DNS_TIMEOUT)
         return False
-    finally:
-        socket.setdefaulttimeout(previous_timeout)
+
+    if outcome[0] is not None:
+        oradio_log.debug("Internet not available: %s", outcome[0])
+        return False
+
+    oradio_log.info("Internet available")
+    return True
 
 def run_shell_script(script):
     """

@@ -193,8 +193,12 @@ class Backlighting:
             int | None: Raw visible light value, or None on I2C read failure.
         """
         low = self._i2c_service.read_byte(TSL2591_ADDRESS, COMMAND_BIT | VISIBLE_LIGHT_LOW)
+        if low is None:
+            # Skip the high byte: it would fail the same way, doubling the bus
+            # attempts, and is latched by the low-byte read anyway.
+            return None
         high = self._i2c_service.read_byte(TSL2591_ADDRESS, COMMAND_BIT | VISIBLE_LIGHT_HIGH)
-        if low is None or high is None:
+        if high is None:
             return None
         return (high << 8) | low
 

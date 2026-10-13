@@ -315,7 +315,11 @@ class GPIOService:
         Args:
             channel (int): BCM pin number on which the edge was detected.
         """
-        if not callable(self.edge_event_callback):
+        # Read the callback once into a local: gpio_cleanup() may set
+        # edge_event_callback to None from another thread between a check
+        # and the call, which would then raise TypeError on None.
+        callback = self.edge_event_callback
+        if not callable(callback):
             oradio_log.error("No callback function found")
             return
 
@@ -326,6 +330,9 @@ class GPIOService:
 
         # Acquires self._lock (via get_button_state); gpio_cleanup() does not
         # hold it while calling GPIO.cleanup(). See gpio_cleanup()'s docstring.
+        # Note: the level is read after the event, not delivered with it (the
+        # RPi.GPIO-compatible API passes only the channel), so a very short
+        # tap can already be released here and be reported as a release only.
         pressed = self.get_button_state(button_name)
         state = BUTTON_PRESSED if pressed else BUTTON_RELEASED
 
@@ -334,7 +341,12 @@ class GPIOService:
             "name": button_name,
         }
 
-        self.edge_event_callback(button_data)
+        # The GPIO library swallows exceptions raised in its callback thread
+        # (at most a traceback on stderr), so log them here where they are seen.
+        try:
+            callback(button_data)
+        except Exception:   # pylint: disable=broad-exception-caught
+            oradio_log.error("Button edge callback failed for %s", button_name, exc_info=True)
 
 ##### Stand-alone entry point #############################
 

@@ -154,6 +154,11 @@ INCIDENT_BLINK_SECONDS = 3.0
 # or idles as usual while someone configures it from a phone.
 WEBSERVICE_BLINK_CYCLE = 2.0
 
+# How often a preset retry waiting for the library checks whether it has been
+# overtaken. Short enough that a stale retry thread goes away quickly; the
+# library becoming ready still wakes the current one at once.
+PRESET_RETRY_POLL = 1.0
+
 def run_later(delay: float, function, *args) -> None:
     """
     Run function(*args) after delay seconds, without waiting for it.
@@ -442,7 +447,35 @@ class StateMachine:
     def __init__(self) -> None:
         self.state = "StateStartUp"
         self.prev_state: str | None = None
+
+        # Two locks, always taken in this order: task_lock, then _lock.
+        #
+        # task_lock serialises the state handlers (and everything else that
+        # sets LEDs or talks to MPD on behalf of a state): only one runs at a
+        # time. Held for seconds at a time.
+        #
+        # _lock guards the bookkeeping: state, prev_state, _generation,
+        # _handler_generation and _delayed_timers. transition() holds it from
+        # first check to spawned worker, so a button press, a delayed
+        # transition firing and a worker arming a timer can no longer
+        # interleave. Never held while waiting for task_lock -- that would
+        # invert the order. RLock because a delayed transition firing calls
+        # transition() while already holding it.
         self.task_lock = threading.Lock()
+        self._lock = threading.RLock()
+
+        # Incremented for every state worker transition() spawns. A worker,
+        # timer or retry carries the value it was created under, and does
+        # nothing once a newer one exists. This is what keeps a handler that
+        # was overtaken while it waited for task_lock -- threading.Lock is not
+        # FIFO -- from running after the one that overtook it.
+        self._generation = 0
+
+        # The generation of the handler that currently holds task_lock (or
+        # last held it). Lets code running inside a handler -- arming a
+        # timer, scheduling an LED off, starting a retry -- tag what it
+        # starts without every handler passing it around.
+        self._handler_generation = -1
         self._websvc = None  # injected WebService
         self._pd_mode: str | None = None  # track power supply PD state "nom" or "max"
 
@@ -625,16 +658,58 @@ class StateMachine:
 
         Args:
             recovered: Passed on to the handler; see transition().
+
+        Must be called with _lock held. Starts a new generation, so every
+        worker, timer and retry from before this point is now stale.
         """
+        self._generation += 1
         threading.Thread(
-            target=self.run_state_method, args=(self.state,),
+            target=self.run_state_method, args=(self.state, self._generation),
             kwargs={"recovered": recovered}, daemon=True,
             name=f"state-worker-{self.state}",
         ).start()
 
+    def is_current(self, generation: int) -> bool:
+        """Whether no transition has spawned a newer state worker since `generation`."""
+        with self._lock:
+            return generation == self._generation
+
+    def _led_off_later(self, delay: float, led: str) -> None:
+        """
+        Turn an LED off after `delay` seconds, unless the state moved on.
+
+        Args:
+            delay: Seconds to wait.
+            led:   The LED to turn off.
+
+        Called from a state handler, so it is tagged with that handler's
+        generation. A plain run_later(turn_off_led) could not be called off,
+        and switched off whatever a newer state had put on that LED in the
+        meantime -- the error blink of a USB stick pulled within seconds of
+        Stop, or of a StateError entered right after a recovery.
+        """
+        generation = self._handler_generation
+
+        def _off() -> None:
+            # task_lock first, in the documented order: holding it means no
+            # handler is setting LEDs while this decides and acts.
+            with self.task_lock:
+                if not self.is_current(generation):
+                    oradio_log.debug("Not turning off %s: state moved on", led)
+                    return
+                leds.turn_off_led(led)
+
+        run_later(delay, _off)
+
     # ---- delayed-transition helpers ----
     def _cancel_all_delayed(self):
-        """Cancel and clear all pending delayed transitions."""
+        """
+        Cancel and clear all pending delayed transitions. Must be called with _lock held.
+
+        cancel() cannot stop a timer whose callback has already started; that
+        callback finds itself gone from _delayed_timers and does nothing (see
+        _arm_delayed_transition()).
+        """
         for timer in self._delayed_timers.values():
             try:
                 timer.cancel()
@@ -653,38 +728,53 @@ class StateMachine:
             target_state: Where to go when it fires.
             from_state:   Arm only while the machine is still in this state.
 
-        from_state exists because the handler that arms a timer runs on a
-        worker thread, started by transition() after it cancelled the previous
-        timers. A button pressed in between is committed by transition() on its
-        own thread -- and then this call arms a timer the cancel already came
-        too early for, which a few seconds later throws away what the user just
-        asked for. Pressing a preset while the start-up LED blinked started the
-        music and then stopped it again when the blinking ended.
+        Called from a state handler, which runs on a worker thread started by
+        transition() after it cancelled the previous timers. A button pressed
+        in between is committed by transition() on its own thread -- and arming
+        anyway would throw away, a few seconds later, what the user just asked
+        for. Pressing a preset while the start-up LED blinked started the music
+        and then stopped it again when the blinking ended.
 
-        This narrows that window from seconds to microseconds rather than
-        closing it: state and timers are not committed under one lock, so a
-        transition landing between the check and the arm below still wins.
-        Closing it properly means giving the state machine a lock that spans
-        both, which is a larger change than this guard.
+        Closed by checking, under _lock, that the calling handler's generation
+        is still the current one: any transition committed since then has
+        bumped it. from_state is checked as well, as a second guard.
+
+        The fire side is closed the same way: a timer whose callback already
+        started cannot be cancelled, so the callback checks under _lock that
+        it is still the armed timer for its key. Every transition clears
+        _delayed_timers, so a timer overtaken by a button press does nothing.
         """
-        if from_state is not None and self.state != from_state:
-            oradio_log.info(
-                "Not arming %s: state moved from %s to %s", key, from_state, self.state
-            )
-            return
+        with self._lock:
+            if self._handler_generation != self._generation:
+                oradio_log.info("Not arming %s: a newer transition is pending", key)
+                return
 
-        old = self._delayed_timers.pop(key, None)
-        if old is not None:
-            try:
-                old.cancel()
-            except (RuntimeError, ValueError) as err:
-                oradio_log.debug("Failed to cancel previous timer: %s", err)
+            if from_state is not None and self.state != from_state:
+                oradio_log.info(
+                    "Not arming %s: state moved from %s to %s", key, from_state, self.state
+                )
+                return
 
-        timer = threading.Timer(delay_s, lambda: self.transition(target_state))
-        timer.name = f"delayed-{target_state}"
-        timer.daemon = True
-        self._delayed_timers[key] = timer
-        timer.start()
+            old = self._delayed_timers.pop(key, None)
+            if old is not None:
+                try:
+                    old.cancel()
+                except (RuntimeError, ValueError) as err:
+                    oradio_log.debug("Failed to cancel previous timer: %s", err)
+
+            def _fire() -> None:
+                with self._lock:
+                    if self._delayed_timers.get(key) is not timer:
+                        oradio_log.debug("Delayed %s overtaken; not firing", key)
+                        return
+                    del self._delayed_timers[key]
+                    self.transition(target_state)
+
+            timer = threading.Timer(delay_s, _fire)
+            timer.name = f"delayed-{target_state}"
+            timer.daemon = True
+            self._delayed_timers[key] = timer
+            timer.start()
 
     def transition(self, requested_state: str, *, reenter: bool = False,
                    recovered: bool = False) -> bool:
@@ -715,7 +805,20 @@ class StateMachine:
             so a caller that sets something up before asking can put it back.
 
         Request a transition; applies guards and spawns the handler.
+
+        Thread-safe: called from the command handler and from delayed-transition
+        timers, and holds _lock throughout so the check, the commit, the timer
+        cancel and the spawn are one step. Never takes task_lock, which keeps
+        the lock order (task_lock before _lock) intact. Note that the guards
+        below can talk to MPD ("next song") or stop the web service while
+        holding _lock; a timer firing then waits, which is what it should do.
         """
+        with self._lock:
+            return self._transition_locked(requested_state, reenter=reenter, recovered=recovered)
+
+    def _transition_locked(self, requested_state: str, *, reenter: bool,
+                           recovered: bool) -> bool:
+        """transition() itself; see there. Must be called with _lock held."""
         if self.state == "StateError":
             oradio_log.warning("Ignoring transition to %s because StateError is active", requested_state)
             return False
@@ -744,14 +847,25 @@ class StateMachine:
         self._spawn_state_worker(recovered=recovered)
         return True
 
-    def run_state_method(self, state_to_handle: str, *, recovered: bool = False) -> None:
+    def run_state_method(self, state_to_handle: str, generation: int, *,
+                         recovered: bool = False) -> None:
         """
         Dispatch state handling to the right handler.
 
         Args:
             state_to_handle: The state whose handler to run.
+            generation:      The generation transition() spawned this worker
+                             under; see _generation.
             recovered:       Blink the STOP LED once the handler is done, to say
                              the incident service repaired something.
+
+        Skipped when a newer transition has been committed while this worker
+        waited for task_lock. Workers queue on that lock in no particular
+        order, so without this Preset1 then Preset2 pressed quickly could end
+        with state StatePreset2 and Preset1 playing -- or, worse, an older
+        _state_play() starting the music again after StateError stopped it.
+        The newest worker always runs, so the last request is what the user
+        gets.
 
         The blink goes here and not in the handler because turn_off_all_leds()
         above would switch it off again: it runs immediately before every
@@ -759,6 +873,15 @@ class StateMachine:
         anything started before it does not.
         """
         with self.task_lock:
+            with self._lock:
+                if generation != self._generation:
+                    oradio_log.info(
+                        "Skipping handler for %s: overtaken by a newer transition (now %s)",
+                        state_to_handle, self.state,
+                    )
+                    return
+                self._handler_generation = generation
+
             leds.turn_off_all_leds()
             handler = self._handlers.get(state_to_handle, self._state_unknown)
             handler()
@@ -770,11 +893,12 @@ class StateMachine:
                 # fault is behind us, and a vocabulary of four speeds is one
                 # nobody learns.
                 #
-                # run_later() and not a sleep: task_lock is held here, so
-                # waiting would be three seconds in which no button could change
-                # anything.
+                # A timer and not a sleep: task_lock is held here, so waiting
+                # would be three seconds in which no button could change
+                # anything. Tagged with this generation, so it leaves alone an
+                # error blink a newer state started on the same LED.
                 leds.control_blinking_led(LED_STOP, ERROR_BLINK_CYCLE)
-                run_later(INCIDENT_BLINK_SECONDS, leds.turn_off_led, LED_STOP)
+                self._led_off_later(INCIDENT_BLINK_SECONDS, LED_STOP)
 
     # --- State handlers ---
 
@@ -786,12 +910,19 @@ class StateMachine:
         mpd_control.play()
         play_sound(SOUND_PLAY)
 
-    def _play_preset(self, preset: str) -> None:
+    def _play_preset(self, preset: str, *, retry_if_not_ready: bool = True) -> None:
         """
         Play a preset and say what happened, waiting for the library if needed.
 
         Args:
-            preset: Preset key to play, e.g. "Preset1".
+            preset:             Preset key to play, e.g. "Preset1".
+            retry_if_not_ready: Hand a "not ready yet" to _retry_preset(). False
+                                when called from _retry_preset() itself, so a
+                                play() that keeps failing after the library is
+                                ready cannot loop.
+
+        Must be called with task_lock held (from a state handler or from
+        _retry_preset()).
 
         The LED blinks first, at the rate this module already uses for "busy".
         play() can take seconds -- it waits on MPDService's lock, which the
@@ -856,39 +987,58 @@ class StateMachine:
             run_later(2, play_sound, SOUND_PRESET_EMPTY)
             return
 
+        if not retry_if_not_ready:
+            # The library is ready and play() still has nothing. Not "empty
+            # preset" (play() says False for that) and not worth another
+            # round: say which button it was and stop blinking.
+            oradio_log.error("Preset '%s' still not playable after the library became ready", preset)
+            leds.turn_on_led(led)
+            play_sound(sound)
+            return
+
         oradio_log.info("Preset '%s' pressed before the library was ready", preset)
         threading.Thread(
-            target=self._retry_preset, args=(preset,),
+            target=self._retry_preset, args=(preset, self._handler_generation),
             daemon=True, name=f"preset-retry-{preset}",
         ).start()
 
-    def _retry_preset(self, preset: str) -> None:
+    def _retry_preset(self, preset: str, generation: int) -> None:
         """
         Play a preset that was pressed before the library was ready.
 
         Args:
-            preset: Preset key the user pressed.
+            preset:     Preset key the user pressed.
+            generation: The generation of the handler that started this retry.
 
         Runs on its own thread so the command handler is free while it waits.
         The LED keeps blinking throughout, which is the whole point: the user
         pressed a button and can see it is still being worked on.
 
-        Cancelled by the user rather than by a timer. If they press anything
-        else the state machine leaves this preset, and the check below drops the
-        retry -- so a press that has been overtaken cannot start music nobody
-        asked for any more. No timeout for the same reason: waiting longer costs
-        nothing while they are still asking for this preset.
+        Cancelled by the user rather than by a timer: any transition after the
+        press makes this generation stale, and the retry is dropped -- so a
+        press that has been overtaken cannot start music nobody asked for. That
+        also means at most one retry ever plays: Preset1, Preset2, Preset1
+        pressed before the library is ready leaves three waiting threads, and
+        only the last one is current. The wait is in slices so the stale ones
+        notice and exit instead of waiting for the library for ever.
+
+        Plays under task_lock, like a state handler, and not under the state
+        machine lock: play() can take seconds, and holding the state machine
+        lock for that long would freeze every button. It also keeps it from
+        running at the same time as a handler's turn_off_all_leds().
         """
-        mpd_control.wait_for_library()
-
-        if self.state != f"State{preset}":
-            oradio_log.info("Dropping retry of '%s': state is now %s", preset, self.state)
-            return
-
-        with sm_lock:
-            if self.state != f"State{preset}":
+        while not mpd_control.wait_for_library(PRESET_RETRY_POLL):
+            if not self.is_current(generation):
+                oradio_log.info("Dropping retry of '%s': overtaken while waiting", preset)
                 return
-            self._play_preset(preset)
+
+        with self.task_lock:
+            with self._lock:
+                if generation != self._generation:
+                    oradio_log.info("Dropping retry of '%s': state is now %s", preset, self.state)
+                    return
+                self._handler_generation = generation
+            self._play_preset(preset, retry_if_not_ready=False)
 
     def _state_preset1(self):
         self._play_preset("Preset1")
@@ -906,7 +1056,11 @@ class StateMachine:
             leds.control_blinking_led(LED_PLAY, WEBSERVICE_BLINK_CYCLE)
 
     def _state_stop(self):
-        leds.oneshot_on_led(LED_STOP, 4)
+        # Not leds.oneshot_on_led(): its timer cannot be called off, and would
+        # switch off an error blink a newer state put on LED_STOP within the
+        # four seconds (a USB stick pulled right after Stop).
+        leds.turn_on_led(LED_STOP)
+        self._led_off_later(4, LED_STOP)
         if mpd_control.is_webradio():
             mpd_control.stop()
         else:
@@ -1287,14 +1441,12 @@ def on_web_pl3_webradio_changed():
 
 # ----------------- Touch buttons -----------------
 
-# Serialises button-driven transitions with _retry_preset(). Not taken by the
-# other message handlers (they share the command handler thread with the
-# buttons) nor by the delayed-transition timers.
-sm_lock = threading.RLock()
+# No lock here: transition() takes the state machine's own lock, which also
+# covers the delayed-transition timers and preset retries. The module-level
+# sm_lock that used to wrap these covered the buttons only.
 
 def _go(state: str) -> bool:
-    with sm_lock:
-        return state_machine.transition(state)
+    return state_machine.transition(state)
 
 # --- Touch button policy wiring ---
 def _on_play_pressed() -> None:
@@ -1313,9 +1465,12 @@ def _on_preset3_pressed() -> None:
     _go("StatePreset3")
 
 def _on_play_long_pressed() -> None:
-    # Long-press Play starts the web service (guarded by SM + lock)
-    with sm_lock:
-        state_machine.start_webservice()
+    # Long-press Play starts the web service. Deliberately not under the state
+    # machine lock: start() takes seconds, and holding the lock that long
+    # would stall delayed transitions and state workers arming timers. It runs
+    # on the command handler thread, so it is serialised with every other
+    # button and message anyway.
+    state_machine.start_webservice()
 
 # --- end wiring ---
 
@@ -1438,8 +1593,8 @@ state_machine.transition("StateStartUp")
 
 # Warm the web stack now the Oradio is up and the tune is playing.
 #
-# WebService.start() runs on the command handler thread while holding the state
-# machine lock, and its first call imports uvicorn and FastAPI -- about six
+# WebService.start() runs on the command handler thread, and its first call
+# imports uvicorn and FastAPI -- about six
 # seconds cold. A long press would freeze every other button, knob and event
 # for that long, at the worst possible moment: a user configuring wifi on a new
 # device presses it within seconds of switching on.

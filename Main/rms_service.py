@@ -73,11 +73,11 @@ import re
 import json
 import uuid
 import subprocess
-from time import sleep
+from time import sleep, monotonic
 from pathlib import Path
 from collections import deque
 from collections.abc import Callable
-from threading import Timer, Event, Thread
+from threading import Timer, Event, Thread, current_thread, Lock as ThreadLock
 from datetime import datetime, UTC
 from dataclasses import dataclass
 from platform import python_version
@@ -86,7 +86,7 @@ from multiprocessing import Queue, Lock
 
 ##### Oradio modules ######################################
 from singleton import singleton
-from utilities import get_serial, ThreadTemplate
+from utilities import get_serial, ThreadTemplate, register_fatal_exit_hook
 from log_service import oradio_log, ORADIO_LOG_PATH
 from messaging import (
     Commands,
@@ -1376,6 +1376,15 @@ class _SendJob:
     generated: str
     incident: IncidentMessage | None = None
 
+class _FlushBarrier:
+    """
+    Marker job for _RmsSender.flush(): set once every job queued before it
+    has been handled. The queue is FIFO and served by one thread, so reaching
+    the barrier means everything ahead of it is done.
+    """
+    def __init__(self) -> None:
+        self.reached = Event()
+
 class _RmsSender(ThreadTemplate):
     """
     Post queued messages to RMS on a thread of its own.
@@ -1470,6 +1479,10 @@ class _RmsSender(ThreadTemplate):
         if job is self._stop_sentinel:
             return
 
+        if isinstance(job, _FlushBarrier):
+            job.reached.set()
+            return
+
         try:
             self._deliver(job)
         # We don't know what code is executed, thus not what exceptions are possible
@@ -1477,6 +1490,40 @@ class _RmsSender(ThreadTemplate):
             oradio_log.error(
                 "Error sending %s message to RMS: %s", job.msg_type, ex_err, exc_info=True
             )
+
+    def flush(self, timeout: float) -> bool:
+        """
+        Wait until everything queued so far has been posted (or dropped).
+
+        Args:
+            timeout: Seconds to wait at most.
+
+        Returns:
+            True when every job queued before this call has been handled,
+            False on timeout, when the sender is not running, or when called
+            from the sender thread itself (it would wait for itself).
+
+        For fatal_exit(): the incident that ends the process is queued here a
+        moment before os._exit(), and without waiting it never left the
+        Oradio. A barrier job is queued behind it; the single sender thread
+        handles jobs in order, so the barrier being reached means the posts
+        ahead of it are done.
+
+        Blocking put with the same deadline: the queue may be full, and a
+        flush that cannot even queue its barrier has not flushed anything.
+        """
+        if self._thread is None or not self._thread.is_alive():
+            return False
+        if self._thread is current_thread():
+            return False
+
+        deadline = monotonic() + timeout
+        barrier = _FlushBarrier()
+        try:
+            self._jobs.put(barrier, timeout=max(0.0, deadline - monotonic()))
+        except Full:
+            return False
+        return barrier.reached.wait(max(0.0, deadline - monotonic()))
 
     def stop(self) -> None:
         """
@@ -1492,9 +1539,13 @@ class _RmsSender(ThreadTemplate):
 
         while True:
             try:
-                self._jobs.get_nowait()
+                discarded = self._jobs.get_nowait()
             except Empty:
                 break
+            # A flush() waiting on a discarded barrier is released: the jobs
+            # ahead of it are handled, by being discarded.
+            if isinstance(discarded, _FlushBarrier):
+                discarded.reached.set()
 
         try:
             self._jobs.put_nowait(self._stop_sentinel)
@@ -1562,7 +1613,9 @@ class _RmsSender(ThreadTemplate):
             # that would fail in turn and publish another, so this is what
             # stops a failure from looping. Nothing is lost: the POST that
             # would carry it is the one that just failed, and the failure is
-            # already in the local log.
+            # already in the local log. WifiMessageHandler.send_message()
+            # already filters these before they take a queue slot; this is
+            # the second guard, for a job that reached the queue another way.
             if job.incident.source == RMS_SOURCE:
                 oradio_log.debug("Not reporting RMS's own incident: %s", job.incident.message)
                 return
@@ -1644,6 +1697,19 @@ class WifiMessageHandler(MessageHandlerTemplate):
         # See _hold_incident() for why only incidents wait, and why bounded.
         self._pending_incidents: deque[IncidentMessage] = deque(maxlen=PENDING_INCIDENTS_MAX)
 
+        # Guards _wifi_connected together with _pending_incidents. They are
+        # touched by the incident bus worker (send_message), this handler's
+        # worker (_handle_message) and the heartbeat timer, and the "is WiFi
+        # up? then hold it" check must not interleave with WiFi coming up and
+        # the backlog being emptied, or an incident is stranded in the backlog
+        # (held just after the flush) or lost (appended between the snapshot
+        # and the clear). Held only for those few in-memory steps, never
+        # across a submit() to the sender or anything that touches the
+        # network. Plain reads of _wifi_connected (the sender's lambda below,
+        # the wifi_connected property, flush()) need no lock: a single
+        # attribute read is atomic and they only need the latest value.
+        self._state_lock = ThreadLock()
+
         # Posts run here instead of on whichever thread called
         # send_message(). Started before the base class starts its own
         # worker, so the queue is being drained from the moment the first
@@ -1659,6 +1725,9 @@ class WifiMessageHandler(MessageHandlerTemplate):
     def _hold_incident(self, incident: IncidentMessage) -> None:
         """
         Keep an incident until WiFi can carry it.
+
+        Caller must hold _state_lock, the same lock under which it found WiFi
+        down, so WiFi cannot come up and flush the backlog in between.
 
         Args:
             incident: The incident that could not be sent.
@@ -1687,15 +1756,24 @@ class WifiMessageHandler(MessageHandlerTemplate):
         """
         Send everything that was waiting for WiFi, oldest first.
 
-        Called when WiFi comes back. The list is emptied before sending so an
-        incident raised by the sending itself cannot be appended to a list this
-        loop is still walking.
-        """
-        if not self._pending_incidents:
-            return
+        Called when WiFi comes back. The list is snapshotted and emptied under
+        _state_lock, so an incident held concurrently either makes the
+        snapshot or finds WiFi up and is sent directly -- never lost between
+        the copy and the clear. Sending happens after the lock is released, so
+        an incident raised by the sending itself cannot be appended to a list
+        this loop is still walking, and the lock is never held across a submit.
 
-        waiting = list(self._pending_incidents)
-        self._pending_incidents.clear()
+        An incident that arrives on another thread between the lock being
+        released and this loop finishing may be queued ahead of some of the
+        held ones; each carries its own timestamp, so that only changes the
+        order they are posted in.
+        """
+        with self._state_lock:
+            waiting = list(self._pending_incidents)
+            self._pending_incidents.clear()
+
+        if not waiting:
+            return
 
         oradio_log.info("WiFi available; sending %d held incident(s)", len(waiting))
         for incident in waiting:
@@ -1714,12 +1792,17 @@ class WifiMessageHandler(MessageHandlerTemplate):
             message: The received message from the queue.
         """
         if message.message == WIFI_DISCONNECTED:
-            self._wifi_connected = False
+            with self._state_lock:
+                self._wifi_connected = False
             Heartbeat.stop_heartbeat()
             oradio_log.debug("WiFi disconnected. Heartbeat stopped.")
 
         elif message.message == WIFI_CONNECTED:
-            self._wifi_connected = True
+            # Set under the lock so a concurrent send_message() either holds
+            # its incident before this (and _flush_incidents() picks it up) or
+            # sees WiFi up after it and sends directly.
+            with self._state_lock:
+                self._wifi_connected = True
             self._flush_incidents()
             Heartbeat.start_heartbeat(HEARTBEAT_REPEAT, self.send_message, args=(HEARTBEAT,))
             # Immediately report hardware/software identity on every new connection
@@ -1727,8 +1810,13 @@ class WifiMessageHandler(MessageHandlerTemplate):
             oradio_log.debug("WiFi connected. Heartbeat started and system info sent.")
 
         elif message.message == WIFI_ACCESS_POINT:
-            # Heartbeat cannot be active, info message cannot be sent
-            self._wifi_connected = False
+            # No uplink in access point mode: heartbeat cannot be active and
+            # info message cannot be sent, so stop a heartbeat left running by
+            # a WIFI_CONNECTED that was not followed by WIFI_DISCONNECTED.
+            with self._state_lock:
+                self._wifi_connected = False
+            Heartbeat.stop_heartbeat()
+            oradio_log.debug("WiFi access point mode. Heartbeat stopped.")
 
         elif message.message == WIFI_CONNECT_FAILED:
             # Meant for oradio_control (the user retries, nothing on the Oradio is
@@ -1776,7 +1864,23 @@ class WifiMessageHandler(MessageHandlerTemplate):
             oradio_log.error("send_message(INCIDENT) requires an IncidentMessage")
             return
 
-        if not self._wifi_connected:
+        # RMS's own incidents are never POSTed (see _RmsSender._deliver(),
+        # which keeps the same check as a second guard). Filtered here as
+        # well so a burst of RMS_POST_FAILED cannot take slots in the backlog
+        # or the send queue and push out incidents that would be sent.
+        if incident is not None and incident.source == RMS_SOURCE:
+            oradio_log.debug("Not reporting RMS's own incident: %s", incident.message)
+            return
+
+        # Checked and acted on under _state_lock, so WiFi cannot come up and
+        # flush the backlog between finding it down and holding the incident.
+        # The submit() below happens after the lock is released.
+        with self._state_lock:
+            wifi_connected = self._wifi_connected
+            if not wifi_connected and incident is not None:
+                self._hold_incident(incident)
+
+        if not wifi_connected:
             # Incidents wait; heartbeats and system info do not.
             #
             # An incident describes something that happened at a moment, and it
@@ -1789,9 +1893,9 @@ class WifiMessageHandler(MessageHandlerTemplate):
             # volume control -- is raised in the seconds before WiFi connects,
             # so without this the incidents nobody can afford to lose are
             # exactly the ones that were dropped.
-            if incident is not None:
-                self._hold_incident(incident)
-            else:
+            #
+            # An incident has already been held above, under the lock.
+            if incident is None:
                 oradio_log.debug("WiFi not available; not sending %s message", msg_type)
             return
 
@@ -1824,15 +1928,37 @@ class WifiMessageHandler(MessageHandlerTemplate):
             )
         )
 
+    def flush(self, timeout: float) -> bool:
+        """
+        Wait until the sender has posted everything queued so far.
+
+        Args:
+            timeout: Seconds to wait at most.
+
+        Returns:
+            True when the queue was drained in time. False on timeout, or at
+            once when WiFi is down: then incidents are held in memory rather
+            than queued, and no amount of waiting sends them.
+        """
+        if not self._wifi_connected:
+            return False
+        return self._sender.flush(timeout)
+
     def stop(self) -> None:
         """
-        Stop the sender thread, then the message worker.
+        Stop the message worker, then the heartbeat, then the sender thread.
 
-        In this order so that nothing is left sitting in the send queue
-        with no thread left to drain it.
+        In this order because each one feeds the next. The message worker
+        is stopped first so no WIFI_CONNECTED handled late can restart the
+        heartbeat or submit held incidents and SYS_INFO after the later
+        steps. The heartbeat (class-level, so it would otherwise keep firing
+        into this handler forever) is stopped next, so it stops submitting.
+        The sender goes last and discards whatever was queued; anything
+        another thread submits after that just sits in its queue unsent.
         """
-        self._sender.stop()
         super().stop()
+        Heartbeat.stop_heartbeat()
+        self._sender.stop()
 
 @singleton
 class RMService:
@@ -1866,6 +1992,33 @@ class RMService:
         self._queue: Queue | None = None
         self._handler: WifiMessageHandler | None = None
 
+        # Serialises start() and stop() so concurrent calls cannot interleave
+        # their check-then-act on _handler and _queue. Not reentrant, and not
+        # needed to be: neither start() nor stop() calls the other, and
+        # incident_service._restart_subsystem() calls stop() then start() one
+        # after the other on the same thread. The other methods do not take
+        # it; they snapshot _handler once and use that.
+        self._lifecycle_lock = ThreadLock()
+
+        # fatal_exit() waits (bounded) for queued posts before ending the
+        # process, so the incident that caused the exit reaches RMS. Registered
+        # once, here: this is a singleton, so __init__ runs once.
+        register_fatal_exit_hook(self._flush_before_exit)
+
+    def _flush_before_exit(self, timeout: float) -> None:
+        """fatal_exit() hook: wait for queued RMS posts, and log the outcome."""
+        handler = self._handler
+        if handler is None:
+            return
+        if not handler.wifi_connected:
+            oradio_log.warning("Fatal exit: WiFi down, held incidents are not sent")
+            return
+        oradio_log.info("Fatal exit: waiting up to %.0fs for RMS to send queued messages", timeout)
+        if self.flush(timeout):
+            oradio_log.info("Fatal exit: RMS messages sent")
+        else:
+            oradio_log.warning("Fatal exit: RMS messages not all sent in time")
+
     def start(self) -> None:
         """
         Subscribe to WiFi state change events and start the handler thread.
@@ -1874,23 +2027,24 @@ class RMService:
         a no-op. If handler creation fails, any partial subscription is
         rolled back and an incident is published.
         """
-        if self._handler is not None:
-            oradio_log.debug("RMS service already running")
-            return
+        with self._lifecycle_lock:
+            if self._handler is not None:
+                oradio_log.debug("RMS service already running")
+                return
 
-        # Subscribe to WiFi messages only
-        self._queue = Commands.subscribe(sources=(WIFI_SOURCE,))
+            # Subscribe to WiFi messages only
+            self._queue = Commands.subscribe(sources=(WIFI_SOURCE,))
 
-        # Start queue listener thread
-        try:
-            self._handler = WifiMessageHandler(self._queue)
-            oradio_log.info("RMS service started")
-        except Exception as ex_err:  # pylint: disable=broad-exception-caught
-            oradio_log.error("RMS service failed to start: %s", ex_err)
-            # Roll back the subscription so a later start() begins clean
-            Commands.unsubscribe(self._queue)
-            self._queue = None
-            Incidents.publish(IncidentMessage(RMS_SOURCE, RMS_START_FAILED))
+            # Start queue listener thread
+            try:
+                self._handler = WifiMessageHandler(self._queue)
+                oradio_log.info("RMS service started")
+            except Exception as ex_err:  # pylint: disable=broad-exception-caught
+                oradio_log.error("RMS service failed to start: %s", ex_err)
+                # Roll back the subscription so a later start() begins clean
+                Commands.unsubscribe(self._queue)
+                self._queue = None
+                Incidents.publish(IncidentMessage(RMS_SOURCE, RMS_START_FAILED))
 
     @property
     def wifi_connected(self) -> bool:
@@ -1910,10 +2064,11 @@ class RMService:
 
         False when the service is not started: nothing can be sent then either.
         """
-        if self._handler is None:
+        handler = self._handler
+        if handler is None:
             return False
 
-        return self._handler.wifi_connected
+        return handler.wifi_connected
 
     def send_message(self, msg_type: str, incident: IncidentMessage | None = None) -> None:
         """
@@ -1934,38 +2089,59 @@ class RMService:
             incident: Required when msg_type is INCIDENT (ignored
                       otherwise) -- the IncidentMessage to report.
         """
-        if self._handler is None:
+        handler = self._handler
+        if handler is None:
             oradio_log.error("RMS service not started; cannot send %s", msg_type)
             return
 
-        self._handler.send_message(msg_type, incident)
+        handler.send_message(msg_type, incident)
+
+    def flush(self, timeout: float) -> bool:
+        """
+        Wait until queued messages have been posted. See WifiMessageHandler.flush().
+
+        Args:
+            timeout: Seconds to wait at most.
+
+        Returns:
+            True when drained in time; False on timeout, without WiFi, or when
+            the service is not started.
+        """
+        handler = self._handler
+        if handler is None:
+            return False
+        return handler.flush(timeout)
 
     def stop(self) -> None:
         """
         Shut down the RMS service cleanly.
 
-        Stops the heartbeat timer, unsubscribes from the command queue,
-        and signals the worker threads to exit. Anything still waiting to
-        be sent is discarded rather than posted, so shutdown is not held
+        Unsubscribes from the command queue and stops the handler, which
+        stops its message worker, the heartbeat timer and the sender, in
+        that order (see WifiMessageHandler.stop()). Anything still waiting
+        to be sent is discarded rather than posted, so shutdown is not held
         up by a backlog. Does nothing if the service was never started (or
         has already been stopped).
         """
-        if self._handler is None:
-            oradio_log.debug("RMS service not running")
-            return
+        with self._lifecycle_lock:
+            if self._handler is None:
+                oradio_log.debug("RMS service not running")
+                return
 
-        # Invariant: start() always sets _queue and _handler together, and
-        # every reset path (here and the rollback in start()) clears both
-        # together, so _handler being set guarantees _queue is too. Asserted
-        # so mypy can narrow _queue from Optional[Queue] to Queue below.
-        assert self._queue is not None
+            # Invariant: start() always sets _queue and _handler together, and
+            # every reset path (here and the rollback in start()) clears both
+            # together, so _handler being set guarantees _queue is too. Asserted
+            # so mypy can narrow _queue from Optional[Queue] to Queue below.
+            assert self._queue is not None
 
-        Heartbeat.stop_heartbeat()
-        Commands.unsubscribe(self._queue)
-        self._handler.stop()
-        self._handler = None
-        self._queue = None
-        oradio_log.info("RMS service stopped")
+            # The heartbeat is not stopped here but inside handler.stop(),
+            # after its message worker: stopped before, a WIFI_CONNECTED
+            # still queued for that worker would start it again.
+            Commands.unsubscribe(self._queue)
+            self._handler.stop()
+            self._handler = None
+            self._queue = None
+            oradio_log.info("RMS service stopped")
 
 ##### Stand-alone entry point #############################
 

@@ -26,8 +26,11 @@ Created on September 14, 2026
       - a crash budget that is spent gives up and reports
       - the budget decays, so an old crash does not count forever
       - a stop during the backoff cancels the restart
+      - a restart from another thread does not make an earlier safe_start()
+        report a timeout for a run that did start
 """
 import sys
+import threading
 import time
 import types
 import unittest
@@ -260,6 +263,79 @@ class TestBudget(ThreadTemplateTestCase):
         self.assertLess(elapsed, 4.0, "safe_stop waited out the backoff")
         self.assertEqual(self._attempts(worker), 1, "restarted despite the stop")
         self.assertEqual(worker.calls.count("on_stopped"), 1)
+
+
+class TestConcurrentRestart(ThreadTemplateTestCase):
+    """A safe_start() whose run is restarted by another thread still reports it."""
+
+    def test_restart_does_not_steal_the_first_callers_ready_signal(self):
+        """
+        safe_stop() + safe_start() from another thread, while the first
+        safe_start() has not yet got round to waiting, must not turn its
+        success into a timeout.
+
+        Deterministic rather than timing-dependent: the first caller's wait is
+        held back on a gate until the second run has begun, and that run's
+        setup() is slower than the first caller's timeout. Waiting on a shared,
+        cleared Event, the first caller would then time out on a thread that
+        did start.
+        """
+        gate = threading.Event()
+        second_setup_entered = threading.Event()
+
+        class GatedEvent(threading.Event):
+            """Holds back wait() in the first caller until the gate opens."""
+
+            def wait(self, timeout=None):
+                if threading.current_thread().name == "first-caller":
+                    gate.wait(2)
+                return super().wait(timeout)
+
+        class SlowSecondSetup(_Recorder):
+            """A recorder whose second setup() outlasts the first caller's timeout."""
+
+            def setup(self) -> None:
+                super().setup()
+                if self.calls.count("setup") == 2:
+                    second_setup_entered.set()
+                    time.sleep(0.8)
+
+        original_event = utilities.Event
+        utilities.Event = GatedEvent
+        try:
+            worker = SlowSecondSetup(interval=0.02, name="restarted")
+            results: list[bool] = []
+
+            first = threading.Thread(
+                target=lambda: results.append(worker.safe_start(0.4)), name="first-caller"
+            )
+            first.start()
+
+            # Wait for run 1 to be up, then restart it from this thread.
+            self.assertTrue(_wait_until(lambda: "work" in worker.calls))
+            worker.safe_stop(2)
+            second = threading.Thread(target=worker.safe_start, args=(2,), name="second-caller")
+            second.start()
+            self.assertTrue(second_setup_entered.wait(2))
+
+            gate.set()
+            first.join(2)
+            second.join(2)
+            worker.safe_stop(2)
+        finally:
+            utilities.Event = original_event
+
+        self.assertEqual(results, [True], "first safe_start reported a timeout for a run that started")
+
+
+def _wait_until(predicate, timeout: float = 2.0) -> bool:
+    """Poll predicate until it is true or timeout expires; return its last value."""
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        if predicate():
+            return True
+        time.sleep(0.005)
+    return predicate()
 
 
 if __name__ == "__main__":

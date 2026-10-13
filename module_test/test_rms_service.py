@@ -30,7 +30,7 @@ from pathlib import Path
 from datetime import datetime
 from typing import ClassVar
 from tempfile import TemporaryDirectory
-from threading import Event
+from threading import Event, Lock
 from unittest.mock import patch, MagicMock
 
 from requests import Response
@@ -1132,6 +1132,7 @@ class TestWifiMessageHandlerSendMessage(RmsTestCase):
         self.handler = rms_service.WifiMessageHandler.__new__(rms_service.WifiMessageHandler)
         self.handler._serial = "serial123"
         self.handler._wifi_connected = True
+        self.handler._state_lock = Lock()
         self.handler._sender = MagicMock()
 
     def submitted(self):

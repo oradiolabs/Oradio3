@@ -18,7 +18,7 @@ Created on April 28, 2025
 @summary:       Oradio touch buttons module with debounce and per-button callbacks.
     The module test is module_test/touch_buttons_test.py.
 """
-from threading import Timer
+from threading import Lock, Timer, current_thread
 from time import monotonic
 
 ##### Oradio modules ######################################
@@ -75,6 +75,11 @@ class TouchButtons:
         self.button_press_times: dict[str, float] = {}   # tracks the monotonic time of each button press
         self.last_trigger_times: dict[str, float] = {}   # tracks the last accepted press time per button
         self.long_press_timers: dict[str, Timer] = {}    # maps button name → active long-press Timer
+        # Guards long_press_timers, which the GPIO callback thread and the
+        # Timer threads both touch. With the identity check in
+        # _long_press_timeout() it keeps a timer that already fired from
+        # acting on (and disarming) the timer of a later press.
+        self._timers_lock = Lock()
 
         # Register the callback before enabling interrupts to guarantee no
         # edge event is missed between registration and the enable call.
@@ -142,7 +147,8 @@ class TouchButtons:
         if button_data["state"] == BUTTON_RELEASED:
             # Cancel the pending long-press timer so a release before
             # LONG_PRESS_DURATION does not fire a long-press event.
-            timer = self.long_press_timers.pop(button_name, None)
+            with self._timers_lock:
+                timer = self.long_press_timers.pop(button_name, None)
             if timer:
                 timer.cancel()
             return None
@@ -164,13 +170,14 @@ class TouchButtons:
         self.button_press_times[button_name] = now
 
         # Cancel any existing timer, then arm a fresh one for long-press detection.
-        prev = self.long_press_timers.pop(button_name, None)
-        if prev:
-            prev.cancel()
         timer = Timer(LONG_PRESS_DURATION, self._long_press_timeout, args=(button_name,))
         timer.name = f"long-press-{button_name}"
         timer.daemon = True
-        self.long_press_timers[button_name] = timer
+        with self._timers_lock:
+            prev = self.long_press_timers.pop(button_name, None)
+            self.long_press_timers[button_name] = timer
+        if prev:
+            prev.cancel()
         timer.start()
 
         play_sound(SOUND_CLICK)
@@ -184,15 +191,24 @@ class TouchButtons:
         Only buttons listed in VALID_LONG_PRESS_BUTTONS produce a long-press
         CommandMessage; all others are silently ignored.
 
+        Acts only if this timer is still the button's armed timer: cancel()
+        cannot stop a Timer that has already fired, so a timer whose press
+        was released (and maybe followed by a new press with its own timer)
+        must neither send a long press nor disarm the newer timer.
+
         Args:
             button_name (str): One of BUTTON_PLAY, BUTTON_STOP,
                                BUTTON_PRESET1, BUTTON_PRESET2, BUTTON_PRESET3.
         """
-        if not self.button_gpio.get_button_state(button_name):
-            return  # Button was released before the timeout fired; ignore.
+        with self._timers_lock:
+            if self.long_press_timers.get(button_name) is not current_thread():
+                return  # Superseded by a release or a newer press; ignore.
 
-        # Disarm the timer entry since we are executing the timeout now.
-        self.long_press_timers.pop(button_name, None)
+            if not self.button_gpio.get_button_state(button_name):
+                return  # Button was released before the timeout fired; ignore.
+
+            # Disarm the timer entry since we are executing the timeout now.
+            self.long_press_timers.pop(button_name, None)
 
         if button_name in VALID_LONG_PRESS_BUTTONS:
             self._send_message({
