@@ -18,17 +18,20 @@ Created on December 23, 2024
 @status:        Development
 @summary:       Web interface and FastAPI web server for Oradio.
     Serves the Oradio3 single-page application via the /oradio3 route,
-    exposes a generic /execute command endpoint, manages a keep-alive
-    timer that shuts the server down when the browser stops pinging,
-    and redirects all unmatched paths back to /oradio3.
+    exposes a generic /execute command endpoint, runs a watchdog that
+    shuts the portal down once nobody is using it any more (see the
+    "Portal watchdog" section), and redirects all unmatched paths back
+    to /oradio3.
     References:
         https://fastapi.tiangolo.com/
 """
+import subprocess
 from os import path
+from time import monotonic
 from typing import Any
 from json import load, JSONDecodeError
-from asyncio import sleep, create_task, CancelledError
-from datetime import datetime, timedelta, UTC
+from threading import Lock
+from multiprocessing import Queue
 from pydantic import BaseModel
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
@@ -38,8 +41,9 @@ from starlette.responses import RedirectResponse
 
 #### Oradio modules #######################################
 from log_service import oradio_log
-from utilities import get_serial, load_presets, store_presets, mask_secrets
+from utilities import get_serial, load_presets, store_presets, mask_secrets, ThreadTemplate
 from wifi_service import get_wifi_networks, get_saved_network
+from wifi_listener import WIFI_INTERFACE
 from mpd_control import MPDControl
 from messaging import (
     Commands,
@@ -72,9 +76,28 @@ INFO_ERROR   = {"dtstamp": "undefined", "version": "undefined"}
 # Location of the JSON file written by the build/deploy process
 SOFTWARE_VERSION_FILE = "/var/log/oradio_sw_version.log"
 
-# Seconds of inactivity before the keep-alive timer fires and stops the server.
-# The browser pings every 2 s, so missing 2 consecutive pings triggers shutdown.
-KEEP_ALIVE_TIMEOUT = 5
+# Portal watchdog timeouts, in seconds. See the "Portal watchdog" section for
+# how they combine. All of them are measured on the monotonic clock, so an NTP
+# step of the wall clock (the Pi has no RTC) can neither fire nor stall them.
+#
+# No page has pinged yet: the user still has to pick the Oradio network on the
+# phone and wait for the portal to pop up. Also the upper bound for a portal
+# nobody ever opens.
+FIRST_CONTACT_TIMEOUT = 600
+# The page stopped pinging while a phone is still associated with the access
+# point: the user switched to another app or locked the screen (the page only
+# pings while it is visible). Long enough to look something up and come back;
+# short enough that a forgotten portal does not linger.
+KEEP_ALIVE_TIMEOUT = 180
+# No client is associated with the access point any more, after one has been:
+# the user left the Oradio network, so nobody can come back to the page.
+NO_STATION_TIMEOUT = 30
+# How often the watchdog evaluates the rules above.
+WATCHDOG_INTERVAL = 2
+# Upper bound for one iw call, kept well inside ThreadTemplate's
+# JOIN_TIMEOUT (5 s): one check runs iw twice, so stopping the watchdog never
+# waits on a stuck iw.
+STATION_CHECK_TIMEOUT = 2
 
 # Full URL required by some mobile browsers (e.g. iOS Safari) that reject bare
 # hostnames in redirect responses.
@@ -94,60 +117,6 @@ api_app.mount("/static", StaticFiles(directory=web_path+"/static"), name="static
 
 # Jinja2 template engine pointed at the templates directory
 templates = Jinja2Templates(directory=web_path+"/templates")
-
-# Per-request-cycle timer state stored on the app so it persists across requests.
-# timer_started acts as a gate: keep_alive_middleware only manages the timer
-# after the first /keep_alive ping has set it to True.
-api_app.state.timer_task     = None   # The active asyncio task, or None if no timer is running
-api_app.state.timer_deadline = None   # UTC datetime of the next expiry, or None if timer has not been armed
-api_app.state.timer_started  = False  # Becomes True after the first /keep_alive ping
-
-@api_app.middleware("http")
-async def keep_alive_middleware(request: Request, call_next):
-    """
-    Pause and restart the keep-alive timer around every non-ping request.
-
-    The keep-alive timer is armed by the first /keep_alive ping from the
-    browser (timer_started = True). For all subsequent non-ping requests,
-    this middleware cancels the running timer before passing the request to
-    the handler, then either creates a new timer task or relies on the
-    existing one to pick up the refreshed deadline once the response is ready.
-    This prevents the server from timing out while actively serving a request.
-
-    /keep_alive requests are passed through without touching the timer, as
-    the /keep_alive endpoint manages the deadline itself.
-
-    Args:
-        request:   The incoming HTTP request.
-        call_next: ASGI callable that forwards the request to the route handler.
-
-    Returns:
-        The HTTP response produced by the route handler.
-    """
-    # Pause the timer for any request other than /keep_alive, but only after
-    # the timer has been armed by the first ping.
-    if request.url.path != "/keep_alive" and api_app.state.timer_started:
-        task = getattr(api_app.state, "timer_task", None)
-        if task and not task.done():
-            task.cancel()
-            api_app.state.timer_task = None
-            api_app.state.timer_deadline = None
-            oradio_log.trace("Keep-alive timer stopped for request %s", request.url.path)
-
-    # Process the request
-    response = await call_next(request)
-
-    # Restart the timer after the response is ready, again only for non-ping
-    # requests once the timer has been armed.
-    if request.url.path != "/keep_alive" and api_app.state.timer_started:
-        api_app.state.timer_deadline = datetime.now(UTC) + timedelta(seconds=KEEP_ALIVE_TIMEOUT)
-        # If a task is already running, it will pick up the new deadline on its
-        # next poll iteration; only create a new task when none is running.
-        if not getattr(api_app.state, "timer_task", None) or api_app.state.timer_task.done():
-            api_app.state.timer_task = create_task(stop_task())
-        oradio_log.trace("Keep-alive timer restarted for request %s", request.url.path)
-
-    return response
 
 ##### Helpers #############################################
 
@@ -527,67 +496,218 @@ async def oradio3_page(request: Request):
 
     return templates.TemplateResponse(request=request, name="oradio3.html", context=context)
 
-##### Keep Alive ##########################################
+##### Portal watchdog #####################################
+#
+# The portal must stop by itself once nobody uses it, but must survive the user
+# briefly switching to another app. The server cannot tell "page hidden" from
+# "user gone" by the pings alone -- in both cases they simply stop, and mobile
+# browsers suspend JavaScript too quickly to rely on a goodbye message -- so the
+# watchdog combines two signals:
+#
+#   1. Pings from the page (POST /keep_alive, only sent while it is visible).
+#      Each ping pushes the deadline KEEP_ALIVE_TIMEOUT ahead. Before the first
+#      ping the deadline is FIRST_CONTACT_TIMEOUT after start.
+#   2. Clients associated with the access point (iw station dump). Once a client
+#      has been seen, NO_STATION_TIMEOUT without any client stops the portal:
+#      the phone left the Oradio network, so the user cannot come back.
+#
+# Whichever rule fires first stops the portal. Captive-portal probes from the
+# OS (/hotspot-detect.html, /generate_204, ...) deliberately do NOT count as
+# activity: some phones repeat them for as long as they stay connected, which
+# would keep a forgotten portal alive forever.
 
-async def stop_task():
+def _iw(*args: str) -> str | None:
     """
-    Background asyncio task that fires when the keep-alive deadline passes.
+    Run 'iw dev <WIFI_INTERFACE> <args>' and return its output.
 
-    Polls the deadline in up to 200 ms increments so cancellation is
-    responsive; the final sleep before expiry may be shorter than 200 ms
-    if the remaining time is less than that. Once the deadline is reached,
-    places a REQUEST_STOP message on the service queue to trigger
-    a graceful shutdown.
+    These iw queries need no root privileges.
 
-    If the task is cancelled (because a new /keep_alive ping reset the
-    deadline) it exits silently without sending the stop message.
+    Args:
+        args: The iw sub-command, e.g. "info" or "station", "dump".
+
+    Returns:
+        stdout on success, or None if iw failed (missing, interface gone, ...).
     """
     try:
-        while True:
-            remaining = (api_app.state.timer_deadline - datetime.now(UTC)).total_seconds()
-            if remaining <= 0:
-                break
-            # Sleep in up to 200 ms increments so cancellation is picked up quickly.
-            await sleep(min(remaining, 0.2))
+        result = subprocess.run(
+            ["iw", "dev", WIFI_INTERFACE, *args],
+            capture_output=True, text=True, timeout=STATION_CHECK_TIMEOUT, check=False,
+        )
+    except (OSError, subprocess.SubprocessError) as ex_err:
+        oradio_log.warning("Station check failed: %s", ex_err)
+        return None
+    if result.returncode != 0:
+        oradio_log.warning("Station check failed: %s", result.stderr.strip())
+        return None
+    return result.stdout
 
-        safe_put(api_app.state.queue, {"request": REQUEST_STOP})
-        oradio_log.debug("Keep alive timer expired: closing the web server")
+def _station_connected() -> bool | None:
+    """
+    Report whether any client is associated with the Oradio access point.
 
-    except CancelledError:
-        # Task was cancelled because the keep-alive deadline was reset; exit cleanly.
-        pass
+    Only counts while the interface is in AP mode: in client mode, 'station
+    dump' lists the router the Oradio itself is connected to, which right
+    after a portal start (before the switch to AP mode) would otherwise look
+    like a phone that joined and then left.
+
+    Returns:
+        True if at least one client is associated with the access point,
+        False if none (or the access point is not up),
+        None if the check itself failed.
+    """
+    info = _iw("info")
+    if info is None:
+        return None
+    if "type AP" not in info:
+        return False
+    stations = _iw("station", "dump")
+    if stations is None:
+        return None
+    return "Station " in stations
+
+class PortalWatchdog(ThreadTemplate):
+    """
+    Stop the portal once nobody is using it; see the section comment above.
+
+    Built on ThreadTemplate with interval=WATCHDOG_INTERVAL: do_work() is one
+    evaluation of the rules. web_service arms and starts it together with the
+    Uvicorn server and stops it in WebService.stop(). It runs on its own
+    thread rather than as a task on Uvicorn's event loop, because the server
+    is stopped with force_exit, which skips the ASGI lifespan shutdown.
+
+    The session state (deadline, stations seen) is set by arm(), not setup():
+    setup() runs again on a restart after a crash, and resetting there would
+    lose a keep-alive or restart the FIRST_CONTACT_TIMEOUT window.
+
+    The /keep_alive endpoint (event loop thread) and do_work() (watchdog
+    thread) share the deadline; _state_lock keeps their accesses consistent.
+    """
+    # A crashed watchdog would leave the portal open indefinitely; restarting
+    # is safe because setup() and teardown() hold nothing.
+    restart_on_crash = True
+
+    def __init__(self) -> None:
+        """Create an idle watchdog; arm() and safe_start() bring it to life."""
+        super().__init__(interval=WATCHDOG_INTERVAL, name="PortalWatchdog")
+        self._state_lock = Lock()
+        self._queue: Queue | None = None   # Set by arm()
+        self._deadline = 0.0
+        self._pinged = False
+        self._station_seen = False
+        self._station_lost_since: float | None = None
+        self._station_check_ok = True
+
+    def arm(self, queue: Queue) -> None:
+        """
+        Prepare a new portal session. Call before safe_start().
+
+        Args:
+            queue: The service request queue that receives REQUEST_STOP.
+        """
+        with self._state_lock:
+            self._queue              = queue
+            self._deadline           = monotonic() + FIRST_CONTACT_TIMEOUT  # Ping deadline
+            self._pinged             = False  # A page has pinged at least once
+            self._station_seen       = False  # A client has been associated at least once
+            self._station_lost_since = None   # Monotonic time the last client left, or None
+            self._station_check_ok   = True   # False once iw proved unusable: rule 2 skipped
+
+    def ping(self) -> None:
+        """Register a keep-alive from the page: push the deadline ahead."""
+        with self._state_lock:
+            if not self._pinged:
+                self._pinged = True
+                oradio_log.debug("Portal page is open: first keep-alive received")
+            else:
+                oradio_log.trace("Keep-alive received")
+            self._deadline = monotonic() + KEEP_ALIVE_TIMEOUT
+
+    def _check_stations(self, now: float) -> str | None:
+        """
+        Apply rule 2 (no client associated any more).
+
+        Args:
+            now: Current monotonic time.
+
+        Returns:
+            A reason string if the portal must stop, otherwise None.
+        """
+        if not self._station_check_ok:
+            return None
+
+        connected = _station_connected()
+        reason = None
+
+        if connected is None:
+            # Fall back to the ping rules only, rather than guessing.
+            self._station_check_ok = False
+            oradio_log.warning("Station check unavailable: portal stops on ping timeouts only")
+
+        elif connected:
+            if not self._station_seen:
+                oradio_log.debug("Client associated with the access point")
+            elif self._station_lost_since is not None:
+                oradio_log.debug("Client associated with the access point again")
+            self._station_seen = True
+            self._station_lost_since = None
+
+        elif self._station_seen:
+            # A client was here and has left. Before anyone joined at all,
+            # FIRST_CONTACT_TIMEOUT covers the wait instead.
+            if self._station_lost_since is None:
+                self._station_lost_since = now
+                oradio_log.debug("No client associated with the access point any more")
+            elif now - self._station_lost_since >= NO_STATION_TIMEOUT:
+                reason = f"no client associated for {NO_STATION_TIMEOUT}s"
+
+        return reason
+
+    def do_work(self) -> None:
+        """
+        Evaluate the rules once; called every WATCHDOG_INTERVAL seconds.
+
+        When a rule fires, places a REQUEST_STOP message on the service queue
+        to trigger a graceful shutdown, and ends its own run: one request per
+        session is enough, and WebService.stop() follows right after.
+        """
+        now = monotonic()
+
+        reason = self._check_stations(now)
+
+        if reason is None:
+            with self._state_lock:
+                expired, pinged = now >= self._deadline, self._pinged
+            if expired:
+                if pinged:
+                    reason = f"no keep-alive from the page for {KEEP_ALIVE_TIMEOUT}s"
+                else:
+                    reason = f"portal not opened within {FIRST_CONTACT_TIMEOUT}s"
+
+        if reason is not None and not self.stopping:
+            oradio_log.info("Closing the web server: %s", reason)
+            if self._queue is None:
+                # Unreachable when arm() precedes safe_start(), as web_service does.
+                oradio_log.error("Portal watchdog not armed: cannot request the stop")
+            else:
+                safe_put(self._queue, {"request": REQUEST_STOP})
+            # End this run, the way WifiEventListener ends its own.
+            self._stop_event.set()
+
+# One watchdog per process; web_service reaches it through api_app.state.
+api_app.state.watchdog = PortalWatchdog()
 
 @api_app.post("/keep_alive")
 async def keep_alive():
     """
-    Reset the inactivity timer; arm it on the first call.
+    Register that the portal page is open and visible.
 
-    The first ping arms the timer (sets timer_started = True) so that
-    keep_alive_middleware begins managing it for subsequent requests.
-    Every ping then refreshes the deadline and ensures a stop_task
-    coroutine is running.
+    The page pings while it is visible; each ping pushes the watchdog's
+    deadline KEEP_ALIVE_TIMEOUT seconds ahead.
 
     Returns:
         JSONResponse({"status": "ok"}) always.
     """
-    now = datetime.now(UTC)
-
-    # Arm the timer on the first ping.
-    if not api_app.state.timer_started:
-        api_app.state.timer_started = True
-        oradio_log.trace("Keep-alive timer started on first ping")
-
-    if api_app.state.timer_deadline:
-        remaining = (api_app.state.timer_deadline - now).total_seconds()
-        oradio_log.trace("Keep-alive timer reset, %f seconds remaining", remaining)
-
-    # Advance the deadline.
-    api_app.state.timer_deadline = now + timedelta(seconds=KEEP_ALIVE_TIMEOUT)
-
-    # Start a new stop_task only if none is currently running.
-    if not api_app.state.timer_task or api_app.state.timer_task.done():
-        api_app.state.timer_task = create_task(stop_task())
-
+    api_app.state.watchdog.ping()
     return JSONResponse({"status": "ok"})
 
 ##### Catch all ###########################################
@@ -616,8 +736,7 @@ async def catch_all(request: Request):
 if __name__ == '__main__':
 
     import uvicorn
-    from threading import Thread
-    from multiprocessing import Queue
+    from threading import Thread                            # pylint: disable=ungrouped-imports
     from messaging import safe_get, DebugMessageHandler     # pylint: disable=ungrouped-imports
 
     # Most stand-alone entry points share this pattern across modules
@@ -655,8 +774,9 @@ if __name__ == '__main__':
     message_listener = Thread(target=_check_requests, args=(request_queue,), name="RequestMonitor")
     message_listener.start()
 
-    # timer_started is already False from the module-level initialisation above.
     api_app.state.queue = request_queue
+    api_app.state.watchdog.arm(request_queue)
+    api_app.state.watchdog.safe_start()
 
     try:
         uvicorn.run(
@@ -674,6 +794,7 @@ if __name__ == '__main__':
     finally:
         # Signal _check_requests to exit by sending the bare string constant as a
         # sentinel. Normal operation puts dicts; only this path puts the raw string.
+        api_app.state.watchdog.safe_stop()
         safe_put(request_queue, REQUEST_STOP)
         message_listener.join()
         Commands.unsubscribe(cmd_handler.get_queue())

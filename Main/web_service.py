@@ -761,34 +761,14 @@ class WebService:
             Incidents.publish(IncidentMessage(WEB_SOURCE, WEB_START_FAILED))
             status = False
 
-        # Reset the inactivity timer (auto-stops the portal after no client
-        # activity) before the server accepts connections, and cancel any
-        # lingering timer task from a previous session.
-        #
-        # api_app.state.timer_task is an asyncio.Task that belongs to the
-        # uvicorn event loop, which runs on a different OS thread than this
-        # method. Task.cancel() is not documented as thread-safe when called
-        # from outside the loop's own thread. This is only safe here because
-        # is_running (checked above) guarantees the previous UvicornServerThread
-        # has already been stop()'d and joined -- so if timer_task is not None,
-        # it belongs to an event loop that is no longer running. The guard below
-        # makes that invariant explicit and refuses to proceed if it's ever
-        # violated, rather than silently racing on live asyncio internals.
-        if status and self.uvicorn_server.is_running:
-            oradio_log.error(
-                "Refusing to reset keep-alive timer state: uvicorn server unexpectedly still running"
-            )
-            Incidents.publish(IncidentMessage(WEB_SOURCE, WEB_START_FAILED))
-            status = False
-
+        # Arm and start the portal watchdog (auto-stops the portal when nobody
+        # uses it) with fresh state before the server accepts connections, so
+        # the first keep-alive can never be lost to a reset. It runs on its own
+        # thread, so it is unaffected by how Uvicorn shuts down; stop() stops
+        # it, also after a failed start (via _handle_failed_start).
         if status:
-            # timer_task is set by the FastAPI app and may not exist on first run,
-            # so getattr is used rather than a direct attribute access.
-            if getattr(api_app.state, "timer_task", None) is not None:
-                api_app.state.timer_task.cancel()
-                api_app.state.timer_task = None
-            api_app.state.timer_started = False
-
+            api_app.state.watchdog.arm(self.request_queue)
+            api_app.state.watchdog.safe_start()
             if not self.uvicorn_server.start():
                 oradio_log.error("Uvicorn server failed to start")
                 Incidents.publish(IncidentMessage(WEB_SOURCE, WEB_START_FAILED))
@@ -896,6 +876,10 @@ class WebService:
         # server stops accepting connections.
         if self.wifi_service.get_state() == WIFI_ACCESS_POINT:
             self.wifi_service.wifi_disconnect()
+
+        # Stop the portal watchdog; a no-op if it never ran or already fired.
+        if api_app is not None:
+            api_app.state.watchdog.safe_stop()
 
         if self.uvicorn_server is None:
             oradio_log.error("Uvicorn server not initialized")
