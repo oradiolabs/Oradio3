@@ -403,7 +403,7 @@ else
 fi
 
 # -------------------------------------------------------
-# Mask systemd generators that are not used on Oradio
+# Disable systemd generators that do nothing on an Oradio
 # -------------------------------------------------------
 # Generators run serially before ANY unit starts, so their cost sits at the very
 # bottom of the critical chain.
@@ -412,12 +412,13 @@ fi
 # the same name in /usr/lib/systemd/system-generators, the same way unit file
 # overrides work.
 #
-# Note: Deliberately NOT masked:
-#  systemd-rc-local-generator - PiShrink puts its first-boot root partition
-#                                expansion in /etc/rc.local, and this generator is
-#                                what starts it. The script deletes rc.local when
-#                                done, so on later boots the generator finds
-#                                nothing and adds no unit.
+# Three are deliberately NOT masked:
+#  systemd-rc-local-generator - oradio_install.sh installs /etc/rc.local, which
+#                                grows the root partition on the first boot of a
+#                                flashed image, and this generator is what starts
+#                                it. rc.local deletes itself once it has expanded
+#                                the partition, so on later boots the generator
+#                                finds nothing and adds no unit.
 #  systemd-fstab-generator    - required; builds the mount units from /etc/fstab
 #  systemd-debug-generator    - cheap, and it is what makes systemd.mask=,
 #                                systemd.wants= and systemd.debug_shell work from

@@ -1,0 +1,102 @@
+#!/bin/sh
+#
+#  ####   #####     ##    #####      #     ####
+# #    #  #    #   #  #   #    #     #    #    #
+# #    #  #    #  #    #  #    #     #    #    #
+# #    #  #####   ######  #    #     #    #    #
+# #    #  #   #   #    #  #    #     #    #    #
+#  ####   #    #  #    #  #####      #     ####
+#
+# @author:        Henk Stevens & Olaf Mastenbroek & Onno Janssen
+# @copyright:     Stichting Oradio
+# @license:       GNU General Public License (GPL)
+# @organization:  Stichting Oradio
+# @email:         info@stichtingoradio.nl
+# @status:        Development
+# @Purpose:       Grow the root partition and its filesystem to fill the SD card
+#
+# Oradio images are shrunk with 'pishrink.sh -s', so a freshly flashed card has
+# unallocated space behind the root partition. rc-local.service runs this at the
+# end of every boot (systemd-rc-local-generator is deliberately NOT masked by
+# optimize_boot_time.sh), and it:
+#   - grows the partition and the ext4 filesystem when there is unallocated space
+#     behind the root partition, then deletes itself;
+#   - does nothing otherwise, and stays. That is the case on the card
+#     oradio_install.sh ran on: the install ends with a reboot, so a script that
+#     deleted itself on "nothing to do" would be gone before the card is imaged.
+#     The cost on such a card is one sh process reading three sysfs files.
+#
+# No reboot is needed. sfdisk writes the new table without asking the kernel to
+# re-read the whole disk, which it refuses while root is mounted. partx then
+# updates just this one partition, which the kernel does allow on a mounted
+# partition, and ext4 grows online.
+#
+# If partx fails anyway, FLAG records that the partition table is already done:
+# the kernel reads the new size on the next boot and only resize2fs is left.
+#
+# Output goes to the journal ('journalctl -u rc-local -b', lost on reboot) and to
+# PLACEHOLDER_LOGFILE_BOOT, which is kept.
+
+FLAG=/etc/rc.local.grow-fs
+MIN_FREE=32768	# 16 MiB in 512-byte sectors; less than that is not worth a resize
+
+# Journal (rc-local.service captures stdout) and Oradio's boot.log, which
+# survives reboots unlike the volatile journal. This runs as root: create
+# boot.log with the Oradio user as owner if it is missing, so the root append
+# below can never leave it root-owned (see oradio-prestart.sh). Logging must
+# never stop the expansion, so failures to write boot.log are ignored.
+BOOT_LOG="PLACEHOLDER_LOGFILE_BOOT"
+log() {
+	echo "rc.local: $*"
+	[ -e "$BOOT_LOG" ] || install -m 0644 -o PLACEHOLDER_USER -g PLACEHOLDER_GROUP /dev/null "$BOOT_LOG" 2>/dev/null
+	echo "$(date '+%F %T') rc.local: $*" >>"$BOOT_LOG" 2>/dev/null
+}
+
+ROOT_DEV=$(findmnt -n -o SOURCE /) || exit 0
+ROOT_NAME=${ROOT_DEV##*/}
+SYS_PART=/sys/class/block/$ROOT_NAME
+
+if [ ! -r "$SYS_PART/partition" ]; then
+	log "$ROOT_DEV is not a partition, nothing to expand"
+	exit 0
+fi
+
+if [ ! -e "$FLAG" ]; then
+	DISK_NAME=$(basename "$(readlink -f "$SYS_PART/..")")
+	DISK_DEV=/dev/$DISK_NAME
+	PART_NUM=$(cat "$SYS_PART/partition")
+	PART_END=$(( $(cat "$SYS_PART/start") + $(cat "$SYS_PART/size") ))
+	FREE=$(( $(cat "/sys/block/$DISK_NAME/size") - PART_END ))
+
+	# Already fills the card: the normal case on every boot of an installed card
+	[ "$FREE" -lt "$MIN_FREE" ] && exit 0
+
+	# Only the last partition can grow into the space behind it
+	for start in /sys/block/"$DISK_NAME"/"$DISK_NAME"*/start; do
+		if [ "$(cat "$start")" -ge "$PART_END" ]; then
+			log "$ROOT_DEV is not the last partition on $DISK_DEV, not expanding"
+			exit 0
+		fi
+	done
+
+	log "growing partition $PART_NUM on $DISK_DEV into $((FREE / 2048)) MiB of free space"
+	if ! echo ",+" | sfdisk --no-reread --no-tell-kernel -q -N "$PART_NUM" "$DISK_DEV"; then
+		log "sfdisk failed, retrying on next boot"
+		exit 0
+	fi
+	touch "$FLAG"
+
+	if ! partx -u -n "$PART_NUM" "$DISK_DEV"; then
+		log "partx failed, the filesystem is grown on next boot"
+		exit 0
+	fi
+fi
+
+if ! resize2fs "$ROOT_DEV"; then
+	log "resize2fs failed, retrying on next boot"
+	exit 0
+fi
+
+rm -f "$FLAG" /etc/rc.local
+log "done: root filesystem is now $(df -h --output=size / | tail -n 1 | tr -d ' ')"
+exit 0
