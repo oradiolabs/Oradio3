@@ -28,11 +28,12 @@ Created on January 10, 2025
 from os import path
 from time import sleep
 from collections import defaultdict
+from mpd import MPDClient
 
 ##### Oradio modules ######################################
 from log_service import oradio_log
 from singleton import singleton
-from mpd_service import MPDService
+from mpd_service import MPDService, MPD_HOST, MPD_PORT
 from utilities import ThreadTemplate
 from messaging import (
     Incidents,
@@ -56,6 +57,15 @@ MPD_EVENT_ACTIONS = {
     "subscription":    "Subscription state changed",               # Typically used with mpd-subscribe
     "message":         "Message sent via MPD",                     # Rarely used; may need client.readmessages() if implemented
 }
+
+# Channel the wake-up client in MPDMonitor.stop() subscribes to. Its name is
+# irrelevant to MPD; it only has to be one nobody else uses.
+WAKE_CHANNEL = "oradio_monitor_wake"
+
+# Connect/read timeout for that short-lived wake-up client. It talks to a
+# local MPD; anything slower means MPD is not answering, and then the blocked
+# idle() is not going to return on an event either.
+WAKE_TIMEOUT = 2    # seconds
 
 class _MPDMonitorWorker(ThreadTemplate):
     """
@@ -172,24 +182,23 @@ class _MPDMonitorWorker(ThreadTemplate):
             - Logs current song info for playlist/player events.
             - Diffs the database snapshot for database events.
 
-        A falsy idle() result normally means a genuine failure (connection
-        drop, lock timeout, retries exhausted -- _execute() already logs and
-        publishes an incident for those). The one exception is a clean stop:
-        MPDMonitor.stop() interrupts a blocking idle() by sending "noidle"
-        on the connection, which also returns a falsy/empty result. stop()
-        sets the stop flag before sending "noidle", so self.stopping is
-        already true by the time this method wakes up -- that's what
-        distinguishes the two cases so a clean stop doesn't get logged as
-        an error.
+        MPDMonitor.stop() ends a blocking idle() by making MPD emit a
+        "subscription" event (see MPDMonitor.stop()). stop() sets the stop
+        flag first, so self.stopping is already true when idle() returns,
+        and the batch is dropped instead of processed -- it is the wake-up,
+        not news. A falsy idle() result otherwise means a genuine failure
+        (connection drop, lock timeout, retries exhausted -- _execute()
+        already logs and publishes an incident for those).
         """
         # pylint: disable=protected-access
 
-        # Block until one or more MPD events occur (or stop() interrupts via noidle()).
+        # Block until one or more MPD events occur (or stop() wakes it, see above).
         events = self._mpd_service._execute("idle")
 
+        if self.stopping:
+            return  # Woken by stop(), or stopping anyway: not a failure, not news.
+
         if not events:
-            if self.stopping:
-                return  # Interrupted by stop(), not a real failure.
             oradio_log.error("MPD idle command returned no events or failed")
             sleep(1)
             return
@@ -321,31 +330,55 @@ class MPDMonitor:
         Signal the background polling thread to stop and wait for it to exit.
 
         do_work() spends most of its time blocked inside a single MPD
-        "idle" call, which by itself only returns on a real MPD event --
-        setting the stop flag alone would have to wait for that, possibly
-        for a long time. MPD's idle protocol supports interrupting a
-        blocked idle() by sending "noidle" on the same connection from
-        another thread, so that's done here directly, bypassing
-        MPDService._execute()'s lock/retry machinery -- that lock is
-        exactly what the blocked idle() call is currently holding, so
-        going through _execute() here would just block until idle()
-        itself returns, which is the problem being worked around.
+        "idle" call, which only returns on an MPD event -- setting the stop
+        flag alone would have to wait for one, possibly for hours.
 
-        The stop flag is set before noidle() is sent (rather than left to
-        safe_stop() below) so the worker is guaranteed to see the stop
-        request as soon as the interrupted idle() call returns, instead of
-        racing to loop back into another blocking idle() first.
+        Sending "noidle" on the worker's own connection is NOT an option:
+        python-mpd2's synchronous MPDClient does not implement noidle() (it
+        raises NotImplementedError; only the asyncio client has it), and
+        writing to a socket another thread is reading from is unsafe anyway.
+
+        Instead a separate, short-lived client subscribes to WAKE_CHANNEL
+        and disconnects. MPD emits the "subscription" idle event to every
+        client in the partition on subscribe and again on unsubscribe, so
+        the worker's idle() returns. Nothing in MPD's state changes. The
+        worker's connection and MPDService's lock are not touched.
+
+        The stop flag is set before the wake-up (rather than left to
+        safe_stop() below) so the worker sees the stop request as soon as
+        idle() returns, instead of racing to loop back into another
+        blocking idle() first.
+
+        If the wake-up fails (MPD down), the worker is not blocked in a
+        successful idle() either: _execute() fails fast or times out, and
+        safe_stop() below waits for that within its join timeout.
         """
         self._worker._stop_event.set()  # pylint: disable=protected-access
-        try:
-            self._mpd_service._client.noidle()  # pylint: disable=protected-access
-        except Exception:  # pylint: disable=broad-exception-caught
-            # Not currently idling, or the connection is already down.
-            # Either way, safe_stop() below still applies -- worst case it
-            # waits out its normal join timeout instead of returning early.
-            pass
-
+        self._wake_worker()
         self._worker.safe_stop()
+
+    @staticmethod
+    def _wake_worker() -> None:
+        """
+        Make MPD end the worker's blocking idle() call.
+
+        Uses its own MPDClient so it never touches the connection the worker
+        is blocked on. Failures are logged at debug level only: the stop
+        still completes, at worst after safe_stop()'s join timeout.
+        """
+        client = MPDClient()
+        client.timeout = WAKE_TIMEOUT
+        try:
+            client.connect(MPD_HOST, MPD_PORT)
+            client.subscribe(WAKE_CHANNEL)      # pylint: disable=no-member
+        except Exception as ex_err:     # pylint: disable=broad-exception-caught
+            oradio_log.debug("Could not wake MPD monitor: %s", ex_err)
+        finally:
+            try:
+                # Closing the connection unsubscribes, which emits the event again.
+                client.disconnect()
+            except Exception:           # pylint: disable=broad-exception-caught
+                pass                    # Never connected, or already gone
 
 ##### Stand-alone entry point #############################
 

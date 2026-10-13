@@ -198,8 +198,9 @@ class WifiService:
     read as absent by all the others.
 
     Note:
-        The initial Commands.publish happens in start(), not __init__. Error states are never published at start
-        time; they are only emitted in response to failed connection attempts.
+        The initial Commands.publish follows each successful listener setup (see _listener_ready), not __init__.
+        Error states are never published at start time; they are only emitted in response to failed connection
+        attempts.
     """
     def __init__(self) -> None:
         """
@@ -212,17 +213,40 @@ class WifiService:
         # Singleton D-Bus listener; every WifiService shares this one instance.
         self.nm_listener = WifiEventListener()
 
+        # Run the scan burst and seed the bus after every successful listener setup, not only after the one
+        # _start_listener() waited for: a listener that crashed in its first setup() and came back on an automatic
+        # restart has nobody waiting on it. See _listener_ready().
+        self.nm_listener.on_ready = self._listener_ready
+
+        # Generation of the startup scan burst, bumped by stop(). A burst thread carries the generation it was
+        # started for and touches list_ready only while that is still current, so a thread from a stopped cycle --
+        # possibly still inside a scan_and_wait() of up to SCAN_COMPLETE_TIMEOUT -- cannot report the next cycle's
+        # list ready, nor keep sweeping alongside that cycle's own burst. _list_lock makes "is list_building set,
+        # and if not set it" one step, and orders it against stop().
+        self._list_generation = 0
+        self._list_lock = Lock()
+
         # Set by stop(), so a deferred start still waiting for NetworkManager aborts instead of bringing the
         # listener up after shutdown.
         self._stopping = Event()
 
         # Set when starting the access point fails outright, so await_access_point() can answer at once instead of
         # waiting for a state that is never coming. Cleared by wifi_connect() on each new access-point request.
+        #
+        # Each request is numbered, and only the latest may set the flag: a connect thread left over from an earlier
+        # request could otherwise fail after a newer one cleared it, and await_access_point() would report the newer
+        # request as failed. _ap_lock makes the number check and the set one step.
         self._ap_failed = Event()
+        self._ap_request = 0
+        self._ap_lock = Lock()
 
         # Set when the user picks a network in the web interface, and taken by
         # whoever reports the outcome. See take_user_connect().
         self._user_connect = Event()
+
+        # Serialises user connects from profile update to activation outcome. Without it two quick submits run two
+        # `nmcli connection up` at once, and the one that fails deletes the profile from under the other.
+        self._connect_lock = Lock()
 
         # Serialises start() and owns the wait for NetworkManager.
         #
@@ -292,10 +316,14 @@ class WifiService:
 
     def _start_listener(self) -> None:
         """
-        Bring up the listener thread, run the startup scan burst if it has not run yet, and publish state.
+        Bring up the listener thread and report a start that failed.
 
         Called once NetworkManager is known to be available, either directly from start() or from the
         DeferredStarter's background thread.
+
+        The scan burst and the initial state publish are not done here but by _listener_ready(), which the listener
+        calls at the end of every successful setup() -- including one on an automatic restart after this call has
+        already returned.
         """
         started_now = self.nm_listener.safe_start(LISTENER_START_TIMEOUT)
 
@@ -303,12 +331,13 @@ class WifiService:
             # safe_start() answers False to three different questions, and only one of them is an incident. The
             # thread object itself is the discriminator: is_alive() is False only in the last case.
             #   * The listener is already running -- another caller got there first. Nothing to report: the thread
-            #     that matters is up. Falling through republishes the current state, which is harmless.
+            #     that matters is up. Falling through asks for the burst and a state publish again, which is
+            #     harmless: both are idempotent.
             #   * setup() did not signal ready within LISTENER_START_TIMEOUT. Unlikely at that allowance, but a
             #     thread that is merely slow is still coming up: treating it as a failure would publish
-            #     WIFI_DBUS_FAILED prematurely and, worse, skip the scan burst -- leaving list_ready clear, so every
-            #     access-point request waits out the full AP_LIST_READY_TIMEOUT. Falling through does not lose a
-            #     real failure either: setup() publishes WIFI_DBUS_FAILED itself on every path that raises.
+            #     WIFI_DBUS_FAILED prematurely. Its setup() will call _listener_ready() when it gets there; falling
+            #     through only starts the burst a little earlier, as before. It does not lose a real failure either:
+            #     setup() publishes WIFI_DBUS_FAILED itself on every path that raises.
             #   * Thread.start() raised -- the OS would not give us a thread. Nothing is coming up, and this is the
             #     real failure.
             if not self.nm_listener.is_alive():
@@ -327,6 +356,8 @@ class WifiService:
             return
 
         if self.nm_listener.crashed:
+            # Reported, but not the end of it: restart_on_crash brings the listener back -- at boot typically once
+            # NM has registered wlan0 -- and that setup() calls _listener_ready() to do what this start could not.
             oradio_log.error(
                 "WiFi event listener thread crashed during startup: %s", self.nm_listener.exception,
             )
@@ -334,28 +365,59 @@ class WifiService:
             return
 
         if started_now:
+            # setup() succeeded, so it has already called _listener_ready().
             oradio_log.info("WiFi event listener thread started")
+            return
 
+        self._listener_ready()
+
+    def _listener_ready(self) -> None:
+        """
+        Start the scan burst if this cycle has not run one, and ask for the current state to be published.
+
+        Installed as the listener's on_ready, so it runs at the end of every successful setup() -- the first start
+        and every automatic restart after a crash -- on the listener's worker thread before its GLib loop runs.
+        Must therefore not block: the burst gets a thread of its own and the publish is queued on the GLib loop.
+
+        Idempotent, so it is also safe to call from _start_listener() when that cannot tell whether setup() has
+        called it yet.
+        """
         # Build the network list in the background, so it is already complete by the time the user asks for the
         # access point. Daemon thread: nothing waits on it and it exits when the process does.
         #
         # Once per start/stop cycle. Within a cycle the list is maintained by the keeper sweep and by
-        # AccessPointAdded, so a second start() has nothing to build; stop() clears the flag, because a listener
-        # that has been down was maintaining nothing and the list it left behind cannot be trusted.
-        if self.nm_listener.list_building.is_set():
+        # AccessPointAdded, so a second start() or a crash restart has nothing to build; stop() clears the flag,
+        # because a listener that has been down was maintaining nothing and the list it left behind cannot be
+        # trusted.
+        with self._list_lock:
+            # A stop() that overtook the start: _start_listener() is taking the listener back down. Checked under
+            # the lock, so a stop() either lands before this (and is seen) or after it (and supersedes the burst).
+            if self._stopping.is_set():
+                return
+
+            if self.nm_listener.list_building.is_set():
+                generation = None
+            else:
+                self.nm_listener.list_building.set()
+                generation = self._list_generation
+
+        if generation is None:
             oradio_log.debug("Startup scan burst already running or run; keeping the existing network list")
         else:
-            self.nm_listener.list_building.set()
-            Thread(target=self._build_network_list, name="wifi-network-list", daemon=True).start()
+            Thread(
+                target=self._build_network_list, args=(generation,), name="wifi-network-list", daemon=True,
+            ).start()
 
         # Publish the current state immediately so subscribers don't have to wait for the first state-change signal
-        # from NetworkManager
+        # from NetworkManager.
         # Through the listener, so this seeds its idea of what has been announced. Publishing around it would
         # leave the listener believing nothing had been said, and the first real state change would then look
         # like a repeat of a message the bus never saw -- or worse, be dropped as one.
-        self.nm_listener.publish_state(self.get_state())
+        # Requested rather than published with a state read here: the listener reads it on its GLib thread when the
+        # request runs, so a state change it handles in the meantime cannot be overtaken by this older reading.
+        self.nm_listener.request_state_publish(self.get_state)
 
-    def _build_network_list(self) -> None:
+    def _build_network_list(self, generation: int) -> None:
         """
         Populate the network list with a burst of scans at startup.
 
@@ -370,8 +432,11 @@ class WifiService:
         Sweeps are paced by scan_and_wait(), which returns when NetworkManager reports the scan complete, so they
         run back to back rather than on a fixed interval.
 
-        Runs on a background thread; sets the listener's list_ready when done, unless stop() cleared list_building
-        while it was sweeping, in which case this run has been superseded and reports nothing.
+        Runs on a background thread; sets the listener's list_ready when done, unless stop() has ended the cycle
+        it was started for, in which case this run has been superseded: it stops sweeping and reports nothing.
+
+        Args:
+            generation: The value of _list_generation when this burst was started.
         """
         before = _known_ssids()
         started = monotonic()
@@ -382,6 +447,11 @@ class WifiService:
         )
 
         for sweep in range(1, AP_SCAN_SWEEPS + 1):
+            # Checked before is_alive(): after a quick stop() and start() the listener is alive again, but it is the
+            # new cycle's listener, and that cycle runs its own burst.
+            if self._list_generation != generation:
+                break
+
             # Without the listener there is nothing to collect the results: the scans would run but no
             # AccessPointAdded signal would arrive.
             if not self.nm_listener.is_alive():
@@ -404,14 +474,15 @@ class WifiService:
             )
 
         # Set even if the burst was cut short: waiting longer would not help, and blocking the access point
-        # indefinitely is worse than an incomplete list. Not set if stop() cleared list_building while this was
+        # indefinitely is worse than an incomplete list. Not set if stop() ended this cycle while this was
         # sweeping, though: that run belongs to a torn-down listener, and the next start() means to build the
-        # list again rather than serve what this one happened to reach.
-        if not self.nm_listener.list_building.is_set():
-            oradio_log.debug("Startup scan burst superseded by stop(); network list not reported ready")
-            return
-
-        self.nm_listener.list_ready.set()
+        # list again rather than serve what this one happened to reach. Checked and set under _list_lock, so a
+        # stop() cannot land between the two.
+        with self._list_lock:
+            if self._list_generation != generation:
+                oradio_log.debug("Startup scan burst superseded by stop(); network list not reported ready")
+                return
+            self.nm_listener.list_ready.set()
 
         oradio_log.info(
             "Network list ready: %d networks (+%d) in %.1fs",
@@ -444,11 +515,13 @@ class WifiService:
 
         self.nm_listener.safe_stop()
 
-        # After safe_stop(), so the burst thread has already seen the listener go down and broken out of its
-        # sweep loop. It checks list_building before setting list_ready, so a sweep still in flight cannot
-        # report readiness for a list this stop has just invalidated.
-        self.nm_listener.list_building.clear()
-        self.nm_listener.list_ready.clear()
+        # A new generation, so a burst thread still in flight -- possibly in a scan_and_wait() that outlasts this
+        # stop and the next start() -- stops sweeping and cannot report readiness for a list this stop has just
+        # invalidated, or for the one the next cycle is building.
+        with self._list_lock:
+            self._list_generation += 1
+            self.nm_listener.list_building.clear()
+            self.nm_listener.list_ready.clear()
 
     def has_connectivity(self) -> bool | None:
         """
@@ -508,8 +581,12 @@ class WifiService:
         Saves the current connection (if any, and not the AP) so the web interface can show it, then starts a
         daemon Thread to activate the profile so the blocking nmcli call does not stall the caller.
 
-        When ssid is the Oradio access point, that thread first confirms the network list is complete (see
-        _wait_for_network_list), and await_access_point() reports whether the access point came up.
+        When ssid is the Oradio access point, its profile is ensured here and the thread first confirms the network
+        list is complete (see _wait_for_network_list); await_access_point() reports whether the access point came
+        up.
+
+        For any other network the profile is added or updated on the thread as well, under _connect_lock, so user
+        connects run one after the other from profile update to outcome (see _user_connect_thread).
 
         Args:
             ssid: SSID of the network to connect to.
@@ -517,60 +594,115 @@ class WifiService:
         """
         active = get_wifi_connection()
 
-        # Cleared before anything can fail, so a waiter that arrives late sees this request's outcome rather than
-        # the previous one's.
-        if ssid != ACCESS_POINT_SSID:
-            # A real network, which in production only ever comes from the user
-            # choosing one in the web interface. See take_user_connect().
-            self._user_connect.set()
-
-        if ssid == ACCESS_POINT_SSID:
-            self._ap_failed.clear()
-
         # Remember the last non-AP, non-empty connection so the web interface can show it (see get_saved_network)
         if active and active != ACCESS_POINT_SSID:
             oradio_log.info("Remember connection '%s'", active)
             _set_saved_network(active)
 
-        # Ensure the NetworkManager profile exists and has the correct credentials
+        if ssid != ACCESS_POINT_SSID:
+            # Offload the profile update and the blocking activation to a daemon thread so the caller is not
+            # stalled by them, nor by an earlier user connect still holding _connect_lock
+            Thread(
+                target=self._user_connect_thread, args=(ssid, pswd), name="wifi-connect", daemon=True,
+            ).start()
+            oradio_log.info("Connecting to '%s' started", ssid)
+            return
+
+        # Cleared before anything can fail, so a waiter that arrives late sees this request's outcome rather than
+        # the previous one's. Numbered at the same moment, so the previous request's thread can no longer set it.
+        with self._ap_lock:
+            self._ap_request += 1
+            request = self._ap_request
+            self._ap_failed.clear()
+
+        # Ensure the NetworkManager profile exists
         if not networkmanager_add(ssid, pswd):
             oradio_log.error("Publish wifi service error")
             # Nothing will be activated, so anyone waiting on the access point is waiting for nothing.
-            if ssid == ACCESS_POINT_SSID:
-                self._ap_failed.set()
+            self._fail_access_point(request)
             return  # networkmanager_add already published the error; no point continuing
 
         # Offload the blocking activation to a daemon thread so the caller is not stalled by it
-        Thread(target=self._wifi_connect_thread, args=(ssid,), name="wifi-connect", daemon=True).start()
+        Thread(target=self._access_point_thread, args=(request,), name="wifi-connect", daemon=True).start()
         oradio_log.info("Connecting to '%s' started", ssid)
 
-    def _wifi_connect_thread(self, network) -> None:
+    def _fail_access_point(self, request: int) -> None:
         """
-        Activate the given network profile (runs in a background thread).
-
-        On failure the broken profile is removed from NetworkManager;
-        on success WifiEventListener publishes the resulting WiFi state.
+        Report an access-point request as failed, unless a newer request has replaced it.
 
         Args:
-            network: SSID of the NetworkManager connection profile to activate.
+            request: The _ap_request number of the request that failed.
         """
-        is_access_point = network == ACCESS_POINT_SSID
+        with self._ap_lock:
+            if request != self._ap_request:
+                oradio_log.debug("Access point request %d failed, but has been superseded", request)
+                return
+            self._ap_failed.set()
 
+    def _access_point_thread(self, request: int) -> None:
+        """
+        Activate the Oradio access point profile (runs in a background thread).
+
+        On failure the profile is removed from NetworkManager -- it is the Oradio's own, and the next request
+        recreates it -- and the failure is told to await_access_point(). On success WifiEventListener publishes the
+        resulting WiFi state.
+
+        Args:
+            request: The _ap_request number of the request this thread serves.
+        """
         # The list must be complete before the access point takes the radio, since scanning afterwards risks the
         # connected client. It normally already is, so this does not delay activation.
-        if is_access_point:
-            self._wait_for_network_list()
+        self._wait_for_network_list()
 
-        if not _wifi_up(network):
+        if not _wifi_up(ACCESS_POINT_SSID):
             # Activation failed; clean up the broken profile
-            networkmanager_del(network)     # includes its own error logging
+            networkmanager_del(ACCESS_POINT_SSID)     # includes its own error logging
             # Told rather than inferred from a timeout, so await_access_point() answers now instead of sitting out
             # the whole of AP_START_BUDGET waiting for a state this thread knows is not coming.
-            if is_access_point:
-                self._ap_failed.set()
+            self._fail_access_point(request)
         else:
             # Connection is up; WifiEventListener will publish the new state
-            oradio_log.info("Connected with '%s'", network)
+            oradio_log.info("Connected with '%s'", ACCESS_POINT_SSID)
+
+    def _user_connect_thread(self, network, password) -> None:
+        """
+        Add or update a network profile and activate it (runs in a background thread).
+
+        Held under _connect_lock throughout, so a second submit waits for the first to finish instead of running a
+        second activation alongside it and deleting the profile from under it.
+
+        On failure the profile is removed from NetworkManager, but only if this call created it: a profile that was
+        already there may be the user's working home network, and an activation hiccup while re-entering its
+        credentials must not lose it. On success WifiEventListener publishes the resulting WiFi state.
+
+        Args:
+            network: SSID of the network to connect to.
+            password: Password for the network; empty or None for open networks.
+        """
+        with self._connect_lock:
+            # A real network, which in production only ever comes from the user choosing one in the web interface.
+            # See take_user_connect(). Set here, under the lock, so it belongs to the attempt that is about to act.
+            self._user_connect.set()
+
+            existed = network in networkmanager_list()
+
+            # Ensure the NetworkManager profile exists and has the correct credentials
+            if not networkmanager_add(network, password):
+                oradio_log.error("Publish wifi service error")
+                # Nothing will be activated, so no outcome is coming for this request: without clearing, the next
+                # unrelated reconnect would be announced as the one the user asked for.
+                self._user_connect.clear()
+                return  # networkmanager_add already published the error; no point continuing
+
+            if not _wifi_up(network):
+                if existed:
+                    oradio_log.info("Keeping '%s' in NetworkManager: it was there before this attempt", network)
+                else:
+                    # Activation failed; clean up the profile this attempt created
+                    networkmanager_del(network)     # includes its own error logging
+            else:
+                # Connection is up; WifiEventListener will publish the new state
+                oradio_log.info("Connected with '%s'", network)
 
     def take_user_connect(self) -> bool:
         """
@@ -679,22 +811,46 @@ class WifiService:
                 AP_LIST_READY_TIMEOUT,
             )
 
-    def wifi_disconnect(self) -> None:
+    def wifi_disconnect(self, only: str | None = None) -> None:
         """
         Disconnect the currently active WiFi connection, if any.
 
+        Args:
+            only: Disconnect only if this is the active connection, and then by
+                  this name. None disconnects whatever is active.
+
         WifiEventListener will publish WIFI_DISCONNECTED once the state-change signal arrives.
         Does nothing if already disconnected.
+
+        Use `only` whenever the caller means one particular connection. Without
+        it the active connection is read here, at the moment of the call, and
+        that need not be the one the caller checked earlier: web_service stops
+        the access point while wifi_connect() may already have activated the
+        user's network on another thread, and a plain disconnect then drops the
+        network the user just chose. With `only`, the down command names that
+        connection, so it can never hit another one; at worst it finds it
+        already gone, which is not reported as a failure.
         """
         active = get_wifi_connection()
 
-        if active:
-            if not _wifi_down(active):
-                oradio_log.error("Failed to disconnect from '%s'", active)
+        if only is not None and active != only:
+            oradio_log.debug("Not disconnecting: active connection is %r, not %r", active, only)
+            return
+
+        target = only if only is not None else active
+
+        if target:
+            if not _wifi_down(target):
+                if only is not None and get_wifi_connection() != only:
+                    # Went down (or was replaced) between the check and the
+                    # command: the outcome the caller wanted, not a fault.
+                    oradio_log.debug("'%s' was no longer active when disconnecting", only)
+                    return
+                oradio_log.error("Failed to disconnect from '%s'", target)
                 Incidents.publish(IncidentMessage(WIFI_SOURCE, WIFI_DISCONNECT_FAILED))
             else:
                 # WifiEventListener publishes the WIFI_DISCONNECTED state
-                oradio_log.info("Disconnected from: '%s'", active)
+                oradio_log.info("Disconnected from: '%s'", target)
         else:
             oradio_log.debug("Already disconnected")
 

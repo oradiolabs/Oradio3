@@ -414,13 +414,29 @@ class ExecuteRequest(BaseModel):
     cmd:  str
     args: dict[str, Any] | None = None
 
+# Serialises /execute and /oradio3.
+#
+# Both are plain 'def', not 'async def': they call MPD (lock timeout 5 s,
+# command timeout 15 s), read and write presets.json on the stick, run
+# vcgencmd and wait in validate_presets() for a library scan to finish. As
+# 'async def' all of that ran on the event loop and froze the whole portal --
+# /keep_alive and /static included -- for as long as it took. FastAPI runs a
+# plain 'def' endpoint in its threadpool instead, so the loop stays free.
+#
+# The threadpool would also run them in parallel, which they never did before
+# and were not written for (two presets.json writes through one .tmp file, MPD
+# command sequences interleaving). This lock keeps them one at a time, as the
+# event loop used to, without putting the loop itself on hold.
+_handler_lock = Lock()
+
 @api_app.post("/execute")
-async def execute(request: ExecuteRequest):
+def execute(request: ExecuteRequest):
     """
     Dispatch a command from the web interface to the appropriate handler.
 
     Looks up request.cmd in the command dispatch table and calls the
-    associated function with request.args.
+    associated function with request.args. Runs in FastAPI's threadpool,
+    one request at a time (see _handler_lock).
 
     Args:
         request: Parsed ExecuteRequest body from the POST payload.
@@ -450,7 +466,8 @@ async def execute(request: ExecuteRequest):
         return JSONResponse(status_code=400, content={"message": f"Opdracht '{request.cmd}' is onbekend"})
 
     try:
-        result = commands[request.cmd](request.args)
+        with _handler_lock:
+            result = commands[request.cmd](request.args)
         return result
     except ValueError as ex_err:
         return JSONResponse(status_code=400, content={"message": str(ex_err)})
@@ -458,13 +475,14 @@ async def execute(request: ExecuteRequest):
 ##### Oradio3 #############################################
 
 @api_app.get("/oradio3")
-async def oradio3_page(request: Request):
+def oradio3_page(request: Request):
     """
     Render and serve the Oradio3 web interface page.
 
     Assembles the full template context by gathering the last connected
     WiFi network, saved presets, available MPD directories and playlists,
-    and software version information.
+    and software version information. Runs in FastAPI's threadpool, under
+    _handler_lock: it reads presets.json, which /execute writes.
 
     Args:
         request: The incoming HTTP request (passed through to the template engine).
@@ -479,21 +497,22 @@ async def oradio3_page(request: Request):
 
     sw_info = _get_sw_info()
 
-    context = {
-        "oldssid"    : oldssid,
-        "presets"    : load_presets(),
-        # Which of those presets point at nothing, so the page can say so
-        # instead of showing a playlist name that no longer exists. Asked of
-        # mpd_control rather than worked out here or in the browser: it is the
-        # same question the button press asks, and one definition of "invalid"
-        # is the point.
-        "invalid"    : mpd_control.validate_presets(),
-        "directories": mpd_control.get_directories(),
-        "playlists"  : mpd_control.get_playlists(),
-        "hw_serial"  : get_serial(),
-        "sw_dtstamp" : sw_info["dtstamp"],
-        "sw_version" : sw_info["version"],
-    }
+    with _handler_lock:
+        context = {
+            "oldssid"    : oldssid,
+            "presets"    : load_presets(),
+            # Which of those presets point at nothing, so the page can say so
+            # instead of showing a playlist name that no longer exists. Asked of
+            # mpd_control rather than worked out here or in the browser: it is the
+            # same question the button press asks, and one definition of "invalid"
+            # is the point.
+            "invalid"    : mpd_control.validate_presets(),
+            "directories": mpd_control.get_directories(),
+            "playlists"  : mpd_control.get_playlists(),
+            "hw_serial"  : get_serial(),
+            "sw_dtstamp" : sw_info["dtstamp"],
+            "sw_version" : sw_info["version"],
+        }
 
     return templates.TemplateResponse(request=request, name="oradio3.html", context=context)
 

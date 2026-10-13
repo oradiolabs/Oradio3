@@ -30,7 +30,7 @@ Created on January 17, 2025
 """
 from os import path, remove
 from json import load, JSONDecodeError
-from threading import Timer, Lock
+from threading import Timer, Lock, RLock
 from watchdog.observers import Observer
 from watchdog.observers.api import BaseObserver
 from watchdog.events import FileSystemEventHandler
@@ -114,6 +114,19 @@ class USBObserver(FileSystemEventHandler):
         """
         super().__init__()
 
+        # Guards _published and _wifi_import, and makes "read the mount point,
+        # then publish" one step. Three threads get here: watchdog's dispatch
+        # thread (on_created/on_deleted), the thread running USBService.start()
+        # (resync) and the incident handler (republish). Without it a stick
+        # inserted just after the observer started was published twice and
+        # imported twice, with one DeferredStarter nobody could abort; and a
+        # republish that read "mounted" just before the stick was pulled could
+        # publish PRESENT after the removal had published ABSENT.
+        #
+        # RLock: _publish_present() calls _start_wifi_import(), which calls
+        # _cancel_wifi_import(), all under it.
+        self._state_lock = RLock()
+
         # The deferred import currently waiting for NetworkManager, if any.
         # Held so an ejected drive can cancel it, and replaced per insertion:
         # each one is its own attempt with its own outcome.
@@ -124,28 +137,31 @@ class USBObserver(FileSystemEventHandler):
         # observer actually watching.
         self._published: str | None = None
 
-        if path.ismount(USB_MOUNT_POINT):
-            # Checked here as well as in on_created(): at boot the drive is
-            # mounted by usb-drive-boot.service long before this observer
-            # exists, so the created event for the marker file is never seen.
-            self._publish_present()
-        else:
-            self._publish_absent()
+        with self._state_lock:
+            if path.ismount(USB_MOUNT_POINT):
+                # Checked here as well as in on_created(): at boot the drive is
+                # mounted by usb-drive-boot.service long before this observer
+                # exists, so the created event for the marker file is never seen.
+                self._publish_present()
+            else:
+                self._publish_absent()
 
 ##### Helpers #############################################
 
     def _publish_present(self) -> None:
         """Report fsck damage, announce the drive, and import WiFi credentials."""
-        self.report_fsck_error()
-        Commands.publish(CommandMessage(USB_SOURCE, USB_PRESENT))
-        self._published = USB_PRESENT
-        self._start_wifi_import()
+        with self._state_lock:
+            self.report_fsck_error()
+            Commands.publish(CommandMessage(USB_SOURCE, USB_PRESENT))
+            self._published = USB_PRESENT
+            self._start_wifi_import()
 
     def _publish_absent(self) -> None:
         """Cancel a pending WiFi import and announce the drive is gone."""
-        self._cancel_wifi_import()
-        Commands.publish(CommandMessage(USB_SOURCE, USB_ABSENT))
-        self._published = USB_ABSENT
+        with self._state_lock:
+            self._cancel_wifi_import()
+            Commands.publish(CommandMessage(USB_SOURCE, USB_ABSENT))
+            self._published = USB_ABSENT
 
     def _start_wifi_import(self) -> None:
         """
@@ -169,18 +185,26 @@ class USBObserver(FileSystemEventHandler):
         while this is still waiting: _import_usb_wifi_networks() returns
         quietly when the file is not there, and _cancel_wifi_import() stops
         the wait anyway.
-        """
-        self._cancel_wifi_import()
 
-        self._wifi_import = DeferredStarter(
-            "USB wifi credential import",
-            nm_available,
-            self._import_usb_wifi_networks,
-            on_timeout=lambda: Incidents.publish(
-                IncidentMessage(USB_SOURCE, USB_WIFI_DEFERRED_FAILED)
-            ),
-        )
-        self._wifi_import.start()
+        Always on the starter's own thread (inline=False), also when
+        NetworkManager is already up. Run inline, the whole import -- nmcli
+        calls and an os.sync() -- ran on whichever thread published the drive:
+        watchdog's dispatch thread, so a removal event queued behind it, or the
+        main thread inside USBService.start(), while holding locks.
+        """
+        with self._state_lock:
+            self._cancel_wifi_import()
+
+            self._wifi_import = DeferredStarter(
+                "USB wifi credential import",
+                nm_available,
+                self._import_usb_wifi_networks,
+                on_timeout=lambda: Incidents.publish(
+                    IncidentMessage(USB_SOURCE, USB_WIFI_DEFERRED_FAILED)
+                ),
+                inline=False,
+            )
+            self._wifi_import.start()
 
     def _cancel_wifi_import(self) -> None:
         """
@@ -190,9 +214,10 @@ class USBObserver(FileSystemEventHandler):
         with it, and an import that completed minutes later would report on a
         drive nobody has any more.
         """
-        if self._wifi_import is not None:
-            self._wifi_import.abort()
-            self._wifi_import = None
+        with self._state_lock:
+            if self._wifi_import is not None:
+                self._wifi_import.abort()
+                self._wifi_import = None
 
     @staticmethod
     def _validate_network(network: dict[str, object], index: int) -> str | None:
@@ -405,15 +430,42 @@ class USBObserver(FileSystemEventHandler):
         Called once the observer is running: from then on every later change
         is seen, and this closes the gap before it. Does nothing when the state
         is unchanged, so the normal start-up publishes nothing extra.
+
+        Under _state_lock, so an on_created() racing it publishes once, not twice.
         """
-        state = USB_PRESENT if path.ismount(USB_MOUNT_POINT) else USB_ABSENT
-        if state == self._published:
-            return
-        oradio_log.info("USB state changed during observer start-up: %s", state)
-        if state == USB_PRESENT:
-            self._publish_present()
-        else:
-            self._publish_absent()
+        with self._state_lock:
+            state = USB_PRESENT if path.ismount(USB_MOUNT_POINT) else USB_ABSENT
+            if state == self._published:
+                return
+            oradio_log.info("USB state changed during observer start-up: %s", state)
+            if state == USB_PRESENT:
+                self._publish_present()
+            else:
+                self._publish_absent()
+
+    def republish(self) -> str:
+        """
+        Publish the drive state as it is right now, and return it.
+
+        See republish_usb_state(). Under _state_lock, so the mount point read
+        and the publish are one step with respect to on_created()/on_deleted():
+        a removal racing this is published after it, never before.
+
+        When the state differs from what was last published, it goes through
+        _publish_present()/_publish_absent(), so a missed insert also gets its
+        WiFi import and a missed removal cancels one; otherwise the unchanged
+        state is published again, as callers of republish expect.
+        """
+        with self._state_lock:
+            state = USB_PRESENT if path.ismount(USB_MOUNT_POINT) else USB_ABSENT
+            oradio_log.info("Republishing USB state: %s", state)
+            if state == self._published:
+                Commands.publish(CommandMessage(USB_SOURCE, state))
+            elif state == USB_PRESENT:
+                self._publish_present()
+            else:
+                self._publish_absent()
+            return state
 
     def on_created(self, event) -> None:
         """
@@ -491,16 +543,21 @@ def republish_usb_state() -> str:
     Reads the mount point rather than any cached value, so it reports what is
     true rather than what was last believed, and publishes through the same
     command every other change takes.
+
+    Goes through the USBObserver singleton (USBObserver.republish()) so the
+    read and the publish are serialised with the insert/remove handlers.
     """
-    state = USB_PRESENT if path.ismount(USB_MOUNT_POINT) else USB_ABSENT
-    oradio_log.info("Republishing USB state: %s", state)
-    Commands.publish(CommandMessage(USB_SOURCE, state))
-    return state
+    return USBObserver().republish()
 
 
+@singleton
 class USBService:
     """
     High-level USB monitoring service.
+
+    A singleton, so incident_service can restart the one instance that
+    oradio_control started (USB_START_FAILED / USB_STOPPED) without being
+    handed a reference to it.
 
     Creates and starts a watchdog Observer that tracks the USB marker file
     via the singleton USBObserver handler. Provides a convenience method

@@ -135,7 +135,7 @@ class StubNmcliConnection:
 # Named here because the fake listener answers get_connectivity() with it and the stub module exports it.
 STUB_NM_CONNECTIVITY_FULL = 4
 
-# Eleven attributes against a max-attributes of 10: the fake needs one per thing a test can set and one per
+# Thirteen attributes against a max-attributes of 10: the fake needs one per thing a test can set and one per
 # thing a test can read. Kept local rather than raising the project limit, as WifiEventListener does.
 class FakeListener:    # pylint: disable=too-many-instance-attributes
     """
@@ -154,6 +154,10 @@ class FakeListener:    # pylint: disable=too-many-instance-attributes
         self.safe_start_delay = 0.0                 # Seconds safe_start() blocks, to widen races on purpose
         self.crashed = False
         self.exception: Exception | None = None
+        self.scan_gate: Event | None = None         # When set by a test, scan_and_wait() blocks until it is set
+
+        # Injected by WifiService, called by the fake wherever the real listener's setup() would succeed
+        self.on_ready: Callable[[], None] | None = None
 
         # What the tests read
         self.safe_start_timeouts: list[float] = []  # One entry per safe_start() call, holding its timeout
@@ -184,6 +188,15 @@ class FakeListener:    # pylint: disable=too-many-instance-attributes
         self.published_states.append(state)
         COMMANDS.publish(StubMessage("wifi", state))
 
+    def request_state_publish(self, get_state: Callable[[], str]) -> None:
+        """
+        Publish the state get_state reports, at once.
+
+        The real listener queues this on its GLib loop; there is no loop here, so it runs inline. What matters to
+        wifi_service is that it hands over a way to read the state rather than a state already read.
+        """
+        self.publish_state(get_state())
+
     def forget_published_state(self) -> None:
         """Match the real listener's stop-time reset."""
         self.published_states.clear()
@@ -200,6 +213,8 @@ class FakeListener:    # pylint: disable=too-many-instance-attributes
             sleep(self.safe_start_delay)
         if self.safe_start_result is None:
             self._alive = True
+            if not self.crashed:
+                self.setup_succeeded()
             return True
         return self.safe_start_result
 
@@ -211,9 +226,11 @@ class FakeListener:    # pylint: disable=too-many-instance-attributes
         return True
 
     def scan_and_wait(self, timeout: float | None = None) -> bool:   # pylint: disable=unused-argument
-        """Count a sweep."""
+        """Count a sweep, first waiting on scan_gate if a test set one."""
         with self._lock:
             self.scan_calls += 1
+        if self.scan_gate is not None:
+            self.scan_gate.wait(WAIT_TIMEOUT)
         return True
 
     # --- test helpers ---
@@ -221,6 +238,11 @@ class FakeListener:    # pylint: disable=too-many-instance-attributes
     def set_alive(self, alive: bool) -> None:
         """Force the alive state without going through safe_start()/safe_stop()."""
         self._alive = alive
+
+    def setup_succeeded(self) -> None:
+        """Do what the real listener does at the end of a successful setup(): call on_ready."""
+        if self.on_ready is not None:
+            self.on_ready()
 
 
 def _stub_module(name: str, **attributes: Any) -> types.ModuleType:
@@ -604,6 +626,42 @@ class TestStartListener(WifiServiceTestCase):
         self.assertEqual(INCIDENTS.values(), [wifi_service.WIFI_DBUS_FAILED])
         self.assertFalse(self.listener.list_building.is_set())
 
+    def test_restart_after_a_startup_crash_builds_the_list_and_publishes(self) -> None:
+        """
+        A listener that crashed in its first setup() and came back on an automatic restart still gets its burst.
+
+        The boot case: NM owns its bus name before wlan0 is registered, so the first setup() fails with
+        UnknownDevice and ThreadTemplate's restart is what succeeds -- with nobody waiting in _start_listener().
+        """
+        self.listener.safe_start_result = True
+        self.listener.crashed = True
+        self.listener.exception = RuntimeError("UnknownDevice")
+
+        self.service._start_listener()                  # pylint: disable=protected-access
+
+        self.assertFalse(self.listener.list_building.is_set())
+        self.assertEqual(COMMANDS.values(), [])
+
+        # ThreadTemplate restarts it, and this time setup() succeeds
+        self.listener.crashed = False
+        self.listener.exception = None
+        self.listener.set_alive(True)
+        self.listener.setup_succeeded()
+
+        self.wait_for_burst()
+        self.assertEqual(self.listener.scan_calls, wifi_service.AP_SCAN_SWEEPS)
+        self.assertEqual(COMMANDS.values(), [wifi_service.WIFI_DISCONNECTED])
+
+    def test_ready_hook_is_idempotent_within_a_cycle(self) -> None:
+        """A second successful setup in the same cycle publishes again but does not sweep again."""
+        self.service.start()
+        self.wait_for_burst()
+
+        self.listener.setup_succeeded()
+        sleep(0.05)
+
+        self.assertEqual(self.listener.scan_calls, wifi_service.AP_SCAN_SWEEPS)
+
     def test_stop_during_startup_takes_the_listener_back_down(self) -> None:
         """A stop that lands while safe_start is blocked is not overtaken by the listener it cancelled."""
         self.service._stopping.set()                    # pylint: disable=protected-access
@@ -624,7 +682,7 @@ class TestNetworkListBurst(WifiServiceTestCase):
         self.listener.set_alive(True)
         self.listener.list_building.set()
 
-        self.service._build_network_list()              # pylint: disable=protected-access
+        self.service._build_network_list(self.service._list_generation)     # pylint: disable=protected-access
 
         self.assertEqual(self.listener.scan_calls, wifi_service.AP_SCAN_SWEEPS)
         self.assertTrue(self.listener.list_ready.is_set())
@@ -634,19 +692,51 @@ class TestNetworkListBurst(WifiServiceTestCase):
         self.listener.set_alive(False)
         self.listener.list_building.set()
 
-        self.service._build_network_list()              # pylint: disable=protected-access
+        self.service._build_network_list(self.service._list_generation)     # pylint: disable=protected-access
 
         self.assertEqual(self.listener.scan_calls, 0)
         self.assertTrue(self.listener.list_ready.is_set())
 
     def test_superseded_burst_does_not_report_ready(self) -> None:
-        """A burst whose flag stop() cleared belongs to a torn-down listener; it reports nothing."""
+        """A burst from a cycle stop() has ended belongs to a torn-down listener; it reports nothing."""
         self.listener.set_alive(True)
-        self.listener.list_building.clear()
+        self.listener.list_building.set()
+        stale = self.service._list_generation           # pylint: disable=protected-access
+        self.service.stop()
+        self.listener.set_alive(True)
 
-        self.service._build_network_list()              # pylint: disable=protected-access
+        self.service._build_network_list(stale)         # pylint: disable=protected-access
 
         self.assertFalse(self.listener.list_ready.is_set())
+        self.assertEqual(self.listener.scan_calls, 0)
+
+    def test_burst_from_a_stopped_cycle_does_not_report_the_next_ready(self) -> None:
+        """
+        stop() and start() while the old burst is still inside a scan: the old one must not set list_ready.
+
+        Before the generation token, start() set list_building again, the old thread saw it set and reported the
+        new cycle's list ready with the old cycle's sweeps -- and two bursts swept the radio at once.
+        """
+        gate = Event()
+        self.listener.scan_gate = gate
+        self.service.start()
+        self.assertTrue(wait_until(lambda: self.listener.scan_calls == 1))   # Old burst parked in its first scan
+
+        self.service.stop()
+        self.service.start()                            # New burst parks in its own first scan
+        self.assertTrue(wait_until(lambda: self.listener.scan_calls == 2))
+
+        # Both first scans wait on the old gate. Swap in a fresh one, then release: the new burst goes on to its
+        # second scan and parks there (3 calls); the old one must notice it was superseded and do nothing more.
+        self.listener.scan_gate = Event()
+        gate.set()
+        self.assertTrue(wait_until(lambda: self.listener.scan_calls >= 3))
+        sleep(0.1)
+
+        self.assertFalse(self.listener.list_ready.is_set(), "old cycle's burst reported the new list ready")
+        self.assertEqual(self.listener.scan_calls, 3, "old cycle's burst kept sweeping")
+
+        self.listener.scan_gate.set()
 
     def test_restart_after_stop_builds_the_list_again(self) -> None:
         """stop() clears both flags, so the next start sweeps again rather than trusting a stale list."""
@@ -756,6 +846,8 @@ class TestConnect(WifiServiceTestCase):
             self.activated.append(ssid)
             return self.up_result
 
+        self.profiles: list[str] = []                   # What networkmanager_list() reports
+        self._patch(wifi_service, "networkmanager_list", lambda: list(self.profiles))
         self._patch(wifi_service, "networkmanager_add", networkmanager_add)
         self._patch(wifi_service, "networkmanager_del", networkmanager_del)
         self._patch(wifi_service, "_wifi_up", wifi_up)
@@ -821,6 +913,91 @@ class TestConnect(WifiServiceTestCase):
 
         self.assertTrue(wait_until(lambda: self.activated == [wifi_service.ACCESS_POINT_SSID]))
         self.assertFalse(self.service._ap_failed.is_set())  # pylint: disable=protected-access
+
+    def test_stale_access_point_failure_does_not_fail_a_newer_request(self) -> None:
+        """A connect thread from an earlier request failing late must not report the newer one as failed."""
+        self.up_result = False
+        self.listener.list_ready.set()
+        release = Event()
+
+        def slow_wifi_up(ssid: str) -> bool:
+            release.wait(WAIT_TIMEOUT)
+            self.activated.append(ssid)
+            return False
+
+        self._patch(wifi_service, "_wifi_up", slow_wifi_up)
+
+        self.service.wifi_connect(wifi_service.ACCESS_POINT_SSID, None)     # First request, parked in _wifi_up
+        sleep(0.05)
+        def fast_wifi_up(ssid):
+            self.activated.append(ssid)
+            return True
+
+        self._patch(wifi_service, "_wifi_up", fast_wifi_up)
+        self.service.wifi_connect(wifi_service.ACCESS_POINT_SSID, None)     # Newer request, succeeds
+
+        release.set()
+        self.assertTrue(wait_until(lambda: len(self.activated) == 2))
+        sleep(0.05)
+
+        self.assertFalse(self.service._ap_failed.is_set())  # pylint: disable=protected-access
+
+    def test_failed_profile_add_does_not_leave_a_user_connect_pending(self) -> None:
+        """No outcome is coming, so the next unrelated reconnect must not be announced as the user's."""
+        self.add_result = False
+
+        self.service.wifi_connect("Home", "secret")
+
+        self.assertTrue(wait_until(lambda: self.added == [("Home", "secret")]))
+        sleep(0.05)
+        self.assertFalse(self.service.take_user_connect())
+        self.assertEqual(self.activated, [])
+
+    def test_successful_connect_leaves_the_user_connect_for_the_reporter(self) -> None:
+        """The outcome of a user's pick is still announced: the flag is taken once."""
+        self.service.wifi_connect("Home", "secret")
+
+        self.assertTrue(wait_until(lambda: self.activated == ["Home"]))
+        self.assertTrue(self.service.take_user_connect())
+        self.assertFalse(self.service.take_user_connect())
+
+    def test_failed_activation_keeps_a_profile_that_existed_before(self) -> None:
+        """Re-entering credentials for a known network must not lose it on an activation hiccup."""
+        self.profiles = ["Home"]
+        self.up_result = False
+
+        self.service.wifi_connect("Home", "secret")
+
+        self.assertTrue(wait_until(lambda: self.activated == ["Home"]))
+        sleep(0.05)
+        self.assertEqual(self.deleted, [])
+
+    def test_user_connects_do_not_overlap(self) -> None:
+        """Two quick submits activate one after the other, so a failing one cannot delete under the other."""
+        release = Event()
+        in_flight: list[str] = []
+        overlapped: list[bool] = []
+
+        def slow_wifi_up(ssid: str) -> bool:
+            overlapped.append(bool(in_flight))
+            in_flight.append(ssid)
+            release.wait(WAIT_TIMEOUT)
+            in_flight.remove(ssid)
+            self.activated.append(ssid)
+            return ssid == "Cafe"
+
+        self._patch(wifi_service, "_wifi_up", slow_wifi_up)
+
+        self.service.wifi_connect("Home", "wrong")
+        self.service.wifi_connect("Cafe", "secret")
+        sleep(0.05)
+        self.assertEqual(len(in_flight), 1, "second activation started while the first was running")
+
+        release.set()
+        self.assertTrue(wait_until(lambda: len(self.activated) == 2))
+        self.assertEqual(overlapped, [False, False])
+        # Only the one that failed, and that this test never listed as pre-existing, is removed
+        self.assertNotIn("Cafe", self.deleted)
 
     def test_access_point_waits_for_the_network_list(self) -> None:
         """Scanning after the access point takes the radio risks the client, so the list comes first."""

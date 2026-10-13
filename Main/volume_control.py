@@ -88,6 +88,9 @@ ADC_UPDATE_TOLERANCE = 5
 POLLING_MIN_INTERVAL = 0.05
 POLLING_MAX_INTERVAL = 0.3
 POLLING_STEP         = 0.01
+# Poll interval while the ADC is not answering. A dead or flaky ADC must not be
+# hammered at the fast-turning rate: every failed poll is three bus attempts.
+POLLING_FAIL_INTERVAL = 1.0
 
 # Dedicated idle timeout (seconds) with no significant knob movement before
 # VOLUME_CHANGED notifications are re-armed. Can be tuned on its own for how
@@ -365,7 +368,11 @@ class VolumeControl(ThreadTemplate):
         """
         adc_value = self._read_adc()
         if adc_value is None:
-            oradio_log.warning("ADC read failed. Retrying...")
+            # I2CService has logged it and published the incident (once per
+            # fault). Back off: returning with the interval unchanged kept a
+            # failure during fast polling at 20 polls a second for good.
+            oradio_log.debug("ADC read failed; next poll in %.1fs", POLLING_FAIL_INTERVAL)
+            self._interval = POLLING_FAIL_INTERVAL
             return
 
         # Check if knob moved significantly

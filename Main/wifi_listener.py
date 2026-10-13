@@ -43,6 +43,7 @@ Created on December 23, 2024
 """
 from time import sleep, monotonic
 from typing import Any
+from collections.abc import Callable
 from threading import Lock, Event
 from subprocess import CalledProcessError
 import nmcli
@@ -337,7 +338,7 @@ def get_wifi_connection() -> str | None:
         return None
 
 @singleton
-# Fourteen instance attributes against a max-attributes of 10. Kept local rather than raising max-attributes,
+# Twenty instance attributes against a max-attributes of 10. Kept local rather than raising max-attributes,
 # so the exemption applies to this class alone instead of loosening the limit for every class in the project.
 class WifiEventListener(ThreadTemplate):    # pylint: disable=too-many-instance-attributes
     """
@@ -414,9 +415,25 @@ class WifiEventListener(ThreadTemplate):    # pylint: disable=too-many-instance-
         # Last WiFi state announced on the command bus, or None before the first one. Kept so publish_state() can
         # drop a repeat: NetworkManager's connectivity can flap between FULL and LIMITED without the association
         # changing, and every repeat reaching the bus is another spoken "connected to wifi" from oradio_control.
-        # Touched on the GLib main loop thread, and also from the caller's thread by WifiService._start_listener()
-        # (via publish_state) and by safe_stop() (via forget_published_state).
+        #
+        # Every publish decision is made on the GLib main loop thread: other threads ask for one through
+        # request_state_publish(), which reads the state there, at execution time. A state read on another thread
+        # and published later could overtake a newer one the loop had already announced -- disconnected landing
+        # after connected stops the RMS heartbeat on a working link. safe_stop() still resets it from the caller's
+        # thread (via forget_published_state), so _publish_lock guards the check-and-set all the same.
         self._published_state: str | None = None
+        self._publish_lock = Lock()
+
+        # GLib source id of a queued request_state_publish(), or None. Also the guard against queueing two, and
+        # removed by _unsubscribe() so a request made for one run cannot fire in the next. Guarded by _publish_lock,
+        # because it is set from whichever thread asks and cleared on the GLib thread.
+        self._publish_source: int | None = None
+
+        # Called at the end of every successful setup(): the first start and every automatic restart after a crash
+        # (see restart_on_crash). WifiService injects it to run the startup scan burst and seed the bus with the
+        # current state; without it a listener that crashed on its first setup() and came back on a restart would
+        # be running with neither. Runs on the worker thread before the GLib loop starts, so it must not block.
+        self.on_ready: Callable[[], None] | None = None
 
         # True once "associated but no internet" has been reported, cleared when connectivity comes good. Separate
         # from _published_state because that case publishes no bus state at all -- it is neither connected nor
@@ -447,9 +464,9 @@ class WifiEventListener(ThreadTemplate):    # pylint: disable=too-many-instance-
         # Startup scan burst state, both owned here rather than by WifiService because they describe this object's
         # network list and outlive any one run of the thread. WifiService is a singleton too, so either home would
         # be reachable by every caller; this one keeps the flags next to the list they are about.
-        #   list_building — set when WifiService._start_listener hands the burst to a thread. It is what makes the
-        #                   burst run once per start/stop cycle: a second start() finds it set and reattaches to
-        #                   the list already built.
+        #   list_building — set when WifiService._listener_ready hands the burst to a thread. It is what makes the
+        #                   burst run once per start/stop cycle: a restart of the listener, or a second start(),
+        #                   finds it set and reattaches to the list already built.
         #   list_ready    — set by WifiService._build_network_list when the burst finishes, and waited on by
         #                   _wait_for_network_list before the access point takes the radio.
         # Two flags rather than one, because a start() arriving while the first burst is still sweeping has to be
@@ -465,8 +482,9 @@ class WifiEventListener(ThreadTemplate):    # pylint: disable=too-many-instance-
         Connect to the system bus, subscribe to NetworkManager and to the WiFi device, seed the access-point list,
         schedule the keeper sweep, and create the GLib main loop do_work() runs.
 
-        Runs on the worker thread, once per safe_start(). Publishes WIFI_DBUS_FAILED and raises on any failure, so
-        ThreadTemplate records the crash and the handles not yet set are left as None for other methods to degrade on.
+        Runs on the worker thread, once per safe_start() and again on every automatic restart after a crash.
+        Publishes WIFI_DBUS_FAILED and raises on any failure, so ThreadTemplate records the crash and the handles not
+        yet set are left as None for other methods to degrade on. Calls on_ready once it has succeeded.
 
         Raises:
             DBusException: NetworkManager is unreachable, or WIFI_INTERFACE is not registered.
@@ -561,6 +579,25 @@ class WifiEventListener(ThreadTemplate):    # pylint: disable=too-many-instance-
 
         oradio_log.info("Wifi event listener started")
 
+        # Last, so whatever on_ready does finds a listener that is fully set up. Here rather than in whoever called
+        # safe_start(): at boot NM often owns its bus name before wlan0 is registered, so the first setup() fails
+        # with UnknownDevice and it is a restart, with no caller waiting on it, that succeeds.
+        self._notify_ready()
+
+    def _notify_ready(self) -> None:
+        """
+        Call on_ready, if one is set, without letting it fail setup().
+
+        A fault in the hook is the caller's, not the listener's: letting it propagate would mark a working listener
+        crashed and have restart_on_crash tear it down and set it up again, hitting the same fault each time.
+        """
+        if self.on_ready is None:
+            return
+        try:
+            self.on_ready()
+        except Exception as ex_err:     # pylint: disable=broad-exception-caught
+            oradio_log.error("WiFi event listener ready hook failed: %s", ex_err)
+
     def do_work(self) -> None:
         """
         Run the GLib main loop.
@@ -649,6 +686,12 @@ class WifiEventListener(ThreadTemplate):    # pylint: disable=too-many-instance-
         if self._rebuild_source is not None:
             GLib.source_remove(self._rebuild_source)
             self._rebuild_source = None
+
+        # A queued state publish belongs to the run being taken down. The next run's setup() asks again.
+        with self._publish_lock:
+            if self._publish_source is not None:
+                GLib.source_remove(self._publish_source)
+                self._publish_source = None
 
         # Nothing is listening any more, so the cache cannot be kept current: say so rather than let
         # get_wifi_networks() serve a list that has stopped being maintained.
@@ -880,16 +923,66 @@ class WifiEventListener(ThreadTemplate):    # pylint: disable=too-many-instance-
         in oradio_control speaks an announcement. NetworkManager's connectivity flaps between FULL and LIMITED
         without the association changing, so without this an unstable uplink talks.
 
+        Call only on the GLib main loop thread, with a state read there. A state read on another thread can be
+        overtaken by a newer one before it gets here, and would then be announced over it; other threads use
+        request_state_publish() instead. The lock makes the check-and-set safe against forget_published_state(),
+        and keeps the bus order the same as the order the decisions were made in.
+
         Args:
             state: WIFI_CONNECTED, WIFI_DISCONNECTED or WIFI_ACCESS_POINT.
         """
-        if state == self._published_state:
-            oradio_log.debug("WiFi state unchanged (%s); not republishing", state)
-            return
+        with self._publish_lock:
+            if state == self._published_state:
+                oradio_log.debug("WiFi state unchanged (%s); not republishing", state)
+                return
 
-        self._published_state = state
-        oradio_log.info("Publish wifi service message: %s", state)
-        Commands.publish(CommandMessage(WIFI_SOURCE, state))
+            self._published_state = state
+            oradio_log.info("Publish wifi service message: %s", state)
+            Commands.publish(CommandMessage(WIFI_SOURCE, state))
+
+    def request_state_publish(self, get_state: Callable[[], str]) -> None:
+        """
+        Ask for the current WiFi state to be published, from any thread.
+
+        The state is not passed in but read by get_state on the GLib main loop thread, when the request runs. That
+        puts the read and the publish in one GLib callback, which no StateChanged handler can interleave with, so a
+        value read here cannot go stale before it is announced.
+
+        Never blocks: the work is queued with GLib.idle_add. Queued before the loop runs -- as on_ready does from
+        setup() -- it runs as soon as the loop starts. A request already queued absorbs this one, since it will read
+        the state just as late.
+
+        Args:
+            get_state: Returns WIFI_CONNECTED, WIFI_DISCONNECTED or WIFI_ACCESS_POINT. Called on the GLib thread.
+        """
+        with self._publish_lock:
+            if self._publish_source is not None:
+                oradio_log.debug("State publish already queued")
+                return
+            self._publish_source = GLib.idle_add(self._publish_requested_state, get_state)
+
+    def _publish_requested_state(self, get_state: Callable[[], str]) -> bool:
+        """
+        Run a queued request_state_publish() on the GLib main loop thread.
+
+        Args:
+            get_state: The callable passed to request_state_publish().
+
+        Returns:
+            False, so GLib removes the one-shot idle source.
+        """
+        # Cleared before reading, so a request arriving while this runs queues a fresh read rather than being
+        # absorbed by one that may already be past its read.
+        with self._publish_lock:
+            self._publish_source = None
+
+        try:
+            self.publish_state(get_state())
+        # Same reason as _nm_connectivity_changed: an exception escaping into the GLib loop is logged there and lost.
+        except Exception as ex_err:     # pylint: disable=broad-exception-caught
+            oradio_log.error("Failed to publish requested WiFi state: %s", ex_err)
+
+        return False
 
     def forget_published_state(self) -> None:
         """
@@ -899,7 +992,8 @@ class WifiEventListener(ThreadTemplate):    # pylint: disable=too-many-instance-
         next start has to tell the bus what it finds rather than assume the world stood still. The no-internet
         memory goes with it, for the same reason.
         """
-        self._published_state = None
+        with self._publish_lock:
+            self._published_state = None
         self._no_internet_reported = False
 
     # invalidated is part of the PropertiesChanged signature and must be accepted; NM sends Connectivity by value,
