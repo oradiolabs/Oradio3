@@ -720,6 +720,15 @@ class StateMachine:
             oradio_log.warning("Ignoring transition to %s because StateError is active", requested_state)
             return False
 
+        if requested_state == "StateError":
+            # A fault stop: no guard below may redirect or swallow it.
+            self._cancel_all_delayed()
+            self.prev_state = self.state
+            self.state = "StateError"
+            oradio_log.info("State changed: %s → StateError", self.prev_state)
+            self._spawn_state_worker()
+            return True
+
         oradio_log.info("Request Transitioning from %s to %s", self.state, requested_state)
 
         self._cancel_all_delayed()
