@@ -8,8 +8,21 @@
 
 /* ========== Helpers ========== */
 
-//Track if keep alive is active
+// Keep alive: tell the Oradio the portal page is open and visible.
+// The Oradio closes the portal a few minutes after the pings stop, so a user
+// can switch to another app and come back, while a forgotten portal still
+// closes by itself. Pings are only sent while the page is visible.
+const KEEP_ALIVE_INTERVAL = 2000;	// ms
+
+// Track if keep alive is active
 let keepAliveStarted = false;
+
+// Send one keep alive message if the page is visible
+function sendKeepAlive()
+{
+	if (document.visibilityState !== "visible") return;
+	fetch("/keep_alive", { method: "POST" }).catch(() => {});
+}
 
 // Single gatekeeper to start sending keep alive messages
 function tryStart()
@@ -20,19 +33,18 @@ function tryStart()
 	// Mark keep alive messaging started
 	keepAliveStarted = true;
 
-	// Send keep alive messages if page is visible
-	setInterval(() =>
-	{
-		if (document.visibilityState !== "visible") return;
-		fetch("/keep_alive", { method: "POST" }).catch(() => {});
-	}, 2000); // stabieler dan 2s op mobile
+	// Announce the page right away, then keep pinging while visible
+	sendKeepAlive();
+	setInterval(sendKeepAlive, KEEP_ALIVE_INTERVAL);
 }
 
 // Lifecycle events (ALWAYS guarded)
-document.addEventListener("visibilitychange", tryStart);	// Visibility changes
 document.addEventListener("DOMContentLoaded", tryStart);	// Important for iOS
-window.addEventListener("pageshow", tryStart);				// iOS + BFCache
 window.addEventListener("focus", tryStart);					// Desktop/mobile
+
+// Back from another app or tab: ping at once instead of waiting for the next tick
+document.addEventListener("visibilitychange", () => { tryStart(); sendKeepAlive(); });
+window.addEventListener("pageshow", () => { tryStart(); sendKeepAlive(); });	// iOS + BFCache
 
 // User interaction fallback
 ["click", "touchstart", "keydown"].forEach(event =>
