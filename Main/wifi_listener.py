@@ -949,6 +949,15 @@ class WifiEventListener(ThreadTemplate):    # pylint: disable=too-many-instance-
             self.publish_state(WIFI_ACCESS_POINT)
             return
 
+        # Connectivity also drops while the association is being torn down -- switching to the access point, or to
+        # another network -- and in that window ActiveAccessPoint still names the old network. Concluding "no
+        # internet" there would report a failure nobody had. Only judge a settled connection; the StateChanged to
+        # NM_CONNECTED that ends any transition goes through _wifi_state_changed, which makes the same decision.
+        # An unreadable state (None) falls through, so a real outage is never hidden by a failed query.
+        if self._get_device_state() not in (NM_CONNECTED, None):
+            oradio_log.debug("Connectivity change during a connection transition; not judged")
+            return
+
         if self.get_connectivity() == NM_CONNECTIVITY_FULL:
             self._no_internet_reported = False
             self.publish_state(WIFI_CONNECTED)
@@ -1041,6 +1050,23 @@ class WifiEventListener(ThreadTemplate):    # pylint: disable=too-many-instance-
             return int(self._nm_props.Get(NM_IFACE, "Connectivity"))
         except DBusException as ex_err:
             oradio_log.error("Failed to read NM Connectivity property: %s", ex_err.get_dbus_message())
+            return None
+
+    def _get_device_state(self) -> int | None:
+        """
+        Return the NetworkManager state code of the WiFi device.
+
+        Returns:
+            The Device State property (e.g. NM_CONNECTED once a connection is fully activated), or None when it
+            could not be read.
+        """
+        if self.bus is None or self._wifi_path is None:
+            return None
+        try:
+            dev_props = Interface(self.bus.get_object(NM_BUS_NAME, self._wifi_path), DBUS_PROPS_IFACE)
+            return int(dev_props.Get(NM_DEVICE_IFACE, "State"))
+        except DBusException as ex_err:
+            oradio_log.warning("Failed to read NM device State property: %s", ex_err.get_dbus_message())
             return None
 
     def _seed_access_points(self) -> None:
