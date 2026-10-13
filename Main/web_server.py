@@ -31,6 +31,7 @@ from time import monotonic
 from typing import Any
 from json import load, JSONDecodeError
 from threading import Lock
+from multiprocessing import Queue
 from pydantic import BaseModel
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
@@ -589,14 +590,14 @@ class PortalWatchdog(ThreadTemplate):
         """Create an idle watchdog; arm() and safe_start() bring it to life."""
         super().__init__(interval=WATCHDOG_INTERVAL, name="PortalWatchdog")
         self._state_lock = Lock()
-        self._queue = None
+        self._queue: Queue | None = None   # Set by arm()
         self._deadline = 0.0
         self._pinged = False
         self._station_seen = False
         self._station_lost_since: float | None = None
         self._station_check_ok = True
 
-    def arm(self, queue) -> None:
+    def arm(self, queue: Queue) -> None:
         """
         Prepare a new portal session. Call before safe_start().
 
@@ -684,7 +685,11 @@ class PortalWatchdog(ThreadTemplate):
 
         if reason is not None and not self.stopping:
             oradio_log.info("Closing the web server: %s", reason)
-            safe_put(self._queue, {"request": REQUEST_STOP})
+            if self._queue is None:
+                # Unreachable when arm() precedes safe_start(), as web_service does.
+                oradio_log.error("Portal watchdog not armed: cannot request the stop")
+            else:
+                safe_put(self._queue, {"request": REQUEST_STOP})
             # End this run, the way WifiEventListener ends its own.
             self._stop_event.set()
 
@@ -731,8 +736,7 @@ async def catch_all(request: Request):
 if __name__ == '__main__':
 
     import uvicorn
-    from threading import Thread
-    from multiprocessing import Queue
+    from threading import Thread                            # pylint: disable=ungrouped-imports
     from messaging import safe_get, DebugMessageHandler     # pylint: disable=ungrouped-imports
 
     # Most stand-alone entry points share this pattern across modules
