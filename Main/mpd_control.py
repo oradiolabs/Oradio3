@@ -36,7 +36,7 @@ from unicodedata import normalize, category
 ##### Oradio modules ######################################
 from singleton import singleton
 from log_service import oradio_log
-from utilities import load_presets, ThreadTemplate
+from utilities import load_presets, sync_usb, ThreadTemplate
 from mpd_service import MPDService
 ##### GLOBAL constants ####################################
 from constants import USB_MUSIC
@@ -332,6 +332,9 @@ class MPDControl(MPDService):
             self._sanitize_playlists()
             self.validate_presets()
             self.update_database()
+
+        # _sanitize_playlists() may have rewritten a playlist on the stick
+        sync_usb("library initialised")
 
         # Only after the scan, and only on the way out: a preset waiting on this
         # wants a library it can play from, not one that is being rebuilt.

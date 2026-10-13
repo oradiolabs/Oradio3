@@ -39,7 +39,7 @@ from watchdog.events import FileSystemEventHandler
 from singleton import singleton
 from log_service import oradio_log
 from wifi_service import networkmanager_add, nm_available
-from utilities import DeferredStarter    # pylint: disable=ungrouped-imports
+from utilities import DeferredStarter, sync_usb
 from messaging import (
     Commands,
     Incidents,
@@ -347,6 +347,9 @@ class USBObserver(FileSystemEventHandler):
             try:
                 remove(USB_WIFI_FILE)
                 oradio_log.info("'%s' removed", USB_WIFI_FILE)
+                # The stick is mounted without sync, so the removal would sit
+                # in memory until the kernel writes it out. Force it now
+                sync_usb("wifi credentials file removed")
             except (FileNotFoundError, PermissionError) as ex_err:
                 oradio_log.error("Failed to remove '%s': %s", USB_WIFI_FILE, ex_err)
                 Incidents.publish(IncidentMessage(USB_SOURCE, USB_FILE_FAILED))
@@ -670,9 +673,9 @@ class USBService:
 if __name__ == '__main__':
 
     # Imports only relevant when stand-alone
-    from constants import RED, YELLOW, NC           # pylint: disable=ungrouped-imports
-    from messaging import DebugMessageHandler       # pylint: disable=ungrouped-imports
-    from utilities import run_shell_script, input_prompt
+    from constants import RED, YELLOW, NC                   # pylint: disable=ungrouped-imports
+    from messaging import DebugMessageHandler               # pylint: disable=ungrouped-imports
+    from utilities import run_shell_script, input_prompt    # pylint: disable=ungrouped-imports
 
     # Most stand-alone entry points share this pattern; pylint would flag it as duplicate code across modules.
     # pylint: disable=duplicate-code

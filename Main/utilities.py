@@ -1068,6 +1068,23 @@ def _normalize_listname(raw_value) -> str:
     """
     return raw_value.strip() if isinstance(raw_value, str) and raw_value.strip() else ""
 
+def sync_usb(reason: str) -> None:
+    """
+    Force all buffered writes to disk and wait until they are done.
+
+    Uses os.sync(), which covers the SD card as well; there is nothing to gain
+    from limiting it to the stick and the SD card has little pending anyway.
+    Blocks until the writes are complete, so call it from a thread nobody is
+    waiting on.
+
+    Args:
+        reason: Short description for the log, e.g. "web interface stopped".
+    """
+    start = monotonic()
+    os.sync()
+    oradio_log.debug("Buffered writes flushed to disk (%s) in %.0f ms",
+                     reason, (monotonic() - start) * 1000)
+
 def load_presets() -> dict[str, str]:
     """
     Retrieve the playlist names associated with the presets from a JSON file.
@@ -1128,13 +1145,24 @@ def store_presets(presets: dict[str, str]) -> None:
         raw_value = presets.get(key, "")
         data_to_save[key] = _normalize_listname(raw_value)
 
-    # Write the JSON file
+    # Write the JSON file via a temporary file and a rename.
+    # Writing PRESETS_FILE directly first truncates it, and without a sync
+    # mount the kernel may write that truncation out before the new contents.
+    # A stick pulled in between would then hold an empty presets.json.
+    # With the rename the stick holds either the old or the new file.
+    # No fsync here: sync_usb() runs when the web interface stops.
+    tmp_file = PRESETS_FILE + ".tmp"
     try:
-        with open(PRESETS_FILE, "w", encoding="utf-8") as file:
+        with open(tmp_file, "w", encoding="utf-8") as file:
             json.dump(data_to_save, file, indent=4)
+        os.replace(tmp_file, PRESETS_FILE)
         oradio_log.debug("Presets '%s' successfully saved to %s", data_to_save, PRESETS_FILE)
     except OSError as ex_err:
         oradio_log.error("Failed to write presets to '%s'. Error: %s", PRESETS_FILE, ex_err)
+        try:
+            os.remove(tmp_file)
+        except OSError:
+            pass
 
 def input_prompt(prompt: str, cast: Callable[[str], T], default: T) -> T:
     """

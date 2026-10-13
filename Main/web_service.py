@@ -49,7 +49,7 @@ from threading import Thread, RLock
 ##### Oradio modules ######################################
 from singleton import singleton
 from log_service import oradio_log
-from utilities import run_shell_script, fatal_exit, mask_secrets
+from utilities import run_shell_script, fatal_exit, mask_secrets, sync_usb
 from wifi_service import WifiService, get_wifi_connection
 from messaging import (
     safe_get,
@@ -855,14 +855,10 @@ class WebService:
         1. Disconnect the access point (if currently active) so connected
            clients are dropped before the server stops.
         2. Stop the Uvicorn web server.
-        3. Remove the iptables port-redirect rule.
-        4. Remove the dnsmasq DNS redirect config file.
-        5. Wait for the WiFi interface to reach WIFI_DISCONNECTED or WIFI_CONNECTED.
-
-        Step 2 publishes WEB_STOP_FAILED directly in stop() if the Uvicorn server
-        fails to stop. Steps 3 and 4 publish WEB_STOP_FAILED internally in their
-        helper methods. All failures continue so that remaining teardown steps
-        are still attempted.
+        3. Flush all buffered writes to the USB stick (sync_usb).
+        4. Remove the iptables port-redirect rule.
+        5. Remove the dnsmasq DNS redirect config file.
+        6. Wait for the WiFi interface to reach WIFI_DISCONNECTED or WIFI_CONNECTED.
 
         Returns:
             bool: True if every teardown step succeeded, False if any of them
@@ -889,6 +885,12 @@ class WebService:
             if not self.uvicorn_server.stop():
                 Incidents.publish(IncidentMessage(WEB_SOURCE, WEB_STOP_FAILED))
                 status = False
+
+        # The web interface is the only thing that writes to the USB stick, and
+        # the stick is mounted without sync. Force its writes out now, so the
+        # stick has nothing pending once the user is done. Also when the server
+        # failed to stop: whatever it wrote so far still has to reach the stick.
+        sync_usb("web interface stopped")
 
         if not self._remove_port_redirect():
             status = False
