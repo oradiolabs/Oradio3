@@ -412,13 +412,19 @@ fi
 # the same name in /usr/lib/systemd/system-generators, the same way unit file
 # overrides work.
 #
-# Two are deliberately NOT masked:
-#   systemd-fstab-generator - required; builds the mount units from /etc/fstab
-#   systemd-debug-generator - cheap, and it is what makes systemd.mask=,
-#                             systemd.wants= and systemd.debug_shell work from
-#                             cmdline.txt. On a device where recovery means
-#                             pulling the SD card, that escape hatch is worth
-#                             paying for.
+# Three are deliberately NOT masked:
+#  systemd-rc-local-generator - oradio_install.sh installs /etc/rc.local, which
+#                                grows the root partition on the first boot of a
+#                                flashed image, and this generator is what starts
+#                                it. rc.local deletes itself once it has expanded
+#                                the partition, so on later boots the generator
+#                                finds nothing and adds no unit.
+#  systemd-fstab-generator    - required; builds the mount units from /etc/fstab
+#  systemd-debug-generator    - cheap, and it is what makes systemd.mask=,
+#                                systemd.wants= and systemd.debug_shell work from
+#                                cmdline.txt. On a device where recovery means pulling
+#                                the SD card, that escape hatch is worth paying for.
+
 GENERATOR_SRC_DIR="/usr/lib/systemd/system-generators"
 GENERATOR_DIR="/etc/systemd/system-generators"
 GENERATORS_TO_MASK=(
@@ -437,7 +443,6 @@ GENERATORS_TO_MASK=(
 	systemd-veritysetup-generator		# No /etc/veritytab
 	systemd-integritysetup-generator	# No /etc/integritytab
 	systemd-hibernate-resume-generator	# No resume= on cmdline, no hibernation
-	systemd-rc-local-generator			# No /etc/rc.local
 	systemd-run-generator				# Only acts on systemd.run= from cmdline
 	systemd-ssh-generator				# ssh.socket ships with openssh-server; this
 										# only adds sshd-unix-local.socket
@@ -480,6 +485,23 @@ for generator in "${GENERATORS_TO_MASK[@]}"; do
 	else
 		echo -e "${YELLOW}Warning: failed to mask generator '$generator'${NC}"
 		FAILURES=$((FAILURES + 1))
+	fi
+done
+
+# Generators that earlier versions masked but that must run now. The loop above
+# only adds masks, so a device upgraded from such a version keeps them unless
+# they are removed explicitly.
+GENERATORS_TO_UNMASK=(
+	systemd-rc-local-generator			# Masked on v1.0.6 and v1.0.7
+)
+for generator in "${GENERATORS_TO_UNMASK[@]}"; do
+	if [[ "$(readlink -f "$GENERATOR_DIR/$generator" 2>/dev/null || true)" == "/dev/null" ]]; then
+		if sudo rm -f "$GENERATOR_DIR/$generator"; then
+			echo "Generator '$generator' unmasked"
+		else
+			echo -e "${YELLOW}Warning: failed to unmask generator '$generator'${NC}"
+			FAILURES=$((FAILURES + 1))
+		fi
 	fi
 done
 

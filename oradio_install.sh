@@ -383,6 +383,7 @@ if [ "${1:-}" != "--continue" ]; then
 		python3-gi
 		python3-dev
 		python3-dbus
+		python3-socks
 		python3-jinja2
 		python3-requests
 		python3-watchdog
@@ -722,6 +723,15 @@ install_script "$RESOURCES_PATH/cleanup_old_versions.sh" /usr/local/sbin/cleanup
 
 # Minimize Oradio boot time
 bash "$RESOURCES_PATH/optimize_boot_time.sh"
+
+# Grow the root partition to fill the SD card on the first boot of a flashed
+# image. Images are shrunk with 'pishrink.sh -s', which leaves rc.local alone.
+# Started by rc-local.service via systemd-rc-local-generator, which
+# optimize_boot_time.sh leaves enabled for this. Deletes itself once it has
+# expanded the root partition; see the script header.
+install_script "$RESOURCES_PATH/rc.local" /etc/rc.local 755
+# Progress report
+echo -e "${GREEN}First-boot root partition expansion installed${NC}"
 
 # Activate wireless interface
 # https://www.raspberrypi.com/documentation/computers/configuration.html#wlan-country-2

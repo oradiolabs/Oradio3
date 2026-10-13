@@ -720,6 +720,15 @@ class StateMachine:
             oradio_log.warning("Ignoring transition to %s because StateError is active", requested_state)
             return False
 
+        if requested_state == "StateError":
+            # A fault stop: no guard below may redirect or swallow it.
+            self._cancel_all_delayed()
+            self.prev_state = self.state
+            self.state = "StateError"
+            oradio_log.info("State changed: %s → StateError", self.prev_state)
+            self._spawn_state_worker()
+            return True
+
         oradio_log.info("Request Transitioning from %s to %s", self.state, requested_state)
 
         self._cancel_all_delayed()
@@ -1126,10 +1135,12 @@ def on_webservice_active():
     web_service_active.set()
     leds.control_blinking_led(LED_PLAY, WEBSERVICE_BLINK_CYCLE)
     play_sound(SOUND_AP_START)
-    # handle Webradio
-    if mpd_control.is_webradio():
+    # Stop playback on web service entry: a webradio has no stream without
+    # internet, and music from USB would play on while the user configures.
+    # StateIdle stops a webradio and pauses USB music, so Play resumes it.
+    if state_machine.state in PLAY_STATES or mpd_control.is_webradio():
         state_machine.transition("StateIdle")
-        oradio_log.info("Stopped WebRadio playback on Webservice entry")
+        oradio_log.info("Stopped playback on Webservice entry")
 
 def on_incident_power_error():
     """
