@@ -96,6 +96,7 @@ from messaging import (
     WIFI_CONNECTED,
     WIFI_DISCONNECTED,
     WIFI_ACCESS_POINT,
+    WIFI_CONNECT_FAILED,
     RMS_SOURCE,
     RMS_START_FAILED,
     RMS_POST_FAILED,
@@ -1721,6 +1722,12 @@ class WifiMessageHandler(MessageHandlerTemplate):
         elif message.message == WIFI_ACCESS_POINT:
             # Heartbeat cannot be active, info message cannot be sent
             self._wifi_connected = False
+
+        elif message.message == WIFI_CONNECT_FAILED:
+            # Meant for oradio_control (the user retries, nothing on the Oradio is
+            # broken). Not a state change: the WIFI_* state that follows it is
+            # what this handler acts on.
+            oradio_log.debug("WiFi connect failed; nothing for RMS to do")
 
         else:
             oradio_log.error("Unexpected message: %s", message)
