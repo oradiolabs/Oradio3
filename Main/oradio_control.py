@@ -576,7 +576,8 @@ class StateMachine:
         does not exist.
 
         StatePlay has no preset behind it, so there the current song is the only
-        thing there is to ask about.
+        thing there is to ask about: a web radio there gets no "next song"
+        either.
 
         An empty queue means there is no next song for any of these states --
         an empty preset, or Play falling back to an empty DEFAULT_PRESET -- so
@@ -610,6 +611,19 @@ class StateMachine:
             # too, which falls back to DEFAULT_PRESET when the queue is empty.
             oradio_log.info("%s pressed again with nothing loaded: trying it again", requested_state)
             return False
+
+        if not preset and mpd_control.is_webradio():
+            # Play with a web radio in the queue: there is no next song, so no
+            # "next song" either -- the same as a web radio preset pressed
+            # again. play() resumes the stream if it was not playing and does
+            # nothing when it is.
+            if not self._internet_reachable():
+                oradio_log.info("Play pressed again on a web radio, still no internet")
+                play_sound(SOUND_NO_INTERNET)
+            else:
+                oradio_log.debug("Play pressed again on a web radio: keep playing")
+                mpd_control.play()
+            return True
 
         mpd_control.next()
         play_sound(SOUND_NEXT)
@@ -662,12 +676,21 @@ class StateMachine:
         if not mpd_control.is_webradio(preset=preset):
             return False
 
+        return not self._internet_reachable()
+
+    @staticmethod
+    def _internet_reachable() -> bool:
+        """
+        Whether the Oradio can reach the internet right now.
+
+        NetworkManager's connectivity assessment, with a DNS probe as fallback
+        when NM could not be asked; see _webradio_without_internet() for why.
+        """
         connected = oradio_wifi_service.has_connectivity()
         if connected is None:
             oradio_log.debug("NetworkManager could not be asked; falling back to a DNS probe")
             connected = has_internet()
-
-        return not connected
+        return bool(connected)
 
     def _commit_or_usb_absent(self, requested_state: str) -> None:
         """Commit the target state if USB present; else force USBAbsent."""

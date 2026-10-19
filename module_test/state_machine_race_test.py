@@ -107,6 +107,7 @@ class _FakeMpd:
         self.ready = threading.Event()
         self.play_result: bool | None = True
         self.queued = False
+        self.webradio = False
 
     def play(self, preset: str | None = None) -> bool | None:
         """Record the call, take self.slow seconds, return play_result."""
@@ -133,9 +134,8 @@ class _FakeMpd:
         self._recorder.calls.append(("next",))
 
     def is_webradio(self, preset: str | None = None) -> bool:
-        """No preset is a web radio here."""
-        del preset
-        return False
+        """No preset is a web radio here; the current song is when self.webradio is set."""
+        return preset is None and self.webradio
 
     def wait_for_library(self, timeout: float | None = None) -> bool:
         """Wait on self.ready, with the timeout scaled like every other timer."""
@@ -239,6 +239,7 @@ class StateMachineRaceTest(unittest.TestCase):
         self.mpd.slow = 0.0
         self.mpd.play_result = True
         self.mpd.queued = False
+        self.mpd.webradio = False
         self.mpd.ready.set()
         self.namespace["usb_present"].set()
 
@@ -376,6 +377,18 @@ class StateMachineRaceTest(unittest.TestCase):
         self.assertEqual(self._plays(), [None])
         self.assertIn("SOUND_NEXT", self._sounds())
         self.assertNotIn("SOUND_PRESET_EMPTY", self._sounds())
+
+    def test_play_pressed_again_on_webradio(self) -> None:
+        """Play pressed again while a web radio plays: no "next song", no skip."""
+        machine = self._machine()
+        machine.transition("StatePlay")
+        time.sleep(0.3)
+        self.mpd.webradio = True
+        machine.transition("StatePlay")
+        time.sleep(0.1)
+        self.assertEqual(self._plays(), [None, None])
+        self.assertNotIn(("next",), self.recorder.calls)
+        self.assertNotIn("SOUND_NEXT", self._sounds())
 
     def test_play_before_library_ready(self) -> None:
         """Play pressed during the boot scan plays once the library is ready."""
