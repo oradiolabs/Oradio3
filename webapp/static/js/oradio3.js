@@ -59,6 +59,19 @@ window.addEventListener("pageshow", () => { tryStart(); sendKeepAlive(); });	// 
 	);
 });
 
+// Android captive portal wraps the page in a native pull-to-refresh, which ignores CSS overscroll-behavior.
+// It refreshes whenever the document is scrolled to the top. Keep the document scrolled by 1px, so a
+// downward swipe in a scrollbox scrolls the scrollbox instead.
+document.documentElement.style.minHeight = "calc(100% + 1px)";
+function keepDocumentOffTop()
+{
+	if (window.scrollY < 1)
+		window.scrollTo(0, 1);
+}
+window.addEventListener("load", keepDocumentOffTop);
+window.addEventListener("resize", keepDocumentOffTop);
+window.addEventListener("scroll", keepDocumentOffTop, { passive: true });
+
 // Show waiting indicator
 function showWaiting()
 {

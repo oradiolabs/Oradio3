@@ -76,6 +76,7 @@
 html {
 	-webkit-text-size-adjust: none;					/* Prevent the browser from adjusting font size automatically */
 	-webkit-tap-highlight-color: transparent;		/* Disable “tap highlight” effect */
+	overscroll-behavior-y: none;					/* Disable pull-to-refresh on Android Chrome */
 	font-size: 100%;								/* Reset fro rem units */
 }
 
@@ -89,6 +90,7 @@ body {
 	color: var(--text-color); font-weight: normal;		/* Set default text color and text thinkness */
 	justify-content: center;							/* Center elements by default */
 	margin: 0; padding: 0;								/* Start with clean layout */
+	overscroll-behavior-y: none;						/* Disable pull-to-refresh on Android Chrome */
 }
 
 h1 {
@@ -190,6 +192,7 @@ nav button span.hidden + div {
 	margin-top: var(--header-height);			/* Fixed height for header */
 	width: min(var(--max-page-width), 90vw);	/* Mobile-friendly layout */
 	overflow-y: auto;							/* Enable vertical scrolling when needed */
+	overscroll-behavior-y: contain;				/* Keep scroll gesture inside the page */
 	padding-right: 8px;							/* Scrollbar breathing room */
 	height: calc(100dvh - var(--header-height) - var(--navigation-height));
 }
@@ -310,6 +313,7 @@ input:focus {
 	width: 100%;												/* Full viewport width */
 	max-height: var(--scrollbox-height);						/* Limits height and enables scrolling */
 	overflow-y: auto;											/* Vertical scrollbar when content overflows */
+	overscroll-behavior-y: contain;								/* Keep scroll gesture inside the list */
 	z-index: 10;												/* Keeps scrollbox above overlapping elements */
 }
 
