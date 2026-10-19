@@ -476,6 +476,14 @@ class StateMachine:
         # timer, scheduling an LED off, starting a retry -- tag what it
         # starts without every handler passing it around.
         self._handler_generation = -1
+
+        # Set by play_web_preset_change(): which preset the web interface just
+        # put a new playlist on, and the generation of the state worker that
+        # will play it. _play_preset() uses it to choose ONE follow-up
+        # announcement -- "new playlist" or "no music" -- once it knows what
+        # play() found. Guarded by _lock.
+        self._web_preset_change: tuple[str, int] | None = None
+
         self._websvc = None  # injected WebService
         self._pd_mode: str | None = None  # track power supply PD state "nom" or "max"
 
@@ -673,6 +681,36 @@ class StateMachine:
         """Whether no transition has spawned a newer state worker since `generation`."""
         with self._lock:
             return generation == self._generation
+
+    def play_web_preset_change(self, preset: str) -> None:
+        """
+        Re-enter a preset because the web interface put a new playlist on it.
+
+        Args:
+            preset: The preset that changed, e.g. "Preset1".
+
+        Remembers the change together with the generation of the worker the
+        transition spawns, all under _lock, so that worker -- and only that
+        worker, or the retry it starts -- picks it up. A press that overtakes
+        it makes the generation stale, so a later press of the same button is
+        not announced as a new playlist.
+        """
+        with self._lock:
+            self._web_preset_change = None
+            if self._transition_locked(f"State{preset}", reenter=True, recovered=False):
+                self._web_preset_change = (preset, self._generation)
+
+    def _take_web_preset_change(self, preset: str) -> bool:
+        """
+        Whether this play of `preset` is the one the web interface asked for.
+
+        Clears the record either way: it answers for exactly one outcome.
+        Must be called from a state handler (or its retry), with task_lock held.
+        """
+        with self._lock:
+            change = self._web_preset_change
+            self._web_preset_change = None
+            return change == (preset, self._handler_generation)
 
     def _led_off_later(self, delay: float, led: str) -> None:
         """
@@ -969,6 +1007,7 @@ class StateMachine:
         # the portal closes and WiFi comes back -- music nobody asked for.
         if self._webradio_without_internet(preset):
             oradio_log.info("Preset '%s' is a webradio and there is no internet", preset)
+            self._take_web_preset_change(preset)
             mpd_control.stop()
             leds.turn_on_led(led)
             play_sound(sound)
@@ -976,18 +1015,30 @@ class StateMachine:
             return
 
         result = mpd_control.play(preset=preset)
+
+        # Exactly one follow-up announcement. When the web interface just put a
+        # playlist on this button, "new playlist" used to be scheduled by
+        # _webservice_playlist_changed() at the same two seconds as "no music"
+        # here, and the two played over each other for an empty playlist. Only
+        # this point knows which of them is true, so it alone decides.
         if result:
             leds.turn_on_led(led)
             play_sound(sound)
+            if self._take_web_preset_change(preset):
+                run_later(2, play_sound, SOUND_NEW_PRESET)
             return
 
         if result is False:
+            # An empty playlist: "no music" is what the user needs to hear,
+            # whether it was pressed or just set from the web interface.
+            self._take_web_preset_change(preset)
             leds.turn_on_led(led)
             play_sound(sound)
             run_later(2, play_sound, SOUND_PRESET_EMPTY)
             return
 
         if not retry_if_not_ready:
+            self._take_web_preset_change(preset)
             # The library is ready and play() still has nothing. Not "empty
             # preset" (play() says False for that) and not worth another
             # round: say which button it was and stop blinking.
@@ -1408,9 +1459,13 @@ def _webservice_playlist_changed(preset: str) -> None:
     has been heard. That is why this does not announce the preset itself and
     _webservice_webradio_changed() does: the two end up in different states, and
     only one of them has a handler that says which button it belongs to.
+
+    The "new playlist" announcement is no longer scheduled here: _play_preset()
+    makes it once play() has answered. Scheduling it here as well put it on top
+    of "no music" for an empty playlist, both two seconds after the button
+    number, and the two were heard at the same time.
     """
-    state_machine.transition(f"State{preset}", reenter=True)
-    run_later(2, play_sound, SOUND_NEW_PRESET)
+    state_machine.play_web_preset_change(preset)
     oradio_log.debug("WebService changed the playlist on %s", preset)
 
 
