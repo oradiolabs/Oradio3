@@ -240,7 +240,7 @@ def nm_available() -> bool:
         oradio_log.debug("System D-Bus not reachable: %s", ex_err)
         return False
 
-def nmcli_try(func, *args, ignore=(), **kwargs) -> tuple[bool, Any | None]:
+def nmcli_try(func, *args, ignore=(), expected=(), **kwargs) -> tuple[bool, Any | None]:
     """
     Call an nmcli function, catching all known nmcli and OS errors.
 
@@ -251,11 +251,15 @@ def nmcli_try(func, *args, ignore=(), **kwargs) -> tuple[bool, Any | None]:
         *args:    Positional arguments forwarded to func.
         ignore:   Exception classes to treat as success with a None result: logged at debug, no error logged and no
                   incident published. Defaults to an empty tuple, so by default every exception is a failure.
+        expected: Exception classes to treat as a failure that is not a fault: logged as a warning, no incident
+                  published, and (False, None) returned. For outcomes decided outside the Oradio, such as a wrong
+                  password on the network the user picked. Defaults to an empty tuple, so by default every failure
+                  is a fault.
         **kwargs: Keyword arguments forwarded to func.
 
     Returns:
         A (success, result) tuple. success is True if the call completed without error or raised one of the ignored
-        classes; result holds the return value where there is one. (False, None) on any real failure.
+        classes; result holds the return value where there is one. (False, None) on any failure, expected or not.
     """
     try:
         result = func(*args, **kwargs)
@@ -264,6 +268,13 @@ def nmcli_try(func, *args, ignore=(), **kwargs) -> tuple[bool, Any | None]:
     except ignore as ex_err:
         oradio_log.debug("nmcli call declined for %s: %s", func.__name__, ex_err)
         return True, None
+    # Must also precede the general clause. A failure, but not the Oradio's: the call did what it was asked and the
+    # answer was no -- a wrong password, a network out of range, a router refusing. There is nothing to mitigate and
+    # nothing for RMS to act on, and the caller still learns that it did not work. Whoever is waiting for the outcome
+    # hears it through WIFI_CONNECT_FAILED, which WifiEventListener publishes from NetworkManager's own state change.
+    except expected as ex_err:
+        oradio_log.warning("nmcli call did not succeed for %s: %s", func.__name__, ex_err)
+        return False, None
     # Exceptions built dynamically, so mypy can't verify it's a valid exception tuple statically
     except (*nmcli_exceptions, CalledProcessError, OSError) as ex_err:      # type: ignore[misc]
         oradio_log.error("nmcli call failed for %s: %s", func.__name__, ex_err)
