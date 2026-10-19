@@ -1214,6 +1214,12 @@ def on_wifi_connected():
     and after coming back into range, and announcing each of those is the Oradio
     talking about itself to someone who did not ask.
 
+    The announcement is delayed so it follows "OradioAP stopped". Submitting a
+    network starts the connect and the portal tear-down at the same time, on
+    separate threads, and the outcome can arrive before the portal reports
+    WEB_IDLE. The user should hear what happened in the order it happened:
+    first the access point going away, then whether the new network works.
+
     Taken here rather than when the timer fires: this is the moment the outcome
     arrived, and four seconds later another attempt could have replaced it.
     """
@@ -1243,6 +1249,16 @@ def on_wifi_fail_connect():
     news to someone who just picked a network and is standing there waiting to
     find out whether it worked. A radio that drops off the household network by
     itself is not their doing and not theirs to fix from here.
+
+    Delayed like on_wifi_connected(), and here it matters even more. A wrong
+    password makes NetworkManager fail fast, so WIFI_CONNECT_FAILED typically
+    arrives before the portal tear-down publishes WEB_IDLE. Played at once,
+    "WiFi not connected" would come first and overlap "OradioAP stopped",
+    since play_sound() does not wait for a sound to finish. The failure is also
+    the message the user has to act on, so it should be the last thing they hear.
+
+    Taken here rather than when the timer fires: this is the moment the outcome
+    arrived, and four seconds later another attempt could have replaced it.
     """
     oradio_log.info("Wifi fail connect acknowledged")
 
@@ -1250,10 +1266,21 @@ def on_wifi_fail_connect():
         oradio_log.debug("WiFi failure without a user request: nothing to announce")
         return
 
-    if announcements_allowed():
-        play_sound(SOUND_NO_WIFI)
-    else:
-        oradio_log.debug("Oradio is off: not announcing WiFi connect failure")
+    # Four seconds covers the portal tear-down: WEB_IDLE follows the WiFi state
+    # change within about a second (stop() polls it once per second), and
+    # "OradioAP stopped" itself lasts about two. A fixed delay is an assumption
+    # about that timing; if the tear-down ever gets much slower, play this from
+    # on_webservice_idle() instead.
+    #
+    # Checked when the timer fires, not when it is armed, for the same reason as
+    # in on_wifi_connected(): the user may have pressed stop in the meantime.
+    def _announce() -> None:
+        if announcements_allowed():
+            play_sound(SOUND_NO_WIFI)
+        else:
+            oradio_log.debug("Oradio is off: not announcing WiFi connect failure")
+
+    run_later(4, _announce)
 
 def on_wifi_access_point():
     """
