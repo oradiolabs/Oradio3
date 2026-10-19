@@ -28,9 +28,11 @@ Created on January 17, 2025
         - OS auto-mounts USB drives with label 'ORADIO'
         - watchdog package (https://pypi.org/project/watchdog/)
 """
+import subprocess
 from os import path, remove
 from json import load, JSONDecodeError
-from threading import Timer, Lock, RLock
+from threading import Timer, Lock, RLock, Event, Thread
+from time import monotonic, sleep
 from watchdog.observers import Observer
 from watchdog.observers.api import BaseObserver
 from watchdog.events import FileSystemEventHandler
@@ -87,6 +89,64 @@ USB_WIFI_FILE = path.join(USB_MOUNT_POINT, "Wifi_invoer.json")
 # Watchdog gives no callback when its threads die, so this must be polled.
 HEALTH_CHECK_INTERVAL = 30
 
+# Units that mount the stick: usb-drive-boot.service at boot and one
+# usb-drive@add-<SEQNUM>.service per udev event. While either has a job, the
+# mount is still on its way.
+USB_MOUNT_UNITS = "usb-drive*"
+
+# Upper bound on waiting for a mount that is on its way. Covers usb-drive.sh's
+# worst boot case: DEVICE_WAIT (5 s) plus FSCK_TIMEOUT (60 s), with slack for a
+# udev queue that is still busy coldplugging. Past this the stick is reported
+# absent; if it does get mounted later, on_created() reports it present.
+USB_MOUNT_PENDING_TIMEOUT = 90
+
+# How often the wait for a pending mount checks again (seconds).
+USB_MOUNT_PENDING_POLL = 0.25
+
+
+def usb_mount_pending() -> bool:
+    """
+    Whether a mount of the ORADIO stick may still be on its way.
+
+    Returns:
+        True while usb-drive-boot.service or a usb-drive@ instance has a job
+        queued or running, or while udev still has events to process (one of
+        which may be the stick, about to start a usb-drive@add instance).
+
+    At a cold boot oradio_control starts before the stick is mounted: nothing
+    is ordered after usb-drive-boot.service, and a stick with its FAT dirty bit
+    set -- which is every stick after the power was pulled -- is checked with
+    fsck before it is mounted. "Not mounted" then does not mean "absent", and
+    reporting it as absent sends the Oradio to StateUSBAbsent for a stick that
+    is in and arrives a few seconds later.
+
+    A question that cannot be asked (systemctl or udevadm missing, timing
+    out) counts as "not pending": the caller then reports what it sees, as it
+    did before this existed, rather than waiting on something it cannot see.
+    """
+    try:
+        jobs = subprocess.run(
+            ["systemctl", "list-jobs", "--no-legend", USB_MOUNT_UNITS],
+            capture_output=True, text=True, timeout=5, check=False,
+        )
+        if jobs.returncode == 0 and "usb-drive" in jobs.stdout:
+            return True
+    except (OSError, subprocess.SubprocessError) as ex_err:
+        oradio_log.debug("Could not list USB mount jobs: %s", ex_err)
+
+    try:
+        # --timeout=0: do not wait, only report whether the queue is empty.
+        settle = subprocess.run(
+            ["udevadm", "settle", "--timeout=0"],
+            capture_output=True, text=True, timeout=5, check=False,
+        )
+        if settle.returncode != 0:
+            return True
+    except (OSError, subprocess.SubprocessError) as ex_err:
+        oradio_log.debug("Could not query the udev queue: %s", ex_err)
+
+    return False
+
 @singleton
 class USBObserver(FileSystemEventHandler):
     """
@@ -137,16 +197,58 @@ class USBObserver(FileSystemEventHandler):
         # observer actually watching.
         self._published: str | None = None
 
+        # Set while a mount that is on its way is being waited for. Nothing
+        # publishes ABSENT meanwhile: the state is unknown, not absent. See
+        # usb_mount_pending().
+        self._awaiting_mount = Event()
+
         with self._state_lock:
             if path.ismount(USB_MOUNT_POINT):
                 # Checked here as well as in on_created(): at boot the drive is
-                # mounted by usb-drive-boot.service long before this observer
-                # exists, so the created event for the marker file is never seen.
+                # normally mounted by usb-drive-boot.service before this
+                # observer exists, so the created event for the marker file is
+                # never seen.
                 self._publish_present()
+            elif usb_mount_pending():
+                # Cold boot with the mount still in progress (fsck of a dirty
+                # stick, a slow stick, udev still coldplugging). Publish
+                # nothing yet: on_created() reports the stick when it is
+                # mounted, and the waiter reports it absent if it never is.
+                oradio_log.info("USB not mounted yet, mount in progress: waiting before reporting")
+                self._awaiting_mount.set()
+                Thread(
+                    target=self._await_pending_mount, daemon=True, name="usb-await-mount",
+                ).start()
             else:
                 self._publish_absent()
 
 ##### Helpers #############################################
+
+    def _await_pending_mount(self) -> None:
+        """
+        Wait for a mount that was on its way at start-up, then report the state.
+
+        Runs on its own thread, started from __init__(), so start-up does not
+        wait for it. Ends as soon as the stick is mounted (on_created() has
+        then already published PRESENT), when no mount is pending any more, or
+        after USB_MOUNT_PENDING_TIMEOUT. Then clears _awaiting_mount and lets
+        resync() publish whatever is true by then -- ABSENT if the stick never
+        came, nothing if on_created() already reported it.
+        """
+        deadline = monotonic() + USB_MOUNT_PENDING_TIMEOUT
+        while monotonic() < deadline:
+            if path.ismount(USB_MOUNT_POINT) or not usb_mount_pending():
+                break
+            sleep(USB_MOUNT_PENDING_POLL)
+        else:
+            oradio_log.warning(
+                "USB mount still pending after %ss: reporting the current state",
+                USB_MOUNT_PENDING_TIMEOUT,
+            )
+
+        with self._state_lock:
+            self._awaiting_mount.clear()
+            self.resync()
 
     def _publish_present(self) -> None:
         """Report fsck damage, announce the drive, and import WiFi credentials."""
@@ -437,6 +539,10 @@ class USBObserver(FileSystemEventHandler):
             state = USB_PRESENT if path.ismount(USB_MOUNT_POINT) else USB_ABSENT
             if state == self._published:
                 return
+            if state == USB_ABSENT and self._awaiting_mount.is_set():
+                # Not mounted YET: _await_pending_mount() decides when that
+                # means absent.
+                return
             oradio_log.info("USB state changed during observer start-up: %s", state)
             if state == USB_PRESENT:
                 self._publish_present()
@@ -458,6 +564,10 @@ class USBObserver(FileSystemEventHandler):
         """
         with self._state_lock:
             state = USB_PRESENT if path.ismount(USB_MOUNT_POINT) else USB_ABSENT
+            if state == USB_ABSENT and self._awaiting_mount.is_set():
+                # Same as in resync(): a mount on its way is not an absence.
+                oradio_log.info("Not republishing USB state: mount still in progress")
+                return state
             oradio_log.info("Republishing USB state: %s", state)
             if state == self._published:
                 Commands.publish(CommandMessage(USB_SOURCE, state))
