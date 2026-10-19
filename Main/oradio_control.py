@@ -485,7 +485,6 @@ class StateMachine:
         self._web_preset_change: tuple[str, int] | None = None
 
         self._websvc = None  # injected WebService
-        self._pd_mode: str | None = None  # track power supply PD state "nom" or "max"
 
         # Dispatch table for run_state_method
         self._handlers = {
