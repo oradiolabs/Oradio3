@@ -1005,6 +1005,21 @@ class MPDControl(MPDService):
 
 ##### Informative functions ###############################
 
+    @_sequence
+    def has_queue(self) -> bool:
+        """
+        Whether the MPD queue holds anything to play.
+
+        Returns:
+            True when the queue has at least one song or stream.
+
+        False after play() was asked for a preset that turned out empty (or
+        not ready yet): play() clears the queue before loading, so nothing is
+        left to skip through. The state machine asks this before treating a
+        second press of the same preset as "next song".
+        """
+        return bool(self._execute("playlistinfo"))
+
     def is_webradio(
         self,
         preset: str | None = None,

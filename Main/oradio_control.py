@@ -577,6 +577,10 @@ class StateMachine:
 
         StatePlay has no preset behind it, so there the current song is the only
         thing there is to ask about.
+
+        An empty queue means there is no next song for any of these states --
+        an empty preset, or Play falling back to an empty DEFAULT_PRESET -- so
+        then the state is entered again instead and its handler says why.
         """
         if self.state != requested_state or requested_state not in PLAY_STATES:
             return False
@@ -596,6 +600,16 @@ class StateMachine:
                 oradio_log.debug("Same web radio preset pressed again: starting it over")
                 mpd_control.play(preset=preset)
             return True
+
+        if not mpd_control.has_queue():
+            # Nothing loaded: the first press found an empty playlist or
+            # directory, so there is no next song to go to. Announcing "next
+            # song" would claim music that is not there. Re-entering the state
+            # plays again and lets the handler say what is true now: still no
+            # music, or the music that has been added since. Holds for Play
+            # too, which falls back to DEFAULT_PRESET when the queue is empty.
+            oradio_log.info("%s pressed again with nothing loaded: trying it again", requested_state)
+            return False
 
         mpd_control.next()
         play_sound(SOUND_NEXT)
@@ -988,12 +1002,19 @@ class StateMachine:
             )
             return
 
-        mpd_control.play()
+        result = mpd_control.play()
         if web_service_active.is_set():
             leds.control_blinking_led(LED_PLAY, WEBSERVICE_BLINK_CYCLE)
         else:
             leds.turn_on_led(LED_PLAY)
         play_sound(SOUND_PLAY)
+
+        # With an empty queue play() falls back to DEFAULT_PRESET. When that
+        # preset has no music, say so, as a preset button does: otherwise the
+        # Oradio says "aan" and then stays silent, which reads as "it worked".
+        if result is False:
+            oradio_log.info("Play pressed, but the default preset has no music")
+            run_later(2, play_sound, SOUND_PRESET_EMPTY)
 
     def _play_preset(self, preset: str, *, retry_if_not_ready: bool = True) -> None:
         """
