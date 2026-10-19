@@ -327,34 +327,6 @@ else:
 web_service_active = threading.Event() # Track status web_service
 web_service_active.clear() # Start-up state is no Web service
 
-def announcements_allowed() -> bool:
-    """
-    Whether the Oradio may speak an announcement right now.
-
-    For sounds the user did not ask for. A button press, a knob turn and
-    inserting or pulling the USB stick are all things the user did, and their
-    confirmation sound plays whatever state the Oradio is in. An event that
-    arrives on its own -- WiFi coming back an hour later, a connection attempt
-    failing -- is the Oradio speaking unprompted, and an Oradio that is off
-    must stay silent.
-
-    So the line is not "is the Oradio on" but "did the user cause this".
-    Callers that confirm a physical action deliberately do not consult this.
-
-    Off is StateIdle: StateStop arms a transition to it four seconds after the
-    stop sound, and that is where the Oradio sits until someone touches it
-    again. Idle is therefore not a state in which unprompted sound is welcome.
-
-    The exception is the web interface. While it is open the user is actively
-    configuring the Oradio, usually its WiFi, and the announcements are the
-    feedback on what they just did -- so they are wanted even though the state
-    machine is idle.
-
-    Returns:
-        True while the Oradio is playing or the web interface is open.
-    """
-    return state_machine.state in PLAY_STATES or web_service_active.is_set()
-
 # Any incident starting throttling monitor is reported to and handled by IncidentHandler
 RPiThrottlingMonitor().start()
 log_startup_step("throttling monitor")
@@ -1341,9 +1313,9 @@ def on_usb_present():
         return
     usb_present.set()
 
-    # No announcements_allowed() check, on purpose: pushing a stick in is a
-    # user action, and the confirmation that it was accepted is wanted whether
-    # the Oradio is playing or off.
+    # Played whatever state the Oradio is in: pushing a stick in is a user
+    # action, and the confirmation that it was accepted is wanted whether the
+    # Oradio is playing or off.
     play_sound(SOUND_USB_PRESENT)
 
     # The stick may have arrived after the boot-time set-up gave up, and it may
@@ -1395,14 +1367,20 @@ def on_wifi_connected():
         oradio_log.debug("WiFi connected on its own: nothing to announce")
         return
 
-    # Checked when the timer fires, not when it is armed: four seconds is long
-    # enough for the user to have pressed stop in between, and the Oradio would
-    # then announce itself after going quiet.
+    # The user picked this network and is waiting for the answer, so this plays
+    # whatever state the Oradio is in. By the time the timer fires the portal is
+    # closed and the Oradio sits in StateIdle, so a check on "playing or portal
+    # open" would always say no and the user would hear nothing.
+    #
+    # Only a stop press in the meantime silences it: four seconds is long enough
+    # for that, and the Oradio would then announce itself after going quiet.
+    # StateStop lasts four seconds before moving on to StateIdle, so a press
+    # inside this window is still visible when the timer fires.
     def _announce() -> None:
-        if announcements_allowed():
-            play_sound(SOUND_WIFI)
-        else:
-            oradio_log.debug("Oradio is off: not announcing WiFi connected")
+        if state_machine.state == "StateStop":
+            oradio_log.debug("Stop pressed meanwhile: not announcing WiFi connected")
+            return
+        play_sound(SOUND_WIFI)
 
     run_later(4, _announce)
 
@@ -1438,13 +1416,13 @@ def on_wifi_fail_connect():
     # about that timing; if the tear-down ever gets much slower, play this from
     # on_webservice_idle() instead.
     #
-    # Checked when the timer fires, not when it is armed, for the same reason as
-    # in on_wifi_connected(): the user may have pressed stop in the meantime.
+    # Played whatever state the Oradio is in, and silenced only by a stop press
+    # in the meantime, for the same reasons as in on_wifi_connected().
     def _announce() -> None:
-        if announcements_allowed():
-            play_sound(SOUND_NO_WIFI)
-        else:
-            oradio_log.debug("Oradio is off: not announcing WiFi connect failure")
+        if state_machine.state == "StateStop":
+            oradio_log.debug("Stop pressed meanwhile: not announcing WiFi connect failure")
+            return
+        play_sound(SOUND_NO_WIFI)
 
     run_later(4, _announce)
 
