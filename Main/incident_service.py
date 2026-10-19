@@ -534,7 +534,8 @@ class IncidentHandler(MessageHandlerTemplate):
             # and ThreadTemplate's restart_on_crash never saw it.
             self._restart_subsystem("MPD monitor", MPDMonitor)
         elif incident.message in (MPD_CONNECT_FAILED, MPD_EXECUTE_FAILED):
-            # MITIGATION: restart mpd.service.
+            # MITIGATION: restart mpd.service; ESCALATION: fatal_exit() when that
+            # does not bring mpd back (see the else branch below).
             #
             # Both say the same thing by the time they get here: mpd is not
             # answering. MPDService has its own retries and a circuit breaker in
@@ -582,6 +583,37 @@ class IncidentHandler(MessageHandlerTemplate):
                 # restarts elsewhere in this file stay silent on purpose: they
                 # do not invalidate anything the state machine tracks.
                 Commands.publish(CommandMessage(INCIDENT_SOURCE, INCIDENT_RECOVERED))
+            else:
+                # ESCALATION: mpd is not answering and restarting it did not fix
+                # that -- the restart failed, timed out, or the budget is spent
+                # because earlier restarts did not last.
+                #
+                # Without mpd the Oradio plays nothing, so this is as unusable as
+                # a GPIO failure, and stopping here would leave it silent until
+                # someone pulls the power. The typical cause is mpd stuck in
+                # uninterruptible I/O on a USB stick that stopped answering: no
+                # signal ends that process, and no amount of restarting mpd.service
+                # gets past it. What does is a reboot, which resets the USB stack.
+                #
+                # So the same escalation as GPIO: exiting non-zero lets systemd
+                # restart oradio.service (cheap, and enough if mpd recovered in
+                # the meantime). If mpd is still wedged, the new process ends up
+                # here again, the start limit is spent, and the crash handler
+                # reboots. A stick that is still broken after that reboot crashes
+                # it a third time, and the crash handler then plays the service
+                # message instead of rebooting again.
+                #
+                # No budget of its own: systemd's StartLimitBurst and the crash
+                # handler's reboot stamp are the budget, as for GPIO.
+                #
+                # If the Oradio process itself has a thread stuck on the same
+                # stick, it cannot exit either; systemd then marks the unit
+                # failed once its stop timeouts expire, and the crash handler
+                # takes over from there. Slower, same outcome.
+                fatal_exit(
+                    f"mpd is not answering and restarting it did not help: {incident.message}",
+                    stacklevel=4,
+                )
         else:
             oradio_log.error("Unhandled MPD incident: '%s'", incident.message)
 

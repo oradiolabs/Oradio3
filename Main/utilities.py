@@ -86,6 +86,17 @@ CRASH_RESTART_BACKOFF = 5.0     # seconds before an attempt, so a fast-failing l
 SERVICE_RESTART_TIMEOUT = 20.0  # seconds
 SERVICE_POLL_INTERVAL   = 0.5   # seconds
 
+# Upper bound on the 'systemctl restart' call itself, which SERVICE_RESTART_TIMEOUT
+# does not cover. systemctl waits for systemd's stop-and-start job, and the stop
+# half waits for the old process to exit. A process stuck in uninterruptible I/O
+# (mpd reading from a USB stick that stopped answering) cannot exit, not even on
+# SIGKILL, so without a bound the call -- and the incident handler thread making
+# it -- waits for minutes or for ever. Generous: a healthy mpd restart, database
+# read included, takes a few seconds.
+SERVICE_RESTART_CALL_TIMEOUT = 30   # seconds; an int, as it is passed to timeout(1)
+# Grace period before timeout(1) escalates from SIGTERM to SIGKILL on systemctl.
+SERVICE_RESTART_KILL_AFTER   = 5    # seconds
+
 # Budget for restarting a system service as a mitigation, used by
 # incident_service. Smaller and slower-decaying than the crash budget above: a
 # service restart is disruptive -- mpd stops the music, NetworkManager drops the
@@ -1117,16 +1128,41 @@ def restart_service(service_name: str, timeout: float = SERVICE_RESTART_TIMEOUT)
     Needs root, which the Oradio user has through the passwordless sudo the
     installer configures -- the same route is_service_active() above already
     takes.
+
+    The systemctl call is bounded by timeout(1), see SERVICE_RESTART_CALL_TIMEOUT.
+    Bounded there, as root under sudo, and not with subprocess.run(timeout=...):
+    on expiry subprocess.run() kills its child, and its child is sudo, which runs
+    as root and cannot be signalled by the Oradio user. The kill then raises
+    PermissionError and run() waits for the child after all -- the hang this is
+    meant to remove. timeout(1) runs as root and can stop systemctl.
+
+    Stopping systemctl does not cancel the restart: systemd's job carries on, and
+    the service may still come back later. This only stops the caller waiting
+    for it, so the incident handler can deal with the next incident.
     """
     oradio_log.info("Restarting %s", service_name)
 
     try:
         result = subprocess.run(
-            ["sudo", "systemctl", "restart", service_name],
+            [
+                "sudo", "timeout", f"--kill-after={SERVICE_RESTART_KILL_AFTER}",
+                str(SERVICE_RESTART_CALL_TIMEOUT),
+                "systemctl", "restart", service_name,
+            ],
             capture_output=True, text=True, check=False,
         )
     except (FileNotFoundError, PermissionError, subprocess.SubprocessError, OSError) as ex_err:
         oradio_log.error("Could not restart %s: %s", service_name, ex_err)
+        return False
+
+    # timeout(1) exits 124 when it stopped systemctl with SIGTERM, and 128+9
+    # when systemctl ignored that and had to be killed.
+    if result.returncode in (124, 137):
+        oradio_log.error(
+            "Restarting %s did not finish within %ds; not waiting any longer "
+            "(systemd may still complete the restart)",
+            service_name, SERVICE_RESTART_CALL_TIMEOUT,
+        )
         return False
 
     if result.returncode != 0:
