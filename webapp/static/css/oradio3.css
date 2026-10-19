@@ -274,18 +274,30 @@ input:focus {
 	box-shadow: 0 0 0 3px var(--input-focus-glow-color);	/* Add glow for visibility */
 }
 
+.input-icon {
+	position: relative;						/* Positioning context for the icon: exactly the input box */
+	margin: var(--element-spacing) 0 0 0;	/* Takes over the spacing the input had above it */
+}
+
+.input-icon input {
+	margin: 0;								/* Spacing is on the wrapper, so the wrapper height equals the input height */
+	padding-right: 40px;					/* Keep text from running under the icon */
+}
+
 .custom-icon {
 	position: absolute;							/* Removes the element from normal flow and positions it */
-	right: 10px;								/* Horizontal position from the right edge of the parent */
+	top: 50%;									/* Top edge at the vertical middle of the input */
+	right: 10px;								/* Horizontal position from the right edge of the input */
+	line-height: 1;								/* Line box hugs the glyph, so font metrics do not shift it per platform */
 	cursor: pointer;							/* Show element has action */
 	font-size: 1.5rem;							/* Icon size (relative to root font size) */
 	color: var(--input-text-color); font-weight: normal;
-	transform: translateY(50%) rotate(0deg);	/* Move the element down by 50% of its own height, do not rotate element */
+	transform: translateY(-50%) rotate(0deg);	/* Move up by half its own height to centre it, do not rotate element */
 	transition: transform 0.25s ease;			/* Animates changes: 250ms duration, start slow, speed up, then slow down */
 }
 
 .custom-icon.open {
-	transform: translateY(50%) rotate(180deg);	/* Move the element down by 50% of its own height, rotate element */
+	transform: translateY(-50%) rotate(180deg);	/* Keep centred, rotate element */
 }
 
 .scrollbox {

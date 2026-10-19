@@ -97,14 +97,16 @@ Design choices:
 				<!-- Network SSID -->
 				<div class="network custom-select" data-action="network" data-notification="notification_network">
 					<label for="ssid-input">Netwerk:</label>
-					<input
-						readonly
-						type="text"
-						id="ssid-input"
-						name="ssid-input"
-						placeholder="Selecteer uw wifi-netwerk"
-					/>
-					<span class="custom-icon">&#x25BC;</span> <!-- ▼ icon -->
+					<div class="input-icon">
+						<input
+							readonly
+							type="text"
+							id="ssid-input"
+							name="ssid-input"
+							placeholder="Selecteer uw wifi-netwerk"
+						/>
+						<span class="custom-icon">&#x25BC;</span> <!-- ▼ icon -->
+					</div>
 					<!-- Show network options -->
 					<div class="scrollbox dropdown" role="listbox">
 						<!-- Will be filled by Javascript -->
@@ -114,12 +116,14 @@ Design choices:
 				<!-- Password -->
 				<div id="password-block" class="password">
 					<label for="password-input">Wachtwoord:</label>
-					<input
-						type="password"
-						id="password-input"
-						placeholder="Voer WiFi-wachtwoord in"
-					/>
-					<span id="password-icon" class="custom-icon fa-regular fa-eye"></span>	<!-- 👁️ icon -->
+					<div class="input-icon">
+						<input
+							type="password"
+							id="password-input"
+							placeholder="Voer WiFi-wachtwoord in"
+						/>
+						<span id="password-icon" class="custom-icon fa-regular fa-eye"></span>	<!-- 👁️ icon -->
+					</div>
 				</div>
 
 				<!-- Submit wifi credentials -->
@@ -141,15 +145,17 @@ Design choices:
 					<div class="presets-grid">
 						<label for="{{ preset }}">Knop {{ loop.index }}:</label>
 						<div class="presets custom-select" data-action="{{ preset }}">
-							<input
-								readonly
-								type="text"
-								id="{{ preset }}"
-								name="{{ preset }}"
-								value="{% if preset in invalid %}&lt;leeg&gt;{% else %}{{ presets[preset] }}{% endif %}"
-								placeholder="Kies een speellijst"
-							/>
-							<span class="custom-icon">&#x25BC;</span> <!-- ▼ icon -->
+							<div class="input-icon">
+								<input
+									readonly
+									type="text"
+									id="{{ preset }}"
+									name="{{ preset }}"
+									value="{% if preset in invalid %}&lt;leeg&gt;{% else %}{{ presets[preset] }}{% endif %}"
+									placeholder="Kies een speellijst"
+								/>
+								<span class="custom-icon">&#x25BC;</span> <!-- ▼ icon -->
+							</div>
 							<!-- Show preset options -->
 							<div class="scrollbox dropdown" role="listbox">
 								<!-- Will be filled by Javascript -->
@@ -182,14 +188,16 @@ Design choices:
 				<!-- Select playlist -->
 				<div class="presets custom-select" data-action="playlist-input" data-notification="notification_presets">
 					<!-- No label -->
-					<input
-						readonly
-						type="text"
-						id="playlist-input"
-						name="playlist-input"
-						placeholder="Kies een speellijst"
-					/>
-					<span class="custom-icon">&#x25BC;</span> <!-- ▼ icon -->
+					<div class="input-icon">
+						<input
+							readonly
+							type="text"
+							id="playlist-input"
+							name="playlist-input"
+							placeholder="Kies een speellijst"
+						/>
+						<span class="custom-icon">&#x25BC;</span> <!-- ▼ icon -->
+					</div>
 					<!-- Show playlist options -->
 					<div class="scrollbox dropdown" role="listbox">
 						<!-- Will be filled by Javascript -->
