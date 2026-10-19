@@ -432,10 +432,19 @@ log_startup_step("mpd library scan")
 # both meant two answers to one question with nothing deciding which won when
 # they differed. This one is what the rest of the module has been told.
 #
-# Starts set so the start-up sequence runs; the USB service's first message
-# replaces it within a second, via the cache replay Commands.subscribe() does.
+# Starts set so the start-up sequence runs, and so a button pressed during the
+# start-up blink is accepted while the stick may still be on its way. The USB
+# service's first message replaces it: within a second when the stick is
+# already mounted or plainly absent, or once the boot-time mount has finished
+# (an fsck of a dirty stick can take a while). Until then usb_known is clear.
 usb_present = threading.Event()
 usb_present.set() # USB present to go over start-up sequence (will be updated after first message of USB service
+
+# Whether the USB service has said anything yet. Clear means "unknown": the
+# start-up blink keeps going (StateStartUp is not left for StateIdle on its
+# own), and a pressed button keeps blinking until the library is there. See
+# StateMachine.release_startup().
+usb_known = threading.Event()
 
 # ----------------------State Machine------------------
 
@@ -476,15 +485,8 @@ class StateMachine:
         # timer, scheduling an LED off, starting a retry -- tag what it
         # starts without every handler passing it around.
         self._handler_generation = -1
-
-        # Set by play_web_preset_change(): which preset the web interface just
-        # put a new playlist on, and the generation of the state worker that
-        # will play it. _play_preset() uses it to choose ONE follow-up
-        # announcement -- "new playlist" or "no music" -- once it knows what
-        # play() found. Guarded by _lock.
-        self._web_preset_change: tuple[str, int] | None = None
-
         self._websvc = None  # injected WebService
+        self._pd_mode: str | None = None  # track power supply PD state "nom" or "max"
 
         # Dispatch table for run_state_method
         self._handlers = {
@@ -500,6 +502,33 @@ class StateMachine:
             "StateError": self._state_error,
         }
         self._delayed_timers: dict[str, threading.Timer] = {}   # key -> Timer
+
+        # Set when the start-up blink has run its five seconds but the USB
+        # state is not known yet, so the move to StateIdle is held back until
+        # it is. Guarded by _lock. See release_startup().
+        self._startup_idle_held = False
+
+    def release_startup(self) -> None:
+        """
+        Finish the start-up blink now the USB state is known, if it was held.
+
+        Called by on_usb_present() and on_usb_absent() on every message. Does
+        nothing unless the start-up timer already fired and found the state
+        unknown, and the Oradio is still in StateStartUp -- a button pressed in
+        the meantime took it elsewhere, and that is what the user asked for.
+
+        Goes to StateIdle like the timer would have. With the stick absent,
+        _commit_or_usb_absent() turns that into StateUSBAbsent: the STOP LED
+        blinks on and the Oradio says the USB stick is missing.
+        """
+        with self._lock:
+            if not self._startup_idle_held:
+                return
+            self._startup_idle_held = False
+            if self.state != "StateStartUp":
+                return
+            oradio_log.info("USB state known: finishing start-up")
+            self._transition_locked("StateIdle", reenter=False, recovered=False)
 
     def set_services(self, web_service):
         """Inject the (already-constructed) WebService instance."""
@@ -681,36 +710,6 @@ class StateMachine:
         with self._lock:
             return generation == self._generation
 
-    def play_web_preset_change(self, preset: str) -> None:
-        """
-        Re-enter a preset because the web interface put a new playlist on it.
-
-        Args:
-            preset: The preset that changed, e.g. "Preset1".
-
-        Remembers the change together with the generation of the worker the
-        transition spawns, all under _lock, so that worker -- and only that
-        worker, or the retry it starts -- picks it up. A press that overtakes
-        it makes the generation stale, so a later press of the same button is
-        not announced as a new playlist.
-        """
-        with self._lock:
-            self._web_preset_change = None
-            if self._transition_locked(f"State{preset}", reenter=True, recovered=False):
-                self._web_preset_change = (preset, self._generation)
-
-    def _take_web_preset_change(self, preset: str) -> bool:
-        """
-        Whether this play of `preset` is the one the web interface asked for.
-
-        Clears the record either way: it answers for exactly one outcome.
-        Must be called from a state handler (or its retry), with task_lock held.
-        """
-        with self._lock:
-            change = self._web_preset_change
-            self._web_preset_change = None
-            return change == (preset, self._handler_generation)
-
     def _led_off_later(self, delay: float, led: str) -> None:
         """
         Turn an LED off after `delay` seconds, unless the state moved on.
@@ -869,6 +868,17 @@ class StateMachine:
             self._spawn_state_worker()
             return True
 
+        if (self.state == "StateStartUp" and requested_state == "StateIdle"
+                and not recovered and not usb_known.is_set()):
+            # The start-up timer fired before the USB service said whether the
+            # stick is in (its boot-time mount is still running). Going to Idle
+            # now would stop the blink and then, if the stick turns out to be
+            # absent, start a different one. Hold here instead; the first USB
+            # message finishes the start-up through release_startup().
+            oradio_log.info("Start-up done, USB state not known yet: keep blinking")
+            self._startup_idle_held = True
+            return False
+
         oradio_log.info("Request Transitioning from %s to %s", self.state, requested_state)
 
         self._cancel_all_delayed()
@@ -940,11 +950,39 @@ class StateMachine:
     # --- State handlers ---
 
     def _state_play(self):
+        self._play_current()
+
+    def _play_current(self, *, retry_if_not_ready: bool = True) -> None:
+        """
+        Resume or start playback for the Play button, waiting for the library if needed.
+
+        Args:
+            retry_if_not_ready: Hand a press that came before the library was
+                                ready to _retry_when_library_ready(). False when
+                                called from there.
+
+        Must be called with task_lock held.
+
+        Same shape as _play_preset(): the LED blinks first, so a press during
+        the start-up blink is visibly accepted, and keeps blinking until the
+        music actually starts. Before the library is ready there is nothing to
+        play from -- on a cold boot the stick may still be in fsck -- and
+        play() would load an empty preset or a queue whose files are not there.
+        """
+        leds.control_blinking_led(LED_PLAY, STARTUP_BLINK_CYCLE)
+
+        if retry_if_not_ready and not mpd_control.wait_for_library(0):
+            oradio_log.info("Play pressed before the library was ready")
+            self._start_library_retry(
+                "Play", lambda: self._play_current(retry_if_not_ready=False),
+            )
+            return
+
+        mpd_control.play()
         if web_service_active.is_set():
             leds.control_blinking_led(LED_PLAY, WEBSERVICE_BLINK_CYCLE)
         else:
             leds.turn_on_led(LED_PLAY)
-        mpd_control.play()
         play_sound(SOUND_PLAY)
 
     def _play_preset(self, preset: str, *, retry_if_not_ready: bool = True) -> None:
@@ -953,13 +991,13 @@ class StateMachine:
 
         Args:
             preset:             Preset key to play, e.g. "Preset1".
-            retry_if_not_ready: Hand a "not ready yet" to _retry_preset(). False
-                                when called from _retry_preset() itself, so a
+            retry_if_not_ready: Hand a "not ready yet" to _retry_when_library_ready(). False
+                                when called from _retry_when_library_ready() itself, so a
                                 play() that keeps failing after the library is
                                 ready cannot loop.
 
         Must be called with task_lock held (from a state handler or from
-        _retry_preset()).
+        _retry_when_library_ready()).
 
         The LED blinks first, at the rate this module already uses for "busy".
         play() can take seconds -- it waits on MPDService's lock, which the
@@ -1000,13 +1038,23 @@ class StateMachine:
         # LED before a cycle has passed and nobody sees it.
         leds.control_blinking_led(led, STARTUP_BLINK_CYCLE)
 
+        # Before the library is ready there is nothing to ask: presets.json
+        # lives on the stick, which on a cold boot may still be in fsck, and
+        # every question below would come back as "empty preset". Wait for it
+        # with the LED blinking, rather than announce something untrue.
+        if retry_if_not_ready and not mpd_control.wait_for_library(0):
+            oradio_log.info("Preset '%s' pressed before the library was ready", preset)
+            self._start_library_retry(
+                preset, lambda: self._play_preset(preset, retry_if_not_ready=False),
+            )
+            return
+
         # Asked before playing, because the answer is "not now" rather than
         # "not ever": starting a stream with no route out leaves MPD retrying a
         # URL it cannot reach, and it would begin playing by itself the moment
         # the portal closes and WiFi comes back -- music nobody asked for.
         if self._webradio_without_internet(preset):
             oradio_log.info("Preset '%s' is a webradio and there is no internet", preset)
-            self._take_web_preset_change(preset)
             mpd_control.stop()
             leds.turn_on_led(led)
             play_sound(sound)
@@ -1014,30 +1062,18 @@ class StateMachine:
             return
 
         result = mpd_control.play(preset=preset)
-
-        # Exactly one follow-up announcement. When the web interface just put a
-        # playlist on this button, "new playlist" used to be scheduled by
-        # _webservice_playlist_changed() at the same two seconds as "no music"
-        # here, and the two played over each other for an empty playlist. Only
-        # this point knows which of them is true, so it alone decides.
         if result:
             leds.turn_on_led(led)
             play_sound(sound)
-            if self._take_web_preset_change(preset):
-                run_later(2, play_sound, SOUND_NEW_PRESET)
             return
 
         if result is False:
-            # An empty playlist: "no music" is what the user needs to hear,
-            # whether it was pressed or just set from the web interface.
-            self._take_web_preset_change(preset)
             leds.turn_on_led(led)
             play_sound(sound)
             run_later(2, play_sound, SOUND_PRESET_EMPTY)
             return
 
         if not retry_if_not_ready:
-            self._take_web_preset_change(preset)
             # The library is ready and play() still has nothing. Not "empty
             # preset" (play() says False for that) and not worth another
             # round: say which button it was and stop blinking.
@@ -1047,17 +1083,35 @@ class StateMachine:
             return
 
         oradio_log.info("Preset '%s' pressed before the library was ready", preset)
-        threading.Thread(
-            target=self._retry_preset, args=(preset, self._handler_generation),
-            daemon=True, name=f"preset-retry-{preset}",
-        ).start()
+        self._start_library_retry(
+            preset, lambda: self._play_preset(preset, retry_if_not_ready=False),
+        )
 
-    def _retry_preset(self, preset: str, generation: int) -> None:
+    def _start_library_retry(self, label: str, replay) -> None:
         """
-        Play a preset that was pressed before the library was ready.
+        Start a thread that runs `replay` once the library is ready.
 
         Args:
-            preset:     Preset key the user pressed.
+            label:  What was pressed, for the log and the thread name.
+            replay: Called under task_lock once the library is ready, unless
+                    the press was overtaken first.
+
+        Must be called from a state handler: the retry is tagged with that
+        handler's generation.
+        """
+        threading.Thread(
+            target=self._retry_when_library_ready,
+            args=(label, replay, self._handler_generation),
+            daemon=True, name=f"library-retry-{label}",
+        ).start()
+
+    def _retry_when_library_ready(self, label: str, replay, generation: int) -> None:
+        """
+        Carry out a press (a preset or Play) that came before the library was ready.
+
+        Args:
+            label:      What was pressed, for the log.
+            replay:     What to run once the library is ready.
             generation: The generation of the handler that started this retry.
 
         Runs on its own thread so the command handler is free while it waits.
@@ -1079,16 +1133,17 @@ class StateMachine:
         """
         while not mpd_control.wait_for_library(PRESET_RETRY_POLL):
             if not self.is_current(generation):
-                oradio_log.info("Dropping retry of '%s': overtaken while waiting", preset)
+                oradio_log.info("Dropping retry of '%s': overtaken while waiting", label)
                 return
 
         with self.task_lock:
             with self._lock:
                 if generation != self._generation:
-                    oradio_log.info("Dropping retry of '%s': state is now %s", preset, self.state)
+                    oradio_log.info("Dropping retry of '%s': state is now %s", label, self.state)
                     return
                 self._handler_generation = generation
-            self._play_preset(preset, retry_if_not_ready=False)
+            oradio_log.info("Library ready: carrying out '%s'", label)
+            replay()
 
     def _state_preset1(self):
         self._play_preset("Preset1")
@@ -1215,15 +1270,23 @@ def on_volume_changed() -> None:
 
 def on_usb_absent():
     oradio_log.info("USB absent acknowlegded")
-    if not usb_present.is_set():
-        return
-    usb_present.clear()
-    if state_machine.state != "StateStartUp":
-        state_machine.transition("StateUSBAbsent")
+    usb_known.set()
+    if usb_present.is_set():
+        usb_present.clear()
+        if state_machine.state != "StateStartUp":
+            state_machine.transition("StateUSBAbsent")
+
+    # After usb_present is cleared, so a held start-up ends in StateUSBAbsent.
+    state_machine.release_startup()
 
 def on_usb_present():
     oradio_log.info("USB present acknowledged")
+    usb_known.set()
     if usb_present.is_set():
+        # The first message at start-up: usb_present starts set, so there is
+        # nothing to announce, and the boot-time library scan is already
+        # waiting for the mount. Only the start-up blink may need finishing.
+        state_machine.release_startup()
         return
     usb_present.set()
 
@@ -1250,6 +1313,8 @@ def on_usb_present():
     # Transition to Idle after USB is inserted
     if state_machine.state != "StateStartUp":
         state_machine.transition("StateIdle")
+    else:
+        state_machine.release_startup()
 
 # -------------------WIFI--------------------------
 
@@ -1263,12 +1328,6 @@ def on_wifi_connected():
     Oradio reconnects on its own after the portal closes, after a router reboot
     and after coming back into range, and announcing each of those is the Oradio
     talking about itself to someone who did not ask.
-
-    The announcement is delayed so it follows "OradioAP stopped". Submitting a
-    network starts the connect and the portal tear-down at the same time, on
-    separate threads, and the outcome can arrive before the portal reports
-    WEB_IDLE. The user should hear what happened in the order it happened:
-    first the access point going away, then whether the new network works.
 
     Taken here rather than when the timer fires: this is the moment the outcome
     arrived, and four seconds later another attempt could have replaced it.
@@ -1299,16 +1358,6 @@ def on_wifi_fail_connect():
     news to someone who just picked a network and is standing there waiting to
     find out whether it worked. A radio that drops off the household network by
     itself is not their doing and not theirs to fix from here.
-
-    Delayed like on_wifi_connected(), and here it matters even more. A wrong
-    password makes NetworkManager fail fast, so WIFI_CONNECT_FAILED typically
-    arrives before the portal tear-down publishes WEB_IDLE. Played at once,
-    "WiFi not connected" would come first and overlap "OradioAP stopped",
-    since play_sound() does not wait for a sound to finish. The failure is also
-    the message the user has to act on, so it should be the last thing they hear.
-
-    Taken here rather than when the timer fires: this is the moment the outcome
-    arrived, and four seconds later another attempt could have replaced it.
     """
     oradio_log.info("Wifi fail connect acknowledged")
 
@@ -1316,21 +1365,10 @@ def on_wifi_fail_connect():
         oradio_log.debug("WiFi failure without a user request: nothing to announce")
         return
 
-    # Four seconds covers the portal tear-down: WEB_IDLE follows the WiFi state
-    # change within about a second (stop() polls it once per second), and
-    # "OradioAP stopped" itself lasts about two. A fixed delay is an assumption
-    # about that timing; if the tear-down ever gets much slower, play this from
-    # on_webservice_idle() instead.
-    #
-    # Checked when the timer fires, not when it is armed, for the same reason as
-    # in on_wifi_connected(): the user may have pressed stop in the meantime.
-    def _announce() -> None:
-        if announcements_allowed():
-            play_sound(SOUND_NO_WIFI)
-        else:
-            oradio_log.debug("Oradio is off: not announcing WiFi connect failure")
-
-    run_later(4, _announce)
+    if announcements_allowed():
+        play_sound(SOUND_NO_WIFI)
+    else:
+        oradio_log.debug("Oradio is off: not announcing WiFi connect failure")
 
 def on_wifi_access_point():
     """
@@ -1458,13 +1496,9 @@ def _webservice_playlist_changed(preset: str) -> None:
     has been heard. That is why this does not announce the preset itself and
     _webservice_webradio_changed() does: the two end up in different states, and
     only one of them has a handler that says which button it belongs to.
-
-    The "new playlist" announcement is no longer scheduled here: _play_preset()
-    makes it once play() has answered. Scheduling it here as well put it on top
-    of "no music" for an empty playlist, both two seconds after the button
-    number, and the two were heard at the same time.
     """
-    state_machine.play_web_preset_change(preset)
+    state_machine.transition(f"State{preset}", reenter=True)
+    run_later(2, play_sound, SOUND_NEW_PRESET)
     oradio_log.debug("WebService changed the playlist on %s", preset)
 
 
