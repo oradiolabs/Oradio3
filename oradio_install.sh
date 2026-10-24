@@ -660,7 +660,15 @@ if [ "${1:-}" != "--continue" ]; then
 		sync
 
 		# Let systemd do controlled reboot
-		sudo systemctl reboot
+		if ! sudo systemctl reboot; then
+			echo -e "${RED}Aborting: reboot failed. Reboot manually; the installation will continue after the reboot${NC}"
+			exit 1
+		fi
+
+		# 'systemctl reboot' only queues the reboot and returns at once. Stop
+		# here, so CONFIGURATION below runs in the '--continue' pass after the
+		# reboot -- not now, racing a shutdown that is already under way.
+		exit 0
 	fi
 
 ########## INITIAL RUN END ##########
