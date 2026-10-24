@@ -1297,26 +1297,36 @@ def load_presets() -> dict[str, str]:
     """
     Retrieve the playlist names associated with the presets from a JSON file.
     Returns:
-        dict[str, str]: A dictionary mapping lowercase preset_key -> listname.
+        dict[str, str]: A dictionary mapping lowercase preset_key -> listname,
+                        always with all three keys preset1..preset3.
                         If a preset value is missing or invalid, listname will be an empty string "".
+                        A missing, unreadable or corrupt file gives "" for all three.
                         Keys are normalized to lowercase for case-insensitive lookup.
+
+    Every key is always present, also when the file cannot be read: callers that
+    walk the presets (mpd_control.validate_presets()) must see three unusable
+    presets then, not an empty dict that reads as "nothing configured, nothing
+    wrong".
     """
+    preset_keys = ["preset1", "preset2", "preset3"]
     try:
         with open(PRESETS_FILE, encoding='utf-8') as file:
             presets = json.load(file)
             if not isinstance(presets, dict):
                 oradio_log.error("Invalid JSON format in %s: expected dict", PRESETS_FILE)
-                return {}
+                presets = {}
     except FileNotFoundError:
         oradio_log.error("File not found at %s", PRESETS_FILE)
-        return {}
-    except json.JSONDecodeError:
-        oradio_log.error("Failed to JSON decode %s", PRESETS_FILE)
-        return {}
+        presets = {}
+    # UnicodeDecodeError: a corrupt file need not be valid UTF-8, and is a
+    # ValueError rather than a JSONDecodeError. OSError: an I/O error reading the stick.
+    except (json.JSONDecodeError, UnicodeDecodeError, OSError) as ex_err:
+        oradio_log.error("Failed to read %s: %s", PRESETS_FILE, ex_err)
+        presets = {}
 
     # Ensure all expected keys exist and are normalized
     presets_dict = {}
-    for key in ["preset1", "preset2", "preset3"]:
+    for key in preset_keys:
         # Fetch raw value from JSON, default to empty string if missing
         raw_value = presets.get(key, "")
         listname = _normalize_listname(raw_value)
