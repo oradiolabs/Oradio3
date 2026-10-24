@@ -128,7 +128,7 @@ function shutdownWebApp()
 	document.querySelectorAll("header, nav").forEach(el => el.remove());
 
 	// Replace main content with message
-	document.querySelector("main").innerHTML = 	"<div class=\"shuttingdown\"De web interface wordt afgesloten...</div>";
+	document.querySelector("main").innerHTML = 	"<div class=\"shuttingdown\">De web interface wordt afgesloten...</div>";
 
 	// Fire-and-forget: server may terminate immediately
 	postJSON("shutdown").catch(()=>{});
