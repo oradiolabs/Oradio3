@@ -116,7 +116,14 @@ from constants import (
 
 ########## LOCAL constants ################################
 
-PLAY_STATES = {"StatePlay", "StatePreset1", "StatePreset2", "StatePreset3"}
+# States in which the Oradio is playing music. on_webservice_active() relies
+# on this set to stop it when the web service opens.
+PLAY_STATES = {"StatePlay", 
+               "StatePreset1", "StatePreset2", "StatePreset3",
+               "StatePlaySongWebIF"}
+
+# States whose handler lights LED_PLAY; the presets light their own LED.
+LED_PLAY_STATES = {"StatePlay", "StatePlaySongWebIF"}
 
 # Blink cycle for "the Oradio is busy and will be ready shortly".
 #
@@ -1572,19 +1579,31 @@ def on_webservice_idle():
     if not web_service_active.is_set(): # check already taken the actions
         return
     web_service_active.clear()
-    if state_machine.state == "StatePlay":
+    # The web interface blinked LED_PLAY; leave it lit only where the state's
+    # own handler would have lit it, including a song started from the web.
+    if state_machine.state in LED_PLAY_STATES:
         leds.turn_on_led(LED_PLAY)
     else:
         leds.turn_off_led(LED_PLAY)
     play_sound(SOUND_AP_STOP)
 
 def on_webservice_playing_song():
-    if (
-        state_machine.state == "StateStop"
-    ):  # if webservice put songs in queue and plays it
-        state_machine.transition(
-            "StatePlaySongWebIF"
-        )  #  and if player is switched of, switch it on, otherwise keep state
+    """
+    Bring the state in line with a song the web interface started.
+
+    web_server.play_song() has MPD play the song before this message arrives,
+    so the music is already on. From StateStop and from StateIdle the state
+    still says "not playing" -- and StateIdle is the usual one, because opening
+    the web service sends a playing Oradio there. Moving to StatePlaySongWebIF
+    makes the state, and with it LED_PLAY and the stop on the next web service
+    entry, match what is heard. play() in its handler leaves a song that is
+    already playing alone.
+
+    In a play state the music was already on and the state already says so;
+    other states (start-up, no USB, error) are left as they are.
+    """
+    if state_machine.state in ("StateStop", "StateIdle"):
+        state_machine.transition("StatePlaySongWebIF")
     oradio_log.debug("WebService playing song acknowledged")
 
 def _webservice_playlist_changed(preset: str) -> None:
