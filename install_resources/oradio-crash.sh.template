@@ -258,20 +258,24 @@ if [ "$will_reboot" -eq 0 ]; then
 	# That is the whole reason for using it here rather than the GPIO library the
 	# Oradio uses: nothing survives this script to hold a line open, and a LED that
 	# goes dark the moment the handler exits would say nothing at all.
+	#
+	# The LEDs are active-low: 'dl' (drive low) turns the LED ON and 'dh' (drive
+	# high) turns it OFF -- the same as GPIOService (gpio_service.py, GPIO.LOW
+	# means on) and config.txt ('gpio=23=op,dl' lights STOP at boot).
 	if command -v pinctrl >/dev/null 2>&1; then
 		blink_until=$(( SECONDS + LED_BLINK_SECONDS ))
 		while [ "$SECONDS" -lt "$blink_until" ]; do
-			pinctrl set "PLACEHOLDER_LED_STOP_PIN" op dh || break
-			sleep "$LED_BLINK_HALF_CYCLE"
 			pinctrl set "PLACEHOLDER_LED_STOP_PIN" op dl || break
+			sleep "$LED_BLINK_HALF_CYCLE"
+			pinctrl set "PLACEHOLDER_LED_STOP_PIN" op dh || break
 			sleep "$LED_BLINK_HALF_CYCLE"
 		done
 
 		# Left ON, not off: the blinking ends but the fault does not, and this
 		# is the only sign left once the sound has finished and the blinking has
 		# stopped. It stays lit until the next boot, which is correct -- nothing
-		# is going to fix itself in between.
-		pinctrl set "PLACEHOLDER_LED_STOP_PIN" op dh \
+		# is going to fix itself in between. Active-low, so 'dl' is on.
+		pinctrl set "PLACEHOLDER_LED_STOP_PIN" op dl \
 			|| echo "Could not leave GPIO PLACEHOLDER_LED_STOP_PIN on"
 	else
 		echo "LED not used: pinctrl is not installed"
