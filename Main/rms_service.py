@@ -294,7 +294,13 @@ REMOTE_COMMAND_LOG = ORADIO_LOG_PATH / "rms.log"
 # Depth of the queue between send_message() and the sender thread. Deep enough to absorb a burst
 # of incidents while one POST is in flight, capped so an unreachable server cannot grow it without
 # bound: past this, the newest message is dropped with a warning rather than queued forever.
-SEND_QUEUE_SIZE = 32
+#
+# Derived from PENDING_INCIDENTS_MAX: when WiFi comes back, _flush_incidents() queues every held
+# incident at once, followed by the first heartbeat and SYS_INFO. A queue smaller than the held
+# list dropped the newest of them and those two messages with them. The headroom covers those
+# and incidents raised while the flush is being sent.
+SEND_QUEUE_HEADROOM = 16
+SEND_QUEUE_SIZE = PENDING_INCIDENTS_MAX + SEND_QUEUE_HEADROOM
 
 ##### Helpers #############################################
 
