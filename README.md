@@ -3,6 +3,9 @@
 This repo contains an install script to load and configure the required to prepare an SD card.
 This SD card is then to be used in an Oradio3, available from https://stichtingoradio.nl
 
+<ins>Note</ins>: the design documents in [Documents](Documents/README.md) are historical.
+The code is leading; see that folder's README for the status of each document.
+
 ## Installation
 
 Create an SD card using the Trixie 64bit Lite image:
