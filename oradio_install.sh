@@ -147,9 +147,10 @@ trap 'exec 1>&3 2>&4; wait' EXIT
 # anything. This one is the backstop for a direct run: 'git pull' followed by
 # 'bash oradio_install.sh' skips the bootstrap entirely.
 #
-# /etc/os-release rather than lsb_release: lsb-release is not on a Lite image by
-# default, so a missing package would read as a missing OS and abort a perfectly
-# good install. os-release ships with the base system.
+# /etc/os-release rather than lsb_release: os-release is part of the base system
+# (base-files) and is a plain file to source, while lsb_release is a separate
+# package and a command whose output has to be parsed. The current Lite image
+# does include lsb-release, but this check does not have to depend on that.
 TARGET_CODENAME="trixie"
 
 if [ -r /etc/os-release ]; then
