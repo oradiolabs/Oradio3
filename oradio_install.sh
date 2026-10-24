@@ -58,8 +58,9 @@ fi
 REBOOT_DELAY=3
 
 # Transient unit that resumes this script after the reboot in the initial run.
-# Created just before rebooting and removed again by the '--continue' pass, so
-# it exists only for the one boot it is needed for.
+# Created just before rebooting and disabled again by the '--continue' pass, so
+# it runs only for the one boot it is needed for. Its file is removed at the end
+# of a successful install; after an install with errors it stays, disabled.
 CONTINUE_UNIT=oradio-install-continue.service
 CONTINUE_UNIT_FILE="/etc/systemd/system/$CONTINUE_UNIT"
 
@@ -826,10 +827,14 @@ install_resource "$RESOURCES_PATH/oradio-dev.conf" /etc/tmpfiles.d/oradio-dev.co
 echo -e "${GREEN}i2c and device permissions configured${NC}"
 
 # Install audio configuration, set volume to reasonable level, play silence to activate
+# The system sound PCM name comes from SYSTEM_SOUND_SINK in constants.env, the
+# same value asound.conf is rendered with. Double quotes, not single: the
+# commands run in a 'sudo bash -c', where the variable is not set, so it has to
+# be expanded here.
 install_resource "$RESOURCES_PATH/asound.conf" /etc/asound.conf \
 	'amixer -c DigiAMP cset name="Digital Playback Volume" 120'\
 	'aplay -D MPD_in /dev/zero -f FLOAT_LE -c 2 -r 44100 -d 1' \
-	'aplay -D SysSound_in /dev/zero -f FLOAT_LE -c 2 -r 44100 -d 1'
+	"aplay -D $SYSTEM_SOUND_SINK /dev/zero -f FLOAT_LE -c 2 -r 44100 -d 1"
 # Configure MPD
 install_resource "$RESOURCES_PATH/mpd.conf" /etc/mpd.conf
 # Install empty MPD database.
