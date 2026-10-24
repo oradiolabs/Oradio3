@@ -30,7 +30,7 @@ Created on January 17, 2025
 """
 import subprocess
 from os import path, remove
-from json import load, JSONDecodeError
+from json import load
 from threading import Timer, Lock, RLock, Event, Thread
 from time import monotonic, sleep
 from watchdog.observers import Observer
@@ -84,6 +84,10 @@ USB_STATEFILE = "/run/usb_present"
 
 # Expected location of the WiFi credentials file on the USB drive root
 USB_WIFI_FILE = path.join(USB_MOUNT_POINT, "Wifi_invoer.json")
+
+# Largest Wifi_invoer.json read, in bytes. A real file is a few hundred bytes;
+# this only stops a wrong or damaged file from being read whole into memory.
+USB_WIFI_FILE_MAX_SIZE = 64 * 1024
 
 # How often the observer/emitter threads are polled for liveness (seconds).
 # Watchdog gives no callback when its threads die, so this must be polled.
@@ -419,28 +423,41 @@ class USBObserver(FileSystemEventHandler):
             oradio_log.debug("'%s' not found", USB_WIFI_FILE)
             return
 
-        # Read and parse the JSON credentials file
+        # Read and parse the JSON credentials file.
+        #
+        # Size first: the file is read whole, and the Oradio has little memory.
+        # utf-8-sig accepts the byte-order mark Windows Notepad writes for
+        # "UTF-8" and reads plain UTF-8 unchanged. ValueError covers both a
+        # malformed file (JSONDecodeError) and one that is not UTF-8 at all
+        # (UnicodeDecodeError, e.g. saved as ANSI with an accented SSID), and
+        # the size check below raises one too, so all of them are reported here.
         try:
-            with open(USB_WIFI_FILE, encoding="utf-8") as file:
+            size = path.getsize(USB_WIFI_FILE)
+            if size > USB_WIFI_FILE_MAX_SIZE:
+                raise ValueError(f"file is {size} bytes, more than the {USB_WIFI_FILE_MAX_SIZE} allowed")
+            with open(USB_WIFI_FILE, encoding="utf-8-sig") as file:
                 data = load(file)
-        except (JSONDecodeError, OSError) as ex_err:
-            # Covers malformed JSON and filesystem errors (permissions, I/O)
+        except (ValueError, OSError) as ex_err:
+            # Covers an oversized file, text that is not UTF-8, malformed JSON
+            # and filesystem errors (permissions, I/O)
             oradio_log.error("Failed to read or parse '%s': error: %s", USB_WIFI_FILE, ex_err)
             # The reason travels with the incident: six different faults share
             # this message, and "the wifi file is wrong" is not something anyone
             # can act on without knowing which way it is wrong.
             Incidents.publish(IncidentMessage(
                 USB_SOURCE, USB_FILE_FAILED,
-                details=f"unreadable or malformed JSON: {ex_err}",
+                details=f"unreadable, too large or malformed JSON: {ex_err}",
             ))
             return
 
-        # The root object must contain a "networks" key whose value is a list
-        if "networks" not in data or not isinstance(data["networks"], list):
-            oradio_log.error("'networks' must be a list")
+        # The root must be an object with a "networks" key whose value is a
+        # list. The isinstance check comes first: any other valid JSON root (a
+        # list, a string, a number) would otherwise fail on the lookup itself.
+        if not isinstance(data, dict) or not isinstance(data.get("networks"), list):
+            oradio_log.error("Root must be an object with a 'networks' list")
             Incidents.publish(IncidentMessage(
                 USB_SOURCE, USB_FILE_FAILED,
-                details="'networks' is missing or is not a list",
+                details="root is not an object, or 'networks' is missing or is not a list",
             ))
             return
 
