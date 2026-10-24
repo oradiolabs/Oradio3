@@ -44,7 +44,6 @@ from constants import (
 ##### LOCAL constants #####################################
 BUTTON_DEBOUNCE_TIME     = 500                              # ms — ignore rapid repeats within this window
 DEBOUNCE_SECONDS         = BUTTON_DEBOUNCE_TIME / 1000.0    # converted to seconds for monotonic() comparisons
-BOUNCE_MS                = 10                               # unused here: gpio_service.BOUNCE_MS is what GPIO.add_event_detect gets
 LONG_PRESS_DURATION      = 6                                # seconds a button must be held to trigger a long-press event
 BUTTON_LONG_PRESSED      = "button long pressed"
 VALID_LONG_PRESS_BUTTONS = [BUTTON_PLAY]

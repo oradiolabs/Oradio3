@@ -69,9 +69,10 @@ def _check_led_blinking_status(led_name: str) -> None:
     Args:
         led_name : the name of the led
     """
-    # select led name should be blinking
-    if leds.blink_workers.get(led_name) is not None:
-        # led thread is active, so blinking
+    # A worker existing is not enough: led_control keeps each LED's worker
+    # after the first blink and reuses it, so only a running one is blinking.
+    worker = leds.blink_workers.get(led_name)
+    if worker is not None and worker.is_alive():
         print (f"{GREEN}LED {led_name} is BLINKING {NC}\n")
     else:
         print (f"{RED}LED {led_name} is NOT BLINKING{NC}\n")

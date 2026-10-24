@@ -35,15 +35,11 @@ from contextlib import contextmanager
 
 ##### Oradio modules ######################################
 from utilities import ThreadTemplate
-from remote_debugger import setup_remote_debugging
+from remote_debugger import setup_remote_debugging, DEBUGGER_ENABLED, DEBUGGER_NOT_CONNECTED
 from messaging import DebugMessageHandler
 
 ##### GLOBAL constants ####################################
-from constants import (
-    RED, NC,
-    DEBUGGER_ENABLED,
-    DEBUGGER_NOT_CONNECTED,
-)
+from constants import RED, NC
 
 class KeyPressStopWaiter(ThreadTemplate):
     """

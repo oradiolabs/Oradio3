@@ -28,7 +28,7 @@ from RPi import GPIO
 ##### Oradio modules ######################################
 from log_service import oradio_log, DEBUG, CRITICAL
 from touch_buttons import TouchButtons, BUTTON_DEBOUNCE_TIME
-from gpio_service import BUTTONS, GPIOService
+from gpio_service import BUTTONS, GPIOService, BOUNCE_MS
 from utilities import input_prompt
 from module_test_harness import KeyPressStopWaiter, module_test_session
 from module_test_metrics import TimingData
@@ -212,10 +212,12 @@ class TestGPIOService:
         # Reset the button pin back to an input
         GPIO.setup(pin, GPIO.IN, pull_up_down=GPIO.PUD_UP)
 
-        # Restore edge detection to match normal operating state.
+        # Restore edge detection to match normal operating state: the same
+        # hardware bouncetime gpio_service arms it with. BUTTON_DEBOUNCE_TIME
+        # is touch_buttons' own software debounce, applied in its callback.
         GPIO.add_event_detect(pin, GPIO.BOTH,
                               callback=self.gpio_service._edge_callback,
-                              bouncetime=BUTTON_DEBOUNCE_TIME)
+                              bouncetime=BOUNCE_MS)
 
 
 def _stop_all_long_press_timer(test_buttons: TestTouchButtons) -> None:

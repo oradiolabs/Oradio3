@@ -29,13 +29,14 @@ import os
 import argparse
 
 ##### Oradio modules ######################################
-from constants import (
-    YELLOW, GREEN, NC,
-    DEBUGGER_CONNECTED,
-    DEBUGGER_NOT_CONNECTED,
-    DEBUGGER_DISABLED,
-    DEBUGGER_ENABLED,
-)
+from constants import YELLOW, GREEN, NC
+
+##### Remote debugger states ##############################
+# Defined here rather than in Main/constants.py: only the module tests use them.
+DEBUGGER_CONNECTED      = "Debugger connected"
+DEBUGGER_NOT_CONNECTED  = "Debugger not connected"
+DEBUGGER_DISABLED       = "debugger disabled"
+DEBUGGER_ENABLED        = "debugger enabled"
 
 ##### Remote debugger toggle ##############################
 # Set to DEBUGGER_ENABLED locally when remote debugging is needed.
