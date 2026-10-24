@@ -1025,7 +1025,9 @@ def fatal_exit(message: str, stacklevel: int = 6, *, exc: BaseException | None =
                     line name the caller rather than log_service or this
                     module, and worth checking again if the call chain changes.
         exc:        Optional exception associated with the failure; when provided,
-                    the full traceback is included in the log entry.
+                    its traceback is included in the log entry. Works outside an
+                    except block too, e.g. for an exception a crashed thread
+                    stored earlier.
         code:       Process exit status code (default: 1).
 
     Exiting non-zero is also how Python reaches tier three of the recovery:
@@ -1040,10 +1042,12 @@ def fatal_exit(message: str, stacklevel: int = 6, *, exc: BaseException | None =
     for the RMS sender to post what is queued, including the incident that
     led here. Bounded, so a hung network cannot keep a broken process alive.
     """
-    # exc_info=True causes the logging framework to capture the current
-    # exception context; passing the exception object directly also works
-    # in Python 3.5+ but the bool form is more conventional.
-    oradio_log.critical(message, stacklevel=stacklevel, exc_info=exc is not None)
+    # Pass the exception object itself, not True. exc_info=True logs whatever
+    # sys.exc_info() holds at this moment, which is nothing outside an except
+    # block (the log then shows "NoneType: None") and the wrong exception when
+    # called while handling another one. The object carries its own traceback;
+    # None logs no traceback at all.
+    oradio_log.critical(message, stacklevel=stacklevel, exc_info=exc)
 
     # After the critical line (so it is in the log files an RMS upload
     # attaches), before the log shutdown (so the hooks can still log).
