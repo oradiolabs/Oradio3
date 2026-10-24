@@ -1059,11 +1059,20 @@ if __name__ == '__main__':
                         print("\nStarting the web service...\n")
                         web_service.start()
                         print(f"\nConnecting with '{name}'. Check messages for result\n")
-                        url = f"http://{WEB_SERVER_HOST}:{WEB_SERVER_PORT}/wifi_connect"
+                        # Same route and body the web page uses: POST /execute
+                        # with cmd "connect" (web_server.py, oradio3.js).
+                        url = f"http://{WEB_SERVER_HOST}:{WEB_SERVER_PORT}/execute"
+                        body = {"cmd": "connect", "args": {"ssid": name, "pswd": pswrd}}
                         try:
-                            requests.post(url, json={"ssid": name, "pswd": pswrd}, timeout=SERVER_READY_TIMEOUT)
+                            response = requests.post(url, json=body, timeout=SERVER_READY_TIMEOUT,
+                                                     allow_redirects=False)
                         except requests.exceptions.RequestException:
                             print(f"{RED}Failed to connect. Make sure you have an active web server{NC}\n")
+                        else:
+                            # Not raise_for_status(): an unknown route answers 302,
+                            # which is not an error status but is not a success either.
+                            if response.status_code != 200:
+                                print(f"{RED}Connect request refused: HTTP {response.status_code} {response.text}{NC}\n")
                     else:
                         print(f"\n{YELLOW}No network given{NC}\n")
                 case 6:
