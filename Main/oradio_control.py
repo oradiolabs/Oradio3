@@ -118,7 +118,7 @@ from constants import (
 
 # States in which the Oradio is playing music. on_webservice_active() relies
 # on this set to stop it when the web service opens.
-PLAY_STATES = {"StatePlay", 
+PLAY_STATES = {"StatePlay",
                "StatePreset1", "StatePreset2", "StatePreset3",
                "StatePlaySongWebIF"}
 
