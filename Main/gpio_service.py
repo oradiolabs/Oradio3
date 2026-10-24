@@ -150,11 +150,12 @@ class GPIOService:
 
         Calls GPIO.cleanup() to release all configured pins and return them
         to input mode with no pull-up or pull-down resistors. Also clears
-        edge_event_callback and gpio_to_button, since this is a singleton
-        and __init__ will not run again to rebuild them: without this, a
-        caller that re-enables button events after cleanup would either
-        reuse a stale callback or find no callback registered at all,
-        rather than getting a clean slate.
+        edge_event_callback and gpio_to_button, so no stale callback is
+        invoked afterwards. This is a singleton and __init__ will not run
+        again, so nothing rebuilds gpio_to_button or reconfigures the pins:
+        a caller that registers a new callback and re-enables button events
+        after cleanup gets every edge dropped as "unknown channel". The
+        service is not usable again until a new process starts.
 
         Note:
             Does not hold self._lock while calling GPIO.cleanup(). The state
@@ -166,7 +167,7 @@ class GPIOService:
 
         Warning:
             Calling this in production will disable all GPIO functionality
-            until the service is re-initialised. Intended primarily for test
+            until the process restarts. Intended primarily for test
             environments where pins must be returned to a known state between
             test runs.
         """

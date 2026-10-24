@@ -700,7 +700,9 @@ class DeferredStarter:  # pylint: disable=too-many-instance-attributes
         Args:
             wait:   Seconds to keep waiting in the background. Pass 0 to skip
                     starting entirely when the dependency is absent, which suits
-                    tests, stand-alone runs and "try again now" call sites.
+                    tests, stand-alone runs and "try again now" call sites. An
+                    inline=False starter never checks here, so 0 skips it even
+                    when the dependency is up.
 
         Returns:
             True if do_start ran on this thread, which an inline=False starter
@@ -963,8 +965,9 @@ def mask_secrets(data: Any) -> Any:
 
 # Total time fatal_exit() gives its exit hooks before it exits anyway. The one
 # registered today is RMS: posting the incident that led here, which carries the
-# log files. Long enough for one upload on a normal link; on a bad one the crash
-# handler (oradio-crash.service) still uploads the logs after the restart.
+# log files. Long enough for one upload on a normal link. On a bad one the crash
+# handler (oradio-crash.service) uploads the logs only if the restart fails too:
+# it runs once systemd's start limit is spent, not after the first restart.
 FATAL_EXIT_HOOK_BUDGET = 20.0   # seconds
 
 _fatal_exit_hooks: list[Callable[[float], object]] = []
@@ -1020,8 +1023,9 @@ def fatal_exit(message: str, stacklevel: int = 6, *, exc: BaseException | None =
     Args:
         message:    Human-readable description of the fatal error.
         stacklevel: Logging stacklevel passed to oradio_log.critical().
-                    The default reports the caller of whatever wrapper invoked
-                    this; a direct caller wants 4. Checked by making the log
+                    A direct caller wants 4, the caller of a wrapper that
+                    invoked this 5; the default 6 reports one level above
+                    that, two above the direct caller. Checked by making the log
                     line name the caller rather than log_service or this
                     module, and worth checking again if the call chain changes.
         exc:        Optional exception associated with the failure; when provided,

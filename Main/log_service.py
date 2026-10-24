@@ -477,10 +477,11 @@ class SafeLogger:
     def listener_alive(self) -> bool:
         """
         Whether the QueueListener's background dispatch thread is currently
-        running. False means the queue will never drain again (e.g. a
-        handler's emit() hung, or the thread died) -- a permanent failure
-        distinct from ordinary congestion, where queue_full may be True
-        but the listener is still actively draining it.
+        running. False means the thread died and the queue will never drain
+        again -- a permanent failure distinct from ordinary congestion, where
+        queue_full may be True but the listener is still actively draining
+        it. A thread stuck in a handler's emit() is still alive, so a hung
+        handler is not detected here.
 
         QueueListener doesn't expose thread liveness itself, so this reads
         its internal _thread attribute directly.
@@ -534,8 +535,10 @@ class SafeLogger:
         dead: clearing it for a live (possibly stuck) thread would start a
         second consumer next to it. There is nothing to join and nothing to
         signal on a dead thread. The first thing the new thread does is drain
-        the backlog, which is also what makes queue_full go away and LOG_QUEUE_
-        RECOVERED arrive on its own.
+        the backlog, which is also what makes queue_full go away -- and, when
+        the queue had filled, what makes LogHealthMonitor (log_monitor.py)
+        publish LOG_QUEUE_RECOVERED. A queue that never filled gets no
+        RECOVERED.
 
         The handlers are not rebuilt. If one of them is what killed the thread,
         the new thread will die the same way, which is why the caller is

@@ -15,7 +15,7 @@ Created on April 28, 2025
 @version:       4
 @email:         oradioinfo@stichtingoradio.nl
 @status:        Development
-@summary:       Oradio touch buttons module with debounce and per-button callbacks.
+@summary:       Oradio touch buttons module with debounce and one shared edge callback for all buttons.
     The module test is module_test/touch_buttons_test.py.
 """
 from threading import Lock, Timer, current_thread

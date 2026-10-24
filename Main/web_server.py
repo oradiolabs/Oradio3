@@ -347,7 +347,9 @@ def modify_playlist(args: dict[str, Any] | None):
             operate on the playlist itself.
 
     Returns:
-        The updated list of custom playlists on success.
+        The updated list of all MPD playlists on success, as dicts with keys
+        'playlist' and 'webradio' -- webradio playlists included; the page
+        filters those out itself.
 
     Raises:
         ValueError: If args is None, a required key is missing, or

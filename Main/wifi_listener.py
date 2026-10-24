@@ -139,7 +139,8 @@ NM_AP_FLAGS_PRIVACY = 0x1
 # quickly, and the first sweep takes the largest share of that.
 #
 # Each sweep extends the one window where a long press can actually wait, since list_ready is set only when the
-# burst ends and wifi_service holds the access point until then: about 12s for two sweeps against 20s for three.
+# burst ends and wifi_service holds the access point until then: at around nine seconds a sweep (see below), about
+# 18s for two sweeps against 27s for three.
 #
 # Sweeps are paced by waiting for NetworkManager to report each scan complete, not by a fixed interval. A sweep
 # takes around nine seconds on this hardware, and a request issued while a scan is running is refused or folded into
@@ -370,7 +371,8 @@ class WifiEventListener(ThreadTemplate):    # pylint: disable=too-many-instance-
 
     If WIFI_INTERFACE is not managed by NetworkManager, is not a WiFi device, or the D-Bus connection fails, setup()
     raises. ThreadTemplate then logs and records the crash, and whichever of the four internal handles (bus,
-    _wifi_path, _nm_props, _loop) setup() had not yet reached are left as None. All other modules can still operate
+    _wifi_path, _nm_props, _loop) setup() had not yet reached keep their previous value: None on a first run, but
+    whatever an earlier run left behind after a restart, since nothing resets them. All other modules can still operate
     normally; WiFi state changes will simply not be reported. Use the inherited crashed / exception properties to
     detect this from the outside.
     """
@@ -388,7 +390,8 @@ class WifiEventListener(ThreadTemplate):    # pylint: disable=too-many-instance-
         """
         super().__init__(name="WifiEventListener")
 
-        # Set by setup(); any it has not yet reached stay None if it fails part-way:
+        # Set by setup(). None only until the first setup() reaches them: nothing resets them afterwards, so if a
+        # later setup() fails part-way, the ones it has not yet reached keep the previous run's values:
         #   bus        — set once the system bus connection is open
         #   _wifi_path — set once the WiFi device is located on the bus
         #   _nm_props  — set once the NM Properties interface is obtained
@@ -425,7 +428,8 @@ class WifiEventListener(ThreadTemplate):    # pylint: disable=too-many-instance-
 
         # Last WiFi state announced on the command bus, or None before the first one. Kept so publish_state() can
         # drop a repeat: NetworkManager's connectivity can flap between FULL and LIMITED without the association
-        # changing, and every repeat reaching the bus is another spoken "connected to wifi" from oradio_control.
+        # changing, and every repeat reaching the bus would have every subscriber act again on a state it already
+        # holds -- rms_service restarting its heartbeat and resending SYS_INFO, oradio_control handling it again.
         #
         # Every publish decision is made on the GLib main loop thread: other threads ask for one through
         # request_state_publish(), which reads the state there, at execution time. A state read on another thread
@@ -446,7 +450,9 @@ class WifiEventListener(ThreadTemplate):    # pylint: disable=too-many-instance-
         # be running with neither. Runs on the worker thread before the GLib loop starts, so it must not block.
         self.on_ready: Callable[[], None] | None = None
 
-        # True once "associated but no internet" has been reported, cleared when connectivity comes good. Separate
+        # True once _publish_current_state() has reported "associated but no internet" (as a WIFI_CONNECT_FAILED
+        # command), cleared when connectivity comes good. _wifi_state_changed publishes that command on its own
+        # without consulting or setting this flag, so it only limits the connectivity-change path. Separate
         # from _published_state because that case publishes no bus state at all -- it is neither connected nor
         # disconnected -- so it needs its own memory of having been said.
         self._no_internet_reported = False
@@ -494,8 +500,9 @@ class WifiEventListener(ThreadTemplate):    # pylint: disable=too-many-instance-
         schedule the keeper sweep, and create the GLib main loop do_work() runs.
 
         Runs on the worker thread, once per safe_start() and again on every automatic restart after a crash.
-        Publishes WIFI_DBUS_FAILED and raises on any failure, so ThreadTemplate records the crash and the handles not
-        yet set are left as None for other methods to degrade on. Calls on_ready once it has succeeded.
+        Publishes WIFI_DBUS_FAILED and raises on any failure, so ThreadTemplate records the crash. The handles not
+        yet set are left as they were: None on a first run, for other methods to degrade on, but the previous run's
+        values after a restart. Calls on_ready once it has succeeded.
 
         Raises:
             DBusException: NetworkManager is unreachable, or WIFI_INTERFACE is not registered.
@@ -769,10 +776,10 @@ class WifiEventListener(ThreadTemplate):    # pylint: disable=too-many-instance-
             )
         )
 
-        # Track the access points NetworkManager discovers. NM scans on its own whenever the device is idle or
-        # disconnected, so subscribing is enough to accumulate the neighbourhood over time without this module
-        # ever requesting a scan. That matters because scanning is impossible while hosting the access point
-        # and disruptive to playback while associated.
+        # Track the access points NetworkManager discovers. Every scan's results arrive here, whoever asked for
+        # it: NM's own scans while the device is idle or disconnected, the startup burst (scan_and_wait()) and
+        # the keeper sweep's request_scan(). This module requests scans only at those two points, because
+        # scanning is impossible while hosting the access point and disruptive to playback while associated.
         #
         # AccessPointAdded only. AccessPointRemoved is not subscribed: NM culls access points it has not seen in
         # a recent scan, and once associated it barely scans, so its removals say nothing about whether the
@@ -930,9 +937,10 @@ class WifiEventListener(ThreadTemplate):    # pylint: disable=too-many-instance-
         state ends here, so the decision and the announcement cannot drift apart, and so the "is this new?" test
         exists once instead of at every call site.
 
-        Repeats are dropped because a repeat is not free: subscribers act on the message, and on_wifi_connected()
-        in oradio_control speaks an announcement. NetworkManager's connectivity flaps between FULL and LIMITED
-        without the association changing, so without this an unstable uplink talks.
+        Repeats are dropped because a repeat is not free: subscribers act on every message they receive, and
+        rms_service, for one, restarts its heartbeat and resends SYS_INFO on each WIFI_CONNECTED. NetworkManager's
+        connectivity flaps between FULL and LIMITED without the association changing, so without this an unstable
+        uplink would have them act again and again on a state that has not changed.
 
         Call only on the GLib main loop thread, with a state read there. A state read on another thread can be
         overtaken by a newer one before it gets here, and would then be announced over it; other threads use
@@ -1076,8 +1084,9 @@ class WifiEventListener(ThreadTemplate):    # pylint: disable=too-many-instance-
             # whatever it was last told, which is also what makes the return to FULL a suppressed repeat rather
             # than a second spoken announcement.
             #
-            # One incident per outage, not one per signal: NM revises this property as its probe retries, so an
-            # uplink that is down for an hour would otherwise report itself all hour.
+            # One WIFI_CONNECT_FAILED per outage from this path, not one per signal: NM revises this property as
+            # its probe retries, so an uplink that is down for an hour would otherwise report itself all hour.
+            # _wifi_state_changed does not consult the flag, so a StateChanged to NM_CONNECTED can add another.
             if not self._no_internet_reported:
                 self._no_internet_reported = True
                 oradio_log.info("Associated without internet access")
@@ -1384,9 +1393,11 @@ class WifiEventListener(ThreadTemplate):    # pylint: disable=too-many-instance-
         and returns. Cheap enough to call in a loop and safe to call from any thread, including while the Oradio
         access point is serving a client.
 
-        Strengths come from the last keeper sweep (see _refresh_signal_strengths), so a value here is at most
-        AP_KEEPER_INTERVAL old. Strength decides only the ordering of the returned list, and the sort is between
-        physically distinct access points whose relative strengths do not reorder on a fifteen-minute scale.
+        Strengths come from the last keeper sweep (see _refresh_signal_strengths), so a value here is normally at
+        most AP_KEEPER_INTERVAL old. While the Oradio hosts its access point the keeper stands down and strengths
+        are not refreshed, so they can be arbitrarily old exactly then. Strength decides only the ordering of the
+        returned list, and the sort is between physically distinct access points whose relative strengths do not
+        reorder on a fifteen-minute scale.
         Membership -- which is what callers act on -- is driven by AccessPointAdded signals and AP_ENTRY_TTL.
 
         Returns:

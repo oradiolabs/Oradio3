@@ -69,7 +69,8 @@ VOLUME_CONTROL_MASTER    = "Digital Playback Volume"
 SET_FAILURE_WINDOW = 60.0  # seconds
 
 # Failures of one control inside that window before the Oradio asks to be
-# restarted.
+# restarted. A successful call to that control clears its count, so these are
+# consecutive failures.
 #
 # Deliberately generous, because nobody has measured this yet. A control that
 # is simply not there fails on every step of every knob turn, so it reaches

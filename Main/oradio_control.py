@@ -492,10 +492,12 @@ class StateMachine:
         """
         Finish the start-up blink now the USB state is known, if it was held.
 
-        Called by on_usb_present() and on_usb_absent() on every message. Does
-        nothing unless the start-up timer already fired and found the state
-        unknown, and the Oradio is still in StateStartUp -- a button pressed in
-        the meantime took it elsewhere, and that is what the user asked for.
+        Called by on_usb_absent() on every message, and by on_usb_present()
+        except when a returning stick takes a state other than StateStartUp
+        to StateIdle. Does nothing unless the start-up timer already fired and
+        found the state unknown, and the Oradio is still in StateStartUp -- a
+        button pressed in the meantime took it elsewhere, and that is what the
+        user asked for.
 
         Goes to StateIdle like the timer would have. With the stick absent,
         _commit_or_usb_absent() turns that into StateUSBAbsent: the STOP LED
@@ -1057,9 +1059,10 @@ class StateMachine:
         _retry_when_library_ready()).
 
         The LED blinks first, at the rate this module already uses for "busy".
-        play() can take seconds -- it waits on MPDService's lock, which the
-        library scan holds -- and a button that does nothing visible for that
-        long reads as a button that did not work.
+        play() can take seconds -- it waits on MPDControl's sequence lock,
+        which the library scan holds while it sanitises the playlists -- and a
+        button that does nothing visible for that long reads as a button that
+        did not work.
 
         Four outcomes. Three of them announce the button first -- "een", "twee",
         "drie" -- because the user pressed it and deserves to know it was heard,
@@ -1231,9 +1234,10 @@ class StateMachine:
             leds.control_blinking_led(LED_PLAY, WEBSERVICE_BLINK_CYCLE)
 
     def _state_stop(self):
-        # Not leds.oneshot_on_led(): its timer cannot be called off, and would
-        # switch off an error blink a newer state put on LED_STOP within the
-        # four seconds (a USB stick pulled right after Stop).
+        # Not leds.oneshot_on_led(): _led_off_later() ties the turn-off to this
+        # handler's generation, so once the state has moved on it leaves
+        # LED_STOP to whatever the newer state put on it within the four
+        # seconds (the error blink of a USB stick pulled right after Stop).
         leds.turn_on_led(LED_STOP)
         self._led_off_later(4, LED_STOP)
         if mpd_control.is_webradio():
@@ -1271,7 +1275,7 @@ class StateMachine:
         # It is what tells the user the Oradio is alive, and the window between
         # it and the first touch is the budget the rest of the system starts up
         # in. Every call placed ahead of it spends that budget instead of using
-        # it: leds.control_blinking_led() below goes over i2c, and anything
+        # it: leds.control_blinking_led() below drives GPIO, and anything
         # else added here would come before the user hears anything.
         #
         # play_sound() is fire-and-forget -- it launches aplay detached and
@@ -1367,7 +1371,8 @@ def on_usb_present():
 
     # The stick may have arrived after the boot-time set-up gave up, and it may
     # carry a different presets.json than the last one, so the library is
-    # prepared again. Returns immediately if MPD is still not up.
+    # prepared again. If MPD is still not up it only logs a warning: the MPD
+    # commands fail fast, and the library is marked ready all the same.
     #
     # On its own thread, like the boot-time scan. This handler runs on the one
     # command-handler thread that also serves every button press, and preparing
@@ -1550,8 +1555,9 @@ def on_incident_recovered():
     The case it was built for is mpd: restarting it takes the playback queue
     with it, so a state machine sitting in StatePresetN is describing music that
     is no longer playing -- the LED is on, the state says a preset, and mpd has
-    nothing queued. Pressing that same preset again does not fix it either,
-    because transition() reads a repeat of the current state as "next song".
+    nothing queued. Pressing that same preset again would replay it --
+    _same_state_pressed_again() re-enters a state whose queue is empty, and
+    starts a web radio preset over -- but nothing tells the user to do so.
 
     Idle and not StateStartUp, which is a claim about the Oradio's age rather
     than a set of LEDs: on_usb_absent() and on_usb_present() both skip their

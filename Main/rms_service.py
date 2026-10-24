@@ -146,8 +146,9 @@ def _load_requests() -> bool:
 
     Returns:
         True when the import succeeded. False when it did not, which is logged
-        but NOT published as an incident -- publishing one would queue a
-        message that this very function is needed to send.
+        here. The caller, _attempt_post(), turns it into a failed POST, so
+        _post_once() publishes RMS_POST_FAILED on the bus like any other
+        failure; that incident is never POSTed itself (RMS_SOURCE).
     """
     global post, RequestException, Timeout   # pylint: disable=global-statement
 
@@ -353,7 +354,11 @@ def _get_os_version() -> str:
     Return the operating system description.
 
     Returns:
-        str: OS name and version, or "Unsupported platform" if unavailable.
+        str: OS name and version, or "Unsupported platform" when
+             lsb_release exits non-zero or prints no Description line.
+
+    Raises:
+        OSError: lsb_release is not installed (FileNotFoundError).
     """
     result = subprocess.run(
         ["lsb_release", "-a"],
@@ -447,9 +452,11 @@ def _run_remote_command(command: str) -> None:
     rms.log.1 and its successors, which the incident upload collects. So
     the file's size is logrotate's to manage, like every other log here.
 
-    The command still gets its own process session, so it is not tied to the
-    lifetime of the service's own process group: a command that restarts or
-    stops oradio.service survives long enough to finish doing it.
+    The command gets its own process session, which shields it only from
+    signals sent to the service's process group. It is still in the
+    service's cgroup, and oradio.service sets no KillMode, so systemd kills
+    it along with the service on a stop or restart. A command that restarts
+    or stops oradio.service must detach through systemd-run to outlive it.
 
     Args:
         command: Shell command as received from the RMS server.
@@ -487,8 +494,8 @@ def _run_remote_command(command: str) -> None:
             # executable must be set explicitly; without it Python falls
             # back to /bin/sh which may lack bash-specific features.
             executable="/usr/bin/bash",
-            # Its own session, so the command is not signalled along with the
-            # service that started it
+            # Its own session, so process-group signals to the service do not
+            # reach it. systemd still kills it with the service's cgroup.
             start_new_session=True,
         ) as process:
             # No timeout: this returns when the command does. Nothing is read
@@ -2058,9 +2065,10 @@ class RMService:
         the handler's own attribute keeps callers off _handler.
 
         This is the gate that decides whether a message is accepted, which is
-        not the same question as WifiService.connected: that one says whether
-        WiFi is up, this one says whether this service has caught up with it
-        yet. A caller that is about to send should ask this one.
+        not the same question as WifiService.get_state() or has_connectivity():
+        those say whether WiFi is up, this one says whether this service has
+        caught up with it yet. A caller that is about to send should ask this
+        one.
 
         False when the service is not started: nothing can be sent then either.
         """
@@ -2157,9 +2165,10 @@ if __name__ == "__main__":
     # Source for incidents raised by this menu. Deliberately not RMS_SOURCE:
     # RMS's own incidents are dropped before the POST to stop a failed post
     # from publishing an incident that triggers another, so an incident from
-    # RMS_SOURCE would be queued and discarded rather than sent. Named to
-    # match the convention in messaging.py, and distinct enough that these
-    # records are recognisable as tests on the RMS side.
+    # RMS_SOURCE is filtered by send_message() before the backlog and the send
+    # queue, and never sent. Named to match the convention in messaging.py, and
+    # distinct enough that these records are recognisable as tests on the RMS
+    # side.
     TEST_SOURCE = "RMS test message"
 
     ##### Fault injection for stand-alone testing #############
@@ -2245,8 +2254,8 @@ if __name__ == "__main__":
             service: The running RMService to submit through.
         """
         # TEST_SOURCE rather than RMS_SOURCE matters here as well as in
-        # option 3: incidents that are dropped before the POST would empty
-        # the queue as fast as this fills it and never reach the limit.
+        # option 3: send_message() drops RMS_SOURCE incidents before they
+        # reach the queue, so they would never fill it to the limit.
         print(f"\nSubmitting {FLOOD_COUNT} incidents into a queue of {SEND_QUEUE_SIZE}...")
 
         for number in range(1, FLOOD_COUNT + 1):

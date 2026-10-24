@@ -167,7 +167,9 @@ class USBObserver(FileSystemEventHandler):
         Checks the mount point at startup to handle the case where the USB
         drive was already inserted before this service started. Publishes the
         correct initial USB_PRESENT or USB_ABSENT state, and triggers a
-        WiFi credential import if the drive is already mounted.
+        WiFi credential import if the drive is already mounted. While a mount
+        is still pending it publishes nothing yet: it sets _awaiting_mount and
+        starts the usb-await-mount thread, which reports the state later.
 
         Subsequent insertions are handled by on_created, which also triggers
         a WiFi credential import each time the marker file is recreated.
@@ -175,13 +177,17 @@ class USBObserver(FileSystemEventHandler):
         super().__init__()
 
         # Guards _published and _wifi_import, and makes "read the mount point,
-        # then publish" one step. Three threads get here: watchdog's dispatch
+        # then publish" one step. Four threads get here: watchdog's dispatch
         # thread (on_created/on_deleted), the thread running USBService.start()
-        # (resync) and the incident handler (republish). Without it a stick
-        # inserted just after the observer started was published twice and
-        # imported twice, with one DeferredStarter nobody could abort; and a
-        # republish that read "mounted" just before the stick was pulled could
-        # publish PRESENT after the removal had published ABSENT.
+        # (resync), usb-await-mount (resync, see _await_pending_mount()) and
+        # the incident handler (republish). Without it a stick inserted just
+        # after the observer started could have its two publishes interleave,
+        # leaving one DeferredStarter nobody could abort; and a republish that
+        # read "mounted" just before the stick was pulled could publish PRESENT
+        # after the removal had published ABSENT. The lock serialises, it does
+        # not dedupe: on_created() publishes without checking _published, so
+        # if resync() publishes PRESENT first, on_created() publishes it again
+        # (and replaces the WiFi import with a new one).
         #
         # RLock: _publish_present() calls _start_wifi_import(), which calls
         # _cancel_wifi_import(), all under it.
@@ -229,11 +235,12 @@ class USBObserver(FileSystemEventHandler):
         Wait for a mount that was on its way at start-up, then report the state.
 
         Runs on its own thread, started from __init__(), so start-up does not
-        wait for it. Ends as soon as the stick is mounted (on_created() has
-        then already published PRESENT), when no mount is pending any more, or
-        after USB_MOUNT_PENDING_TIMEOUT. Then clears _awaiting_mount and lets
-        resync() publish whatever is true by then -- ABSENT if the stick never
-        came, nothing if on_created() already reported it.
+        wait for it. Ends as soon as the stick is mounted, when no mount is
+        pending any more, or after USB_MOUNT_PENDING_TIMEOUT. Then clears
+        _awaiting_mount and lets resync() publish whatever is true by then --
+        ABSENT if the stick never came, nothing if on_created() already
+        reported it. The mount comes before the marker file, so on_created()
+        may not have fired yet; resync() then publishes PRESENT itself.
         """
         deadline = monotonic() + USB_MOUNT_PENDING_TIMEOUT
         while monotonic() < deadline:
@@ -360,7 +367,8 @@ class USBObserver(FileSystemEventHandler):
                     # A whitespace-only SSID is not a usable network name
                     errors.append(f"Network #{index} has empty SSID")
                 elif len(ssid) > 32:
-                    # IEEE 802.11 caps SSID length at 32 bytes
+                    # IEEE 802.11 caps SSID length at 32 bytes; this counts
+                    # characters, so a multi-byte UTF-8 SSID can still pass
                     errors.append(f"Network #{index} SSID is too long")
             else:
                 errors.append(f"Network #{index} has invalid SSID")
@@ -385,12 +393,14 @@ class USBObserver(FileSystemEventHandler):
 
         Reads and validates the JSON credentials file. For each valid network
         entry the credentials are registered with NetworkManager. If every
-        entry passes validation, the source file is deleted from the USB drive
-        to prevent re-import on the next insertion and to remove potentially
-        sensitive credentials from the removable drive.
+        entry passes validation and is accepted by NetworkManager, the source
+        file is deleted from the USB drive to prevent re-import on the next
+        insertion and to remove potentially sensitive credentials from the
+        removable drive.
 
-        The file is left in place when validation errors are found, allowing
-        the user to correct the data and re-insert the drive.
+        The file is left in place when validation errors are found, or when
+        NetworkManager refuses a valid entry, allowing the user to correct the
+        data (or retry) and re-insert the drive.
 
         Expected JSON structure::
             {
@@ -530,10 +540,14 @@ class USBObserver(FileSystemEventHandler):
         __init__() reads the mount point before the observer is started, so an
         insert or removal in between produces an inotify event nobody receives.
         Called once the observer is running: from then on every later change
-        is seen, and this closes the gap before it. Does nothing when the state
-        is unchanged, so the normal start-up publishes nothing extra.
+        is seen, and this closes the gap before it. Also called by
+        _await_pending_mount() once a pending start-up mount is resolved.
+        Does nothing when the state is unchanged, so the normal start-up
+        publishes nothing extra.
 
-        Under _state_lock, so an on_created() racing it publishes once, not twice.
+        Under _state_lock, so an on_created() racing it does not interleave with
+        it. That does not dedupe: on_created() does not check _published, so if
+        this publishes PRESENT first, on_created() publishes PRESENT again.
         """
         with self._state_lock:
             state = USB_PRESENT if path.ismount(USB_MOUNT_POINT) else USB_ABSENT
@@ -638,7 +652,8 @@ def republish_usb_state() -> str:
     Publish the drive state as it is right now, and return it.
 
     Returns:
-        USB_PRESENT or USB_ABSENT, whichever was published.
+        USB_PRESENT or USB_ABSENT, whichever was published. While a mount is
+        still pending, USB_ABSENT is returned without publishing anything.
 
     For the cases where the Oradio's idea of the drive may have drifted from the
     drive itself: an insert or remove event the handler could not finish, or an

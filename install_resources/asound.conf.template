@@ -111,7 +111,7 @@ pcm.mpd_equal_out_plug {
 # Band 2	<act>  <freq_Hz>  <bw>  <gain_dB>	Cleanup / body
 # Band 3	<act>  <freq_Hz>  <bw>  <gain_dB>	Presence
 # Band 4	<act>  <freq_Hz>  <bw>  <gain_dB>	Not used
-# Gain - master: to prevent clipping, reduced to max Gain + 2 dB
+# Gain - master: to prevent clipping, max band Gain (+4 dB) plus 4 dB headroom
 #######################################################################################
 pcm.caps_eq_mpd {
 	type ladspa

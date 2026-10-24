@@ -181,8 +181,10 @@ class UvicornServerThread:
 
     A fresh Server instance is created on each call to start() so that
     internal Uvicorn state (started, should_exit) is always clean.  The
-    Config object is built once in __init__ and reused across restarts because
-    it is immutable after construction.
+    Config object is built once in __init__ and reused across restarts. It is
+    not immutable -- the first serve calls config.load(), which mutates it and
+    sets config.loaded -- but later serves skip load() once loaded is set, so
+    reusing it is safe.
     """
     def __init__(self, app, host=WEB_SERVER_HOST, port=WEB_SERVER_PORT, level=None):
         """
@@ -635,7 +637,8 @@ class WebService:
 
                 if request == REQUEST_CONNECT:
                     if ssid := message.get("ssid"):
-                        # Password is optional; None is passed for open networks.
+                        # Password is optional: the page sends "" for open
+                        # networks, passed on as is (None if the key is absent).
                         pswd = message.get("pswd")
                         self.wifi_service.wifi_connect(ssid, pswd)
                         # Tear down the Captive Portal after handing off to the
@@ -650,7 +653,8 @@ class WebService:
                     oradio_log.warning("Unrecognised request: %s", request)
 
             # Broad catch is intentional: this loop must never die, since
-            # nothing else drains request_queue or restarts this thread.
+            # nothing else drains request_queue, and the thread is restarted
+            # only when incident_service calls ensure_listener().
             except Exception as ex_err:  # pylint: disable=broad-exception-caught
                 oradio_log.error("Error handling server message '%s': %s", mask_secrets(message), ex_err)
                 Incidents.publish(IncidentMessage(WEB_SOURCE, WEB_SERVER_FAILED))
@@ -691,7 +695,8 @@ class WebService:
         Returns:
             True when the server is ready to be started. False when the web
             stack could not be imported or the server could not be built;
-            both are logged here, and start() publishes the incident.
+            both are logged, a failed import also publishes WEB_SERVER_FAILED
+            (from _load_web_stack()), and start() publishes WEB_START_FAILED.
         """
         with self._create_lock:
             # Re-checked inside the lock: a caller that queued behind the
@@ -720,9 +725,10 @@ class WebService:
 
         Importing uvicorn and the FastAPI app costs about six seconds cold --
         more than half of what the whole Oradio start-up costs -- and start()
-        runs on the command handler thread while holding the state machine
-        lock. Paying it there means the Oradio ignores every button, knob and
-        event for those seconds, right after the user asked it for something.
+        runs on the command handler thread, serialised with every other button
+        and message (though not under the state machine lock). Paying it there
+        means the Oradio ignores every button, knob and event for those
+        seconds, right after the user asked it for something.
 
         So it is paid here instead, on a thread nobody is waiting on, once the
         Oradio is up. Safe to call more than once: _create_server() is a no-op
@@ -763,9 +769,12 @@ class WebService:
         later steps never run against a known-bad state -- but there is still
         only one return statement for the whole step sequence, matching stop().
 
-        All helper methods only log and return False on failure; start() is
-        solely responsible for publishing to Incidents, so each failure is
-        reported exactly once. Commands.publish(self.state) is only called on
+        start() publishes one WEB_START_FAILED for the step that failed. Some
+        failures are also reported by the code underneath, so they reach
+        Incidents twice: _load_web_stack() publishes WEB_SERVER_FAILED for a
+        failed import, await_access_point() publishes WIFI_AP_FAILED, and a
+        failed nmcli call publishes WIFI_NMCLI_FAILED (via nmcli_try).
+        Commands.publish(self.state) is only called on
         full success -- a Commands-only subscriber therefore never sees a
         "success" state announced after a failed start().
 
@@ -919,11 +928,13 @@ class WebService:
         6. Wait for the WiFi interface to reach WIFI_DISCONNECTED or WIFI_CONNECTED.
 
         Returns:
-            bool: True if every teardown step succeeded, False if any of them
-            failed. Since failures do not abort the sequence, a False here means
+            bool: True if steps 2-6 succeeded, False if any of them failed.
+            Since failures do not abort the sequence, a False here means
             teardown was attempted in full but at least one step did not
             complete, and one WEB_STOP_FAILED was published per failed step.
-            A dropped stale stop returns True.
+            The result of step 1 is not checked: a failed disconnect leaves
+            the status True and is reported only by wifi_service, as
+            WIFI_DISCONNECT_FAILED. A dropped stale stop returns True.
         """
         with self._lifecycle_lock:
             if session is not None and session != self._session:

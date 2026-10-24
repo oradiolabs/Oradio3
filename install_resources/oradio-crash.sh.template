@@ -234,16 +234,15 @@ if [ "$will_reboot" -eq 0 ]; then
 	# ALSA sink for system sounds from constants.env. Nobody is watching a log.
 	# An Oradio that is silently dead looks the same as one that is switched off.
 	#
-	# Blocking, not detached: this script is the last thing running for this
-	# fault, and exiting would take the sound with it.
 	# Started in the background so the blinking below runs with it rather than
 	# after it: the message lasts about four seconds and the blinking thirty, so
 	# the sound finishes well inside the loop and someone in the room hears and
 	# sees the same thing at the same moment.
 	#
-	# Safe only because of that margin. If the blinking is ever shortened below
-	# the length of the message, this has to go back to being blocking, or the
-	# script exits and takes the sound with it.
+	# This script is the last thing running for this fault, and exiting would
+	# take the sound with it. The 'wait' further down collects aplay before the
+	# script goes on, so that holds even if the blinking is ever shortened below
+	# the length of the message.
 	if [ -r "$SERVICE_SOUND" ]; then
 		aplay -D "PLACEHOLDER_SYSTEM_SOUND_SINK" "$SERVICE_SOUND" \
 			|| echo "Could not play ${SERVICE_SOUND} on PLACEHOLDER_SYSTEM_SOUND_SINK" &
