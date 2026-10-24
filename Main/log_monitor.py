@@ -82,6 +82,12 @@ class LogHealthMonitor(ThreadTemplate):
         self._was_full = False
         self._was_alive = True
 
+        # Set by stop() before safe_stop(), cleared by start(). Tells
+        # on_stopped() that this end was asked for, even when the stop landed
+        # during a crash-restart backoff and the exception from the crash is
+        # still recorded.
+        self._stop_requested = False
+
 ##### ThreadTemplate overrides ############################
 
     def setup(self) -> None:
@@ -149,7 +155,23 @@ class LogHealthMonitor(ThreadTemplate):
             self._last_dropped = current_dropped
 
     def on_stopped(self) -> None:
-        """Report incident: Oradio never intentionally stops log health monitoring."""
+        """
+        Report the monitor ending, unless it was told to.
+
+        There is one deliberate stop: incident_service's _restart_subsystem()
+        calls stop() before start() when it repairs a monitor that failed to
+        start. Reporting that as LOG_STOPPED would raise a second incident for
+        a repair already under way, and LOG_STOPPED is itself repaired with a
+        restart.
+
+        Every other way out is a crash past restart_on_crash's budget, which is
+        what LOG_STOPPED is for. _stop_requested tells the two apart; no
+        exception is checked as well, for a run that ended without either.
+        """
+        if self._stop_requested or self.exception is None:
+            oradio_log.info("Log health monitor stopped on request")
+            return
+
         Incidents.publish(
             IncidentMessage(LOG_SOURCE, LOG_STOPPED, details=self.stop_reason())
         )
@@ -168,6 +190,7 @@ class LogHealthMonitor(ThreadTemplate):
             oradio_log.debug("Log health monitor already running")
             return
 
+        self._stop_requested = False
         if not self.safe_start():
             oradio_log.error("Log health monitor failed to start")
             Incidents.publish(IncidentMessage(LOG_SOURCE, LOG_START_FAILED))
@@ -185,8 +208,10 @@ class LogHealthMonitor(ThreadTemplate):
         Signal the background polling thread to stop and wait for it to exit.
 
         Thin wrapper around ThreadTemplate.safe_stop() that preserves this
-        class's original public API.
+        class's original public API. Marks the stop as requested first, so
+        on_stopped() does not report it as LOG_STOPPED.
         """
+        self._stop_requested = True
         self.safe_stop()
 
 ##### Stand-alone entry point #############################
