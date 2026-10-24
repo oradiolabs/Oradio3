@@ -70,18 +70,20 @@ Bit 0 may never appear at all, in which case nothing needs changing.
 
 ### Volume control
 
-`SET_FAILURE_LIMIT = 20` within `SET_FAILURE_WINDOW = 60.0`, in
-`Main/volume_control.py`.
+`SET_FAILURE_LIMIT = 20` failures of one ALSA control within
+`SET_FAILURE_WINDOW = 60.0`, in `Main/volume_control.py`.
 
 Past that, the process ends and systemd restarts the service, which re-runs
 `oradio-prestart.sh` and its conditional `alsactl restore` -- the one thing that
 recreates softvol controls that are missing.
 
 What to look for: `failures=N` in the details of every `VOLUME_SET_FAILED`
-incident. One knob turn is ten to fifteen `amixer` calls and a successful call
-clears the count, so 20 is only reachable when nothing is working at all. A
-control that is simply not there produces a full turn's worth at once and trips
-this on the second turn.
+incident, together with `control=` saying which one. The count is kept per
+control, and only a successful call to that same control clears it: a knob step
+sets the hardware master and then `VolumeSysSound`, so a missing softvol control
+keeps failing while the master keeps working. Such a control fails on every step
+of every turn and trips this within a few turns; an occasional miss stays far
+below it.
 
 Lower it once the logs show how often `amixer` misses in normal use. If
 `failures=` never rises above 1, the limit can come down a long way.
