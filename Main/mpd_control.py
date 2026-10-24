@@ -281,8 +281,8 @@ class MPDControl(MPDService):
         # such a press waits on. See wait_for_library().
         self._library_ready = Event()
 
-        # Reused across play_song() calls when idle, to avoid spawning a new
-        # OS thread per call in the common (sequential) case. See play_song().
+        # One monitor object reused across play_song() calls; each start still
+        # runs on a fresh Thread (see ThreadTemplate.safe_start()). See play_song().
         self._song_monitor = _SongFinishMonitor(self)
 
     def wait_for_library(self, timeout: float | None = None) -> bool:
@@ -397,11 +397,11 @@ class MPDControl(MPDService):
         and none of which the start-up tune or a button press waits for.
 
         Serialised against itself: the deferred library scan runs this on its
-        own thread at start-up, and inserting a drive runs it again from the
-        USB watchdog thread. MPDService's lock serialises the individual
-        commands but not the sequence, so without this the two interleave --
-        one clearing playlists while the other validates presets against them,
-        which reports presets as broken that are not.
+        own thread at start-up, and inserting a drive runs it again on a
+        dedicated 'usb-library-init' thread. MPDService's lock serialises the
+        individual commands but not the sequence, so without this the two
+        interleave -- one clearing playlists while the other validates presets
+        against them, which reports presets as broken that are not.
         """
         # The breaker may still be open from a connect burst that gave up while
         # MPD was starting: a preset pressed during the start-up blink, before
@@ -559,7 +559,7 @@ class MPDControl(MPDService):
 
 ##### Playback functions ##################################
 
-    # Seven returns and thirteen branches, against maxima of 6 and 12. Each is a
+    # Ten returns, against a maximum of 6, and more branches than the 12 allowed. Each is a
     # distinct outcome of "should this call have started music", and the caller
     # needs that answer -- collapsing them behind a status variable would
     # hide which case a reader is in, in a method whose whole job is telling
@@ -578,12 +578,14 @@ class MPDControl(MPDService):
 
         Behaviour when the queue is empty (preset used as fallback):
             - If preset is None, DEFAULT_PRESET is used.
-            - Preset resolves to nothing → do nothing.
+            - Preset resolves to nothing → the queue is cleared, nothing plays.
             - Preset resolves to a playlist → load and play from the first song.
             - Preset resolves to a directory → add all songs, shuffle, and play.
 
         Returns:
-            True when music is playing as a result of this call.
+            True when music is playing as a result of this call. Also True,
+            without playing anything, for an invalid preset argument (not a
+            string, or whitespace only): that is logged as an error instead.
 
             False when the preset pointed at nothing, or at a playlist or
             directory without songs, which the caller has to
@@ -1040,8 +1042,8 @@ class MPDControl(MPDService):
             known_playlist_names: Optional pre-fetched set of existing
                 playlist names, forwarded to _playlist_first_uri() to avoid
                 an extra `listplaylists` round-trip when the caller (e.g.
-                get_playlists()) already has a fresh one. Ignored unless
-                mpdlist is given.
+                get_playlists()) already has a fresh one. Ignored when
+                neither preset nor mpdlist is given.
 
         Returns:
             True if the URI starts with "http://" or "https://".

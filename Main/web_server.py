@@ -347,7 +347,9 @@ def modify_playlist(args: dict[str, Any] | None):
             operate on the playlist itself.
 
     Returns:
-        The updated list of custom playlists on success.
+        The updated list of all MPD playlists on success, as dicts with keys
+        'playlist' and 'webradio' -- webradio playlists included; the page
+        filters those out itself.
 
     Raises:
         ValueError: If args is None, a required key is missing, or
@@ -429,6 +431,38 @@ class ExecuteRequest(BaseModel):
 # event loop used to, without putting the loop itself on hold.
 _handler_lock = Lock()
 
+# Commands whose arguments end up in MPD commands: playlist names, song paths
+# and search patterns. A command added here, or a new command that passes
+# strings to MPD, needs to be in this set too.
+MPD_ARG_COMMANDS = {"play", "preset", "playlist", "search", "modify"}
+
+def _reject_line_breaks(value: Any) -> None:
+    """
+    Raise ValueError if a string anywhere in value contains a line break.
+
+    python-mpd2 escapes only backslash and double quote in arguments, and MPD
+    reads one command per line: a newline in a playlist name or search pattern
+    would end the command there and have MPD run the rest as a command of its
+    own. Nothing the page sends legitimately contains one. MPDService._execute()
+    refuses such arguments as well; checking here first gives the page a clear
+    message instead of a command that silently did nothing.
+
+    Args:
+        value: The request arguments, or any part of them.
+
+    Raises:
+        ValueError: A string contains '\\n' or '\\r'.
+    """
+    if isinstance(value, str):
+        if "\n" in value or "\r" in value:
+            raise ValueError("Naam of zoekterm bevat een regelovergang; dat is niet toegestaan")
+    elif isinstance(value, dict):
+        for item in value.values():
+            _reject_line_breaks(item)
+    elif isinstance(value, (list, tuple)):
+        for item in value:
+            _reject_line_breaks(item)
+
 @api_app.post("/execute")
 def execute(request: ExecuteRequest):
     """
@@ -443,8 +477,9 @@ def execute(request: ExecuteRequest):
 
     Returns:
         The handler's return value on success (type varies by command), or a
-        JSONResponse with status 400 if the command name is unknown or a
-        required argument is missing.
+        JSONResponse with status 400 if the command name is unknown, a
+        required argument is missing, or an argument for MPD contains a line
+        break (see _reject_line_breaks()).
     """
     oradio_log.info("Executing '%s' with args '%s'", request.cmd, mask_secrets(request.args))
 
@@ -466,6 +501,8 @@ def execute(request: ExecuteRequest):
         return JSONResponse(status_code=400, content={"message": f"Opdracht '{request.cmd}' is onbekend"})
 
     try:
+        if request.cmd in MPD_ARG_COMMANDS:
+            _reject_line_breaks(request.args)
         with _handler_lock:
             result = commands[request.cmd](request.args)
         return result

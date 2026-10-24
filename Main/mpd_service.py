@@ -352,6 +352,7 @@ class MPDService:
             The command result on success, or None if:
             - the circuit breaker is open, or a connect attempt failed,
             - the command name is not a valid MPD command,
+            - a string argument contains a line break,
             - the command fails with a CommandError (expected or not),
             - MPD did not answer within MPD_COMMAND_TIMEOUT,
             - an unexpected exception was raised, or
@@ -369,6 +370,17 @@ class MPDService:
         function = getattr(self._client, command, None)
         if not callable(function):
             oradio_log.error("Invalid MPD command: '%s'", command)
+            return None
+
+        # Refuse a line break in any string argument. python-mpd2 escapes only
+        # backslash and double quote, and MPD reads one command per line, so a
+        # newline would end this command and have MPD run the rest as a command
+        # of its own -- and leave the client reading answers to commands it
+        # never sent. web_server rejects these first, with a message for the
+        # page; this is the guard for every other caller.
+        if any(isinstance(arg, str) and ("\n" in arg or "\r" in arg)
+               for arg in (*args, *kwargs.values())):
+            oradio_log.error("Refusing MPD command '%s': an argument contains a line break", command)
             return None
 
         for attempt in range(1, MPD_RETRIES + 1):

@@ -62,10 +62,6 @@ RED     = '\x1b[38;5;196m'
 MAGENTA = '\x1b[38;5;201m'
 NC      = '\x1b[0m'
 
-# Left over from the old 3-element (source, state, error) messages, which
-# messaging.py's CommandMessage/IncidentMessage replaced. No module uses it.
-MESSAGE_NO_ERROR = "None"
-
 ##### LED definitions see UML «led_name» ##################
 LED_PLAY    = "LedPlay"
 LED_STOP    = "LedStop"
@@ -157,9 +153,3 @@ USB_SYSTEM      = USB_MOUNT_POINT + "/Systeem"
 
 ##### AUDIO ###############################################
 PRESETS_FILE = USB_SYSTEM + "/presets.json"
-
-##### Remote Debugger defines #############################
-DEBUGGER_CONNECTED      = "Debugger connected"
-DEBUGGER_NOT_CONNECTED  = "Debugger not connected"
-DEBUGGER_DISABLED       = "debugger disabled"
-DEBUGGER_ENABLED        = "debugger enabled"

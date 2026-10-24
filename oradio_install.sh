@@ -58,8 +58,9 @@ fi
 REBOOT_DELAY=3
 
 # Transient unit that resumes this script after the reboot in the initial run.
-# Created just before rebooting and removed again by the '--continue' pass, so
-# it exists only for the one boot it is needed for.
+# Created just before rebooting and disabled again by the '--continue' pass, so
+# it runs only for the one boot it is needed for. Its file is removed at the end
+# of a successful install; after an install with errors it stays, disabled.
 CONTINUE_UNIT=oradio-install-continue.service
 CONTINUE_UNIT_FILE="/etc/systemd/system/$CONTINUE_UNIT"
 
@@ -147,9 +148,10 @@ trap 'exec 1>&3 2>&4; wait' EXIT
 # anything. This one is the backstop for a direct run: 'git pull' followed by
 # 'bash oradio_install.sh' skips the bootstrap entirely.
 #
-# /etc/os-release rather than lsb_release: lsb-release is not on a Lite image by
-# default, so a missing package would read as a missing OS and abort a perfectly
-# good install. os-release ships with the base system.
+# /etc/os-release rather than lsb_release: os-release is part of the base system
+# (base-files) and is a plain file to source, while lsb_release is a separate
+# package and a command whose output has to be parsed. The current Lite image
+# does include lsb-release, but this check does not have to depend on that.
 TARGET_CODENAME="trixie"
 
 if [ -r /etc/os-release ]; then
@@ -660,7 +662,15 @@ if [ "${1:-}" != "--continue" ]; then
 		sync
 
 		# Let systemd do controlled reboot
-		sudo systemctl reboot
+		if ! sudo systemctl reboot; then
+			echo -e "${RED}Aborting: reboot failed. Reboot manually; the installation will continue after the reboot${NC}"
+			exit 1
+		fi
+
+		# 'systemctl reboot' only queues the reboot and returns at once. Stop
+		# here, so CONFIGURATION below runs in the '--continue' pass after the
+		# reboot -- not now, racing a shutdown that is already under way.
+		exit 0
 	fi
 
 ########## INITIAL RUN END ##########
@@ -817,10 +827,14 @@ install_resource "$RESOURCES_PATH/oradio-dev.conf" /etc/tmpfiles.d/oradio-dev.co
 echo -e "${GREEN}i2c and device permissions configured${NC}"
 
 # Install audio configuration, set volume to reasonable level, play silence to activate
+# The system sound PCM name comes from SYSTEM_SOUND_SINK in constants.env, the
+# same value asound.conf is rendered with. Double quotes, not single: the
+# commands run in a 'sudo bash -c', where the variable is not set, so it has to
+# be expanded here.
 install_resource "$RESOURCES_PATH/asound.conf" /etc/asound.conf \
 	'amixer -c DigiAMP cset name="Digital Playback Volume" 120'\
 	'aplay -D MPD_in /dev/zero -f FLOAT_LE -c 2 -r 44100 -d 1' \
-	'aplay -D SysSound_in /dev/zero -f FLOAT_LE -c 2 -r 44100 -d 1'
+	"aplay -D $SYSTEM_SOUND_SINK /dev/zero -f FLOAT_LE -c 2 -r 44100 -d 1"
 # Configure MPD
 install_resource "$RESOURCES_PATH/mpd.conf" /etc/mpd.conf
 # Install empty MPD database.

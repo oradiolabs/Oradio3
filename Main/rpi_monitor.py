@@ -95,7 +95,8 @@ UNDERVOLTAGE_STICKY_MASK = 0x10000
 UNDERVOLTAGE_EVENTS = 3
 UNDERVOLTAGE_WINDOW = 60.0  # seconds
 
-# Bit mask covering only the sticky "historical event" flags (bits 16–19).
+# Bit mask covering the upper half-word (bits 16–31), where the sticky
+# "historical event" flags live (bits 16–19 are the documented ones).
 # Used at startup to surface throttling events that occurred before the
 # monitor started, e.g. a brief brownout at boot time.
 HISTORICAL_MASK = 0xFFFF0000
@@ -110,8 +111,9 @@ class RPiThrottlingMonitor(ThreadTemplate):
     Singleton background monitor for Raspberry Pi throttling state.
 
     Polls vcgencmd get_throttled once a second and logs a
-    warning (plus publishes an incident message) whenever the active throttling
-    state changes, once polling has been started via start(). A
+    warning (plus publishes an incident message) whenever active throttling
+    flags become set or change while set, and an info message (no incident)
+    when they all clear, once polling has been started via start(). A
     one-time-per-run boot-time check is also performed on each start() to
     surface any historical throttling events that occurred before the
     monitor was (re)started.
@@ -123,7 +125,9 @@ class RPiThrottlingMonitor(ThreadTemplate):
     """
 
     # Restart itself if it crashes; see ThreadTemplate.restart_on_crash.
-    # Polls vcgencmd; nothing it holds needs releasing and the Oradio never stops it on purpose.
+    # Polls vcgencmd; nothing it holds needs releasing. The one deliberate stop
+    # (incident_service on POWER_UNDERVOLTAGE, see on_stopped()) is a stop, not
+    # a crash, so it is not undone by this.
     restart_on_crash = True
     def __init__(self) -> None:
         """

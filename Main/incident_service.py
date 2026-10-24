@@ -251,8 +251,10 @@ class IncidentHandler(MessageHandlerTemplate):
 
         The counterpart of _restart_service_within_budget() for the things the
         Oradio starts itself. A '<x> failed to start' incident means safe_start()
-        returned False -- the worker never ran, so ThreadTemplate's own
-        restart_on_crash never saw it and nothing has tried again.
+        returned False (failed to start, or setup() did not finish in time --
+        a timed-out worker may still be running) or that setup() crashed, in
+        which case ThreadTemplate's own restart_on_crash may already be
+        retrying after CRASH_RESTART_BACKOFF.
 
         stop() first, because a start that failed can leave a thread object
         behind that start() would refuse to replace.
@@ -300,9 +302,9 @@ class IncidentHandler(MessageHandlerTemplate):
         if incident.message == BACKLIGHTING_START_FAILED:
             # MITIGATION: start it again.
             #
-            # safe_start() returned False, so the worker never ran and
-            # ThreadTemplate's restart_on_crash never saw it. Nothing has
-            # tried again; this is the first attempt.
+            # start() publishes it when safe_start() returned False, or when
+            # setup() crashed; then restart_on_crash may already be retrying
+            # after CRASH_RESTART_BACKOFF. Restarting again is harmless.
             self._restart_subsystem("backlighting", Backlighting)
         elif incident.message == BACKLIGHTING_STOPPED:
             # NO MITIGATION: see the class docstring on *_STOPPED.
@@ -340,7 +342,7 @@ class IncidentHandler(MessageHandlerTemplate):
             # from scratch, and if that fails too the crash handler reboots --
             # a power-on reset of the pinctrl blocks, which is the strongest
             # reset there is. A third failure plays the service message and
-            # leaves the STOP LED blinking.
+            # blinks the STOP LED for LED_BLINK_SECONDS, then leaves it lit.
             #
             # No budget here: systemd's StartLimitBurst is the budget, and
             # counting again in a process that is about to end would not
@@ -349,7 +351,9 @@ class IncidentHandler(MessageHandlerTemplate):
             # This incident is already queued for RMS (_handle_message() sends
             # before dispatching), and fatal_exit() waits for the RMS sender,
             # up to FATAL_EXIT_HOOK_BUDGET, before it ends the process -- so it
-            # arrives as an INCIDENT, not only via the crash upload.
+            # arrives as an INCIDENT, not only via the crash upload. Not when
+            # WiFi is down: the hook returns at once, the held incident is lost
+            # and only the crash upload carries it.
             fatal_exit(
                 f"GPIO failure leaves the Oradio unusable: {incident.message}",
                 stacklevel=4,
@@ -386,10 +390,11 @@ class IncidentHandler(MessageHandlerTemplate):
             # So the same escalation as GPIO: systemd restarts the service,
             # which reopens the bus from scratch; if that fails the crash
             # handler reboots; a third failure plays the service message and
-            # leaves the STOP LED blinking.
+            # blinks the STOP LED for LED_BLINK_SECONDS, then leaves it lit.
             #
             # As for GPIO: fatal_exit() first waits (bounded) for the RMS
-            # sender, so this incident, already queued, reaches RMS.
+            # sender, so this incident, already queued, reaches RMS -- when
+            # WiFi is up; otherwise only the crash upload carries it.
             fatal_exit(
                 f"I2C bus failure leaves the Oradio unusable: {incident.message}",
                 stacklevel=4,
@@ -409,10 +414,11 @@ class IncidentHandler(MessageHandlerTemplate):
         elif incident.message == I2C_WRITE_FAILED:
             # NO MITIGATION: reporting it IS the mitigation.
             #   One device did not answer a write, not the bus: I2CService has
-            #   already retried with backoff, and the three other chips are
-            #   still reachable. The Oradio keeps playing and the buttons keep
-            #   working -- what is lost is one function, which is not worth
-            #   ending the process for.
+            #   already retried with backoff (a single attempt when the caller
+            #   passed retry=False, as power_service does for GO_COMMAND), and
+            #   the three other chips are still reachable. The Oradio keeps
+            #   playing and the buttons keep working -- what is lost is one
+            #   function, which is not worth ending the process for.
             #
             #   The device address travels with the incident, so RMS shows
             #   which chip it was. If the field data ever shows one failing
@@ -458,20 +464,22 @@ class IncidentHandler(MessageHandlerTemplate):
         if incident.message == LOG_START_FAILED:
             # MITIGATION: start it again.
             #
-            # safe_start() returned False, so the worker never ran and
-            # ThreadTemplate's restart_on_crash never saw it. Nothing has
-            # tried again; this is the first attempt.
+            # start() publishes it when safe_start() returned False, or when
+            # setup() crashed; then restart_on_crash may already be retrying
+            # after CRASH_RESTART_BACKOFF. Restarting again is harmless.
             self._restart_subsystem("log health monitor", LogHealthMonitor)
         elif incident.message == LOG_QUEUE_OVERFLOW:
             # NO MITIGATION: reporting it IS the mitigation.
-            #   The log service drains the queue again once the burst is over, and says
-            #   so with LOG_QUEUE_RECOVERED. A listener that will never drain it is a
-            #   different incident -- LOG_LISTENER_DEAD -- and that one is repaired.
+            #   The log service drains the queue again once the burst is over, and
+            #   LogHealthMonitor says so with LOG_QUEUE_RECOVERED. A listener that will
+            #   never drain it is a different incident -- LOG_LISTENER_DEAD -- and that
+            #   one is repaired.
             pass
         elif incident.message == LOG_QUEUE_RECOVERED:
             # NO MITIGATION: reporting it IS the mitigation.
-            #   The log service recovered on its own. Reporting it is the point:
-            #   it closes the LOG_QUEUE_OVERFLOW that preceded it.
+            #   The log queue recovered on its own; LogHealthMonitor publishes this
+            #   only after a LOG_QUEUE_OVERFLOW. Reporting it is the point: it closes
+            #   the LOG_QUEUE_OVERFLOW that preceded it.
             pass
         elif incident.message == LOG_LISTENER_DEAD:
             # MITIGATION: start the queue listener again.
@@ -486,8 +494,10 @@ class IncidentHandler(MessageHandlerTemplate):
             # what the next incident will be read with.
             #
             # No INCIDENT_RECOVERED: the state machine tracks nothing about
-            # logging. LOG_QUEUE_RECOVERED arrives by itself once the listener
-            # drains the backlog, and that is the confirmation this worked.
+            # logging. When the queue had filled, LogHealthMonitor publishes
+            # LOG_QUEUE_RECOVERED once the listener drains it, and that is the
+            # confirmation this worked; a listener restarted before the queue
+            # filled gets no such confirmation.
             # Every line below goes through health_notice(), which writes
             # straight to the fallback sinks. Ordinary logging cannot report
             # this: the queue is full because nothing is draining it, so a
@@ -530,8 +540,9 @@ class IncidentHandler(MessageHandlerTemplate):
             #
             # Not a restart of mpd: this is published when MPDMonitor's own
             # worker fails to start, which says nothing about whether the server
-            # is answering. safe_start() returned False, so the worker never ran
-            # and ThreadTemplate's restart_on_crash never saw it.
+            # is answering. start() publishes it when safe_start() returned
+            # False or setup() crashed; in the latter case restart_on_crash may
+            # already be retrying after CRASH_RESTART_BACKOFF.
             self._restart_subsystem("MPD monitor", MPDMonitor)
         elif incident.message in (MPD_CONNECT_FAILED, MPD_EXECUTE_FAILED):
             # MITIGATION: restart mpd.service; ESCALATION: fatal_exit() when that
@@ -723,9 +734,9 @@ class IncidentHandler(MessageHandlerTemplate):
         elif incident.message == THROTTLING_START_FAILED:
             # MITIGATION: start it again.
             #
-            # safe_start() returned False, so the worker never ran and
-            # ThreadTemplate's restart_on_crash never saw it. Nothing has
-            # tried again; this is the first attempt.
+            # start() publishes it when safe_start() returned False, or when
+            # setup() crashed; then restart_on_crash may already be retrying
+            # after CRASH_RESTART_BACKOFF. Restarting again is harmless.
             self._restart_subsystem("throttling monitor", RPiThrottlingMonitor)
         elif incident.message == THROTTLING_STOPPED:
             # NO MITIGATION: see the class docstring on *_STOPPED.
@@ -779,7 +790,8 @@ class IncidentHandler(MessageHandlerTemplate):
             #   valid entry. That is an nmcli failure wearing a USB incident's name, and
             #   the same reasoning as WIFI_NMCLI_FAILED applies -- one call that did not
             #   work, not NetworkManager being broken. The details say which of the six
-            #   it was.
+            #   it was, except for the two without details: the file could not be
+            #   removed, and the closing summary that the file has errors.
             pass
         elif incident.message in (USB_START_FAILED, USB_STOPPED):
             # MITIGATION: start the observer again.
@@ -825,9 +837,9 @@ class IncidentHandler(MessageHandlerTemplate):
         if incident.message == VOLUME_START_FAILED:
             # MITIGATION: start it again.
             #
-            # safe_start() returned False, so the worker never ran and
-            # ThreadTemplate's restart_on_crash never saw it. Nothing has
-            # tried again; this is the first attempt.
+            # start() publishes it when safe_start() returned False, or when
+            # setup() crashed; then restart_on_crash may already be retrying
+            # after CRASH_RESTART_BACKOFF. Restarting again is harmless.
             self._restart_subsystem("volume control", VolumeControl)
         elif incident.message == VOLUME_SET_FAILED:
             # NO MITIGATION: volume_control escalates this itself.
@@ -868,12 +880,13 @@ class IncidentHandler(MessageHandlerTemplate):
         if incident.message == WEB_SERVER_FAILED:
             # MITIGATION: make sure the message listener is running.
             #
-            # Raised from two places. One is the lazy import of the web stack
+            # Raised from three places. One is the lazy import of the web stack
             # failing, which repairs itself: _create_server() imports again on
-            # the next long press. The other is the message-listener thread
+            # the next long press. Another is the message-listener thread
             # failing to start, and nothing repairs that -- it is started once
             # in __init__ and has no stopping condition, so there is no loop
-            # watching it.
+            # watching it. The third is an exception while the listener
+            # dispatches a message; the loop catches it and keeps running.
             #
             # Worth repairing because of how it fails: the portal still answers
             # and still accepts what the user submits, and nothing happens with
@@ -953,16 +966,14 @@ class IncidentHandler(MessageHandlerTemplate):
             #   problem.
             pass
         elif incident.message == WIFI_DISCONNECT_FAILED:
-            # NO MITIGATION: a race, and covered further down the path.
-            #   A race, not a fault: get_wifi_connection() found an active connection
-            #   and nmcli could not bring it down, which happens when it went away in
-            #   between. Beyond that only a broken nmcli.
+            # NO MITIGATION: covered further down the path.
+            #   Not a race: in production only WebService.stop() calls wifi_disconnect(),
+            #   with only=ACCESS_POINT_SSID, and wifi_service already ignores a failure
+            #   when the access point went away in between. So nmcli really could not
+            #   bring the access point down.
             #
-            #   Covered downstream either way. wifi_disconnect() is called on the way
-            #   into access-point mode and from WebService.stop(); a disconnect that
-            #   does not happen means the access point does not come up,
-            #   await_access_point() fails, and WebService._handle_failed_start() falls
-            #   back and counts it.
+            #   Covered downstream: stop() then waits for WiFi to leave access-point
+            #   mode, and when that does not happen it publishes WEB_STOP_FAILED.
             pass
         else:
             oradio_log.error("Unhandled wifi incident: '%s'", incident.message)

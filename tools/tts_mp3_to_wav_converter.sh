@@ -120,17 +120,22 @@ TRUE_PEAK_MAX="-1.0"
 LOUDNESS_RANGE="11"
 
 # ALSA device the Oradio itself uses to play these files. system_sounds.py calls
-# aplay with -D SysSound_in, while a bare "aplay file.wav" goes to the default
-# device instead. Those are two different playback paths and a named PCM can
-# carry its own gain - a softvol plugin, a route with attenuation, a dmix slave
-# with its own mixer element - so the same WAV can come out at two different
-# levels depending on which one you audition through. Comparing a file played
-# here against a sound played by the Oradio is only meaningful when both go
-# through this device
+# aplay with -D SYSTEM_SOUND_SINK, while a bare "aplay file.wav" goes to the
+# default device instead. Those are two different playback paths and a named PCM
+# can carry its own gain - a softvol plugin, a route with attenuation, a dmix
+# slave with its own mixer element - so the same WAV can come out at two
+# different levels depending on which one you audition through. Comparing a file
+# played here against a sound played by the Oradio is only meaningful when both
+# go through this device
 #
-# Left empty, or set to a device that does not exist, playback falls back to the
-# default device and says so
-PLAYBACK_DEVICE="SysSound_in"
+# Read from SYSTEM_SOUND_SINK in constants.env, the one definition the Oradio
+# uses, so a rename there reaches this script too. Only that value is read: the
+# file is not sourced, so none of the other constants land in this script
+#
+# Left empty (constants.env not found), or set to a device that does not exist,
+# playback falls back to the default device and says so
+PLAYBACK_DEVICE="$(sed -n 's/^SYSTEM_SOUND_SINK=//p' \
+	"$(dirname "${BASH_SOURCE[0]}")/../constants.env" 2>/dev/null || true)"
 
 
 # Silence detection parameters

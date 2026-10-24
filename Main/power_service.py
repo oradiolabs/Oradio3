@@ -615,7 +615,9 @@ if __name__ == '__main__':
             after retries, or one that simply doesn't list any of these voltages
             (e.g. a legacy 5V-only USB charger with no PD support) is not
             considered a fault - it's just a power supply that can't do what
-            Oradio wants, and is reported as a warning rather than an error.
+            Oradio wants, and is reported as a warning. The final unanswered
+            Get_SRC_Cap attempt still logs an error from _wait_for_pd_response()
+            before that warning, and a failed PD_STATUS1 read logs an error too.
 
             Returns:
                 {"attached": bool, "pd_capable": bool, "voltages": set[int]}

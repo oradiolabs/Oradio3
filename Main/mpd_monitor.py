@@ -172,8 +172,10 @@ class _MPDMonitorWorker(ThreadTemplate):
         calls by the loop itself -- the blocking "idle" MPD command below
         is what naturally paces this under normal conditions. The
         sleep(1) calls on the error paths exist specifically to throttle
-        retries when idle/status calls are failing outright (e.g. MPD is
-        down), since otherwise there'd be no pacing at all in that case.
+        retries when the idle call fails outright (e.g. MPD is down) or
+        status reports an 'error' field, since otherwise there'd be no
+        pacing at all in that case. A failed status call itself just gives
+        an empty status, which is processed without a sleep.
 
         For each batch of events returned by a single idle call:
             - Fetches MPD status once for the whole batch.

@@ -152,6 +152,12 @@ QUEUE_SIZE = 10000
 # How often (in dropped-item counts) to log a "still dropping" reminder
 DROP_LOG_INTERVAL = 50
 
+# Seconds shutdown() waits for the listener to drain the queue and stop. Enough
+# to write out a full queue; past it the listener is taken to be stuck in a
+# handler, and shutdown carries on rather than holding up the exit -- which in
+# fatal_exit() would keep a broken process from ever being restarted.
+LISTENER_STOP_TIMEOUT = 5.0
+
 # Fallback delivery for drop/health notices, independent of stdout/stderr
 # (which headless deployments may not capture). /dev/log is forwarded to
 # the system journal by journald on virtually every modern Linux distro,
@@ -477,10 +483,11 @@ class SafeLogger:
     def listener_alive(self) -> bool:
         """
         Whether the QueueListener's background dispatch thread is currently
-        running. False means the queue will never drain again (e.g. a
-        handler's emit() hung, or the thread died) -- a permanent failure
-        distinct from ordinary congestion, where queue_full may be True
-        but the listener is still actively draining it.
+        running. False means the thread died and the queue will never drain
+        again -- a permanent failure distinct from ordinary congestion, where
+        queue_full may be True but the listener is still actively draining
+        it. A thread stuck in a handler's emit() is still alive, so a hung
+        handler is not detected here.
 
         QueueListener doesn't expose thread liveness itself, so this reads
         its internal _thread attribute directly.
@@ -534,8 +541,10 @@ class SafeLogger:
         dead: clearing it for a live (possibly stuck) thread would start a
         second consumer next to it. There is nothing to join and nothing to
         signal on a dead thread. The first thing the new thread does is drain
-        the backlog, which is also what makes queue_full go away and LOG_QUEUE_
-        RECOVERED arrive on its own.
+        the backlog, which is also what makes queue_full go away -- and, when
+        the queue had filled, what makes LogHealthMonitor (log_monitor.py)
+        publish LOG_QUEUE_RECOVERED. A queue that never filled gets no
+        RECOVERED.
 
         The handlers are not rebuilt. If one of them is what killed the thread,
         the new thread will die the same way, which is why the caller is
@@ -565,18 +574,35 @@ class SafeLogger:
         """
         Shutdown logging queue listener and fallback sinks.
 
-        The stop is tolerated because it cannot be relied on: stop() enqueues a
-        sentinel with put_nowait(), so on a queue that is full -- which is the
-        state a dead listener leaves behind -- it raises queue.Full. Registered
-        with atexit, that exception is printed and then swallowed, and the
-        handler close below never runs.
+        Not QueueListener.stop(): it joins the listener thread without a
+        timeout, so a handler stuck in emit() -- a log file on a storage device
+        that stopped answering -- would hang shutdown, and with it fatal_exit(),
+        forever. This does the same two steps with a bound on the join.
+
+        The sentinel is tolerated too: it goes in with put_nowait(), so on a
+        queue that is full -- which is the state a dead listener leaves behind
+        -- it raises queue.Full. Registered with atexit, that exception would be
+        printed and then swallowed, and the handler close below never run.
         """
-        try:
-            self._listener.stop()
-        # Broad catch: nothing here is worth failing an exit over, and the
-        # sinks below still have to be closed.
-        except Exception as ex_err:      # pylint: disable=broad-exception-caught
-            self.health_notice(f"listener did not stop cleanly: {ex_err}", WARNING)
+        # pylint: disable=protected-access
+        thread = self._listener._thread
+        if thread is not None:
+            try:
+                self._listener.enqueue_sentinel()
+                thread.join(timeout=LISTENER_STOP_TIMEOUT)
+            # Broad catch: nothing here is worth failing an exit over, and the
+            # sinks below still have to be closed.
+            except Exception as ex_err:      # pylint: disable=broad-exception-caught
+                self.health_notice(f"listener did not stop cleanly: {ex_err}", WARNING)
+            if thread.is_alive():
+                self.health_notice(
+                    f"listener still running after {LISTENER_STOP_TIMEOUT:.0f}s; "
+                    "shutting down without it", WARNING,
+                )
+            else:
+                # As QueueListener.stop() does, so a second call is a no-op.
+                self._listener._thread = None
+        # pylint: enable=protected-access
 
         for handler in self._fallback_handlers:
             handler.close()

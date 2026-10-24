@@ -623,9 +623,9 @@ UNITS_TO_MASK=(
 # (VolumeMPD, VolumeSysSound) do not exist until they are restored, and
 # volume_control.py sets both at construction - without the controls every
 # start publishes a VOLUME_SET_FAILED incident.
-# oradio.service does not depend on alsa-restore.service: it runs 'alsactl
-# restore' itself from an ExecStartPre, after oradio-prestart.sh has confirmed
-# the card exists.
+# oradio.service does not depend on alsa-restore.service: its ExecStartPre
+# oradio-prestart.sh runs 'sudo alsactl restore' itself, but only when
+# VolumeMPD or VolumeSysSound is missing.
 #
 # Note: systemd-random-seed.service is deliberately NOT masked. It is cheap and
 # the HTTPS posts to the Remote Monitoring Service need credible randomness

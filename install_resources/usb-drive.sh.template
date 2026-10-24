@@ -28,12 +28,13 @@ set -euo pipefail
 # action. See 99-local.rules for why every event needs its own instance.
 ACTION="${1:-}"
 ACTION="${ACTION%%-*}"
-BY_LABEL="/dev/disk/by-label/ORADIO"		# Stable symlink; survives device renumbering
-MOUNTPOINT="PLACEHOLDER_USB_MOUNT_POINT"	# Location where USB is mounted
-MONITOR="/run/usb_present"					# RAM-based flag file; present = mounted
-FSCK_ERROR="/run/usb_fsck_error"			# Written when fsck could not repair; read and removed by usb_service
-LOCK="/run/usb_mount.lock"					# Prevents concurrent runs from duplicate udev events
-IDENTITY="/run/usb_mounted"					# Which physical stick is mounted: "<partition> <diskseq>"
+BY_LABEL="/dev/disk/by-label/ORADIO"			# Stable symlink; survives device renumbering
+MOUNTPOINT="PLACEHOLDER_USB_MOUNT_POINT"		# Location where USB is mounted
+MOUNT_OPTIONS="PLACEHOLDER_USB_MOUNT_OPTIONS"	# vfat mount options; see constants.env for what each one is for
+MONITOR="/run/usb_present"						# RAM-based flag file; present = mounted
+FSCK_ERROR="/run/usb_fsck_error"				# Written when fsck could not repair; read and removed by usb_service
+LOCK="/run/usb_mount.lock"						# Prevents concurrent runs from duplicate udev events
+IDENTITY="/run/usb_mounted"						# Which physical stick is mounted: "<partition> <diskseq>"
 
 # Seconds to wait for the lock before giving up. Must cover a full fsck of a
 # large stick plus a mount, because the instance still waiting is usually the
@@ -306,7 +307,7 @@ enable_autosuspend() {
 
 # fsck if dirty, mount, record identity, raise the flag for usb_service.
 mount_partition() {
-	local part="$1" fstype fsck_out fsck_rc opts mount_err kmark
+	local part="$1" fstype fsck_out fsck_rc mount_err kmark
 
 	fstype="$(blkid -p -o value -s TYPE "$part" 2>/dev/null || true)"
 	log "Info: found ORADIO at '$part' type '${fstype:-unknown}' ($(since_start)ms)"
@@ -345,14 +346,11 @@ mount_partition() {
 
 	mkdir -p "$MOUNTPOINT"
 
-	# Mount options:
-	#   rw, users (implies noexec,nosuid,nodev), uid=0, gid=100 (users),
-	#   fmask=111, dmask=000, utf8=1, noatime, nodiratime
-	# Deliberately no sync or flush, instead use sync_usb() (utilities.py)
-	opts="rw,users,uid=0,gid=100,fmask=111,dmask=000,utf8=1,noatime,nodiratime"
-
+	# Mount options come from USB_MOUNT_OPTIONS in constants.env, the one
+	# definition shared with tools/USB_sync.sh. Explained there, including why
+	# there is deliberately no sync or flush.
 	kmark="$(kmsg_mark)"
-	if ! mount_err=$(mount -t vfat -o "$opts" "$part" "$MOUNTPOINT" 2>&1); then
+	if ! mount_err=$(mount -t vfat -o "$MOUNT_OPTIONS" "$part" "$MOUNTPOINT" 2>&1); then
 		log "Error: mounting '$part' failed: $mount_err"
 		log_kernel_messages "$kmark" "$(basename "$part")"
 		return 1
