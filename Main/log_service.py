@@ -152,6 +152,12 @@ QUEUE_SIZE = 10000
 # How often (in dropped-item counts) to log a "still dropping" reminder
 DROP_LOG_INTERVAL = 50
 
+# Seconds shutdown() waits for the listener to drain the queue and stop. Enough
+# to write out a full queue; past it the listener is taken to be stuck in a
+# handler, and shutdown carries on rather than holding up the exit -- which in
+# fatal_exit() would keep a broken process from ever being restarted.
+LISTENER_STOP_TIMEOUT = 5.0
+
 # Fallback delivery for drop/health notices, independent of stdout/stderr
 # (which headless deployments may not capture). /dev/log is forwarded to
 # the system journal by journald on virtually every modern Linux distro,
@@ -568,18 +574,35 @@ class SafeLogger:
         """
         Shutdown logging queue listener and fallback sinks.
 
-        The stop is tolerated because it cannot be relied on: stop() enqueues a
-        sentinel with put_nowait(), so on a queue that is full -- which is the
-        state a dead listener leaves behind -- it raises queue.Full. Registered
-        with atexit, that exception is printed and then swallowed, and the
-        handler close below never runs.
+        Not QueueListener.stop(): it joins the listener thread without a
+        timeout, so a handler stuck in emit() -- a log file on a storage device
+        that stopped answering -- would hang shutdown, and with it fatal_exit(),
+        forever. This does the same two steps with a bound on the join.
+
+        The sentinel is tolerated too: it goes in with put_nowait(), so on a
+        queue that is full -- which is the state a dead listener leaves behind
+        -- it raises queue.Full. Registered with atexit, that exception would be
+        printed and then swallowed, and the handler close below never run.
         """
-        try:
-            self._listener.stop()
-        # Broad catch: nothing here is worth failing an exit over, and the
-        # sinks below still have to be closed.
-        except Exception as ex_err:      # pylint: disable=broad-exception-caught
-            self.health_notice(f"listener did not stop cleanly: {ex_err}", WARNING)
+        # pylint: disable=protected-access
+        thread = self._listener._thread
+        if thread is not None:
+            try:
+                self._listener.enqueue_sentinel()
+                thread.join(timeout=LISTENER_STOP_TIMEOUT)
+            # Broad catch: nothing here is worth failing an exit over, and the
+            # sinks below still have to be closed.
+            except Exception as ex_err:      # pylint: disable=broad-exception-caught
+                self.health_notice(f"listener did not stop cleanly: {ex_err}", WARNING)
+            if thread.is_alive():
+                self.health_notice(
+                    f"listener still running after {LISTENER_STOP_TIMEOUT:.0f}s; "
+                    "shutting down without it", WARNING,
+                )
+            else:
+                # As QueueListener.stop() does, so a second call is a no-op.
+                self._listener._thread = None
+        # pylint: enable=protected-access
 
         for handler in self._fallback_handlers:
             handler.close()
