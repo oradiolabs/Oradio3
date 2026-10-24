@@ -49,7 +49,7 @@ from subprocess import CalledProcessError
 import nmcli
 from nmcli import ScanningNotAllowedException
 from dbus import SystemBus, Interface
-from dbus.mainloop.glib import DBusGMainLoop
+from dbus.mainloop.glib import DBusGMainLoop, threads_init
 from dbus.exceptions import DBusException
 from gi.repository import GLib
 
@@ -221,6 +221,13 @@ if not nmcli_exceptions:
 # WifiEventListener.setup(); without this, the shared connection would be cached without main-loop integration and
 # the listener would silently never receive a single StateChanged or AccessPointAdded signal. setup() calls this
 # again, which is harmless: it is idempotent.
+#
+# threads_init() first, for the same reason of timing. That one shared connection is used from several threads at
+# once: the listener's GLib thread dispatches signals on it, while nm_available() and get_wifi_connection() call it
+# from start-up, USB and command-handler threads. threads_init() turns on libdbus's locking for that
+# (dbus_threads_init_default()); dbus-python documents it as required before a second thread uses the bus. It is
+# cheap, safe from any thread and idempotent.
+threads_init()
 DBusGMainLoop(set_as_default=True)
 
 def nm_available() -> bool:
