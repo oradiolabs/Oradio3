@@ -883,9 +883,12 @@ class StateMachine:
             when a guard above answered instead -- next song, stopping the web
             service, StateError -- and nothing further will touch them.
 
-            No caller acts on it: the one guard a preset press can hit is "next
-            song", which leaves the state and the LEDs as they were. It is here
-            so a caller that sets something up before asking can put it back.
+            play_web_preset_change() depends on it: it records the web change
+            for the spawned worker only when this is True, and that record is
+            what makes _play_preset() announce a new playlist. Change what True
+            means and that announcement breaks. The touch buttons ignore it; a
+            preset press that hits a guard ("next song", or StateError) leaves
+            the state and the LEDs as they were.
 
         Request a transition; applies guards and spawns the handler.
 
