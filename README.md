@@ -39,6 +39,20 @@ The script will install and configure required packages and services.<br>
 Wait for the installation to finish.<br>
 <ins>Note</ins>: this can take up to half an hour.
 
+The Oradio3 reboots during the installation, so your SSH session is closed
+partway through. This is expected: the installation continues by itself after
+the reboot, without you logging in again. To follow it, SSH back in and run:
+
+    journalctl -fu oradio-install-continue.service
+
+or:
+
+    tail -f ~/Oradio3/logging/install.log
+
+When everything is installed the Oradio3 reboots once more to start.<br>
+<ins>Note</ins>: the reboot halfway is skipped when the boot configuration is
+already up to date, for example when you install again on the same SD card.
+
 ## Finish
 
 The Oradio3 is ready for use when you hear the startup tune (harp).
