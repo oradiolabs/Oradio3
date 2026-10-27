@@ -86,6 +86,14 @@ SOUND_FILES = {
     SOUND_PRESET_EMPTY: f"{SOUNDS_PATH}/PresetEmpty_melding.wav",
 }
 
+# Seconds an aplay may run before it counts as hung and is killed.
+#
+# The longest sound is less than 10s; the margin covers a slow start of
+# the audio device. A fixed bound rather than one per file: it only has to tell
+# "still playing" from "never going to finish", and 30s does that for every
+# sound without reading each file first. Raise it if a longer sound is added.
+PLAYBACK_TIMEOUT = 30.0
+
 # Critical error at import time if the sounds directory is missing, so the problem
 # is visible immediately rather than surfacing per-file at play time.
 if not Path(SOUNDS_PATH).is_dir():
@@ -129,6 +137,35 @@ def _clear_playback_failure() -> None:
     oradio_log.info("System sound playback working again")
 
 
+def _kill_hung_playback(process: subprocess.Popen, sound_file: str) -> None:
+    """
+    Kill an aplay that ran past PLAYBACK_TIMEOUT, reap it and report it.
+
+    The reap is bounded too: a process stuck inside a driver call ignores
+    SIGKILL until that call returns, and this thread must not wait on it
+    forever either. If it is still there after that, it is left behind.
+    The failure is reported either way, which is what makes it visible.
+
+    Args:
+        process:    The hung aplay.
+        sound_file: Path played, for the log line.
+    """
+    try:
+        process.kill()
+        _, stderr = process.communicate(timeout=5.0)
+        message = stderr.decode(errors="replace").strip() if stderr else "no output"
+    except subprocess.TimeoutExpired:
+        message = "did not exit after SIGKILL"
+    except Exception as ex_err:      # pylint: disable=broad-exception-caught
+        message = f"could not be killed: {ex_err}"
+
+    oradio_log.error(
+        "Sound playback of '%s' hung for %.0fs and was killed: %s",
+        sound_file, PLAYBACK_TIMEOUT, message,
+    )
+    _report_playback_failure()
+
+
 def _watch_playback(process: subprocess.Popen, sound_file: str) -> None:
     """
     Wait for one aplay to finish and report it if it failed.
@@ -137,12 +174,21 @@ def _watch_playback(process: subprocess.Popen, sound_file: str) -> None:
     Oradio plays prompts from the state machine and from button handlers, and
     neither can afford to wait out a sound.
 
+    Waits at most PLAYBACK_TIMEOUT. An aplay that has not finished by then is
+    hung -- typically on an audio device that stopped answering -- and is
+    killed and reported like any other failed playback. Without the bound it
+    never exits, so it is never reported, and every later sound (each button
+    click is one) adds another hung aplay and another waiting thread.
+
     Args:
         process:    The launched aplay.
         sound_file: Path played, for the log line.
     """
     try:
-        _, stderr = process.communicate()
+        _, stderr = process.communicate(timeout=PLAYBACK_TIMEOUT)
+    except subprocess.TimeoutExpired:
+        _kill_hung_playback(process, sound_file)
+        return
     except Exception as ex_err:      # pylint: disable=broad-exception-caught
         oradio_log.error("Failed to collect sound playback result: %s", ex_err)
         return

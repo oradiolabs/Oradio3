@@ -30,6 +30,7 @@ Created on January 10, 2025
     - current: the directory/playlist in the playback queue
 """
 from threading import Event, RLock
+from time import monotonic, sleep
 from functools import wraps
 from os import path
 from unicodedata import normalize, category
@@ -54,6 +55,9 @@ _PLAYLIST_DUMMY_URI = "https://dummy.mp3"
 
 # Poll interval for _SongFinishMonitor.
 _MONITOR_POLL_INTERVAL = 0.5  # seconds
+
+# Poll interval for wait_for_library() while MPD's database scan is running.
+_SCAN_POLL_INTERVAL = 0.5     # seconds
 
 def _sequence(method):
     """
@@ -277,19 +281,21 @@ class MPDControl(MPDService):
         # such a press waits on. See wait_for_library().
         self._library_ready = Event()
 
-        # Reused across play_song() calls when idle, to avoid spawning a new
-        # OS thread per call in the common (sequential) case. See play_song().
+        # One monitor object reused across play_song() calls; each start still
+        # runs on a fresh Thread (see ThreadTemplate.safe_start()). See play_song().
         self._song_monitor = _SongFinishMonitor(self)
 
     def wait_for_library(self, timeout: float | None = None) -> bool:
         """
-        Block until the music library has been prepared at least once.
+        Block until the music library has been prepared at least once, and MPD
+        is not in the middle of a database scan.
 
         Args:
             timeout: Seconds to wait, or None to wait indefinitely.
 
         Returns:
-            True if the library is ready, False if the wait timed out.
+            True if the library is ready and no scan is running, False if the
+            wait timed out.
 
         For the press that arrives too early. A preset pressed while the library
         is still being scanned finds MPD with nothing in it, and play() cannot
@@ -297,11 +303,30 @@ class MPDControl(MPDService):
         nothing. Waiting for this and trying again is the difference between
         music that starts a few seconds late and music that never starts.
 
-        Never cleared once set: the library is rebuilt on every USB insertion,
-        but a rebuild replaces a library that already works, so a press during
-        one has something to play and does not need to wait.
+        The ready flag stays set once set: the library is rebuilt on every USB
+        insertion, but a rebuild replaces a library that already works, so a
+        press during one usually has something to play. The exception is a
+        preset directory that is new on the stick and not scanned yet: play()
+        reports it as not ready (None), and the press that got that answer
+        waits here until the scan has finished.
         """
-        return self._library_ready.wait(timeout)
+        deadline = None if timeout is None else monotonic() + timeout
+        if not self._library_ready.wait(timeout):
+            return False
+        while self._is_scanning():
+            if deadline is not None and monotonic() >= deadline:
+                return False
+            sleep(_SCAN_POLL_INTERVAL)
+        return True
+
+    def _is_scanning(self) -> bool:
+        """
+        Whether MPD is running (or has queued) a database update.
+
+        A status that cannot be read counts as not scanning: MPD is not
+        answering, and waiting for it gains nothing.
+        """
+        return "updating_db" in (self._execute("status") or {})
 
     def update_database(self) -> None:
         """
@@ -312,7 +337,9 @@ class MPDControl(MPDService):
         remain quickly accessible before the broader refresh completes.
         """
         presets     = load_presets()
-        directories = self.get_directories()
+        # Directories on the stick, including ones the database does not know
+        # yet: stage 1 gets new preset directories scanned first.
+        directories = self._disk_directories()
 
         # Stage 1: Update MPD database for each preset's directory (if it exists).
         for preset, mpdlist in presets.items():
@@ -370,11 +397,11 @@ class MPDControl(MPDService):
         and none of which the start-up tune or a button press waits for.
 
         Serialised against itself: the deferred library scan runs this on its
-        own thread at start-up, and inserting a drive runs it again from the
-        USB watchdog thread. MPDService's lock serialises the individual
-        commands but not the sequence, so without this the two interleave --
-        one clearing playlists while the other validates presets against them,
-        which reports presets as broken that are not.
+        own thread at start-up, and inserting a drive runs it again on a
+        dedicated 'usb-library-init' thread. MPDService's lock serialises the
+        individual commands but not the sequence, so without this the two
+        interleave -- one clearing playlists while the other validates presets
+        against them, which reports presets as broken that are not.
         """
         # The breaker may still be open from a connect burst that gave up while
         # MPD was starting: a preset pressed during the start-up blink, before
@@ -457,7 +484,10 @@ class MPDControl(MPDService):
                 p.get("playlist") for p in playlists
                 if isinstance(p, dict) and p.get("playlist")
             }
-            directories = set(self.get_directories())
+            # Directories on the stick: a preset is valid when its directory
+            # exists. Whether that directory holds music is checked by play(),
+            # from the queue after 'add'.
+            directories = set(self._disk_directories())
 
             invalid = []
             for preset, listname in presets.items():
@@ -529,7 +559,7 @@ class MPDControl(MPDService):
 
 ##### Playback functions ##################################
 
-    # Seven returns and thirteen branches, against maxima of 6 and 12. Each is a
+    # Ten returns, against a maximum of 6, and more branches than the 12 allowed. Each is a
     # distinct outcome of "should this call have started music", and the caller
     # needs that answer -- collapsing them behind a status variable would
     # hide which case a reader is in, in a method whose whole job is telling
@@ -548,14 +578,17 @@ class MPDControl(MPDService):
 
         Behaviour when the queue is empty (preset used as fallback):
             - If preset is None, DEFAULT_PRESET is used.
-            - Preset resolves to nothing → do nothing.
+            - Preset resolves to nothing → the queue is cleared, nothing plays.
             - Preset resolves to a playlist → load and play from the first song.
             - Preset resolves to a directory → add all songs, shuffle, and play.
 
         Returns:
-            True when music is playing as a result of this call.
+            True when music is playing as a result of this call. Also True,
+            without playing anything, for an invalid preset argument (not a
+            string, or whitespace only): that is logged as an error instead.
 
-            False when the preset pointed at nothing, which the caller has to
+            False when the preset pointed at nothing, or at a playlist or
+            directory without songs, which the caller has to
             tell the user about: without it the Oradio confirms the preset and
             then falls silent, which reads as "it worked" when it did not.
 
@@ -629,7 +662,9 @@ class MPDControl(MPDService):
             if isinstance(name, dict) and name.get("playlist")
         ]
 
-        directories = self.get_directories()
+        # Directories on the stick; whether one holds music is checked below,
+        # from the queue after 'add'.
+        directories = self._disk_directories()
 
         if listname in playlist_names:
             _ = self._execute("load", listname)
@@ -648,6 +683,18 @@ class MPDControl(MPDService):
                 return None
 
             oradio_log.warning("Playlist or directory '%s' not found for preset '%s'", listname, preset)
+            return False
+
+        # A resolved name can still leave the queue empty: an empty playlist, a
+        # directory without music, or a directory MPD has not scanned yet. An
+        # empty queue is reported, so the Oradio never confirms a preset and
+        # then stays silent. While a scan is running the queue may yet fill, so
+        # that case is "not ready" (None) and the caller waits and retries.
+        if not self._execute("playlistinfo"):
+            if not self._library_ready.is_set() or self._is_scanning():
+                oradio_log.info("Nothing to play yet for '%s'; library still being scanned", preset)
+                return None
+            oradio_log.warning("Playlist or directory '%s' for preset '%s' has no songs", listname, preset)
             return False
 
         # Disable MPD's own random mode; shuffle was applied at load time for directories.
@@ -960,6 +1007,21 @@ class MPDControl(MPDService):
 
 ##### Informative functions ###############################
 
+    @_sequence
+    def has_queue(self) -> bool:
+        """
+        Whether the MPD queue holds anything to play.
+
+        Returns:
+            True when the queue has at least one song or stream.
+
+        False after play() was asked for a preset that turned out empty (or
+        not ready yet): play() clears the queue before loading, so nothing is
+        left to skip through. The state machine asks this before treating a
+        second press of the same preset as "next song".
+        """
+        return bool(self._execute("playlistinfo"))
+
     def is_webradio(
         self,
         preset: str | None = None,
@@ -980,8 +1042,8 @@ class MPDControl(MPDService):
             known_playlist_names: Optional pre-fetched set of existing
                 playlist names, forwarded to _playlist_first_uri() to avoid
                 an extra `listplaylists` round-trip when the caller (e.g.
-                get_playlists()) already has a fresh one. Ignored unless
-                mpdlist is given.
+                get_playlists()) already has a fresh one. Ignored when
+                neither preset nor mpdlist is given.
 
         Returns:
             True if the URI starts with "http://" or "https://".
@@ -1012,27 +1074,60 @@ class MPDControl(MPDService):
 
     def get_directories(self) -> list[str]:
         """
-        Retrieve available directories from MPD.
+        Retrieve the directories MPD can play from, for choosing a preset.
+
+        A directory counts when the MPD database holds at least one song in it
+        or below it -- the same songs 'add' would queue for it in play(). That
+        leaves out what is on the stick but not playable: loose files in the
+        root such as .mpdignore, directories excluded by .mpdignore, directories
+        without music, and directories not scanned yet.
+
+        Whether a preset's directory exists is checked with _disk_directories().
 
         Returns:
             list[str]: Case-insensitive alphabetically sorted list of directory names.
         """
-        directories = self._execute("listfiles") or []
-
         result = []
-        for directory in directories:
-            if not isinstance(directory, dict):
-                oradio_log.trace("Skipping invalid directory entry: %s", directory)
+        for entry in self._execute("lsinfo") or []:
+            # lsinfo also lists songs and stored playlists; only directories matter here
+            if not isinstance(entry, dict) or "directory" not in entry:
                 continue
 
-            name = directory.get("directory")
-            if not name or not isinstance(name, str) or not name.strip():
-                oradio_log.trace("Skipping empty or invalid directory name: %s", directory)
+            name = entry.get("directory")
+            if not isinstance(name, str) or not name.strip():
+                oradio_log.trace("Skipping empty or invalid directory name: %s", entry)
+                continue
+
+            count = self._execute("count", "base", name) or {}
+            try:
+                songs = int(count.get("songs", 0))
+            except (TypeError, ValueError):
+                songs = 0
+            if songs == 0:
+                oradio_log.trace("Skipping directory without songs: '%s'", name)
                 continue
 
             result.append(name.strip())
 
         return sorted(result, key=str.casefold)
+
+    def _disk_directories(self) -> list[str]:
+        """
+        Retrieve the directories on the stick, whether MPD has scanned them or not.
+
+        Read from the filesystem with 'listfiles': it includes directories not
+        scanned yet, directories .mpdignore excludes and directories without
+        music. Used where the question is whether a directory exists:
+        update_database(), validate_presets(), play() and get_songs(). The
+        directories offered for choosing a preset come from get_directories().
+        """
+        return [
+            entry["directory"].strip()
+            for entry in self._execute("listfiles") or []
+            if isinstance(entry, dict)
+            and isinstance(entry.get("directory"), str)
+            and entry["directory"].strip()
+        ]
 
     def get_playlists(self) -> list[dict]:
         """
@@ -1109,13 +1204,7 @@ class MPDControl(MPDService):
             # Only fetch directories when mpdlist isn't already a known
             # playlist, so the common case (mpdlist is a playlist) skips
             # this extra MPD round-trip entirely.
-            directories     = self._execute("listfiles") or []
-            directory_names = {
-                d.get("directory") for d in directories
-                if isinstance(d, dict) and d.get("directory")
-            }
-
-            if mpdlist in directory_names:
+            if mpdlist in self._disk_directories():
                 details        = self._execute("lsinfo", mpdlist) or []
                 sort_by_artist = True   # directory songs have no inherent order; sort by artist
                 source_type    = "directory"

@@ -19,7 +19,7 @@ Created on Januari 17, 2025
 @summary:
     Class to run the backlight service.
     - Measure the light level and adapt the backlighting MCP4725
-    - Ensures the backlight always starts at a low level on boot
+    - Ensures the backlight always starts off on boot (OFF value stored in DAC EEPROM)
 """
 from time import sleep
 
@@ -41,8 +41,8 @@ from messaging import (
 TSL2591_ADDRESS    = 0x29
 ENABLE_REGISTER    = 0x00
 CONTROL_REGISTER   = 0x01
-VISIBLE_LIGHT_LOW  = 0x14
-VISIBLE_LIGHT_HIGH = 0x15
+VISIBLE_LIGHT_LOW  = 0x14   # C0DATAL: channel 0 = full spectrum (visible + IR)
+VISIBLE_LIGHT_HIGH = 0x15   # C0DATAH
 COMMAND_BIT        = 0xA0
 ENABLE_POWER_ON    = 0x01
 ENABLE_ALS         = 0x02
@@ -63,9 +63,11 @@ BACKLIGHT_MIN   = 3800
 BACKLIGHT_MID   = 3300
 BACKLIGHT_MAX   = 3000
 # Constants controlling transition smoothness
-# Backlight level is adjusted in TRANSITION_TIME / ADJUST_INTERVAL steps
+# Every ADJUST_INTERVAL the backlight moves ADJUST_INTERVAL / TRANSITION_TIME (5%)
+# of the remaining distance to the target (exponential smoothing), so after
+# TRANSITION_TIME about 64% of a change is done.
 # Make sure these steps small enough to not be noticable to the user
-TRANSITION_TIME  = 10.0     # seconds for full transition
+TRANSITION_TIME  = 10.0     # time constant (seconds) of the transition
 ADJUST_INTERVAL  = 0.5      # seconds between updates
 CHANGE_THRESHOLD = 5        # minimum DAC change to write
 
@@ -187,10 +189,11 @@ class Backlighting:
 
     def read_visible_light(self) -> int | None:
         """
-        Read visible light level as a 16-bit word from sensor.
+        Read the channel 0 (full spectrum: visible + IR) light level as a
+        16-bit word from sensor.
 
         Returns:
-            int | None: Raw visible light value, or None on I2C read failure.
+            int | None: Raw channel 0 value, or None on I2C read failure.
         """
         low = self._i2c_service.read_byte(TSL2591_ADDRESS, COMMAND_BIT | VISIBLE_LIGHT_LOW)
         if low is None:

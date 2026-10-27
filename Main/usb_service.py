@@ -28,9 +28,11 @@ Created on January 17, 2025
         - OS auto-mounts USB drives with label 'ORADIO'
         - watchdog package (https://pypi.org/project/watchdog/)
 """
+import subprocess
 from os import path, remove
-from json import load, JSONDecodeError
-from threading import Timer, Lock, RLock
+from json import load
+from threading import Timer, Lock, RLock, Event, Thread
+from time import monotonic, sleep
 from watchdog.observers import Observer
 from watchdog.observers.api import BaseObserver
 from watchdog.events import FileSystemEventHandler
@@ -83,9 +85,71 @@ USB_STATEFILE = "/run/usb_present"
 # Expected location of the WiFi credentials file on the USB drive root
 USB_WIFI_FILE = path.join(USB_MOUNT_POINT, "Wifi_invoer.json")
 
+# Largest Wifi_invoer.json read, in bytes. A real file is a few hundred bytes;
+# this only stops a wrong or damaged file from being read whole into memory.
+USB_WIFI_FILE_MAX_SIZE = 64 * 1024
+
 # How often the observer/emitter threads are polled for liveness (seconds).
 # Watchdog gives no callback when its threads die, so this must be polled.
 HEALTH_CHECK_INTERVAL = 30
+
+# Units that mount the stick: usb-drive-boot.service at boot and one
+# usb-drive@add-<SEQNUM>.service per udev event. While either has a job, the
+# mount is still on its way.
+USB_MOUNT_UNITS = "usb-drive*"
+
+# Upper bound on waiting for a mount that is on its way. Covers usb-drive.sh's
+# worst boot case: DEVICE_WAIT (5 s) plus FSCK_TIMEOUT (60 s), with slack for a
+# udev queue that is still busy coldplugging. Past this the stick is reported
+# absent; if it does get mounted later, on_created() reports it present.
+USB_MOUNT_PENDING_TIMEOUT = 90
+
+# How often the wait for a pending mount checks again (seconds).
+USB_MOUNT_PENDING_POLL = 0.25
+
+
+def usb_mount_pending() -> bool:
+    """
+    Whether a mount of the ORADIO stick may still be on its way.
+
+    Returns:
+        True while usb-drive-boot.service or a usb-drive@ instance has a job
+        queued or running, or while udev still has events to process (one of
+        which may be the stick, about to start a usb-drive@add instance).
+
+    At a cold boot oradio_control starts before the stick is mounted: nothing
+    is ordered after usb-drive-boot.service, and a stick with its FAT dirty bit
+    set -- which is every stick after the power was pulled -- is checked with
+    fsck before it is mounted. "Not mounted" then does not mean "absent", and
+    reporting it as absent sends the Oradio to StateUSBAbsent for a stick that
+    is in and arrives a few seconds later.
+
+    A question that cannot be asked (systemctl or udevadm missing, timing
+    out) counts as "not pending": the caller then reports what it sees, as it
+    did before this existed, rather than waiting on something it cannot see.
+    """
+    try:
+        jobs = subprocess.run(
+            ["systemctl", "list-jobs", "--no-legend", USB_MOUNT_UNITS],
+            capture_output=True, text=True, timeout=5, check=False,
+        )
+        if jobs.returncode == 0 and "usb-drive" in jobs.stdout:
+            return True
+    except (OSError, subprocess.SubprocessError) as ex_err:
+        oradio_log.debug("Could not list USB mount jobs: %s", ex_err)
+
+    try:
+        # --timeout=0: do not wait, only report whether the queue is empty.
+        settle = subprocess.run(
+            ["udevadm", "settle", "--timeout=0"],
+            capture_output=True, text=True, timeout=5, check=False,
+        )
+        if settle.returncode != 0:
+            return True
+    except (OSError, subprocess.SubprocessError) as ex_err:
+        oradio_log.debug("Could not query the udev queue: %s", ex_err)
+
+    return False
 
 @singleton
 class USBObserver(FileSystemEventHandler):
@@ -107,7 +171,9 @@ class USBObserver(FileSystemEventHandler):
         Checks the mount point at startup to handle the case where the USB
         drive was already inserted before this service started. Publishes the
         correct initial USB_PRESENT or USB_ABSENT state, and triggers a
-        WiFi credential import if the drive is already mounted.
+        WiFi credential import if the drive is already mounted. While a mount
+        is still pending it publishes nothing yet: it sets _awaiting_mount and
+        starts the usb-await-mount thread, which reports the state later.
 
         Subsequent insertions are handled by on_created, which also triggers
         a WiFi credential import each time the marker file is recreated.
@@ -115,13 +181,17 @@ class USBObserver(FileSystemEventHandler):
         super().__init__()
 
         # Guards _published and _wifi_import, and makes "read the mount point,
-        # then publish" one step. Three threads get here: watchdog's dispatch
+        # then publish" one step. Four threads get here: watchdog's dispatch
         # thread (on_created/on_deleted), the thread running USBService.start()
-        # (resync) and the incident handler (republish). Without it a stick
-        # inserted just after the observer started was published twice and
-        # imported twice, with one DeferredStarter nobody could abort; and a
-        # republish that read "mounted" just before the stick was pulled could
-        # publish PRESENT after the removal had published ABSENT.
+        # (resync), usb-await-mount (resync, see _await_pending_mount()) and
+        # the incident handler (republish). Without it a stick inserted just
+        # after the observer started could have its two publishes interleave,
+        # leaving one DeferredStarter nobody could abort; and a republish that
+        # read "mounted" just before the stick was pulled could publish PRESENT
+        # after the removal had published ABSENT. The lock serialises, it does
+        # not dedupe: on_created() publishes without checking _published, so
+        # if resync() publishes PRESENT first, on_created() publishes it again
+        # (and replaces the WiFi import with a new one).
         #
         # RLock: _publish_present() calls _start_wifi_import(), which calls
         # _cancel_wifi_import(), all under it.
@@ -137,16 +207,59 @@ class USBObserver(FileSystemEventHandler):
         # observer actually watching.
         self._published: str | None = None
 
+        # Set while a mount that is on its way is being waited for. Nothing
+        # publishes ABSENT meanwhile: the state is unknown, not absent. See
+        # usb_mount_pending().
+        self._awaiting_mount = Event()
+
         with self._state_lock:
             if path.ismount(USB_MOUNT_POINT):
                 # Checked here as well as in on_created(): at boot the drive is
-                # mounted by usb-drive-boot.service long before this observer
-                # exists, so the created event for the marker file is never seen.
+                # normally mounted by usb-drive-boot.service before this
+                # observer exists, so the created event for the marker file is
+                # never seen.
                 self._publish_present()
+            elif usb_mount_pending():
+                # Cold boot with the mount still in progress (fsck of a dirty
+                # stick, a slow stick, udev still coldplugging). Publish
+                # nothing yet: on_created() reports the stick when it is
+                # mounted, and the waiter reports it absent if it never is.
+                oradio_log.info("USB not mounted yet, mount in progress: waiting before reporting")
+                self._awaiting_mount.set()
+                Thread(
+                    target=self._await_pending_mount, daemon=True, name="usb-await-mount",
+                ).start()
             else:
                 self._publish_absent()
 
 ##### Helpers #############################################
+
+    def _await_pending_mount(self) -> None:
+        """
+        Wait for a mount that was on its way at start-up, then report the state.
+
+        Runs on its own thread, started from __init__(), so start-up does not
+        wait for it. Ends as soon as the stick is mounted, when no mount is
+        pending any more, or after USB_MOUNT_PENDING_TIMEOUT. Then clears
+        _awaiting_mount and lets resync() publish whatever is true by then --
+        ABSENT if the stick never came, nothing if on_created() already
+        reported it. The mount comes before the marker file, so on_created()
+        may not have fired yet; resync() then publishes PRESENT itself.
+        """
+        deadline = monotonic() + USB_MOUNT_PENDING_TIMEOUT
+        while monotonic() < deadline:
+            if path.ismount(USB_MOUNT_POINT) or not usb_mount_pending():
+                break
+            sleep(USB_MOUNT_PENDING_POLL)
+        else:
+            oradio_log.warning(
+                "USB mount still pending after %ss: reporting the current state",
+                USB_MOUNT_PENDING_TIMEOUT,
+            )
+
+        with self._state_lock:
+            self._awaiting_mount.clear()
+            self.resync()
 
     def _publish_present(self) -> None:
         """Report fsck damage, announce the drive, and import WiFi credentials."""
@@ -258,7 +371,8 @@ class USBObserver(FileSystemEventHandler):
                     # A whitespace-only SSID is not a usable network name
                     errors.append(f"Network #{index} has empty SSID")
                 elif len(ssid) > 32:
-                    # IEEE 802.11 caps SSID length at 32 bytes
+                    # IEEE 802.11 caps SSID length at 32 bytes; this counts
+                    # characters, so a multi-byte UTF-8 SSID can still pass
                     errors.append(f"Network #{index} SSID is too long")
             else:
                 errors.append(f"Network #{index} has invalid SSID")
@@ -283,12 +397,14 @@ class USBObserver(FileSystemEventHandler):
 
         Reads and validates the JSON credentials file. For each valid network
         entry the credentials are registered with NetworkManager. If every
-        entry passes validation, the source file is deleted from the USB drive
-        to prevent re-import on the next insertion and to remove potentially
-        sensitive credentials from the removable drive.
+        entry passes validation and is accepted by NetworkManager, the source
+        file is deleted from the USB drive to prevent re-import on the next
+        insertion and to remove potentially sensitive credentials from the
+        removable drive.
 
-        The file is left in place when validation errors are found, allowing
-        the user to correct the data and re-insert the drive.
+        The file is left in place when validation errors are found, or when
+        NetworkManager refuses a valid entry, allowing the user to correct the
+        data (or retry) and re-insert the drive.
 
         Expected JSON structure::
             {
@@ -307,28 +423,41 @@ class USBObserver(FileSystemEventHandler):
             oradio_log.debug("'%s' not found", USB_WIFI_FILE)
             return
 
-        # Read and parse the JSON credentials file
+        # Read and parse the JSON credentials file.
+        #
+        # Size first: the file is read whole, and the Oradio has little memory.
+        # utf-8-sig accepts the byte-order mark Windows Notepad writes for
+        # "UTF-8" and reads plain UTF-8 unchanged. ValueError covers both a
+        # malformed file (JSONDecodeError) and one that is not UTF-8 at all
+        # (UnicodeDecodeError, e.g. saved as ANSI with an accented SSID), and
+        # the size check below raises one too, so all of them are reported here.
         try:
-            with open(USB_WIFI_FILE, encoding="utf-8") as file:
+            size = path.getsize(USB_WIFI_FILE)
+            if size > USB_WIFI_FILE_MAX_SIZE:
+                raise ValueError(f"file is {size} bytes, more than the {USB_WIFI_FILE_MAX_SIZE} allowed")
+            with open(USB_WIFI_FILE, encoding="utf-8-sig") as file:
                 data = load(file)
-        except (JSONDecodeError, OSError) as ex_err:
-            # Covers malformed JSON and filesystem errors (permissions, I/O)
+        except (ValueError, OSError) as ex_err:
+            # Covers an oversized file, text that is not UTF-8, malformed JSON
+            # and filesystem errors (permissions, I/O)
             oradio_log.error("Failed to read or parse '%s': error: %s", USB_WIFI_FILE, ex_err)
             # The reason travels with the incident: six different faults share
             # this message, and "the wifi file is wrong" is not something anyone
             # can act on without knowing which way it is wrong.
             Incidents.publish(IncidentMessage(
                 USB_SOURCE, USB_FILE_FAILED,
-                details=f"unreadable or malformed JSON: {ex_err}",
+                details=f"unreadable, too large or malformed JSON: {ex_err}",
             ))
             return
 
-        # The root object must contain a "networks" key whose value is a list
-        if "networks" not in data or not isinstance(data["networks"], list):
-            oradio_log.error("'networks' must be a list")
+        # The root must be an object with a "networks" key whose value is a
+        # list. The isinstance check comes first: any other valid JSON root (a
+        # list, a string, a number) would otherwise fail on the lookup itself.
+        if not isinstance(data, dict) or not isinstance(data.get("networks"), list):
+            oradio_log.error("Root must be an object with a 'networks' list")
             Incidents.publish(IncidentMessage(
                 USB_SOURCE, USB_FILE_FAILED,
-                details="'networks' is missing or is not a list",
+                details="root is not an object, or 'networks' is missing or is not a list",
             ))
             return
 
@@ -428,14 +557,22 @@ class USBObserver(FileSystemEventHandler):
         __init__() reads the mount point before the observer is started, so an
         insert or removal in between produces an inotify event nobody receives.
         Called once the observer is running: from then on every later change
-        is seen, and this closes the gap before it. Does nothing when the state
-        is unchanged, so the normal start-up publishes nothing extra.
+        is seen, and this closes the gap before it. Also called by
+        _await_pending_mount() once a pending start-up mount is resolved.
+        Does nothing when the state is unchanged, so the normal start-up
+        publishes nothing extra.
 
-        Under _state_lock, so an on_created() racing it publishes once, not twice.
+        Under _state_lock, so an on_created() racing it does not interleave with
+        it. That does not dedupe: on_created() does not check _published, so if
+        this publishes PRESENT first, on_created() publishes PRESENT again.
         """
         with self._state_lock:
             state = USB_PRESENT if path.ismount(USB_MOUNT_POINT) else USB_ABSENT
             if state == self._published:
+                return
+            if state == USB_ABSENT and self._awaiting_mount.is_set():
+                # Not mounted YET: _await_pending_mount() decides when that
+                # means absent.
                 return
             oradio_log.info("USB state changed during observer start-up: %s", state)
             if state == USB_PRESENT:
@@ -458,6 +595,10 @@ class USBObserver(FileSystemEventHandler):
         """
         with self._state_lock:
             state = USB_PRESENT if path.ismount(USB_MOUNT_POINT) else USB_ABSENT
+            if state == USB_ABSENT and self._awaiting_mount.is_set():
+                # Same as in resync(): a mount on its way is not an absence.
+                oradio_log.info("Not republishing USB state: mount still in progress")
+                return state
             oradio_log.info("Republishing USB state: %s", state)
             if state == self._published:
                 Commands.publish(CommandMessage(USB_SOURCE, state))
@@ -528,7 +669,8 @@ def republish_usb_state() -> str:
     Publish the drive state as it is right now, and return it.
 
     Returns:
-        USB_PRESENT or USB_ABSENT, whichever was published.
+        USB_PRESENT or USB_ABSENT, whichever was published. While a mount is
+        still pending, USB_ABSENT is returned without publishing anything.
 
     For the cases where the Oradio's idea of the drive may have drifted from the
     drive itself: an insert or remove event the handler could not finish, or an

@@ -56,20 +56,26 @@ VOLUME_CONTROL_MPD       = "VolumeMPD"
 VOLUME_CONTROL_SYS_SOUND = "VolumeSysSound"
 VOLUME_CONTROL_MASTER    = "Digital Playback Volume"
 
-# Window over which failed amixer calls are counted, for the log line and the
-# incident details. A measurement, not a threshold: nothing acts on the count
-# yet. Long enough that the calls of one knob turn fall inside it, so a single
-# turn that misses once reads as 1 and a control that is simply not there reads
-# as every call since.
+# Window over which failed amixer calls are counted, per ALSA control. Long
+# enough that the calls of one knob turn fall inside it, so a single turn that
+# misses once reads as 1 and a control that is simply not there reads as every
+# call to it since.
+#
+# Per control, not one count for all: a knob step sets the master control and
+# then VolumeSysSound. The master is a hardware control that keeps working when
+# the softvol controls are missing, so with a single shared count its success
+# on every step would wipe the failure of the other, and the limit below could
+# never be reached in exactly the case it is meant for.
 SET_FAILURE_WINDOW = 60.0  # seconds
 
-# Failures inside that window before the Oradio asks to be restarted.
+# Failures of one control inside that window before the Oradio asks to be
+# restarted. A successful call to that control clears its count, so these are
+# consecutive failures.
 #
-# Deliberately generous, because nobody has measured this yet. One knob turn is
-# ten to fifteen amixer calls, so a control that is simply not there produces a
-# full turn's worth at once and this is reached on the second turn -- while a
-# turn that misses once or twice, which is the case that must not escalate,
-# stays an order of magnitude below it.
+# Deliberately generous, because nobody has measured this yet. A control that
+# is simply not there fails on every step of every knob turn, so it reaches
+# this within a few turns -- while a turn that misses once or twice, which is
+# the case that must not escalate, stays an order of magnitude below it.
 #
 # Every failure is logged with its count either way. Once the field data says
 # how often amixer really misses, this is the number to bring down.
@@ -132,9 +138,10 @@ class VolumeControl(ThreadTemplate):
         # I/O below could plausibly fail partway through.
         super().__init__(name="VolumeControl")
 
-        # Timestamps of failed amixer calls inside SET_FAILURE_WINDOW. Before
-        # the first _set_volume() below, which already uses it.
-        self._set_failures: list[float] = []
+        # Per ALSA control: timestamps of failed amixer calls inside
+        # SET_FAILURE_WINDOW. Before the first _set_volume() below, which
+        # already uses it.
+        self._set_failures: dict[str, list[float]] = {}
 
         # Set default MPD volume
         self._set_volume(VOLUME_CONTROL_MPD, DEFAULT_VOLUME_MPD)
@@ -210,7 +217,9 @@ class VolumeControl(ThreadTemplate):
         if not result:
             self._count_set_failure(control, response)
         else:
-            self._set_failures.clear()
+            # Only this control's count: another control working says nothing
+            # about whether this one exists.
+            self._set_failures.pop(control, None)
             oradio_log.trace("Volume of '%s' set to: %s", control, volume)
 
     def _count_set_failure(self, control: str, response: str) -> None:
@@ -222,10 +231,14 @@ class VolumeControl(ThreadTemplate):
             response: What amixer said.
 
         Counted rather than simply reported, because this runs on every step of
-        a knob turn -- a single turn is ten to fifteen calls -- and there is no
-        retry in front of it. One miss during a turn says nothing; a run of them
-        says the control is not there, which usually means alsactl restore
-        failed at boot and the softvol controls were never created.
+        a knob turn and there is no retry in front of it. One miss during a turn
+        says nothing; a run of them says the control is not there, which usually
+        means alsactl restore failed at boot and the softvol controls were never
+        created.
+
+        Counted per control, and only a successful call to that same control
+        clears its count -- see SET_FAILURE_WINDOW for why one shared count
+        never reached the limit.
 
         The count is what the incident carries, and it is the measurement this
         is here for: nobody knows yet how often amixer misses in the field.
@@ -236,10 +249,11 @@ class VolumeControl(ThreadTemplate):
         Every failure is reported either way. The count is what lets a stream
         of them be told from a single one.
         """
-        self._set_failures.append(monotonic())
-        window_start = monotonic() - SET_FAILURE_WINDOW
-        recent = [t for t in self._set_failures if t >= window_start]
-        self._set_failures = recent
+        now = monotonic()
+        window_start = now - SET_FAILURE_WINDOW
+        recent = [t for t in self._set_failures.get(control, []) if t >= window_start]
+        recent.append(now)
+        self._set_failures[control] = recent
 
         oradio_log.error(
             "Error setting volume of '%s': %s (%d failure(s) within %.0fs)",
@@ -263,7 +277,8 @@ class VolumeControl(ThreadTemplate):
             # -- a volume knob that does nothing makes the Oradio nearly unusable
             # anyway, and by now it has failed SET_FAILURE_LIMIT times.
             fatal_exit(
-                f"Volume control unusable: {len(recent)} amixer failures within "
+                f"Volume control unusable: {len(recent)} amixer failures for "
+                f"'{control}' within "
                 f"{SET_FAILURE_WINDOW:.0f}s",
                 stacklevel=4,
             )

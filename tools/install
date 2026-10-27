@@ -1,0 +1,926 @@
+#!/usr/bin/env bash
+#
+#  ####   #####     ##    #####      #     ####
+# #    #  #    #   #  #   #    #     #    #    #
+# #    #  #    #  #    #  #    #     #    #    #
+# #    #  #####   ######  #    #     #    #    #
+# #    #  #   #   #    #  #    #     #    #    #
+#  ####   #    #  #    #  #####      #     ####
+#
+# Created on January 19, 2025
+# @author:        Henk Stevens & Olaf Mastenbroek & Onno Janssen
+# @copyright:     Oradio Stichting
+# @license:       GNU General Public License (GPL)
+# @organization:  Oradio Stichting
+# @version:       4
+# @email:         oradioinfo@stichtingoradio.nl
+# @status:        For installing Oradio3 starting from release 0.3.0
+#
+# TWO USES
+# 1. First installation on a freshly flashed Raspberry Pi OS Lite (64-bit,
+#    trixie) card, run by hand as described in README.md:
+#        bash <(curl https://oradiolabs.nl/Oradio3/install)
+#    Nothing of Oradio is there yet: no ~/Oradio3, no Oradio services, no MPD,
+#    and git and jq are not installed. The stock apt-daily timers ARE active
+#    (oradio_install.sh masks them later), and on a first boot they often run
+#    just when the installation starts.
+# 2. Field update of an installed Oradio, see FIELD UPDATES below.
+#    Every step for the second use only acts on what it finds (a running service,
+#    a leftover file), so on a fresh card it does nothing. Reinstalling by hand
+#    on an installed card (README.md) is the second use, run from a terminal.
+#
+# WHAT GETS INSTALLED
+# Without an argument, both uses install the latest release: the highest vX.Y.Z
+# tag on GitHub. To install or update to a specific branch or release instead,
+# pass its name as the only argument. It goes to 'git clone -b', which accepts
+# a branch name as well as a tag:
+#     bash <(curl https://oradiolabs.nl/Oradio3/install)            latest release
+#     bash <(curl https://oradiolabs.nl/Oradio3/install) main       main branch
+#     bash <(curl https://oradiolabs.nl/Oradio3/install) <branch>   that branch
+#     bash <(curl https://oradiolabs.nl/Oradio3/install) v2.0.1     that release
+# In the update command of a heartbeat response the argument goes after the
+# downloaded script, e.g. '... && exec bash /tmp/oradio-install.sh v2.0.1'.
+#
+# FIELD UPDATES
+# This script is also what an Oradio in the field runs when RMS sends it the
+# update command in a heartbeat response. That device can be on ANY earlier
+# release, and this script is the only code that runs on it before the new
+# release takes over: oradio_install.sh and cleanup_old_versions.sh come from
+# the repository this script clones, so they only start after the old
+# installation has already been removed. Everything an old release left
+# running that can get in the way of the update therefore has to be handled
+# HERE, before the point of no return:
+#   - oradio.service runs from ~/Oradio3 and is stopped before that directory
+#     is replaced. Releases v1.0.6 and v1.0.7 have Restart=no plus an OnFailure
+#     crash handler that REBOOTS the device, so a single crash of the old code
+#     after its directory is gone would reboot the device mid-install.
+#   - librespot.service (releases up to v1.0.7) writes into ~/Oradio3/Spotify
+#     and has Restart=always; it is stopped for the same reason.
+#   - MPD keeps playing once Oradio is stopped, with nothing left to control
+#     it; it is stopped too, so the radio is silent during the update.
+#   - a '--continue' line in ~/.bashrc (resume mechanism up to v1.0.7, left
+#     behind by an interrupted install) starts a second installation at every
+#     interactive login, e.g. when support logs in to follow this one.
+#   - the raspotify apt source (releases up to v1.0.7) makes every
+#     'apt-get update' depend on a repository newer releases no longer use.
+#   - a console auto-login (resume mechanism up to v1.0.7) left on by an
+#     interrupted install.
+#   - after the mid-install reboot, oradio.service would start the new code
+#     while the '--continue' pass is still configuring it, and a crash then
+#     could reboot the device in the middle of that pass. A drop-in keeps
+#     Oradio from starting while an installation is pending (INSTALL GUARD),
+#     for both resume mechanisms, so also when going back to v1.0.x.
+# Services are stopped as late as possible, so an update that fails before the
+# point of no return (no network, no GitHub, broken apt source) leaves the
+# radio playing on its old version, and restarted if anything fails after.
+
+# Fail on failures hidden inside a pipeline (e.g. `apt list ... | cut ...`,
+# where the exit status would otherwise come from cut and always be 0).
+# We deliberately do NOT use `set -e`: this script handles its own errors
+# explicitly with `if`/`||` so it can give a specific message per failure.
+set -o pipefail
+
+# Color definitions
+RED='\033[1;31m'
+YELLOW='\033[1;93m'
+GREEN='\033[1;32m'
+NC='\033[0m'
+
+# Oradio3 locations
+INSTALL_DIR=$HOME/Oradio3
+GITHUB_URL=https://github.com/oradiolabs/Oradio3.git
+GITHUB_API=https://api.github.com/repos/oradiolabs/Oradio3
+
+# The log of an installation or update is INSTALL_LOG, the same file
+# oradio_install.sh writes, and RMS collects with the other log files. After a
+# run it starts with a banner saying whether it was a first installation or an
+# update, then this script's output, then that of oradio_install.sh.
+#
+# INSTALL_LOG lives inside INSTALL_DIR, which does not exist yet on a fresh card
+# and is replaced during an update, so until the swap this script's output is
+# collected in BUFFER_LOG and written to INSTALL_LOG once the new INSTALL_DIR is
+# in place. A run that stops before that point appends it to the existing
+# INSTALL_LOG (update) or leaves it in FALLBACK_LOG (first installation).
+#
+# A file, because the journal on an Oradio is volatile (Storage=volatile):
+# after the reboot that ends an install, 'journalctl -u oradio-install' is empty.
+INSTALL_LOG=$INSTALL_DIR/logging/install.log
+FALLBACK_LOG=$HOME/oradio-install.log
+
+# Prevents two copies of this script from running at the same time, e.g. when
+# the same update command arrives in two heartbeats.
+LOCK_FILE=$HOME/.oradio-install.lock
+
+# First installation or update, for the log banner and the messages. For an
+# update, the version being replaced is taken from the version file that
+# oradio_install.sh writes. sed rather than jq: jq is not on a fresh card.
+SW_VERSION_FILE=/var/log/oradio_sw_version.log
+if [ -d "$INSTALL_DIR" ]; then
+	RUN_KIND="update"
+	OLD_VERSION="$(sed -n 's/.*"gitinfo"[[:space:]]*:[[:space:]]*"\(.*\)".*/\1/p' "$SW_VERSION_FILE" 2>/dev/null)"
+	OLD_VERSION="${OLD_VERSION:-unknown}"
+else
+	RUN_KIND="installation"
+	OLD_VERSION=""
+fi
+
+# Services stopped just before INSTALL_DIR is replaced, in stop order; restarted
+# in reverse order if the update fails. A manual stop does not trigger
+# OnFailure=, so it does not start a crash handler.
+#   - oradio.service and librespot.service run from, or write into, INSTALL_DIR.
+#   - mpd.service keeps playing on its own once Oradio is stopped, with no
+#     buttons or volume control left to stop it. Stopped so the radio is silent
+#     during the update. MPD has no state_file, so when apt upgrades and restarts
+#     it, or at the reboots of the install, it comes back silent.
+#   - mpd.socket because stopping mpd.service alone leaves the socket listening,
+#     and any connection would start mpd again.
+SERVICES_TO_STOP=(
+	oradio.service
+	librespot.service
+	mpd.service
+	mpd.socket
+)
+
+# The script uses bash constructs
+if [ -z "$BASH" ]; then
+	echo -e "${RED}Aborting: This script requires bash${NC}"
+	exit 1
+fi
+
+# Oradio3 runs on Debian 13 (trixie) only.
+#
+# Checked HERE, before anything is installed, cloned or removed. oradio_install.sh
+# checks the same thing, but it does not run until line ~315 -- long after the
+# block below has deleted the working installation to make room for the clone. On
+# a device still running bookworm that leaves the old software gone, the new
+# software unconfigured, and the systemd units pointing at neither: an Oradio that
+# no longer starts, from a script that was meant to update it.
+#
+# /etc/os-release rather than lsb_release, which oradio_install.sh uses: this runs
+# before any package is installed, and lsb-release is not on a Lite image by
+# default. os-release ships with the base system and is always there.
+#
+# There is no upgrade path from bookworm in this script. Trixie changes the Python
+# packaging rules (PEP 668) and the MPD version, so the supported route is to
+# reflash the card with a trixie image and install fresh.
+TARGET_CODENAME="trixie"
+
+if [ -r /etc/os-release ]; then
+	# Sourced in a subshell, so os-release's NAME, VERSION and friends cannot land
+	# in this script's namespace. A tab separates the two fields because PRETTY_NAME
+	# contains spaces.
+	# shellcheck disable=SC1091  # provided by the base system, not by this repository
+	read -r OS_CODENAME OS_PRETTY < <(. /etc/os-release && printf '%s\t%s\n' "${VERSION_CODENAME:-}" "${PRETTY_NAME:-unknown}")
+else
+	OS_CODENAME=""
+	OS_PRETTY="unknown (no /etc/os-release)"
+fi
+
+if [ "$OS_CODENAME" != "$TARGET_CODENAME" ]; then
+	echo -e "${RED}Aborting: Oradio3 requires Debian 13 (${TARGET_CODENAME})${NC}"
+	echo -e "${RED}This system reports: ${OS_PRETTY}${NC}"
+	echo -e "${YELLOW}Nothing has been changed. Reflash the card with a ${TARGET_CODENAME} image and run this script again.${NC}"
+	exit 1
+fi
+
+# Show usage information
+function usage() {
+	echo
+	echo -e "${RED}$1${NC}"
+	echo -e "Use this script to:"
+	echo -e "- REMOVE any existing Oradio3 installation"
+	echo -e "- INSTALL Oradio3 repository:"
+	echo -e "  - No arguments: Install latest RELEASE"
+	echo -e "  - argument 'main': Install main branch"
+	echo -e "  - argument <name>: Install branch or release <name> (e.g. v2.0.1)"
+	echo
+}
+
+########## LOGGING, LOCKING AND EXIT HANDLING ##########
+
+# Save the original stdout/stderr (console or journal), then send all output
+# there AND to a log file through tee. Same pattern as oradio_install.sh:
+# stop_logging restores the saved descriptors and waits for tee, so no output
+# is lost and nothing hangs when no terminal is attached.
+exec 3>&1 4>&2
+BUFFER_LOG="$(mktemp "${TMPDIR:-/tmp}/oradio-install.XXXXXX")" || BUFFER_LOG=/dev/null
+
+# Send output to the console and append it to file $1
+function start_logging {
+	exec > >(tee -a "$1") 2>&1
+	TEE_PID=$!
+}
+
+# Back to the console only, once tee has written everything
+function stop_logging {
+	exec 1>&3 2>&4
+	wait "$TEE_PID" 2>/dev/null
+}
+
+start_logging "$BUFFER_LOG"
+
+# Banner at the top of this run's part of INSTALL_LOG
+function log_banner {
+	local line="################################################################"
+	echo "$line"
+	if [ "$RUN_KIND" = "update" ]; then
+		echo "# Oradio3 UPDATE"
+		echo "# Installed version : $OLD_VERSION"
+	else
+		echo "# Oradio3 FIRST INSTALLATION"
+	fi
+	echo "# Started           : $START_TIME"
+	if [ -n "${cloned:-}" ]; then
+		echo "# New version       : $cloned"
+	fi
+	echo "# Below: output of the install script, then of oradio_install.sh if it ran"
+	echo "$line"
+}
+START_TIME="$(date +'%Y-%m-%d %H:%M:%S')"
+
+# Becomes 1 once this run's log has been moved to INSTALL_LOG
+LOG_IN_PLACE=0
+
+echo "$START_TIME: Oradio3 $RUN_KIND started"
+
+# Units this run actually stopped, and whether INSTALL_DIR has been replaced.
+STOPPED_UNITS=()
+SWAPPED=0
+
+# Set after the clone: 1 when the release being installed has Spotify Connect
+# (raspotify/librespot, releases up to v1.0.7), 0 when it has not (v2.0.0 on)
+NEW_HAS_SPOTIFY=0
+
+# Runs on every exit. On failure, bring back what this script stopped, in
+# reverse stop order (MPD before Oradio, which connects to it):
+#   - before the swap the old installation is untouched, so everything comes
+#     back and the radio simply keeps working on its old version;
+#   - after the swap the old installation is gone and the new one is only
+#     partly installed. MPD and Oradio are started anyway: if the new Oradio
+#     does not run, its crash handler uploads the logs, including install.log
+#     with this run's output, to RMS, and a running Oradio can receive the
+#     update command again. librespot is started only when the new release
+#     has Spotify Connect AND its installer got as far as creating
+#     ~/Oradio3/Spotify, the directory librespot writes its state files to.
+#     Otherwise it is left stopped: a release without Spotify removes the unit
+#     (cleanup_old_versions.sh), and without that directory librespot fails at
+#     every start and, with Restart=always, retries every 10 seconds.
+# Skipped while the system is shutting down (the reboot that ends a successful
+# install), when systemd would refuse the start anyway.
+function on_exit {
+	local status=$?
+	local i unit
+
+	if [ "$status" -ne 0 ] && [ "${#STOPPED_UNITS[@]}" -gt 0 ] \
+			&& [ "$(systemctl is-system-running 2>/dev/null)" != "stopping" ]; then
+		if [ "$SWAPPED" -eq 0 ]; then
+			echo -e "${YELLOW}Update failed before the old version was removed: restarting stopped services${NC}"
+		else
+			echo -e "${YELLOW}Update failed after the old version was removed: restarting stopped services${NC}"
+		fi
+		for (( i=${#STOPPED_UNITS[@]}-1; i>=0; i-- )); do
+			unit="${STOPPED_UNITS[i]}"
+			if [ "$SWAPPED" -eq 1 ] && [ "$unit" = "librespot.service" ] \
+					&& { [ "$NEW_HAS_SPOTIFY" -eq 0 ] || [ ! -d "$INSTALL_DIR/Spotify" ]; }; then
+				echo "Not starting $unit: not usable with the partly installed new version"
+				continue
+			fi
+			echo "Starting $unit"
+			sudo systemctl start "$unit" || echo -e "${RED}Could not start $unit${NC}"
+		done
+	fi
+
+	echo "$(date +'%Y-%m-%d %H:%M:%S'): Oradio3 $RUN_KIND ended with exit status $status"
+	stop_logging
+
+	# Stopped before the swap: the output is still in BUFFER_LOG. Add it to the
+	# INSTALL_LOG of the installation that is still there, or, on a fresh card
+	# that has none, keep it in FALLBACK_LOG.
+	if [ "$LOG_IN_PLACE" -eq 0 ] && [ -s "$BUFFER_LOG" ]; then
+		if [ -d "$(dirname "$INSTALL_LOG")" ] && { log_banner; cat "$BUFFER_LOG"; } >> "$INSTALL_LOG"; then
+			echo "Log of this run added to $INSTALL_LOG"
+		elif { log_banner; cat "$BUFFER_LOG"; } > "$FALLBACK_LOG"; then
+			echo "Log of this run saved in $FALLBACK_LOG"
+		fi
+	fi
+	[ "$BUFFER_LOG" = /dev/null ] || rm -f "$BUFFER_LOG"
+}
+trap on_exit EXIT
+# Turn signals into a normal exit, so on_exit also runs when the update unit
+# is stopped or the session is closed
+trap 'exit 130' INT
+trap 'exit 143' TERM
+trap 'exit 129' HUP
+
+# One update at a time
+exec 9>"$LOCK_FILE"
+if ! flock -n 9; then
+	echo -e "${RED}Aborting: Another Oradio3 installation or update is already running${NC}"
+	exit 1
+fi
+
+# Never start while an installation is in progress, e.g. the '--continue' pass
+# after the mid-install reboot. Oradio is running again by then and may receive
+# the same update command: replacing INSTALL_DIR under a running
+# oradio_install.sh would break both. pgrep covers every release's resume
+# mechanism; the unit check is a second guard for the current one.
+continue_state="$(systemctl is-active oradio-install-continue.service 2>/dev/null)"
+if pgrep -f 'oradio_install\.sh' >/dev/null || [[ "$continue_state" =~ ^(active|activating|reloading)$ ]]; then
+	echo -e "${RED}Aborting: An Oradio3 installation is already in progress${NC}"
+	exit 1
+fi
+
+########## LOGGING, LOCKING AND EXIT HANDLING END ##########
+
+# Enable passwordless sudo (no password prompt running sudo)
+# https://www.raspberrypi.com/documentation/computers/configuration.html#disable-sudo-password
+if sudo -n true 2>/dev/null; then
+	# Already-passwordless, so not treated as an error
+	echo "Passwordless sudo already enabled"
+elif ! grep -q '^do_sudo_pass' /usr/bin/raspi-config 2>/dev/null; then
+	# Older raspi-config has no do_sudo_pass, so not treated as an error
+	echo -e "${YELLOW}Warning: raspi-config has no do_sudo_pass, skipping${NC}"
+elif ! sudo -p "Enter Oradio3 password: " raspi-config nonint do_sudo_pass 1; then
+	echo -e "${RED}Aborting: Could not enable passwordless sudo${NC}"
+	exit 1
+fi
+
+echo "Installing Oradio3"
+
+# Ensure script is running in home directory
+if ! cd "$HOME"; then
+	echo -e "${RED}Aborting: Cannot cd to HOME directory ($HOME)${NC}"
+	exit 1
+fi
+
+########## LEFTOVERS OF EARLIER RELEASES (BEFORE ANYTHING ELSE) ##########
+
+# Releases up to v1.0.7 resumed after their mid-install reboot from a line in
+# ~/.bashrc: 'bash <path>/oradio_install.sh --continue'. An install that never
+# finished left it there, and it starts another installation in EVERY
+# interactive shell -- including the SSH session of whoever logs in to follow
+# this update. Removed first, so no login can start a second installation.
+# Releases that still use this mechanism add the line again themselves.
+#
+# Written back INTO the file ('cat >'), not moved over it, so mode, owner and
+# a symlinked .bashrc are kept. grep -v exits 1 when no lines remain, which is
+# a success here.
+BASHRC_CONTINUE_RE='^[[:space:]]*bash[[:space:]].*oradio_install\.sh[[:space:]]+--continue[[:space:]]*$'
+if [ -f "$HOME/.bashrc" ] && grep -qE "$BASHRC_CONTINUE_RE" "$HOME/.bashrc"; then
+	tmp="$HOME/.bashrc.oradio-tmp"
+	if { grep -vE "$BASHRC_CONTINUE_RE" "$HOME/.bashrc" > "$tmp" || [ $? -eq 1 ]; } \
+			&& cat "$tmp" > "$HOME/.bashrc"; then
+		echo "Removed leftover installer resume line from ~/.bashrc"
+	else
+		echo -e "${YELLOW}Warning: Could not remove installer resume line from ~/.bashrc${NC}"
+	fi
+	rm -f "$tmp"
+fi
+
+# The console auto-login that releases up to v1.0.7 switch on to run that
+# '--continue' line after their reboot. An install that never finished left it
+# on. INSTALL GUARD below keeps Oradio from starting while this auto-login is
+# on, because during an install of such a release it means "resume pending",
+# so a leftover one would keep Oradio off at every boot. Switched off the same
+# way those releases do it. An Oradio has no use for console auto-login.
+AUTOLOGIN_CONF=/etc/systemd/system/getty@tty1.service.d/autologin.conf
+if [ -e "$AUTOLOGIN_CONF" ]; then
+	if sudo raspi-config nonint do_boot_behaviour B1; then
+		echo "Switched off leftover console auto-login"
+	elif sudo rm -f "$AUTOLOGIN_CONF"; then
+		echo "Removed leftover console auto-login $AUTOLOGIN_CONF"
+	else
+		echo -e "${YELLOW}Warning: Could not switch off console auto-login${NC}"
+	fi
+fi
+
+########## LEFTOVERS OF EARLIER RELEASES END ##########
+
+########## INSTALLATION TOOLS ##########
+
+# SHARED STATE: pkg-helper.sh and oradio_install.sh read and write this same
+# stamp, so whichever runs first spares the others a redundant 'apt-get update'.
+# All three must agree on the path
+STATEDIR="/var/lib/oradio"
+STAMP_FILE="$STATEDIR/apt-update-stamp"
+MAX_AGE=$((6 * 3600))	# 6 hours in seconds
+
+sudo install -d -m 0755 "$STATEDIR"
+
+# Options for every apt-get call in this script. Nobody answers questions
+# during an update from RMS, and over SSH a hidden question would hang the run:
+#   - DPkg::Lock::Timeout=300: when another apt or dpkg run holds the dpkg lock,
+#     wait up to 5 minutes for it instead of failing at once. This only covers
+#     the dpkg lock that 'apt-get install' takes; 'apt-get update' takes the
+#     lock on /var/lib/apt/lists, does not wait for it, and fails at once
+#     (tested). wait_for_apt_jobs below covers that case.
+#   - --force-confdef and --force-confold: when a package update brings a new
+#     version of a configuration file that was changed on this device, keep the
+#     changed file instead of asking which one to use.
+#   - APT::Get::HideAutoRemove: do not print the list of packages that are no
+#     longer needed. It is about packages this script never touched.
+# 'apt-get install' is also given DEBIAN_FRONTEND=noninteractive, so packages
+# do not ask their own configuration questions (debconf).
+# tools/pkg-helper.sh uses the same Dpkg::Options and HideAutoRemove; it has no
+# DPkg::Lock::Timeout but serializes its apt calls with flock on its own lock.
+APT_OPTIONS=(
+	-o DPkg::Lock::Timeout=300
+	-o Dpkg::Options::=--force-confdef
+	-o Dpkg::Options::=--force-confold
+	-o APT::Get::HideAutoRemove=true
+)
+
+# Keep the stock apt jobs out of the way. On a freshly flashed card
+# apt-daily.service typically runs within minutes of the first boot, and
+# 'apt-get update' does NOT wait for the lock it holds on /var/lib/apt/lists:
+# it fails at once ('Unable to lock directory'), DPkg::Lock::Timeout only
+# covers the dpkg lock. So: stop the timers for this boot, so no new run starts
+# while installing, then wait for a run already under way to finish. Called once,
+# before the first apt call.
+APT_JOBS_HANDLED=0
+function wait_for_apt_jobs {
+	local unit waited=0
+
+	[ "$APT_JOBS_HANDLED" -eq 0 ] || return 0
+	APT_JOBS_HANDLED=1
+
+	for unit in apt-daily.timer apt-daily-upgrade.timer; do
+		if systemctl is-active --quiet "$unit"; then
+			sudo systemctl stop "$unit" >/dev/null 2>&1 \
+				&& echo "Stopped $unit for this boot"
+		fi
+	done
+
+	for unit in apt-daily.service apt-daily-upgrade.service; do
+		while systemctl is-active --quiet "$unit"; do
+			if (( waited == 0 )); then
+				echo -e "${YELLOW}Waiting for $unit to finish...${NC}"
+			fi
+			if (( waited >= 600 )); then
+				echo -e "${YELLOW}Warning: $unit still running after ${waited}s, continuing${NC}"
+				break
+			fi
+			sleep 5
+			waited=$((waited + 5))
+		done
+	done
+}
+
+# Refresh the package lists unless they are younger than MAX_AGE. Returns 1 if
+# 'apt-get update' fails; the caller decides what that means.
+function update_package_lists {
+	# Get last time the list was updated, 0 if never. A missing, empty or
+	# corrupted stamp (a power cut during the write below will do it) must not
+	# become an arithmetic syntax error
+	local last_update=0 stamp current_time age
+	if [[ -f "$STAMP_FILE" ]] && read -r stamp < "$STAMP_FILE" 2>/dev/null; then
+		if [[ "$stamp" =~ ^[0-9]+$ ]]; then
+			last_update="$stamp"
+		fi
+	fi
+
+	# Get time since last update
+	current_time=$(date +%s)
+	age=$((current_time - last_update))
+
+	# Update lists if too old
+	if (( age > MAX_AGE )); then
+		echo -e "${YELLOW}Package lists out of date, updating...${NC}"
+
+		# Fetch the latest package lists, refreshing stale lists
+		wait_for_apt_jobs
+		if ! sudo apt-get "${APT_OPTIONS[@]}" update; then
+			return 1
+		fi
+
+		# Only stamp the update time if apt update actually succeeded above,
+		# so a failed run gets retried immediately next time rather than
+		# waiting out the full MAX_AGE window.
+		if ! date +%s | sudo tee "$STAMP_FILE" >/dev/null; then
+			echo -e "${YELLOW}Warning: Could not write update timestamp to $STAMP_FILE${NC}"
+		fi
+	fi
+	echo -e "${GREEN}Package lists up to date${NC}"
+	# NOTE: We do not upgrade: https://forums.raspberrypi.com/viewtopic.php?p=2310861&hilit=oradio#p2310861
+	return 0
+}
+
+# True when a package's files are on disk, from dpkg's own database
+function package_installed {
+	[ "$(dpkg-query -W -f='${db:Status-Status}' "$1" 2>/dev/null)" = "installed" ]
+}
+
+#***************************************************************#
+#   Add any additionally required packages to 'LINUX_PACKAGES'  #
+#***************************************************************#
+LINUX_PACKAGES=(
+	git
+	jq
+)
+
+# This script cannot use tools/pkg-helper.sh: that lives in the repository this
+# script is about to clone, and git is one of the packages needed to clone it.
+#
+# Only installed here when missing, i.e. on a freshly flashed card. An Oradio in
+# the field already has both, and oradio_install.sh upgrades them through
+# pkg-helper.sh. Skipping apt here means the package lists are refreshed only
+# after the new release is cloned, once the leftover apt sources of an old
+# release can be dealt with (see below).
+MISSING_PACKAGES=()
+for package in "${LINUX_PACKAGES[@]}"; do
+	package_installed "$package" || MISSING_PACKAGES+=("$package")
+done
+
+if [ "${#MISSING_PACKAGES[@]}" -gt 0 ]; then
+	if ! update_package_lists; then
+		echo -e "${RED}Aborting: 'apt-get update' failed, cannot refresh package lists${NC}"
+		exit 1
+	fi
+
+	# 'apt-get install' means "install if missing, upgrade if a newer candidate
+	# exists, do nothing if current", and it also repairs a package left in
+	# 'config-files' by a remove without --purge, or half-written by an
+	# interrupted install.
+	echo "Installing ${MISSING_PACKAGES[*]}..."
+	wait_for_apt_jobs
+	if ! sudo DEBIAN_FRONTEND=noninteractive apt-get install -y "${APT_OPTIONS[@]}" "${MISSING_PACKAGES[@]}"; then
+		echo -e "${RED}Aborting: Failed to install ${MISSING_PACKAGES[*]}${NC}"
+		exit 1
+	fi
+
+	# Confirm, from dpkg's own database rather than from apt's exit code.
+	for package in "${MISSING_PACKAGES[@]}"; do
+		if ! package_installed "$package"; then
+			echo -e "${RED}Aborting: $package is not installed after apt-get reported success${NC}"
+			exit 1
+		fi
+	done
+fi
+
+echo -e "${GREEN}Installation tools installed${NC}"
+
+########## INSTALLATION TOOLS END ##########
+
+########## FETCH NEW RELEASE ##########
+
+# Helper: check GitHub API rate limit
+check_rate_limit() {
+
+	local headers
+	if ! headers=$(curl -sI "${GITHUB_API}/tags"); then
+		# Can't reach GitHub to check the rate limit; don't block here, let
+		# the actual API call in latest_github_tag() report the real error.
+		echo -e "${YELLOW}Could not check GitHub API rate limit, continuing${NC}"
+		return
+	fi
+
+	local remaining reset
+	remaining=$(echo "$headers" | grep -i X-RateLimit-Remaining | awk '{print $2}' | tr -d $'\r')
+	reset=$(echo "$headers" | grep -i X-RateLimit-Reset | awk '{print $2}' | tr -d $'\r')
+
+	# Only compare if we actually got a numeric value back. Without this,
+	# an empty $remaining (missing/renamed header) crashes the comparison with
+	# a bash "integer expression expected" error instead of degrading gracefully.
+	if [[ "$remaining" =~ ^[0-9]+$ ]] && [[ "$remaining" -eq 0 ]]; then
+
+		# $reset needs the same check as $remaining above: the limit can be
+		# reported without a usable reset time, and an empty value counts as 0
+		# in the arithmetic below, making wait_seconds a large negative number
+		# that `sleep` rejects outright. Without a reset time there is nothing
+		# to wait for, so continue and let the API call report the real error.
+		if [[ ! "$reset" =~ ^[0-9]+$ ]]; then
+			echo -e "${YELLOW}GitHub API rate limit reached but no reset time given, continuing${NC}"
+			return
+		fi
+
+		local now wait_seconds
+		now=$(date +%s)
+		wait_seconds=$((reset - now))
+
+		# A reset time in the past means the window has already rolled over,
+		# so there is nothing left to wait out.
+		if (( wait_seconds <= 0 )); then
+			echo -e "${YELLOW}GitHub API rate limit already reset, continuing${NC}"
+			return
+		fi
+
+		echo -e "${YELLOW}GitHub API rate limit reached. Waiting $wait_seconds seconds until reset...${NC}"
+		sleep $((wait_seconds + 1))
+	fi
+}
+
+# Helper: Fetch highest version tag (vX.Y.Z), ignoring non-release tags
+#
+# This function is called from a command substitution, so its stdout is
+# captured by the caller. That has two consequences:
+#   - All diagnostics go to stderr. On stdout they would end up inside the
+#     caller's variable instead of on screen, and the bogus value would then
+#     be passed to `git clone -b`.
+#   - Failure is reported with `return`, not `exit`. An `exit` here would only
+#     terminate the command substitution's subshell, leaving the main script
+#     running as if nothing was wrong.
+latest_github_tag() {
+
+	# Fetch tags
+	local tags_json
+	tags_json=$(curl -s -f "${GITHUB_API}/tags") || {
+		echo -e "${RED}Aborting: Could not fetch tags from GitHub${NC}" >&2
+		return 1
+	}
+
+	# Check if tags found
+	if [[ $(echo "$tags_json" | jq length) -eq 0 ]]; then
+		echo -e "${RED}Aborting: No tags found for ${GITHUB_API}${NC}" >&2
+		return 1
+	fi
+
+	# Keep only tags matching vX.Y.Z and pick the highest version number.
+	# grep exits 1 when nothing matches, which pipefail propagates; the
+	# empty-check below reports that case, so the status is ignored here.
+	local latest
+	latest=$(echo "$tags_json" | jq -r '.[].name' | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | sort -V | tail -n1)
+
+	# Check if a version tag was found
+	if [[ -z "$latest" ]]; then
+		echo -e "${RED}Aborting: No release tags (vX.Y.Z) found for ${GITHUB_API}${NC}" >&2
+		return 1
+	fi
+
+	echo "$latest"
+}
+
+# Determine what to clone
+if [ $# -eq 0 ]; then
+	check_rate_limit
+	# The status of the command substitution is the function's return value;
+	# without this check a failed lookup would be silently used as a tag name
+	if ! release=$(latest_github_tag); then
+		exit 1
+	fi
+	CLONE_ARGS=(-b "$release")
+	cloned="release '$release'"
+elif [ "$1" = "main" ]; then
+	CLONE_ARGS=()
+	cloned="main branch"
+else
+	CLONE_ARGS=(-b "$1")
+	cloned="branch '$1'"
+fi
+
+# Clone into a staging directory first. Until the clone has fully succeeded the
+# existing installation is left untouched, so a missing branch or a dropped
+# connection no longer leaves the device without software.
+STAGING_DIR="${INSTALL_DIR}.new"
+rm -rf "$STAGING_DIR"
+
+# Only stdout is discarded, so the progress chatter stays out of the way while
+# git's own error message survives. Sending stderr to /dev/null as well made a
+# missing branch, an auth failure and a dropped connection all look identical,
+# leaving nothing to diagnose from beyond the generic message below.
+# -c advice.detachedHead=false: cloning a release tag always lands on a detached
+# HEAD, so git's multi-paragraph warning about it is expected and not actionable
+if ! git -c advice.detachedHead=false clone --depth 1 "${CLONE_ARGS[@]}" "$GITHUB_URL" "$STAGING_DIR" >/dev/null; then
+	rm -rf "$STAGING_DIR"
+	usage "Failed to clone Oradio3 repository $cloned"
+	exit 1
+fi
+
+# The clone can succeed while still being unusable, so verify the installer is
+# actually present before discarding the working copy.
+if [ ! -f "$STAGING_DIR/oradio_install.sh" ]; then
+	rm -rf "$STAGING_DIR"
+	usage "Cloned $cloned does not contain oradio_install.sh"
+	exit 1
+fi
+
+########## FETCH NEW RELEASE END ##########
+
+########## PACKAGE LISTS ##########
+
+# Spotify Connect. Releases up to v1.0.7 have it: their oradio_install.sh
+# installs raspotify (for its librespot binary) from raspotify's own apt
+# repository, and sets up librespot.service. From v2.0.0 on it is gone, and
+# cleanup_old_versions.sh removes the unit and the package. Which of the two
+# the release being installed is, is read from its oradio_install.sh.
+if grep -qE 'raspotify|librespot' "$STAGING_DIR/oradio_install.sh"; then
+	NEW_HAS_SPOTIFY=1
+fi
+
+# The raspotify apt source and signing key. raspotify's install script wrote
+# them outside the package, so purging raspotify leaves them, and with them in
+# place every 'apt-get update' depends on raspotify's repository: the update
+# below and the one in oradio_install.sh abort when it fails. The day that
+# repository or its key goes away, no Oradio carrying them could be updated.
+#   - New release WITHOUT Spotify (update from v1.0.x to v2.0.0 or later):
+#     removed here, before the update below. Nothing uses them any more.
+#   - New release WITH Spotify (install or update to v1.0.x, e.g. v1.0.4):
+#     left alone. That release needs the repository: its oradio_install.sh
+#     installs raspotify from it, and on a device that does not have raspotify
+#     (a fresh card, or one coming from v2.0.0 or later) it runs raspotify's
+#     install script, which writes them again. Such a release depends on that
+#     repository whatever this script does.
+# Going back to a release before v2.0.0 is otherwise a plain install of that
+# release. Its installer does not know what later releases installed, so units
+# and files added after it stay on the device; check a downgraded device by
+# hand ('systemctl list-unit-files', /usr/local/sbin, /etc/systemd/system).
+if [ "$NEW_HAS_SPOTIFY" -eq 0 ]; then
+	for file in /etc/apt/sources.list.d/raspotify.list /usr/share/keyrings/raspotify_key.asc; do
+		if [ -e "$file" ]; then
+			if sudo rm -f "$file"; then
+				echo "Removed leftover apt file $file"
+			else
+				echo -e "${YELLOW}Warning: Could not remove $file${NC}"
+			fi
+		fi
+	done
+fi
+
+# Refresh the package lists HERE, before the point of no return. oradio_install.sh
+# aborts when 'apt-get update' fails, and by then the old installation is gone;
+# failing here leaves the device as it was. A success also refreshes the shared
+# stamp, so oradio_install.sh does not repeat the update.
+if ! update_package_lists; then
+	rm -rf "$STAGING_DIR"
+	echo -e "${RED}Aborting: 'apt-get update' failed, nothing has been changed${NC}"
+	exit 1
+fi
+
+########## PACKAGE LISTS END ##########
+
+########## STOP SERVICES ##########
+
+# Stop what runs from, or writes into, INSTALL_DIR, now that the update can no
+# longer fail for lack of network, GitHub or packages. See FIELD UPDATES at the
+# top and at SERVICES_TO_STOP for why. Only units that are actually running are
+# stopped and recorded, so on_exit restarts exactly those. From here on the
+# radio is silent, which is what a user expects while it is being updated.
+#
+# STOPPED, NOT DISABLED. Two reasons:
+#   - oradio_install.sh only runs 'systemctl enable oradio.service' when it
+#     writes a CHANGED unit file (install_resource copies, and runs its
+#     trailing commands, only when the files differ). An update whose
+#     oradio.service is identical to the installed one -- a reinstall of the
+#     same release, or a release that did not touch the unit -- would leave
+#     Oradio disabled, and the radio silent after the final reboot.
+#   - Oradio itself is the update channel: RMS commands arrive in its
+#     heartbeat. If an install fails and the device reboots with oradio.service
+#     disabled, it never sends a heartbeat again and cannot be reached to retry
+#     the update. Enabled, it starts at the next boot and can.
+# Keeping Oradio from starting during the rest of the installation is done by
+# INSTALL GUARD below, which has neither problem.
+for unit in "${SERVICES_TO_STOP[@]}"; do
+	if systemctl is-active --quiet "$unit"; then
+		echo "Stopping $unit"
+		if sudo systemctl stop "$unit"; then
+			STOPPED_UNITS+=("$unit")
+		else
+			echo -e "${YELLOW}Warning: Could not stop $unit${NC}"
+		fi
+	fi
+done
+
+########## STOP SERVICES END ##########
+
+########## INSTALL GUARD ##########
+
+# Keep Oradio from starting while an installation is waiting to continue after
+# its mid-install reboot. Without this, the oradio.service that is still
+# installed starts the NEW code at that boot, while the '--continue' pass has
+# yet to install the configuration it needs (asound.conf, mpd.conf, the unit
+# files). If that crashes, the crash handler of the installed release can
+# reboot the device, and since the '--continue' pass disables its own unit
+# first thing, the installation is then never finished:
+#   - v2.0.0 and later: after 2 failed starts within 15 minutes;
+#   - v1.0.6 and v1.0.7: at the first crash after 300 s of uptime.
+#
+# Two conditions, one per resume mechanism; Oradio starts only when neither
+# says an installation is pending. systemd checks them itself when it starts
+# the unit: no process is started, so they cost nothing measurable at boot.
+#   - v2.0.0 and later resume from the unit oradio-install-continue.service.
+#     Its enablement symlink exists only while that resume is pending. No race:
+#     the resume unit is ordered After=multi-user.target, so it only starts
+#     after Oradio's start job has been handled, while the symlink is there.
+#   - Releases up to v1.0.7 (installed when going back to one of those) resume
+#     from a line in ~/.bashrc, run by a console auto-login they switch on with
+#     'raspi-config nonint do_boot_behaviour B2'. That creates the auto-login
+#     drop-in below, which exists only while that resume is pending: the
+#     '--continue' pass of those releases switches auto-login off again (B1).
+#     Before=getty@tty1.service makes sure Oradio's condition is checked before
+#     the auto-login shell can start that pass and remove the file. A skipped
+#     unit holds nothing up; when Oradio does start, only the console login
+#     waits for it, and an Oradio has no console.
+#   An auto-login left behind by an interrupted install of such a release would
+#   keep Oradio from starting at every boot, so this script removes it first;
+#   see LEFTOVERS OF EARLIER RELEASES.
+#
+# A failed condition skips the start; it is not a failure, so no OnFailure=,
+# no restart and no crash reboot. In each situation:
+#   - normal boot: no symlink, Oradio starts as usual;
+#   - mid-install reboot: Oradio is skipped, the '--continue' pass runs alone;
+#   - after a successful install the resume unit (or auto-login) is gone, so
+#     Oradio starts after the final reboot;
+#   - an interrupted install (power cut, crash): the '--continue' pass has
+#     already disabled its unit (or auto-login), so Oradio starts at the next
+#     boot and RMS can reach the device to retry the update;
+#   - a '--continue' pass that ends with an error and no reboot leaves Oradio
+#     off until the next power cycle.
+#
+# A drop-in rather than a change to oradio.service, so it survives the unit
+# file being replaced by any release, and applies to a unit that does not exist
+# yet on a fresh card. It stays on the device afterwards and is harmless there.
+# Better still: add the first condition to install_resources/oradio.service.template;
+# this drop-in is then only needed for going back to a release up to v1.0.7.
+GUARD_DIR=/etc/systemd/system/oradio.service.d
+GUARD_FILE=$GUARD_DIR/install-guard.conf
+GUARD_CONTENT="# Written by the Oradio3 install script (https://oradiolabs.nl/Oradio3/install).
+# Do not start Oradio while an installation waits to continue after its reboot.
+[Unit]
+ConditionPathExists=!/etc/systemd/system/multi-user.target.wants/oradio-install-continue.service
+ConditionPathExists=!/etc/systemd/system/getty@tty1.service.d/autologin.conf
+Before=getty@tty1.service"
+
+if [ "$(cat "$GUARD_FILE" 2>/dev/null)" != "$GUARD_CONTENT" ]; then
+	if sudo install -d -m 0755 "$GUARD_DIR" \
+			&& printf '%s\n' "$GUARD_CONTENT" | sudo tee "$GUARD_FILE" >/dev/null \
+			&& sudo chmod 0644 "$GUARD_FILE"; then
+		echo "Installed $GUARD_FILE"
+		# Effective at the next boot regardless; reloaded now so that a start of
+		# oradio.service in this boot uses it as well.
+		sudo systemctl daemon-reload \
+			|| echo -e "${YELLOW}Warning: systemctl daemon-reload failed${NC}"
+	else
+		# Not fatal: without it the update works as before, only without
+		# protection against a crash during the '--continue' pass
+		echo -e "${YELLOW}Warning: Could not install $GUARD_FILE${NC}"
+	fi
+fi
+
+########## INSTALL GUARD END ##########
+
+########## REPLACE INSTALLATION ##########
+
+# Point of no return: swap the new clone in
+
+# Remove installed repo clone, including its log files:
+# they describe the old version and are not relevant after the update.
+if [ -d "${INSTALL_DIR}" ]; then
+	echo "Removing existing Oradio3 software version"
+	SWAPPED=1
+	rm -rf "${INSTALL_DIR}"
+	# Remove sw version info
+	sudo rm -rf /var/log/oradio_sw_version.log
+fi
+
+# Swap the new clone in
+if ! mv "$STAGING_DIR" "$INSTALL_DIR"; then
+	echo -e "${RED}Aborting: Could not move $STAGING_DIR to $INSTALL_DIR${NC}"
+	exit 1
+fi
+SWAPPED=1
+
+########## REPLACE INSTALLATION END ##########
+
+# Install Oradio3
+echo "Installing Oradio3 $cloned"
+
+# Check the cd itself: if INSTALL_DIR is missing or wrong for any reason, running
+# oradio_install.sh from the wrong directory would be worse than stopping here.
+if ! cd "${INSTALL_DIR}"; then
+	echo -e "${RED}Aborting: Cannot cd to ${INSTALL_DIR}${NC}"
+	exit 1
+fi
+
+# Start INSTALL_LOG with the banner and this script's output so far, then log
+# straight into it. The old log files are gone with the old INSTALL_DIR, so this
+# run's banner is the first line of the file.
+stop_logging
+if mkdir -p "$(dirname "$INSTALL_LOG")" && { log_banner; cat "$BUFFER_LOG"; } > "$INSTALL_LOG"; then
+	LOG_IN_PLACE=1
+	start_logging "$INSTALL_LOG"
+else
+	start_logging "$BUFFER_LOG"
+	echo -e "${YELLOW}Warning: Could not write $INSTALL_LOG${NC}"
+fi
+
+echo "Starting oradio_install.sh"
+
+# oradio_install.sh appends its output to INSTALL_LOG itself. Its output goes to
+# the console only, not through this script's tee, or every line would be in
+# the file twice. Logging is stopped around it so the order in the file stays
+# right; this script's lines after it are appended again.
+stop_logging
+bash oradio_install.sh 1>&3 2>&4
+# Capture the exit status immediately, before any other command can overwrite $?
+install_status=$?
+if [ "$LOG_IN_PLACE" -eq 1 ]; then
+	start_logging "$INSTALL_LOG"
+else
+	start_logging "$BUFFER_LOG"
+fi
+
+cd ..
+
+if [ $install_status -gt 0 ]; then
+	echo -e "${RED}Aborting: Failed to install Oradio3 $cloned${NC}"
+	exit 1
+fi

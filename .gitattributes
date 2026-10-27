@@ -1,0 +1,7 @@
+# Line endings: LF in the repository and in the working tree, on every OS.
+# The Oradio runs on Linux; a script or template with CRLF breaks there.
+#
+# Binary files are left alone: text=auto treats a file with a NUL byte in its
+# first 8000 bytes as binary. Check a new file type with 'git ls-files --eol'
+# (i/-text = binary); add '*.ext binary' only if git reads it as text.
+* text=auto eol=lf

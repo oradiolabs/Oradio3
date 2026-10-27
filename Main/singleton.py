@@ -20,8 +20,9 @@ Created on November 4, 2025
     regardless of how many times, or from how many threads, the class is
     instantiated. A thread that arrives while the first __init__ is still
     running waits for it, so it never sees a half-built instance. The
-    decorator patches __new__ and __init__ in place, so subclassing and
-    isinstance() checks continue to work normally.
+    decorator patches __new__ and __init__ in place, so isinstance() checks
+    continue to work normally. Do not subclass a @singleton class: the base
+    and every subclass share one instance, whichever class built it first.
 """
 from threading import Lock, RLock
 from functools import wraps
@@ -33,8 +34,9 @@ def singleton(cls) -> object:
     closure, keeping them out of the class namespace entirely. This avoids
     both pylint warnings and any risk of colliding with attributes defined
     by the decorated class itself.
-    Patches __new__ and __init__ in place so that subclassing and
-    isinstance() behaviour remain normal.
+    Patches __new__ and __init__ in place so that isinstance() behaviour
+    remains normal. Not for subclassing: there is one instance in the closure,
+    so a subclass gets the base's instance once it exists.
     """
     # Held in the closure - invisible and unreachable from outside.
     instance = None
@@ -102,8 +104,9 @@ def singleton(cls) -> object:
                     instance = object.__new__(subcls)
         return instance
 
-    # Replace __new__ and __init__ on the class itself so that subclasses
-    # and isinstance() checks continue to work normally.
+    # Replace __new__ and __init__ on the class itself so that isinstance()
+    # checks continue to work normally. Subclasses inherit new_singleton and
+    # with it this one instance, so they get no instance of their own.
     cls.__new__ = new_singleton
     cls.__init__ = init_once
     return cls

@@ -106,12 +106,20 @@ class _FakeMpd:
         self.slow = 0.0
         self.ready = threading.Event()
         self.play_result: bool | None = True
+        self.queued = False
+        self.webradio = False
 
     def play(self, preset: str | None = None) -> bool | None:
-        """Record the call, take self.slow seconds, return play_result for a preset."""
+        """Record the call, take self.slow seconds, return play_result."""
         self._recorder.calls.append(("play", preset))
         time.sleep(self.slow)
-        return self.play_result if preset else True
+        # Like MPD: play() clears the queue and fills it only with music.
+        self.queued = bool(self.play_result)
+        return self.play_result
+
+    def has_queue(self) -> bool:
+        """Whether the last play() left something in the queue."""
+        return self.queued
 
     def stop(self) -> None:
         """Record a stop."""
@@ -126,13 +134,13 @@ class _FakeMpd:
         self._recorder.calls.append(("next",))
 
     def is_webradio(self, preset: str | None = None) -> bool:
-        """No preset is a web radio here."""
-        del preset
-        return False
+        """No preset is a web radio here; the current song is when self.webradio is set."""
+        return preset is None and self.webradio
 
     def wait_for_library(self, timeout: float | None = None) -> bool:
         """Wait on self.ready, with the timeout scaled like every other timer."""
-        return self.ready.wait(timeout * SCALE if timeout else None)
+        # 0 means "just ask", as in MPDControl; only None waits for ever.
+        return self.ready.wait(None if timeout is None else timeout * SCALE)
 
 
 def _extract_nodes(tree: ast.Module) -> list[ast.stmt]:
@@ -168,6 +176,8 @@ def _load(recorder: _Recorder) -> tuple[Any, dict[str, Any]]:
 
     usb_present = threading.Event()
     usb_present.set()
+    usb_known = threading.Event()
+    usb_known.set()
 
     namespace: dict[str, Any] = {
         "threading": fake_threading,
@@ -176,6 +186,8 @@ def _load(recorder: _Recorder) -> tuple[Any, dict[str, Any]]:
         "oradio_log": _FakeLog(recorder),
         "play_sound": lambda sound: recorder.calls.append(("sound", sound)),
         "usb_present": usb_present,
+        "usb_known": usb_known,
+        "startup_idle_held": threading.Event(),
         "web_service_active": threading.Event(),
         "oradio_web_service": types.SimpleNamespace(stop=lambda: recorder.calls.append(("websvc_stop",))),
         "oradio_wifi_service": types.SimpleNamespace(has_connectivity=lambda: True),
@@ -226,6 +238,8 @@ class StateMachineRaceTest(unittest.TestCase):
         self.recorder.clear()
         self.mpd.slow = 0.0
         self.mpd.play_result = True
+        self.mpd.queued = False
+        self.mpd.webradio = False
         self.mpd.ready.set()
         self.namespace["usb_present"].set()
 
@@ -312,6 +326,81 @@ class StateMachineRaceTest(unittest.TestCase):
         retries = [t.name for t in threading.enumerate() if t.name.startswith("preset-retry")]
         self.assertEqual(self._plays(), ["Preset1"])
         self.assertEqual(retries, [])
+
+    def _sounds(self) -> list[Any]:
+        """The sounds played, in order."""
+        return [call[1] for call in self.recorder.calls if call[0] == "sound"]
+
+    def test_empty_preset_pressed_again(self) -> None:
+        """An empty preset pressed twice says "no music" twice, never "next song"."""
+        machine = self._machine()
+        self.mpd.play_result = False
+        machine.transition("StatePreset1")
+        time.sleep(0.3)
+        machine.transition("StatePreset1")
+        time.sleep(0.3)
+        self.assertEqual(self._plays(), ["Preset1", "Preset1"])
+        self.assertEqual(self._sounds().count("SOUND_PRESET_EMPTY"), 2)
+        self.assertNotIn("SOUND_NEXT", self._sounds())
+        self.assertNotIn(("next",), self.recorder.calls)
+
+    def test_playing_preset_pressed_again_is_next(self) -> None:
+        """A preset with music pressed again still skips to the next song."""
+        machine = self._machine()
+        machine.transition("StatePreset1")
+        time.sleep(0.3)
+        machine.transition("StatePreset1")
+        time.sleep(0.1)
+        self.assertEqual(self._plays(), ["Preset1"])
+        self.assertIn(("next",), self.recorder.calls)
+        self.assertIn("SOUND_NEXT", self._sounds())
+
+    def test_empty_default_preset_on_play(self) -> None:
+        """Play with an empty default preset says "no music", and again on a second press."""
+        machine = self._machine()
+        self.mpd.play_result = False
+        machine.transition("StatePlay")
+        time.sleep(0.3)
+        machine.transition("StatePlay")
+        time.sleep(0.3)
+        self.assertEqual(self._plays(), [None, None])
+        self.assertEqual(self._sounds().count("SOUND_PRESET_EMPTY"), 2)
+        self.assertNotIn("SOUND_NEXT", self._sounds())
+
+    def test_playing_play_pressed_again_is_next(self) -> None:
+        """Play pressed again while music plays still skips to the next song."""
+        machine = self._machine()
+        machine.transition("StatePlay")
+        time.sleep(0.3)
+        machine.transition("StatePlay")
+        time.sleep(0.1)
+        self.assertEqual(self._plays(), [None])
+        self.assertIn("SOUND_NEXT", self._sounds())
+        self.assertNotIn("SOUND_PRESET_EMPTY", self._sounds())
+
+    def test_play_pressed_again_on_webradio(self) -> None:
+        """Play pressed again while a web radio plays: no "next song", no skip."""
+        machine = self._machine()
+        machine.transition("StatePlay")
+        time.sleep(0.3)
+        self.mpd.webradio = True
+        machine.transition("StatePlay")
+        time.sleep(0.1)
+        self.assertEqual(self._plays(), [None, None])
+        self.assertNotIn(("next",), self.recorder.calls)
+        self.assertNotIn("SOUND_NEXT", self._sounds())
+
+    def test_play_before_library_ready(self) -> None:
+        """Play pressed during the boot scan plays once the library is ready."""
+        machine = self._machine()
+        self.mpd.ready.clear()
+        machine.transition("StatePlay")
+        time.sleep(0.2)
+        self.assertEqual(self._plays(), [])
+        self.mpd.ready.set()
+        time.sleep(0.5)
+        self.assertEqual(self._plays(), [None])
+        self.assertIn(("led", "turn_on_led", "LED_PLAY"), self.recorder.calls)
 
     def test_concurrent_transitions(self) -> None:
         """Three threads hammering transition() raise nothing and log no errors."""

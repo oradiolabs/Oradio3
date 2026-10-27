@@ -476,8 +476,10 @@ class PubSubManager:
             for cached_message in self._last_messages[topic].values():
                 if source_filter is not None and cached_message.source not in source_filter:
                     continue
-                # safe_put calls fatal_exit on queue failure; the lock is
-                # still held but os._exit is immediate so no deadlock can occur.
+                # safe_put calls fatal_exit on queue failure with the lock
+                # still held. Its exit hooks run first (up to
+                # FATAL_EXIT_HOOK_BUDGET), so a publish meanwhile -- the RMS
+                # sender's RMS_POST_FAILED among them -- stalls until os._exit.
                 safe_put(queue, cached_message)
 
         return queue
@@ -537,8 +539,10 @@ class PubSubManager:
                 if topic is Topic.INCIDENT and isinstance(message, IncidentMessage):
                     self._put_incident(queue, message)
                 else:
-                    # safe_put calls fatal_exit on queue failure; the lock is
-                    # still held but os._exit is immediate so no deadlock can occur.
+                    # safe_put calls fatal_exit on queue failure with the lock
+                    # still held. Its exit hooks run first (up to
+                    # FATAL_EXIT_HOOK_BUDGET), so a publish meanwhile -- the RMS
+                    # sender's RMS_POST_FAILED among them -- stalls until os._exit.
                     safe_put(queue, message)
 
     def _put_incident(self, queue: Queue, message: IncidentMessage) -> None:
@@ -769,7 +773,8 @@ class MessageHandlerTemplate(ThreadTemplate):
             queue: The queue to handle messages from.
         """
         self._queue = queue
-        # Guard stop() as a whole (check-stop_event-set + sentinel-put + safe_stop())
+        # Guards stop()'s check-and-set of _stop_event; the sentinel put and
+        # safe_stop() run after it is released
         self._lock = Lock()
         self._stop_sentinel = f"STOP_{uuid.uuid4().hex}"    # Unique per instance
 

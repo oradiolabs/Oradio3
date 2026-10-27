@@ -59,6 +59,19 @@ window.addEventListener("pageshow", () => { tryStart(); sendKeepAlive(); });	// 
 	);
 });
 
+// Android captive portal wraps the page in a native pull-to-refresh, which ignores CSS overscroll-behavior.
+// It refreshes whenever the document is scrolled to the top. Keep the document scrolled by 1px, so a
+// downward swipe in a scrollbox scrolls the scrollbox instead.
+document.documentElement.style.minHeight = "calc(100% + 1px)";
+function keepDocumentOffTop()
+{
+	if (window.scrollY < 1)
+		window.scrollTo(0, 1);
+}
+window.addEventListener("load", keepDocumentOffTop);
+window.addEventListener("resize", keepDocumentOffTop);
+window.addEventListener("scroll", keepDocumentOffTop, { passive: true });
+
 // Show waiting indicator
 function showWaiting()
 {
@@ -115,7 +128,7 @@ function shutdownWebApp()
 	document.querySelectorAll("header, nav").forEach(el => el.remove());
 
 	// Replace main content with message
-	document.querySelector("main").innerHTML = 	"<div class=\"shuttingdown\"De web interface wordt afgesloten...</div>";
+	document.querySelector("main").innerHTML = 	"<div class=\"shuttingdown\">De web interface wordt afgesloten...</div>";
 
 	// Fire-and-forget: server may terminate immediately
 	postJSON("shutdown").catch(()=>{});
@@ -1071,7 +1084,7 @@ async function addCustomPlaylist()
 
 	// Add playlist on server
 	if (await modifyPlaylist("Add", playlist, null, errorMessage))
-		// playlist is gone, so also clear the songs
+		// new playlist is empty, so also clear the songs
 		customSongs.innerHTML = "";
 
 	// Inform user
@@ -1169,7 +1182,7 @@ async function addSongFromPlaylist(row)
 	showScrollbox(customSongs, customInput);
 }
 
-// CALLBACK entry point: Add song to playlist
+// CALLBACK entry point: Remove song from playlist
 async function delSongFromPlaylist(row)
 {
 	hideNotification(customNotification);
@@ -1218,7 +1231,7 @@ async function modifyPlaylist(action, playlist, songfile, errorMessage)
 
 /* ========== Playlist page - Search ========== */
 
-// Show playlist songs in scrollbox
+// Show search results in scrollbox
 async function submitSearch()
 {
 	hideNotification(searchNotification);

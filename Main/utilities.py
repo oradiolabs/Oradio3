@@ -86,6 +86,17 @@ CRASH_RESTART_BACKOFF = 5.0     # seconds before an attempt, so a fast-failing l
 SERVICE_RESTART_TIMEOUT = 20.0  # seconds
 SERVICE_POLL_INTERVAL   = 0.5   # seconds
 
+# Upper bound on the 'systemctl restart' call itself, which SERVICE_RESTART_TIMEOUT
+# does not cover. systemctl waits for systemd's stop-and-start job, and the stop
+# half waits for the old process to exit. A process stuck in uninterruptible I/O
+# (mpd reading from a USB stick that stopped answering) cannot exit, not even on
+# SIGKILL, so without a bound the call -- and the incident handler thread making
+# it -- waits for minutes or for ever. Generous: a healthy mpd restart, database
+# read included, takes a few seconds.
+SERVICE_RESTART_CALL_TIMEOUT = 30   # seconds; an int, as it is passed to timeout(1)
+# Grace period before timeout(1) escalates from SIGTERM to SIGKILL on systemctl.
+SERVICE_RESTART_KILL_AFTER   = 5    # seconds
+
 # Budget for restarting a system service as a mitigation, used by
 # incident_service. Smaller and slower-decaying than the crash budget above: a
 # service restart is disruptive -- mpd stops the music, NetworkManager drops the
@@ -689,7 +700,9 @@ class DeferredStarter:  # pylint: disable=too-many-instance-attributes
         Args:
             wait:   Seconds to keep waiting in the background. Pass 0 to skip
                     starting entirely when the dependency is absent, which suits
-                    tests, stand-alone runs and "try again now" call sites.
+                    tests, stand-alone runs and "try again now" call sites. An
+                    inline=False starter never checks here, so 0 skips it even
+                    when the dependency is up.
 
         Returns:
             True if do_start ran on this thread, which an inline=False starter
@@ -952,8 +965,9 @@ def mask_secrets(data: Any) -> Any:
 
 # Total time fatal_exit() gives its exit hooks before it exits anyway. The one
 # registered today is RMS: posting the incident that led here, which carries the
-# log files. Long enough for one upload on a normal link; on a bad one the crash
-# handler (oradio-crash.service) still uploads the logs after the restart.
+# log files. Long enough for one upload on a normal link. On a bad one the crash
+# handler (oradio-crash.service) uploads the logs only if the restart fails too:
+# it runs once systemd's start limit is spent, not after the first restart.
 FATAL_EXIT_HOOK_BUDGET = 20.0   # seconds
 
 _fatal_exit_hooks: list[Callable[[float], object]] = []
@@ -1009,12 +1023,15 @@ def fatal_exit(message: str, stacklevel: int = 6, *, exc: BaseException | None =
     Args:
         message:    Human-readable description of the fatal error.
         stacklevel: Logging stacklevel passed to oradio_log.critical().
-                    The default reports the caller of whatever wrapper invoked
-                    this; a direct caller wants 4. Checked by making the log
+                    A direct caller wants 4, the caller of a wrapper that
+                    invoked this 5; the default 6 reports one level above
+                    that, two above the direct caller. Checked by making the log
                     line name the caller rather than log_service or this
                     module, and worth checking again if the call chain changes.
         exc:        Optional exception associated with the failure; when provided,
-                    the full traceback is included in the log entry.
+                    its traceback is included in the log entry. Works outside an
+                    except block too, e.g. for an exception a crashed thread
+                    stored earlier.
         code:       Process exit status code (default: 1).
 
     Exiting non-zero is also how Python reaches tier three of the recovery:
@@ -1029,10 +1046,12 @@ def fatal_exit(message: str, stacklevel: int = 6, *, exc: BaseException | None =
     for the RMS sender to post what is queued, including the incident that
     led here. Bounded, so a hung network cannot keep a broken process alive.
     """
-    # exc_info=True causes the logging framework to capture the current
-    # exception context; passing the exception object directly also works
-    # in Python 3.5+ but the bool form is more conventional.
-    oradio_log.critical(message, stacklevel=stacklevel, exc_info=exc is not None)
+    # Pass the exception object itself, not True. exc_info=True logs whatever
+    # sys.exc_info() holds at this moment, which is nothing outside an except
+    # block (the log then shows "NoneType: None") and the wrong exception when
+    # called while handling another one. The object carries its own traceback;
+    # None logs no traceback at all.
+    oradio_log.critical(message, stacklevel=stacklevel, exc_info=exc)
 
     # After the critical line (so it is in the log files an RMS upload
     # attaches), before the log shutdown (so the hooks can still log).
@@ -1117,16 +1136,41 @@ def restart_service(service_name: str, timeout: float = SERVICE_RESTART_TIMEOUT)
     Needs root, which the Oradio user has through the passwordless sudo the
     installer configures -- the same route is_service_active() above already
     takes.
+
+    The systemctl call is bounded by timeout(1), see SERVICE_RESTART_CALL_TIMEOUT.
+    Bounded there, as root under sudo, and not with subprocess.run(timeout=...):
+    on expiry subprocess.run() kills its child, and its child is sudo, which runs
+    as root and cannot be signalled by the Oradio user. The kill then raises
+    PermissionError and run() waits for the child after all -- the hang this is
+    meant to remove. timeout(1) runs as root and can stop systemctl.
+
+    Stopping systemctl does not cancel the restart: systemd's job carries on, and
+    the service may still come back later. This only stops the caller waiting
+    for it, so the incident handler can deal with the next incident.
     """
     oradio_log.info("Restarting %s", service_name)
 
     try:
         result = subprocess.run(
-            ["sudo", "systemctl", "restart", service_name],
+            [
+                "sudo", "timeout", f"--kill-after={SERVICE_RESTART_KILL_AFTER}",
+                str(SERVICE_RESTART_CALL_TIMEOUT),
+                "systemctl", "restart", service_name,
+            ],
             capture_output=True, text=True, check=False,
         )
     except (FileNotFoundError, PermissionError, subprocess.SubprocessError, OSError) as ex_err:
         oradio_log.error("Could not restart %s: %s", service_name, ex_err)
+        return False
+
+    # timeout(1) exits 124 when it stopped systemctl with SIGTERM, and 128+9
+    # when systemctl ignored that and had to be killed.
+    if result.returncode in (124, 137):
+        oradio_log.error(
+            "Restarting %s did not finish within %ds; not waiting any longer "
+            "(systemd may still complete the restart)",
+            service_name, SERVICE_RESTART_CALL_TIMEOUT,
+        )
         return False
 
     if result.returncode != 0:
@@ -1257,26 +1301,36 @@ def load_presets() -> dict[str, str]:
     """
     Retrieve the playlist names associated with the presets from a JSON file.
     Returns:
-        dict[str, str]: A dictionary mapping lowercase preset_key -> listname.
+        dict[str, str]: A dictionary mapping lowercase preset_key -> listname,
+                        always with all three keys preset1..preset3.
                         If a preset value is missing or invalid, listname will be an empty string "".
+                        A missing, unreadable or corrupt file gives "" for all three.
                         Keys are normalized to lowercase for case-insensitive lookup.
+
+    Every key is always present, also when the file cannot be read: callers that
+    walk the presets (mpd_control.validate_presets()) must see three unusable
+    presets then, not an empty dict that reads as "nothing configured, nothing
+    wrong".
     """
+    preset_keys = ["preset1", "preset2", "preset3"]
     try:
         with open(PRESETS_FILE, encoding='utf-8') as file:
             presets = json.load(file)
             if not isinstance(presets, dict):
                 oradio_log.error("Invalid JSON format in %s: expected dict", PRESETS_FILE)
-                return {}
+                presets = {}
     except FileNotFoundError:
         oradio_log.error("File not found at %s", PRESETS_FILE)
-        return {}
-    except json.JSONDecodeError:
-        oradio_log.error("Failed to JSON decode %s", PRESETS_FILE)
-        return {}
+        presets = {}
+    # UnicodeDecodeError: a corrupt file need not be valid UTF-8, and is a
+    # ValueError rather than a JSONDecodeError. OSError: an I/O error reading the stick.
+    except (json.JSONDecodeError, UnicodeDecodeError, OSError) as ex_err:
+        oradio_log.error("Failed to read %s: %s", PRESETS_FILE, ex_err)
+        presets = {}
 
     # Ensure all expected keys exist and are normalized
     presets_dict = {}
-    for key in ["preset1", "preset2", "preset3"]:
+    for key in preset_keys:
         # Fetch raw value from JSON, default to empty string if missing
         raw_value = presets.get(key, "")
         listname = _normalize_listname(raw_value)

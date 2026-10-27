@@ -15,7 +15,7 @@ Created on April 28, 2025
 @version:       4
 @email:         oradioinfo@stichtingoradio.nl
 @status:        Development
-@summary:       Oradio touch buttons module with debounce and per-button callbacks.
+@summary:       Oradio touch buttons module with debounce and one shared edge callback for all buttons.
     The module test is module_test/touch_buttons_test.py.
 """
 from threading import Lock, Timer, current_thread
@@ -44,7 +44,6 @@ from constants import (
 ##### LOCAL constants #####################################
 BUTTON_DEBOUNCE_TIME     = 500                              # ms — ignore rapid repeats within this window
 DEBOUNCE_SECONDS         = BUTTON_DEBOUNCE_TIME / 1000.0    # converted to seconds for monotonic() comparisons
-BOUNCE_MS                = 10                               # unused here: gpio_service.BOUNCE_MS is what GPIO.add_event_detect gets
 LONG_PRESS_DURATION      = 6                                # seconds a button must be held to trigger a long-press event
 BUTTON_LONG_PRESSED      = "button long pressed"
 VALID_LONG_PRESS_BUTTONS = [BUTTON_PLAY]
