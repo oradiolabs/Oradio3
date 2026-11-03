@@ -29,6 +29,12 @@ the response as raw text, and those two characters do not survive that; single q
 sudo systemd-run --unit=oradio-install --collect --on-active=10s --uid=pi --gid=pi /usr/bin/bash -c 'curl -fsSL --retry 3 --retry-delay 5 --max-time 120 -o /tmp/oradio-install.sh https://oradiolabs.nl/Oradio3/install && bash -n /tmp/oradio-install.sh && exec bash /tmp/oradio-install.sh <TAG>'
 ```
 
+**IMPORTANT**: Use below command up to and including updating to v2.0.1 to disable initramfs update before updating the Oradio.
+               A fix is included in main, so future release can go back to the command above.
+```
+sudo systemd-run --unit=oradio-install --collect --on-active=10s --uid=pi --gid=pi /usr/bin/bash -c 'f=/etc/initramfs-tools/update-initramfs.conf; if [ -f "$f" ]; then sudo sed -i "s/^update_initramfs=.*/update_initramfs=no/" "$f"; grep -q "^update_initramfs=" "$f" || echo update_initramfs=no | sudo tee -a "$f" >/dev/null; fi; sudo DEBIAN_FRONTEND=noninteractive dpkg --force-confdef --force-confold --configure -a; curl -fsSL --retry 3 --retry-delay 5 --max-time 120 -o /tmp/oradio-install.sh https://oradiolabs.nl/Oradio3/install && bash -n /tmp/oradio-install.sh && exec bash /tmp/oradio-install.sh <TAG>'
+```
+
 ### What each part does
 
 | Part | What it does |
