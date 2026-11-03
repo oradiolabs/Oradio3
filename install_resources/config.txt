@@ -31,7 +31,9 @@ camera_auto_detect=0
 # Do not automatically load overlays for detected DSI displays
 display_auto_detect=0
 
-# Do not automatically load initramfs files, if found
+# Do not automatically load initramfs files, if found.
+# tools/pkg-helper.sh relies on this: it sets update_initramfs=no so package
+# upgrades do not rebuild an initramfs that is never loaded
 auto_initramfs=0
 
 # Disable the KMS display stack: no HDMI output on a deployed Oradio

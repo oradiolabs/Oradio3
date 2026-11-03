@@ -191,6 +191,63 @@ function version_ge {
 	dpkg --compare-versions "$have" ge "$want"
 }
 
+#---------- Keep initramfs-tools out of the way ----------
+
+# The Oradio boots without an initramfs: install_resources/config.txt sets
+# auto_initramfs=0, so the bootloader never loads one. Debian still rebuilds it
+# whenever a package with an initramfs hook changes (e2fsprogs, udev, kmod,
+# ...), and on an Oradio that rebuild can fail with
+#   mkinitramfs: failed to determine device for /
+# dpkg then leaves initramfs-tools half-configured, apt exits 100 and set -e
+# aborts the caller - USB_sync.sh never gets as far as the sync.
+#
+# update_initramfs=no makes the dpkg trigger ('update-initramfs -u') a no-op.
+# The file is a conffile of initramfs-tools; apt_run passes --force-confold, so
+# a later initramfs-tools upgrade keeps this edit.
+#
+# Not covered: a kernel package upgrade calls 'update-initramfs -c', which
+# ignores this setting. This script does not upgrade the kernel (see the NOTE
+# below), so that path is not reached from here.
+INITRAMFS_CONF="/etc/initramfs-tools/update-initramfs.conf"
+
+function disable_initramfs_updates {
+	# Not installed: nothing will try to build an initramfs
+	[ -f "$INITRAMFS_CONF" ] || return 0
+
+	if grep -qx 'update_initramfs=no' "$INITRAMFS_CONF"; then
+		return 0
+	fi
+
+	# Under the apt lock: the file belongs to a package apt may be configuring
+	if grep -q '^update_initramfs=' "$INITRAMFS_CONF"; then
+		sudo flock -w 300 "$APT_LOCK" \
+			sed -i 's/^update_initramfs=.*/update_initramfs=no/' "$INITRAMFS_CONF"
+	else
+		echo 'update_initramfs=no' | sudo flock -w 300 "$APT_LOCK" \
+			tee -a "$INITRAMFS_CONF" >/dev/null
+	fi
+	echo "Initramfs updates disabled (the Oradio boots without one)"
+}
+
+disable_initramfs_updates
+
+#---------- Finish an interrupted dpkg run ----------
+
+# A package left half-configured by an earlier failure - the initramfs problem
+# above, a power cut, a Ctrl-C - makes every later apt-get install fail with
+# "dpkg was interrupted" or a repeat of the original error. 'dpkg --audit'
+# prints nothing when the database is clean. Purely local: no network needed
+if [ -n "$(dpkg --audit 2>/dev/null || true)" ]; then
+	echo -e "${YELLOW}dpkg reports unfinished package configuration: repairing...${NC}"
+	if ! sudo flock -w 300 "$APT_LOCK" \
+		env DEBIAN_FRONTEND=noninteractive \
+		dpkg --force-confdef --force-confold --configure -a; then
+		echo -e "${RED}'dpkg --configure -a' failed: run 'sudo dpkg --audit' to see which packages are affected${NC}"
+		exit 1
+	fi
+	echo "Package configuration repaired"
+fi
+
 #---------- Refresh the package lists if they are stale ----------
 
 # An empty or corrupted stamp - a power cut during the write below will do it -
@@ -300,6 +357,9 @@ if [ "${#WORK[@]}" -gt 0 ]; then
 	# dependencies of the whole set together, instead of pulling in and then
 	# replacing packages as it works through a list one at a time
 	apt_run install -y "${WORK[@]}"
+
+	# In case this install pulled in initramfs-tools for the first time
+	disable_initramfs_updates
 fi
 
 #---------- Confirm the result ----------
