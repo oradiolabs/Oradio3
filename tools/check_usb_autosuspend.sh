@@ -3,7 +3,12 @@
 # Usage: check_usb_autosuspend.sh [LABEL] [WAIT_SECONDS]
 # Default wait 45 s: 5 s SCSI disk + 30 s USB delay + margin.
 # Only reads /sys and the log, so it does not wake the stick itself.
-LABEL="${1:-ORADIO}"; WAIT="${2:-45}"; LOG="${LOG:-$HOME/Oradio3/logging/usb.log}"
+LABEL="${1:-ORADIO}"; WAIT="${2:-45}"
+# The USB log of this Oradio, as constants.env names it. Not overridable: the
+# line shown from it belongs next to the /sys state read here, so it must come
+# from the same device's log.
+CONSTANTS="$(dirname "${BASH_SOURCE[0]}")/../constants.env"
+LOG="$(dirname "$CONSTANTS")/$(sed -n 's/^LOG_DIR=//p' "$CONSTANTS")/$(sed -n 's/^LOG_USB=//p' "$CONSTANTS")"
 
 # Color definitions
 RED='\033[1;31m'

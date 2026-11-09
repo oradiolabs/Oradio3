@@ -146,6 +146,14 @@ SYSTEM_SOUND_SINK = _ENV["SYSTEM_SOUND_SINK"]
 # web_service from doing so itself.
 DNS_REDIRECT_CONF = _ENV["DNS_REDIRECT_CONF"]
 
+##### LOG FILES ###########################################
+# Where the Oradio logs, and the names of the logs written from Python. In
+# constants.env with the names of all the other logs, which shell scripts and
+# templates write; see there.
+LOGGING_PATH = _ROOT / _ENV["LOG_DIR"]
+LOG_ORADIO   = _ENV["LOG_ORADIO"]
+LOG_RMS      = _ENV["LOG_RMS"]
+
 ##### USB #################################################
 USB_MOUNT_POINT = _ENV["USB_MOUNT_POINT"]
 USB_MUSIC       = USB_MOUNT_POINT + "/Muziek"

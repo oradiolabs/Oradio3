@@ -107,8 +107,8 @@ mapfile -t CONSTANT_NAMES < <(sed -n 's/^[[:space:]]*\([A-Za-z_][A-Za-z0-9_]*\)=
 
 # Location of Oradio3 program
 MAIN_PATH="$SCRIPT_PATH/Main"
-# Location of log files
-LOGGING_PATH="$SCRIPT_PATH/logging"
+# Location of log files; LOG_DIR and the LOG_* names below come from constants.env
+LOGGING_PATH="$SCRIPT_PATH/$LOG_DIR"
 # Location of Oradio3 system sounds
 SOUNDS_PATH="$SCRIPT_PATH/system_sounds"
 # Location of files to install
@@ -117,13 +117,14 @@ RESOURCES_PATH="$SCRIPT_PATH/install_resources"
 # Ensure logging directory exists
 mkdir -p "$LOGGING_PATH" || { echo -e "${RED}Aborting: Failed to create directory $LOGGING_PATH${NC}"; exit 1; }
 
-# Define log files; log files are created by their respective services
-LOGFILE_USB="$LOGGING_PATH/usb.log"
-LOGFILE_MPD="$LOGGING_PATH/mpd.log"
-LOGFILE_BOOT="$LOGGING_PATH/boot.log"
-LOGFILE_CRASH="$LOGGING_PATH/crash.log"
-LOGFILE_INSTALL="$LOGGING_PATH/install.log"
-LOGFILE_TRACEBACK="$LOGGING_PATH/traceback.log"
+# Full paths of the log files the templates name, as PLACEHOLDER_LOGFILE_*. The log
+# files themselves are created by their respective services
+LOGFILE_USB="$LOGGING_PATH/$LOG_USB"
+LOGFILE_MPD="$LOGGING_PATH/$LOG_MPD"
+LOGFILE_BOOT="$LOGGING_PATH/$LOG_BOOT"
+LOGFILE_CRASH="$LOGGING_PATH/$LOG_CRASH"
+LOGFILE_INSTALL="$LOGGING_PATH/$LOG_INSTALL"
+LOGFILE_TRACEBACK="$LOGGING_PATH/$LOG_TRACEBACK"
 
 # Save the original stdout/stderr before redirecting, so the EXIT trap below
 # can restore them whatever they were: a terminal on an interactive run, the

@@ -81,7 +81,6 @@ import traceback
 import faulthandler
 from sys import stderr
 from time import sleep
-from pathlib import Path
 from threading import Lock, Thread
 from queue import Queue, Full
 from logging import DEBUG, INFO, WARNING, ERROR, CRITICAL
@@ -93,6 +92,7 @@ from logging.handlers import QueueHandler, QueueListener, SysLogHandler
 ##### GLOBAL constants ####################################
 from constants import (
     BLUE, GREY, WHITE, YELLOW, RED, MAGENTA, NC,
+    LOGGING_PATH, LOG_ORADIO,
 )
 
 ##### LOCAL constants #####################################
@@ -129,8 +129,8 @@ ORADIO_LOG_LEVEL = DEBUG
 UVICORN_LOGGERS = ("uvicorn", "uvicorn.error", "uvicorn.access", "uvicorn.asgi")
 
 # Log file constants
-ORADIO_LOG_PATH     = (Path(__file__).parent.parent / "logging").resolve()
-ORADIO_LOG_FILE_STR = str(ORADIO_LOG_PATH / 'oradio.log')
+ORADIO_LOG_PATH     = LOGGING_PATH.resolve()
+ORADIO_LOG_FILE_STR = str(ORADIO_LOG_PATH / LOG_ORADIO)
 
 # Shared record body. Each sink prepends its own context: file/console add a
 # timestamp, syslog adds the tag journald parses into SYSLOG_IDENTIFIER.

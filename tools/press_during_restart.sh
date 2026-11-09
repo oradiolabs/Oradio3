@@ -10,8 +10,14 @@
 #   5. did anything transition back to Idle afterwards
 #
 # Usage: press_during_startup.sh [path/to/oradio.log]
+#
+# Without an argument it reads this Oradio's application log. Pass a path to
+# read a rotated generation (oradio.log.1), or a log from an RMS upload or
+# another Oradio, for instance on a laptop.
 
-LOG="${1:-/home/pi/Oradio3/logging/oradio.log}"
+# The application log, by default as constants.env names it
+CONSTANTS="$(dirname "${BASH_SOURCE[0]}")/../constants.env"
+LOG="${1:-$(dirname "$CONSTANTS")/$(sed -n 's/^LOG_DIR=//p' "$CONSTANTS")/$(sed -n 's/^LOG_ORADIO=//p' "$CONSTANTS")}"
 
 # Colour escapes precede the timestamp, so strip them before matching.
 sed 's/\x1b\[[0-9;]*m//g' "$LOG" \
