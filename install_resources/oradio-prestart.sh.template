@@ -59,6 +59,90 @@ log() { printf '%(%F %T)T %s\n' -1 "$*" >>"PLACEHOLDER_LOGFILE_BOOT"; }
 # aside if the run that just ended failed.
 : >"PLACEHOLDER_LOGFILE_TRACEBACK" 2>/dev/null || log "prestart: WARNING cannot truncate PLACEHOLDER_LOGFILE_TRACEBACK"
 
+# Mark the start of this run in every log, so the lines of one run can be told
+# from those of the run before. Written here because this script runs at every
+# start of oradio.service: at boot and at every automatic restart after a
+# failure. Before the hardware waits below, so in boot.log their lines come
+# after it.
+#
+# Every *.log in the logging directory that the Oradio and its services write
+# to while running, whichever service that is: they are all owned by
+# PLACEHOLDER_USER, and all their writers append, so a line added here is never
+# overwritten. Rotated logs (*.log.1) are history and are left alone.
+#
+# A log that does not exist yet is not created, except two that this run
+# writes to anyway: the boot log, which the lines below go to, and the
+# application log. So even a fresh logging directory shows where this run
+# starts in both.
+#
+# Not these:
+# - The traceback log: it is emptied above for every run, so it holds this run
+#   only, and oradio-poststop.sh keeps it as evidence only when it is not
+#   empty. A banner in it would make every failure look like one with a
+#   traceback.
+# - The tracebacks oradio-poststop.sh keeps from failed runs (traceback1.log,
+#   traceback2.log): evidence of a run that has ended, which a banner of a
+#   later run must not be appended to.
+# - install.log: the log of tools/install, which marks each of its own runs. A
+#   banner at every start would scatter through the install history, and push
+#   it out at rotation sooner.
+#
+# usb.log does get one, although tools/USB_sync.sh writes to it as well: that
+# script starts the Oradio again at the end of a sync, so there the banner
+# comes just before the sync's last lines, which is when the Oradio started.
+#
+# The clock may still be behind at boot: the Pi has no RTC, and NTP sets it
+# only once the network is up. The banner says so, and gives the time since
+# boot as well, which does not depend on the clock. That matches
+# 'journalctl -o short-monotonic', and the clock-step line oradio.log gets
+# once the clock is synchronized.
+write_start_banner() {
+	local line="################################################################"
+	local now uptime version restarts clock banner logfile
+
+	now=$(printf '%(%F %T %Z)T' -1)
+	read -r uptime _ </proc/uptime
+	version=$(jq -r '.gitinfo // empty' /var/log/oradio_sw_version.log 2>/dev/null)
+	restarts=$(systemctl show --property=NRestarts --value oradio.service 2>/dev/null)
+	if [[ -e /run/systemd/timesync/synchronized ]]; then
+		clock="synchronized"
+	else
+		clock="not synchronized yet, may be behind"
+	fi
+
+	# Time since boot tells a boot (a few seconds) from a later start, and the
+	# restart count tells a restart after a failure (1, 2, ...) from a normal
+	# start (0). The version says which software wrote the lines that follow:
+	# a log outlives updates, so one file can hold lines of several versions.
+	banner=$(printf '%s\n' \
+		"$line" \
+		"# Oradio started    : $now (clock $clock)" \
+		"# Since boot        : ${uptime} s, automatic restarts since boot: ${restarts:-unknown}" \
+		"# Software          : ${version:-unknown}" \
+		"$line")
+
+	local traceback="PLACEHOLDER_LOGFILE_TRACEBACK"
+
+	# Created here if missing, as PLACEHOLDER_USER: this script runs as that user
+	touch "PLACEHOLDER_LOGFILE_BOOT" "PLACEHOLDER_LOGGING_PATH/PLACEHOLDER_LOG_ORADIO" 2>/dev/null
+
+	for logfile in "PLACEHOLDER_LOGGING_PATH"/*.log; do
+		case "$logfile" in
+			# The traceback log itself and the copies poststop keeps of it
+			"${traceback%.log}"*.log | "PLACEHOLDER_LOGFILE_INSTALL")
+				continue ;;
+		esac
+		[[ -f "$logfile" ]] || continue
+		# Braces so 2>/dev/null also covers the error of the >> redirect
+		# itself, which bash reports before applying redirects to its right.
+		# This script's stderr goes to the traceback log.
+		{ printf '%s\n' "$banner" >>"$logfile"; } 2>/dev/null \
+			|| log "prestart: WARNING cannot write start banner to $logfile"
+	done
+}
+
+write_start_banner
+
 wait_for() {
 	local what="$1"; shift
 	local n=0
