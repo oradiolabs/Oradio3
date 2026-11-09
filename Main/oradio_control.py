@@ -1258,12 +1258,20 @@ class StateMachine:
         # handler returns immediately; task_lock released, UI remains responsive
 
     def _state_play_song_webif(self):
+        """
+        Show that a song the web interface started is playing.
+
+        Entered from on_webservice_playing_song() only, after the web
+        interface had MPD play the song. No SOUND_PLAY: the tune confirms a
+        Play press on the Oradio, and here the user started the song in the
+        web interface and hears the song itself. play() leaves a song that is
+        already playing alone.
+        """
         if web_service_active.is_set():
             leds.control_blinking_led(LED_PLAY, WEBSERVICE_BLINK_CYCLE)
         else:
             leds.turn_on_led(LED_PLAY)
         mpd_control.play()
-        play_sound(SOUND_PLAY)
 
     def _state_usb_absent(self):
         leds.control_blinking_led(LED_STOP, ERROR_BLINK_CYCLE)

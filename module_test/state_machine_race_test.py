@@ -31,6 +31,7 @@ Created on October 13, 2026
       - an LED-off timer leaves a newer state's blink alone
       - presets pressed before the library is ready play once, the last one
       - concurrent transitions and timers raise nothing
+      - a song started in the web interface plays without the Play tune
 
     Run:
         python3 -m unittest state_machine_race_test -v
@@ -263,6 +264,19 @@ class StateMachineRaceTest(unittest.TestCase):
         machine.transition("StatePreset2")
         time.sleep(1.0)
         self.assertEqual(self._plays(), [None, "Preset2"])
+
+    def test_song_from_web_interface_plays_without_tune(self) -> None:
+        """A song started in the web interface is not preceded by the Play tune (#577)."""
+        for state in ("StateIdle", "StateStop"):
+            with self.subTest(state=state):
+                self.recorder.clear()
+                machine = self._machine(state)
+
+                machine._state_play_song_webif()
+
+                sounds = [call[1] for call in self.recorder.calls if call[0] == "sound"]
+                self.assertEqual(sounds, [])
+                self.assertIn(("led", "turn_on_led", "LED_PLAY"), self.recorder.calls)
 
     def test_no_play_after_state_error(self) -> None:
         """A Play worker queued before StateError never runs after it."""
