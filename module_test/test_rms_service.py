@@ -23,8 +23,10 @@
         python3 -m unittest test_rms_service -v
 """
 import os
+import sys
 import email
 import time
+import pickle
 import unittest
 from pathlib import Path
 from datetime import datetime
@@ -1132,6 +1134,7 @@ class TestWifiMessageHandlerSendMessage(RmsTestCase):
         self.handler = rms_service.WifiMessageHandler.__new__(rms_service.WifiMessageHandler)
         self.handler._serial = "serial123"
         self.handler._wifi_connected = True
+        self.handler._clock_ready = True
         self.handler._state_lock = Lock()
         self.handler._sender = MagicMock()
 
@@ -1168,9 +1171,12 @@ class TestWifiMessageHandlerSendMessage(RmsTestCase):
         queue, so the current time would report when RMS was told rather
         than when the fault happened.
         """
-        raised = datetime(2026, 1, 2, 3, 4, 5)
+        # Half a second in, so the microseconds between reading the wall and
+        # the monotonic clock cannot tip it into the neighbouring second
+        raised = datetime(2026, 1, 2, 3, 4, 5, 500000)
         incident = rms_service.IncidentMessage(
-            LED_SOURCE, "fault", timestamp=raised.timestamp()
+            LED_SOURCE, "fault",
+            monotonic=time.monotonic() - (time.time() - raised.timestamp()),
         )
 
         self.handler.send_message(INCIDENT, incident)
@@ -1224,6 +1230,469 @@ class TestWifiMessageHandlerSendMessage(RmsTestCase):
         self.handler.send_message(HEARTBEAT)
 
         self.assertIsNone(self.submitted())
+
+
+class ClockWaitTestCase(RmsTestCase):
+    """
+    Fixture: a handler whose reporting waits for a clock the test controls.
+
+    Built without __init__ like TestWifiMessageHandlerSendMessage, so no
+    subscription queue, worker or sender thread is involved. The heartbeat
+    timer is patched out: what is asserted is whether it was started, and
+    what reached the sender.
+    """
+    # pylint: disable=protected-access
+
+    def setUp(self):
+        super().setUp()
+
+        self.handler = rms_service.WifiMessageHandler.__new__(rms_service.WifiMessageHandler)
+        self.handler._serial = "serial123"
+        self.handler._wifi_connected = False
+        self.handler._clock_ready = False
+        self.handler._state_lock = Lock()
+        self.handler._pending_incidents = rms_service.deque(maxlen=rms_service.PENDING_INCIDENTS_MAX)
+        self.handler._sender = MagicMock()
+        self.handler._reporting_lock = Lock()
+        self.handler._clock_wait = None
+        self.handler._clock_wait_thread = None
+
+        # Whether the clock is synchronized, flipped by the tests
+        self.synced = Event()
+        for name, value in (
+            ("_clock_synchronized", self.synced.is_set),
+            ("CLOCK_SYNC_POLL", 0.01),
+            ("CLOCK_SYNC_TIMEOUT", 5),
+        ):
+            patcher = patch.object(rms_service, name, value)
+            patcher.start()
+            self.addCleanup(patcher.stop)
+
+        # Set when the heartbeat is started, so a test can wait for it
+        self.started = Event()
+        start_patcher = patch.object(
+            rms_service.Heartbeat, "start_heartbeat",
+            side_effect=lambda *args, **kwargs: self.started.set(),
+        )
+        self.start_heartbeat = start_patcher.start()
+        self.addCleanup(start_patcher.stop)
+
+        stop_patcher = patch.object(rms_service.Heartbeat, "stop_heartbeat")
+        self.stop_heartbeat = stop_patcher.start()
+        self.addCleanup(stop_patcher.stop)
+
+        # A test that fails mid-wait must not leave the thread running
+        self.addCleanup(self.cancel_and_join)
+
+    def cancel_and_join(self):
+        """Cancel any wait still pending and wait for its thread to end."""
+        with self.handler._reporting_lock:
+            self.handler._cancel_clock_wait()
+        self.join_waiter()
+
+    def join_waiter(self):
+        """Wait for the clock-wait thread, if one was started, to finish."""
+        thread = self.handler._clock_wait_thread
+        if thread is not None:
+            thread.join(timeout=5)
+            self.assertFalse(thread.is_alive(), "clock-wait thread did not finish")
+
+    def wifi(self, state):
+        """Hand the handler a WiFi state message."""
+        self.handler._handle_message(MagicMock(message=state))
+
+    def sys_info_sent(self):
+        """How many SYS_INFO messages reached the sender."""
+        return sum(1 for call in self.handler._sender.submit.call_args_list
+                   if call.args[0].msg_type == SYS_INFO)
+
+
+class TestReportingWaitsForClock(ClockWaitTestCase):
+    """The first heartbeat and SYS_INFO after WIFI_CONNECTED wait for the clock."""
+    # pylint: disable=protected-access
+
+    def test_synchronized_clock_reports_at_once(self):
+        """With the clock already right, heartbeat and SYS_INFO start immediately."""
+        self.synced.set()
+
+        self.wifi(rms_service.WIFI_CONNECTED)
+
+        self.start_heartbeat.assert_called_once()
+        self.assertEqual(self.sys_info_sent(), 1)
+        self.assertIsNone(self.handler._clock_wait_thread)
+
+    def test_unsynchronized_clock_holds_reporting_until_synchronized(self):
+        """Nothing is sent before the clock is synchronized, and both are sent after."""
+        self.wifi(rms_service.WIFI_CONNECTED)
+
+        # Several polls go by without the heartbeat starting
+        self.assertFalse(self.started.wait(0.1))
+        self.assertEqual(self.sys_info_sent(), 0)
+
+        self.synced.set()
+
+        self.assertTrue(self.started.wait(2), "heartbeat not started after sync")
+        self.join_waiter()
+        self.start_heartbeat.assert_called_once()
+        self.assertEqual(self.sys_info_sent(), 1)
+
+    def test_sys_info_is_timestamped_after_the_wait(self):
+        """SYS_INFO is timestamped when it is sent, so it carries the synchronized time."""
+        self.wifi(rms_service.WIFI_CONNECTED)
+
+        with patch.object(rms_service, "datetime") as fake_datetime:
+            fake_datetime.now.return_value.astimezone.return_value.strftime.return_value = "after"
+            self.synced.set()
+            self.assertTrue(self.started.wait(2))
+            self.join_waiter()
+
+        job = self.handler._sender.submit.call_args.args[0]
+        self.assertEqual(job.generated, "after")
+
+    def test_reports_anyway_when_the_clock_never_synchronizes(self):
+        """After CLOCK_SYNC_TIMEOUT both are sent, so the Oradio still shows up in RMS."""
+        with patch.object(rms_service, "CLOCK_SYNC_TIMEOUT", 0.05):
+            self.wifi(rms_service.WIFI_CONNECTED)
+            self.assertTrue(self.started.wait(2), "heartbeat not started after timeout")
+            self.join_waiter()
+
+        self.assertEqual(self.sys_info_sent(), 1)
+        self.log.warning.assert_called()
+
+    def test_disconnect_while_waiting_cancels_reporting(self):
+        """WiFi lost during the wait: nothing is started, even once the clock is right."""
+        self.wifi(rms_service.WIFI_CONNECTED)
+        self.wifi(rms_service.WIFI_DISCONNECTED)
+        self.join_waiter()
+
+        self.synced.set()
+
+        self.assertFalse(self.started.wait(0.1))
+        self.assertEqual(self.sys_info_sent(), 0)
+        self.assertIsNone(self.handler._clock_wait)
+
+    def test_access_point_while_waiting_cancels_reporting(self):
+        """Switching to access point mode during the wait cancels it as well."""
+        self.wifi(rms_service.WIFI_CONNECTED)
+        self.wifi(rms_service.WIFI_ACCESS_POINT)
+        self.join_waiter()
+
+        self.synced.set()
+
+        self.assertFalse(self.started.wait(0.1))
+        self.assertEqual(self.sys_info_sent(), 0)
+
+    def test_reconnect_while_waiting_starts_one_heartbeat(self):
+        """A second WIFI_CONNECTED replaces the first wait rather than adding one."""
+        self.wifi(rms_service.WIFI_CONNECTED)
+        first = self.handler._clock_wait_thread
+        self.wifi(rms_service.WIFI_CONNECTED)
+
+        first.join(timeout=5)
+        self.assertFalse(first.is_alive(), "replaced wait did not end")
+
+        self.synced.set()
+        self.assertTrue(self.started.wait(2))
+        self.join_waiter()
+
+        self.start_heartbeat.assert_called_once()
+        self.assertEqual(self.sys_info_sent(), 1)
+
+    def submitted_types(self):
+        """The message types that reached the sender, in order."""
+        return [call.args[0].msg_type
+                for call in self.handler._sender.submit.call_args_list]
+
+    def test_held_incidents_wait_for_the_clock(self):
+        """Incidents held while WiFi was down are sent once the clock is right, first."""
+        self.handler.send_message(INCIDENT, rms_service.IncidentMessage(LED_SOURCE, "fault"))
+
+        self.wifi(rms_service.WIFI_CONNECTED)
+        self.assertFalse(self.started.wait(0.1))
+        self.assertEqual(self.submitted_types(), [])
+
+        self.synced.set()
+        self.assertTrue(self.started.wait(2))
+        self.join_waiter()
+
+        # Incident first: it happened before the rest
+        self.assertEqual(self.submitted_types(), [INCIDENT, SYS_INFO])
+
+    def test_incident_raised_while_waiting_is_held(self):
+        """WiFi up but clock not ready: a new incident is held too, not sent dated wrong."""
+        self.wifi(rms_service.WIFI_CONNECTED)
+        self.handler.send_message(INCIDENT, rms_service.IncidentMessage(LED_SOURCE, "fault"))
+        self.assertEqual(self.submitted_types(), [])
+
+        self.synced.set()
+        self.assertTrue(self.started.wait(2))
+        self.join_waiter()
+
+        self.assertEqual(self.submitted_types(), [INCIDENT, SYS_INFO])
+
+    def test_held_incident_is_dated_when_it_really_happened(self):
+        """
+        An incident raised before the clock step reaches RMS with the time it really happened.
+
+        Raised while the wall clock was weeks behind, and held; the clock is
+        then stepped and the incident sent. It is dated 5 s ago, when it was
+        raised by the monotonic clock, not weeks back.
+        """
+        behind = 26 * 86400
+        real_time = time.time
+        with patch.object(time, "time", lambda: real_time() - behind):
+            incident = rms_service.IncidentMessage(
+                LED_SOURCE, "fault", monotonic=time.monotonic() - 5
+            )
+            self.handler.send_message(INCIDENT, incident)
+
+        self.synced.set()
+        self.wifi(rms_service.WIFI_CONNECTED)
+
+        generated = datetime.strptime(
+            self.handler._sender.submit.call_args_list[0].args[0].generated,
+            rms_service.TIMESTAMP_FORMAT,
+        )
+        self.assertAlmostEqual(generated.timestamp(), time.time() - 5, delta=2)
+
+    def test_clock_ready_is_kept_across_reconnects(self):
+        """After one timed-out wait a reconnect does not wait again."""
+        with patch.object(rms_service, "CLOCK_SYNC_TIMEOUT", 0.05):
+            self.wifi(rms_service.WIFI_CONNECTED)
+            self.assertTrue(self.started.wait(2))
+            self.join_waiter()
+
+        self.wifi(rms_service.WIFI_DISCONNECTED)
+        self.started.clear()
+        self.handler._clock_wait_thread = None
+
+        self.wifi(rms_service.WIFI_CONNECTED)
+
+        # Started on this thread, without a new wait
+        self.assertTrue(self.started.is_set())
+        self.assertIsNone(self.handler._clock_wait_thread)
+
+    def test_release_held_incidents_sends_them_at_once(self):
+        """fatal_exit(): held incidents go out without waiting for the clock."""
+        self.wifi(rms_service.WIFI_CONNECTED)
+        self.handler.send_message(INCIDENT, rms_service.IncidentMessage(LED_SOURCE, "fault"))
+
+        self.handler.release_held_incidents()
+        self.join_waiter()
+
+        self.assertEqual(self.submitted_types(), [INCIDENT])
+        # The wait was cancelled and no heartbeat started on the way out
+        self.synced.set()
+        self.assertFalse(self.started.wait(0.1))
+
+    def test_release_held_incidents_does_nothing_while_wifi_is_down(self):
+        """Without WiFi there is nothing to send them over; they stay held."""
+        self.handler.send_message(INCIDENT, rms_service.IncidentMessage(LED_SOURCE, "fault"))
+
+        self.handler.release_held_incidents()
+
+        self.assertEqual(self.submitted_types(), [])
+        self.assertEqual(len(self.handler._pending_incidents), 1)
+
+    def test_stop_while_waiting_starts_nothing(self):
+        """stop() cancels the wait and joins it before the sender is stopped."""
+        self.wifi(rms_service.WIFI_CONNECTED)
+        thread = self.handler._clock_wait_thread
+
+        # Only the base class's stop() is patched out: there is no worker
+        with patch.object(rms_service.MessageHandlerTemplate, "stop"):
+            self.handler.stop()
+
+        self.assertFalse(thread.is_alive())
+        self.handler._sender.stop.assert_called_once()
+
+        self.synced.set()
+        self.assertFalse(self.started.wait(0.1))
+        self.assertEqual(self.sys_info_sent(), 0)
+
+
+class TestClockStepLogged(ClockWaitTestCase):
+    """The first time the clock is ready, the log says how far it was stepped."""
+    # pylint: disable=protected-access
+
+    def step_lines(self):
+        """The clock-step lines logged, with their arguments filled in."""
+        return [call.args[0] % call.args[1:]
+                for call in self.log.info.call_args_list
+                if call.args[0].startswith("Clock synchronized: stepped")]
+
+    def stepped_since_start(self, seconds):
+        """Make it look as if the wall clock was stepped this far since import."""
+        patcher = patch.object(rms_service, "_START_WALL_OFFSET",
+                               time.time() - time.monotonic() - seconds)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
+    def test_step_is_logged_with_size_and_direction(self):
+        """A clock that was weeks behind is reported once it is synchronized."""
+        self.stepped_since_start(26 * 86400 + 5 * 3600)
+        self.wifi(rms_service.WIFI_CONNECTED)
+
+        self.synced.set()
+        self.assertTrue(self.started.wait(2))
+        self.join_waiter()
+
+        lines = self.step_lines()
+        self.assertEqual(len(lines), 1)
+        self.assertIn("+2264400 s (26d 5h 0m 0s)", lines[0])
+        self.assertIn("are 26d 5h 0m 0s behind", lines[0])
+
+    def test_clock_that_was_ahead_says_so(self):
+        """A step backwards reports the earlier lines as ahead."""
+        self.stepped_since_start(-90)
+        self.synced.set()
+        self.wifi(rms_service.WIFI_CONNECTED)
+
+        self.assertIn("are 1m 30s ahead", self.step_lines()[0])
+
+    def test_step_under_a_minute_is_given_in_seconds_once(self):
+        """Below a minute the days-hours-minutes form would only repeat the seconds."""
+        self.stepped_since_start(10)
+        self.synced.set()
+        self.wifi(rms_service.WIFI_CONNECTED)
+
+        line = self.step_lines()[0]
+        self.assertIn("stepped +10 s at monotonic", line)
+        self.assertIn("are 10 s behind", line)
+        self.assertNotIn("(", line)
+
+    def test_step_is_logged_before_reporting_starts(self):
+        """The step line comes first, then the line saying the heartbeat started."""
+        self.stepped_since_start(1000)
+        self.wifi(rms_service.WIFI_CONNECTED)
+
+        self.synced.set()
+        self.assertTrue(self.started.wait(2))
+        self.join_waiter()
+
+        formats = [call.args[0] for call in self.log.info.call_args_list]
+        step = next(i for i, f in enumerate(formats) if f.startswith("Clock synchronized: stepped"))
+        started = formats.index("Clock synchronized. Heartbeat started and system info sent.")
+        self.assertLess(step, started)
+
+    def test_small_difference_is_not_logged(self):
+        """No step worth mentioning: no line."""
+        self.stepped_since_start(0.5)
+        self.synced.set()
+        self.wifi(rms_service.WIFI_CONNECTED)
+
+        self.assertEqual(self.step_lines(), [])
+
+    def test_logged_once_across_reconnects(self):
+        """A reconnect does not repeat the line."""
+        self.stepped_since_start(1000)
+        self.synced.set()
+        self.wifi(rms_service.WIFI_CONNECTED)
+        self.wifi(rms_service.WIFI_DISCONNECTED)
+        self.wifi(rms_service.WIFI_CONNECTED)
+
+        self.assertEqual(len(self.step_lines()), 1)
+
+    def test_not_logged_when_the_wait_timed_out(self):
+        """Without synchronization there was no step to report."""
+        self.stepped_since_start(1000)
+        with patch.object(rms_service, "CLOCK_SYNC_TIMEOUT", 0.05):
+            self.wifi(rms_service.WIFI_CONNECTED)
+            self.assertTrue(self.started.wait(2))
+            self.join_waiter()
+
+        self.assertEqual(self.step_lines(), [])
+
+
+class TestFormatDuration(unittest.TestCase):
+    """_format_duration() leaves out leading zero units, not inner ones."""
+
+    def test_renderings(self):
+        """Seconds only, minutes, and every unit with an inner zero."""
+        fmt = rms_service._format_duration  # pylint: disable=protected-access
+        self.assertEqual(fmt(0), "0s")
+        self.assertEqual(fmt(59.6), "1m 0s")
+        self.assertEqual(fmt(-90), "1m 30s")
+        self.assertEqual(fmt(86400 + 5), "1d 0h 0m 5s")
+
+
+class TestIncidentMessageTime(unittest.TestCase):
+    """IncidentMessage stores a monotonic time and derives its wall-clock time."""
+
+    def test_default_is_now(self):
+        """Created without arguments, it is dated now."""
+        incident = rms_service.IncidentMessage(LED_SOURCE, "fault")
+
+        self.assertAlmostEqual(incident.monotonic, time.monotonic(), delta=0.5)
+        self.assertAlmostEqual(incident.timestamp, time.time(), delta=0.5)
+        self.assertTrue(incident.is_valid())
+
+    def test_timestamp_follows_a_clock_step(self):
+        """
+        Raised with the clock weeks behind, read after NTP stepped it: dated right.
+
+        The monotonic time does not change, so the wall-clock time derived
+        from it moves with the clock.
+        """
+        behind = 26 * 86400
+        real_time = time.time
+        with patch.object(time, "time", lambda: real_time() - behind):
+            incident = rms_service.IncidentMessage(LED_SOURCE, "fault")
+            stale = incident.timestamp
+
+        self.assertAlmostEqual(stale, time.time() - behind, delta=0.5)
+        self.assertAlmostEqual(incident.timestamp, time.time(), delta=0.5)
+
+    def test_raised_earlier(self):
+        """An incident raised 5 s ago is dated 5 s ago."""
+        incident = rms_service.IncidentMessage(
+            LED_SOURCE, "fault", monotonic=time.monotonic() - 5
+        )
+
+        self.assertAlmostEqual(incident.timestamp, time.time() - 5, delta=0.5)
+
+    def test_not_part_of_identity(self):
+        """Two occurrences of the same incident are equal."""
+        first = rms_service.IncidentMessage(LED_SOURCE, "fault", monotonic=1.0)
+        second = rms_service.IncidentMessage(LED_SOURCE, "fault", monotonic=2.0)
+
+        self.assertEqual(first, second)
+
+    def test_time_before_boot_is_not_valid(self):
+        """Nothing can have happened before boot, nor at True seconds after it."""
+        for value in (0.0, -1.0, True):
+            incident = rms_service.IncidentMessage(LED_SOURCE, "fault", monotonic=value)
+            self.assertFalse(incident.is_valid(), value)
+
+    def test_survives_the_bus(self):
+        """Pickled as the incident bus does: the same moment comes out."""
+        # pickle finds the class by module name; another test file in the same
+        # run may have put a stand-in under that name
+        if getattr(sys.modules.get("messaging"), "IncidentMessage", None) is not rms_service.IncidentMessage:
+            self.skipTest("messaging is stubbed in this process")
+        incident = rms_service.IncidentMessage(LED_SOURCE, "fault")
+        copy = pickle.loads(pickle.dumps(incident))
+
+        self.assertEqual(copy.monotonic, incident.monotonic)
+        self.assertAlmostEqual(copy.timestamp, incident.timestamp, delta=0.01)
+
+
+class TestClockSynchronized(unittest.TestCase):
+    """_clock_synchronized() reads systemd-timesyncd's flag file."""
+
+    def test_follows_the_flag_file(self):
+        """True exactly when the flag file exists."""
+        with TemporaryDirectory() as directory:
+            flag = Path(directory) / "synchronized"
+            with patch.object(rms_service, "CLOCK_SYNC_FLAG", str(flag)):
+                self.assertFalse(rms_service._clock_synchronized())  # pylint: disable=protected-access
+                flag.touch()
+                self.assertTrue(rms_service._clock_synchronized())  # pylint: disable=protected-access
+
+    def test_unreadable_flag_counts_as_not_synchronized(self):
+        """An error checking the file errs on the side of waiting."""
+        with patch.object(rms_service.Path, "exists", side_effect=PermissionError):
+            self.assertFalse(rms_service._clock_synchronized())  # pylint: disable=protected-access
 
 
 if __name__ == "__main__":

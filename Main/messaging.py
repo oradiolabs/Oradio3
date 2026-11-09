@@ -294,36 +294,46 @@ class IncidentMessage:
     """
     Message sent through the incident queue.
 
-    Both timestamp and details are captured automatically at construction,
-    which is the moment the incident is reported, so existing call sites
-    keep working unchanged: IncidentMessage(SOURCE, MESSAGE) still creates
-    a complete message.
+    The moment and the details are captured automatically at construction,
+    which is the moment the incident is reported, so
+    IncidentMessage(SOURCE, MESSAGE) creates a complete message.
 
     Attributes:
         source:    Name of the process, service, or component sending the message.
         message:   Incident description or diagnostic information.
-        timestamp: Unix epoch seconds (UTC) at which the message was created.
-                   Defaults to the current time.
         details:   Formatted exception traceback when the message is created
                    inside an except block, otherwise the call stack leading
                    to its creation. Pass an explicit string to supply your own
                    context, or "" to suppress it for this one message.
                    Suppressed for good by listing the (source, message) pair
                    in DETAILS_NOT_CAPTURED above.
+        monotonic: time.monotonic() at which the message was created. Defaults
+                   to the current time. The wall-clock time is derived from it,
+                   see the timestamp property.
     """
     source: str
     message: str
 
-    # compare=False on both: two incidents are the same incident when their
-    # source and message match. The timestamp and the stack describe an
-    # occurrence, not an identity. Were they part of __eq__ and __hash__, no
-    # two incidents could ever be equal, and anything that deduplicates or
-    # counts repeats would treat every recurrence as a new fault.
-    timestamp: float = field(default_factory=time.time, compare=False)
-
     # None means "decide in __post_init__". A caller can still pass a string
     # to supply its own context, or "" to suppress the capture outright.
+    #
+    # compare=False on this and monotonic: two incidents are the same incident
+    # when their source and message match. The moment and the stack describe
+    # an occurrence, not an identity. Were they part of __eq__ and __hash__, no
+    # two incidents could ever be equal, and anything that deduplicates or
+    # counts repeats would treat every recurrence as a new fault.
     details: str | None = field(default=None, compare=False)
+
+    # When the incident happened, on the monotonic clock. The Pi has no RTC:
+    # until NTP sets it, the wall clock shows the time the Oradio was last on,
+    # and NTP then steps it by however long it was off. The monotonic clock
+    # does not jump, so an incident stores only this and derives its
+    # wall-clock time when asked (see timestamp), which is right as soon as
+    # the clock is, also for an incident raised before the step. It is
+    # system-wide on Linux, so this holds for an incident raised in a forked
+    # child process and read in another. Declared last: it is filled in by its
+    # default, not passed by position.
+    monotonic: float = field(default_factory=time.monotonic, compare=False)
 
     def __post_init__(self) -> None:
         """
@@ -346,6 +356,21 @@ class IncidentMessage:
 
         suppressed = (self.source, self.message) in DETAILS_NOT_CAPTURED
         object.__setattr__(self, "details", "" if suppressed else _capture_details())
+
+    @property
+    def timestamp(self) -> float:
+        """
+        Return when the incident happened, in Unix epoch seconds (UTC).
+
+        Derived from monotonic and the wall clock as it is now: how long ago
+        it happened, subtracted from the current time. So it is as right as
+        the clock is at the moment it is read. Read before NTP has set the
+        clock it is off by as much as the clock is -- the same as the time a
+        log line written then carries -- and read after, it is right, even
+        for an incident raised before. Reading it on both sides of a clock
+        step therefore gives two different values.
+        """
+        return time.time() - (time.monotonic() - self.monotonic)
 
     @property
     def occurred(self) -> str:
@@ -374,14 +399,16 @@ class IncidentMessage:
         queue diagnostics stay readable; call report() for the full text.
         A dataclass only generates __repr__, so defining __str__ here does
         not conflict with the generated code, and repr() still shows every
-        field for fatal-error logging.
+        field for fatal-error logging. That includes monotonic, not
+        timestamp, which is a property; the log line it is written in
+        carries the wall-clock time.
         """
         return f"[{self.occurred}] {self.source}: {self.message}"
 
     def is_valid(self) -> bool:
         """
         Return whether the message contains valid source and message strings,
-        a plausible timestamp, and details as a string.
+        a plausible monotonic time, and details as a string.
         """
         return (
             isinstance(self.source, str)
@@ -389,10 +416,11 @@ class IncidentMessage:
             and bool(self.source.strip())
             and bool(self.message.strip())
             # bool is a subclass of int, so exclude it explicitly:
-            # True would otherwise pass as a timestamp of 1 second past epoch.
-            and isinstance(self.timestamp, (int, float))
-            and not isinstance(self.timestamp, bool)
-            and self.timestamp > 0
+            # True would otherwise pass as 1 second after boot.
+            and isinstance(self.monotonic, (int, float))
+            and not isinstance(self.monotonic, bool)
+            # Nothing can have happened before boot
+            and self.monotonic > 0
             and isinstance(self.details, str)
         )
 

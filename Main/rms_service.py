@@ -23,6 +23,12 @@ Created on February 8, 2025
     started and a SYS_INFO message containing hardware and software
     information is sent. The heartbeat stops when WiFi is lost.
 
+    Both wait until the system clock has been synchronized, for at most
+    CLOCK_SYNC_TIMEOUT seconds, and so do incidents. The Pi has no RTC and
+    boots with the last time it saved, so straight after an Oradio has been
+    off for a while its clock is behind, and messages sent then would reach
+    RMS with a date and time from when it was last switched on.
+
     Any other service in the application (e.g. incident_service) can also
     use RMService.send_message(INCIDENT, incident) to report an
     IncidentMessage to RMS, attaching the current log files for context.
@@ -73,7 +79,7 @@ import re
 import json
 import uuid
 import subprocess
-from time import sleep, monotonic
+from time import sleep, monotonic, time
 from pathlib import Path
 from collections import deque
 from collections.abc import Callable
@@ -108,6 +114,7 @@ from constants import (
     YELLOW, NC,
     RMS_SERVER_URL,
     RMS_SERVER_KEY,
+    LOG_ORADIO, LOG_RMS,
 )
 
 ##### Deferred HTTP client ################################
@@ -175,7 +182,7 @@ HEARTBEAT = 'HEARTBEAT'
 SYS_INFO  = 'SYS_INFO'
 INCIDENT  = 'INCIDENT'
 
-# How many incidents are held while WiFi is down.
+# How many incidents are held while WiFi is down or the clock is not ready.
 #
 # Enough for a bad start-up -- every subsystem failing in the seconds before the
 # radio connects -- and small enough that an Oradio that never reaches a network
@@ -210,6 +217,36 @@ TIMESTAMP_FORMAT = '%Y-%m-%d %H:%M:%S%z'
 
 # How often the heartbeat is sent (seconds); currently once per hour
 HEARTBEAT_REPEAT = 60 * 60
+
+##### Clock synchronization ###############################
+# The Pi has no RTC: at boot the clock is set to the last time that was saved, which after a
+# few weeks off is a few weeks behind, until systemd-timesyncd reaches an NTP server. WiFi
+# usually connects before that, so incidents, the first heartbeat and SYS_INFO wait for it.
+#
+# systemd-timesyncd creates this file on its first successful synchronization and removes it
+# at boot (it lives on /run), which is what systemd-time-wait-sync waits on as well. A plain
+# file check: no subprocess and no D-Bus on the hot path.
+CLOCK_SYNC_FLAG = "/run/systemd/timesync/synchronized"
+
+# How long incidents, the first heartbeat and SYS_INFO wait for the clock (seconds). After that
+# they are sent anyway: on a network that blocks NTP the clock never synchronizes, and an Oradio that
+# never reports is worse than one that reports a wrong time. Measured on monotonic time, so the
+# clock step itself cannot cut the wait short or stretch it.
+CLOCK_SYNC_TIMEOUT = 120
+
+# How often the flag is checked while waiting (seconds)
+CLOCK_SYNC_POLL = 1
+
+# A clock step this large or larger is written to the log (seconds), so lines logged before it
+# can be read with the right time afterwards. Smaller differences are what NTP corrects anyway
+# and would only add noise.
+CLOCK_STEP_LOG_THRESHOLD = 2
+
+# Wall clock minus monotonic clock when this module was loaded. The monotonic clock does not
+# move when NTP steps the wall clock, so the change in this difference since then is exactly how
+# far the wall clock was stepped meanwhile. Taken at import, which is early in the Oradio's
+# start-up and so before the step on a fresh boot.
+_START_WALL_OFFSET = time() - monotonic()
 
 # Remote Monitoring Service endpoint and HTTP POST tuning parameters
 #
@@ -270,8 +307,9 @@ ALLOWED_LOG_PATTERN = re.compile(r'\.log(\.\d+)?$')
 # The log the application itself writes, and so the one holding the lines that explain an
 # incident. It is offered the upload budget before anything else in the directory, and its
 # current generation before its rotated ones, so a crowded log directory can cost the older
-# and less relevant files their place but never this one.
-ESSENTIAL_LOG_BASE = "oradio"
+# and less relevant files their place but never this one. Its name without ".log", as
+# _log_base_name() reduces every log and rotation to.
+ESSENTIAL_LOG_BASE = LOG_ORADIO.removesuffix(".log")
 
 # Rejects a filename that cannot be placed in a MIME header as-is. Log names never contain these;
 # a stray file in the log directory might.
@@ -288,7 +326,7 @@ UNSAFE_NAME_CHARS = re.compile(r'[\x00-\x1f"\\\x7f]')
 # writes without stopping grow the service until the OOM killer takes it. It sits in the log
 # directory and ends in .log, so it is picked up by the incident upload, and rotated by
 # logrotate, like any other log here.
-REMOTE_COMMAND_LOG = ORADIO_LOG_PATH / "rms.log"
+REMOTE_COMMAND_LOG = ORADIO_LOG_PATH / LOG_RMS
 
 ##### Send queue ##########################################
 # Depth of the queue between send_message() and the sender thread. Deep enough to absorb a burst
@@ -303,6 +341,69 @@ SEND_QUEUE_HEADROOM = 16
 SEND_QUEUE_SIZE = PENDING_INCIDENTS_MAX + SEND_QUEUE_HEADROOM
 
 ##### Helpers #############################################
+
+def _clock_synchronized() -> bool:
+    """
+    Whether systemd-timesyncd has synchronized the system clock since boot.
+
+    Returns:
+        True once CLOCK_SYNC_FLAG exists. False before that, and also when
+        it cannot be checked: the caller then waits at most
+        CLOCK_SYNC_TIMEOUT, which is the safe side to err on.
+    """
+    try:
+        return Path(CLOCK_SYNC_FLAG).exists()
+    except OSError:
+        return False
+
+def _format_duration(seconds: float) -> str:
+    """
+    Render a duration for a log line, e.g. '26d 5h 40m 3s'.
+
+    Args:
+        seconds: Duration in seconds; the sign is ignored.
+
+    Returns:
+        Days, hours, minutes and seconds, leaving out leading zero units.
+    """
+    remaining = round(abs(seconds))
+    parts: list[str] = []
+    for unit, size in (("d", 86400), ("h", 3600), ("m", 60)):
+        count, remaining = divmod(remaining, size)
+        if count or parts:
+            parts.append(f"{count}{unit}")
+    parts.append(f"{remaining}s")
+    return " ".join(parts)
+
+def _log_clock_step() -> None:
+    """
+    Write to the log how far the clock was stepped since start-up, if at all.
+
+    Every log line carries the wall-clock time it was written at, so the
+    lines written before NTP set the clock are off by exactly this step.
+    The line says by how much and in which direction, and gives the
+    monotonic time as well, so the step can be matched against
+    journalctl -o short-monotonic. Lines already written are left as they
+    are: they may be rotated or uploaded while being read.
+    """
+    step = (time() - monotonic()) - _START_WALL_OFFSET
+    if abs(step) < CLOCK_STEP_LOG_THRESHOLD:
+        return
+
+    # Days, hours and minutes only for a step of a minute or more: below that
+    # they would repeat the number of seconds
+    if abs(step) >= 60:
+        size = f"{step:+.0f} s ({_format_duration(step)})"
+        offset = _format_duration(step)
+    else:
+        size = f"{step:+.0f} s"
+        offset = f"{abs(step):.0f} s"
+
+    oradio_log.info(
+        "Clock synchronized: stepped %s at monotonic %.1f s. "
+        "Lines logged before this one since start-up are %s %s",
+        size, monotonic(), offset, "behind" if step > 0 else "ahead",
+    )
 
 def _get_temperature() -> str:
     """
@@ -1677,6 +1778,11 @@ class WifiMessageHandler(MessageHandlerTemplate):
     SYS_INFO message is sent to the RMS server. On a WIFI_DISCONNECTED
     event the heartbeat timer is stopped.
 
+    Both wait for the system clock to be synchronized first, for at most
+    CLOCK_SYNC_TIMEOUT seconds (see _start_reporting()), and so do
+    incidents: they are held meanwhile, and are then dated by the
+    synchronized clock (see IncidentMessage.timestamp).
+
     send_message() also handles INCIDENT, used by other services (e.g.
     incident_service) via RMService.send_message() to report an
     IncidentMessage to RMS. All three message types require this handler
@@ -1706,8 +1812,17 @@ class WifiMessageHandler(MessageHandlerTemplate):
         # has been processed yet at construction time.
         self._wifi_connected = False
 
-        # Incidents raised while WiFi is down, waiting for it to come back.
-        # See _hold_incident() for why only incidents wait, and why bounded.
+        # Whether the clock can be trusted for what RMS is sent: set once it
+        # has been synchronized, or once CLOCK_SYNC_TIMEOUT has been waited
+        # for it, and then kept for the lifetime of the process -- the clock
+        # does not become wrong again, and an Oradio on a network that blocks
+        # NTP should not wait again on every reconnect. Guarded by
+        # _state_lock together with _wifi_connected, which it gates with.
+        self._clock_ready = False
+
+        # Incidents raised while WiFi is down or the clock is not ready,
+        # waiting for both. See _hold_incident() for why only incidents wait,
+        # and why bounded.
         self._pending_incidents: deque[IncidentMessage] = deque(maxlen=PENDING_INCIDENTS_MAX)
 
         # Guards _wifi_connected together with _pending_incidents. They are
@@ -1723,6 +1838,18 @@ class WifiMessageHandler(MessageHandlerTemplate):
         # attribute read is atomic and they only need the latest value.
         self._state_lock = ThreadLock()
 
+        # Starting and stopping the heartbeat with its SYS_INFO, see
+        # _start_reporting(). _clock_wait is the cancel event of the thread
+        # waiting for the clock, or None when none is waiting; the thread is
+        # kept only so stop() can join it. Under _reporting_lock the decision
+        # to start and the act of starting are one step, so a WiFi loss or a
+        # stop() handled meanwhile cannot be followed by a heartbeat that the
+        # waiting thread starts after all. Taken before _state_lock and before
+        # Heartbeat.start_lock, never after either, so the order is fixed.
+        self._reporting_lock = ThreadLock()
+        self._clock_wait: Event | None = None
+        self._clock_wait_thread: Thread | None = None
+
         # Posts run here instead of on whichever thread called
         # send_message(). Started before the base class starts its own
         # worker, so the queue is being drained from the moment the first
@@ -1737,10 +1864,11 @@ class WifiMessageHandler(MessageHandlerTemplate):
 
     def _hold_incident(self, incident: IncidentMessage) -> None:
         """
-        Keep an incident until WiFi can carry it.
+        Keep an incident until WiFi can carry it and the clock can date it.
 
-        Caller must hold _state_lock, the same lock under which it found WiFi
-        down, so WiFi cannot come up and flush the backlog in between.
+        Caller must hold _state_lock, the same lock under which it found RMS
+        not ready, so WiFi or the clock cannot become ready and flush the
+        backlog in between.
 
         Args:
             incident: The incident that could not be sent.
@@ -1761,17 +1889,18 @@ class WifiMessageHandler(MessageHandlerTemplate):
 
         self._pending_incidents.append(incident)
         oradio_log.debug(
-            "WiFi not available; holding incident (%d waiting)",
+            "WiFi or clock not ready; holding incident (%d waiting)",
             len(self._pending_incidents),
         )
 
     def _flush_incidents(self) -> None:
         """
-        Send everything that was waiting for WiFi, oldest first.
+        Send everything that was waiting for WiFi or the clock, oldest first.
 
-        Called when WiFi comes back. The list is snapshotted and emptied under
-        _state_lock, so an incident held concurrently either makes the
-        snapshot or finds WiFi up and is sent directly -- never lost between
+        Called once WiFi is up and the clock is ready (_mark_clock_ready()).
+        The list is snapshotted and emptied under _state_lock, so an incident
+        held concurrently either makes the snapshot or finds RMS ready and is
+        sent directly -- never lost between
         the copy and the clear. Sending happens after the lock is released, so
         an incident raised by the sending itself cannot be appended to a list
         this loop is still walking, and the lock is never held across a submit.
@@ -1797,6 +1926,173 @@ class WifiMessageHandler(MessageHandlerTemplate):
         """Whether WiFi is currently connected, per the last WIFI_* message processed."""
         return self._wifi_connected
 
+    def _start_reporting(self) -> None:
+        """
+        Send held incidents, start the heartbeat and send SYS_INFO, once the
+        clock can be trusted.
+
+        Called on every WIFI_CONNECTED. When the clock is ready -- on any
+        reconnect after the first one since boot -- this happens at once.
+        Otherwise a thread of its own waits for it, so this handler's worker
+        keeps processing WiFi messages meanwhile, and goes ahead when the
+        clock is synchronized or CLOCK_SYNC_TIMEOUT has passed, whichever
+        comes first.
+
+        The point is the timestamp RMS receives. Every message carries the
+        time it was generated, and on an Oradio that was off for weeks the
+        clock is still weeks behind when WiFi connects. Without this wait
+        the first HEARTBEAT and SYS_INFO after power-on would reach RMS
+        dated weeks back, and an operator would read them as old. The same
+        holds for the incidents raised in the seconds after boot, which are
+        held until then and sent with the time they really happened.
+
+        A WIFI_CONNECTED that arrives while an earlier one is still waiting
+        replaces that wait, so one connection never starts two heartbeats.
+        """
+        with self._reporting_lock:
+            self._cancel_clock_wait()
+
+            if self._clock_ready or _clock_synchronized():
+                self._begin_reporting()
+                oradio_log.debug("WiFi connected. Heartbeat started and system info sent.")
+                return
+
+            oradio_log.info(
+                "WiFi connected; waiting up to %d s for clock synchronization "
+                "before incidents, heartbeat and system info", CLOCK_SYNC_TIMEOUT
+            )
+            cancelled = Event()
+            self._clock_wait = cancelled
+            # Started under the lock so stop() never sees a thread it cannot
+            # join yet. It cannot deadlock: start() returns once the thread
+            # runs, and the thread takes this lock only when its wait is over.
+            self._clock_wait_thread = Thread(
+                target=self._wait_for_clock,
+                args=(cancelled,),
+                name="RmsClockWait",
+                daemon=True,
+            )
+            self._clock_wait_thread.start()
+
+    def _wait_for_clock(self, cancelled: Event) -> None:
+        """
+        Wait for clock synchronization, then start reporting unless cancelled.
+
+        Runs on the RmsClockWait thread started by _start_reporting().
+
+        Args:
+            cancelled: Set by _cancel_clock_wait() when WiFi is lost, a newer
+                WIFI_CONNECTED replaces this wait, or the handler stops.
+        """
+        deadline = monotonic() + CLOCK_SYNC_TIMEOUT
+        waited_out = False
+
+        while not _clock_synchronized():
+            remaining = deadline - monotonic()
+            if remaining <= 0:
+                waited_out = True
+                break
+            # Event.wait runs on monotonic time, so the clock stepping
+            # forward by weeks while this waits does not end it early
+            if cancelled.wait(min(CLOCK_SYNC_POLL, remaining)):
+                oradio_log.debug("Wait for clock synchronization cancelled")
+                return
+
+        with self._reporting_lock:
+            # Checked again under the lock: cancellation may have happened
+            # after the last wait returned, and must win
+            if cancelled.is_set():
+                oradio_log.debug("Wait for clock synchronization cancelled")
+                return
+            self._clock_wait = None
+
+            if waited_out:
+                # Sent anyway: an Oradio on a network that blocks NTP should
+                # still show up in RMS, if with the wrong time
+                oradio_log.warning(
+                    "Clock not synchronized after %d s; sending incidents, heartbeat "
+                    "and system info anyway", CLOCK_SYNC_TIMEOUT
+                )
+
+            self._begin_reporting()
+
+            # After, so it follows the clock-step line _begin_reporting() logs,
+            # and reports what has been done
+            if not waited_out:
+                oradio_log.info("Clock synchronized. Heartbeat started and system info sent.")
+
+    def _begin_reporting(self) -> None:
+        """
+        Mark the clock ready, send held incidents, start the heartbeat and
+        report system info. Caller holds _reporting_lock.
+
+        Incidents first, oldest first, as they happened before the rest. The
+        heartbeat's first tick is sent at once, by its own thread. All are
+        timestamped by send_message() at this point, so what waited for the
+        clock carries the synchronized time.
+        """
+        self._mark_clock_ready()
+        Heartbeat.start_heartbeat(HEARTBEAT_REPEAT, self.send_message, args=(HEARTBEAT,))
+        # Report hardware/software identity on every new connection
+        self.send_message(SYS_INFO)
+
+    def _mark_clock_ready(self) -> None:
+        """
+        Let send_message() through from now on, and send what it held.
+
+        The first time, also logs how far the clock was stepped since
+        start-up (see _log_clock_step()).
+
+        Set under _state_lock before the flush, the same way WIFI_CONNECTED
+        sets _wifi_connected: an incident raised concurrently is either held
+        before this, and in the snapshot _flush_incidents() takes, or sent
+        directly after it.
+        """
+        with self._state_lock:
+            first = not self._clock_ready
+            self._clock_ready = True
+
+        # Once per process: from here on what is logged and sent is dated
+        # right, so this is where the log records how far off it was until now.
+        # Not when the wait timed out: then there was no step to report.
+        if first and _clock_synchronized():
+            _log_clock_step()
+
+        self._flush_incidents()
+
+    def release_held_incidents(self) -> None:
+        """
+        Stop waiting for the clock and send held incidents now.
+
+        For fatal_exit(): an incident that ends the process must reach RMS
+        before it does, and a wrong timestamp is better than no report. Does
+        not start the heartbeat. Does nothing while WiFi is down, as then
+        nothing can be sent.
+        """
+        if not self._wifi_connected:
+            return
+        with self._reporting_lock:
+            self._cancel_clock_wait()
+            self._mark_clock_ready()
+
+    def _cancel_clock_wait(self) -> None:
+        """Cancel a pending wait for the clock, if any. Caller holds _reporting_lock."""
+        if self._clock_wait is not None:
+            self._clock_wait.set()
+            self._clock_wait = None
+
+    def _stop_reporting(self) -> None:
+        """
+        Stop the heartbeat, or keep it from starting if it is still waiting.
+
+        Both under _reporting_lock, so a waiting thread that has just seen the
+        clock synchronize either starts the heartbeat before this (and it is
+        stopped here) or finds itself cancelled after it.
+        """
+        with self._reporting_lock:
+            self._cancel_clock_wait()
+            Heartbeat.stop_heartbeat()
+
     def _handle_message(self, message) -> None:
         """
         Handle an incoming WiFi state change message.
@@ -1807,7 +2103,7 @@ class WifiMessageHandler(MessageHandlerTemplate):
         if message.message == WIFI_DISCONNECTED:
             with self._state_lock:
                 self._wifi_connected = False
-            Heartbeat.stop_heartbeat()
+            self._stop_reporting()
             oradio_log.debug("WiFi disconnected. Heartbeat stopped.")
 
         elif message.message == WIFI_CONNECTED:
@@ -1816,19 +2112,18 @@ class WifiMessageHandler(MessageHandlerTemplate):
             # sees WiFi up after it and sends directly.
             with self._state_lock:
                 self._wifi_connected = True
-            self._flush_incidents()
-            Heartbeat.start_heartbeat(HEARTBEAT_REPEAT, self.send_message, args=(HEARTBEAT,))
-            # Immediately report hardware/software identity on every new connection
-            self.send_message(SYS_INFO)
-            oradio_log.debug("WiFi connected. Heartbeat started and system info sent.")
+            # Held incidents are flushed by _start_reporting() once the clock
+            # is ready, so they are dated by the synchronized clock
+            self._start_reporting()
 
         elif message.message == WIFI_ACCESS_POINT:
             # No uplink in access point mode: heartbeat cannot be active and
             # info message cannot be sent, so stop a heartbeat left running by
-            # a WIFI_CONNECTED that was not followed by WIFI_DISCONNECTED.
+            # a WIFI_CONNECTED that was not followed by WIFI_DISCONNECTED,
+            # or one still waiting for the clock.
             with self._state_lock:
                 self._wifi_connected = False
-            Heartbeat.stop_heartbeat()
+            self._stop_reporting()
             oradio_log.debug("WiFi access point mode. Heartbeat stopped.")
 
         elif message.message == WIFI_CONNECT_FAILED:
@@ -1859,10 +2154,11 @@ class WifiMessageHandler(MessageHandlerTemplate):
         exactly the moment the incident was raised.
 
         Only queued while WiFi is currently known to be connected, since a POST
-        with no network can only fail. Without it a heartbeat or system-info
-        message is dropped -- it describes now, and a stale one says nothing --
-        while an incident is held until WiFi returns, because it describes a
-        moment and carries its own timestamp.
+        with no network can only fail, and the clock is ready, so the message
+        is dated right. Otherwise a heartbeat or system-info message is
+        dropped -- it describes now, and a stale one says nothing -- while an
+        incident is held until both are, because it describes a moment and
+        carries its own timestamp.
 
         Args:
             msg_type: HEARTBEAT, SYS_INFO, or INCIDENT.
@@ -1885,15 +2181,21 @@ class WifiMessageHandler(MessageHandlerTemplate):
             oradio_log.debug("Not reporting RMS's own incident: %s", incident.message)
             return
 
-        # Checked and acted on under _state_lock, so WiFi cannot come up and
-        # flush the backlog between finding it down and holding the incident.
-        # The submit() below happens after the lock is released.
+        # Checked and acted on under _state_lock, so WiFi cannot come up (or
+        # the clock become ready) and flush the backlog between finding it not
+        # ready and holding the incident. The submit() below happens after
+        # the lock is released.
+        #
+        # Ready means WiFi is up and the clock can be trusted, or has been
+        # waited for long enough (see _start_reporting()). An incident raised
+        # in between is held as well: sent then, it would be dated by a clock
+        # that is still wrong.
         with self._state_lock:
-            wifi_connected = self._wifi_connected
-            if not wifi_connected and incident is not None:
+            ready = self._wifi_connected and self._clock_ready
+            if not ready and incident is not None:
                 self._hold_incident(incident)
 
-        if not wifi_connected:
+        if not ready:
             # Incidents wait; heartbeats and system info do not.
             #
             # An incident describes something that happened at a moment, and it
@@ -1909,7 +2211,7 @@ class WifiMessageHandler(MessageHandlerTemplate):
             #
             # An incident has already been held above, under the lock.
             if incident is None:
-                oradio_log.debug("WiFi not available; not sending %s message", msg_type)
+                oradio_log.debug("WiFi or clock not ready; not sending %s message", msg_type)
             return
 
         # Timestamped here rather than at POST time, so the message reports
@@ -1922,8 +2224,14 @@ class WifiMessageHandler(MessageHandlerTemplate):
         # value narrows the type for free, and does so in a way that is not
         # stripped by 'python -O'.
         #
-        # Both branches end in local time carrying its offset. IncidentMessage
-        # stores epoch seconds, so it is read as UTC and then converted with
+        # IncidentMessage derives that timestamp from the monotonic clock when
+        # it is read, so it is right once the clock is, also for an incident
+        # raised before NTP stepped it. Incidents are held until the clock is
+        # ready (see _start_reporting()), so one raised in the seconds after
+        # boot reaches RMS with the time it really happened.
+        #
+        # Both branches end in local time carrying its offset. The incident's
+        # timestamp is epoch seconds, so it is read as UTC and then converted with
         # astimezone(); datetime.now() is already local and astimezone() only
         # attaches the offset it was missing.
         if incident is not None:
@@ -1950,10 +2258,11 @@ class WifiMessageHandler(MessageHandlerTemplate):
 
         Returns:
             True when the queue was drained in time. False on timeout, or at
-            once when WiFi is down: then incidents are held in memory rather
-            than queued, and no amount of waiting sends them.
+            once when WiFi is down or the clock is not ready yet: then
+            incidents are held in memory rather than queued, and waiting on
+            the sender does not send them (see release_held_incidents()).
         """
-        if not self._wifi_connected:
+        if not (self._wifi_connected and self._clock_ready):
             return False
         return self._sender.flush(timeout)
 
@@ -1965,12 +2274,18 @@ class WifiMessageHandler(MessageHandlerTemplate):
         is stopped first so no WIFI_CONNECTED handled late can restart the
         heartbeat or submit held incidents and SYS_INFO after the later
         steps. The heartbeat (class-level, so it would otherwise keep firing
-        into this handler forever) is stopped next, so it stops submitting.
-        The sender goes last and discards whatever was queued; anything
-        another thread submits after that just sits in its queue unsent.
+        into this handler forever) is stopped next, together with a wait for
+        the clock that would otherwise start it later, so it stops
+        submitting. The sender goes last and discards whatever was queued;
+        anything another thread submits after that just sits in its queue
+        unsent.
         """
         super().stop()
-        Heartbeat.stop_heartbeat()
+        self._stop_reporting()
+        # Cancelled above, so it returns at once; joined so it is gone
+        # before the sender it would submit to is stopped
+        if self._clock_wait_thread is not None:
+            self._clock_wait_thread.join(timeout=CLOCK_SYNC_POLL + 1)
         self._sender.stop()
 
 @singleton
@@ -2026,6 +2341,9 @@ class RMService:
         if not handler.wifi_connected:
             oradio_log.warning("Fatal exit: WiFi down, held incidents are not sent")
             return
+        # Held for the clock still counts as sendable: on the way out a
+        # report with the wrong time beats none
+        handler.release_held_incidents()
         oradio_log.info("Fatal exit: waiting up to %.0fs for RMS to send queued messages", timeout)
         if self.flush(timeout):
             oradio_log.info("Fatal exit: RMS messages sent")
@@ -2070,11 +2388,13 @@ class RMService:
         for the link instead of firing into it. Reading this rather than
         the handler's own attribute keeps callers off _handler.
 
-        This is the gate that decides whether a message is accepted, which is
-        not the same question as WifiService.get_state() or has_connectivity():
-        those say whether WiFi is up, this one says whether this service has
-        caught up with it yet. A caller that is about to send should ask this
-        one.
+        This is the WiFi half of the gate that decides whether a message is
+        sent at once; the other half is the clock (see
+        WifiMessageHandler._start_reporting()), which delays an incident but
+        does not lose it. It is not the same question as
+        WifiService.get_state() or has_connectivity(): those say whether WiFi
+        is up, this one says whether this service has caught up with it yet.
+        A caller that is about to send should ask this one.
 
         False when the service is not started: nothing can be sent then either.
         """
@@ -2281,7 +2601,7 @@ if __name__ == "__main__":
         print(f"Queue depth now {queued} of {SEND_QUEUE_SIZE}")
 
         if queued == 0:
-            print(f"{YELLOW}Nothing queued: WiFi is down, so the incidents are held until it returns{NC}\n")
+            print(f"{YELLOW}Nothing queued: WiFi or the clock is not ready, so the incidents are held{NC}\n")
         else:
             print(f"Expect around {FLOOD_COUNT - SEND_QUEUE_SIZE} 'RMS send queue full' "
                   "warnings in the log\n")

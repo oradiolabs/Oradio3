@@ -286,9 +286,9 @@ if power_status is False:
 
     # Report to RMS, but not before WiFi can carry it.
     #
-    # send_message() holds an incident while WiFi is down and sends it once
-    # RMS sees WIFI_CONNECTED, so this wait is no longer what keeps the report
-    # from being lost. It still makes the order explicit: at this point in
+    # send_message() holds an incident while WiFi is down or the clock is not
+    # ready, and sends it once both are, so this wait is not what keeps the
+    # report from being lost. It makes the order explicit: at this point in
     # start-up WifiService has usually only just handed its own start to a
     # background thread, and RMS has not seen a WIFI_CONNECTED message yet.
     #
