@@ -548,6 +548,14 @@ remove_line_from_file "$HOME/.bashrc" "bash $ORADIO_ROOT/oradio_install.sh --con
 # empty directory left behind by a future rename costs nothing -- but the file
 # inside it would, so that is what a future section has to name.
 
+##### Next release: usb_sync.log merged into usb.log #######
+# tools/USB_sync.sh writes to usb.log, next to usb-drive.sh, with every line
+# prefixed 'USB_sync:'. The syncs recorded in the old file are not carried
+# over: rms_service uploads every logfile in the logging path, so a file no
+# longer written would travel with every upload until logrotate aged it out.
+
+remove_logfiles usb_sync.log
+
 ##### Apply unit removals ##################################
 # One reload for the whole run, after every section has had its say. Reported
 # rather than fatal, like every other step: systemd picks the removals up at

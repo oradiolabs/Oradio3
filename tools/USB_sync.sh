@@ -243,25 +243,41 @@ if [ -z "${USB_MOUNT_OPTIONS:-}" ]; then
 	exit 1
 fi
 
+if [ -z "${LOG_DIR:-}" ] || [ -z "${LOG_USB:-}" ]; then
+	echo -e "${RED}LOG_DIR or LOG_USB not set in $CONSTANTS${NC}"
+	exit 1
+fi
+
 # Persistent log, on the SD card rather than the journal: journald is configured
 # with Storage=volatile and RuntimeMaxUse=8M, so an unattended run leaves no
 # trace after a reboot. Appended, not truncated, so a stick that needs repairing
 # repeatedly is visible as a pattern. Rotation is left to logrotate, which globs
 # *.log in this directory.
 #
-# Separate from usb.log, which usb-drive.sh writes: logrotate keeps one 250k
-# generation per file, and a long sync emits enough stats lines to push the
-# mount and repair history out of it
-LOGDIR="/home/pi/Oradio3/logging"
+# LOG_USB in LOG_DIR, both from constants.env: the same log as usb-drive.sh,
+# which records the mounts, unmounts and repairs of the stick. A sync unmounts
+# and remounts it, so its lines and those of usb-drive.sh belong in one
+# timeline. Every line of this script is prefixed with a timestamp and
+# 'USB_sync:', so its lines stand apart from those of usb-drive.sh. The rclone
+# stats lines come every 30s (see the sync below), so a long sync adds tens of
+# lines, not enough to push the mount history out of the 250k logrotate keeps.
+#
+# Next to this script when LOG_DIR does not exist, as in a checkout that was
+# never installed.
+LOGDIR="$SCRIPT_DIR/../$LOG_DIR"
 [ -d "$LOGDIR" ] || LOGDIR="$SCRIPT_DIR"
-LOGFILE="${ORADIO_SYNC_LOG:-$LOGDIR/usb_sync.log}"
+LOGFILE="$LOGDIR/$LOG_USB"
 
 # Whether stdout was a terminal, recorded before it is replaced by the pipe below
 INTERACTIVE=false
 [ -t 1 ] && INTERACTIVE=true
 
-# Send every line to both the terminal and the log. The sed strips colour
-# escapes on the way to the file only, so the log stays greppable.
+# Send every line to both the terminal and the log. On the way to the file
+# only, the sed strips colour escapes, so the log stays greppable, and a leading
+# timestamp, which lines meant for the terminal carry; the read loop then puts
+# its own timestamp and 'USB_sync:' in front of every line. Both run inside
+# the one process substitution on fd 5, so fd 5 has a single writer for
+# cleanup to close and wait for.
 #
 # The two writers are set up as separate process substitutions rather than
 # nesting sed inside tee. Nested, sed is a grandchild of this shell and `wait`
@@ -271,7 +287,13 @@ INTERACTIVE=false
 # that order before waiting: tee sees EOF first, then sed
 if touch "$LOGFILE" 2>/dev/null; then
 	exec 3>&1 4>&2
-	exec 5> >(sed -u 's/\x1b\[[0-9;]*m//g' >> "$LOGFILE")
+	exec 5> >(
+		sed -u -e 's/\x1b\[[0-9;]*m//g' \
+			-e 's/^[0-9]\{4\}-[0-9][0-9]-[0-9][0-9] [0-9][0-9]:[0-9][0-9]:[0-9][0-9]:\{0,1\} //' \
+			| while IFS= read -r line; do
+				printf '%(%F %T)T USB_sync: %s\n' -1 "$line"
+			done >> "$LOGFILE"
+	)
 	exec > >(tee /dev/fd/5) 2>&1
 	echo "$(date +'%Y-%m-%d %H:%M:%S') $(basename "$0") ${*:-(no arguments)}"
 else
