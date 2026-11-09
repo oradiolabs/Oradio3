@@ -27,7 +27,7 @@ the response as raw text, and those two characters do not survive that; single q
 - The Oradio reboots one or more times during the install.
 
 ```
-sudo systemd-run --unit=oradio-install --collect --on-active=60s --uid=pi --gid=pi /usr/bin/bash -c 'f=/etc/initramfs-tools/update-initramfs.conf; if [ -f $f ]; then sudo sed -i s/^update_initramfs=.*/update_initramfs=no/ $f; grep -q ^update_initramfs= $f || echo update_initramfs=no | sudo tee -a $f >/dev/null; fi; sudo DEBIAN_FRONTEND=noninteractive dpkg --force-confdef --force-confold --configure -a; curl -fsSL --retry 3 --retry-delay 5 --max-time 120 -o /tmp/oradio-install.sh https://oradiolabs.nl/Oradio3/install && bash -n /tmp/oradio-install.sh && exec bash /tmp/oradio-install.sh <TAG>'
+sudo systemd-run --unit=oradio-install --collect --on-active=60s --uid=pi --gid=pi /usr/bin/bash -c 'curl -fsSL --retry 3 --retry-delay 5 --max-time 120 -o /tmp/oradio-install.sh https://oradiolabs.nl/Oradio3/install && bash -n /tmp/oradio-install.sh && exec bash /tmp/oradio-install.sh <TAG>'
 ```
 
 ### What the command does, in order
@@ -36,14 +36,17 @@ sudo systemd-run --unit=oradio-install --collect --on-active=60s --uid=pi --gid=
 | --- | --- | --- |
 | 1 | systemd starts a separate unit, `oradio-install`, and returns at once. The Oradio finishes handling the heartbeat. | No unit, nothing happens. The Oradio is untouched. |
 | 2 | The unit waits 60 seconds. | - |
-| 3 | Initramfs updates are switched off. | Continues with step 4. |
-| 4 | An interrupted package installation is finished. | Continues with step 5; the install script reports the package error. |
-| 5 | The install script is downloaded. | Stops. The Oradio is untouched. |
-| 6 | Its syntax is checked. | Stops. The Oradio is untouched. |
-| 7 | The install script runs and updates the Oradio. | The install script reports it in `install.log`. |
+| 3 | The install script is downloaded. | Stops. The Oradio is untouched. |
+| 4 | Its syntax is checked. | Stops. The Oradio is untouched. |
+| 5 | The install script runs and updates the Oradio. | The install script reports it in `install.log`. |
 
-Steps 3 and 4 are separated by `;`, so they always run and never stop the update. Steps 5, 6 and 7
-are joined by `&&`, so each runs only if the previous one succeeded.
+Steps 3, 4 and 5 are joined by `&&`, so each runs only if the previous one succeeded.
+
+Before it installs anything, the install script switches initramfs updates off and finishes an
+interrupted package installation, whatever the release it installs. See
+[Why initramfs updates are switched off](#why-initramfs-updates-are-switched-off) and
+[Why dpkg --configure -a](#why-dpkg---configure--a) under the USB sync, which needs these steps in
+its command.
 
 ### What each part does
 
@@ -54,13 +57,7 @@ are joined by `&&`, so each runs only if the previous one succeeded.
 | `--collect` | Removes the unit when it has finished, also after a failure, so a later update can use the same name again. |
 | `--on-active=60s` | Starts only after 60 seconds, so the time synchronisation can finish first. See [Why wait 60 seconds](#why-wait-60-seconds). |
 | `--uid=pi --gid=pi` | Runs as user pi, not as root. The script expects this and calls sudo itself where needed. |
-| `/usr/bin/bash -c '...'` | Runs all steps between the single quotes as one command line. |
-| `f=/etc/initramfs-tools/update-initramfs.conf` | Stores the path of the initramfs configuration file in `$f`, so it is written only once. |
-| `if [ -f $f ]; then ... fi` | Only touches the file if it exists. Without the initramfs-tools package there is no initramfs to update. |
-| `sudo sed -i s/^update_initramfs=.*/update_initramfs=no/ $f` | Changes an existing `update_initramfs=` line to `update_initramfs=no`, whatever it was set to. |
-| `grep -q ^update_initramfs= $f \|\| echo update_initramfs=no \| sudo tee -a $f >/dev/null` | If the file has no `update_initramfs=` line at all, appends one. `sudo tee -a` is needed because a plain `>>` would be done by user pi, who may not write the file. |
-| `sudo DEBIAN_FRONTEND=noninteractive dpkg --configure -a` | Finishes the configuration of packages an earlier run left half-done. Does nothing if there are none. `DEBIAN_FRONTEND=noninteractive` makes sure no package waits for an answer. |
-| `--force-confdef --force-confold` | When a package brings a new version of a configuration file that was changed on the Oradio: keep the Oradio's version. So the `update_initramfs=no` set above is not undone. |
+| `/usr/bin/bash -c '...'` | Runs the three steps between the single quotes as one command line. |
 | `curl -fsSL` | Downloads the script. `-f` fails on an HTTP error such as 404 instead of saving the error page. `-sS` is silent but still shows errors. `-L` follows redirects. |
 | `--retry 3 --retry-delay 5` | Retries up to 3 times with a 5-second pause, to cope with a flaky Wi-Fi connection. |
 | `--max-time 120` | Aborts the download after 2 minutes, so it cannot hang forever. |
@@ -87,34 +84,6 @@ right after ~/Oradio3 has been deleted. `curl -f` catches HTTP errors, but not e
 connection. `bash -n` usually detects a truncated script, because a `fi`, `done` or `}` is then
 missing. The command then stops before anything has changed.
 
-### Why initramfs updates are switched off
-
-The Oradio boots without an initramfs: `config.txt` sets `auto_initramfs=0`, so the bootloader
-never loads one. Debian still rebuilds it whenever a package with an initramfs hook changes
-(e2fsprogs, udev, kmod, ...), and the install script installs and upgrades packages. On an Oradio
-that rebuild can fail with `mkinitramfs: failed to determine device for /`. The package
-installation then stops, initramfs-tools is left half-configured, and the update aborts.
-
-With `update_initramfs=no` that rebuild is skipped, so it cannot fail. Nothing is lost, because
-the initramfs is never used.
-
-The step is in the command because releases up to and including v2.0.1 do not switch the rebuild
-off themselves. Later releases do, in `tools/pkg-helper.sh`, and so does the install script
-(`tools/install`) that the command downloads, before it hands over to the release to install. Once
-that install script is published on oradiolabs.nl, it covers every update whatever the release,
-and the initramfs and dpkg steps in this command are no longer needed.
-
-### Why dpkg --configure -a
-
-When a package installation is interrupted, by the initramfs problem above, a power cut or an
-earlier failed update, dpkg remembers which packages are half-configured. Every later package
-installation then fails with `dpkg was interrupted` or with the original error, until that is
-finished. `dpkg --configure -a` finishes it before the install script starts.
-
-It needs no network and does nothing if there is nothing to finish. It runs after the initramfs
-step on purpose: a package left half-configured by the initramfs problem can only be finished once
-the rebuild is switched off.
-
 ### Why wait 60 seconds
 
 The Pi has no clock that keeps running while it is off. At start-up it sets its clock to the last
@@ -138,16 +107,6 @@ journalctl -b -o short-monotonic --no-pager -u systemd-timesyncd -u oradio-insta
 
 The times are seconds since start-up. `Initial clock synchronization` must come before
 `Started oradio-install.service`.
-
-### Why there are no double quotes in the command
-
-Up to and including v1.0.6 the Oradio reads the command out of the RMS response as raw text, and
-double quotes and backslashes do not survive that (see the top of this page). The command is
-written without them, so it works on every version.
-
-That is why `$f` and the `sed` and `grep` patterns have no quotes around them. Without quotes they
-work the same here: the path and the patterns contain no spaces, and the `sed` pattern matches no
-file name.
 
 If you have SSH or console access, progress can be tracked with:
 - `journalctl -u oradio-install -f` until the first reboot;
@@ -209,13 +168,40 @@ sudo systemd-run --unit=oradio-usb-sync --collect --on-active=60s --uid=pi --gid
 | 4 | An interrupted package installation is finished. | Continues with step 5; the sync script reports the package error. |
 | 5 | The sync script checks the USB, installs the tools it needs, and syncs. | The sync script reports it in its log (see below), and starts again what it stopped. |
 
-Steps 3 and 4 are the same as in the update command, for the same reasons: see
-[Why initramfs updates are switched off](#why-initramfs-updates-are-switched-off) and
-[Why dpkg --configure -a](#why-dpkg---configure--a). Here the packages are the ones the sync
-script installs or upgrades before it syncs: dosfstools, e2fsprogs, psmisc and rclone. An
-e2fsprogs upgrade rebuilds the initramfs. Up to and including v2.0.1 the sync script does not
-switch that rebuild off itself. A sync does not run the install script, so unlike in the update
-command these steps stay needed for those releases.
+Steps 3 and 4 are separated by `;`, so they always run and never stop the sync.
+
+### Why initramfs updates are switched off
+
+The Oradio boots without an initramfs: `config.txt` sets `auto_initramfs=0`, so the bootloader
+never loads one. Debian still rebuilds it whenever a package with an initramfs hook changes
+(e2fsprogs, udev, kmod, ...). On an Oradio that rebuild can fail with
+`mkinitramfs: failed to determine device for /`. The package installation then stops,
+initramfs-tools is left half-configured, and every later package installation fails.
+
+With `update_initramfs=no` that rebuild is skipped, so it cannot fail. Nothing is lost, because
+the initramfs is never used.
+
+The sync script installs or upgrades dosfstools, e2fsprogs, psmisc and rclone before it syncs, and
+an e2fsprogs upgrade rebuilds the initramfs. Releases after v2.0.1 switch the rebuild off
+themselves, in `tools/pkg-helper.sh`; up to and including v2.0.1 they do not, and a sync does not
+run the install script that would. Hence the step in this command.
+
+### Why dpkg --configure -a
+
+When a package installation is interrupted, by the initramfs problem above, a power cut or an
+earlier failed update, dpkg remembers which packages are half-configured. Every later package
+installation then fails with `dpkg was interrupted` or with the original error, until that is
+finished. `dpkg --configure -a` finishes it before the sync script starts.
+
+It needs no network and does nothing if there is nothing to finish. It runs after the initramfs
+step on purpose: a package left half-configured by the initramfs problem can only be finished once
+the rebuild is switched off.
+
+### Why there are no quotes around $f and the patterns
+
+The initramfs step is written without double quotes, in line with the rule at the top of this
+page. Without quotes it works the same here: the path and the patterns contain no spaces, and the
+`sed` pattern matches no file name.
 
 ### Why wait 60 seconds here as well
 
@@ -239,8 +225,12 @@ To check whether the clock was set in time, use the command in that section with
 | `--setenv=HOME=/home/pi` | Sets the home directory of user pi for the script. |
 | `--setenv=ORADIO_SYNC_PW='PASSWORD'` | Passes the SharePoint password to the script, so it does not ask for it. |
 | `/usr/bin/bash -c '...'` | Runs all steps between the single quotes as one command line. |
-| `f=...; if [ -f $f ]; then ... fi` | Switches initramfs updates off, exactly as in the update command; see its table above. |
-| `sudo DEBIAN_FRONTEND=noninteractive dpkg --force-confdef --force-confold --configure -a` | Finishes an interrupted package installation, exactly as in the update command. |
+| `f=/etc/initramfs-tools/update-initramfs.conf` | Stores the path of the initramfs configuration file in `$f`, so it is written only once. |
+| `if [ -f $f ]; then ... fi` | Only touches the file if it exists. Without the initramfs-tools package there is no initramfs to update. |
+| `sudo sed -i s/^update_initramfs=.*/update_initramfs=no/ $f` | Changes an existing `update_initramfs=` line to `update_initramfs=no`, whatever it was set to. |
+| `grep -q ^update_initramfs= $f \|\| echo update_initramfs=no \| sudo tee -a $f >/dev/null` | If the file has no `update_initramfs=` line at all, appends one. `sudo tee -a` is needed because a plain `>>` would be done by user pi, who may not write the file. |
+| `sudo DEBIAN_FRONTEND=noninteractive dpkg --configure -a` | Finishes the configuration of packages an earlier run left half-done. Does nothing if there are none. `DEBIAN_FRONTEND=noninteractive` makes sure no package waits for an answer. |
+| `--force-confdef --force-confold` | When a package brings a new version of a configuration file that was changed on the Oradio: keep the Oradio's version. So the `update_initramfs=no` set above is not undone. |
 | `exec bash /home/pi/Oradio3/tools/USB_sync.sh` | Runs the sync script of the installed Oradio version. With `exec`, the script replaces the intermediate shell, so its exit code becomes the unit's exit code. |
 | `--yes` | Answers all questions with their default, as nobody is there to answer them. |
 | `--all` | Syncs the complete SharePoint tree and deletes everything on the USB that is not on SharePoint. |
