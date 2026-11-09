@@ -205,6 +205,9 @@ function version_ge {
 # The file is a conffile of initramfs-tools; apt_run passes --force-confold, so
 # a later initramfs-tools upgrade keeps this edit.
 #
+# tools/install takes this step and the dpkg repair below as well, before it
+# hands over to a release whose pkg-helper.sh may lack them. Keep the two in step.
+#
 # Not covered: a kernel package upgrade calls 'update-initramfs -c', which
 # ignores this setting. This script does not upgrade the kernel (see the NOTE
 # below), so that path is not reached from here.

@@ -104,6 +104,8 @@ GITHUB_API=https://api.github.com/repos/oradiolabs/Oradio3
 #
 # A file, because the journal on an Oradio is volatile (Storage=volatile):
 # after the reboot that ends an install, 'journalctl -u oradio-install' is empty.
+# LOG_DIR and LOG_INSTALL in constants.env, copied: this script runs before any
+# version of that file is on the device. Change both together.
 INSTALL_LOG=$INSTALL_DIR/logging/install.log
 FALLBACK_LOG=$HOME/oradio-install.log
 
@@ -509,6 +511,49 @@ function update_package_lists {
 function package_installed {
 	[ "$(dpkg-query -W -f='${db:Status-Status}' "$1" 2>/dev/null)" = "installed" ]
 }
+
+# Keep initramfs-tools out of the way, and finish an interrupted dpkg run.
+#
+# The same two steps tools/pkg-helper.sh takes before every package install,
+# repeated here because this script runs first: the release it hands over to
+# may have a pkg-helper.sh without them (v2.0.1 and older), and then its first
+# package install fails. Done here, every install and update is covered,
+# whatever the release, and on every Oradio, as this script is downloaded fresh
+# each time. Copied rather than shared, as this script cannot use
+# pkg-helper.sh (see below). Keep the two in step.
+#
+# The Oradio boots without an initramfs: install_resources/config.txt sets
+# auto_initramfs=0, so the bootloader never loads one. Debian still rebuilds it
+# whenever a package with an initramfs hook changes (e2fsprogs, udev, kmod, ...),
+# and on an Oradio that rebuild can fail with
+#   mkinitramfs: failed to determine device for /
+# leaving initramfs-tools half-configured and every later package install
+# failing. update_initramfs=no makes that rebuild a no-op.
+INITRAMFS_CONF="/etc/initramfs-tools/update-initramfs.conf"
+if [ -f "$INITRAMFS_CONF" ] && ! grep -qx 'update_initramfs=no' "$INITRAMFS_CONF"; then
+	if grep -q '^update_initramfs=' "$INITRAMFS_CONF"; then
+		sudo sed -i 's/^update_initramfs=.*/update_initramfs=no/' "$INITRAMFS_CONF"
+	else
+		echo 'update_initramfs=no' | sudo tee -a "$INITRAMFS_CONF" >/dev/null
+	fi
+	echo "Initramfs updates disabled (the Oradio boots without one)"
+fi
+
+# A package left half-configured by an earlier failure -- the initramfs problem
+# above, a power cut, an interrupted update -- makes every later package install
+# fail. After the step above, so a package the initramfs problem left behind
+# can now be finished. 'dpkg --audit' prints nothing when there is nothing to
+# finish. Purely local: no network needed.
+if [ -n "$(dpkg --audit 2>/dev/null || true)" ]; then
+	echo -e "${YELLOW}dpkg reports unfinished package configuration: repairing...${NC}"
+	wait_for_apt_jobs
+	if ! sudo DEBIAN_FRONTEND=noninteractive \
+		dpkg --force-confdef --force-confold --configure -a; then
+		echo -e "${RED}Aborting: 'dpkg --configure -a' failed: run 'sudo dpkg --audit' to see which packages are affected${NC}"
+		exit 1
+	fi
+	echo "Package configuration repaired"
+fi
 
 #***************************************************************#
 #   Add any additionally required packages to 'LINUX_PACKAGES'  #
