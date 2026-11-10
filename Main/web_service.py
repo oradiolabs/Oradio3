@@ -487,14 +487,31 @@ class WebService:
 
     def _ensure_dns_redirect(self) -> bool:
         """
-        Write the dnsmasq wildcard redirect config if it does not already exist.
+        Write the dnsmasq config for the captive portal, unless it is already in place.
+
+        NetworkManager's dnsmasq reads this file once, when the shared connection
+        comes up, so it has to be written before the access point is requested.
+
+        Besides the wildcard DNS redirect it makes DHCP answer at once:
+        dhcp-authoritative NAKs a request for an address dnsmasq has no lease for
+        (a phone with a new private MAC asking for its previous address), instead
+        of staying silent until the phone times out; no-ping skips the 3 second
+        ping check before an offer. Both are safe because the Oradio is the only
+        DHCP server on its own access point network.
+
+        The content is compared, not just the existence, so a file left behind by
+        an older version is replaced.
 
         Returns:
             bool: True if the file is (or was already) in place, False on error.
         """
-        if _DNS_REDIRECT_CONF.exists():
-            return True  # Already present; nothing to do.
-        cmd = f'sudo bash -c \'echo "address=/#/{ACCESS_POINT_HOST}" > {_DNS_REDIRECT_CONF}\''
+        content = f"address=/#/{ACCESS_POINT_HOST}\ndhcp-authoritative\nno-ping\n"
+        try:
+            if _DNS_REDIRECT_CONF.read_text(encoding="utf-8") == content:
+                return True  # Already present; nothing to do.
+        except OSError:
+            pass  # Absent or unreadable: (re)write it below.
+        cmd = f"printf '{content}' | sudo tee {_DNS_REDIRECT_CONF} > /dev/null"
         result, error = run_shell_script(cmd)
         if not result:
             oradio_log.error("Failed to write DNS redirect config: %s", error)
@@ -756,7 +773,9 @@ class WebService:
            confirmation is deferred to step 5 so the server can start in
            parallel).
         2. Ensure the iptables port-redirect rule is in place.
-        3. Ensure the dnsmasq DNS redirect config is in place.
+        3. Ensure the dnsmasq DNS redirect config is in place (done first of
+           all, before step 1, so dnsmasq reads it when the AP comes up; if it
+           fails, step 1 is skipped and the access point never comes up).
         4. Start the Uvicorn web server.
         5. Confirm the WiFi transition started in step 1 reached the access
            point, via wifi_service.await_access_point(), which owns the
@@ -797,10 +816,21 @@ class WebService:
         # A new portal session: stop requests made for an earlier one no longer apply.
         self._session += 1
 
-        # wifi_connect is non-blocking; the AP transition is confirmed in step 5.
-        self.wifi_service.wifi_connect(ACCESS_POINT_SSID, None)
-
+        # The dnsmasq config first: NetworkManager starts dnsmasq when the access
+        # point comes up, and dnsmasq reads the config only then. Written after
+        # wifi_connect(), it can lose that race and leave the portal without its
+        # DNS redirect.
         status = True
+        if not self._ensure_dns_redirect():
+            Incidents.publish(IncidentMessage(WEB_SOURCE, WEB_START_FAILED))
+            status = False
+
+        # wifi_connect is non-blocking; the AP transition is confirmed in step 5.
+        # Not when the config could not be written: a portal without its DNS
+        # redirect is no use, and the access point would only take the Oradio
+        # off the household network until the failed start is undone.
+        if status:
+            self.wifi_service.wifi_connect(ACCESS_POINT_SSID, None)
 
         # Import the web stack and build the server, AFTER the access point has
         # been asked for. Both take time and neither waits on the other, so
@@ -815,7 +845,7 @@ class WebService:
             Incidents.publish(IncidentMessage(WEB_SOURCE, WEB_START_FAILED))
             status = False
 
-        if status and (not self._ensure_port_redirect() or not self._ensure_dns_redirect()):
+        if status and not self._ensure_port_redirect():
             Incidents.publish(IncidentMessage(WEB_SOURCE, WEB_START_FAILED))
             status = False
 
