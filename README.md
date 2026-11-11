@@ -1,7 +1,12 @@
 # Stichting Oradio - Oradio3 sources
 
-This repo contains an install script to load and configure the required to prepare an SD card.
-This SD card is then to be used in an Oradio3, available from https://stichtingoradio.nl
+> [!NOTE]
+> **Status: PRODUCTION – maintenance only.** This is the software of the
+> Oradio3 in use today. It receives bug fixes and security updates only.
+> New features are developed in its successor, [Oradio4](https://github.com/oradiolabs/Oradio4).
+
+This repo contains an install script that loads and configures the software
+required to prepare an SD card for an Oradio3, available from [stichtingoradio.nl](https://stichtingoradio.nl)
 
 <ins>Note</ins>: the design documents in [Documents](Documents/README.md) are historical.
 The code is leading; see that folder's README for the status of each document.
@@ -9,6 +14,7 @@ The code is leading; see that folder's README for the status of each document.
 ## Installation
 
 Create an SD card using the Trixie 64bit Lite image:
+
 - Set hostname (e.g. oradio)
 - Enable SSH with password authentication
 - Configure SSH username and password (e.g. pi and oradio)
@@ -26,15 +32,15 @@ When the Oradio3 has configured itself after first boot SSH into the Oradio3 wit
 
 At the prompt, to install the _latest release_, execute command:
 
-    bash <(curl https://oradiolabs.nl/Oradio3/install)
+    bash <(curl -fsSL https://oradiolabs.nl/Oradio3/install)
 
 Or, at the prompt, to install the _main branch_, execute command:
 
-    bash <(curl https://oradiolabs.nl/Oradio3/install) main
+    bash <(curl -fsSL https://oradiolabs.nl/Oradio3/install) main
 
 Or, at the prompt, to install _your branch_, execute command:
 
-    bash <(curl https://oradiolabs.nl/Oradio3/install) <branch name>
+    bash <(curl -fsSL https://oradiolabs.nl/Oradio3/install) <branch name>
 
 The script will install and configure required packages and services.<br>
 <ins>Note:</ins> The script may prompt you for the Oradio password.
