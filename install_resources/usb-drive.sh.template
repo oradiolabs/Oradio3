@@ -226,14 +226,6 @@ part_identity() {
 detach_mount() {
 	local reason="$1"
 
-	# The updater reads the .swu straight off the stick. Stop it so it releases
-	# its handles; re-inserting the stick restarts the install from the top.
-	if systemctl is-active --quiet oradio3-update.service; then
-		log "Warning: oradio3-update.service active; stopping it before unmount"
-		timeout 30 systemctl stop oradio3-update.service \
-			|| log "Error: could not stop oradio3-update.service within 30s"
-	fi
-
 	log "Info: detaching '$MOUNTPOINT' ($reason) ($(since_start)ms)"
 	umount -l "$MOUNTPOINT" 2>/dev/null || true
 	if mountpoint -q "$MOUNTPOINT" 2>/dev/null; then
@@ -370,14 +362,6 @@ mount_partition() {
 	log_kernel_messages "$kmark" "$(basename "$part")"
 
 	enable_autosuspend "$part"
-
-	# Hand any software update package to the update service.
-	# --no-block: installing takes minutes and ends in a reboot, and we hold $LOCK.
-	if compgen -G "$MOUNTPOINT/*.swu" >/dev/null; then
-		log "Software update package found; starting oradio3-update.service"
-		systemctl start --no-block oradio3-update.service \
-			|| log "Error: could not start oradio3-update.service"
-	fi
 }
 
 # Acquire an exclusive lock for the duration of this script.
